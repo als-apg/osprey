@@ -2,8 +2,11 @@
 
 Each route wraps a ScaffoldGalleryService call and maps the service's typed
 exceptions (KeyError/FileNotFoundError/FileExistsError/ValueError) onto the
-right status code. The service is mocked so these tests pin the route layer's
-translation rather than the service internals (covered elsewhere).
+right status code. The two refusals shared across the write routes —
+ScaffoldClaimError and OwnershipStoreError — are translated by app-level
+handlers instead, so the fixture app registers those the same way create_app()
+does. The service is mocked so these tests pin the route layer's translation
+rather than the service internals (covered elsewhere).
 """
 
 from __future__ import annotations
@@ -14,6 +17,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.cli.scaffold_cmd import ScaffoldClaimError
+from osprey.interfaces.web_terminal.app import create_app, register_scaffold_conflict_handlers
+from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.routes.scaffold import router
 
 _SVC = "osprey.interfaces.web_terminal.routes.scaffold.ScaffoldGalleryService"
@@ -23,6 +29,7 @@ _SVC = "osprey.interfaces.web_terminal.routes.scaffold.ScaffoldGalleryService"
 def app(tmp_path):
     application = FastAPI()
     application.include_router(router)
+    register_scaffold_conflict_handlers(application)
     application.state.project_cwd = str(tmp_path)
     return application
 
@@ -184,6 +191,46 @@ class TestClaimAndOverride:
         svc.unoverride.side_effect = KeyError("unknown")
         resp = client.delete("/api/scaffold/rules/x/override")
         assert resp.status_code == 404
+
+
+class TestConflictHandlers:
+    """The two shared refusals reach the browser as 409s from every write route.
+
+    The routes no longer name either exception, so what is pinned here is the
+    app-level translation — including that the operator-facing message survives
+    into ``detail`` rather than being stripped by a bare 500.
+    """
+
+    # (method, url, service attribute, request body)
+    ROUTES = [
+        ("post", "/api/scaffold/untracked/register", "register_untracked", {"name": "rules/x"}),
+        ("post", "/api/scaffold/create", "create_artifact", {"category": "rules", "name": "x"}),
+        ("post", "/api/scaffold/rules/x/claim", "scaffold_override", None),
+        ("put", "/api/scaffold/rules/x/override", "save_override", {"content": "new"}),
+        ("delete", "/api/scaffold/rules/x/override", "unoverride", None),
+    ]
+
+    @pytest.mark.parametrize(("method", "url", "attr", "body"), ROUTES)
+    @pytest.mark.parametrize("exc_type", [ScaffoldClaimError, OwnershipStoreError])
+    def test_refusal_is_a_409_with_the_reason(self, client, svc, method, url, attr, body, exc_type):
+        getattr(svc, attr).side_effect = exc_type("that profile cannot be reached")
+
+        kwargs = {"json": body} if body is not None else {}
+        resp = getattr(client, method)(url, **kwargs)
+
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"] == "that profile cannot be reached"
+
+    def test_create_app_registers_both_handlers(self):
+        """The shipped app gets the same translation the fixture app does."""
+        with patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value={},
+        ):
+            application = create_app()
+
+        assert ScaffoldClaimError in application.exception_handlers
+        assert OwnershipStoreError in application.exception_handlers
 
 
 class TestGetScaffold:

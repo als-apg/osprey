@@ -182,22 +182,24 @@ profile from the ``ariel-standalone`` preset:
 
 .. code-block:: bash
 
-   osprey profile new my-ariel-profile --preset ariel-standalone
+   osprey profile new my-ariel --preset ariel-standalone
+   cd my-ariel
 
-This writes a ``my-ariel-profile/`` directory containing a standalone
-``profile.yml`` — the preset's full configuration written out explicitly, with
-no ``extends:`` back to the preset — plus the preset's ``data/`` tree and an
-``.env.example`` listing every variable the agent reads. Directories for your
-own artifacts are not created up front: make a ``rules/``, ``skills/`` or
-``agents/`` directory when you have something to put in it, and the build
-carries its contents into the project. Edit ``profile.yml``, the data files, and
-those directories, then rebuild whenever you change something:
+This writes a ``my-ariel/`` git repository whose ``profile/`` directory holds a
+standalone ``profile.yml`` — the preset's full configuration written out
+explicitly, with no ``extends:`` back to the preset — plus the preset's
+``data/`` tree and an ``.env.example`` listing every variable the agent reads.
+Directories for your own artifacts are not created up front: make a ``rules/``,
+``skills/`` or ``agents/`` directory when you have something to put in it, and
+the build carries its contents into the project. Edit ``profile/profile.yml``,
+the data files, and those directories, then rebuild whenever you change
+something:
 
 .. code-block:: bash
 
-   osprey build my-ariel ./my-ariel-profile/profile.yml
+   osprey build my-ariel-agent profile/
 
-The profile directory is your facility's source of truth — commit it to
-your own repo. The rendered project is a regenerable artifact. See
-:doc:`../build-profiles` for the full schema and the preset → profile →
-project model.
+The rendered project lands in the repository's ``build/`` directory, which is
+kept out of git. The profile is your facility's source of truth — commit it.
+The rendered project is a regenerable artifact. See :doc:`../build-profiles` for
+the full schema and the preset → profile → project model.

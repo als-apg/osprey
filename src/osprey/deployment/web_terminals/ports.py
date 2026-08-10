@@ -10,7 +10,7 @@ def _family_name(key: str) -> str:
     return FRAMEWORK_WEB_SERVERS[key].port_family or key
 
 
-# Maps each facility-config base-port field to the family key allocate_ports()
+# Maps each `modules.web_terminals` base-port field to the family key allocate_ports()
 # expects: the fixed "web" family (the terminal itself) plus ONE family per
 # FRAMEWORK_WEB_SERVERS companion server. Derived, never hand-listed — the
 # per-user containers share the host network namespace, so a companion server

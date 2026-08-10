@@ -9,7 +9,6 @@ without a container runtime.
 from __future__ import annotations
 
 import subprocess
-import types
 from pathlib import Path
 
 import pytest
@@ -1077,17 +1076,18 @@ def test_deploy_up_plain_pins_compose_project_name(captured_argv, tmp_path):
     assert captured_argv["env"]["COMPOSE_PROJECT_NAME"] == "unnamed-project"
 
 
-def _mock_down_config(monkeypatch, project_name):
-    """Wire deploy_down's config load to a fixed, normalized config dict."""
+def _mock_down_config(monkeypatch, project_name, extra=None):
+    """Wire deploy_down's config load to a fixed config dict.
+
+    ``extra`` is merged over the base dict, so a caller can add the config keys
+    its own branch turns on (e.g. ``modules.web_terminals``).
+    """
+    raw_config = {"project_name": project_name, "deployed_services": ["event_dispatcher"]}
+    raw_config.update(extra or {})
     monkeypatch.setattr(
         container_lifecycle,
-        "ConfigBuilder",
-        lambda p: types.SimpleNamespace(raw_config={"project_name": project_name}),
-    )
-    monkeypatch.setattr(
-        container_lifecycle,
-        "normalize_facility_config",
-        lambda raw: {"project_name": project_name, "deployed_services": ["event_dispatcher"]},
+        "load_project_config",
+        lambda p, **kwargs: raw_config,
     )
     monkeypatch.setattr(
         "osprey.deployment.compose_generator.find_existing_compose_files",
@@ -1146,15 +1146,8 @@ def test_deploy_down_tears_down_web_stack_before_services(monkeypatch, tmp_path)
     leaves the fixed-name web/nginx containers running after every
     `osprey deploy down`."""
     monkeypatch.chdir(tmp_path)
-    _mock_down_config(monkeypatch, "myproj")
-    monkeypatch.setattr(
-        container_lifecycle,
-        "normalize_facility_config",
-        lambda raw: {
-            "project_name": "myproj",
-            "deployed_services": ["event_dispatcher"],
-            "modules": {"web_terminals": {"enabled": True}},
-        },
+    _mock_down_config(
+        monkeypatch, "myproj", extra={"modules": {"web_terminals": {"enabled": True}}}
     )
     captured = _capture_exec_and_web_down(monkeypatch)
 

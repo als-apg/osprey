@@ -117,6 +117,8 @@ WEB_PORTS = {
     "ariel": 21000,
     "lattice": 21100,
     "channel_finder": 21200,
+    "okf": 21300,
+    "system_health": 21400,
 }
 
 # Probed from INSIDE the nginx container (docker exec + curl, which the
@@ -206,6 +208,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         f"  modules.web_terminals.ariel_base_port: {WEB_PORTS['ariel']}",
         f"  modules.web_terminals.lattice_base_port: {WEB_PORTS['lattice']}",
         f"  modules.web_terminals.channel_finder_base_port: {WEB_PORTS['channel_finder']}",
+        f"  modules.web_terminals.okf_base_port: {WEB_PORTS['okf']}",
+        f"  modules.web_terminals.system_health_base_port: {WEB_PORTS['system_health']}",
         f"  modules.web_terminals.personas.readonly.project: {READONLY_PROJECT}",
         f"  modules.web_terminals.personas.readonly.project_path: ../{READONLY_PROJECT}",
         f"  modules.web_terminals.personas.readwrite.project: {READWRITE_PROJECT}",

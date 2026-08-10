@@ -25,6 +25,7 @@ from osprey.build.build_tiers import (
 from osprey.errors import BuildProfileError
 from osprey.profiles.web_panels import BUILTIN_PANELS
 
+from .build_profile_deploy import DeployConfig
 from .build_profile_presets import _triggers_dir
 from .build_profile_schema import (
     _ENV_VAR_RE,
@@ -63,6 +64,15 @@ class BuildProfile:
     not a layered fallback. Meaningless for ``--preset`` builds, which have no
     profile directory to anchor it against; the resolution point for both the
     validator and the build is :meth:`resolved_data_root`.
+    """
+    deploy: DeployConfig | None = None
+    """Where this project is built, pushed, and run (``deploy:``).
+
+    ``None`` for a profile that declares no deployment coordinates — the
+    default, and correct for anything only ever built locally. The CI
+    scaffolding verbs read it; nothing in the ordinary build path does. Not to
+    be confused with :attr:`deploy_services`, which is about the project's own
+    container stack rather than where that stack lands.
     """
     deploy_services: bool = True
     """Whether this project scaffolds its own container-services stack.
@@ -361,6 +371,18 @@ class BuildProfile:
         if not isinstance(self.deploy_services, bool):
             errors.append(
                 f"deploy_services must be a boolean (got {type(self.deploy_services).__name__})"
+            )
+
+        # Every reader of `config:` treats it as a mapping of dotted keys — the
+        # renderer, the web-stack lint, the deploy block's duplicate-key probe.
+        # Rejected by name here rather than left to whichever of them a given
+        # command reaches first: a list arrives as an unhandled TypeError deep in
+        # one of those, and a block this malformed has no partial meaning worth
+        # salvaging.
+        if not isinstance(self.config, dict):
+            errors.append(
+                f"config must be a mapping of dotted keys to values "
+                f"(got {type(self.config).__name__})"
             )
 
         if self.tier is not None and self.tier not in (1, 3):

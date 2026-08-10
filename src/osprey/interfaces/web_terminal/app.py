@@ -15,13 +15,16 @@ from typing import TYPE_CHECKING, NamedTuple
 import httpx
 import yaml
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
 
+from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, WorkspaceWatcher
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
+from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
@@ -1028,6 +1031,62 @@ def _create_lifespan(
     return lifespan
 
 
+async def _scaffold_claim_conflict(request: Request, exc: Exception) -> JSONResponse:
+    """Render a refused claim as a 409 carrying the refusal verbatim.
+
+    A refused claim is a conflict with the state of the project, and the
+    message names what to do about it — so it is surfaced as written rather
+    than being let through to become a bare 500 with the message stripped.
+    Saving over a generated file raises the same refusal in the same words,
+    naming the channel that actually owns the file, and reads the same way.
+
+    Args:
+        request: The request whose route raised. Unused; part of the Starlette
+            handler signature.
+        exc: The :class:`~osprey.cli.scaffold_cmd.ScaffoldClaimError` raised.
+
+    Returns:
+        A 409 whose ``detail`` is the exception's message.
+    """
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+async def _ownership_store_conflict(request: Request, exc: Exception) -> JSONResponse:
+    """Render a store that would not take the write as a 409.
+
+    Nothing was recorded, so this must not read as success. Surfacing the
+    reason beats the bare 500 an uncaught store error would otherwise give.
+
+    Args:
+        request: The request whose route raised. Unused; part of the Starlette
+            handler signature.
+        exc: The
+            :class:`~osprey.interfaces.web_terminal.ownership.OwnershipStoreError`
+            raised.
+
+    Returns:
+        A 409 whose ``detail`` is the exception's message.
+    """
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+def register_scaffold_conflict_handlers(app: FastAPI) -> None:
+    """Translate the scaffold family's two refusal types into 409s app-wide.
+
+    Both exceptions mean one thing to the browser — the write was refused and
+    the message says why — and both can come out of most of the gallery's
+    write routes. Handling them once here keeps each route to the translations
+    that genuinely differ per endpoint. Only the scaffold routes reach the code
+    that raises either, so registering them on the app narrows to that family
+    in practice.
+
+    Args:
+        app: The application to register the handlers on.
+    """
+    app.add_exception_handler(ScaffoldClaimError, _scaffold_claim_conflict)
+    app.add_exception_handler(OwnershipStoreError, _ownership_store_conflict)
+
+
 def create_app(
     config_path: str | Path | None = None,
     shell_command: list[str] | None = None,
@@ -1068,6 +1127,7 @@ def create_app(
     app.state.url_prefix = url_prefix
 
     app.include_router(router)
+    register_scaffold_conflict_handlers(app)
 
     @app.get("/")
     async def root(request: Request):

@@ -170,6 +170,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Control system safety rules (protocol-aware)",
         ),
         BuildArtifact(
+            canonical_name="rules/test-ioc-safety",
+            template_path="claude/rules/test-ioc-safety.md.j2",
+            output_path=".claude/rules/test-ioc-safety.md",
+            description="Test-IOC port isolation rules (rendered only for EPICS-family control systems)",
+        ),
+        BuildArtifact(
             canonical_name="rules/timezone",
             template_path="claude/rules/timezone.md.j2",
             output_path=".claude/rules/timezone.md",

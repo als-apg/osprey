@@ -1,4 +1,4 @@
-"""Contract tests for ``osprey profile new``.
+"""Contract tests for the profile ``osprey profile new`` materializes.
 
 The verb that turns a bundled preset into an editable profile directory: an
 explicit standalone ``profile.yml``, the bundle's data tree copied verbatim,
@@ -6,6 +6,11 @@ the secret channel, and a tutorial README. Carries the whole scaffolding contrac
 the removed ``osprey build`` scaffold flag was held to, extended with the
 data-tree materialization it never did and the preset-parity checks that prove
 nothing is lost on the way from preset to profile.
+
+The command creates the whole facility repo around that profile; the repo's own
+shape is pinned in ``test_profile_new_facility_repo.py``. Here the repo is only
+the container — every test names the ``profile/`` directory inside it and asserts
+on that.
 """
 
 from __future__ import annotations
@@ -29,7 +34,13 @@ def runner() -> CliRunner:
 
 
 def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
-    return runner.invoke(profile, ["new", str(target), "--preset", preset, *extra])
+    """Create a facility repo whose profile directory is *target*.
+
+    The command is given the repo root, which is *target*'s parent — it writes
+    the profile into ``<repo>/profile/``. Tests name the profile directory
+    because that is what they assert on.
+    """
+    return runner.invoke(profile, ["new", str(target.parent), "--preset", preset, *extra])
 
 
 def _build_from(runner: CliRunner, profile_dir: Path, out_dir: Path, name: str = "proj"):
@@ -52,7 +63,7 @@ def _build_from(runner: CliRunner, profile_dir: Path, out_dir: Path, name: str =
 
 
 def test_writes_expected_tree(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "hello-world")
 
@@ -67,7 +78,7 @@ def test_no_overlays_tree_is_seeded(runner: CliRunner, tmp_path: Path) -> None:
     seeded `overlays/` would be a directory nothing reads and the README's
     instructions would point operators at a mechanism that no longer exists.
     Artifacts go in convention directories at the profile root instead."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world").exit_code == 0
 
@@ -76,7 +87,7 @@ def test_no_overlays_tree_is_seeded(runner: CliRunner, tmp_path: Path) -> None:
 
 def test_profile_is_standalone(runner: CliRunner, tmp_path: Path) -> None:
     """No ``extends:`` — the preset's content is materialized as real keys."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world").exit_code == 0
 
@@ -91,7 +102,7 @@ def test_data_key_is_active_and_points_at_the_materialized_tree(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """The whole point of the verb: the profile reads its own data tree."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world").exit_code == 0
 
@@ -103,7 +114,7 @@ def test_data_key_is_active_and_points_at_the_materialized_tree(
 
 def test_preset_name_is_normalized(runner: CliRunner, tmp_path: Path) -> None:
     """``--preset control_assistant`` (underscored) resolves to the hyphenated preset."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "control_assistant").exit_code == 0
 
@@ -115,7 +126,7 @@ def test_preset_name_is_normalized(runner: CliRunner, tmp_path: Path) -> None:
 def test_extends_chain_preset_materializes_flat(runner: CliRunner, tmp_path: Path) -> None:
     """A preset that itself uses ``extends`` emits flat: base content plus child
     overrides, each with their own file's comments."""
-    target = tmp_path / "ro-profile"
+    target = tmp_path / "ro-facility" / "profile"
 
     assert _new(runner, target, "control-assistant-readonly").exit_code == 0
 
@@ -127,7 +138,7 @@ def test_extends_chain_preset_materializes_flat(runner: CliRunner, tmp_path: Pat
 
 
 def test_preset_comments_survive(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "control-assistant").exit_code == 0
 
@@ -150,7 +161,7 @@ def _bundled_triggers(name: str) -> Path:
 def test_bundled_triggers_are_materialized_and_repointed(runner: CliRunner, tmp_path: Path) -> None:
     """A preset naming a bundled trigger set gets its own copy, and the emitted
     ``dispatch.triggers`` names that copy rather than the bundled name."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "control-assistant").exit_code == 0
 
@@ -165,7 +176,7 @@ def test_profile_without_a_dispatch_block_materializes_no_triggers(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """Nothing to own, so nothing is written — and no dispatch block appears."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world").exit_code == 0
 
@@ -178,7 +189,7 @@ def test_emitted_triggers_reference_resolves_inside_the_profile(
 ) -> None:
     """The whole point of FR-3: after materialization the profile names only
     profile-local files, so the directory is movable and buildable on its own."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "control-assistant").exit_code == 0
 
@@ -195,7 +206,7 @@ def test_persona_deltas_do_not_restate_the_triggers_reference(
     """The host owns ``triggers.yml`` for the whole stack. A persona delta
     carries only its own keys, so it neither repeats the dispatch block nor
     re-anchors the path — the implicit merge resolves it against the host."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "control-assistant").exit_code == 0
 
@@ -225,7 +236,7 @@ def test_per_user_context_directories_are_seeded_from_the_roster(
 ) -> None:
     """One empty slot per roster user, so a facility writing per-user context
     has an obvious home for it from the first minute."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
     expected = _roster_names(preset)
     assert expected  # the assertion below must not pass vacuously
 
@@ -241,7 +252,7 @@ def test_seeded_context_directories_carry_no_content(runner: CliRunner, tmp_path
     """Slots, not literals. Anything written here would become context the
     agent reads, and would freeze at materialization time — the build derives
     what to copy from the roster it resolves then."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "control-assistant").exit_code == 0
 
@@ -252,7 +263,7 @@ def test_seeded_context_directories_carry_no_content(runner: CliRunner, tmp_path
 def test_profile_without_a_web_terminal_module_seeds_no_context(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world").exit_code == 0
 
@@ -292,7 +303,7 @@ def test_only_keys_of_referenced_providers_are_seeded(
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     # hello-world runs on `provider: anthropic`; it names openai nowhere.
     assert _new(runner, target, "hello-world").exit_code == 0
@@ -311,7 +322,7 @@ def test_a_switched_provider_takes_its_own_key(
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world", "--set", "provider=openai").exit_code == 0
 
@@ -327,7 +338,7 @@ def test_a_provider_configured_under_api_providers_is_referenced(
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("CBORG_API_KEY", "sk-cborg-test")
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(
         runner,
@@ -369,7 +380,7 @@ def test_a_malformed_persona_delta_is_reported_before_anything_is_written(
     monkeypatch.setattr(
         emit_mod, "emit_persona_delta_yaml", lambda **kwargs: "provider: [unclosed\n"
     )
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     with pytest.raises(BuildProfileError, match="is not valid YAML"):
         _materialize_profile_directory(target, "control-assistant")
@@ -384,7 +395,7 @@ def test_unreferenced_exported_keys_are_named_not_dropped_silently(
     these, and is told which ones the profile had no use for."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "hello-world")
 
@@ -398,7 +409,7 @@ def test_only_unreferenced_keys_exported_writes_no_env_and_says_why(
     """Nothing exported at all and nothing this profile can use are different
     situations with different remedies, so they are not reported the same way."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-test")
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "hello-world")
 
@@ -412,7 +423,7 @@ def test_seeded_env_file_is_owner_only(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world").exit_code == 0
 
@@ -424,7 +435,7 @@ def test_no_exported_keys_writes_the_example_but_no_env(
 ) -> None:
     """An empty ``.env`` reads as a configured one. With nothing to seed, the
     documented variable list is the whole deliverable."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "hello-world")
 
@@ -440,7 +451,7 @@ def test_env_example_documents_the_whole_variable_set(
     two cannot document different variables."""
     from osprey.cli.templates.scaffolding import service_token_var_entries
 
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world").exit_code == 0
 
@@ -456,7 +467,7 @@ def test_env_example_documents_the_profiles_own_env_block(
 ) -> None:
     """The `env:` block is documentation, not values — required vars arrive
     bare, declared defaults arrive with theirs."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(
         runner,
@@ -479,7 +490,7 @@ def test_gitignore_covers_every_env_variant_except_the_example(
 ) -> None:
     """`.env*` rather than `.env`: the directory also accumulates the
     `.env.lock` the write-back path creates, and neither belongs in git."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world").exit_code == 0
 
@@ -494,7 +505,7 @@ def test_summary_names_the_secret_files_it_wrote(
     """The caller is told where their secrets now live, and which keys were
     taken from their shell."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "hello-world")
 
@@ -506,7 +517,7 @@ def test_summary_names_the_secret_files_it_wrote(
 def test_summary_says_no_env_was_written_when_nothing_was_exported(
     runner: CliRunner, tmp_path: Path, no_provider_keys: None
 ) -> None:
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "hello-world")
 
@@ -524,7 +535,7 @@ def test_materialized_profile_records_the_preset_it_came_from(
 ) -> None:
     from osprey.cli.build_profile_merge import compute_preset_hash
 
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "control_assistant").exit_code == 0
 
@@ -554,7 +565,7 @@ def test_data_tree_is_byte_identical_to_the_bundle(
     from osprey.cli.profile_cmd import _EXCLUDED_DATA_SUBTREES
     from osprey.cli.templates.manager import TemplateManager
 
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
     assert _new(runner, target, preset).exit_code == 0
 
     resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
@@ -578,8 +589,8 @@ def test_readme_describes_only_staging_dirs_the_bundle_ships(
 ) -> None:
     """The tutorial has to match what copytree actually landed — both in which
     directories it names and where they are."""
-    rich = tmp_path / "rich"
-    lean = tmp_path / "lean"
+    rich = tmp_path / "rich-facility" / "profile"
+    lean = tmp_path / "lean-facility" / "profile"
     assert _new(runner, rich, "control-assistant").exit_code == 0
     assert _new(runner, lean, "hello-world").exit_code == 0
 
@@ -602,7 +613,7 @@ def test_readme_teaches_convention_dirs_not_the_removed_overlay_key(
     on its first build."""
     from osprey.cli.profile_conventions import CONVENTION_SOURCES
 
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
     assert _new(runner, target, "hello-world").exit_code == 0
 
     readme = (target / "README.md").read_text()
@@ -626,7 +637,7 @@ def test_stray_j2_in_bundle_data_is_not_rendered(
     stray.write_text("{{ never_rendered }}\n", encoding="utf-8")
     monkeypatch.setattr(manager_mod.TemplateManager, "_get_template_root", lambda self: fake_root)
 
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
     assert _new(runner, target, "hello-world").exit_code == 0
 
     landed = target / "data" / "stray.txt.j2"
@@ -643,7 +654,7 @@ def test_stray_j2_in_bundle_data_is_not_rendered(
 def test_materialize_then_build_succeeds_for_every_preset(
     runner: CliRunner, tmp_path: Path, preset: str
 ) -> None:
-    profile_dir = tmp_path / "profile"
+    profile_dir = tmp_path / "facility" / "profile"
     out_dir = tmp_path / "out"
     out_dir.mkdir()
 
@@ -658,7 +669,7 @@ def test_materialize_then_build_succeeds_for_every_preset(
 def test_built_project_data_comes_from_the_profile(runner: CliRunner, tmp_path: Path) -> None:
     """An edit to the profile's data tree reaches the built project — proof the
     build sources data from the profile rather than the package."""
-    profile_dir = tmp_path / "profile"
+    profile_dir = tmp_path / "facility" / "profile"
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     assert _new(runner, profile_dir, "hello-world").exit_code == 0
@@ -679,7 +690,7 @@ def test_built_project_data_comes_from_the_profile(runner: CliRunner, tmp_path: 
 
 
 def test_set_pairs_are_baked_and_resolvable(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world", "--set", "model=opus").exit_code == 0
 
@@ -690,7 +701,7 @@ def test_set_pairs_are_baked_and_resolvable(runner: CliRunner, tmp_path: Path) -
 def test_override_file_is_baked(runner: CliRunner, tmp_path: Path) -> None:
     override = tmp_path / "o.yml"
     override.write_text("model: sonnet\nprovider: als-apg\n", encoding="utf-8")
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world", "-O", str(override)).exit_code == 0
 
@@ -702,7 +713,7 @@ def test_override_file_is_baked(runner: CliRunner, tmp_path: Path) -> None:
 def test_set_wins_over_override_file(runner: CliRunner, tmp_path: Path) -> None:
     override = tmp_path / "o.yml"
     override.write_text("model: sonnet\n", encoding="utf-8")
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "hello-world", "-O", str(override), "--set", "model=opus")
 
@@ -714,7 +725,7 @@ def test_set_wins_over_override_file(runner: CliRunner, tmp_path: Path) -> None:
 def test_name_override_replaces_the_directory_derived_name(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "hello-world", "--set", "name=ALS Control").exit_code == 0
 
@@ -723,7 +734,7 @@ def test_name_override_replaces_the_directory_derived_name(
 
 
 def test_baked_override_survives_into_the_built_project(runner: CliRunner, tmp_path: Path) -> None:
-    profile_dir = tmp_path / "my-profile"
+    profile_dir = tmp_path / "my-facility" / "profile"
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     assert _new(runner, profile_dir, "hello-world", "--set", "model=opus").exit_code == 0
@@ -747,7 +758,7 @@ def test_preset_is_required(runner: CliRunner, tmp_path: Path) -> None:
 
 
 def test_unknown_preset_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
 
     result = _new(runner, target, "not-a-real-preset")
 
@@ -757,8 +768,8 @@ def test_unknown_preset_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
 
 
 def test_existing_target_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p"
-    target.mkdir()
+    target = tmp_path / "p-facility" / "profile"
+    target.mkdir(parents=True)
     (target / "keepme.txt").write_text("mine\n", encoding="utf-8")
 
     result = _new(runner, target, "hello-world")
@@ -772,7 +783,7 @@ def test_existing_target_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
 
 def test_header_carries_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> None:
     """The top comment block shows profile -> build -> project -> deploy."""
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
     assert _new(runner, target, "hello-world").exit_code == 0
 
     text = (target / "profile.yml").read_text(encoding="utf-8")
@@ -790,7 +801,7 @@ def test_header_carries_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> N
 
 
 def test_persona_profiles_do_not_repeat_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
     assert _new(runner, target, "control-assistant").exit_code == 0
 
     persona_files = sorted((target / "personas").glob("*.yml"))
@@ -800,8 +811,8 @@ def test_persona_profiles_do_not_repeat_the_flow_diagram(runner: CliRunner, tmp_
 
 
 def test_existing_target_error_suggests_force(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p"
-    target.mkdir()
+    target = tmp_path / "p-facility" / "profile"
+    target.mkdir(parents=True)
     (target / "profile.yml").write_text("name: Old\n", encoding="utf-8")
 
     result = _new(runner, target, "hello-world")
@@ -816,7 +827,7 @@ def test_existing_target_error_suggests_force(runner: CliRunner, tmp_path: Path)
 
 
 def test_force_replaces_existing_profile_directory(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
     assert _new(runner, target, "hello-world").exit_code == 0
     # User edits + stray files that a re-materialization must not keep.
     (target / "profile.yml").write_text("name: Edited Away\n", encoding="utf-8")
@@ -831,7 +842,7 @@ def test_force_replaces_existing_profile_directory(runner: CliRunner, tmp_path: 
 
 
 def test_force_bakes_new_set_pairs(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
     assert _new(runner, target, "hello-world").exit_code == 0
 
     result = _new(runner, target, "hello-world", "--force", "--set", "model=sonnet")
@@ -842,8 +853,8 @@ def test_force_bakes_new_set_pairs(runner: CliRunner, tmp_path: Path) -> None:
 
 
 def test_force_refuses_directory_that_is_not_a_profile(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p"
-    target.mkdir()
+    target = tmp_path / "p-facility" / "profile"
+    target.mkdir(parents=True)
     (target / "keepme.txt").write_text("mine\n", encoding="utf-8")
 
     result = _new(runner, target, "hello-world", "--force")
@@ -855,8 +866,8 @@ def test_force_refuses_directory_that_is_not_a_profile(runner: CliRunner, tmp_pa
 
 
 def test_force_allows_replacing_an_empty_directory(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p"
-    target.mkdir()
+    target = tmp_path / "p-facility" / "profile"
+    target.mkdir(parents=True)
 
     result = _new(runner, target, "hello-world", "--force")
 
@@ -868,7 +879,7 @@ def test_force_with_bad_preset_leaves_existing_profile_untouched(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """--force must not delete anything before the new profile is fully rendered."""
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
     assert _new(runner, target, "hello-world").exit_code == 0
     original = (target / "profile.yml").read_text(encoding="utf-8")
 
@@ -881,7 +892,7 @@ def test_force_with_bad_preset_leaves_existing_profile_untouched(
 def test_extends_override_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
     override = tmp_path / "o.yml"
     override.write_text("extends: control-assistant\n", encoding="utf-8")
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
 
     result = _new(runner, target, "hello-world", "-O", str(override))
 
@@ -892,7 +903,7 @@ def test_extends_override_is_rejected(runner: CliRunner, tmp_path: Path) -> None
 
 def test_invalid_override_leaves_no_partial_directory(runner: CliRunner, tmp_path: Path) -> None:
     """The atomicity guarantee: a bad layer fails and materializes nothing."""
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
 
     result = _new(runner, target, "hello-world", "--set", "tier=2")
 
@@ -904,7 +915,7 @@ def test_invalid_override_leaves_no_partial_directory(runner: CliRunner, tmp_pat
 def test_data_override_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
     """`profile new` materializes the tree, so pointing `data:` elsewhere is a
     mistake — and the preset-mode guard catches it before anything is written."""
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
 
     result = _new(runner, target, "hello-world", "--set", "data=/somewhere/else")
 
@@ -916,7 +927,7 @@ def test_data_override_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
 def test_app_template_override_selects_the_copied_bundle(runner: CliRunner, tmp_path: Path) -> None:
     """The copied tree follows the RESOLVED bundle, not the preset's default —
     `--set app_template=...` has to move the data with it."""
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
 
     result = _new(runner, target, "hello-world", "--set", "app_template=channel_finder_standalone")
 
@@ -932,7 +943,7 @@ def test_data_override_via_file_is_rejected(runner: CliRunner, tmp_path: Path) -
     """The `-O` route into `data:` is closed too, not just `--set`."""
     override = tmp_path / "o.yml"
     override.write_text("data: /somewhere/else\n", encoding="utf-8")
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
 
     result = _new(runner, target, "hello-world", "-O", str(override))
 
@@ -956,7 +967,7 @@ def test_failure_after_mkdir_removes_the_target(
         raise boom
 
     monkeypatch.setattr(shutil_mod, "copytree", explode)
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
 
     result = _new(runner, target, "hello-world")
 
@@ -985,7 +996,7 @@ def test_failed_round_trip_after_mkdir_removes_the_target(
         return real(profile_path, preset, *args, **kwargs)
 
     monkeypatch.setattr(build_profile, "resolve_build_profile", fail_on_round_trip)
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
 
     result = _new(runner, target, "hello-world")
 
@@ -1010,14 +1021,14 @@ def test_round_trip_failure_without_layers_does_not_blame_overrides(
 
     monkeypatch.setattr(build_profile, "resolve_build_profile", fail_on_round_trip)
 
-    result = _new(runner, tmp_path / "p", "hello-world")
+    result = _new(runner, tmp_path / "p-facility" / "profile", "hello-world")
 
     assert "Overrides produce" not in result.output
     assert "does not validate" in result.output
 
 
 def test_missing_override_file_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
 
     result = _new(runner, target, "hello-world", "-O", str(tmp_path / "nope.yml"))
 
@@ -1107,7 +1118,7 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     from osprey.cli.build_profile_emit import emits_persona_profiles
     from osprey.cli.build_profile_merge import compute_preset_hash
 
-    target = tmp_path / "profile"
+    target = tmp_path / "facility" / "profile"
     assert _new(runner, target, preset).exit_code == 0
 
     from_preset, _ = resolve_build_profile(None, preset=preset)
@@ -1148,7 +1159,7 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     """Sections no bundled preset carries — facility MCP servers and custom
     artifact categories — are appended as commented guidance, and the guidance
     is suppressed for a section the written profile actually defines."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "control-assistant").exit_code == 0
 
@@ -1167,7 +1178,7 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
         "    permissions:\n"
         "      allow: [ping]\n"
     )
-    with_servers = tmp_path / "with-servers"
+    with_servers = tmp_path / "with-servers" / "profile"
 
     assert _new(runner, with_servers, "control-assistant", "-O", str(override)).exit_code == 0
 
@@ -1210,7 +1221,7 @@ def test_build_surfaces_match_a_direct_preset_build(runner: CliRunner, tmp_path:
     )
     assert r1.exit_code == 0, r1.output
 
-    prof = tmp_path / "profile"
+    prof = tmp_path / "facility" / "profile"
     assert _new(runner, prof, preset).exit_code == 0
     assert _build_from(runner, prof, profile_out).exit_code == 0
 
@@ -1253,7 +1264,7 @@ def test_round_trip_matches_preset_artifacts(runner: CliRunner, tmp_path: Path) 
     )
     assert r1.exit_code == 0, r1.output
 
-    prof = tmp_path / "p"
+    prof = tmp_path / "p-facility" / "profile"
     profile_out = tmp_path / "profile-out"
     profile_out.mkdir()
     assert _new(runner, prof, "hello-world").exit_code == 0

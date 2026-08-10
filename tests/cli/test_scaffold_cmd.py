@@ -831,6 +831,188 @@ class TestPromptsUnclaim:
         assert "still supplies it" in result.output
 
 
+def _web_terminals_project(root: Path, *, users=("alice", "bob")) -> Path:
+    """Write a project directory whose config.yml carries a clean stanza.
+
+    Only the sections the generator reads, in the shape a build emits them from
+    the profile's ``config:`` and ``deploy:`` blocks. Deliberately hand-written
+    rather than built: these tests are about where the verbs read the stanza
+    from, not about what a build puts in it.
+    """
+    project = root / "wt-project"
+    project.mkdir()
+    config = {
+        "facility": {"name": "Demo Light Source", "prefix": "dls"},
+        "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "nginx_port": 9080,
+                "web_base_port": 9091,
+                "artifact_base_port": 9291,
+                "ariel_base_port": 9391,
+                "lattice_base_port": 9491,
+                "users": [{"name": name, "index": i} for i, name in enumerate(users)],
+                "landing": {"groups": [{"type": "users"}]},
+            }
+        },
+    }
+    (project / "config.yml").write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return project
+
+
+class TestWebTerminalsRetiredConfigOption:
+    """`--config` is a tombstone: it names where the stanza went, always."""
+
+    def test_lint_config_is_refused_and_names_the_replacements(self, tmp_path, caplog):
+        """The criterion: a `--config` path the CLI never even opens is refused.
+
+        `any.yml` does not exist, which is the point — the refusal has to reach
+        the operator instead of a Click existence check that would say nothing
+        about the move. Read the message off the record: the Rich handler wraps
+        the rendered line to the console width, so a phrase asserted on
+        `result.output` can break mid-match.
+        """
+        import logging
+
+        with caplog.at_level(logging.ERROR):
+            result = CliRunner().invoke(
+                scaffold, ["web-terminals", "lint", "--config", str(tmp_path / "any.yml")]
+            )
+
+        assert result.exit_code != 0, result.output
+        reported = caplog.text + (str(result.exception) if result.exception else "")
+        assert "--config is no longer supported" in reported
+        assert "osprey deploy scaffold" in reported
+        assert "`deploy:` block" in reported
+        assert "/osprey-build-interview" in reported
+
+    def test_refusal_is_unconditional_for_a_readable_config(self, tmp_path, caplog):
+        """A file that parses cleanly is refused just the same — no fallback read."""
+        import logging
+
+        config = tmp_path / "facility-config.yml"
+        config.write_text(yaml.safe_dump({"modules": {"web_terminals": {}}}), encoding="utf-8")
+
+        with caplog.at_level(logging.ERROR):
+            result = CliRunner().invoke(
+                scaffold, ["web-terminals", "lint", "--config", str(config)]
+            )
+
+        assert result.exit_code != 0, result.output
+        assert "--config is no longer supported" in caplog.text
+
+    def test_render_config_is_refused_before_anything_is_written(self, tmp_path, caplog):
+        """Render refuses on the same terms, and leaves --output untouched."""
+        import logging
+
+        out = tmp_path / "deploy"
+
+        with caplog.at_level(logging.ERROR):
+            result = CliRunner().invoke(
+                scaffold,
+                ["web-terminals", "render", "--config", "any.yml", "-o", str(out)],
+            )
+
+        assert result.exit_code != 0, result.output
+        assert "--config is no longer supported" in caplog.text
+        assert not out.exists()
+
+
+class TestWebTerminalsReadsTheProjectConfig:
+    """Both verbs take their stanza from a project's config.yml."""
+
+    def test_lint_reads_the_named_project(self, tmp_path):
+        project = _web_terminals_project(tmp_path)
+
+        result = CliRunner().invoke(scaffold, ["web-terminals", "lint", "--project", str(project)])
+
+        assert result.exit_code == 0, result.output
+        assert "no issues found" in result.output
+
+    def test_lint_defaults_to_the_current_directory(self, tmp_path, monkeypatch):
+        project = _web_terminals_project(tmp_path)
+        monkeypatch.chdir(project)
+
+        result = CliRunner().invoke(scaffold, ["web-terminals", "lint"])
+
+        assert result.exit_code == 0, result.output
+
+    def test_lint_reports_the_projects_own_findings(self, tmp_path):
+        """A duplicate in the project's roster is what lint fails on."""
+        project = _web_terminals_project(tmp_path, users=("alice", "alice"))
+
+        result = CliRunner().invoke(scaffold, ["web-terminals", "lint", "--project", str(project)])
+
+        assert result.exit_code != 0, result.output
+        # One word: the finding line is rendered through rich, which wraps at
+        # the console width, and a longer phrase could break mid-match.
+        assert "duplicate" in result.output
+
+    def test_lint_without_a_project_config_says_so(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        result = CliRunner().invoke(scaffold, ["web-terminals", "lint"])
+
+        assert result.exit_code != 0
+        assert "No config.yml found" in result.output
+
+    def test_render_writes_the_projects_artifacts(self, tmp_path):
+        from osprey.deployment.web_terminals.render import render_web_terminals
+
+        project = _web_terminals_project(tmp_path)
+        out = tmp_path / "deploy"
+
+        result = CliRunner().invoke(
+            scaffold, ["web-terminals", "render", "--project", str(project), "-o", str(out)]
+        )
+
+        assert result.exit_code == 0, result.output
+        expected = render_web_terminals(yaml.safe_load((project / "config.yml").read_text()))
+        assert expected, "fixture produced no artifacts; the assertion below would be vacuous"
+        for relative_path, content in expected.items():
+            assert (out / relative_path).read_text(encoding="utf-8") == content
+
+    def test_render_expands_vars_the_way_the_deploy_path_does(self, tmp_path, monkeypatch):
+        """One loader: the verb resolves `${VAR}` through the `.env` passthrough.
+
+        The discriminating case is a variable set in BOTH the shell environment
+        and the project's `.env`. `ConfigBuilder` — the loader the deploy path
+        uses — loads `.env` over the environment, so the `.env` value is the one
+        a deploy would bake in. A bare `yaml.safe_load` + `resolve_env_vars`
+        here would never read `.env` at all and would render the shell value,
+        producing an artifact the deploy would not have produced.
+
+        `monkeypatch.setenv` first is deliberate: the product code mutates
+        `os.environ` for real, and pre-registering the name is what gets it
+        restored at teardown.
+        """
+        project = _web_terminals_project(tmp_path)
+        monkeypatch.setenv("OSPREY_WT_TEST_IMAGE", "shell-value:latest")
+        (project / ".env").write_text(
+            "OSPREY_WT_TEST_IMAGE=dotenv-value:latest\n", encoding="utf-8"
+        )
+
+        config = yaml.safe_load((project / "config.yml").read_text())
+        config["modules"]["web_terminals"]["nginx_image"] = "${OSPREY_WT_TEST_IMAGE}"
+        (project / "config.yml").write_text(
+            yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
+        )
+
+        # `.env` is read from the working directory, which is how a deploy run
+        # from inside the project sees it.
+        monkeypatch.chdir(project)
+        out = tmp_path / "deploy"
+
+        result = CliRunner().invoke(scaffold, ["web-terminals", "render", "-o", str(out)])
+
+        assert result.exit_code == 0, result.output
+        compose = (out / "docker-compose.web.yml").read_text(encoding="utf-8")
+        assert "dotenv-value:latest" in compose
+        assert "shell-value:latest" not in compose
+        assert "${OSPREY_WT_TEST_IMAGE}" not in compose
+
+
 def test_main_cli_lists_scaffold_not_prompts():
     """`osprey --help` exposes the renamed `scaffold` group, not the legacy `prompts`."""
     import subprocess

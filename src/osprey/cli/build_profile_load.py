@@ -21,6 +21,7 @@ from typing import Any
 from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
 from osprey.errors import BuildProfileError
 
+from .build_profile_deploy import parse_deploy_block
 from .build_profile_document import _normalize_profile_aliases, _read_profile_document
 from .build_profile_merge import resolve_profile_document
 from .build_profile_model import BuildProfile
@@ -143,6 +144,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         # are told to write would name it invalid.
         "app_template",
         "data",
+        "deploy",
         "deploy_services",
         # Shorthand for config's `control_system.type`, consumed by
         # _apply_connector_shorthand before the profile is parsed. Listed here
@@ -557,16 +559,24 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             preset_hash=str(provenance_raw["preset_hash"]),
         )
 
+    # A `config:` key present but empty — every entry commented out, say —
+    # parses to None, and an empty block means exactly "no config entries".
+    # Narrowed to None on purpose: `or {}` would swallow an empty LIST too, and
+    # a list is a real mistake that `BuildProfile.validate()` rejects by name.
+    config_raw = raw.get("config")
+    config = {} if config_raw is None else config_raw
+
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
         data=raw.get("data"),
+        deploy=parse_deploy_block(raw),
         deploy_services=raw.get("deploy_services", True),
         provider=raw.get("provider"),
         model=raw.get("model"),
         channel_finder_mode=raw.get("channel_finder_mode"),
         tier=(int(raw["tier"]) if raw.get("tier") is not None else None),
-        config=raw.get("config", {}),
+        config=config,
         mcp_servers=mcp_servers,
         services=services,
         lifecycle=lifecycle,

@@ -152,17 +152,20 @@ omission.
    (`deployment/web_terminals/env_production.py:225`,
    `deployment/web_terminals/render.py:142`), distinct from `system.timezone`.
    Hidden-key stanza candidate — task 6.1 territory, not fixed here.
-5. **The schema doc contradicts the code on `facility.prefix`.**
-   `templates/skills/osprey-build-deploy/references/facility-config-schema.md`
-   (lines 43, 609) states lowercase-alnum-plus-hyphens, 2-6 characters. Nothing
-   enforces that: the only validation anywhere is a non-emptiness lint
-   (`deployment/web_terminals/lint.py:610-641`).
+5. **`facility.prefix` has a stated convention and no validator — by design.**
+   The 2-6-character lowercase-alnum-plus-hyphens rule this entry was opened
+   against came from a schema document that no longer exists (it went with the
+   `facility-config.yml` surface). The convention survives in prose only — the
+   two presets and the `control_assistant` template state it — and the only
+   validation anywhere is a non-emptiness lint
+   (`deployment/web_terminals/lint.py:648-679`, `_check_empty_facility_prefix`).
 
    The absence is real, not an artifact of an incomplete search. The same lint
    module defines `_USERNAME_CHARSET_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")`
-   (`lint.py:55`) and enforces it at two sites — usernames (`lint.py:229`) and
-   persona names (`lint.py:490`). So this codebase does write charset checks
-   where it wants them, and has none for `facility.prefix`.
+   (`lint.py:48`) and enforces it at two sites — usernames
+   (`lint.py:250`, `_check_username_charset`) and persona names
+   (`lint.py:550`, `_check_persona_charset`). So this codebase does write
+   charset checks where it wants them, and has none for `facility.prefix`.
 
    **The rule is not merely unenforced — it is inert.** Tracing `facility.prefix`
    to its sinks: two container-name interpolations plus the personas path, and
@@ -171,10 +174,35 @@ omission.
    regex. There is no sink at which violating the 2-6/lowercase rule breaks
    anything.
 
-   **Remedy direction: soften the doc to a convention — do NOT add a validator.**
-   A new charset check would reject configurations that work correctly today,
-   turning a cosmetic inconsistency into a breaking change. The templates and
-   both presets already state the enforced rule (non-emptiness) alongside the
-   Docker constraint, which is the right two-altitude framing. Only the schema
-   doc still presents the convention as a hard requirement. That file is outside
-   this task's ownership and needs an owner.
+   **Resolved: it stays a convention — do NOT add a validator.** A new charset
+   check would reject configurations that work correctly today, turning a
+   cosmetic inconsistency into a breaking change. The templates and both presets
+   state the enforced rule (non-emptiness) alongside the Docker constraint,
+   which is the right two-altitude framing; the one document that presented the
+   convention as a hard requirement is gone, so nothing contradicts the code any
+   more. Recorded here so the gap is not mistaken for an oversight and
+   "fixed" with a validator later.
+
+## Where the web-terminal lint runs
+
+`deployment/web_terminals/lint.py` validates `modules.web_terminals` at two
+altitudes, and a guard touching either surface should know which one it is on:
+
+| entry point | reads | run by |
+|---|---|---|
+| `lint_web_terminals(config)` | a rendered project `config.yml` | `osprey scaffold web-terminals lint`, and the pre-render gate inside `... render` |
+| `lint_profile_config(config)` | a build profile's `config:` block (dotted keys, nested internally) | profile validation, before anything is built |
+
+The profile-altitude pass skips the two checks that need a rendered project —
+persona `project_path` existence and the `build_profile` delta shape, both
+inside `_check_persona_project_paths` — because `osprey profile new` only
+rewrites catalog entries into `personas/<name>.yml` deltas at materialization.
+Every shipped preset is pinned clean at that altitude by
+`tests/deployment/web_terminals/test_lint.py`.
+
+Port-overlap coverage follows the same split: the collision set is the per-user
+port families, `nginx_port`, the TLS listener when enabled, and every host port
+a `services.<name>` entry publishes (`port`, `port_host`, `*_port`).
+Container-internal listeners are deliberately excluded — the dispatch worker's
+`worker_port_base` binds nothing on the host — so a guard must not treat every
+port-shaped key as contended.

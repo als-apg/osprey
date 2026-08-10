@@ -4,10 +4,18 @@ Copies bundled skills from inside the installed wheel to a target
 ``.claude/skills/`` directory using ``importlib.resources`` so it works in both
 editable and installed (zipped) wheel modes.
 
-The default target is ``~/.claude/skills/`` (global, available in any Claude
-Code session). With ``--target``, the skill can be installed into a specific
-``.claude/skills/`` directory — used by the osprey-build-interview skill to drop
-``osprey-build-deploy`` into a freshly generated facility profile repo.
+The default target is ``~/.claude/skills/`` (global, available in any agent
+session). With ``--target``, the skill goes into a specific ``.claude/skills/``
+directory instead, scoping it to one repo.
+
+A deployment's own lifetime is split across two of the bundled skills, and the
+split is by the question being asked rather than by command group.
+``osprey-build-interview`` is build-time: what the facility repo should say,
+its ``deploy:`` block included, up to the point where a project builds from it.
+``osprey-deploy-ops`` is operate-time: emitting the deploy scaffolding, running
+the stack and diagnosing it. Anything ending in "the profile should say
+something different" is the first; anything ending in "the deployment is
+misbehaving" is the second.
 """
 
 from __future__ import annotations
@@ -22,7 +30,7 @@ import click
 
 _SKILL_SOURCES: dict[str, str] = {
     "osprey-build-interview": "templates/skills/osprey-build-interview",
-    "osprey-build-deploy": "templates/skills/osprey-build-deploy",
+    "osprey-deploy-ops": "templates/skills/osprey-deploy-ops",
     "osprey-contribute": "templates/skills/osprey-contribute",
     "osprey-pre-commit": "templates/skills/osprey-pre-commit",
     "osprey-release": "templates/skills/osprey-release",
@@ -54,7 +62,7 @@ def install(name: str, target: Path | None) -> None:
     \b
     Currently supported skills:
       osprey-build-interview  Author OSPREY build profiles (global)
-      osprey-build-deploy     Operate a facility profile repo's deploy pipeline
+      osprey-deploy-ops       Operate a deployed stack: triage, re-scaffold, secrets
       osprey-contribute       Walk a contributor through the GitHub Flow journey
       osprey-pre-commit       Run quick / ci / premerge check scripts at the right gate
       osprey-release          Cut a CalVer release: bump PR, tag, verify publish

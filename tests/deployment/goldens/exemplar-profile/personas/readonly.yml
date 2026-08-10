@@ -1,0 +1,36 @@
+# Profile (readonly) — persona profile, a delta over ../profile.yml
+#
+# Sitting in personas/ beside profile.yml IS the inheritance: the
+# build merges this file over that profile — including any edit you
+# make there — so the keys below are this persona's only differences
+# and there is no `extends:` to write. See the resolved whole with:
+#   osprey profile validate profile/personas/readonly.yml
+#
+# Provenance — what this persona was materialized from:
+#   source preset: control-assistant-readonly
+#   preset content hash: sha256:40c52b45831c289a7c63702a58ac89112081649ab6d7d9d7c07dd7eb3c042a02
+#   emitted by OSPREY 2026.6.2.post870+gf916b9103
+
+name: Profile (readonly)
+
+# Attached project: the persona builds per-user terminal images only and
+# connects to the shared web tier + scan services the hosting control-assistant
+# project deploys on the same host. No services are scaffolded (empty
+# `deployed_services`, no services/) — the bluesky/VA/panels/dispatch injector
+# blocks inherited from the base are all gated on this flag and skip cleanly.
+deploy_services: false
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY: each entry is a literal `key.path` written into config.yml
+# after the template renders. Nested YAML under `config:` would deep-merge into
+# and clobber the base's rendered config subtree, so keep every override flat.
+config:
+  # The single axis this persona differs on. The tutorial base arms writes for
+  # its own single-user agent, so this tier boundary MUST be pinned explicitly
+  # here — it is what makes the read-only terminal read-only.
+  control_system.writes_enabled: false
+  # Attached persona: the hosting project owns the web-terminal tier (nginx,
+  # landing, per-user containers). Without this override the inherited roster
+  # would make a persona-dir deploy try to host a second web tier on the same
+  # host ports.
+  modules.web_terminals.enabled: false

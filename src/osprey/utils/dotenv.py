@@ -227,10 +227,39 @@ def derive_project_env(
         return _overlay_project_env(
             profile, rendered, existing_text, build_derived_keys, runtime_writer_keys
         )
+    return _rebuild_project_env(
+        profile,
+        rendered,
+        existing,
+        rendered_text,
+        parse_dotenv_text(profile_text),
+        parse_dotenv_text(existing_text),
+        build_derived_keys,
+        runtime_writer_keys,
+    )
 
-    profile_values = parse_dotenv_text(profile_text)
-    existing_values = parse_dotenv_text(existing_text)
 
+def _rebuild_project_env(
+    profile: dict[str, str],
+    rendered: dict[str, str],
+    existing: dict[str, str],
+    rendered_text: str,
+    profile_values: Mapping[str, str],
+    existing_values: Mapping[str, str],
+    build_derived_keys: frozenset[str],
+    runtime_writer_keys: frozenset[str],
+) -> str:
+    """Build-mode derivation: the render supplies the shape, three classes decide.
+
+    The other half of :func:`derive_project_env`, whose docstring carries the
+    contract this implements. Split out for the same reason
+    :func:`_overlay_project_env` is: the two modes share only their inputs, and
+    reading either one should not mean stepping over the other.
+
+    ``profile``/``rendered``/``existing`` are the raw ``KEY=VALUE`` lines (so a
+    kept value keeps its quoting); ``profile_values``/``existing_values`` are the
+    same two files parsed, which is what the divergence warning compares.
+    """
     # The class-2 rule, decided ONCE. :func:`resolve` and the appended sections
     # below both read this set, so they cannot answer "does the project own
     # this key?" differently -- a divergence between those two answers is

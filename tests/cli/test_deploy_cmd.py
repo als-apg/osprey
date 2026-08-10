@@ -1,15 +1,54 @@
-"""Tests for deploy CLI command.
+"""Tests for the deploy CLI group.
 
-This test module verifies the deploy command wrapper functionality.
-The command wraps the existing container_manager interface.
+This test module verifies the deploy command wrapper functionality: the group
+itself, each verb's option surface, and the dispatch into the existing
+container_manager interface.
 """
 
+import sys
+import types
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 
 from osprey.cli.deploy_cmd import deploy
+
+#: Every verb the group ships, mapped to the exact set of option spellings it
+#: accepts. Pinned as a whole rather than flag-by-flag: a verb must carry the
+#: options it acts on and no others, so that a misapplied flag (``up
+#: --dry-run``) is a parse error instead of a silent no-op.
+VERB_OPTIONS = {
+    "up": {"--project", "-p", "--config", "-c", "--detached", "-d", "--dev", "--expose"},
+    "down": {"--project", "-p", "--config", "-c", "--dev"},
+    "restart": {"--project", "-p", "--config", "-c", "--detached", "-d", "--expose"},
+    "status": {"--project", "-p", "--config", "-c"},
+    "build": {"--project", "-p", "--config", "-c", "--dev", "--expose"},
+    "clean": {"--project", "-p", "--config", "-c", "--dev", "--expose"},
+    "rebuild": {"--project", "-p", "--config", "-c", "--detached", "-d", "--dev", "--expose"},
+    "decommission": {"--project", "-p", "--config", "-c", "--archive", "--purge", "--yes", "-y"},
+    "prune": {
+        "--project",
+        "-p",
+        "--config",
+        "-c",
+        "--archive",
+        "--purge",
+        "--yes",
+        "-y",
+        "--dry-run",
+    },
+    "nuke": {"--project", "-p", "--config", "-c", "--yes", "-y"},
+    "seed": {"--project", "-p", "--config", "-c"},
+    "passwd": {"--project", "-p", "--config", "-c"},
+    "render-env-production": {"--project", "-p", "--config", "-c", "--env-file", "--output", "-o"},
+    # Acts on a facility repo rather than on a built project, so it takes
+    # neither --project nor --config: there is no config.yml at a repo root,
+    # and the profile is what it reads.
+    "scaffold": {"--repo", "--force"},
+}
 
 
 @pytest.fixture
@@ -33,46 +72,34 @@ class TestDeployCommandBasics:
         assert "status" in result.output
 
     def test_command_exists(self):
-        """Verify deploy command can be imported and is callable."""
-        assert deploy is not None
-        assert callable(deploy)
+        """Verify deploy is an importable Click group."""
+        assert isinstance(deploy, click.Group)
 
-    def test_command_has_action_argument(self, cli_runner):
-        """Verify command requires an action argument."""
-        result = cli_runner.invoke(deploy, ["--help"])
+    def test_group_exposes_every_verb(self):
+        """Every legacy action is reachable as a subcommand."""
+        assert set(deploy.commands) == set(VERB_OPTIONS)
 
-        assert "up" in result.output
-        assert "down" in result.output
-        assert "restart" in result.output
-        assert "status" in result.output
-        assert "build" in result.output
-        assert "clean" in result.output
-        assert "rebuild" in result.output
+    @pytest.mark.parametrize("verb", sorted(VERB_OPTIONS))
+    def test_verb_option_surface(self, verb):
+        """Each verb carries exactly the options it acts on."""
+        command = deploy.commands[verb]
+        options = {
+            opt
+            for param in command.params
+            if isinstance(param, click.Option)
+            for opt in param.opts + param.secondary_opts
+        }
+        assert options == VERB_OPTIONS[verb]
 
-    def test_command_has_project_option(self, cli_runner):
-        """Verify command has --project option."""
-        result = cli_runner.invoke(deploy, ["--help"])
-        assert "--project" in result.output or "-p" in result.output
-
-    def test_command_has_config_option(self, cli_runner):
-        """Verify command has --config option."""
-        result = cli_runner.invoke(deploy, ["--help"])
-        assert "--config" in result.output or "-c" in result.output
-
-    def test_command_has_detached_option(self, cli_runner):
-        """Verify command has --detached option."""
-        result = cli_runner.invoke(deploy, ["--help"])
-        assert "--detached" in result.output or "-d" in result.output
-
-    def test_command_has_dev_option(self, cli_runner):
-        """Verify command has --dev option."""
-        result = cli_runner.invoke(deploy, ["--help"])
-        assert "--dev" in result.output
-
-    def test_command_has_expose_option(self, cli_runner):
-        """Verify command has --expose option (Issue #126 security fix)."""
-        result = cli_runner.invoke(deploy, ["--help"])
-        assert "--expose" in result.output
+    @pytest.mark.parametrize(
+        ("verb", "required"),
+        [("decommission", True), ("seed", False)],
+    )
+    def test_user_argument_arity(self, verb, required):
+        """USER is required by decommission and optional for seed."""
+        arguments = [p for p in deploy.commands[verb].params if isinstance(p, click.Argument)]
+        assert [p.name for p in arguments] == ["user"]
+        assert arguments[0].required is required
 
 
 class TestDeployCommandActions:
@@ -405,12 +432,19 @@ class TestDeployCommandErrorHandling:
                 assert "failed" in result.output.lower() or "❌" in result.output
 
     def test_invalid_action_rejected(self, cli_runner):
-        """Test that invalid action is rejected."""
-        result = cli_runner.invoke(deploy, ["invalid-action"])
+        """Test that an unknown verb is rejected."""
+        result = cli_runner.invoke(deploy, ["not-a-verb"])
 
-        # Click should reject invalid choice
+        # Click should reject the unknown subcommand
         assert result.exit_code == 2  # Click parameter validation error
-        assert "invalid" in result.output.lower() or "choice" in result.output.lower()
+        assert "no such command" in result.output.lower()
+
+    def test_flag_from_another_verb_rejected(self, cli_runner):
+        """A flag a verb doesn't act on is a parse error, not a silent no-op."""
+        result = cli_runner.invoke(deploy, ["up", "--dry-run"])
+
+        assert result.exit_code == 2
+        assert "no such option" in result.output.lower()
 
 
 class TestDeployCommandOutput:
@@ -502,8 +536,8 @@ class TestPasswdAction:
         """`deploy passwd` with no USER is a usage error, and rotates nothing.
 
         Silently doing nothing (or worse, prompting for a password with no
-        target) would be the failure mode of leaving `passwd` out of the
-        require-USER guard.
+        target) would be the failure mode of making USER optional on the
+        subcommand.
         """
         config_file = self._config(tmp_path)
 
@@ -511,7 +545,7 @@ class TestPasswdAction:
             result = cli_runner.invoke(deploy, ["passwd", "--config", str(config_file)])
 
         assert result.exit_code != 0
-        assert "requires a USER" in _flat(result.output)
+        assert "Missing argument 'USER'" in _flat(result.output)
         assert not mock_rotate.called
 
     def test_passwd_accepts_a_user_argument(self, cli_runner, tmp_path):
@@ -612,3 +646,169 @@ class TestPasswdAction:
         flat = _flat(result.output)
         assert "auth.method" in flat
         assert "Password changed" not in flat
+
+
+class TestDeployLegacySpellings:
+    """Documented command lines must parse and dispatch exactly as before.
+
+    These pin the spellings that appear in the docs and in operators' shell
+    history against the group's parsing, and assert on the arguments handed to
+    the deployment layer rather than on console output, which Rich wraps.
+    """
+
+    @staticmethod
+    def _make_project(tmp_path, name="my-agent"):
+        """Create a project directory holding a config.yml."""
+        project_dir = tmp_path / name
+        project_dir.mkdir()
+        (project_dir / "config.yml").write_text("# test")
+        return project_dir
+
+    def test_up_detached_with_project(self, cli_runner, tmp_path, monkeypatch):
+        """`osprey deploy up -d --project X` runs detached, inside X."""
+        project_dir = self._make_project(tmp_path)
+        # The verb chdirs into the project; monkeypatch restores the cwd after.
+        monkeypatch.chdir(tmp_path)
+
+        with patch("osprey.cli.deploy_cmd.deploy_up") as mock_deploy_up:
+            result = cli_runner.invoke(deploy, ["up", "-d", "--project", str(project_dir)])
+
+        assert result.exit_code == 0
+        assert Path.cwd() == project_dir.resolve()
+        (config_path,), kwargs = mock_deploy_up.call_args
+        assert Path(config_path) == project_dir.resolve() / "config.yml"
+        assert kwargs == {"detached": True, "dev_mode": False, "expose_network": False}
+
+    def test_relative_project_resolves_against_the_callers_directory(
+        self, cli_runner, tmp_path, monkeypatch
+    ):
+        """`--project build/my-agent` means what the operator typed it against.
+
+        The project is resolved, the verb chdirs into it, and the config is
+        resolved too — in that order the relative path would be applied twice,
+        sending the lookup to `build/my-agent/build/my-agent/config.yml` and
+        aborting with "Configuration file not found". A relative --project is
+        the spelling the emitted CI pipeline uses on the deploy host, and the
+        one this group's own missing-config hint suggests, so it has to work.
+        """
+        project_dir = tmp_path / "build" / "my-agent"
+        project_dir.mkdir(parents=True)
+        (project_dir / "config.yml").write_text("# test")
+        monkeypatch.chdir(tmp_path)
+
+        with patch("osprey.cli.deploy_cmd.deploy_up") as mock_deploy_up:
+            result = cli_runner.invoke(deploy, ["up", "-d", "--project", "build/my-agent"])
+
+        assert result.exit_code == 0, result.output
+        (config_path,), _ = mock_deploy_up.call_args
+        assert Path(config_path) == project_dir.resolve() / "config.yml"
+
+    def test_up_dev_long_form_flags(self, cli_runner, tmp_path, monkeypatch):
+        """`osprey deploy up --dev --expose --config F` forwards all three."""
+        project_dir = self._make_project(tmp_path)
+        monkeypatch.chdir(project_dir)
+        custom_config = project_dir / "my-config.yml"
+        custom_config.write_text("# test")
+
+        with patch("osprey.cli.deploy_cmd.deploy_up") as mock_deploy_up:
+            result = cli_runner.invoke(
+                deploy, ["up", "--dev", "--expose", "--config", str(custom_config)]
+            )
+
+        assert result.exit_code == 0
+        (config_path,), kwargs = mock_deploy_up.call_args
+        assert Path(config_path) == custom_config
+        assert kwargs == {"detached": False, "dev_mode": True, "expose_network": True}
+
+    @pytest.mark.parametrize(
+        ("argv", "target", "expected_kwargs"),
+        [
+            (
+                ["restart", "-d", "--expose"],
+                "deploy_restart",
+                {"detached": True, "expose_network": True},
+            ),
+            (
+                ["rebuild", "-d", "--dev", "--expose"],
+                "rebuild_deployment",
+                {"detached": True, "dev_mode": True, "expose_network": True},
+            ),
+            (["down", "--dev"], "deploy_down", {"dev_mode": True}),
+            (
+                ["build", "--dev", "--expose"],
+                "prepare_compose_files",
+                {"dev_mode": True, "expose_network": True},
+            ),
+        ],
+    )
+    def test_verb_forwards_exact_kwargs(
+        self, cli_runner, tmp_path, monkeypatch, argv, target, expected_kwargs
+    ):
+        """Each verb hands its handler the config path and exactly its own flags."""
+        project_dir = self._make_project(tmp_path)
+        monkeypatch.chdir(project_dir)
+
+        with patch(f"osprey.cli.deploy_cmd.{target}") as mock_target:
+            # Satisfies build's `_, compose_files = prepare_compose_files(...)`
+            # unpacking; ignored by the handlers that return nothing.
+            mock_target.return_value = ({}, ["docker-compose.yml"])
+            result = cli_runner.invoke(deploy, argv)
+
+        assert result.exit_code == 0
+        (config_path,), kwargs = mock_target.call_args
+        assert Path(config_path) == project_dir.resolve() / "config.yml"
+        assert kwargs == expected_kwargs
+
+    def test_clean_passes_loaded_config_through_to_cleanup(self, cli_runner, tmp_path, monkeypatch):
+        """clean prepares compose files, then cleans under that same config."""
+        project_dir = self._make_project(tmp_path)
+        monkeypatch.chdir(project_dir)
+        config = {"project_name": "my-test-project"}
+
+        with patch("osprey.cli.deploy_cmd.prepare_compose_files") as mock_prepare:
+            mock_prepare.return_value = (config, ["docker-compose.yml"])
+            with patch("osprey.cli.deploy_cmd.clean_deployment") as mock_clean:
+                result = cli_runner.invoke(deploy, ["clean", "--dev", "--expose"])
+
+        assert result.exit_code == 0
+        assert mock_prepare.call_args[1] == {"dev_mode": True, "expose_network": True}
+        assert mock_clean.call_args[0] == (["docker-compose.yml"], config)
+
+    def test_decommission_user_archive(self, cli_runner, tmp_path, monkeypatch):
+        """`osprey deploy decommission USER --archive` targets that one user."""
+        project_dir = self._make_project(tmp_path)
+        monkeypatch.chdir(project_dir)
+
+        mock_decommission = MagicMock()
+        fake_pkg = types.ModuleType("osprey.deployment.web_terminals")
+        fake_lifecycle = types.ModuleType("osprey.deployment.web_terminals.lifecycle")
+        fake_lifecycle.decommission_user = mock_decommission
+
+        with patch.dict(
+            sys.modules,
+            {
+                "osprey.deployment.web_terminals": fake_pkg,
+                "osprey.deployment.web_terminals.lifecycle": fake_lifecycle,
+            },
+        ):
+            result = cli_runner.invoke(deploy, ["decommission", "alice", "--archive"])
+
+        assert result.exit_code == 0
+        (config_path, user), kwargs = mock_decommission.call_args
+        assert Path(config_path) == project_dir.resolve() / "config.yml"
+        assert user == "alice"
+        assert kwargs == {"archive": True, "purge": False, "assume_yes": False}
+
+    def test_decommission_requires_user(self, cli_runner):
+        """A decommission with no USER is refused before anything is removed."""
+        result = cli_runner.invoke(deploy, ["decommission", "--archive"])
+
+        assert result.exit_code == 2
+        assert "user" in result.output.lower()
+
+    def test_archive_and_purge_still_mutually_exclusive(self, cli_runner):
+        """The pair is rejected before any project or config is resolved."""
+        result = cli_runner.invoke(deploy, ["decommission", "alice", "--archive", "--purge"])
+
+        assert result.exit_code == 2
+        assert "mutually exclusive" in result.output.lower()

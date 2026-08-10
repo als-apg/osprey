@@ -23,12 +23,13 @@ def _copy_named_env_var(var_name: str | None, source: dict[str, str], dest: dict
     """Copy ``source[var_name]`` into ``dest[var_name]`` iff both are present.
 
     ``var_name`` is itself a config-declared *name* (e.g. ``llm.api_key_env_var``
-    resolves to ``"CBORG_API_KEY"``), not a literal value — this is the
-    ``${env.${config.X.Y_env_var}}`` indirection the ``.gitlab-ci.yml`` template
-    (see :func:`_build_env_production_subset`) uses for every secret it
-    assembles. A ``var_name`` that is unset (module misconfigured) or absent
-    from ``source`` (operator never set it) is silently skipped — never
-    fabricated, matching every other var-presence check in this module.
+    resolves to ``"CBORG_API_KEY"``), not a literal value — the indirection
+    every external-credential entry in :func:`_build_env_production_subset`
+    goes through, since the config records where a facility keeps a secret and
+    never the secret itself. A ``var_name`` that is unset (module
+    misconfigured) or absent from ``source`` (operator never set it) is
+    silently skipped — never fabricated, matching every other var-presence
+    check in this module.
     """
     if not var_name or var_name not in source:
         return
@@ -144,13 +145,18 @@ def _build_env_production_subset(
     dotenv: dict[str, str],
     claude_code_secret_vars: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Build the module-conditional CI subset for a local-mode ``.env.production``.
+    """Build the module-conditional subset written into ``.env.production``.
 
-    Mirrors the shipped facility-scaffolding CI template's own
-    ``.env.production`` assembly step (``osprey-build-deploy`` skill's
-    ``templates/core/.gitlab-ci.yml``, ``osprey-build`` job, lines 80-98) —
-    the same var set that job composes from masked CI variables, here sourced
-    from the operator's local ``.env`` instead of ``$CI_*`` secrets:
+    ``.env.production`` is the env file every per-user web-terminal container
+    runs with (``docker-compose.web.yml``'s ``env_file:``), so this function
+    *is* the definition of which secrets a web terminal is entitled to see —
+    the list below is the specification, not a restatement of one kept
+    elsewhere. Both routes that produce the file come through here — the
+    deploy path (:func:`ensure_env_production`) and ``osprey deploy
+    render-env-production``, which renders this same subset to stdout or a
+    named file — so neither can drift from the other or introduce a second
+    spec. What earns a place is a credential the agent inside that container
+    presents to a system OUTSIDE the deploy:
 
     - ``llm.api_key_env_var`` — the LLM provider key, unconditional.
     - ``claude_code_secret_vars`` — the auth-secret vars resolved by
@@ -159,31 +165,30 @@ def _build_env_production_subset(
       in by :func:`ensure_env_production`. Same ``.env``-presence rule as
       every other entry; whether an *absent* var is an error is
       :func:`ensure_env_production`'s call, not this function's.
-    - ``modules.olog.{username,password}_env_var`` — only if ``modules.olog.enabled``.
-    - ``modules.wiki_search.token_env_var`` — only if ``modules.wiki_search.enabled``.
-    - ``modules.event_dispatcher.token_env_var`` — only if
-      ``modules.event_dispatcher.enabled``. Deliberately NOT
-      ``sidecar_token_env_var`` — see the exclusion list below.
+    - ``modules.olog.{username,password}_env_var`` — the electronic-logbook
+      account, only if ``modules.olog.enabled``.
+    - ``modules.wiki_search.token_env_var`` — the wiki credential, only if
+      ``modules.wiki_search.enabled``.
     - ``ARIEL_DSN`` — only if ``modules.ariel.enabled``, from
-      ``modules.ariel.dsn`` directly. Unlike every other entry above, the CI
-      template substitutes this value straight from facility-config
-      (``ARIEL_DSN=${config.modules.ariel.dsn}``, no ``${env.*}``
-      indirection) because the DSN is itself a literal config value, not the
-      *name* of an env var holding one — so it is read from ``config``, not
-      ``dotenv``.
+      ``modules.ariel.dsn`` directly. Unlike every entry above this is read
+      from ``config``, not ``dotenv``: the DSN is itself a literal config
+      value, not the *name* of an env var holding one.
     - ``TZ`` — always, from ``facility.timezone`` (default ``"UTC"``, matching
-      the facility-config schema's own documented default), likewise a
-      literal config value with no ``${env.*}`` indirection in the template.
+      the schema's own documented default), likewise a literal config value.
 
-    NEVER included, by construction (this function never reads these config
-    paths at all): the CI/registry provider token (``ci.token_env_var`` /
-    legacy ``gitlab.token_env_var``), ``registry.token_env_var``, the
-    dispatcher's ``sidecar_token_env_var``, or any ``registry.external_projects``
-    entry's ``token_env_var``. Those all gate build/push/CI-registry access,
-    not anything the running containers need, and none of them belongs in a
-    per-deploy runtime secrets file. This is the security spec for this
-    function: a var absent from the enumerated list above can never appear in
-    the returned dict, regardless of what the input ``.env`` contains.
+    NEVER included, by construction (this function never reads them at all):
+    build-time credentials — the CI provider token, the container-registry
+    login, every external-project pull token — and the tokens OSPREY's own
+    deployed services authenticate to each other with
+    (``EVENT_DISPATCHER_TOKEN``, ``DISPATCH_WORKER_TOKEN``,
+    ``BLUESKY_LAUNCH_TOKEN`` and the rest of ``_SERVICE_TOKEN_VARS`` in
+    :mod:`osprey.deployment.container_lifecycle`, minted per deploy under
+    those fixed names). Neither kind is anything a web terminal presents to
+    anyone: the containers that need a service token read the deploy ``.env``
+    the main compose file hands them, and nothing in a web terminal reads one
+    at all. This is the security spec for this function: a var absent from the
+    enumerated list above can never appear in the returned dict, regardless of
+    what the input ``.env`` contains.
 
     :param config: Raw deploy config (facility fields merged in — see
         ``modules.web_terminals.image_source`` in :func:`ensure_env_production`).
@@ -210,11 +215,6 @@ def _build_env_production_subset(
     wiki_search = modules.get("wiki_search") or {}
     if wiki_search.get("enabled"):
         _copy_named_env_var(wiki_search.get("token_env_var"), dotenv, subset)
-
-    event_dispatcher = modules.get("event_dispatcher") or {}
-    if event_dispatcher.get("enabled"):
-        # NEVER sidecar_token_env_var -- see the exclusion list above.
-        _copy_named_env_var(event_dispatcher.get("token_env_var"), dotenv, subset)
 
     ariel = modules.get("ariel") or {}
     if ariel.get("enabled"):
@@ -245,14 +245,15 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
       *none* of them, a warning names the missing var(s) — a stale file from
       before a provider change otherwise produces web terminals that fail
       authentication with nothing in the deploy output to say why.
-    - **Registry mode, absent**: raises. Registry-mode deploys expect a CI
-      pipeline (the ``osprey-build-deploy`` skill's ``.gitlab-ci.yml``,
-      ``osprey-build`` job) to have produced this file already — this
+    - **Registry mode, absent**: raises. Registry-mode deploys expect the file
+      to have been rendered already by ``osprey deploy
+      render-env-production``, which the emitted CI pipeline's deploy job runs
+      on the host between ``osprey build`` and ``osprey deploy up``. This
       function only exists-checks in that mode, it never generates, because
       there is no local ``.env`` this system is licensed to treat as the
-      authoritative source of CI-provisioned secrets.
+      authoritative source of a registry-mode deploy's secrets.
     - **Local mode, absent, ``.env`` present**: generated via
-      :func:`_build_env_production_subset` (the module-conditional CI subset,
+      :func:`_build_env_production_subset` (the module-conditional subset,
       including every ``claude_code`` auth secret resolved by
       :func:`_claude_code_auth_secret_vars`) and written with mode ``0600``
       from the moment the file is created — the same permission convention
@@ -302,10 +303,11 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
         raise RuntimeError(
             f"{env_production_path} not found. Registry-mode web-terminal deploys "
             "(modules.web_terminals.image_source: registry, the default) expect "
-            "this file to be produced by CI (see the osprey-build-deploy skill's "
-            ".gitlab-ci.yml osprey-build job) and shipped alongside the pulled "
-            "image context -- osprey deploy up does not generate it in this mode. "
-            "Either supply .env.production directly, or set "
+            "this file to have been rendered already -- `osprey deploy "
+            "render-env-production` writes it, and the emitted CI pipeline's deploy "
+            "job runs that on the host just before `osprey deploy up`, which does "
+            "not generate it in this mode. Either run render-env-production (or "
+            "supply .env.production directly), or set "
             "modules.web_terminals.image_source: local to generate it from .env."
         )
 
@@ -315,7 +317,7 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
             f"Neither {env_production_path} nor {env_path} was found. Local-mode "
             "web-terminal deploys (modules.web_terminals.image_source: local) need "
             "one of them: create .env.production directly, or create .env so "
-            "osprey deploy up can derive .env.production's module-conditional CI "
+            "osprey deploy up can derive .env.production's module-conditional "
             "subset from it."
         )
 
@@ -344,9 +346,14 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
             # the project .env from the profile. The project .env stays the
             # fallback for legacy preset-built projects, where there is no
             # profile to write to and it really is the only store.
-            from osprey.deployment.container_lifecycle import _profile_env_path
+            # require_profile_file=False: this is the "where WOULD the secret
+            # live" reading. An operator being handed a command to append a
+            # secret needs the profile named even when its profile.yml is
+            # momentarily absent — the alternative is silently steering them to
+            # the project .env the next build overwrites.
+            from osprey.cli.profile_root import resolve_project_profile
 
-            profile_env = _profile_env_path(root)
+            profile_env = resolve_project_profile(root, require_profile_file=False).env_path
             names = ", ".join(exported)
             verb = "are" if len(exported) > 1 else "is"
             preamble = (

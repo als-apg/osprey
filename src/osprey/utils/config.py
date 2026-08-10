@@ -613,6 +613,54 @@ class ConfigBuilder:
             return default
 
 
+def load_project_config(config_path: str | Path, *, wrap_errors: bool = False) -> dict[str, Any]:
+    """Load a built project's ``config.yml`` the way the deploy path loads it.
+
+    The single entry point every project-facing command and deployment step
+    uses to read a project's effective config: :class:`ConfigBuilder`, with the
+    loader's own INFO chatter quieted. Going through one function is what keeps
+    those consumers agreeing on what the config *says* — a caller that
+    hand-rolled ``yaml.safe_load`` would resolve ``${VAR}`` without the ``.env``
+    passthrough ConfigBuilder performs (see :func:`load_project_dotenv`), and
+    would miss the module flags and derived fields ConfigBuilder computes. It
+    could then report on — or render from — a config the deploy would never
+    have produced.
+
+    This lives here, next to ``ConfigBuilder``, rather than in a CLI helper
+    module: the deployment layer is one of its consumers and imports nothing
+    from :mod:`osprey.cli` at module scope, so a CLI home would have made this
+    the first such edge.
+
+    Existence checks stay at the call site. ``ConfigBuilder``'s own
+    ``FileNotFoundError`` advises setting ``CONFIG_FILE``, which is the wrong
+    instruction for a ``--project`` verb, so a caller that needs its own
+    "no project here" message must check before calling (see
+    :func:`osprey.cli.scaffold_cmd._load_config`).
+
+    Args:
+        config_path: Path to the project's ``config.yml``.
+        wrap_errors: When True, re-raise any load failure as ``RuntimeError``
+            naming the config path. Deployment entry points use this so an
+            operator sees which file failed rather than a bare YAML error.
+
+    Returns:
+        The env-var-expanded config mapping (``ConfigBuilder.raw_config``).
+
+    Raises:
+        RuntimeError: If the load fails and *wrap_errors* is True.
+    """
+    from osprey.utils.log_filter import quiet_logger
+
+    try:
+        with quiet_logger(["registry", "CONFIG"]):
+            config: dict[str, Any] = ConfigBuilder(str(config_path)).raw_config
+    except Exception as e:
+        if not wrap_errors:
+            raise
+        raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
+    return config
+
+
 _default_config: ConfigBuilder | None = None
 _default_configurable: dict[str, Any] | None = None
 _config_cache: dict[str, ConfigBuilder] = {}

@@ -1,0 +1,48 @@
+# Demo Facility's own MCP server — the facility half of the deployment.
+#
+# Same channel as every packaged service: one compose file per service
+# directory, rendered by the build and composed into the project's stack. The
+# image reference follows the framework convention (env → config → local tag),
+# so the pipeline's pushed image is selected by setting OSPREY_FACILITY_MCP_IMAGE
+# on the deploy host, while a laptop deploy builds it from the sources beside
+# this file.
+
+services:
+  facility-mcp:
+    image: ${OSPREY_FACILITY_MCP_IMAGE:-{{ (services['facility-mcp'] | default({})).image | default(osprey_labels.project_name ~ '-facility-mcp:local') }}}
+    build:
+      # With multiple `-f` compose files every relative path resolves against
+      # the FIRST file's directory — the compose project dir, not this file's
+      # own subdir — so the context is the service directory by name.
+      context: ./facility-mcp
+      dockerfile: Dockerfile
+    # container_name is a HOST-GLOBAL identifier: namespace it per-project so
+    # two OSPREY projects can run this service on one host.
+    container_name: {{ osprey_labels.project_name }}-facility-mcp
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    ports:
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services['facility-mcp'] | default({})).port | default(8200) }}:8200/tcp"
+    environment:
+      PORT: "8200"
+      FACILITY_STATUS_FILE: /data/machine-status.json
+      TZ: {{ system.timezone }}
+    volumes:
+      - facility_mcp_data:/data
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if s.connect_ex(('localhost', 8200)) == 0 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  facility_mcp_data:
+
+networks:
+  osprey-network:

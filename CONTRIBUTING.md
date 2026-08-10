@@ -72,7 +72,7 @@ installed, just open Claude Code in the repo and describe what you want to
 contribute; the skill picks up wherever you are in the journey.
 
 Other available skills (`osprey skills install --help` lists them all):
-`osprey-build-interview`, `osprey-build-deploy`, `osprey-release`.
+`osprey-build-interview`, `osprey-pre-commit`, `osprey-release`.
 
 ## Branch Strategy
 

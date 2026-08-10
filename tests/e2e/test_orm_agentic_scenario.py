@@ -280,7 +280,11 @@ def _assert_orbit_response_scan_ran(result: SDKWorkflowResult) -> None:
         "set_draft call whose plan_args_patch carry both a non-empty "
         "'correctors' list and a non-empty 'detectors' list). "
         f"set_draft calls seen: "
-        f"{[t.input for t in traces if t.name == SET_DRAFT]}"
+        f"{[t.input for t in traces if t.name == SET_DRAFT]}. "
+        # A silent bluesky MCP outage and free-choice agent drift produce the
+        # same bare failure; the server status + full call list tell them apart.
+        f"MCP server status: {result.mcp_server_status}. "
+        f"All tools called, in order: {[t.name for t in traces]}"
     )
 
     add_idx = _first_index_after(traces, draft_idx, lambda t: t.name == QUEUE_ADD)

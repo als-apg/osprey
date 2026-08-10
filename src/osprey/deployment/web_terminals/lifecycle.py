@@ -66,7 +66,6 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from osprey.deployment.compose_generator import resolve_project_name, resolve_user_volume_names
-from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
     runtime_env,
@@ -165,7 +164,7 @@ def decommission_user(
             destruction was requested but not confirmed.
     """
     config_path = Path(config_path)
-    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    config = ConfigBuilder(str(config_path)).raw_config
     _require_running_runtime(config)
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
@@ -195,7 +194,7 @@ def decommission_user(
     # Roster edit + artifact re-render happen before container/volume removal:
     # they are recoverable by re-running `osprey deploy up`, unlike volume removal.
     config_replace_list(config_path, _USERS_KEY_PATH, remaining)
-    updated_config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    updated_config = ConfigBuilder(str(config_path)).raw_config
     write_web_terminal_artifacts(updated_config)
 
     runtime = get_runtime_command(config)[0]
@@ -274,7 +273,7 @@ def prune_users(
             or pruning was requested but not confirmed.
     """
     config_path = Path(config_path)
-    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    config = ConfigBuilder(str(config_path)).raw_config
     _require_running_runtime(config)
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
@@ -419,7 +418,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
             teardown was not confirmed, or ``compose down`` exits non-zero.
     """
     config_path = Path(config_path)
-    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    config = ConfigBuilder(str(config_path)).raw_config
     _require_running_runtime(config)
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
@@ -801,7 +800,7 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
             operator their old password still works when it does not.
     """
     config_path = Path(config_path)
-    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    config = ConfigBuilder(str(config_path)).raw_config
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
 
     # Read through the same parser the render and the deploy preflight use, so

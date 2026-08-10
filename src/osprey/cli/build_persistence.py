@@ -140,19 +140,21 @@ def _resolve_context_roster(project_path: Path) -> list[str]:
     the conventions land. A disabled module has no roster: a persona build
     switches ``modules.web_terminals`` off, which is what makes it skip
     per-user context entirely.
+
+    Where the subtree comes from is this function's own; deriving names from it
+    is :func:`~osprey.deployment.web_terminals.personas.roster_user_names`, the
+    same call ``osprey profile new`` makes when it seeds the per-user context
+    slots this copy fills.
     """
-    from osprey.deployment.web_terminals.personas import as_dict, normalize_users
+    from osprey.deployment.web_terminals.personas import as_dict, roster_user_names
     from osprey.utils.config_writer import _load
 
     config_path = project_path / "config.yml"
     if not config_path.exists():
         return []
 
-    web_terminals = as_dict(as_dict(_load(config_path)).get("modules")).get("web_terminals")
-    web_terminals = as_dict(web_terminals)
-    if not web_terminals.get("enabled"):
-        return []
-    return [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+    modules = as_dict(as_dict(_load(config_path)).get("modules"))
+    return roster_user_names(modules.get("web_terminals"))
 
 
 def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None) -> list[str]:
@@ -191,24 +193,24 @@ def _artifact_name(copy: ConventionCopy) -> str:
     artifacts. The name keeps the full path below the convention's destination
     — markdown categories legitimately nest (``commands/osprey/scan``), and a
     basename would collapse same-stem artifacts in different namespaces — so
-    for the ownable classes it equals the ownership canonical: one naming
-    scheme, not two. Mirror files keep their full destination path for the
-    same reason.
-
-    Only ``.md`` is stripped, and only from files. Everything else keeps its
-    suffix, which is what a hook is actually known by: ``settings.json`` wires
-    each one as ``.claude/hooks/<filename>``, so ``hooks/osprey_limits.py`` —
-    not ``hooks/osprey_limits`` — is the name that identifies it.
+    for the ownable classes it *is* the ownership canonical, taken from
+    :func:`ownership_canonical` rather than re-derived: one naming scheme, not
+    two. Mirror files keep their full destination path for the same reason.
     """
     from .profile_conventions import PROJECT_MIRROR_DIR, convention_for
 
     if copy.category == PROJECT_MIRROR_DIR:
         return f"{copy.category}/{copy.destination}"
+    canonical = ownership_canonical(copy)
+    if canonical is not None:
+        return canonical
+    # What is left is the classes outside the ownership system — MCP servers
+    # and per-user context — and both are whole-directory copies, so the only
+    # thing separating name from destination is the source directory's own
+    # spelling (``mcp_servers/`` for ``_mcp_servers/``).
     convention = convention_for(copy.category)
     assert convention is not None  # planned copies always come from the table
     rel = PurePosixPath(copy.destination).relative_to(convention.destination).as_posix()
-    if not copy.is_directory and rel.endswith(".md"):
-        rel = rel[: -len(".md")]
     return f"{copy.category}/{rel}"
 
 
@@ -223,17 +225,19 @@ def ownership_canonical(copy: ConventionCopy) -> str | None:
     ``claude_code.servers``, per-user context is roster-derived, and mirror
     files landing outside ``.claude/`` have no render that could contest them.
 
+    This function answers only *whether* a copy is owned; how the name is
+    spelled is :func:`~osprey.cli.profile_conventions.ownership_name`, the
+    same rule the regen/prune reader applies, so writer and reader cannot
+    disagree about what a registered name looks like.
+
     Public API: the web terminal's Scaffold Gallery derives ownership names
     through this same function so the spelling cannot drift from the build's.
     """
+    from .profile_conventions import ownership_name
+
     dest = copy.destination
-    if dest.startswith(".claude/"):
-        name = dest[len(".claude/") :]
-        if not copy.is_directory and name.endswith(".md"):
-            name = name[: -len(".md")]
-        return name
-    if copy.category == "services":
-        return dest
+    if dest.startswith(".claude/") or copy.category == "services":
+        return ownership_name(dest, is_directory=copy.is_directory)
     return None
 
 

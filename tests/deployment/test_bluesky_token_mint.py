@@ -368,11 +368,9 @@ def test_ariel_dsn_validator_accepts_a_clean_dsn():
 # ---------------------------------------------------------------------------
 # _VALIDATE_ONLY_VARS (ARIEL_DSN) — checked at the boundary when present, but
 # never minted and never a _SERVICE_TOKEN_VARS member. ARIEL_DSN has no
-# osprey-native service consumer in this deploy system: it belongs to the
-# separate osprey-build-deploy facility-scaffolding pipeline (its own
-# generated docker-compose.yml/.env.template, brought up by the facility's
-# own scripts/deploy.sh via a raw `docker compose`/`podman compose` call,
-# never through `osprey deploy up`). These tests call the real
+# osprey-native service consumer in this deploy system: it names a database
+# the facility runs itself, supplied through its own `profile/.env` and
+# validated at the boundary rather than minted here. These tests call the real
 # _ensure_service_tokens with NO _SERVICE_TOKEN_VARS monkeypatch — proving
 # the check fires unconditionally, independent of deployed_services/service
 # membership, as defense-in-depth for the case where an operator or other

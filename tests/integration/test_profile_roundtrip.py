@@ -72,7 +72,12 @@ ARCHIVER_VALUE = "http://archiver.facility.example:17668"
 
 PRESET = "hello-world"
 PROJECT_NAME = "facility"
-PROFILE_DIRNAME = "facility-profile"
+
+#: The facility repo `osprey profile new` creates, and the profile nested inside
+#: it. The command is given the repo; everything the roundtrip asserts on lives
+#: in the profile directory it writes there.
+REPO_DIRNAME = "facility-repo"
+PROFILE_RELPATH = f"{REPO_DIRNAME}/profile"
 
 # The roster user whose per-user web-terminal context the roundtrip exercises.
 # `hello-world` ships no web_terminals block, so the profile edit turns one on:
@@ -121,7 +126,8 @@ def _assert_ok(result: Result, what: str) -> None:
 
 
 def _profile_new(target: Path, *extra: str) -> Result:
-    return _invoke(profile_group, ["new", str(target), "--preset", PRESET, *extra])
+    """Create the facility repo holding *target*, the profile directory."""
+    return _invoke(profile_group, ["new", str(target.parent), "--preset", PRESET, *extra])
 
 
 def _build(project_name: str, profile_path: Path, output_dir: Path, *extra: str) -> Result:
@@ -265,6 +271,12 @@ def _apply_profile_edits(profile_dir: Path) -> None:
     config = raw.setdefault("config", {})
     config["modules.web_terminals.enabled"] = True
     config["modules.web_terminals.users"] = [ROSTER_USER]
+    # The two values a roster cannot be deployed without, and which `osprey
+    # build` therefore refuses a profile for: the container-name prefix
+    # (`<prefix>-web-<user>`) and the per-user web port family's base, which has
+    # no registry default because it is facility-chosen.
+    config["facility.prefix"] = "fac"
+    config["modules.web_terminals.web_base_port"] = 9091
     (profile_dir / "profile.yml").write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
 
     # Written as an operator would: the profile `.env` is a file they own.
@@ -318,7 +330,7 @@ class Roundtrip:
 def roundtrip(tmp_path_factory: pytest.TempPathFactory) -> Roundtrip:
     """Run the whole scripted roundtrip once; read-only tests share it."""
     base = tmp_path_factory.mktemp("roundtrip")
-    profile_dir = base / PROFILE_DIRNAME
+    profile_dir = base / PROFILE_RELPATH
     project_dir = base / PROJECT_NAME
 
     _assert_ok(_profile_new(profile_dir), "osprey profile new")
@@ -346,7 +358,7 @@ def workspace(roundtrip: Roundtrip, tmp_path: Path) -> Roundtrip:
     shutil.copytree(roundtrip.base, base, symlinks=True)
     return Roundtrip(
         base=base,
-        profile_dir=base / PROFILE_DIRNAME,
+        profile_dir=base / PROFILE_RELPATH,
         project_dir=base / PROJECT_NAME,
         framework_safety_rule=roundtrip.framework_safety_rule,
         baseline_rules=set(roundtrip.baseline_rules),

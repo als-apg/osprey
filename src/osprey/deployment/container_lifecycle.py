@@ -17,7 +17,6 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.errors import ComposeInterpolationError
-from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.host_ports import (
     find_port_conflicts,
     format_conflict_report,
@@ -45,8 +44,7 @@ from osprey.deployment.web_terminals.provision import (
     preflight_web_terminals,
 )
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
-from osprey.errors import BuildProfileError
-from osprey.utils.config import ConfigBuilder
+from osprey.utils.config import load_project_config
 from osprey.utils.dotenv import (
     append_profile_env,
     atomic_write,
@@ -54,7 +52,6 @@ from osprey.utils.dotenv import (
     derive_project_env,
     parse_dotenv_file,
 )
-from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -113,9 +110,10 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
 # already pulled in). A var earns a place here when it carries a registered
 # format constraint but no osprey-native service in this deploy system's
 # world (_SERVICE_TOKEN_VARS / find_service_config's compose templates) ever
-# requires it: ARIEL_DSN is provisioned by the separate osprey-build-deploy
-# skill's facility-scaffolding pipeline (its own generated
-# docker-compose.yml/.env.template for that facility's ARIEL stack) — not
+# requires it: ARIEL_DSN names an ARIEL Postgres this deploy does not run. A
+# deploy that runs its own gets the URI from `resolve_ariel_dsn`, derived from
+# `services.postgresql` and the minted ARIEL_DB_PASSWORD, so the var is only
+# ever set by an operator pointing at a database provisioned elsewhere — not
 # minted by this deploy system's token path, so no _SERVICE_TOKEN_VARS entry
 # will ever declare it. This is defense-in-depth, not enforcement: if an
 # operator or other tooling nonetheless places ARIEL_DSN into *this*
@@ -182,39 +180,86 @@ def _append_env_block(env_path: Path, comment: str, values: dict[str, str]) -> N
     os.chmod(env_path, 0o600)
 
 
+# Named volumes each token-requiring service declares in its compose template,
+# spelled bare as the template spells them — compose namespaces a bare volume
+# with COMPOSE_PROJECT_NAME, which ``runtime_env`` pins to
+# ``resolve_project_name``, so the runtime name is ``<project>_<bare>``.
+#
+# The point of the map is a *not-a-first-deploy* signal: one of these volumes
+# existing means the service has been initialized before, under whatever secret
+# was current then. ``event_dispatcher`` has no entry because its template
+# declares no named volume (it bind-mounts its config), so there is nothing its
+# continuity could be read from.
+_SERVICE_STATE_VOLUMES: dict[str, tuple[str, ...]] = {
+    "dispatch_worker": ("dispatch_workspace",),
+    "bluesky": ("bluesky_tiled_catalog",),
+    "openobserve": ("openobserve_data",),
+    "postgresql": ("ariel_postgres_data",),
+}
+
+
 def _profile_env_path(project_dir: Path) -> Path | None:
     """The profile ``.env`` that owns this project's secrets, or ``None``.
 
-    The profile is located through the project's own manifest
-    (``build_args.profile_path_abs``, the path ``osprey build`` resolved), and
-    the ``.env`` sits at the profile *root* — a persona delta shares the root
-    profile's secrets rather than keeping its own beside itself.
+    The deploy-side reading of
+    :func:`~osprey.cli.profile_root.resolve_project_profile`: the profile is
+    located through the project's own manifest and the ``.env`` sits at the
+    profile *root*, with ``require_profile_file=False`` because this answers
+    "where *would* this project's secrets live" — a question a caller offering
+    an operator a place to put a secret needs answered even when the profile
+    file is momentarily absent.
 
     ``None`` means there is no profile to write to: a preset-built project, a
     manifest predating the key, or a persona delta whose root has gone missing.
-    The path is not required to exist — a profile directory that has since been
-    deleted resolves here and fails at the write, which is where the degraded
-    path names it.
-    """
-    from osprey.cli.profile_root import resolve_profile_root
-    from osprey.cli.templates.manifest import manifest_profile_path
+    Only the last of those is worth a warning; the first two are ordinary. What
+    this adds over the shared resolver is that warning, in this path's own
+    words, so nothing about the deploy write-back leaks into a resolver other
+    callers read for other reasons.
 
-    profile_path = manifest_profile_path(project_dir)
-    if profile_path is None:
-        return None
-    try:
-        root_dir, _ = resolve_profile_root(profile_path)
-    except BuildProfileError:
+    A caller about to *write* there unattended owes the stronger check as well:
+    see :func:`_stale_manifest_profile`.
+    """
+    from osprey.cli.profile_root import ProjectProfileProblem, resolve_project_profile
+
+    resolved = resolve_project_profile(project_dir, require_profile_file=False)
+    if resolved.problem is ProjectProfileProblem.ROOT_UNRESOLVABLE:
         # A persona delta whose root profile is gone. Reporting it as "no
         # profile" is honest — we cannot say which directory the secrets belong
         # in — and the manifest flag still records that they were not synced.
         logger.warning(
             "Cannot locate the profile root for %s (its profile.yml is missing), so the "
             "service secrets this deploy uses stay in the project .env only.",
-            profile_path,
+            resolved.profile_path,
         )
+    return resolved.env_path
+
+
+def _stale_manifest_profile(project_dir: Path) -> Path | None:
+    """The profile file the manifest records, when it is no longer there.
+
+    ``build_args.profile_path_abs`` is a build-machine absolute path and nothing
+    keeps it true: an operator reorganizes a profile repo, or moves a facility
+    profile one directory up. What usually survives the move is the *old parent
+    directory* — the repo's other files are still in it, only the profile file
+    has gone — and that directory resolves to a perfectly writable profile root,
+    so a write-back lands with no error at all. It creates a fresh ``.env``
+    there: a second, orphaned copy of the stack's secrets in a directory no
+    profile lives in any more, while the manifest is stamped as synced. Only the
+    recorded file's own absence tells that apart from a live profile.
+
+    ``None`` — nothing stale — covers both "the profile is where it should be"
+    and "the manifest records no profile at all"; the latter is a preset-built
+    project, which has its own degraded path.
+
+    :param project_dir: Project root (the directory holding the manifest).
+    :returns: The recorded path, when it is not an existing file.
+    """
+    from osprey.cli.templates.manifest import manifest_profile_path
+
+    profile_path = manifest_profile_path(project_dir)
+    if profile_path is None or profile_path.is_file():
         return None
-    return root_dir / ".env"
+    return profile_path
 
 
 def _sync_secrets_to_profile(env_path: Path, entries: dict[str, str]) -> None:
@@ -283,6 +328,25 @@ def _sync_secrets_to_profile_inner(
         # Not a failure: a preset-built project has no profile to own its
         # secrets. The flag still records that the project .env is the only
         # copy, which is what the pre-wipe warning needs to know.
+        write_secrets_synced_to_profile(project_dir, False)
+        return
+
+    stale_profile = _stale_manifest_profile(project_dir)
+    if stale_profile is not None:
+        # Both ends of the break are named: the profile that is no longer where
+        # the build left it, and the .env deliberately not written on its
+        # behalf. Re-pointing the manifest is a rebuild's job, not a deploy's —
+        # a deploy that went hunting for the profile's new home would be
+        # guessing which of several candidates the operator meant.
+        logger.warning(
+            "The profile this project was built from is no longer at %s, so this deploy's "
+            "service secrets were not written back: doing so would recreate %s under a "
+            "root the profile has left, where no build will ever read it. They remain in "
+            "%s. Rebuild from the profile's new location to sync them.",
+            stale_profile,
+            profile_env,
+            env_path.resolve(),
+        )
         write_secrets_synced_to_profile(project_dir, False)
         return
 
@@ -503,6 +567,155 @@ def _ensure_service_tokens(
         }
         if effective_secrets:
             _sync_secrets_to_profile(env_path, effective_secrets)
+
+
+def _existing_volume_names(config: dict) -> set[str] | None:
+    """Every volume name the container runtime currently knows about.
+
+    Read-only — a plain ``volume ls``; nothing is created, removed or inspected,
+    and no volume's *contents* are ever read. ``None`` when the runtime cannot be
+    asked (not installed, not running, slow to answer), which callers must treat
+    as "unknown" rather than "no volumes": guessing "fresh" from a failed query
+    would silence a warning exactly when the host is least understood.
+
+    :param config: Loaded configuration dictionary (selects docker vs podman).
+    :returns: The set of volume names, or ``None`` when the query failed.
+    """
+    try:
+        runtime_bin = get_runtime_command(config)[0]
+        result = subprocess.run(
+            [runtime_bin, "volume", "ls", "--format", "{{.Name}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        logger.debug("Could not list container volumes", exc_info=True)
+        return None
+    if result.returncode != 0:
+        logger.debug("Volume listing exited %s", result.returncode)
+        return None
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def _preflight_token_continuity(config: dict, env_path: Path | None = None) -> None:
+    """Warn when a service's existing volume outlives the secret that opened it.
+
+    Several of the secrets ``_ensure_service_tokens`` mints are adopted *once*,
+    by a docker volume, at the moment the service first initializes: openobserve's
+    root password, the ARIEL database password. The container reads the var only
+    on a fresh volume — afterwards the volume is the authority, and a deploy that
+    supplies a different value simply fails to authenticate against data it can
+    no longer open.
+
+    So the dangerous state is a volume that already exists paired with a profile
+    that cannot reproduce the secret it was initialized with. That is what a
+    migration produces: a stack first deployed before the profile write-back
+    existed, or one whose write-back degraded (a stale manifest, an unreachable
+    profile) while its containers went on running. Nothing is wrong *yet* — the
+    project ``.env`` still holds the value and this deploy will come up. What
+    makes it dangerous is that the project ``.env`` is then the *only* copy, and
+    it is local state: a ``build --force`` in place preserves the minted value
+    (these are :data:`~osprey.utils.dotenv.RUNTIME_WRITER_KEYS`, whose existing
+    project value wins over both the profile and the render), but a build from
+    the profile anywhere else — a fresh checkout, another host — mints a new
+    secret that the surviving volume rejects.
+
+    The check is deliberately shallow, and stays advisory:
+
+    * volume *existence* is the whole not-first-deploy signal — no volume is read,
+      inspected, or mounted;
+    * the profile is checked by variable **name** only. Whether the profile's
+      value matches the one the volume adopted is unknowable from here (the
+      volume will not say), and comparing values would mean handling secrets to
+      answer a question this preflight is not asking;
+    * it warns and returns. A running stack is not broken by this state, so
+      refusing to start it would be the wrong trade — and the operator, not the
+      deploy, decides between copying the secret across and recreating the volume.
+
+    Runs on the ``deploy up`` path only (``rebuild`` reaches it through
+    ``deploy_up``, after ``clean`` has removed the volumes — correctly no longer
+    a not-first-deploy). ``deploy restart`` does not run it: it restarts existing
+    containers with the secrets they already hold and never re-initializes a
+    volume, so the warning would have nothing to act on.
+
+    Never raises into a deploy: an advisory that cannot answer stays quiet.
+
+    :param config: Loaded configuration dictionary (``deployed_services``).
+    :param env_path: Project ``.env`` path; defaults to ``Path(".env")``, matching
+        :func:`_ensure_service_tokens`. Overridable for tests.
+    """
+    try:
+        _preflight_token_continuity_inner(config, env_path or Path(".env"))
+    except Exception:
+        logger.debug("Token-continuity preflight did not run", exc_info=True)
+
+
+def _preflight_token_continuity_inner(config: dict, env_path: Path) -> None:
+    """The body of :func:`_preflight_token_continuity`, free to raise."""
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    # Iterate the map, not the deployed set, so the order services are reported
+    # in is deterministic regardless of set iteration order.
+    candidates = [
+        (name, volumes, _SERVICE_TOKEN_VARS[name])
+        for name, volumes in _SERVICE_STATE_VOLUMES.items()
+        if name in services and name in _SERVICE_TOKEN_VARS
+    ]
+    if not candidates:
+        return
+
+    project_dir = env_path.resolve().parent
+    profile_env = _profile_env_path(project_dir)
+    if profile_env is None or _stale_manifest_profile(project_dir) is not None:
+        # No profile owns these secrets, or the one the manifest names is gone.
+        # Either way the write-back path has already said so in its own words;
+        # a second warning about the same break would only dilute it.
+        return
+
+    existing = _existing_volume_names(config)
+    if existing is None:
+        return
+    profile_vars = parse_dotenv_file(profile_env) if profile_env.is_file() else {}
+    project_name = resolve_project_name(config)
+
+    for service, volumes, token_vars in candidates:
+        present: list[str] = []
+        for bare_name in volumes:
+            present.extend(_matching_volumes(existing, project_name, bare_name))
+        if not present:
+            continue  # first deploy of this service: the volume adopts what we supply
+        missing = [var for var in token_vars if var not in profile_vars]
+        if not missing:
+            continue
+        logger.warning(
+            "%s already has state in %s, so it was initialized under the secret that was "
+            "current then — but %s %s not in the profile .env at %s. A rebuild from this "
+            "profile will mint a fresh value the existing volume does not accept. Copy "
+            "%s across from %s, or remove the volume to let the service re-initialize.",
+            service,
+            ", ".join(present),
+            ", ".join(missing),
+            "is" if len(missing) == 1 else "are",
+            profile_env,
+            "it" if len(missing) == 1 else "them",
+            env_path.resolve(),
+        )
+
+
+def _matching_volumes(existing: set[str], project_name: str, bare_name: str) -> list[str]:
+    """The runtime volumes in ``existing`` that ``bare_name`` refers to.
+
+    Compose namespaces a bare volume as ``<project>_<bare>``, so that is what a
+    template's ``openobserve_data`` is actually called on the host — and the name
+    an operator would have to type to remove it, which is why the *runtime* names
+    are returned rather than a bare yes/no. The dispatch workspace is additionally
+    declared once **per worker** in per-worker mode (``dispatch_workspace_1``,
+    ``dispatch_workspace_2``, …), so a numbered suffix counts as the same volume;
+    without that, a stack running anything but the shared workspace would read as
+    a first deploy forever. Sorted, so a warning naming several is stable.
+    """
+    prefix = f"{project_name}_{bare_name}"
+    return sorted(name for name in existing if name == prefix or name.startswith(f"{prefix}_"))
 
 
 def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
@@ -1376,16 +1589,13 @@ def _env_file_args() -> list[str]:
 def _check_shared_disk_preflight(config: dict) -> None:
     """Abort before any compose invocation if a configured shared-disk host path is missing.
 
-    Ports the retired ``deploy.sh`` step-2b check (see the ``osprey-build-deploy``
-    skill's now-removed ``templates/core/scripts/deploy.sh``): a container that
-    bind-mounts a host path that doesn't exist still starts, then fails only at
-    first read/write with an obscure in-container error. Checking on the host,
-    before ``compose`` ever runs, turns that into an immediate, actionable
-    deploy-time error instead of a confusing runtime one.
+    A container that bind-mounts a host path that doesn't exist still starts,
+    then fails only at first read/write with an obscure in-container error.
+    Checking on the host, before ``compose`` ever runs, turns that into an
+    immediate, actionable deploy-time error instead of a confusing runtime one.
 
     Skipped entirely when ``modules.shared_disk`` is absent/disabled, or when
-    ``host_path`` isn't configured — there's nothing to check in either case,
-    mirroring the shell version's ``IF MODULE shared_disk.enabled`` guard.
+    ``host_path`` isn't configured — there's nothing to check in either case.
 
     :param config: Raw deploy config.
     :raises RuntimeError: if ``modules.shared_disk.enabled`` is set and
@@ -1527,6 +1737,12 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # mount in the first place.
     _ensure_service_tokens(config, expose_network)
 
+    # Advisory, after the write-back above has had its chance to put this
+    # deploy's secrets in the profile: a service whose volume predates the
+    # profile's copy of its secret is one rebuild away from being unopenable.
+    # Warns only — see _preflight_token_continuity for why this must not block.
+    _preflight_token_continuity(config)
+
     # Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
     # VA-backed Bluesky stack (additive; no-op unless both bluesky and
     # virtual_accelerator are deployed) -- see _ensure_bluesky_substrate_env.
@@ -1648,12 +1864,7 @@ def deploy_down(config_path, dev_mode=False):
     :param config_path: Path to the configuration file
     :type config_path: str
     """
-    try:
-        with quiet_logger(["registry", "CONFIG"]):
-            config = ConfigBuilder(config_path)
-            config = normalize_facility_config(config.raw_config)
-    except Exception as e:
-        raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
+    config = load_project_config(config_path, wrap_errors=True)
 
     if _web_terminals_enabled(config):
         env_file_args = ["--env-file", ".env"] if Path(".env").exists() else []

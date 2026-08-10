@@ -101,19 +101,18 @@ def enable_linger(config: dict, run_env: dict[str, str]) -> None:
 def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
     """Best-effort, advisory post-up smoke check via the scaffolded ``scripts/verify.sh``.
 
-    An ``osprey-build-deploy``-scaffolded project ships ``scripts/verify.sh``
-    (see the ``osprey-build-deploy`` skill's ``templates/core/scripts/
-    verify.sh``): a health-check script parameterized per-facility with a
-    probe for each enabled module. Historically it was operator-run-by-hand
-    only; this makes ``osprey deploy up`` run it automatically as the last
-    step of the post-up hook, once ``compose up -d`` has already succeeded
-    and containers are running, so an operator gets an immediate health
-    signal without a separate manual step.
+    A project built from a profile carrying ``project/scripts/verify.sh``
+    ships that file as ``<project_root>/scripts/verify.sh`` (the profile's
+    ``project/`` mirror copies it verbatim): a health-check script
+    parameterized per-facility with a probe for each enabled module.
+    Historically it was operator-run-by-hand only; this makes ``osprey deploy
+    up`` run it automatically as the last step of the post-up hook, once
+    ``compose up -d`` has already succeeded and containers are running, so an
+    operator gets an immediate health signal without a separate manual step.
 
     Silently skipped (no log line at all) when ``<project_root>/scripts/
-    verify.sh`` doesn't exist — an older project scaffolded before this file
-    existed, or a non-``osprey-build-deploy`` project, must deploy exactly as
-    before.
+    verify.sh`` doesn't exist — a profile that carries no such script must
+    deploy exactly as before.
 
     The script's own convention (see its header) is to ALWAYS exit 0 —
     verification is advisory, never deploy-blocking — but this runs it via

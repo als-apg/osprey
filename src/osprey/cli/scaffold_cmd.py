@@ -22,43 +22,53 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import click
-import yaml
 
 from osprey.cli.profile_conventions import CONVENTION_DIRS, ConventionDir, EntryShape
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
-from osprey.deployment.facility_config import normalize_facility_config
+from osprey.errors import ConfigurationError
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.services.build_artifacts.ownership import (
     get_user_owned,
     update_config_remove_user_owned,
     update_manifest_remove_user_owned,
 )
-from osprey.utils.config import resolve_env_vars
+from osprey.utils.config import load_project_config
+from osprey.utils.logger import get_logger
+
+logger = get_logger("scaffold")
 
 
 def _load_config(project_dir: Path) -> dict[str, Any]:
-    """Load and return config.yml from project_dir."""
+    """Load ``config.yml`` from ``project_dir`` through the shared project loader.
+
+    The single config loader in this module, and deliberately the same one the
+    deploy path uses (:func:`osprey.utils.config.load_project_config`), so these
+    verbs report on — and render from — exactly the config a deploy would have
+    produced.
+
+    The existence check stays ahead of the load, which is this call site's one
+    divergence from the shared loader: callers catch ``ClickException`` to mean
+    "no project here", and ``ConfigBuilder``'s own ``FileNotFoundError`` advises
+    setting ``CONFIG_FILE``, which is the wrong instruction for a verb that takes
+    ``--project``.
+
+    Args:
+        project_dir: Root of a built project.
+
+    Returns:
+        The env-var-expanded config mapping.
+
+    Raises:
+        click.ClickException: If ``project_dir`` holds no ``config.yml``.
+    """
     config_file = project_dir / "config.yml"
     if not config_file.exists():
         raise click.ClickException(
             f"No config.yml found in {project_dir}. Are you in an OSPREY project directory?"
         )
-    with open(config_file, encoding="utf-8") as f:
-        return resolve_env_vars(yaml.safe_load(f) or {})
 
-
-def _load_facility_config(config_path: str) -> dict[str, Any]:
-    """Load and parse a facility-config.yml at an arbitrary path.
-
-    Used by the ``web-terminals`` subcommands, which take an explicit
-    ``--config`` path rather than reading a project directory's config.yml (see
-    :func:`_load_config`), so no env-var resolution or existence check is applied
-    here — ``click.Path(exists=True)`` on the option already guarantees the file
-    exists.
-    """
-    with open(config_path, encoding="utf-8") as f:
-        return normalize_facility_config(yaml.safe_load(f) or {})
+    return load_project_config(config_file)
 
 
 class ScaffoldClaimError(Exception):
@@ -140,7 +150,7 @@ def _claimable_convention(category: str) -> ConventionDir | None:
 
 def _unclaimable_message(name: str) -> str:
     """Explain why ``name`` has no profile slot, naming what does own it."""
-    from osprey.cli.profile_conventions import reserved_path_channel
+    from osprey.cli.profile_conventions import FRAMEWORK_RENDER_CHANNEL, reserved_path_channel
 
     artifact = BuildArtifactCatalog.default().get(name)
     if artifact is None:
@@ -149,9 +159,7 @@ def _unclaimable_message(name: str) -> str:
             f"  Claimable names are <convention>/<path> under: {_CLAIMABLE_PREFIXES}\n"
             "  Run `osprey scaffold list` to see this project's artifacts."
         )
-    channel = reserved_path_channel(artifact.output_path) or (
-        "the framework render — carry the change as a `config:` key instead"
-    )
+    channel = reserved_path_channel(artifact.output_path) or FRAMEWORK_RENDER_CHANNEL
     return (
         f"'{name}' ({artifact.output_path}) has no profile convention directory: "
         f"it is written by {channel}.\n"
@@ -397,6 +405,14 @@ def _project_profile_root(project_dir: Path) -> tuple[Path, bool]:
     anchors at its *root* profile, because convention directories live there
     and a delta can only exclude from them.
 
+    The claim-side reading of
+    :func:`~osprey.cli.profile_root.resolve_project_profile`, with
+    ``require_profile_file=True`` because a claim is about to write into the
+    profile: a directory that no longer holds one is not somewhere an artifact
+    may be moved. Each way the resolver can answer "no" gets its own wording
+    here — they are different situations with different remedies, and the
+    resolver stays free of claim vocabulary.
+
     Returns:
         ``(profile_root, is_persona_delta)``.
 
@@ -405,27 +421,29 @@ def _project_profile_root(project_dir: Path) -> tuple[Path, bool]:
             names is gone, or its root is a directory a claim must not write.
     """
     import osprey
-    from osprey.cli.profile_root import resolve_profile_root
-    from osprey.cli.templates.manifest import manifest_profile_path
-    from osprey.errors import BuildProfileError
+    from osprey.cli.profile_root import ProjectProfileProblem, resolve_project_profile
 
-    profile_file = manifest_profile_path(project_dir)
-    if profile_file is None:
+    resolved = resolve_project_profile(project_dir, require_profile_file=True)
+
+    if resolved.problem is ProjectProfileProblem.NO_PROFILE_RECORDED:
         raise ScaffoldClaimError(_no_profile_message(project_dir))
 
-    if not profile_file.is_file():
+    if resolved.problem is ProjectProfileProblem.PROFILE_FILE_MISSING:
         raise ScaffoldClaimError(
             f"The profile this project was built from is missing:\n"
-            f"    {profile_file}\n"
+            f"    {resolved.profile_path}\n"
             "  (recorded in the project manifest as build_args.profile_path_abs)\n\n"
             "  Nothing was moved. Restore that profile — or rebuild this project from\n"
             "  the profile you want to own the artifact — and claim again."
         )
 
-    try:
-        profile_root, is_delta = resolve_profile_root(profile_file)
-    except BuildProfileError as exc:
-        raise ScaffoldClaimError(str(exc)) from exc
+    if resolved.root is None:
+        # All that is left is a persona delta whose root profile is gone. That
+        # error already names the file that has to exist, and says it better
+        # than a claim-flavoured rewording would.
+        raise ScaffoldClaimError(str(resolved.root_error)) from resolved.root_error
+
+    profile_root, is_delta = resolved.root, resolved.is_persona_delta
 
     if not profile_root.is_dir():
         raise ScaffoldClaimError(
@@ -1055,15 +1073,16 @@ def unclaim(name, project):
 
     console.print(f"  [success]\u2713[/success] Released ownership of {name}")
 
-    profile_root = profile_root_or_none(project_dir)
-    profile_slot: Path | None = None
-    if profile_root is not None:
-        try:
-            candidate = profile_root / resolve_claim_target(name).profile_rel
-        except ScaffoldClaimError:
-            candidate = None
-        if candidate is not None and candidate.exists():
-            profile_slot = candidate
+    # Asked through the published resolver, not re-derived: where an artifact
+    # lives in the profile is one mapping, and a second copy of it here could
+    # stop naming the file a claim actually moved. An unclaimable name is not an
+    # error on this path — ownership has already been released, and the only
+    # question left is whether the profile still supplies the file.
+    try:
+        candidate = profile_slot_for(project_dir, name)
+    except ScaffoldClaimError:
+        candidate = None
+    profile_slot = candidate if candidate is not None and candidate.exists() else None
 
     if profile_slot is not None:
         styled = f"[path]{profile_slot}[/path]"
@@ -1085,16 +1104,76 @@ def unclaim(name, project):
 @scaffold.group(name="web-terminals", invoke_without_command=True)
 @click.pass_context
 def web_terminals(ctx):
-    """Validate and render the ``modules.web_terminals`` deployment stanza.
+    """Validate and render the modules.web_terminals deployment stanza.
+
+    Reads the stanza from the project's own config.yml, which the profile's
+    config: block produces. Point at a project with --project, or run from
+    inside one.
 
     Examples:
 
     \b
-      osprey scaffold web-terminals lint --config facility-config.yml
-      osprey scaffold web-terminals render --config facility-config.yml -o deploy/
+      osprey scaffold web-terminals lint
+      osprey scaffold web-terminals render --project my-project -o deploy/
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
+
+
+#: ``--project DIR`` for the web-terminals verbs, matching the surface the other
+#: ``osprey scaffold`` verbs already expose. ``click.option`` builds a fresh
+#: Option per application, so one decorator can serve both subcommands.
+_web_terminals_project_option = click.option(
+    "--project",
+    "-p",
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
+    default=None,
+    help="Project directory (default: current directory)",
+)
+
+#: The retired ``--config PATH`` surface. Deliberately untyped and without
+#: ``exists=True``: the option no longer names anything the CLI can read, and
+#: the refusal below has to fire for a path that does not exist just as much as
+#: for one that does — a Click existence check would pre-empt it with a message
+#: that says nothing about where the stanza moved to.
+_web_terminals_retired_config_option = click.option(
+    "--config",
+    "config_path",
+    default=None,
+    help="Removed. The stanza comes from the project's config.yml; see --project.",
+)
+
+
+def _reject_retired_config_option(config_path: str | None) -> None:
+    """Refuse ``--config``, naming what replaced it.
+
+    ``--config`` pointed at a standalone facility-config.yml, a second source of
+    truth for facts the profile already owns. That file is gone: the
+    ``modules.web_terminals`` stanza now reaches a project through the profile's
+    ``config:`` block, and the deployment artifacts around it through
+    ``osprey deploy scaffold`` and the profile's ``deploy:`` block. The option is
+    kept for one release so an operator running the old command line is told
+    where each half went instead of meeting an unknown-option error.
+
+    Args:
+        config_path: Whatever ``--config`` received, or ``None`` if unused.
+
+    Raises:
+        ConfigurationError: Whenever ``--config`` was supplied at all — valid
+            path, missing path, or empty string.
+    """
+    if config_path is None:
+        return
+    message = (
+        "--config is no longer supported: there is no facility-config.yml. "
+        "The modules.web_terminals stanza now lives in the project's own "
+        "config.yml, emitted from the profile's `config:` block — run this verb "
+        "with --project DIR, or from inside the project. Its deployment "
+        "artifacts come from `osprey deploy scaffold`, driven by the profile's "
+        "`deploy:` block. Run /osprey-build-interview to author both blocks."
+    )
+    logger.error("%s", message)
+    raise ConfigurationError(message)
 
 
 def _print_web_terminals_lint_errors(errors: list[Any]) -> None:
@@ -1111,15 +1190,10 @@ def _print_web_terminals_lint_errors(errors: list[Any]) -> None:
 
 
 @web_terminals.command(name="lint")
-@click.option(
-    "--config",
-    "config_path",
-    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
-    required=True,
-    help="Path to a facility-config.yml to validate.",
-)
-def web_terminals_lint(config_path):
-    """Validate the ``modules.web_terminals`` stanza of a facility config.
+@_web_terminals_project_option
+@_web_terminals_retired_config_option
+def web_terminals_lint(project, config_path):
+    """Validate a project's modules.web_terminals stanza.
 
     Checks port-family allocation, reserved service names, and duplicate
     users. Exits non-zero if any error-severity finding is reported;
@@ -1129,11 +1203,14 @@ def web_terminals_lint(config_path):
     Examples:
 
     \b
-      osprey scaffold web-terminals lint --config facility-config.yml
+      osprey scaffold web-terminals lint
+      osprey scaffold web-terminals lint --project my-project
     """
+    _reject_retired_config_option(config_path)
+
     from osprey.deployment.web_terminals.lint import lint_web_terminals
 
-    config = _load_facility_config(config_path)
+    config = _load_config(Path(project) if project else Path.cwd())
     findings = lint_web_terminals(config)
 
     if not findings:
@@ -1160,13 +1237,8 @@ def web_terminals_lint(config_path):
 
 
 @web_terminals.command(name="render")
-@click.option(
-    "--config",
-    "config_path",
-    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
-    required=True,
-    help="Path to a facility-config.yml to render.",
-)
+@_web_terminals_project_option
+@_web_terminals_retired_config_option
 @click.option(
     "--output",
     "-o",
@@ -1181,8 +1253,8 @@ def web_terminals_lint(config_path):
     default=False,
     help="Skip the lint pre-check (by default, lint errors abort the render).",
 )
-def web_terminals_render(config_path, output_dir, no_lint):
-    """Render the ``modules.web_terminals`` deployment artifacts of a facility config.
+def web_terminals_render(project, config_path, output_dir, no_lint):
+    """Render a project's modules.web_terminals deployment artifacts.
 
     Writes the docker-compose overlay, nginx routing fragment, and static landing
     page into --output, creating the directory (and its nginx/ subdirectory) as
@@ -1192,11 +1264,14 @@ def web_terminals_render(config_path, output_dir, no_lint):
     Examples:
 
     \b
-      osprey scaffold web-terminals render --config facility-config.yml -o deploy/
+      osprey scaffold web-terminals render -o deploy/
+      osprey scaffold web-terminals render --project my-project -o deploy/
     """
+    _reject_retired_config_option(config_path)
+
     from osprey.deployment.web_terminals.render import render_web_terminals
 
-    config = _load_facility_config(config_path)
+    config = _load_config(Path(project) if project else Path.cwd())
 
     if not no_lint:
         from osprey.deployment.web_terminals.lint import lint_web_terminals
