@@ -292,22 +292,17 @@ def _parent_profile_root(project_root: Path) -> Path | None:
     this deployment's. The recorded profile has to still BE there, too: a
     directory that no longer holds a profile would otherwise be reported as the
     root, and every persona under it as an individually missing file — one
-    problem told as several, none of them the real one.
-    """
-    from osprey.cli.profile_root import resolve_profile_root
-    from osprey.cli.templates.manifest import manifest_profile_path
-    from osprey.errors import BuildProfileError
+    problem told as several, none of them the real one — which is what
+    ``require_profile_file=True`` asks of the shared resolver.
 
-    profile_path = manifest_profile_path(project_root)
-    if profile_path is None or not profile_path.is_file():
-        return None
-    try:
-        root_dir, _ = resolve_profile_root(profile_path)
-    except BuildProfileError:
-        # A persona delta whose root profile is gone: there is no directory we
-        # can honestly call this deployment's profile root.
-        return None
-    return root_dir
+    Every way the answer is no collapses to ``None`` here, deliberately: the
+    caller's error says the same thing for all of them, and a persona delta
+    whose root profile is gone leaves no directory we can honestly call this
+    deployment's profile root either.
+    """
+    from osprey.cli.profile_root import resolve_project_profile
+
+    return resolve_project_profile(project_root, require_profile_file=True).root
 
 
 def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
@@ -315,7 +310,11 @@ def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
 
     Names both spellings the operator needs — the catalog value to write and the
     file it has to resolve to — from one place, so the several ways an entry can
-    be wrong cannot end up recommending different fixes.
+    be wrong cannot end up recommending different fixes. Ends by naming
+    ``/osprey-build-interview``, because the operator most likely to read this is
+    one whose project predates the persona-delta layout: they have a variant
+    build in some older shape and need it converted, which is a bigger job than
+    editing one catalog value.
     """
     from osprey.cli.profile_root import PERSONA_DIRNAME
 
@@ -323,7 +322,10 @@ def _persona_delta_remedy(persona_name: str, profile_root: Path) -> str:
     return (
         f"Set modules.web_terminals.personas.{persona_name}.build_profile to "
         f"'{PERSONA_DIRNAME}/{persona_name}.yml' — the delta at {delta} — which is what "
-        "`osprey profile new` writes for every persona in the catalog."
+        "`osprey profile new` writes for every persona in the catalog. If this "
+        "deployment has no such delta because its variant build predates the layout, "
+        "run /osprey-build-interview: it converts an existing variant into a persona "
+        "delta over the profile this project is built from."
     )
 
 
