@@ -402,10 +402,6 @@ function applyEnvelope(d) {
     renderGrid(d);
   }
 
-  const ts = must("ts");
-  ts.textContent = new Date().toLocaleTimeString();
-  ts.setAttribute("title", d.elapsed_ms > 0 ? "scan " + fmtMs(d.elapsed_ms) : "");
-
   // Footer status line: warming suppresses the staleness note (rendering rule);
   // a truthful stale flag surfaces otherwise, and a hit suite deadline is noted.
   let status = d.summary;
@@ -419,7 +415,6 @@ function doRefresh() {
   if (busy) return;
   busy = true;
   must("sw").classList.add("on");
-  must("refBtn").classList.add("spin");
 
   fetchData()
     .then((d) => {
@@ -435,7 +430,6 @@ function doRefresh() {
     .finally(() => {
       busy = false;
       must("sw").classList.remove("on");
-      must("refBtn").classList.remove("spin");
     });
 }
 
@@ -538,5 +532,4 @@ function demoData(variant) {
 
 // -- boot (module is deferred; the skeleton is already parsed) ---------------
 
-must("refBtn").addEventListener("click", doRefresh);
 doRefresh();

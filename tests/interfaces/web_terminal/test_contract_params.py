@@ -408,7 +408,10 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
 # chrome of its own to hide, so its entry is `None` and the branding
 # assertion is skipped for it.
 _CHROME_CONTRACT_PANELS = [
-    ("ariel", _launch_ariel, "", ".logo"),
+    # ariel hides its whole `.header` embedded (the tile bar is its only
+    # header), so the branding assertion targets the element carrying the
+    # rule -- `.logo` inside it still computes its own `display: flex`.
+    ("ariel", _launch_ariel, "", ".header"),
     ("artifacts", _launch_artifacts, "", ".logo"),
     ("channel_finder", _launch_channel_finder, "", ".app-logo"),
     ("lattice_dashboard", _launch_lattice_dashboard, "", ".topbar-logo"),
@@ -539,19 +542,15 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
 
 
 def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_browser):
-    """channel_finder's embedded mode keeps the fixed header visible without occluding content.
+    """channel_finder's embedded mode drops its header without leaving a dead band.
 
-    D15 narrowed channel_finder's embedded-hide rule from the whole
-    ``.app-header`` down to just ``.app-logo`` (css:118 -> ``.app-logo``,
-    the old whole-header rule at :119 deleted) specifically so the pipeline
-    switcher and nav stay usable inside the hub. This is the anti-regression
-    check for that narrowing: the switcher must still render inside the
-    viewport (not accidentally hidden or pushed off-screen), and
-    ``.app-main``'s 48px top padding -- which exists so content clears the
-    still-fixed 48px header -- must be unchanged in embedded mode. A future
-    change that reintroduced whole-header hiding without also zeroing this
-    padding would otherwise leave a silent 48px gap; one that hid the header
-    without keeping this padding would occlude content start.
+    Embedded, the hub's tile bar is the panel's only header, so the whole
+    ``.app-header`` hides -- and because that header is ``position: fixed``
+    with a compensating 48px top padding on ``.app-main``, the padding must
+    go with it or the panel opens on an empty 48px band. The pipeline
+    switcher survives the header's removal because it no longer lives there:
+    it sits in the body's bottom corpus strip, which must stay rendered
+    inside the viewport for the panel to remain switchable when embedded.
     """
     # Arrange
     with _launch_channel_finder(tmp_path, monkeypatch) as base_url:
@@ -559,6 +558,16 @@ def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_b
 
         # Act
         page.goto(f"{base_url}?embedded=true", wait_until="load")
+
+        # Assert -- the local header is gone, and so is the padding that cleared it.
+        assert (
+            page.evaluate("getComputedStyle(document.querySelector('.app-header')).display")
+            == "none"
+        )
+        padding_top = page.evaluate(
+            "getComputedStyle(document.querySelector('.app-main')).paddingTop"
+        )
+        assert padding_top == "0px"
 
         # Assert -- the pipeline switcher is rendered and positioned inside the viewport.
         # ``load`` fires before the switcher's layout settles, so on a loaded runner
@@ -573,10 +582,10 @@ def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_b
         assert box["width"] > 0 and box["height"] > 0
         assert 0 <= box["y"] <= viewport["height"]
 
-        # Assert -- .app-main's clearance for the still-fixed header is unchanged.
-        padding_top = page.evaluate(
-            "getComputedStyle(document.querySelector('.app-main')).paddingTop"
+        # Assert -- content clears the fixed strip instead of running under it.
+        padding_bottom = page.evaluate(
+            "getComputedStyle(document.querySelector('.app-main')).paddingBottom"
         )
-        assert padding_top == "48px"
+        assert padding_bottom == "28px"
 
         page.close()

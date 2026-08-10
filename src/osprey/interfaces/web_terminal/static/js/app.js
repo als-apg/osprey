@@ -13,6 +13,7 @@ import { initCommandPalette } from './palette-boot.js';
 import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
+import { initHeaderContrib } from './tile-header-contrib.js';
 import { initDisplayMenu } from './display-menu.js';
 import { initIdentityMenu } from './identity-menu.js';
 import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
@@ -27,6 +28,9 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (err) {
     console.error('Failed to init operator chat:', err);
   }
+  // Before the panel manager creates any iframe, so no contribution can
+  // arrive without a listener.
+  initHeaderContrib();
   initPanelManager('right-panel');
   initSessionSelector('session-selector');
   initStatusBar();

@@ -3,9 +3,16 @@
 Computes Twiss parameters and produces a two-panel Plotly figure:
 top panel = beta_x / beta_y, bottom panel = eta_x (dispersion).
 Overlays baseline traces (dashed) when a baseline exists.
+
+This is also the dashboard's source of fresh header-summary numbers: the
+same Twiss solve that draws the figure yields the tunes, chromaticity and
+beta maxima of the override-applied ring, published under
+``summary_updates`` for the compute monitor to merge into the state.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import at
 import numpy as np
@@ -21,12 +28,26 @@ from osprey.interfaces.lattice_dashboard.workers._base import (
 )
 
 
-def compute_optics(ring: at.Lattice) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return (s_pos, beta_x, beta_y, eta_x)."""
+def compute_optics(
+    ring: at.Lattice,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+    """Return (s_pos, beta_x, beta_y, eta_x, summary_updates).
+
+    The trailing dict carries the header-summary quantities this solve also
+    produces, in the shapes ``LatticeState.initialize`` builds them.
+    """
     refpts = range(len(ring) + 1)
-    _, _, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
+    _, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
     s_pos = ring.get_s_pos(refpts)
-    return s_pos, ld.beta[:, 0], ld.beta[:, 1], ld.dispersion[:, 0]
+    beta_x, beta_y = ld.beta[:, 0], ld.beta[:, 1]
+    summary_updates = {
+        "tunes": [float(rd.tune[0]), float(rd.tune[1])],
+        "chromaticity": [float(rd.chromaticity[0]), float(rd.chromaticity[1])],
+        "beta_max": (
+            [float(np.max(beta_x)), float(np.max(beta_y))] if ld.beta.size > 0 else [0.0, 0.0]
+        ),
+    }
+    return s_pos, beta_x, beta_y, ld.dispersion[:, 0], summary_updates
 
 
 def build_figure(
@@ -137,19 +158,21 @@ def main() -> None:
     state = load_state(state_path)
 
     ring = load_ring(state)
-    s_pos, beta_x, beta_y, eta_x = compute_optics(ring)
+    s_pos, beta_x, beta_y, eta_x, summary_updates = compute_optics(ring)
 
     raw: dict = {
         "s_pos": s_pos.tolist(),
         "beta_x": beta_x.tolist(),
         "beta_y": beta_y.tolist(),
         "eta_x": eta_x.tolist(),
+        # Read by the compute monitor, ignored by the figure adapter.
+        "summary_updates": summary_updates,
         "baseline": None,
     }
 
     baseline_ring = load_baseline_ring(state_path, state)
     if baseline_ring is not None:
-        bs, bbx, bby, bex = compute_optics(baseline_ring)
+        bs, bbx, bby, bex, _ = compute_optics(baseline_ring)
         raw["baseline"] = {
             "s_pos": bs.tolist(),
             "beta_x": bbx.tolist(),

@@ -35,11 +35,6 @@
         </svg>
         <span class="logo-text">CHANNEL FINDER</span>
       </div>
-      <div class="pipeline-switcher" id="pipeline-switcher">
-        <button class="pipeline-badge" id="pipeline-badge" title="Switch pipeline"></button>
-        <div class="pipeline-dropdown" id="pipeline-dropdown"></div>
-      </div>
-      <span class="stats-badges" id="stats-badges"></span>
     </div>
     <div class="header-right">
       <nav class="header-nav" id="header-nav">
@@ -52,6 +47,18 @@
 
   <main class="app-main" id="app-main">
     <div class="view-container" id="view-container"></div>
+
+    <!-- Corpus strip: the corpus stats and the pipeline switcher live in the
+         panel body, not the header, so they survive embedded mode (where the
+         hub's tile bar is the only header). Pinned to the bottom edge; the
+         pipeline dropdown therefore opens upward. -->
+    <div class="corpus-strip" id="corpus-strip">
+      <span class="stats-badges" id="stats-badges"></span>
+      <div class="pipeline-switcher" id="pipeline-switcher">
+        <button class="pipeline-badge" id="pipeline-badge" title="Switch pipeline"></button>
+        <div class="pipeline-dropdown" id="pipeline-dropdown"></div>
+      </div>
+    </div>
   </main>
 
   <div class="toast-container" id="toast-container"></div>

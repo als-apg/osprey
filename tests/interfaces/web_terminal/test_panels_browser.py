@@ -2070,3 +2070,114 @@ def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
             page.mouse.up()
 
         page.close()
+
+
+# ===========================================================================
+# Group 8 — Tile header-bar contributions (embed contract v2)
+# ===========================================================================
+#
+# An embedded panel contributes its toolbar controls INTO the tile bar via
+# postMessage (design_system/js/header-contrib.js → tile-header-contrib.js);
+# clicks round-trip back as osprey-header-action. Proven here with a custom
+# panel whose (proxied, same-origin) page contributes a nav + a button on
+# load and records incoming actions — the full pipeline the unit suites can
+# only cover in halves.
+
+_CONTRIB_PANEL_HTML = b"""<!doctype html>
+<html><body><script>
+  window.__actions = [];
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'osprey-header-action') {
+      window.__actions.push([e.data.id, e.data.value ?? null]);
+    }
+  });
+  parent.postMessage({
+    type: 'osprey-header-contribution',
+    version: 1,
+    items: [
+      { kind: 'nav', id: 'view', priority: 1, items: [
+        { id: 'browse', label: 'Browse', active: true },
+        { id: 'create', label: 'New Entry' },
+      ] },
+      { kind: 'button', id: 'refresh', label: 'Refresh', priority: 2 },
+    ],
+  }, window.location.origin);
+</script></body></html>"""
+
+
+@contextmanager
+def _contrib_panel_backend():
+    """Serve a page that contributes to the tile bar and records actions."""
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(_CONTRIB_PANEL_HTML)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser):
+    """A panel's contribution renders in ITS tile bar and actions round-trip.
+
+    The custom panel's page (reverse-proxied same-origin) posts a nav + button
+    contribution on load; the bar must render them beside the tile title, a
+    bar click must deliver osprey-header-action back into the iframe, and the
+    artifacts tile (which contributes nothing) must keep an empty region.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _contrib_panel_backend() as stub_url:
+        custom = {
+            "id": "contrib-demo",
+            "label": "CONTRIB",
+            "url": stub_url,
+            "healthEndpoint": None,
+            "path": "/",
+        }
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[custom],
+        ) as (base_url, _app):
+            page = _open_page(chromium_browser, base_url)
+            _open_second_tile(page, base_url, "contrib-demo", "CONTRIB")
+
+            # Contribution renders inside the CONTRIB tile's bar only.
+            tab = _service_tab(page, "CONTRIB")
+            expect(tab.locator(".contrib-nav-link")).to_have_count(2, timeout=10_000)
+            expect(tab.locator(".contrib-nav-link.active")).to_have_text("Browse")
+            expect(tab.locator(".contrib-btn")).to_have_text("Refresh")
+            expect(tab.locator(".tile-tab-contrib.has-items")).to_have_count(1)
+
+            ws = _service_tab(page, "WORKSPACE")
+            expect(ws.locator(".tile-tab-contrib.has-items")).to_have_count(0)
+            expect(ws.locator(".contrib-nav-link")).to_have_count(0)
+
+            # Round-trip: bar clicks land in the panel as osprey-header-action.
+            tab.locator(".contrib-nav-link", has_text="New Entry").click()
+            tab.locator(".contrib-btn", has_text="Refresh").click()
+            frame = page.frame_locator('.dock-iframe-overlay iframe[data-panel-id="contrib-demo"]')
+            actions = None
+            for _ in range(50):
+                actions = frame.locator("body").evaluate("() => window.__actions")
+                if actions and len(actions) >= 2:
+                    break
+                page.wait_for_timeout(100)
+            assert actions == [["view", "create"], ["refresh", None]], actions
+
+            page.close()

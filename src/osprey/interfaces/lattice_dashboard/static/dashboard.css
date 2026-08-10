@@ -36,6 +36,13 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Column flow rather than a viewport calc: the top bar is absent when
+   embedded, and #main-layout must take whatever is left either way. */
+body {
+  display: flex;
+  flex-direction: column;
+}
+
 /* ── Top Bar ───────────────────────────────────────────── */
 
 #topbar {
@@ -77,12 +84,21 @@ html, body {
   max-width: 180px;
 }
 
-.topbar-stats {
+/* ── Summary Strip ─────────────────────────────────────────
+ *
+ * The stat chips read the same in either presentation, so they live above
+ * the figures they describe — in the body, where the embedded panel shows
+ * them too (the hub's tile bar carries the actions, not the readouts). */
+
+.summary-strip {
   display: flex;
+  align-items: center;
   gap: 4px;
-  flex: 1;
-  justify-content: center;
+  padding: 4px 6px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-default);
   overflow-x: auto;
+  flex-shrink: 0;
 }
 
 .stat-chip {
@@ -122,6 +138,7 @@ html, body {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .action-btn {
@@ -162,6 +179,15 @@ html, body {
   background: color-mix(in srgb, var(--baseline-accent) 10%, transparent);
 }
 
+/* Armed: overwriting the baseline is one more click away. Held for the
+   arming window by js/header.js, which also swaps the label. */
+.action-btn--armed,
+.action-btn--armed:hover {
+  border-color: var(--baseline-accent);
+  color: var(--baseline-accent);
+  background: color-mix(in srgb, var(--baseline-accent) 18%, transparent);
+}
+
 .action-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -191,8 +217,11 @@ html, body {
   background: var(--accent-tint-12);
 }
 
-/* Embedded in web terminal: the host tile header bar shows the panel name
- * and the hub owns theming. */
+/* Embedded in web terminal: the host tile bar is the panel's one header. It
+ * shows the panel name, owns theming, and carries this bar's actions via the
+ * header contribution js/header.js publishes. The inner rules stay as the
+ * identity contract's belt and braces. */
+body.embedded #topbar { display: none; }
 body.embedded .topbar-logo { display: none; }
 body.embedded osprey-theme-switcher { display: none; }
 
@@ -200,7 +229,17 @@ body.embedded osprey-theme-switcher { display: none; }
 
 #main-layout {
   display: flex;
-  height: calc(100vh - 42px);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Everything right of the sidebar splitter: summary strip over figures. */
+#figure-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -441,6 +480,33 @@ body.embedded osprey-theme-switcher { display: none; }
   margin: 0 auto;
 }
 
+/* ── Sidebar Footer (view controls) ───────────────────── */
+
+.sidebar-footer {
+  display: flex;
+  padding: 8px;
+  border-top: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.sidebar-view-btn {
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+}
+
+#sidebar.sidebar-collapsed .sidebar-footer {
+  padding: 8px 4px;
+}
+
+#sidebar.sidebar-collapsed .sidebar-view-btn {
+  padding: 4px;
+}
+
+#sidebar.sidebar-collapsed .layout-label {
+  display: none;
+}
+
 /* Tab content panels */
 #sidebar-content {
   flex: 1;
@@ -578,6 +644,7 @@ body.embedded osprey-theme-switcher { display: none; }
 
 #figure-area {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -855,6 +922,7 @@ body.drag-active .figure-plot {
   }
   #sidebar .sidebar-header-label,
   #sidebar .sidebar-tab-label,
+  #sidebar .layout-label,
   #sidebar #sidebar-content {
     display: none !important;
   }

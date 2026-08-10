@@ -7,6 +7,7 @@
 
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
+import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { capabilitiesApi } from './api.js';
 import { initSearch, performSearch, clearSearch, onUiModeChange } from './search.js';
 import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
@@ -59,11 +60,37 @@ function defaultView() {
 }
 
 /**
+ * Views the tile bar's nav offers when embedded. Search and Status are
+ * standalone-only (navigateTo redirects both to browse), so the bar carries
+ * the two views an operator actually works in.
+ * @type {{ id: string, label: string }[]}
+ */
+const HEADER_VIEWS = [
+  { id: 'browse', label: 'Browse' },
+  { id: 'create', label: 'New Entry' },
+];
+
+/**
+ * Publish this panel's tile-bar contribution for the current view. The hub
+ * renders only what the last contribution says, so the WHOLE nav goes out
+ * again on every view change. No-op standalone.
+ */
+function publishHeaderContribution() {
+  contributeHeader([
+    {
+      kind: 'nav',
+      id: 'view',
+      items: HEADER_VIEWS.map(v => ({ id: v.id, label: v.label, active: v.id === currentView })),
+    },
+  ]);
+}
+
+/**
  * Initialize the application.
  */
 async function init() {
-  // Embedded mode — hide standalone-only chrome (logo, search nav) when
-  // loaded inside the web terminal iframe
+  // Embedded mode — drops the panel's own header entirely (the host tile bar
+  // is the one header) when loaded inside the web terminal iframe
   applyEmbedded();
 
   // Initialize modules — wrapped in try/catch so navigation always works
@@ -125,6 +152,12 @@ function setupNavigation() {
     const hash = window.location.hash.slice(1) || defaultView();
     navigateTo(hash);
   });
+
+  // Embedded: the same nav lives in the host tile bar. The hub posts the
+  // clicked entry's id back here and navigateTo re-publishes the active state.
+  onHeaderAction((id, value) => {
+    if (id === 'view' && value) navigateTo(value);
+  });
 }
 
 /**
@@ -178,8 +211,11 @@ function parseHash(hash) {
 function navigateTo(hash) {
   const { viewName, params } = parseHash(hash);
 
-  // Search is hidden in embedded mode — redirect stray #search hashes
-  if (viewName === 'search' && isEmbedded()) {
+  // Search and Status are standalone-only: embedded users search the logbook
+  // through the agent, and the hub's own ARIEL dot reports service health.
+  // Redirect stray hashes so neither view can activate (which also keeps the
+  // status auto-refresh interval — started only on that activation — off).
+  if (isEmbedded() && (viewName === 'search' || viewName === 'status')) {
     navigateTo('browse');
     return;
   }
@@ -234,6 +270,8 @@ function navigateTo(hash) {
   }
 
   currentView = viewName;
+
+  publishHeaderContribution();
 }
 
 // Initialize when DOM is ready

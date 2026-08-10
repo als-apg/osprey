@@ -13,6 +13,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Docked panels now show **one** header bar instead of two. A panel embedded
+  in the web terminal contributes its real toolbar controls (view switcher,
+  action buttons, live text) into the tile's header bar over a new
+  postMessage contract; its own top bar disappears. ARIEL, Channel Finder,
+  the lattice dashboard, and System Health were curated accordingly — the
+  lattice summary stats moved into the panel body, Channel Finder's pipeline
+  switcher and corpus stats into a bottom strip, and the lattice Baseline
+  button now asks for confirmation before overwriting.
 - `osprey -v` (`--verbose`) shows debug output, including every container
   command a deploy runs. Normal runs no longer echo those commands, so a
   deploy reads as a report — ending in the endpoint summary — rather than a
@@ -276,6 +284,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Lattice dashboard summary stats (energy, tunes, chromaticity) no longer
+  freeze at load time — they recompute with the fast figures after a magnet
+  change. Also removed dead panel chrome the audit surfaced: ARIEL's unwired
+  "Connected" indicator and the System Health panel's no-op manual refresh
+  and misleading fetch-time timestamp.
 - On Docker Desktop (macOS/Windows), `osprey deploy up` now repairs a web
   stack that is fully healthy yet unreachable from the browser. Docker
   Desktop forwards a host-network port only if it watched the container open
