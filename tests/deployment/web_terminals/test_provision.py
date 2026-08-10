@@ -1,12 +1,11 @@
 """Unit tests for the web-terminal deploy orchestration entrypoints.
 
 Covers ``osprey.deployment.web_terminals.provision`` in isolation: the web
-stack's own ``compose down``, the single post-``up`` force-recreate (image
-drift plus caller-requested services), the
-``preflight_web_terminals`` auth-credential provisioning (mint order, the
-fail-closed gate, and the force-recreate signal it returns), and the auth
-sidecar's image production (registry-mode ``auth.image`` requirement,
-local-mode build, pull scoping) plus the shared force-recreate primitive. The
+stack's own ``compose down``, the single post-``up`` force-recreate (podman
+image drift), the ``preflight_web_terminals`` auth-credential provisioning
+(mint order and the fail-closed gate), and the auth sidecar's image
+production (registry-mode ``auth.image`` requirement, local-mode build, pull
+scoping) plus the shared force-recreate primitive. The
 deploy_up-entry orchestration that wires the provisioning modules together
 lives in ``tests/deployment/test_container_lifecycle.py``; the split-out
 provisioning steps have their own modules and test files
@@ -266,7 +265,7 @@ def test_reconcile_skipped_when_compose_file_unreadable(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# preflight_web_terminals -- auth credential provisioning, gate, and signal
+# preflight_web_terminals -- auth credential provisioning and the gate
 # ---------------------------------------------------------------------------
 
 
@@ -369,13 +368,12 @@ def test_preflight_mints_credentials_then_secrets_for_the_roster(
 
     config = _auth_config("password", users=["alice", {"name": "bob-2", "index": 4}])
     config["modules"]["web_terminals"]["image_source"] = image_source
-    result = _run_preflight(monkeypatch, tmp_path, config)
+    _run_preflight(monkeypatch, tmp_path, config)
 
     assert [call[0] for call in calls] == ["credentials", "secrets"]
     assert calls[0][1] == ["alice", "bob-2"]
     assert calls[0][2] == str(tmp_path)
     assert calls[1][1] == str(tmp_path)
-    assert result.auth_env_changed is False
 
 
 def test_preflight_with_auth_none_touches_no_credential_state(monkeypatch, tmp_path, caplog):
@@ -391,32 +389,30 @@ def test_preflight_with_auth_none_touches_no_credential_state(monkeypatch, tmp_p
     (tmp_path / ".gitignore").write_text(".env\n", encoding="utf-8")
 
     with caplog.at_level("WARNING"):
-        result = _run_preflight(monkeypatch, tmp_path, _auth_config("none"))
+        _run_preflight(monkeypatch, tmp_path, _auth_config("none"))
 
-    assert result.auth_env_changed is False
     assert not (tmp_path / AUTH_ENV_FILENAME).exists()
     assert AUTH_ENV_FILENAME not in caplog.text
 
 
-def test_preflight_provisions_and_reports_changed_then_is_idempotent(monkeypatch, tmp_path):
+def test_preflight_provisions_on_first_run_then_is_idempotent(monkeypatch, tmp_path):
     """End to end on a real project root: the first deploy establishes every
-    hash and both signing secrets and reports the force-recreate signal; the
-    second changes nothing, so it must NOT recreate the sidecar again."""
+    hash and both signing secrets; the second changes nothing — byte-identical
+    ``.env.auth``, so the re-rendered digest label is unchanged too and a no-op
+    redeploy recreates nothing."""
     config = _auth_config("password", users=("alice", "bob-2"))
 
-    first = _run_preflight(monkeypatch, tmp_path, config)
+    _run_preflight(monkeypatch, tmp_path, config)
 
     env_auth = tmp_path / AUTH_ENV_FILENAME
     stored = parse_dotenv_file(env_auth)
     assert stored[f"{PW_HASH_VAR_PREFIX}ALICE"]
     assert stored[f"{PW_HASH_VAR_PREFIX}BOB_2"]
     assert all(stored[var] for var in SESSION_SECRET_VARS)
-    assert first.auth_env_changed is True
 
     before = env_auth.read_text(encoding="utf-8")
-    second = _run_preflight(monkeypatch, tmp_path, config)
+    _run_preflight(monkeypatch, tmp_path, config)
 
-    assert second.auth_env_changed is False
     assert env_auth.read_text(encoding="utf-8") == before
 
 
@@ -426,14 +422,13 @@ def test_preflight_in_oidc_mode_creates_env_auth_with_secrets_and_no_hashes(monk
     file is absent — an oidc stack could not start at all. What it must not
     contain is password hashes: oidc authenticates at the IdP, and minting
     passwords nobody will ever type would put credentials on disk for nothing."""
-    result = _run_preflight(monkeypatch, tmp_path, _auth_config("oidc", users=("alice", "bob")))
+    _run_preflight(monkeypatch, tmp_path, _auth_config("oidc", users=("alice", "bob")))
 
     env_auth = tmp_path / AUTH_ENV_FILENAME
     assert env_auth.is_file()
     stored = parse_dotenv_file(env_auth)
     assert all(stored[var] for var in SESSION_SECRET_VARS)
     assert not [var for var in stored if var.startswith(PW_HASH_VAR_PREFIX)]
-    assert result.auth_env_changed is True
 
 
 def test_preflight_does_not_swallow_a_roster_that_cannot_be_keyed(monkeypatch, tmp_path):
@@ -493,35 +488,6 @@ def test_preflight_gate_raises_naming_missing_secret_vars_in_oidc_mode(monkeypat
 
 
 @pytest.mark.parametrize(
-    ("credentials_changed", "secrets_changed", "expected"),
-    [(False, False, False), (True, False, True), (False, True, True), (True, True, True)],
-)
-def test_preflight_force_recreate_signal_ors_both_results(
-    monkeypatch, tmp_path, credentials_changed, secrets_changed, expected
-):
-    """Either write obliges the same action — compose bakes env_file content in
-    at container CREATION, so a sidecar left running would serve the previous
-    file's contents whichever of the two functions appended to it."""
-    env_auth = tmp_path / AUTH_ENV_FILENAME
-    monkeypatch.setattr(
-        provision,
-        "ensure_auth_credentials",
-        lambda usernames, root, **kwargs: _credentials_result(
-            env_auth, changed=credentials_changed
-        ),
-    )
-    monkeypatch.setattr(
-        provision,
-        "ensure_auth_session_secrets",
-        lambda root: _secrets_result(env_auth, changed=secrets_changed),
-    )
-
-    result = _run_preflight(monkeypatch, tmp_path, _auth_config("password"))
-
-    assert result.auth_env_changed is expected
-
-
-@pytest.mark.parametrize(
     "gitignore",
     [
         "# nothing\n",
@@ -542,11 +508,10 @@ def test_preflight_warns_when_gitignore_does_not_cover_env_auth(
     (tmp_path / ".gitignore").write_text(gitignore, encoding="utf-8")
 
     with caplog.at_level("WARNING"):
-        result = _run_preflight(monkeypatch, tmp_path, _auth_config("password"))
+        _run_preflight(monkeypatch, tmp_path, _auth_config("password"))  # warn-only: no raise
 
     assert AUTH_ENV_FILENAME in caplog.text
     assert ".gitignore" in caplog.text
-    assert result.auth_env_changed is False  # warn-only: the deploy continues
 
 
 @pytest.mark.parametrize(
@@ -604,11 +569,9 @@ def test_registry_mode_without_auth_image_fails_preflight(monkeypatch, tmp_path)
 def test_registry_mode_with_auth_image_passes_preflight(monkeypatch, tmp_path):
     _stub_clean_provisioning(monkeypatch, tmp_path)
 
-    result = _run_preflight(
+    _run_preflight(
         monkeypatch, tmp_path, _sidecar_config("registry", auth_image="reg/osprey-auth:1.2.3")
     )
-
-    assert result.auth_env_changed is False
 
 
 def test_local_mode_needs_no_auth_image_at_preflight(monkeypatch, tmp_path):
@@ -617,9 +580,7 @@ def test_local_mode_needs_no_auth_image_at_preflight(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "auto_render_missing_personas", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
 
-    result = _run_preflight(monkeypatch, tmp_path, _sidecar_config("local"))
-
-    assert result.auth_env_changed is False
+    _run_preflight(monkeypatch, tmp_path, _sidecar_config("local"))
 
 
 def test_auth_method_none_needs_no_auth_image(monkeypatch, tmp_path):
@@ -627,9 +588,7 @@ def test_auth_method_none_needs_no_auth_image(monkeypatch, tmp_path):
     registry deploy that never opted in must not be asked for an image."""
     _stub_clean_provisioning(monkeypatch, tmp_path)
 
-    result = _run_preflight(monkeypatch, tmp_path, _sidecar_config("registry", method="none"))
-
-    assert result.auth_env_changed is False
+    _run_preflight(monkeypatch, tmp_path, _sidecar_config("registry", method="none"))
 
 
 def _capture_build(monkeypatch):
@@ -802,6 +761,9 @@ def test_force_recreate_auth_sidecar_targets_only_the_sidecar_service(monkeypatc
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
+    # The pre-recreate render is pinned by its own tests below; this one is
+    # about the compose argv, so keep the stub config renderable-free.
+    monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda *a, **k: [])
 
     provision.force_recreate_auth_sidecar(
         {"project_name": "myproj"}, ["--env-file", ".env"], env={"X": "1"}
@@ -825,82 +787,90 @@ def test_force_recreate_auth_sidecar_targets_only_the_sidecar_service(monkeypatc
     assert recorded[0]["env"]["COMPOSE_PROJECT_NAME"] == "myproj"
 
 
-def test_changed_env_auth_recreates_the_sidecar_once_even_when_its_image_drifted(
-    monkeypatch, tmp_path
-):
-    """Both reasons resolve into ONE service-scoped recreate: the sidecar's
-    env_file changed AND (podman) its image drifted. Issuing them separately
-    would bounce the same container twice in one deploy."""
+def test_force_recreate_auth_sidecar_rerenders_before_the_recreate(monkeypatch, tmp_path):
+    """Every caller of this primitive (passwd/decommission/prune) mutates
+    .env.auth AFTER the last render, so the compose file's digest label
+    describes the file's previous content. The recreate must run against a
+    freshly-digested compose file, or the created container carries a label
+    that is not the digest of the env it baked — costing a spurious bounce at
+    the next deploy, and masking a byte-exact revert from the label diff."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "docker-compose.web.yml").write_text(
-        "services:\n  auth:\n    image: als-assistant-auth:local\n    container_name: als-auth\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
-    _patch_ids(
-        monkeypatch,
-        image_ids={"als-assistant-auth:local": "idNEW"},
-        container_ids={"als-auth": "idOLD"},  # drifted as well
-    )
-    recorded = []
-
-    def _fake_run(cmd, **kwargs):
-        recorded.append(list(cmd))
-        return _FakeCompletedProcess()
-
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
-
-    provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV, force_recreate=("auth",))
-
-    assert len(recorded) == 1
-    assert recorded[0][-3:] == ["-d", "--force-recreate", "auth"]
-    assert recorded[0].count("auth") == 1
-
-
-def test_changed_env_auth_recreates_the_sidecar_on_docker_too(monkeypatch, tmp_path):
-    """The podman gate covers IMAGE DRIFT only. No compose implementation
-    recreates a container when its env_file's CONTENT changed, so a
-    caller-requested recreate must fire on docker as well — otherwise every
-    docker deployment would keep serving the previous credentials."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    recorded = []
-
-    def _fake_run(cmd, **kwargs):
-        recorded.append(list(cmd))
-        return _FakeCompletedProcess()
-
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
-
-    provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV, force_recreate=("auth",))
-
-    assert len(recorded) == 1
-    assert recorded[0][-1] == "auth"
-
-
-def test_deploy_up_recreates_the_sidecar_when_preflight_changed_env_auth(monkeypatch, tmp_path):
-    """The seam the deploy flow uses: hand deploy_up_web_terminals the preflight
-    result and the sidecar joins the post-`up` recreate. Without the result
-    (or with the flag clear) the deploy recreates nothing."""
-    recorded = _stub_web_stack(monkeypatch, tmp_path)
-    captured: list[tuple] = []
+    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    order: list[str] = []
     monkeypatch.setattr(
         provision,
-        "_reconcile_web_stack_recreates",
-        lambda config, web_cmd, run_env, force_recreate=(): captured.append(force_recreate),
+        "write_web_terminal_artifacts",
+        lambda config, dest_dir=".": order.append("render") or [],
     )
-    config = _sidecar_config("registry", auth_image="reg/auth:1")
+
+    def _fake_run(cmd, **kwargs):
+        order.append("recreate")
+        return _FakeCompletedProcess()
+
+    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
+
+    provision.force_recreate_auth_sidecar({"project_name": "myproj"}, [])
+
+    assert order == ["render", "recreate"]
+
+
+def test_force_recreate_auth_sidecar_still_recreates_when_the_render_fails(
+    monkeypatch, tmp_path, caplog
+):
+    """The render is a label-hygiene step; the recreate is the security step
+    (it puts a credential purge into force). A render failure must degrade to
+    a warning + stale label, never to a skipped recreate."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    recreated: list[list[str]] = []
+
+    def _failing_render(config, dest_dir="."):
+        raise ValueError("unrenderable config")
+
+    monkeypatch.setattr(provision, "write_web_terminal_artifacts", _failing_render)
+
+    def _fake_run(cmd, **kwargs):
+        recreated.append(list(cmd))
+        return _FakeCompletedProcess()
+
+    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
+
+    with caplog.at_level("WARNING"):
+        provision.force_recreate_auth_sidecar({"project_name": "myproj"}, [])
+
+    assert len(recreated) == 1 and "--force-recreate" in recreated[0]
+    assert "Could not re-render" in caplog.text
+
+
+def test_deploy_up_renders_the_artifacts_before_any_web_stack_compose_invocation(
+    monkeypatch, tmp_path
+):
+    """Ordering is what makes the digest label trustworthy: the render digests
+    `.env.auth` into the sidecar's service definition, so it must run before
+    the web stack's `up -d` — that `up` is what compares definitions and
+    recreates the sidecar after any content change (mint or hand-edit)."""
+    order: list[str] = []
+    _stub_web_stack(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        provision,
+        "write_web_terminal_artifacts",
+        lambda config, dest_dir=".": order.append("render") or [],
+    )
+
+    def _fake_run(cmd, **kwargs):
+        order.append("compose")
+        return _FakeCompletedProcess()
+
+    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
 
     provision.deploy_up_web_terminals(
-        config, [], False, {}, [], provision.WebTerminalPreflightResult(auth_env_changed=True)
+        _sidecar_config("registry", auth_image="reg/auth:1"), [], False, {}, []
     )
-    provision.deploy_up_web_terminals(
-        config, [], False, {}, [], provision.WebTerminalPreflightResult(auth_env_changed=False)
-    )
-    provision.deploy_up_web_terminals(config, [], False, {}, [])
 
-    assert captured == [("auth",), (), ()]
-    assert recorded  # the stack was still brought up in every case
+    assert order[0] == "render"
+    assert "compose" in order
 
 
 def test_force_recreate_auth_sidecar_is_a_warning_not_a_failure_without_a_stack(

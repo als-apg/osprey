@@ -251,7 +251,17 @@ Compatibility is documented in release notes, not encoded in the version string.
   secret are covered. `deploy passwd` checks before storing a new password.
 - The OIDC section of the multi-user guide named `.env` as the file to put
   client credentials in. It is `.env.auth` — credentials placed as documented
-  never reached the login service.
+  never reached the login service. The deploy skill's config-schema and
+  web-terminals references said the same thing and are corrected too.
+- Editing `.env.auth` by hand (the documented way to add OIDC client
+  credentials) now takes effect on the next `osprey deploy up`. On podman the
+  login service previously kept running with the old file's contents —
+  healthy-looking but rejecting every login — until it was recreated manually.
+- Lint now refuses a roster `oidc_subject` containing `$`. The subject travels
+  through the rendered compose file, where `$` sequences are rewritten, so
+  that user could never log in and nothing said why.
+- The deploy skill's CI template no longer lets the shell expand — or execute
+  backticks in — the ARIEL DSN and timezone it writes into `.env.production`.
 - The settings drawer's `CLAUDE.md` section now has a help tooltip. Its help
   text was filed under a category name no gallery ever displays, so the button
   silently never rendered — on the one artifact that matters most.

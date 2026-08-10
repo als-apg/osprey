@@ -1334,11 +1334,13 @@ def _check_auth_transport(web_terminals: dict[str, Any]) -> list[Finding]:
 
 
 def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> list[Finding]:
-    """``method: oidc`` needs an issuer, usable client env-var names, and an origin.
+    """``method: oidc`` needs an issuer, usable client env-var names, safe
+    subjects, and an origin.
 
-    Three ERRORs, all config-visible and all fatal at *request* time rather
+    Four ERRORs, all config-visible and all fatal at *request* time rather
     than deploy time if they slip through — a sidecar that cannot complete a
-    login flow locks the whole roster out:
+    login flow locks the whole roster out (or, for a ``$``-bearing subject,
+    one named user out):
 
     * **Issuer.** ``auth.oidc.issuer`` has no default: without it there is no
       discovery document to fetch and no IdP to redirect to.
@@ -1393,6 +1395,37 @@ def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> lis
                 ),
             )
         )
+
+    # A roster entry's `oidc_subject` is the one OIDC value that travels through
+    # the compose *document* (an `environment:` entry on the sidecar), not an
+    # env_file — so the deploy-time `$` scan over `.env`/`.env.auth`/
+    # `.env.production` never sees it, and compose-document interpolation
+    # rewrites any `$` sequence on the way through. The sidecar would then match
+    # logins against an identity the IdP never issues: that one user can never
+    # log in, silently. Subjects are near-universally UUIDs or emails, so a `$`
+    # is far more likely a typo than a real identity — refusing at lint is the
+    # honest failure. The message names the user, never the subject: not
+    # because the subject is secret (it is published by the IdP), but because
+    # echoing a value compose would mangle invites pasting the mangled form.
+    for entry in web_terminals.get("users") or []:
+        if not isinstance(entry, dict):
+            continue
+        subject = entry.get("oidc_subject")
+        if isinstance(subject, str) and "$" in subject:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.auth_oidc_subject_unsafe",
+                    message=(
+                        f"modules.web_terminals.users entry {entry.get('name')!r} has an "
+                        "oidc_subject containing '$'. The subject is rendered into the "
+                        "compose document, where '$' sequences are interpolated — the "
+                        "sidecar would match against a rewritten identity and this user "
+                        "could never log in. If the IdP truly issues a '$'-bearing "
+                        "subject, map a different claim via auth.oidc.claim instead"
+                    ),
+                )
+            )
 
     # Only `deploy.fqdn` can make the origin underivable; the published port
     # merely fills the ':port' suffix when TLS is off. A malformed `nginx_port`
