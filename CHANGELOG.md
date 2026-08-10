@@ -21,7 +21,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   lattice summary stats moved into the panel body, Channel Finder's pipeline
   switcher and corpus stats into a bottom strip, and the lattice Baseline
   button now asks for confirmation before overwriting.
-
+- `osprey -v` (`--verbose`) shows debug output, including every container
+  command a deploy runs. Normal runs no longer echo those commands, so a
+  deploy reads as a report — ending in the endpoint summary — rather than a
+  transcript.
+- `osprey profile try` runs the whole lifecycle as one command: settle the
+  profile (materialized on the first run, reused — with `--set`/`-O` written
+  into it — on every later one), build the project (re-rendered in place on a
+  rerun), and `deploy up`, ending in the endpoint summary. One command with
+  each phase printed in sequence, instead of three commands chained across
+  three directories. `--dev` and `-d` pass through to the deploy.
 - Profiles carry artifacts into a build through **convention directories** —
   `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
   `web-terminal-context/`, `mcp_servers/`, `services/`, and `project/` for
@@ -50,6 +59,25 @@ Compatibility is documented in release notes, not encoded in the version string.
   profile has fully rendered — a failed run leaves the old directory intact.
 - The emitted `profile.yml` header now opens with a lifecycle diagram:
   profile (edit) → build → project (regenerable) → deploy → running containers.
+- `osprey profile new` writes a **facility repository** rather than a bare
+  profile directory: a git repository holding the profile under `profile/`, an
+  empty `build/`, a `ci-extra.yml` for the facility's own CI jobs, and a
+  `.gitignore`. A profile nested this way renders into the repository's
+  `build/<PROJECT_NAME>/`, from whichever directory `osprey build` is run — no
+  `--output-dir` needed.
+- A profile can carry a `deploy:` block: CI platform, deploy host, and the
+  container registry when the host pulls its images. Credentials are named
+  there, never written there.
+- `osprey deploy scaffold` emits the facility repository's CI pipeline and
+  post-deploy health check from that block. Re-running is safe — a file whose
+  content already matches is left untouched, and a file the scaffolder did not
+  write is reported rather than overwritten unless `--force` is given.
+- `osprey deploy render-env-production` renders `.env.production`, the env file
+  each per-user web-terminal container runs with, from the deploy config and one
+  secrets file. `--output` writes it at mode `0600` instead of to stdout.
+- New skill `osprey-deploy-ops` — the operate-time runbook: emitting the
+  deployment files, bringing the stack up on the host, and triaging a service
+  that is down.
 - `archiver_read` gained `bin_size=0` for full resolution — every real
   archived sample in the requested range, with no per-bin decimation. Only
   valid with `processing="raw"` (an aggregate has no bin to aggregate
@@ -91,6 +119,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   the build reads it, and rolled back if the build fails. Naming a *different*
   preset for a project that already has a profile is refused rather than
   silently building the old one.
+- `osprey deploy` is a group of verbs, each declaring the options it actually
+  takes. `-d/--detached`, `--dev` and `--expose` were global before and were
+  accepted-then-ignored by verbs that have no use for them; passing one to such
+  a verb is now a parse error.
 - `osprey scaffold claim` moves an artifact into the matching convention
   directory of the profile the project was built from, instead of marking it
   user-owned where it sits. The next build copies it back and registers it, so
@@ -211,6 +243,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Removed
 
+- The `osprey-build-deploy` skill. `osprey-deploy-ops` replaces it, and what
+  that skill used to scaffold by hand is now `osprey deploy scaffold`.
+- `facility-config.yml`. The `modules.web_terminals` stanza lives in the
+  project's own `config.yml`, emitted from the profile's `config:` block, and
+  the deployment files come from the profile's `deploy:` block. Passing
+  `--config` to `osprey scaffold web-terminals` is now an error naming both
+  replacements; use `--project` instead.
 - The `overlay:` profile key and the `overlays/` seed directory. Put a file in
   the convention directory that matches what it is; there is nothing left to
   declare.
@@ -250,6 +289,22 @@ Compatibility is documented in release notes, not encoded in the version string.
   change. Also removed dead panel chrome the audit surfaced: ARIEL's unwired
   "Connected" indicator and the System Health panel's no-op manual refresh
   and misleading fetch-time timestamp.
+- On Docker Desktop (macOS/Windows), `osprey deploy up` now repairs a web
+  stack that is fully healthy yet unreachable from the browser. Docker
+  Desktop forwards a host-network port only if it watched the container open
+  it, so a container that restarted while Docker Desktop itself was starting
+  stays invisible from the host — and re-running `deploy up` could never fix
+  it, because nothing in the container's definition changed. The post-deploy
+  reachability probe now restarts the web stack once and re-checks before
+  pointing at the host-networking setting.
+- A deploy is quieter about things that were never wrong: no more
+  orphan-container warnings for its own sibling stack (two compose
+  invocations share one project by design), no more garbled progress
+  rendering on long service names (docker runs use `--progress plain`), and
+  no more platform-mismatch warning for the virtual accelerator on Apple
+  Silicon — that image is amd64 by design (its Channel Access server has no
+  arm64 wheels), and the compose service now declares it via
+  `platform: linux/amd64`, overridable with `OSPREY_VA_PLATFORM`.
 - Importing the control-system connectors no longer drags in pandas. The
   connector factory imported the archiver base eagerly for a type annotation,
   so anything that wanted only `osprey.connectors.control_system` had to

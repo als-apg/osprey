@@ -1862,19 +1862,22 @@ class TestUnclaimIsHonestAboutTheProfile:
 class TestRouteRefusals:
     """A refused write has to reach the operator as a reason, not a 500.
 
-    The service raises in its own vocabulary; the route family decides what the
-    browser sees. An exception the route does not name becomes a bare 500 with
-    the message stripped, which is the one outcome that helps nobody.
+    The service raises in its own vocabulary; the route family — its own
+    ``except`` clauses plus the app-level conflict handlers — decides what the
+    browser sees. An exception nobody names becomes a bare 500 with the message
+    stripped, which is the one outcome that helps nobody.
     """
 
     def _client(self, project_dir: Path):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
+        from osprey.interfaces.web_terminal.app import register_scaffold_conflict_handlers
         from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes
 
         app = FastAPI()
         app.include_router(scaffold_routes.router)
+        register_scaffold_conflict_handlers(app)
         app.state.project_cwd = str(project_dir)
         return TestClient(app)
 

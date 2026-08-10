@@ -10,9 +10,8 @@ Covers the in-core sub-agents shipped by the ``control_assistant`` preset:
 - data-visualizer (workspace plotting/LaTeX tools, no facility backend)
 
 Facility-specific sub-agents (literature/wiki/matlab/graph) are no longer
-covered here — they are scaffolded per-facility by the
-``osprey-build-deploy`` skill and live in their respective profile repos.
-Coverage for those agents belongs alongside the profile that ships them.
+covered here — a facility ships them in its own build profile, and coverage
+for them belongs alongside that profile.
 
 These tests use real API calls via the Claude Agent SDK — zero mocking.
 

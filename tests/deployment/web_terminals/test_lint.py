@@ -7,14 +7,22 @@ import copy
 import pytest
 
 from osprey.deployment.web_terminals import lint
-from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
+from osprey.deployment.web_terminals.lint import (
+    Finding,
+    lint_profile_config,
+    lint_web_terminals,
+    profile_config_errors,
+)
 
 _CLEAN_CONFIG = {
     "facility": {"prefix": "test"},
-    "ports": {
-        "matlab": 8001,
-        "web_terminal_nginx": 9080,
-        "event_dispatcher": 8010,
+    "services": {
+        "openobserve": {"port": 5080},
+        "postgresql": {"port_host": 5432},
+        "event_dispatcher": {"port": 8020},
+        # Reaches the dispatcher over the compose network and publishes nothing
+        # on the host, so it is deliberately outside the collision set.
+        "dispatch_worker": {"worker_port_base": 9190, "worker_count": 1},
     },
     "modules": {
         "web_terminals": {
@@ -25,12 +33,6 @@ _CLEAN_CONFIG = {
             "ariel_base_port": 9391,
             "lattice_base_port": 9491,
             "users": ["thellert", "gmartino"],
-        },
-        "event_dispatcher": {
-            "enabled": True,
-            "port": 8010,
-            "sidecar_count": 5,
-            "sidecar_port_base": 9190,
         },
     },
 }
@@ -74,13 +76,14 @@ def test_lint_duplicate_user_is_an_error() -> None:
     assert any(f.code == "web_terminals.duplicate_user" for f in errors)
 
 
-def test_lint_port_family_overlap_with_event_dispatcher_sidecars_is_an_error() -> None:
-    """artifact_base_port's per-user range must not collide with sidecar ports."""
+def test_lint_port_family_overlap_with_a_deployed_service_is_an_error() -> None:
+    """The web stack runs on the host netns, so a per-user family collides with
+    any port a deployed service publishes."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    # artifact_base_port range is [9291, 9292]; force it into the sidecar range
-    # [9190, 9194] by lowering artifact_base_port so index 1 lands on 9191.
-    config["modules"]["web_terminals"]["artifact_base_port"] = 9190
+    # artifact_base_port's range is [9291, 9292]; move openobserve onto 9292,
+    # the port user index 1 would bind.
+    config["services"]["openobserve"]["port"] = 9292
 
     # Act
     findings = lint_web_terminals(config)
@@ -90,11 +93,41 @@ def test_lint_port_family_overlap_with_event_dispatcher_sidecars_is_an_error() -
     overlap_findings = [f for f in errors if f.code == "web_terminals.port_overlap"]
     assert overlap_findings
     assert any("artifact_base_port" in f.message for f in overlap_findings)
-    assert any("sidecar_port_base" in f.message for f in overlap_findings)
+    assert any("services.openobserve.port" in f.message for f in overlap_findings)
 
 
-def test_lint_reserved_name_nginx_is_an_error() -> None:
-    """A user named 'nginx' collides with the always-present reverse-proxy service."""
+def test_lint_nginx_port_colliding_with_a_user_port_is_an_error() -> None:
+    """nginx's listener lost its `ports.*` mirror, so it joins the collision set
+    on its own — nothing else declares it any more."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["nginx_port"] = 9091  # web_base_port index 0
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert any("web_terminals.nginx_port" in f.message for f in overlap_findings)
+
+
+def test_lint_container_internal_worker_port_is_not_in_the_collision_set() -> None:
+    """A port published on no host interface cannot collide with one that is."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    # The dispatch worker's internal listener, set to a port a user also binds.
+    config["services"]["dispatch_worker"]["worker_port_base"] = 9091
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.port_overlap" for f in _errors(findings))
+
+
+def test_lint_username_matching_a_service_name_is_not_an_error() -> None:
+    """A user's compose service key is `web-<user>`, so a name like 'nginx' has
+    no service key to collide with — rejecting it would be a false failure."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = ["nginx", "gmartino"]
@@ -103,8 +136,7 @@ def test_lint_reserved_name_nginx_is_an_error() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.reserved_name" for f in errors)
+    assert _errors(findings) == []
 
 
 def test_lint_enabled_with_empty_users_is_a_single_warning_not_an_error() -> None:
@@ -121,23 +153,6 @@ def test_lint_enabled_with_empty_users_is_a_single_warning_not_an_error() -> Non
     warnings = _warnings(findings)
     assert len(warnings) == 1
     assert warnings[0].code == "web_terminals.empty_users"
-
-
-def test_lint_empty_users_with_benchmarks_enabled_is_an_error() -> None:
-    """benchmarks.runs_in_container needs a first user; zero users can't resolve one."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = []
-    config["modules"]["benchmarks"] = {"enabled": True}
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.empty_users_with_benchmarks" for f in errors)
-    # The plain empty-users warning must not also fire alongside the hard failure.
-    assert not any(f.code == "web_terminals.empty_users" for f in findings)
 
 
 def test_lint_disabled_module_reports_nothing() -> None:
@@ -249,10 +264,10 @@ def test_lint_username_charset_accepts_leading_digit() -> None:
 
 def test_lint_tls_enabled_adds_443_to_port_overlap_set() -> None:
     """When the TLS seam is enabled, port 443 (the `listen 443 ssl` port) joins the
-    S1-S4 collision set and collides with an existing ports.* literal of 443."""
+    collision set and collides with a service already publishing 443."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["ports"]["conflicting"] = 443
+    config["services"]["conflicting"] = {"port": 443}
     config["modules"]["web_terminals"]["tls"] = {"enabled": True}
 
     # Act
@@ -265,11 +280,11 @@ def test_lint_tls_enabled_adds_443_to_port_overlap_set() -> None:
 
 
 def test_lint_tls_disabled_does_not_add_443_to_port_overlap_set() -> None:
-    """With the TLS seam left at its default (off), port 443 is just an ordinary
-    ports.* value and must not be treated as a second, colliding source."""
+    """With the TLS seam left at its default (off), 443 is just one service's
+    port and must not be treated as a second, colliding source."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["ports"]["conflicting"] = 443
+    config["services"]["conflicting"] = {"port": 443}
     # tls.enabled defaults to False; no web_terminals.tls stanza at all here.
 
     # Act
@@ -281,7 +296,7 @@ def test_lint_tls_disabled_does_not_add_443_to_port_overlap_set() -> None:
     assert not any("443" in f.message for f in overlap_findings)
 
 
-# --- Task 1.3: index-related findings for object-form users -----------------
+# --- index-related findings for object-form users ---------------------------
 
 
 def test_lint_duplicate_explicit_index_is_an_error() -> None:
@@ -540,24 +555,6 @@ def test_lint_mixed_roster_does_not_crash_and_does_not_warn_about_port_drift_ris
     assert not any(f.code == "web_terminals.bare_list_port_drift_risk" for f in warnings)
 
 
-def test_lint_object_form_reserved_name_is_an_error() -> None:
-    """Object-form entries must be held to the same reserved-name rule as bare
-    strings — the schema change must not open a validation gap."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "nginx", "index": 0},
-        {"name": "gmartino", "index": 1},
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.reserved_name" for f in errors)
-
-
 def test_lint_object_form_bad_charset_is_an_error() -> None:
     """Object-form entries must be held to the same charset rule as bare
     strings — usernames still become nginx location keys either way."""
@@ -573,8 +570,8 @@ def test_lint_object_form_bad_charset_is_an_error() -> None:
     assert any(f.code == "web_terminals.invalid_username_charset" for f in errors)
 
 
-def test_lint_object_form_valid_name_reports_no_reserved_or_charset_errors() -> None:
-    """A well-formed object-form name must not trip either name-validation check."""
+def test_lint_object_form_valid_name_reports_no_charset_error() -> None:
+    """A well-formed object-form name must not trip the name-validation check."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
@@ -587,7 +584,6 @@ def test_lint_object_form_valid_name_reports_no_reserved_or_charset_errors() -> 
 
     # Assert
     errors = _errors(findings)
-    assert not any(f.code == "web_terminals.reserved_name" for f in errors)
     assert not any(f.code == "web_terminals.invalid_username_charset" for f in errors)
 
 
@@ -609,7 +605,7 @@ def test_lint_object_form_duplicate_name_is_still_a_duplicate_user_error() -> No
     assert any(f.code == "web_terminals.duplicate_user" for f in errors)
 
 
-# --- Task 2.3: persona catalog identity/reference checks ---------------------
+# --- persona catalog identity/reference checks -------------------------------
 
 
 def test_lint_clean_persona_catalog_reports_no_error_findings() -> None:
@@ -739,20 +735,23 @@ def test_lint_persona_charset_rejects_a_trailing_newline() -> None:
     assert any(f.code == "web_terminals.invalid_persona_charset" for f in errors)
 
 
-def test_lint_persona_catalog_reserved_name_is_an_error() -> None:
-    """A persona named 'nginx' collides with the same reserved-name closed set
-    held over usernames."""
+def test_lint_persona_named_after_a_service_is_not_an_error() -> None:
+    """A persona name becomes an image-tag suffix and a path component, never a
+    compose service key, so it has no service name to collide with."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
+    config["registry"] = {"url": "registry.example.com:5050/als"}
     config["modules"]["web_terminals"]["personas"] = {"nginx": {"project": "als-x"}}
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"]["default_persona"] = "nginx"
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "persona": "nginx"}
+    ]
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_reserved_name" for f in errors)
+    assert _errors(findings) == []
 
 
 def test_lint_persona_seed_base_non_bool_is_an_error() -> None:
@@ -818,7 +817,6 @@ def test_lint_no_personas_catalog_reports_no_persona_findings() -> None:
     # Assert
     persona_codes = {
         "web_terminals.invalid_persona_charset",
-        "web_terminals.persona_reserved_name",
         "web_terminals.persona_invalid_seed_base",
         "web_terminals.unknown_default_persona",
         "web_terminals.unknown_persona_reference",
@@ -826,7 +824,7 @@ def test_lint_no_personas_catalog_reports_no_persona_findings() -> None:
     assert not any(f.code in persona_codes for f in findings)
 
 
-# --- Task 2.4: mode-coherence checks -----------------------------------------
+# --- mode-coherence checks ---------------------------------------------------
 
 
 def _persona_config(**overrides: object) -> dict:
@@ -1122,7 +1120,7 @@ def test_lint_local_mode_unreferenced_persona_project_path_is_not_checked(tmp_pa
     assert _errors(findings) == []
 
 
-# --- Task 3.2: auto-render demotion + project-path name invariant ------------
+# --- auto-render demotion + project-path name invariant ----------------------
 
 
 def test_lint_local_mode_missing_project_path_with_build_profile_is_auto_renderable(
@@ -1635,7 +1633,7 @@ def test_lint_per_container_stdio_topology_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
 
 
-# --- Task 4.5: empty facility.prefix (web container-name prefix) -------------
+# --- empty facility.prefix (web container-name prefix) -----------------------
 
 
 def test_lint_users_with_absent_facility_prefix_is_an_error() -> None:
@@ -2008,7 +2006,7 @@ def test_lint_default_auth_port_joins_the_port_overlap_set() -> None:
     """The default sidecar port (9070) is claimed just as an explicit one is."""
     # Arrange
     config = _auth_config({"method": "password"})
-    config["ports"]["conflicting"] = 9070
+    config["services"] = {"conflicting": {"port": 9070}}
 
     # Act
     findings = lint_web_terminals(config)
@@ -2023,7 +2021,7 @@ def test_lint_auth_port_absent_from_overlap_set_when_method_is_none() -> None:
     reserved against an ordinary config that happens to use 9070."""
     # Arrange
     config = _auth_config({"method": "none", "port": 9070}, tls=False, fqdn=None)
-    config["ports"]["conflicting"] = 9070
+    config["services"] = {"conflicting": {"port": 9070}}
 
     # Act
     findings = lint_web_terminals(config)
@@ -2359,3 +2357,195 @@ def test_lint_auth_credential_collision_not_reported_when_auth_is_off() -> None:
 
     # Assert
     assert not any(f.code == "web_terminals.auth_credential_collision" for f in _errors(findings))
+
+
+# --- profile altitude: the same engine over a build profile's `config:` block -
+
+
+def _profile_config(**web_terminals_overrides: object) -> dict:
+    """A profile `config:` block in the shape the shipped presets use: dotted
+    keys, with the whole module subtree under one literal
+    `modules.web_terminals` key."""
+    web_terminals: dict = {
+        "enabled": True,
+        "image_source": "local",
+        "nginx_port": 9080,
+        "web_base_port": 9091,
+        "default_persona": "readonly",
+        "users": [
+            {"name": "alice", "index": 0, "persona": "readonly"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+        ],
+        "personas": {
+            "readonly": {
+                "project": "ca-readonly",
+                "project_path": "../ca-readonly",
+                "build_profile": "control-assistant-readonly",
+            }
+        },
+    }
+    web_terminals.update(web_terminals_overrides)
+    return {
+        "facility.prefix": "ca",
+        "deploy.fqdn": "127.0.0.1",
+        "modules.web_terminals": web_terminals,
+    }
+
+
+def test_lint_profile_config_accepts_a_well_formed_config_block() -> None:
+    """A profile whose roster and catalog are sound reports nothing."""
+    # Act
+    findings = lint_profile_config(_profile_config())
+
+    # Assert
+    assert findings == []
+
+
+def test_lint_profile_config_skips_the_checks_a_profile_cannot_answer() -> None:
+    """`project_path` points at a directory the build has not rendered yet, and
+    `build_profile` still holds the preset name `profile new` will rewrite. The
+    deploy-time pass reports that; the profile-time pass must not."""
+    # Arrange
+    config = _profile_config()
+
+    # Act
+    profile_findings = lint_profile_config(config)
+    rendered_findings = lint_web_terminals(
+        {
+            "facility": {"prefix": "ca"},
+            "modules": {"web_terminals": config["modules.web_terminals"]},
+        }
+    )
+
+    # Assert
+    assert profile_findings == []
+    assert {f.code for f in _errors(rendered_findings)} == {
+        "web_terminals.persona_build_profile_not_a_delta"
+    }
+
+
+def test_lint_profile_config_reports_a_duplicate_roster_entry() -> None:
+    """Multi-user checks are the point of running at this altitude at all."""
+    # Arrange
+    config = _profile_config(users=[{"name": "alice", "index": 0}, {"name": "alice", "index": 1}])
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.duplicate_user" for f in _errors(findings))
+
+
+def test_lint_profile_config_reports_a_port_collision_with_a_declared_service() -> None:
+    """A `config:` block that sets a service port puts it in the collision set."""
+    # Arrange
+    config = _profile_config()
+    config["services.openobserve.port"] = 9092  # web_base_port index 1
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    overlap = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert any("services.openobserve.port" in f.message for f in overlap)
+
+
+def test_lint_profile_config_lets_a_deeper_dotted_key_refine_the_subtree() -> None:
+    """`modules.web_terminals.enabled: false` beside a whole
+    `modules.web_terminals:` subtree wins, the way `osprey build` applies them —
+    a profile that switches the module off must lint as switched off. This is
+    exactly how the bundled persona presets inherit their parent's catalog."""
+    # Arrange
+    config = _profile_config(users=[{"name": "alice", "index": 0}, {"name": "alice", "index": 1}])
+    config["modules.web_terminals.enabled"] = False
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    assert findings == []
+
+
+def test_lint_profile_config_ignores_a_config_block_that_omits_the_module() -> None:
+    """A profile that never mentions the module lints clean."""
+    # Act
+    findings = lint_profile_config({"control_system.type": "mock", "facility.prefix": "ca"})
+
+    # Assert
+    assert findings == []
+
+
+def _shipped_preset_names() -> list[str]:
+    """Every bundled preset name, so a newly shipped one is covered without an
+    edit here."""
+    from osprey.cli.build_profile import list_presets
+
+    return sorted(list_presets())
+
+
+@pytest.mark.parametrize("preset", _shipped_preset_names())
+def test_every_shipped_preset_lints_clean_at_profile_altitude(preset: str) -> None:
+    """The engine runs on every profile `osprey profile validate` and
+    `osprey build` check, so a shipped preset that failed it would reject our
+    own reference build."""
+    # Arrange
+    import yaml
+
+    from osprey.cli.build_profile import _presets_dir
+
+    profile = yaml.safe_load((_presets_dir() / f"{preset}.yml").read_text())
+
+    # Act
+    findings = lint_profile_config(profile.get("config") or {})
+
+    # Assert
+    assert [f.message for f in findings] == []
+
+
+def test_profile_config_errors_returns_only_blocking_messages() -> None:
+    """The gate the commands call: warnings and notes are advisory and must not
+    reach it, or an inert `nginx_image` typo would fail a build."""
+    # Arrange
+    config = _profile_config(nginx_image="   ")  # an empty image is a WARN
+    config["modules.web_terminals"]["users"] = [
+        {"name": "alice", "index": 0},
+        {"name": "alice", "index": 1},
+    ]
+
+    # Act
+    messages = profile_config_errors(config)
+
+    # Assert
+    assert any("duplicate name(s)" in message for message in messages)
+    assert not any("nginx_image" in message for message in messages)
+
+
+#: Every name that reaches the web-stack lint engine, directly or through a
+#: wrapper. A new entry point into the engine adds one line here — which is the
+#: point: the guard below is only as good as this list is complete.
+LINT_ENTRY_POINTS = (
+    "lint_profile_config",
+    "profile_config_errors",
+    # The command surfaces' shared merge-then-lint pairing
+    # (osprey.cli.build_profile_deploy). Calling it from `validate()` would
+    # wire the engine in just as surely as calling the lint directly.
+    "deploy_aware_config_errors",
+)
+
+
+def test_the_engine_is_not_wired_into_build_profile_validate() -> None:
+    """`BuildProfile.validate()` also runs during profile RESOLUTION, which
+    `osprey profile new` goes through — running the engine there pre-empts that
+    command's own persona validator, which reports every unusable catalog entry
+    at once. The engine belongs to the commands; this pins that it stayed there.
+    """
+    # Arrange
+    import inspect
+
+    from osprey.cli.build_profile_model import BuildProfile
+
+    source = inspect.getsource(BuildProfile.validate)
+
+    # Assert
+    for entry_point in LINT_ENTRY_POINTS:
+        assert entry_point not in source, f"{entry_point} reached BuildProfile.validate()"

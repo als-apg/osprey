@@ -200,6 +200,18 @@ export CBORG_API_KEY="your-key"
 export ANTHROPIC_API_KEY="your-key"
 ```
 
+### Provider × model matrix (opt-in)
+
+`test_llm_providers.py` is skipped by default. It is the one file that makes
+paid API calls on **every** provider whose key is in the environment (all other
+e2e tests pick a single provider by preference order), so it only runs when
+explicitly requested — typically after changing `src/osprey/models/providers/`
+or adding a provider:
+
+```bash
+OSPREY_LLM_MATRIX_ENABLE=1 pytest tests/e2e/test_llm_providers.py -v
+```
+
 ### Additional Dependencies
 
 Some E2E tests require additional dependencies:

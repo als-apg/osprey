@@ -66,7 +66,6 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from osprey.deployment.compose_generator import resolve_project_name, resolve_user_volume_names
-from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
     runtime_env,
@@ -165,7 +164,7 @@ def decommission_user(
             destruction was requested but not confirmed.
     """
     config_path = Path(config_path)
-    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    config = ConfigBuilder(str(config_path)).raw_config
     _require_running_runtime(config)
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
@@ -195,11 +194,11 @@ def decommission_user(
     # Roster edit + artifact re-render happen before container/volume removal:
     # they are recoverable by re-running `osprey deploy up`, unlike volume removal.
     config_replace_list(config_path, _USERS_KEY_PATH, remaining)
-    updated_config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    updated_config = ConfigBuilder(str(config_path)).raw_config
     write_web_terminal_artifacts(updated_config)
 
     runtime = get_runtime_command(config)[0]
-    env = runtime_env(config)
+    env = runtime_env(config, ignore_orphans=True)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     remove_container(runtime, web_container_name(facility_prefix, user), env=env)
 
@@ -274,14 +273,14 @@ def prune_users(
             or pruning was requested but not confirmed.
     """
     config_path = Path(config_path)
-    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    config = ConfigBuilder(str(config_path)).raw_config
     _require_running_runtime(config)
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
     roster_names = {entry["name"] for entry in normalize_users(web_terminals.get("users"))}
 
     runtime = get_runtime_command(config)[0]
-    env = runtime_env(config)
+    env = runtime_env(config, ignore_orphans=True)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     project = resolve_project_name(config)
 
@@ -419,7 +418,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
             teardown was not confirmed, or ``compose down`` exits non-zero.
     """
     config_path = Path(config_path)
-    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    config = ConfigBuilder(str(config_path)).raw_config
     _require_running_runtime(config)
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
@@ -427,7 +426,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
 
     runtime_cmd = get_runtime_command(config)
     runtime = runtime_cmd[0]
-    env = runtime_env(config)
+    env = runtime_env(config, ignore_orphans=True)
     project = resolve_project_name(config)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
 
@@ -644,7 +643,7 @@ def _reconcile_auth_after_user_removal(
     # nginx serving the removed user's route until the next deploy. Advisory
     # and never raises (it warns).
     if rerendered:
-        reload_nginx_config(web_stack_compose_cmd(config), runtime_env(config))
+        reload_nginx_config(web_stack_compose_cmd(config), runtime_env(config, ignore_orphans=True))
 
     recreate_error: OSError | subprocess.CalledProcessError | None = None
     # The recreate runs on a PARTIAL purge (see above) but not on one that
@@ -801,7 +800,7 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
             operator their old password still works when it does not.
     """
     config_path = Path(config_path)
-    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    config = ConfigBuilder(str(config_path)).raw_config
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
 
     # Read through the same parser the render and the deploy preflight use, so

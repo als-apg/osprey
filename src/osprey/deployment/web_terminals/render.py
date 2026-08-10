@@ -51,7 +51,7 @@ _LANDING_OUTPUT = "nginx/landing.html"
 # (web + every registry companion family) bind this host, never a routable
 # interface —
 # nginx's reverse proxy (Task 1.2) becomes the only off-host path. Not
-# config-driven: unlike the per-family ports, there is no facility-config knob
+# config-driven: unlike the per-family ports, there is no config knob
 # for this, since a facility that wants a per-user port reachable directly
 # off-host would defeat the single-origin chokepoint this module exists to
 # provide.

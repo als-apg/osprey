@@ -596,14 +596,25 @@ def resolve_profile_document(
     artifacts: set[str] = set()
     shadowed: set[str] = set()
 
-    if not is_persona_delta:
-        resolved = _resolve_extends(
-            normalized, profile_path, artifacts=artifacts, shadow_candidates=shadowed
-        )
+    def finish(resolved: dict[str, Any], as_delta: bool) -> ResolvedProfileDocument:
+        """Report the exclusion diagnostics, then package the result.
+
+        Both branches end the same way, and they must: the two diagnostics read
+        the sets every layer of either branch fed, so a branch that skipped one
+        would leave that whole shape of profile without the warning.
+        """
         if warn:
             _warn_unmatched_exclusions(root_dir, artifacts)
             _warn_shadowed_bare_exclusions(root_dir, shadowed)
-        return ResolvedProfileDocument(resolved, root_dir, False, frozenset(artifacts))
+        return ResolvedProfileDocument(resolved, root_dir, as_delta, frozenset(artifacts))
+
+    if not is_persona_delta:
+        return finish(
+            _resolve_extends(
+                normalized, profile_path, artifacts=artifacts, shadow_candidates=shadowed
+            ),
+            False,
+        )
 
     if "extends" in normalized:
         raise BuildProfileError(
@@ -628,13 +639,12 @@ def resolve_profile_document(
     # ``extends:`` of its own (rejected above), and _resolve_extends would
     # consume its ``exclude:`` against its own layer instead of against the
     # root, silently dropping the exclusion.
-    merged = merge_persona_delta(
-        root_resolved, normalized, artifacts=artifacts, shadow_candidates=shadowed
+    return finish(
+        merge_persona_delta(
+            root_resolved, normalized, artifacts=artifacts, shadow_candidates=shadowed
+        ),
+        True,
     )
-    if warn:
-        _warn_unmatched_exclusions(root_dir, artifacts)
-        _warn_shadowed_bare_exclusions(root_dir, shadowed)
-    return ResolvedProfileDocument(merged, root_dir, True, frozenset(artifacts))
 
 
 # ---------------------------------------------------------------------------

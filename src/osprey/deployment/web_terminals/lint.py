@@ -1,15 +1,26 @@
-"""Static validation for the ``modules.web_terminals`` stanza of a facility config.
+"""Static validation for the ``modules.web_terminals`` multi-user stanza.
 
-Encodes validation rules 11 (port range overlap), 12 (reserved service names), and
-13 (empty ``users[]`` warning/error interaction with ``modules.benchmarks``) from
-``references/facility-config-schema.md``. The renderer and the build-profile
-interview both derive everything from ``users[]``, so "consistency" here means: no
-duplicate user names, and every user can actually be allocated a full port-family
-set via :func:`allocate_ports`.
+The multi-user web stack is derived entirely from ``users[]`` and the persona
+catalog beside it, so "consistent" here means: every user resolves to exactly one
+container with its own port family, every persona reference resolves to a catalog
+entry, and nothing in the stack contends with another service for a host port.
+
+Two surfaces call in, at different altitudes:
+
+* :func:`lint_web_terminals` reads a **rendered project ``config.yml``** — the
+  deploy-time view, where the ``services:`` block names every published host port
+  and every persona project either exists on disk or is auto-renderable.
+  ``osprey scaffold web-terminals lint|render`` runs this one.
+* :func:`lint_profile_config` reads a **build profile's ``config:`` block** — the
+  authoring-time view, before anything is materialized. It runs the same checks
+  minus the ones that can only be answered against a rendered project (see that
+  function's docstring), so a profile can be validated without building it.
 """
 
 from __future__ import annotations
 
+import copy
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -37,26 +48,6 @@ from osprey.deployment.web_terminals.render import (
     _external_origin,
 )
 
-# Rule 12's closed set of reserved compose service keys. "dispatch-sidecar-*" is a
-# prefix pattern (one service per sidecar), not a single literal.
-_RESERVED_SERVICE_NAMES = frozenset(
-    {
-        "nginx",
-        "ariel-postgres",
-        "typesense",
-        "event-dispatcher",
-        "integration-tests",
-        "ariel-sync",
-    }
-)
-_RESERVED_SERVICE_PREFIX = "dispatch-sidecar-"
-
-
-def _is_reserved_service_name(name: str) -> bool:
-    """Rule 12's predicate: collides with a reserved compose service key."""
-    return name in _RESERVED_SERVICE_NAMES or name.startswith(_RESERVED_SERVICE_PREFIX)
-
-
 # The TLS seam's listener port (`listen 443 ssl` in the gated nginx block). The
 # auth sidecar's listener has no constant here: it is config-driven
 # (`auth.port`), and its effective value is read from render's parsed auth
@@ -74,7 +65,7 @@ _PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
 
 @dataclass(frozen=True)
 class Finding:
-    """A single lint result for a facility config.
+    """A single lint result.
 
     ``severity`` is one of ``"error"`` (a config that must be rejected),
     ``"warn"`` (worth flagging, does not fail the check), or ``"info"`` (a
@@ -87,12 +78,16 @@ class Finding:
     message: str
 
 
-def lint_web_terminals(config: Any) -> list[Finding]:
-    """Validate the ``modules.web_terminals`` stanza of a facility config.
+def lint_web_terminals(config: Any, *, rendered_project: bool = True) -> list[Finding]:
+    """Validate a rendered project config's ``modules.web_terminals`` stanza.
 
     Args:
-        config: The parsed facility config, read defensively as nested dicts (no
+        config: The parsed project config, read defensively as nested dicts (no
             assumption that ``config`` is a particular schema/dataclass type).
+        rendered_project: Whether *config* describes a project that has actually
+            been rendered. False drops the two checks that can only be answered
+            once it has — see :func:`lint_profile_config`, the only caller that
+            passes it.
 
     Returns:
         A list of :class:`Finding` objects, empty if nothing is wrong. Findings
@@ -109,9 +104,8 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     users = list(users_raw) if isinstance(users_raw, list) else []
 
     findings: list[Finding] = []
-    findings.extend(_check_empty_users(web_terminals, modules, users))
+    findings.extend(_check_empty_users(users))
     findings.extend(_check_duplicate_users(users))
-    findings.extend(_check_reserved_names(users))
     findings.extend(_check_username_charset(users))
     findings.extend(_check_display_name(users))
     findings.extend(_check_user_theme(users))
@@ -121,7 +115,6 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_port_families_allocatable(web_terminals, users))
     findings.extend(_check_port_overlap(root, web_terminals, users))
     findings.extend(_check_persona_charset(web_terminals))
-    findings.extend(_check_persona_reserved_names(web_terminals))
     findings.extend(_check_persona_seed_base(web_terminals))
     findings.extend(_check_default_persona_exists(web_terminals))
     findings.extend(_check_unknown_persona_reference(root, web_terminals, users))
@@ -130,7 +123,8 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
     findings.extend(_check_local_mode_requires_catalog(web_terminals))
-    findings.extend(_check_persona_project_paths(web_terminals, users))
+    if rendered_project:
+        findings.extend(_check_persona_project_paths(web_terminals, users))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
     findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
@@ -142,24 +136,88 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     return findings
 
 
-def _check_empty_users(
-    web_terminals: dict[str, Any], modules: dict[str, Any], users: list[Any]
-) -> list[Finding]:
-    """Rule 13: enabled + empty users[] is a warning, unless benchmarks needs one."""
+def lint_profile_config(config: Mapping[str, Any]) -> list[Finding]:
+    """Validate the ``modules.web_terminals`` a build profile's ``config:`` sets.
+
+    A ``config:`` block is a flat bag of dotted keys (``modules.web_terminals``,
+    ``facility.prefix``, ``services.openobserve.port``, …) applied over the
+    rendered template, so it is nested into the shape the checks read before
+    linting. Shallowest key first, so a deeper key refines the subtree a
+    shallower one set rather than being overwritten by it — the same order
+    ``osprey build`` applies them in.
+
+    Two checks are skipped, because a profile cannot answer them yet:
+
+    * **Persona project paths.** ``project_path`` resolves against the rendered
+      project's directory, which does not exist at authoring time.
+    * **``build_profile`` shape**, which rides on the same check.
+      ``osprey profile new`` rewrites each catalog entry's preset name into the
+      ``personas/<name>.yml`` delta it materializes beside the profile, so the
+      value is only in its final form once that has happened.
+
+    Both are enforced in full by :func:`lint_web_terminals` at deploy time.
+    Cross-service port overlap is likewise checked only against the host ports
+    the ``config:`` block itself declares; a service declared at profile top
+    level joins the collision set once the project is rendered.
+
+    Call this from a COMMAND, never from ``BuildProfile.validate()``. That
+    method also runs during profile *resolution*, which ``osprey profile new``
+    goes through, and these findings would then pre-empt that command's own
+    persona validator — which reports every unusable catalog entry at once and
+    names the file-name rule a persona name really has to meet. The engine
+    would replace a better error with a worse one.
+    """
+    return lint_web_terminals(_nest_dotted(config), rendered_project=False)
+
+
+def profile_config_errors(config: Mapping[str, Any]) -> list[str]:
+    """The messages from :func:`lint_profile_config` that must fail a command.
+
+    One home for "which severity blocks", so the surfaces that gate on it
+    cannot drift apart: warnings and informational findings are advisory and
+    never stop a build.
+    """
+    return [
+        finding.message for finding in lint_profile_config(config) if finding.severity == "error"
+    ]
+
+
+def _merge_nested(into: dict[str, Any], value: Mapping[str, Any]) -> None:
+    """Deep-merge ``value`` into ``into`` in place; ``value`` wins on conflict."""
+    for key, item in value.items():
+        current = into.get(key)
+        if isinstance(current, dict) and isinstance(item, Mapping):
+            _merge_nested(current, item)
+        else:
+            into[key] = copy.deepcopy(item)
+
+
+def _nest_dotted(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Expand a flat bag of dotted keys into the nested config it addresses."""
+    root: dict[str, Any] = {}
+    dotted = [key for key in config if isinstance(key, str)]
+    for key in sorted(dotted, key=lambda k: k.count(".")):
+        parts = key.split(".")
+        node = root
+        for part in parts[:-1]:
+            child = node.get(part)
+            if not isinstance(child, dict):
+                child = {}
+                node[part] = child
+            node = child
+        value = config[key]
+        current = node.get(parts[-1])
+        if isinstance(current, dict) and isinstance(value, Mapping):
+            _merge_nested(current, value)
+        else:
+            node[parts[-1]] = copy.deepcopy(value)
+    return root
+
+
+def _check_empty_users(users: list[Any]) -> list[Finding]:
+    """An enabled module with an empty roster renders no terminals — worth flagging."""
     if users:
         return []
-    benchmarks_enabled = bool(as_dict(modules.get("benchmarks")).get("enabled"))
-    if benchmarks_enabled:
-        return [
-            Finding(
-                severity="error",
-                code="web_terminals.empty_users_with_benchmarks",
-                message=(
-                    "modules.web_terminals.users is empty but modules.benchmarks.enabled "
-                    "is true; benchmarks.runs_in_container has no first user to resolve."
-                ),
-            )
-        ]
     return [
         Finding(
             severity="warn",
@@ -204,8 +262,8 @@ def _user_name(user: Any) -> str | None:
     A bare string is its own name. An object-form entry contributes its
     ``name`` field, but only when it's actually a string — a malformed dict
     without a str name is simply skipped by the checks that use this (name
-    well-formedness isn't their concern; only well-formed names are validated
-    for reserved/charset collisions here).
+    well-formedness isn't their concern; only well-formed names are held to the
+    charset).
     """
     if isinstance(user, str):
         return user
@@ -216,30 +274,9 @@ def _user_name(user: Any) -> str | None:
     return None
 
 
-def _check_reserved_names(users: list[Any]) -> list[Finding]:
-    """Rule 12: a user name may not collide with a reserved compose service key."""
-    findings: list[Finding] = []
-    for user in users:
-        name = _user_name(user)
-        if name is None:
-            continue
-        if _is_reserved_service_name(name):
-            findings.append(
-                Finding(
-                    severity="error",
-                    code="web_terminals.reserved_name",
-                    message=(
-                        f"modules.web_terminals.users entry {name!r} collides with a "
-                        "reserved service name"
-                    ),
-                )
-            )
-    return findings
-
-
 def _check_username_charset(users: list[Any]) -> list[Finding]:
     """A user name becomes an nginx `location` key and a URL path segment
-    (``/<user>/...``); it must match ``^[a-z0-9][a-z0-9_-]*$``."""
+    (``/u/<user>/...``); it must match ``^[a-z0-9][a-z0-9_-]*$``."""
     findings: list[Finding] = []
     for user in users:
         name = _user_name(user)
@@ -436,22 +473,34 @@ def _check_port_families_allocatable(
     return []
 
 
+def _is_host_port_key(key: Any) -> bool:
+    """Whether a ``services.<name>`` key names a port published on the host.
+
+    ``port`` and ``port_host`` are the two spellings the service templates use
+    for a published port, plus per-service qualified ones (``tiled_port``). A
+    container-internal listener is spelled differently on purpose (the dispatch
+    worker's ``worker_port_base`` reaches the dispatcher over the compose
+    network and binds nothing on the host), and must stay out of this set: a
+    port nobody publishes cannot collide with one that is.
+    """
+    return isinstance(key, str) and (key in ("port", "port_host") or key.endswith("_port"))
+
+
 def _check_port_overlap(
     root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
 ) -> list[Finding]:
-    """Rule 11: the closed set S1 (web_terminals families) ∪ S2 (event_dispatcher
-    sidecars) ∪ S3 (ports.* literals) ∪ S4 (test_ioc's unmirrored ports) must be
-    pairwise disjoint.
+    """Every host port the deployment binds must be bound by exactly one thing.
 
-    ``nginx_port``/``event_dispatcher.port``/``custom_mcp_servers[].port`` are
-    deliberately NOT added a second time here: they are each required to equal an
-    existing ``ports.*`` entry, which S3 already covers. Re-adding them would make
-    every valid config falsely look like it collides with its own mirror.
+    The web stack runs under ``network_mode: host`` — each per-user container
+    and nginx bind their ports on the host directly — so they contend not only
+    with each other but with every port the ``services:`` block publishes. The
+    collision set is therefore: the per-user port families over the N configured
+    users, nginx's own listener, every published service port, and the TLS
+    listener when that seam is enabled.
     """
-    modules = as_dict(root.get("modules"))
     entries: list[tuple[int, str]] = []
 
-    # S1: web_terminals family ranges, one per family, over the N configured users.
+    # Per-user families: one range per family, over the N configured users.
     base_ports = base_ports_from_config(web_terminals)
     for base_field, family in FAMILY_BASE_FIELDS.items():
         base = base_ports.get(family)
@@ -460,26 +509,27 @@ def _check_port_overlap(
         for index in range(len(users)):
             entries.append((base + index, f"web_terminals.{base_field}[index={index}]"))
 
-    # S2: event_dispatcher sidecar range.
-    event_dispatcher = modules.get("event_dispatcher")
-    if isinstance(event_dispatcher, dict):
-        sidecar_base = event_dispatcher.get("sidecar_port_base")
-        sidecar_count = event_dispatcher.get("sidecar_count")
-        if isinstance(sidecar_base, int) and isinstance(sidecar_count, int):
-            for index in range(sidecar_count):
-                entries.append(
-                    (sidecar_base + index, f"event_dispatcher.sidecar_port_base[index={index}]")
-                )
+    # nginx's own listener, the one port the stack is reached on from off-host.
+    nginx_port = web_terminals.get("nginx_port")
+    if isinstance(nginx_port, int) and not isinstance(nginx_port, bool):
+        entries.append((nginx_port, "web_terminals.nginx_port"))
 
-    # S3: every ports.* literal.
-    ports = root.get("ports")
-    if isinstance(ports, dict):
-        for key, value in ports.items():
-            if isinstance(value, int):
-                entries.append((value, f"ports.{key}"))
+    # Every host port the deployed services publish.
+    services = root.get("services")
+    if isinstance(services, dict):
+        for name, spec in services.items():
+            if not isinstance(spec, dict):
+                continue
+            for key, value in spec.items():
+                if (
+                    _is_host_port_key(key)
+                    and isinstance(value, int)
+                    and not isinstance(value, bool)
+                ):
+                    entries.append((value, f"services.{name}.{key}"))
 
     # S4: test_ioc's two ports with no ports.* mirror.
-    test_ioc = modules.get("test_ioc")
+    test_ioc = as_dict(root.get("modules")).get("test_ioc")
     if isinstance(test_ioc, dict):
         for field in ("cas_server_port", "cas_beacon_port"):
             value = test_ioc.get(field)
@@ -519,7 +569,7 @@ def _check_port_overlap(
     return findings
 
 
-# --- Task 2.3: persona catalog identity/reference checks --------------------
+# --- persona catalog identity/reference checks ------------------------------
 #
 # Note on duplicate catalog keys: `modules.web_terminals.personas` arrives here
 # already parsed by `yaml.safe_load`, which silently collapses a YAML mapping's
@@ -530,7 +580,7 @@ def _check_port_overlap(
 #
 # Mode-coherence checks (image_source/registry.url agreement, project_path /
 # Dockerfile / config.yml existence, build_profile requirements) are below,
-# layered on top of `_persona_catalog` and the checks above (Task 2.4).
+# layered on top of `_persona_catalog` and the checks above.
 
 
 def _persona_catalog(web_terminals: dict[str, Any]) -> dict[str, Any]:
@@ -555,28 +605,6 @@ def _check_persona_charset(web_terminals: dict[str, Any]) -> list[Finding]:
                         f"modules.web_terminals.personas key {persona_name!r} does not "
                         f"match {USERNAME_CHARSET_RE.pattern!r} (persona names become "
                         "image-tag suffixes and path components)"
-                    ),
-                )
-            )
-    return findings
-
-
-def _check_persona_reserved_names(web_terminals: dict[str, Any]) -> list[Finding]:
-    """A persona catalog key may not collide with a reserved compose service
-    name, the same closed set held over usernames (see
-    :func:`_check_reserved_names`)."""
-    findings: list[Finding] = []
-    for persona_name in _persona_catalog(web_terminals):
-        if not isinstance(persona_name, str):
-            continue
-        if _is_reserved_service_name(persona_name):
-            findings.append(
-                Finding(
-                    severity="error",
-                    code="web_terminals.persona_reserved_name",
-                    message=(
-                        f"modules.web_terminals.personas key {persona_name!r} collides "
-                        "with a reserved service name"
                     ),
                 )
             )
@@ -699,10 +727,10 @@ def _check_empty_facility_prefix(
     ]
 
 
-# --- Task 2.4: mode-coherence checks ----------------------------------------
+# --- mode-coherence checks --------------------------------------------------
 
-# The two recognized `modules.web_terminals.image_source` values (schema rule
-# 14). Anything else is `_check_unknown_image_source`'s ERROR.
+# The two recognized `modules.web_terminals.image_source` values. Anything else
+# is `_check_unknown_image_source`'s ERROR.
 _VALID_IMAGE_SOURCES = frozenset({"registry", "local"})
 
 
@@ -752,7 +780,7 @@ def _check_image_tag_empty(web_terminals: dict[str, Any]) -> list[Finding]:
 def _check_registry_url_coherence(
     root: dict[str, Any], web_terminals: dict[str, Any]
 ) -> list[Finding]:
-    """Rule 14: ``image_source``/``registry.url`` agreement.
+    """``image_source`` and ``registry.url`` must agree.
 
     Only evaluated once a persona catalog is actually configured. A config
     with no ``personas:`` block at all resolves every user through
@@ -794,7 +822,7 @@ def _check_registry_url_coherence(
 
 
 def _check_local_mode_requires_catalog(web_terminals: dict[str, Any]) -> list[Finding]:
-    """Rule 14: the lint-side mirror of
+    """The lint-side mirror of
     :func:`~osprey.deployment.web_terminals.personas.resolve_personas`'s
     ``strict=True`` ``ValueError`` guard. ``deploy up`` never runs the lint
     pass, so both guards must independently fail closed on ``image_source:
@@ -960,7 +988,9 @@ def _check_one_persona_project_path(persona_name: str, entry: dict[str, Any]) ->
                         f"{problem} Set it to {f'personas/{persona_name}.yml'!r} — the "
                         "delta `osprey profile new` writes beside the profile this "
                         "project is built from — or render the persona project yourself "
-                        "with `osprey build`"
+                        "with `osprey build`. A variant build that predates the delta "
+                        "layout has no such file to point at yet; run "
+                        "/osprey-build-interview to convert it into one"
                     ),
                 )
             ]
@@ -1129,7 +1159,7 @@ def _check_persona_extra_mounts(web_terminals: dict[str, Any]) -> list[Finding]:
 
 def _check_unknown_mcp_topology(web_terminals: dict[str, Any]) -> list[Finding]:
     """Lint-side mirror of render.py's ``_check_mcp_topology`` fail-closed
-    ``ValueError`` (Task 2.5) — ``shared_http`` and any other unrecognized
+    ``ValueError`` — ``shared_http`` and any other unrecognized
     value are an ERROR here too, so a bad topology value is caught before a
     render/deploy attempt rather than only at render time."""
     mcp_cfg = as_dict(web_terminals.get("mcp"))

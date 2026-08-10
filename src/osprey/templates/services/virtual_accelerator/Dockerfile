@@ -89,10 +89,16 @@ RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
 # so immediately instead of failing minutes later inside a compile. It trails
 # the requirement rather than leading it purely for readability of the pinned
 # spec; pip applies it to the whole resolve either way.
+# setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
+# fails those arm64 sdist compiles; the PIP_CONSTRAINT below (which reaches
+# pip's isolated build environments, where a plain requirement pin would not)
+# holds setuptools <84 until a fixed release is out.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 RUN [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
+    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && { pip install --no-cache-dir "osprey-framework[virtual-accelerator]==$OSPREY_VERSION" --only-binary pcaspy \

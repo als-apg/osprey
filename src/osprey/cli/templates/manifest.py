@@ -65,6 +65,7 @@ REGEN_TRACKED_FILES = [
     ".claude/hooks/osprey_panels_context.py",
     ".claude/rules/python-execution.md",
     ".claude/rules/control-system-safety.md",
+    ".claude/rules/test-ioc-safety.md",
     ".claude/skills/diagnose/SKILL.md",
     ".claude/skills/session-report/SKILL.md",
     ".claude/skills/session-report/reference.md",

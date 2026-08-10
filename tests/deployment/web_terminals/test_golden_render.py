@@ -26,11 +26,9 @@ runtime surprise in a downstream lifecycle/e2e test.
     values (`docker-compose.web.yml`, `nginx/nginx.conf`, and
     `nginx/landing.html` respectively). Do not hand-edit the golden files.
 
-``EXAMPLE_CONFIG`` mirrors the shipped
-`osprey-build-deploy` skill's `facility-config.example.yml`
-`modules.web_terminals` stanza (two bare-string users, the `users` +
-`links` landing groups, no `personas:` block) — the reference "no-personas"
-config every real facility profile's web-terminals section is patterned on.
+``EXAMPLE_CONFIG`` is the reference "no-personas" shape a facility profile's
+web-terminals section is patterned on: two bare-string users, the `users` +
+`links` landing groups, and no `personas:` block.
 """
 
 from __future__ import annotations
@@ -44,11 +42,8 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 
 _GOLDEN_DIR = Path(__file__).parent / "golden"
 
-# Kept in sync with the `modules.web_terminals` stanza in
-# src/osprey/templates/skills/osprey-build-deploy/templates/facility-config.example.yml
-# (facility/registry/deploy values match that file's top-level sections too),
-# minus the commented-out (inert) auth/tls block, which the example file itself
-# leaves disabled by default.
+# The auth/tls block is deliberately absent: it is off by default, and the
+# goldens cover the shape a facility gets without opting into it.
 EXAMPLE_CONFIG: dict = {
     "facility": {
         "name": "Demo Light Source",

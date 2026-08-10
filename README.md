@@ -44,8 +44,9 @@ osprey skills install osprey-build-interview
 ```
 
 Then start the agent in an empty directory and type `/osprey-build-interview`. The skill
-walks you through a guided conversation, produces a build profile, and
-`osprey build profile.yml` generates a ready-to-use project.
+walks you through a guided conversation and produces a facility repository — a git
+repository holding your build profile under `profile/`. From inside it,
+`osprey build <name> profile/` generates a ready-to-use project in `build/<name>/`.
 
 ## Key features
 

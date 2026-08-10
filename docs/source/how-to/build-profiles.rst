@@ -53,13 +53,13 @@ a scratch directory and diff it:
 .. code-block:: bash
 
    osprey profile new /tmp/fresh --preset control-assistant
-   diff -u /tmp/fresh/profile.yml my-profile/profile.yml
+   diff -u /tmp/fresh/profile/profile.yml my-facility/profile/profile.yml
 
 
 Creating a profile
 ==================
 
-Two commands get you a profile; both produce the same kind of directory.
+Two commands get you a profile. They differ in what surrounds it.
 
 .. list-table::
    :header-rows: 1
@@ -67,18 +67,26 @@ Two commands get you a profile; both produce the same kind of directory.
 
    * - Command
      - What it does
-   * - ``osprey profile new my-profile --preset X``
-     - Writes the profile directory and stops. Use it when you want to look at
-       and edit the profile before building anything.
+   * - ``osprey profile new my-facility --preset X``
+     - Writes a **facility repository** and stops: a git repository whose
+       ``profile/`` directory holds the profile, with an empty ``build/`` for
+       rendered projects beside it. Use it when you want to look at and edit
+       the profile before building anything.
    * - ``osprey build my-project --preset X``
-     - Writes ``my-project-profile/`` beside the project on the *first* run,
-       then builds from it. Every later run reuses that directory as it stands.
+     - Writes a bare ``my-project-profile/`` directory beside the project on
+       the *first* run, then builds from it. Every later run reuses that
+       directory as it stands.
 
-After the profile exists, the everyday command names it directly:
+Either way the profile itself is the same. After it exists, the everyday
+command names it directly:
 
 .. code-block:: bash
 
    osprey build my-project my-profile/profile.yml
+
+A profile nested in a facility repository is the one case where the build
+chooses the output directory for you: it renders into that repository's
+``build/<PROJECT_NAME>/``, from whichever directory you run the command.
 
 .. admonition:: Every build reads a profile
    :class: important
@@ -97,19 +105,29 @@ What ``osprey profile new`` writes
 
 .. code-block:: text
 
-   my-profile/
-     profile.yml     the full configuration — edit freely
-     data/           facility content: channel databases, knowledge, lattice
-     .env.example    every variable the agent reads, documented, no values
-     .env            your values (only when your shell had keys to seed)
-     .gitignore      keeps .env out of version control
-     README.md       explains the layout, for whoever opens the directory next
-     triggers.yml    the events the agent runs on (dispatch profiles only)
-     personas/       one delta per web-terminal persona (persona presets only)
-     web-terminal-context/  one seeded directory per operator on the roster
+   my-facility/
+     profile/
+       profile.yml     the full configuration — edit freely
+       data/           facility content: channel databases, knowledge, lattice
+       .env.example    every variable the agent reads, documented, no values
+       .env            your values (only when your shell had keys to seed)
+       .gitignore      keeps .env out of version control
+       README.md       explains the layout, for whoever opens the directory next
+       triggers.yml    the events the agent runs on (dispatch profiles only)
+       personas/       one delta per web-terminal persona (persona presets only)
+       web-terminal-context/  one seeded directory per operator on the roster
+     build/            empty; where `osprey build` renders projects
+     ci-extra.yml      the facility's own CI jobs; never regenerated
+     .gitignore        keeps build/ and the profile's secrets out of git
 
-The last three appear only when the preset calls for them — a ``hello-world``
-profile has none of them.
+The last three files under ``profile/`` appear only when the preset calls for
+them — a ``hello-world`` profile has none of them.
+
+``git init`` runs at the repository root, and nothing is committed. There is no
+CI pipeline yet: the profile ships its ``deploy:`` block commented out, so
+there are no coordinates to render one from. Fill the block in and
+``osprey deploy scaffold`` writes the pipeline — see
+:doc:`deploy-a-facility`.
 
 Directories for your own artifacts (``rules/``, ``skills/``, and the rest) are
 **not** created up front. Create the ones you need; a directory you never create

@@ -55,7 +55,13 @@ def runner() -> CliRunner:
 
 
 def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
-    return runner.invoke(profile, ["new", str(target), "--preset", preset, *extra])
+    """Create a facility repo whose profile directory is *target*.
+
+    ``osprey profile new`` is given the repo root — *target*'s parent — and
+    writes the profile into ``<repo>/profile/``. Tests name the profile
+    directory because the persona siblings sit beside it.
+    """
+    return runner.invoke(profile, ["new", str(target.parent), "--preset", preset, *extra])
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +168,7 @@ def _catalog_of(profile_path: Path) -> dict:
 @pytest.mark.parametrize("preset", TRIGGER_PRESETS)
 def test_sibling_persona_profiles_are_emitted(runner: CliRunner, tmp_path: Path, preset: str):
     """One ``personas/<name>.yml`` per catalog entry, and nothing else in there."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
     resolved, _dir = resolve_build_profile(None, preset)
     expected = set(persona_catalog(resolved.config))
 
@@ -179,7 +185,7 @@ def test_no_persona_restates_the_shared_data_tree(runner: CliRunner, tmp_path: P
     carries ``data: data``; a persona delta names no tree at all, because the
     merge anchors it at the host's directory. A ``data:`` here would be a second
     copy of the same decision, free to drift from the host's."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, preset).exit_code == 0
 
@@ -196,7 +202,7 @@ def test_catalog_is_rewritten_to_point_at_the_sibling_profiles(
 ):
     """The whole point: the emitted stack names FILES the facility owns, not
     bundled preset names that would ignore its data tree."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, preset).exit_code == 0
 
@@ -221,7 +227,7 @@ def test_persona_profiles_are_deltas_and_keep_their_posture(
     There is no ``extends:``: living in ``personas/`` beside the host profile is
     what makes the file a delta, and a written ``extends:`` there is rejected at
     build time."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, preset).exit_code == 0
 
@@ -245,7 +251,7 @@ def test_host_profile_edits_are_not_shadowed_by_any_persona(
     files. That holds because no persona file carries a competing value, which
     is what this pins; that the merge then applies the host's value is pinned by
     the implicit-delta resolver's own tests."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
     assert _new(runner, target, preset).exit_code == 0
 
     host_file = target / "profile.yml"
@@ -265,7 +271,7 @@ def test_host_profile_edits_are_not_shadowed_by_any_persona(
 def test_non_trigger_presets_emit_no_personas_directory(
     runner: CliRunner, tmp_path: Path, preset: str
 ):
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, preset).exit_code == 0
 
@@ -279,7 +285,7 @@ def test_emitted_host_profile_builds_end_to_end(runner: CliRunner, tmp_path: Pat
     resolver's job, and its own tests cover that half."""
     from osprey.cli.build_cmd import build
 
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
     assert _new(runner, target, "control-assistant").exit_code == 0
 
     # Edit the ONE facility data tree the whole stack reads.
@@ -316,7 +322,7 @@ def test_baked_model_selection_reaches_every_persona_by_inheritance(
     shares one data tree, so a persona materializing a different
     channel-database tier than its host was an inconsistency, not a feature.
     """
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(
         runner,
@@ -356,7 +362,7 @@ def test_baked_override_file_model_selection_is_inherited_too(
     and nowhere else."""
     override = tmp_path / "o.yml"
     override.write_text("provider: cborg\nmodel: opus\n", encoding="utf-8")
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     assert _new(runner, target, "control-assistant", "-O", str(override)).exit_code == 0
 
@@ -401,7 +407,7 @@ def test_persona_preset_outside_the_host_chain_is_rejected(
     monkeypatch.setattr(
         build_profile_presets, "_preset_extends_chain_reaches", out_of_chain_for_readonly
     )
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "control-assistant")
 
@@ -436,7 +442,7 @@ def test_persona_rendering_a_different_app_template_is_rejected(
 ) -> None:
     """One shared ``../data`` tree cannot serve two app templates. Caught before
     anything is written, and every affected persona is named at once."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "control-assistant", "--set", "app_template=hello_world")
 
@@ -456,7 +462,7 @@ def test_persona_name_that_is_not_a_plain_file_name_is_rejected(
         tmp_path,
         {bad_name: {"project": "x", "project_path": "../x", "build_profile": "control-assistant"}},
     )
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "control-assistant", "-O", str(override))
 
@@ -478,7 +484,7 @@ def test_persona_build_profile_that_does_not_resolve_is_rejected(
             }
         },
     )
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "control-assistant", "-O", str(override))
 
@@ -490,7 +496,7 @@ def test_persona_build_profile_that_does_not_resolve_is_rejected(
 
 def test_persona_with_no_build_profile_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
     override = _persona_override(tmp_path, {"bare": {"project": "b", "project_path": "../b"}})
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "control-assistant", "-O", str(override))
 
@@ -510,7 +516,7 @@ def test_every_unusable_persona_is_reported_in_one_error(runner: CliRunner, tmp_
             "ghost": {"project": "g", "project_path": "../g", "build_profile": "no-such-preset"},
         },
     )
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
 
     result = _new(runner, target, "control-assistant", "-O", str(override))
 
@@ -540,7 +546,7 @@ def test_deploy_auto_render_reaches_the_emitted_sibling_profiles(
     from osprey.deployment.web_terminals.personas import resolve_personas
     from osprey.utils.config import ConfigBuilder
 
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-facility" / "profile"
     assert _new(runner, target, preset).exit_code == 0
     out = tmp_path / "out"
     result = runner.invoke(
@@ -616,7 +622,7 @@ def test_benchmark_results_in_a_source_checkout_are_not_materialized(
     exhaust = results / "run-from-a-test.json"
     exhaust.write_text("{}", encoding="utf-8")
     try:
-        target = tmp_path / "my-profile"
+        target = tmp_path / "my-facility" / "profile"
         assert _new(runner, target, "control-assistant").exit_code == 0
 
         assert not (target / "data" / "benchmarks" / "results").exists()

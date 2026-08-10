@@ -120,7 +120,12 @@ def reset_runtime_cache() -> None:
     _runtime_cmd_cache.clear()
 
 
-def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> dict[str, str]:
+def runtime_env(
+    config: dict | None,
+    base_env: dict[str, str] | None = None,
+    *,
+    ignore_orphans: bool = False,
+) -> dict[str, str]:
     """Build the environment for a runtime (docker/podman compose) invocation.
 
     Pins ``COMPOSE_PROJECT_NAME`` to :func:`compose_generator.resolve_project_name`
@@ -133,21 +138,94 @@ def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> 
     command should build its env through this function rather than passing
     ``os.environ`` (or a copy of it) directly.
 
+    ``ignore_orphans=True`` additionally sets ``COMPOSE_IGNORE_ORPHANS``, and
+    is for the web-terminal call sites only. There it is structural, not
+    cosmetic: a web-terminal deploy runs TWO compose invocations against the
+    single project this function pins — the backend services under
+    ``build/services/*.yml`` and the web stack under
+    ``docker-compose.web.yml`` — so each one necessarily sees the other's
+    containers as orphans of the shared project, and says so at length, twice
+    per deploy. The warning's own suggested remedy (``--remove-orphans``) is
+    the one thing that must never be run there: it would delete the other
+    stack, which is exactly why both call sites in
+    :mod:`~osprey.deployment.web_terminals.provision` forbid the flag. A
+    warning whose only advertised fix is destructive, in a situation the
+    design guarantees, is pure noise — so it is turned off at the source
+    rather than left for every operator to learn to ignore.
+
+    It must stay opt-in because the single-stack paths are the mirror image:
+    plain ``deploy up`` reconciles with ``up --remove-orphans`` and ``clean``
+    tears down with ``down --remove-orphans``, and docker compose hard-errors
+    on the combination ("cannot combine COMPOSE_IGNORE_ORPHANS and
+    --remove-orphans") rather than letting one win. A default-on env var
+    would turn every one of those deploys into that error.
+
     Args:
         config: Configuration dictionary used to resolve the project name.
             Falsy values (``None``, ``{}``) resolve the same as an empty dict,
             i.e. the ``"unnamed-project"`` fallback.
         base_env: Environment to layer the pin onto. Defaults to
             ``os.environ``. Never mutated — a fresh copy is always returned.
+        ignore_orphans: Set ``COMPOSE_IGNORE_ORPHANS=1`` for a compose
+            invocation that shares its project with another one by design.
+            Never combine with a ``--remove-orphans`` argv.
 
     Returns:
-        A new environment dict with ``COMPOSE_PROJECT_NAME`` set.
+        A new environment dict with ``COMPOSE_PROJECT_NAME`` set (and
+        ``COMPOSE_IGNORE_ORPHANS`` when requested).
     """
     from osprey.deployment.compose_generator import resolve_project_name
 
     env = dict(base_env if base_env is not None else os.environ)
     env["COMPOSE_PROJECT_NAME"] = resolve_project_name(config or {})
+    if ignore_orphans:
+        env["COMPOSE_IGNORE_ORPHANS"] = "1"
     return env
+
+
+def with_plain_progress(cmd: list[str]) -> list[str]:
+    """Add ``--progress plain`` to a docker compose argv so it cannot garble.
+
+    Takes an already-resolved compose argv rather than resolving one itself,
+    deliberately: every call site reaches its runtime through the
+    ``get_runtime_command`` name bound in *its own* module, which is the seam
+    the deploy tests monkeypatch. A helper that called ``get_runtime_command``
+    internally would resolve this module's binding instead, walk straight past
+    that patch, and run live runtime detection inside unit tests.
+
+    Compose's default (``auto``) selects a TTY renderer on an interactive
+    terminal, which repaints each frame by moving the cursor up N lines and
+    rewriting them — without erasing to end of line. Long project and service names
+    (``my-control-assistant-bluesky-queueserver`` and friends) wrap on a
+    normal-width terminal, the renderer's N is then wrong by the number of
+    wrapped lines, and successive frames overprint each other into
+    unreadable fragments. ``plain`` is append-only, so it has no frame
+    arithmetic to get wrong.
+
+    Docker only, deliberately. ``--progress`` is a docker compose v2 flag;
+    ``podman compose`` delegates to whichever provider the host has, and a
+    provider that rejects an unknown flag would turn a cosmetic improvement
+    into a failed deploy. Podman hosts keep today's behaviour, and lose
+    little: ``auto`` already resolves to ``plain`` whenever stdout is not a
+    terminal, which covers CI and systemd — the places a production deploy's
+    output is actually captured.
+
+    ``--progress`` is a global flag, valid ahead of every compose subcommand,
+    so callers append their ``-f``/``--env-file`` arguments and the subcommand
+    afterwards exactly as before.
+
+    Args:
+        cmd: A compose argv base, e.g. ``["docker", "compose"]``, as returned
+            by :func:`get_runtime_command`. Extended in place and returned, so
+            ``with_plain_progress(get_runtime_command(config))`` reads as one
+            expression at the call site.
+
+    Returns:
+        The same list, with the flag appended when the runtime is docker.
+    """
+    if cmd and cmd[0] == "docker":
+        cmd.extend(("--progress", "plain"))
+    return cmd
 
 
 def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[bool, str]:

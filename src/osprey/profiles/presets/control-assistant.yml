@@ -2,8 +2,10 @@
 # Full control system deployment — the standard starting point for facilities
 # operating a particle accelerator or beamline with EPICS or a mock backend.
 #
-# Copy this file to your own profile directory, rename it, and adjust the
-# config overrides, overlay paths, and MCP server definitions for your site.
+# `osprey profile new <facility> --preset control-assistant` writes this
+# configuration out as <facility>/profile/profile.yml, inside a facility repo
+# you own. Adjust the config overrides, overlay paths, and MCP server
+# definitions there for your site; the packaged preset is never edited.
 
 name: Control Assistant
 
@@ -53,6 +55,7 @@ rules:
   - python-execution    # Rules governing Python executor sandbox usage
   - data-visualization  # Rules for producing control-room-ready plots
   - control-system-safety  # EPICS PV safety: alarm limits, soft-IOC guards
+  - test-ioc-safety     # Test-IOC port isolation (renders only for EPICS-family control systems)
 
 skills:
   - diagnose        # Run a structured fault-diagnosis workflow
@@ -163,7 +166,7 @@ config:
   # Container-name prefix for the web stack: names are `<prefix>-nginx` /
   # `<prefix>-web-<user>`, so this MUST be a non-empty valid Docker name start
   # ([a-zA-Z0-9]). Keep it short and distinct from the project name (used for
-  # image tags). Set to your own facility abbreviation when you copy this preset.
+  # image tags). Set it to your own facility abbreviation in the emitted profile.
   facility.prefix: ca
   # Landing-URL origin for the multi-user web stack: render refuses to build
   # OSPREY_TERMINAL_LANDING_URL without deploy.fqdn once users are configured.

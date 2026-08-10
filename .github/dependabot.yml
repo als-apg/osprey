@@ -16,6 +16,17 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    # Supply-chain quarantine: never propose a release that is less than a week
+    # old. A hijacked package or a malicious maintainer release is usually
+    # caught and yanked within days, so waiting costs nothing and removes the
+    # window in which we would be the ones to find it.
+    #
+    # Note this covers version updates only — Dependabot *security* updates
+    # bypass cooldown by design, which is what we want for a CVE fix.
+    cooldown:
+      default-days: 7
+      include:
+        - "*"
     # Group minor and patch updates together
     groups:
       development-dependencies:
@@ -42,3 +53,9 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    # Same one-week quarantine as the Python block. Actions run with repository
+    # credentials, so a freshly published tag is if anything a sharper risk.
+    cooldown:
+      default-days: 7
+      include:
+        - "*"

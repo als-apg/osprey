@@ -109,7 +109,12 @@ def _build_from_profile(runner: CliRunner, profile_dir: Path, out_dir: Path) -> 
 
 
 def _materialize(runner: CliRunner, target: Path, preset: str, *extra: str) -> None:
-    result = runner.invoke(profile, ["new", str(target), "--preset", preset, *extra])
+    """Create the facility repo holding *target*, the profile directory.
+
+    ``osprey profile new`` takes the repo root — *target*'s parent — and writes
+    the profile into ``<repo>/profile/``.
+    """
+    result = runner.invoke(profile, ["new", str(target.parent), "--preset", preset, *extra])
     assert result.exit_code == 0, f"profile new failed for {preset!r}: {result.output}"
 
 
@@ -127,7 +132,7 @@ def pair(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactor
     profile_out = root / "via-profile"
     preset_out.mkdir()
     profile_out.mkdir()
-    profile_dir = root / "profile"
+    profile_dir = root / "facility" / "profile"
 
     _build_from_preset(runner, preset, preset_out)
     _materialize(runner, profile_dir, preset)
@@ -337,7 +342,7 @@ def test_tier_one_in_context_pair_builds_identical_data(tmp_path: Path) -> None:
     profile_out = tmp_path / "via-profile"
     preset_out.mkdir()
     profile_out.mkdir()
-    profile_dir = tmp_path / "profile"
+    profile_dir = tmp_path / "facility" / "profile"
 
     _build_from_preset(
         runner,
@@ -383,7 +388,7 @@ def test_a_no_override_emission_pins_no_active_tier(preset: str, tmp_path: Path)
     the old tier's DB — and the profile build's ``data/`` would stop matching
     the preset build's. It has to stay a commented template.
     """
-    target = tmp_path / "p"
+    target = tmp_path / "p-facility" / "profile"
     _materialize(CliRunner(), target, preset)
 
     active, commented = _active_and_commented((target / "profile.yml").read_text())
@@ -446,7 +451,7 @@ def test_emitted_persona_profiles_carry_the_guards_too(preset: str, tmp_path: Pa
     the host rather than inherit it. What a sibling owes for itself is the two
     guarantees that are about the file: prefix cleanliness and provenance."""
     runner = CliRunner()
-    target = tmp_path / "profile"
+    target = tmp_path / "facility" / "profile"
     _materialize(runner, target, preset)
 
     host, _host_dir = resolve_build_profile((target / "profile.yml").resolve(), None)

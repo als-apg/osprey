@@ -9,9 +9,11 @@ import warnings
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 import yaml
 
+from osprey.cli.profile_conventions import ownership_name
 from osprey.cli.styles import console
 from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates._rendering import render_template
@@ -433,6 +435,13 @@ def is_user_owned(rel_path: str, ctx: dict) -> bool:
     keeps its non-markdown files too. During init (empty list), nothing is
     user-owned so all files are written.
 
+    The destination-derived names — this path's own, and every ancestor
+    directory's — come from
+    :func:`~osprey.cli.profile_conventions.ownership_name`, the same rule the
+    build registers ownership under. Spelling the read differently from the
+    write would not raise: it would quietly hand a user-owned artifact back to
+    regen.
+
     Args:
         rel_path: Relative path from project root (e.g. ".claude/rules/safety.md")
         ctx: Template context (must contain "user_owned" key)
@@ -444,11 +453,12 @@ def is_user_owned(rel_path: str, ctx: dict) -> bool:
     art = registry.get_by_output(rel_path)
     if art is not None and art.canonical_name in user_owned:
         return True
-    name = rel_path[len(".claude/") :] if rel_path.startswith(".claude/") else rel_path
-    stem = name[: -len(".md")] if name.endswith(".md") else name
-    if stem in user_owned:
+    if ownership_name(rel_path, is_directory=False) in user_owned:
         return True
-    return any(str(parent) in user_owned for parent in PurePosixPath(name).parents)
+    return any(
+        ownership_name(str(parent), is_directory=True) in user_owned
+        for parent in PurePosixPath(rel_path).parents
+    )
 
 
 def auto_register_user_owned(project_dir: Path, canonical_name: str):
@@ -649,11 +659,6 @@ def _build_declared_hook_rules(config: dict, project_dir: Path) -> dict[str, lis
             unsafe or reserved path, a hook the resolved profile does not ship
             (an excluded one included), or a built-in hook the framework wires.
     """
-    # The EXACT reservations only. `reserved_path_channel` additionally reserves
-    # every convention destination prefix — including `.claude/hooks/` itself,
-    # which is precisely where a declared hook is supposed to live.
-    from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS as reserved
-
     declared = (config.get("claude_code") or {}).get("hooks")
     if not declared:
         return {}
@@ -686,98 +691,159 @@ def _build_declared_hook_rules(config: dict, project_dir: Path) -> dict[str, lis
                 f"{type(entries).__name__}. For example:\n{_DECLARED_HOOK_EXAMPLE}"
             )
 
-        for entry in entries:
-            if isinstance(entry, str):
-                entry = {"hook": entry}
-            if not isinstance(entry, dict):
-                raise BuildProfileError(
-                    f"claude_code.hooks.{event} entries must be a hook filename or a "
-                    f"mapping with a 'hook' key, got {type(entry).__name__}. For "
-                    f"example:\n{_DECLARED_HOOK_EXAMPLE}"
-                )
-            unknown = set(entry) - {"hook", "matcher", "timeout"}
-            if unknown:
-                raise BuildProfileError(
-                    f"claude_code.hooks.{event} entry has unknown key(s): "
-                    f"{', '.join(sorted(unknown))}. Accepted keys: hook, matcher, timeout."
-                )
-            if "hook" not in entry:
-                raise BuildProfileError(
-                    f"claude_code.hooks.{event} entry is missing the required 'hook' "
-                    f"key. For example:\n{_DECLARED_HOOK_EXAMPLE}"
-                )
-
+        for raw_entry in entries:
+            entry = _declared_hook_entry(raw_entry, event)
             name = _declared_hook_filename(entry["hook"], event)
-            destination = f".claude/hooks/{name}"
-
-            owner = reserved.get(destination)
-            if owner is not None:
-                raise BuildProfileError(
-                    f"claude_code.hooks.{event} declares {name!r}, but {destination} "
-                    f"is owned by {owner}. It is not a hook a profile wires."
-                )
-            if name in framework_hooks:
-                raise BuildProfileError(
-                    f"claude_code.hooks.{event} declares {name!r}, which is a built-in "
-                    "OSPREY hook. The framework wires its own hooks from the profile's "
-                    "`hooks:` selection — declaring one here would invoke it twice. "
-                    "Select or unselect it through `hooks:` instead."
-                )
-            if name not in shipped:
-                raise BuildProfileError(
-                    f"claude_code.hooks.{event} declares {name!r}, which the resolved "
-                    "profile does not ship. Either add it to the profile's hooks/ "
-                    f"directory, or — if a persona excludes 'hooks/{name}' — unwire it "
-                    "in that same delta by adding this line to the persona's `config:`:"
-                    f"\n    claude_code.hooks.{event}: null\n"
-                    "Use `null`, not `[]`: persona lists merge additively with the "
-                    "profile's, so an empty list adds nothing and leaves the wiring in "
-                    "place. `claude_code.hooks: {}` unwires every event at once."
-                )
-            if not (project_dir / ".claude" / "hooks" / name).is_file():
-                raise BuildProfileError(
-                    f"claude_code.hooks.{event} declares {name!r}, but "
-                    f"{destination} is not present in the project. Wiring a script "
-                    "that is not there would fail silently at session start."
-                )
-
-            timeout = entry.get("timeout", _DECLARED_HOOK_TIMEOUT)
-            if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
-                raise BuildProfileError(
-                    f"claude_code.hooks.{event} entry for {name!r} has timeout="
-                    f"{timeout!r}; it must be a positive whole number of seconds."
-                )
-            matcher = entry.get("matcher")
-            if matcher is not None and not isinstance(matcher, str):
-                raise BuildProfileError(
-                    f"claude_code.hooks.{event} entry for {name!r} has a non-string "
-                    f"matcher ({type(matcher).__name__})."
-                )
-            if matcher is None and event in ("PreToolUse", "PostToolUse"):
-                # These two events are always rendered with a matcher; "*" is the
-                # match-everything spelling, so an undeclared matcher keeps the
-                # entry's meaning ("on every tool call") explicit in the output.
-                matcher = "*"
-
-            rules.setdefault(event, []).append(
-                {
-                    "matcher": matcher or "",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            # ``python3`` for the same reason the framework rules
-                            # use it, and rewritten to the project interpreter by
-                            # the same settings.json.j2 filter. Deliberately no
-                            # ``|| true``: a facility gate that swallows its own
-                            # non-zero exit would stop being a gate.
-                            "command": (f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{name}"'),
-                            "timeout": timeout,
-                        }
-                    ],
-                }
-            )
+            _vet_declared_hook(name, event, project_dir, shipped, framework_hooks)
+            rules.setdefault(event, []).append(_declared_hook_rule(entry, event, name))
 
     return rules
+
+
+def _declared_hook_entry(entry: Any, event: str) -> dict:
+    """Normalize and shape-check one ``claude_code.hooks.<event>`` entry.
+
+    A declaration may be spelled as a bare hook filename or as a mapping
+    carrying one; everything downstream reads the mapping, so the two spellings
+    are collapsed here rather than at each reader.
+
+    Raises:
+        BuildProfileError: If the entry is neither spelling, carries a key the
+            declaration does not accept, or omits ``hook``.
+    """
+    if isinstance(entry, str):
+        entry = {"hook": entry}
+    if not isinstance(entry, dict):
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} entries must be a hook filename or a "
+            f"mapping with a 'hook' key, got {type(entry).__name__}. For "
+            f"example:\n{_DECLARED_HOOK_EXAMPLE}"
+        )
+    unknown = set(entry) - {"hook", "matcher", "timeout"}
+    if unknown:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} entry has unknown key(s): "
+            f"{', '.join(sorted(unknown))}. Accepted keys: hook, matcher, timeout."
+        )
+    if "hook" not in entry:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} entry is missing the required 'hook' "
+            f"key. For example:\n{_DECLARED_HOOK_EXAMPLE}"
+        )
+    return entry
+
+
+def _vet_declared_hook(
+    name: str,
+    event: str,
+    project_dir: Path,
+    shipped: set[str],
+    framework_hooks: frozenset[str],
+) -> None:
+    """Refuse a hook filename a profile may not wire — all four ways it can fail.
+
+    Together these are what keeps the declaration additive: a reserved path and
+    a built-in hook both belong to the framework, and a name the profile does
+    not ship (or that never reached the project) would wire a command at a path
+    with nothing behind it.
+
+    Args:
+        name: The declared hook's filename, already resolved to a bare name.
+        event: The Claude Code event it was declared under, for the message.
+        project_dir: Project root — the emitted command's script must be there.
+        shipped: Hook filenames the resolved profile ships.
+        framework_hooks: Filenames the framework wires from ``hooks:`` itself.
+
+    Raises:
+        BuildProfileError: On a reserved destination, a built-in hook, a hook
+            the resolved profile does not ship, or one absent from the project.
+    """
+    # The EXACT reservations only. `reserved_path_channel` additionally reserves
+    # every convention destination prefix — including `.claude/hooks/` itself,
+    # which is precisely where a declared hook is supposed to live.
+    from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS as reserved
+
+    destination = f".claude/hooks/{name}"
+    owner = reserved.get(destination)
+    if owner is not None:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} declares {name!r}, but {destination} "
+            f"is owned by {owner}. It is not a hook a profile wires."
+        )
+    if name in framework_hooks:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} declares {name!r}, which is a built-in "
+            "OSPREY hook. The framework wires its own hooks from the profile's "
+            "`hooks:` selection — declaring one here would invoke it twice. "
+            "Select or unselect it through `hooks:` instead."
+        )
+    if name not in shipped:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} declares {name!r}, which the resolved "
+            "profile does not ship. Either add it to the profile's hooks/ "
+            f"directory, or — if a persona excludes 'hooks/{name}' — unwire it "
+            "in that same delta by adding this line to the persona's `config:`:"
+            f"\n    claude_code.hooks.{event}: null\n"
+            "Use `null`, not `[]`: persona lists merge additively with the "
+            "profile's, so an empty list adds nothing and leaves the wiring in "
+            "place. `claude_code.hooks: {}` unwires every event at once."
+        )
+    if not (project_dir / ".claude" / "hooks" / name).is_file():
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} declares {name!r}, but "
+            f"{destination} is not present in the project. Wiring a script "
+            "that is not there would fail silently at session start."
+        )
+
+
+def _declared_hook_rule(entry: dict, event: str, name: str) -> dict:
+    """The settings.json hook rule one vetted declaration renders to.
+
+    Args:
+        entry: The normalized declaration (:func:`_declared_hook_entry`).
+        event: The event it was declared under.
+        name: Its hook filename, already vetted by :func:`_vet_declared_hook`.
+
+    Returns:
+        One rule, ready to append to the event's array.
+
+    Raises:
+        BuildProfileError: On a non-positive or non-integer ``timeout``, or a
+            non-string ``matcher``.
+    """
+    timeout = entry.get("timeout", _DECLARED_HOOK_TIMEOUT)
+    if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} entry for {name!r} has timeout="
+            f"{timeout!r}; it must be a positive whole number of seconds."
+        )
+    matcher = entry.get("matcher")
+    if matcher is not None and not isinstance(matcher, str):
+        raise BuildProfileError(
+            f"claude_code.hooks.{event} entry for {name!r} has a non-string "
+            f"matcher ({type(matcher).__name__})."
+        )
+    if matcher is None and event in ("PreToolUse", "PostToolUse"):
+        # These two events are always rendered with a matcher; "*" is the
+        # match-everything spelling, so an undeclared matcher keeps the
+        # entry's meaning ("on every tool call") explicit in the output.
+        matcher = "*"
+
+    return {
+        "matcher": matcher or "",
+        "hooks": [
+            {
+                "type": "command",
+                # ``python3`` for the same reason the framework rules use it, and
+                # rewritten to the project interpreter by the same
+                # settings.json.j2 filter. Deliberately no ``|| true``: a
+                # facility gate that swallows its own non-zero exit would stop
+                # being a gate.
+                "command": (f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{name}"'),
+                "timeout": timeout,
+            }
+        ],
+    }
 
 
 def create_claude_code_integration(

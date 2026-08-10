@@ -13,7 +13,6 @@ from pathlib import Path, PurePosixPath
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 
 # The dev-wheel build, per-process cache, and staging-copy helpers live in
@@ -27,7 +26,7 @@ from osprey.deployment.wheel_build import (
 from osprey.deployment.wheel_build import (
     _reset_wheel_build_cache as _reset_wheel_build_cache,
 )
-from osprey.utils.config import ConfigBuilder
+from osprey.utils.config import ConfigBuilder, load_project_config
 from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
 
@@ -709,9 +708,8 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
         try:
             with quiet_logger(["registry", "CONFIG"]):
                 global_config = ConfigBuilder()
-                flattened_config = normalize_facility_config(
-                    global_config.get_unexpanded_config()
-                )  # Preserves ${VAR} placeholders - secrets not written to disk
+                # Preserves ${VAR} placeholders - secrets not written to disk
+                flattened_config = global_config.get_unexpanded_config()
 
             # Adjust paths for container environment
             # In containers, src/ is copied to repo_src/, so config paths must be updated
@@ -751,28 +749,13 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
             logger.debug(f"Created flattened config.yml at {config_yml_dst}")
         except Exception as e:
             logger.warning(f"Failed to create flattened config: {e}")
-            # Fallback to copying original config, normalized first. The primary
-            # deploy entry (`prepare_compose_files`) already rejects a removed
-            # `gitlab:` block up front, so this degraded path only ever sees a
-            # canonical config. A config.yml the normalizer/YAML loader can't
-            # parse falls back further, to a verbatim copy, so this degraded
-            # path never blocks the build.
+            # Fall back to copying the original config verbatim, so this
+            # degraded path never blocks the build.
             config_yml_src = "config.yml"
             if os.path.exists(config_yml_src):
                 config_yml_dst = os.path.join(out_dir, "config.yml")
-                try:
-                    with open(config_yml_src, encoding="utf-8") as src_f:
-                        fallback_config = normalize_facility_config(yaml.safe_load(src_f) or {})
-                    with open(config_yml_dst, "w") as dst_f:
-                        yaml.dump(fallback_config, dst_f, default_flow_style=False, sort_keys=False)
-                    logger.debug(f"Copied normalized original config.yml to {config_yml_dst}")
-                except Exception as fallback_exc:
-                    logger.warning(
-                        f"Could not normalize fallback config.yml ({fallback_exc}); "
-                        "copying it verbatim instead"
-                    )
-                    shutil.copy2(config_yml_src, config_yml_dst)
-                    logger.debug(f"Copied original config.yml to {config_yml_dst}")
+                shutil.copy2(config_yml_src, config_yml_dst)
+                logger.debug(f"Copied original config.yml to {config_yml_dst}")
 
         # Render kernel templates if specified in service configuration
         if container_cfg.get("render_kernel_templates", False):
@@ -963,12 +946,7 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False):
     if dev_mode:
         preflight_dev_mode()
 
-    try:
-        with quiet_logger(["registry", "CONFIG"]):
-            config = ConfigBuilder(config_path)
-            config = normalize_facility_config(config.raw_config)
-    except Exception as e:
-        raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
+    config = load_project_config(config_path, wrap_errors=True)
 
     # Handle network exposure setting
     # Default to localhost-only binding for security (Issue #126)

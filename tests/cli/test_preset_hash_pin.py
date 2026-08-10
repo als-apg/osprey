@@ -42,12 +42,16 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # — so the staleness advisory firing on already-deployed projects is the
     # correct signal, not noise. Both extends children inherit it, so all three
     # digests moved again.
-    "control-assistant": "sha256:28a38e135c598bc3624216d1c3b49becee20c44461d2f1531dd66cd5967d9985",
+    #
+    # Re-pinned again when control-assistant gained the test-ioc-safety rule
+    # selection (renders only for EPICS-family control systems). Both extends
+    # children inherit it, so all three digests moved.
+    "control-assistant": "sha256:9b354d59dfb523bd6a3591de7155c0d2c91c82710aac2db98127b8f8d0db78b2",
     "control-assistant-readonly": (
-        "sha256:0215cab34ca3ee824af9c2f9126f25317c3836275c235757d9458fd9824858e7"
+        "sha256:f85d545d3c9f61693dd7a48861b2ae46443c2e6e90447560391db1cc79311ac4"
     ),
     "control-assistant-readwrite": (
-        "sha256:56fbf6f2adfa61a54d46165548285f799e5a71c3b969583c78780de2fe60cc9f"
+        "sha256:c4b63c8a00876924117edafc80d3e785ca2e3c01375d8908390b78bef3788110"
     ),
     "hello-world": "sha256:e1666b0b1a1d1232bc3aa9c32ccf11e3555a217162fda292f4240396ef19ec8a",
 }

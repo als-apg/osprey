@@ -1,106 +1,136 @@
-"""String-content guards on shipped `osprey-build-deploy` skill templates.
+"""Multi-user persona parity, held across the deploy split.
 
-Some templates under `templates/skills/osprey-build-deploy/templates/` are
-**agent-rendered prose**, not Jinja: an LLM reads the `# IF`/`# FOR` pseudo-loop
-comments at facility-scaffolding time and emits the real, concrete file. There
-is no Python producer to exercise, so the only guard available is a string
-assertion on the shipped template text itself (PLAN Task 4.1) — this mirrors
-how the plain-Jinja templates in this same skill get producer-based tests
-(e.g. `tests/deployment/test_compose_generator.py`), just without a render
-step in between.
+A facility with a persona catalog needs one web-terminal image per persona.
+That used to be a pipeline concern: the CI template carried a per-persona
+`osprey build` render and a per-persona `build-web-terminal-<persona>` job, and
+the guards on it were string assertions against the shipped template text.
 
-This module covers `.gitlab-ci.yml`'s per-persona build-job block (PLAN
-Task 4.1, multi-user-support P4): each non-default entry in
-`modules.web_terminals.personas` needs its own `osprey build` render plus its
-own suffixed `web-terminal-<persona>` image, built/pushed at SHA and re-tagged
-to `:latest` by the `release` job — all without touching the existing
-un-suffixed default `build-web-terminal`/`web-terminal` job, which predates
-personas entirely.
+The pipeline no longer builds web-terminal images at all — the deploy host
+does, from the persona catalog, when `osprey deploy up` runs. This module holds
+both halves of that relocation to the exemplar profile, which declares two
+personas: the rendered pipeline must build no web-terminal image, and every
+referenced persona must still come out as its own host-side build unit. Losing
+either half loses multi-user support without any test going red.
+
+The builder's own behavior (build args, dev wheels, auto-render) is covered in
+``tests/deployment/web_terminals/test_persona_images.py``; what is tested here
+is only that the personas reach it.
 """
 
 from __future__ import annotations
 
-from importlib.resources import as_file, files
 from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml
 
-TEMPLATE_PATH = "templates/skills/osprey-build-deploy/templates/core/.gitlab-ci.yml"
+from osprey.cli.build_profile_deploy import DeployConfig, parse_deploy_block
+from osprey.cli.deploy_scaffold_templates import CI_TEMPLATES, build_ci_context, render
+from osprey.deployment.web_terminals.persona_images import _referenced_personas
 
+EXEMPLAR_DIR = Path(__file__).parent / "goldens" / "exemplar-profile"
 
-@pytest.fixture()
-def gitlab_ci_template() -> str:
-    with as_file(files("osprey").joinpath(TEMPLATE_PATH)) as path:
-        return Path(path).read_text(encoding="utf-8")
+#: Matches the goldens' frozen provenance token; nothing here reads it.
+FROZEN_VERSION = "OSPREY_VERSION"
 
-
-def test_default_web_terminal_job_untouched(gitlab_ci_template: str) -> None:
-    """The pre-existing un-suffixed default job must survive unmodified."""
-    assert "build-web-terminal:\n" in gitlab_ci_template
-    assert "-t $REGISTRY/web-terminal:$CI_COMMIT_SHORT_SHA .\n" in gitlab_ci_template
-    assert "docker push $REGISTRY/web-terminal:$CI_COMMIT_SHORT_SHA\n" in gitlab_ci_template
+PROJECT_NAME = "demo-facility"
 
 
-def test_persona_render_loop_in_osprey_build_stage(gitlab_ci_template: str) -> None:
-    """Each non-default persona gets its own `osprey build <project> <build_profile>`."""
-    assert (
-        "# FOR each in modules.web_terminals.personas where each.name != default_persona"
-        in gitlab_ci_template
+@pytest.fixture(scope="module")
+def exemplar() -> dict[str, Any]:
+    return yaml.safe_load((EXEMPLAR_DIR / "profile.yml").read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def exemplar_deploy(exemplar: dict[str, Any]) -> DeployConfig:
+    deploy = parse_deploy_block(exemplar)
+    assert deploy is not None, "the exemplar profile must declare a deploy block"
+    return deploy
+
+
+@pytest.fixture(scope="module")
+def web_terminals(exemplar: dict[str, Any]) -> dict[str, Any]:
+    """The exemplar's ``modules.web_terminals`` subtree, as the host reads it."""
+    return exemplar["config"]["modules.web_terminals"]
+
+
+@pytest.fixture(scope="module")
+def rendered_ci(exemplar: dict[str, Any], exemplar_deploy: DeployConfig) -> str:
+    context = build_ci_context(
+        exemplar, exemplar_deploy, EXEMPLAR_DIR, PROJECT_NAME, FROZEN_VERSION
     )
-    assert "osprey build ${each.project} ${each.build_profile}" in gitlab_ci_template
-    assert "--runtime-root /app/${each.project}" in gitlab_ci_template
-    assert "artifacts/personas/${each.name}" in gitlab_ci_template
-    assert "cp -r build-output/${each.project} artifacts/personas/${each.name}/${each.project}" in (
-        gitlab_ci_template
+    return render(CI_TEMPLATES[exemplar_deploy.ci], context)
+
+
+def test_exemplar_declares_more_than_one_persona(web_terminals: dict[str, Any]) -> None:
+    """Guards the rest of this module against becoming vacuous.
+
+    Every assertion below is about a multi-persona facility. A profile edit
+    that dropped the catalog would leave them all passing on nothing.
+    """
+    assert set(web_terminals["personas"]) == {"readonly", "readwrite"}
+    assert {u["persona"] for u in web_terminals["users"]} == {"readonly", "readwrite"}
+
+
+def test_pipeline_builds_no_web_terminal_image(
+    rendered_ci: str, web_terminals: dict[str, Any]
+) -> None:
+    """No job in the pipeline builds a web-terminal image, per-persona or not.
+
+    The images stage covers the facility's own service directories only. A
+    persona image is the deploy host's to build, against the host's runtime and
+    the persona project it renders on demand — a pipeline that built one would
+    be pushing a second, divergent source of the same tag.
+    """
+    jobs = {
+        name: body for name, body in yaml.safe_load(rendered_ci).items() if isinstance(body, dict)
+    }
+    # A concrete image job carries no `stage:` of its own — it inherits one by
+    # extending the hidden `.service-image` template. Selecting on `stage`
+    # alone would scan only that template and skip every job that does the
+    # actual building.
+    hidden = {name for name, body in jobs.items() if body.get("stage") == "images"}
+    image_jobs = {
+        name: body for name, body in jobs.items() if name in hidden or body.get("extends") in hidden
+    }
+    assert hidden < set(image_jobs), (
+        "the exemplar must render at least one concrete image job, not just the "
+        f"template it extends (found {sorted(image_jobs)})"
     )
 
-
-def test_persona_docker_build_job_block(gitlab_ci_template: str) -> None:
-    """Each non-default persona gets its own suffixed build/push job, built from
-    its own rendered project via build-context-scoped args (never the runtime
-    OSPREY_PROJECT_DIR name — see docker-compose.yml.j2/sdk_runner.py/dispatch_api.py
-    for that name's actual, unrelated in-container meaning)."""
-    assert "build-web-terminal-${each.name}:" in gitlab_ci_template
-    assert (
-        "--build-arg OSPREY_PROJECT_SRC=artifacts/personas/${each.name}/${each.project}"
-        in gitlab_ci_template
-    )
-    assert "--build-arg OSPREY_PROJECT_NAME=${each.project}" in gitlab_ci_template
-    # The runtime OSPREY_PROJECT_DIR name (docker-compose.yml.j2/sdk_runner.py/
-    # dispatch_api.py) must never be reused as a build-arg here — only the
-    # explanatory comment is allowed to name it, never a `--build-arg` line.
-    assert "--build-arg OSPREY_PROJECT_DIR=" not in gitlab_ci_template
-    assert "-t $REGISTRY/web-terminal-${each.name}:$CI_COMMIT_SHORT_SHA .\n" in gitlab_ci_template
-    assert (
-        "docker push $REGISTRY/web-terminal-${each.name}:$CI_COMMIT_SHORT_SHA\n"
-        in gitlab_ci_template
-    )
-    # Reuses the shared docker-build-template anchor like every other build-* job.
-    assert "build-web-terminal-${each.name}:\n  <<: *docker-build-template" in gitlab_ci_template
+    forbidden = ["web-terminal", *web_terminals["personas"]]
+    for name, body in image_jobs.items():
+        # The job's whole body, not just its name: a job called `image:foo`
+        # whose script builds a persona image would pass a name-only check.
+        text = yaml.safe_dump(body)
+        for token in forbidden:
+            assert token not in name, f"image job {name!r} names {token!r}"
+            assert token not in text, f"image job {name!r} references {token!r}"
 
 
-def test_release_job_covers_persona_images(gitlab_ci_template: str) -> None:
-    """`release` needs each persona build job and re-tags each image to :latest."""
-    release_section = gitlab_ci_template.split("release:\n", 1)[1]
+def test_every_referenced_persona_is_a_host_side_build_unit(
+    web_terminals: dict[str, Any],
+) -> None:
+    """Each persona a user references resolves to exactly one build unit.
 
-    assert "- build-web-terminal-${each.name}" in release_section
-    # The un-suffixed default job stays listed alongside the persona loop.
-    assert "- build-web-terminal\n" in release_section
+    This is the half that replaced the pipeline's per-persona job block: the
+    catalog entry a user points at is what the host builds, one image per
+    distinct persona regardless of how many users share it.
+    """
+    catalog = web_terminals["personas"]
+    resolved_users = [
+        {"persona": user["persona"], "project": catalog[user["persona"]]["project"]}
+        for user in web_terminals["users"]
+    ]
+    # A third user sharing a persona must not add a second build of it.
+    resolved_users.append({"persona": "readonly", "project": catalog["readonly"]["project"]})
 
-    assert 'IMAGES="$IMAGES web-terminal-${each.name}"' in release_section
-    # The un-suffixed default image stays in the re-tag list too.
-    assert 'IMAGES="$IMAGES web-terminal"\n' in release_section
+    units = _referenced_personas({"modules": {"web_terminals": web_terminals}}, resolved_users)
 
-
-def test_persona_loop_guarded_by_web_terminals_module(gitlab_ci_template: str) -> None:
-    """Persona job blocks stay nested inside `# IF MODULE web_terminals.enabled`."""
-    # web_terminals.enabled guards the persona loop at all four sites it
-    # appears (osprey-build render, docker-build job, release `needs:`,
-    # release `IMAGES` script) — one `# IF` per site, one `# FOR` per site.
-    assert gitlab_ci_template.count("# IF MODULE web_terminals.enabled") == 4
-    assert (
-        gitlab_ci_template.count(
-            "# FOR each in modules.web_terminals.personas where each.name != default_persona"
-        )
-        == 4
-    )
+    assert [u["persona"] for u in units] == ["readonly", "readwrite"]
+    for unit in units:
+        entry = catalog[unit["persona"]]
+        assert unit["project"] == entry["project"]
+        assert unit["project_path"] == entry["project_path"]
+        assert unit["build_profile"] == entry["build_profile"]

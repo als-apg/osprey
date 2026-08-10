@@ -11,14 +11,14 @@
   ----------------------------------------------------------------------------
 
     facility_prefix: str
-      facility.prefix from facility-config.yml (e.g. "als"). Used for
+      `facility.prefix` from the deployed project's config (e.g. "als"). Used for
       container_name (`<prefix>-web-<user>`, `<prefix>-nginx`) only — the
       per-user agent-data mount path comes from each service's own
       `container_project_dir` (below), not this field, so a persona-resolved
       user's mount can differ from the facility-prefix default.
 
     registry_url: str
-      registry.url from facility-config.yml. NOT read directly by this
+      `registry.url` from the deployed project's config. NOT read directly by this
       template's per-user image line (that comes pre-resolved as `svc.image`,
       below) — kept in the render context for the nginx/landing sibling
       templates and any future use, per the same convention as the
@@ -59,7 +59,7 @@
       `/app/<facility_prefix>-assistant` — byte-identical output to before
       personas existed (see resolve_personas()'s docstring). render.py MUST
       NOT include an entry whose "user" is "nginx" (reserved
-      service name; enforced by the lint (Task 1.5) against facility-config).
+      service name; enforced by the lint (Task 1.5) against the roster).
       This template ALSO refuses to render such a `services` list (see the
       loop below) — belt-and-suspenders, because a `services:` mapping with
       two `nginx:` keys wouldn't fail loudly on its own: PyYAML silently
@@ -146,7 +146,7 @@
     bind_host: str, required (Task 1.1)
       Loopback address (always "127.0.0.1") baked into every per-user
       service's OSPREY_TERMINAL_BIND_HOST — and into the auth sidecar's own
-      uvicorn bind. Not sourced from facility-config — see render.py's
+      uvicorn bind. Not sourced from config at all — see render.py's
       `_LOOPBACK_BIND_HOST` for why this is a constant, not a knob.
 
   ----------------------------------------------------------------------------
@@ -345,7 +345,7 @@ services:
      nginx service key above (PyYAML keeps the last of two duplicate mapping
      keys, so the whole nginx service — and the landing page — would just
      vanish with no render error). The lint (Task 1.5) already rejects this
-     against facility-config; this is a second, independent guard that fires
+     against the roster; this is a second, independent guard that fires
      even if render.py is ever called without going through the lint first. #}
   {{ 1 / 0 }}
 {% endif %}
