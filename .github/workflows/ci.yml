@@ -28,6 +28,18 @@ on:
         required: false
         type: boolean
         default: false
+      revalidate_secret_lanes:
+        description: >-
+          Run the API-key-dependent lanes (agentic flows, dispatch stacks,
+          Nextcloud/Google Chat bridges) against this ref. Dependabot's own
+          runs are treated as fork runs and receive only the Dependabot
+          secret store, so ALS_APG_API_KEY is empty and those lanes skip on
+          its pull requests. After reading the dependency diff, a maintainer
+          revalidates the branch with:
+          gh workflow run ci.yml --ref <branch> -f revalidate_secret_lanes=true
+        required: false
+        type: boolean
+        default: false
   schedule:
     # Nightly at 07:00 UTC (midnight Pacific) for the always-on jobs
     # (test, lint, docs, ...; no `if:`). Every e2e/benchmark lane is
@@ -592,7 +604,13 @@ jobs:
     # Only run on PRs from same repo (ALS_APG_API_KEY unavailable on forks).
     # Gating (no continue-on-error): a red Tier 3 flow blocks the merge like
     # every other e2e lane — the house rule is full green, no advisory tiers.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     strategy:
       fail-fast: false
       matrix:
@@ -671,7 +689,13 @@ jobs:
     # Only run on PRs (not pushes) to control API costs, and only for non-fork PRs (secrets unavailable on forks).
     # Also runs on manual workflow_dispatch to enable scoped reruns via the e2e_filter input —
     # unless that dispatch asked for the benchmark lanes instead (run_benchmarks).
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
     # The lane's healthy runtime is ~20-25min (real-LLM SDK/CLI pipelines —
     # every full-stack docker deploy now lives in its own dedicated job, and
     # the channel-finder benchmarks moved to the nightly schedule); a run past
@@ -946,7 +970,13 @@ jobs:
     # carries the multi-user topology + write-posture proofs (T1-T4 in
     # tests/e2e/test_dispatch_deploy.py). Persona image builds add
     # cold-cache minutes; the two builds share most layers.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -1016,7 +1046,13 @@ jobs:
     # dispatcher/worker image build + deploy was the lane's single biggest
     # time sink (~11min); it follows the same extraction pattern (and job
     # shape) as dispatch-deploy-e2e.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Build + deploy + one real agent turn healthily fits well under 20min
     # (~11min when it ran in-lane, including the web-terminal image builds
     # its fixture has since dropped); past the cap it's wedged, not slow.
@@ -1405,7 +1441,13 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (same house policy as every other
     # Docker-stack lane: secrets are unavailable on forks).
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # A job-level `permissions:` block REPLACES the default token scopes rather
     # than extending them, so `contents: read` is restated alongside the
     # `packages: read` this lane actually needs: the Nextcloud Talk fixture is a
@@ -1503,7 +1545,13 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (same house policy as every other
     # container-stack lane: secrets are unavailable on forks).
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # A job-level `permissions:` block REPLACES the default token scopes rather
     # than extending them, so the one scope this lane needs is stated in full.
     # Unlike nextcloud-talk-bridge-e2e there is no `packages: read` here: the
@@ -2001,6 +2049,18 @@ jobs:
       #     (failure, cancelled) fails it. Corollary: on fork PRs the secret
       #     -gated lanes don't run at all — the gate can't vouch for them
       #     there, same as before.
+      #
+      # Dependabot PRs are a third case that looks like the second: the lanes
+      # skip legitimately (no secrets are issued to them), so the gate passes —
+      # but it says so explicitly in the run summary rather than letting a
+      # green check imply coverage it does not have.
+      #
+      # `github.actor` and `github.head_ref` are routed through `env:` and used
+      # only as quoted shell variables — never interpolated into `run:`, where a
+      # crafted branch name would be a script-injection vector.
+      env:
+        ACTOR: ${{ github.actor }}
+        HEAD_BRANCH: ${{ github.head_ref }}
       run: |
         if [[ "${{ needs.test.result }}" != "success" ]]; then
           echo "❌ Tests failed"
@@ -2073,3 +2133,34 @@ jobs:
         check_pr_lane "Multi-user lifecycle E2E (docker)" "${{ needs.multi-user-deploy-lifecycle-e2e.result }}"
         check_pr_lane "Multi-user lifecycle E2E (podman)" "${{ needs.multi-user-deploy-lifecycle-e2e-podman.result }}"
         echo "✅ All CI checks passed!"
+
+        # A green gate on a Dependabot PR is green-with-a-gap, and the gap is
+        # invisible unless it is named. Dependabot runs get no Actions secrets,
+        # so every API-key lane skipped above rather than ran. Say so where a
+        # reviewer will actually see it — the run summary, not buried in a log.
+        # `-n "$GITHUB_STEP_SUMMARY"` is not defensive noise: `run:` executes
+        # under `bash -e`, so an unset summary path would make `>> ""` fail and
+        # take the whole gate down with it. This block is advisory — it must
+        # never be able to turn a passing gate red.
+        if [ "$ACTOR" = "dependabot[bot]" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          {
+            echo "### ⚠️ Secret-dependent lanes did not run"
+            echo
+            echo "Dependabot pull requests are treated as fork runs and receive only the"
+            echo "Dependabot secret store, so \`ALS_APG_API_KEY\` is unavailable and these"
+            echo "lanes skipped rather than executed:"
+            echo
+            echo "- Tier 3 — Agentic flow (both presets)"
+            echo "- E2E Tests"
+            echo "- Dispatch Deploy E2E / Dispatch Overlay E2E"
+            echo "- Nextcloud Talk Bridge E2E / Google Chat Bridge E2E"
+            echo
+            echo "**This gate cannot vouch for them.** After reviewing the dependency diff,"
+            echo "revalidate the branch as a maintainer (that run does get the secrets):"
+            echo
+            echo '```'
+            echo "gh workflow run ci.yml --ref $HEAD_BRANCH -f revalidate_secret_lanes=true"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "⚠️  Secret-dependent lanes skipped (Dependabot run) — see run summary."
+        fi
