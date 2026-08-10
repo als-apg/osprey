@@ -185,6 +185,35 @@ def env_var_suffix_collisions(usernames: Iterable[str]) -> dict[str, list[str]]:
     return {suffix: sorted(names) for suffix, names in sorted(by_suffix.items()) if len(names) > 1}
 
 
+def roster_user_names(web_terminals: Any) -> list[str]:
+    """The web-terminal user names a ``modules.web_terminals`` subtree declares.
+
+    The whole rule in one place: a module that is not switched on has no roster
+    at all, and the entries of one that is are read through
+    :func:`normalize_users` rather than off the raw list. Both matter to callers
+    who then create directories per user — ``osprey profile new`` seeding a
+    per-user context slot and the build copying into it must agree on the roster
+    down to the last name, or the build looks for a directory nobody made.
+
+    Deliberately takes the *subtree*, not a whole config: its two callers reach
+    it by different routes (a profile's ``config:`` block, which needs
+    ``effective_web_terminals`` to fold the dotted keys; a built project's
+    ``config.yml``, which is already nested), and only what they do with it
+    afterwards is shared.
+
+    Args:
+        web_terminals: The ``modules.web_terminals`` subtree. Anything that is
+            not a mapping is an absent module, so the roster is empty.
+
+    Returns:
+        User names in roster order; empty for a disabled or absent module.
+    """
+    subtree = as_dict(web_terminals)
+    if not subtree.get("enabled"):
+        return []
+    return [entry["name"] for entry in normalize_users(subtree.get("users"))]
+
+
 def effective_image_source(web_terminals: dict[str, Any]) -> str:
     """Coerce ``modules.web_terminals.image_source`` to one of the two real modes.
 

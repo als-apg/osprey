@@ -101,6 +101,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "channel_finder_mode",
         "tier",  # pinning it would break mode-edit parity — see PROPOSAL D-notes
         "default_panel",
+        "deploy",  # CI/registry/host coordinates, filled in per facility
         "mcp_servers",  # facility tool servers
         "artifact_server",  # gallery categories + host/port
         "dispatch",  # the six optional feature blocks
@@ -340,6 +341,25 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # gchat_bridge:
 #   trigger: gchat-question
 """,
+    "deploy": """
+# --- Deployment coordinates --------------------------------------------------
+# Where this project is built, pushed, and run. Needed only once the project
+# leaves the laptop; `osprey deploy scaffold` renders the pipeline from it.
+#
+# Credentials are named here, never written here: declare each variable under
+# `env.required` and put its value in the deployment's .env.
+#
+# deploy:
+#   ci: gitlab
+#   registry:
+#     url: git.example.org:5050/physics/production/facility-profiles
+#     token_env_var: FACILITY_REGISTRY_TOKEN
+#   host:
+#     name: appsdev2
+#     fqdn: appsdev2.example.org
+#     user: operator
+#     project_path: /home/operator/projects/facility-profiles
+""",
     # The two long-form blocks above this module's helpers, registered here so
     # the partition has a single template table to guard.
     "mcp_servers": _MCP_SERVERS_APPENDIX,
@@ -356,6 +376,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "channel_finder_mode",
     "tier",
     "default_panel",
+    "deploy",
     "mcp_servers",
     "artifact_server",
     "dispatch",

@@ -484,6 +484,74 @@ def preset_profile_dir(output_dir: Path, project_name: str) -> Path:
     return output_dir / f"{project_name}{PROFILE_DIR_SUFFIX}"
 
 
+# ---------------------------------------------------------------------------
+# Where a build renders
+# ---------------------------------------------------------------------------
+
+#: The directory a facility repo keeps its profile in. Nesting the profile one
+#: level down is what lets the repo root hold anything else — the CI file, the
+#: rendered projects — without either being mistaken for profile content.
+FACILITY_PROFILE_DIRNAME = "profile"
+
+#: Where a facility repo keeps the projects rendered from that profile. Fixed
+#: rather than configurable: the repo gitignores this path, the CI pipeline
+#: names it, and the docs walk through it, so a second spelling would be three
+#: things quietly disagreeing.
+FACILITY_BUILD_DIRNAME = "build"
+
+
+def facility_repo_root(profile_dir: Path) -> Path | None:
+    """The facility repo *profile_dir* belongs to, if it belongs to one.
+
+    A facility repo keeps its profile in ``profile/`` at the repo root, so the
+    root is found by walking up to that directory and taking its parent.
+    Matching on the enclosing ``profile/`` rather than on any ancestor that
+    merely *contains* one keeps an unrelated sibling directory from being read
+    as a repo marker.
+
+    Args:
+        profile_dir: The profile ROOT, as resolution reports it — for a persona
+            delta, the directory above ``personas/``, so a persona and the
+            profile it lives under resolve to the same repo.
+
+    Returns:
+        The repo root, or ``None`` when the profile is a standalone directory
+        (a preset's bundled package dir, a ``<name>-profile/`` beside a
+        project, a hand-kept profile in ``~/profiles/``) rather than one nested
+        in a facility repo.
+    """
+    for candidate in (profile_dir, *profile_dir.parents):
+        if candidate.name == FACILITY_PROFILE_DIRNAME and candidate.is_dir():
+            return candidate.parent
+    return None
+
+
+def resolve_build_output_dir(explicit: str | Path | None, profile_dir: Path) -> Path:
+    """Decide where a build renders its project.
+
+    Three answers, in priority order: what the operator asked for, the facility
+    repo's own ``build/``, or the working directory. The middle one is what
+    makes ``osprey build`` position-independent inside a facility repo — the
+    same command run from the repo root, from inside ``profile/``, or from any
+    nested subdirectory renders to the same place, so a rebuild refreshes the
+    project rather than scattering copies of it wherever the operator happened
+    to be standing.
+
+    Args:
+        explicit: ``--output-dir`` as given, or ``None`` when it was omitted.
+        profile_dir: The profile ROOT this build resolved.
+
+    Returns:
+        An absolute directory the project directory is created under.
+    """
+    if explicit is not None:
+        return Path(explicit).resolve()
+    repo_root = facility_repo_root(profile_dir)
+    if repo_root is not None:
+        return repo_root / FACILITY_BUILD_DIRNAME
+    return Path.cwd().resolve()
+
+
 def materialize_or_reuse_profile(
     preset: str,
     output_dir: Path,
@@ -584,17 +652,28 @@ def _check_preset_provenance(profile_path: Path, preset: str) -> None:
     not-preset-derived profiles answer neither question, and "cannot tell" must
     never read as an answer.
     """
-    try:
-        raw = _read_profile_document(profile_path)
-    except BuildProfileError:
-        # An unreadable profile is about to fail the build with a much better
-        # message than either check could give.
-        return
-    provenance = raw.get("provenance") if isinstance(raw, dict) else None
-    if not isinstance(provenance, dict):
+    provenance = _profile_provenance(profile_path)
+    if provenance is None:
         return
     _require_matching_preset(profile_path, preset, provenance)
     _report_preset_drift(profile_path, preset, provenance)
+
+
+def _profile_provenance(profile_path: Path) -> dict[str, Any] | None:
+    """The profile's ``provenance:`` block, or ``None`` when it has none.
+
+    One reader for every question asked of that block, so "unreadable profile"
+    and "no provenance" cannot be answered one way by the build's preset check
+    and another by the manifest stamp. An unreadable profile answers ``None``
+    rather than raising: it is about to fail the build with a far better message
+    than any provenance question could give.
+    """
+    try:
+        raw = _read_profile_document(profile_path)
+    except BuildProfileError:
+        return None
+    provenance = raw.get("provenance") if isinstance(raw, dict) else None
+    return provenance if isinstance(provenance, dict) else None
 
 
 def _require_matching_preset(profile_path: Path, preset: str, provenance: dict[str, Any]) -> None:
@@ -629,13 +708,13 @@ def profile_provenance_preset(profile_path: Path) -> str | None:
     ``None`` when the profile is unreadable or carries no such record. What the
     build stamps into the manifest: the profile is what was built, so the preset
     it came from is the honest answer even where the CLI named one too.
+
+    For a caller that already resolved the profile, ``BuildProfile.provenance``
+    carries the same record without a second read of the file; this is the
+    answer for one holding only a path.
     """
-    try:
-        raw = _read_profile_document(profile_path)
-    except BuildProfileError:
-        return None
-    provenance = raw.get("provenance") if isinstance(raw, dict) else None
-    stored = provenance.get("preset") if isinstance(provenance, dict) else None
+    provenance = _profile_provenance(profile_path) or {}
+    stored = provenance.get("preset")
     if not isinstance(stored, str) or not stored:
         return None
     return _normalize_preset_name(stored)
@@ -744,28 +823,32 @@ def write_back_cli_overrides(
     return written
 
 
-def _flatten_override_layer(
-    layer: dict[str, Any], prefix: tuple[str, ...] = ()
-) -> list[tuple[list[str], Any]]:
+def _flatten_override_layer(layer: dict[str, Any]) -> list[tuple[list[str], Any]]:
     """Flatten a CLI override layer into ``(key_path, value)`` leaf writes.
 
     Descends mappings so an override touches only the leaf it names; scalars,
-    lists and empty mappings are leaves. ``config:`` is the one block that does
-    not nest — its keys are dotted paths into the *rendered* config, held as
-    single mapping keys — so its interior is flattened into one such key rather
-    than into further levels.
+    lists and empty mappings are leaves — which is exactly
+    :func:`_dotted_leaves`, so the descent is done there rather than a second
+    time here.
+
+    ``config:`` is the one block that does not nest: its keys are dotted paths
+    into the *rendered* config, held as single mapping keys. Its interior is
+    therefore flattened into ONE such key (``config`` → ``a.b``) instead of into
+    further profile levels. Only a top-level ``config`` means that — a ``config``
+    key nested under something else addresses no rendered config — which is why
+    the split is made here, over the layer's own keys, rather than inside the
+    recursion.
     """
     flat: list[tuple[list[str], Any]] = []
     for key, value in layer.items():
-        key_path = (*prefix, str(key))
-        if not isinstance(value, dict) or not value:
-            flat.append((list(key_path), value))
-        elif key_path == ("config",):
-            flat.extend(
-                (["config", ".".join(sub_path)], leaf) for sub_path, leaf in _dotted_leaves(value)
-            )
+        name = str(key)
+        if name == "config" and isinstance(value, dict) and value:
+            leaves = [
+                (("config", ".".join(sub_path)), leaf) for sub_path, leaf in _dotted_leaves(value)
+            ]
         else:
-            flat.extend(_flatten_override_layer(value, key_path))
+            leaves = _dotted_leaves({name: value})
+        flat.extend((list(key_path), leaf) for key_path, leaf in leaves)
     return flat
 
 

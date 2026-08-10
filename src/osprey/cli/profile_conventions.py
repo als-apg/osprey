@@ -16,6 +16,8 @@ module is that channel table, plus the validation that keeps it honest:
   the profile is operator-trusted.
 * :func:`plan_convention_copies` — the pure source → destination plan a build
   carries out.
+* :func:`ownership_name` — the destination → ``scaffold.user_owned`` name rule,
+  shared by the build that registers ownership and the render that honors it.
 
 Everything here is pure: it reads the profile tree and returns plans, names, or
 errors. Nothing writes into a project.
@@ -285,6 +287,14 @@ def destination_for(source_rel: str | PurePosixPath) -> str:
     return "/".join(segment for segment in (convention.destination, *parts[1:]) if segment)
 
 
+#: How a refusal names the framework render as an artifact's writer. One
+#: constant because it is one answer: :func:`reserved_path_channel` returns it
+#: for a path the render owns, and ``scaffold unclaim``'s message falls back to
+#: it for an artifact that has no reserved channel at all. Two spellings would
+#: send an operator looking for two different mechanisms.
+FRAMEWORK_RENDER_CHANNEL = "the framework render — carry the change as a `config:` key instead"
+
+
 @lru_cache(maxsize=1)
 def _framework_rendered_outputs() -> frozenset[str]:
     """Project-relative paths the framework render owns under ``.claude/``.
@@ -340,7 +350,7 @@ def reserved_path_channel(dest_rel: str) -> str | None:
             return f"the profile's `{convention.source}/` convention directory"
 
     if normalized in _framework_rendered_outputs():
-        return "the framework render — carry the change as a `config:` key instead"
+        return FRAMEWORK_RENDER_CHANNEL
 
     return None
 
@@ -366,6 +376,41 @@ def convention_slot_for(dest_rel: str) -> str | None:
         if prefix and normalized.startswith(f"{prefix}/"):
             return f"{convention.source}/{normalized[len(prefix) + 1 :]}"
     return None
+
+
+def ownership_name(dest_rel: str, *, is_directory: bool) -> str:
+    """The ``scaffold.user_owned`` name a project-relative destination is owned under.
+
+    The one spelling rule the ownership system has, shared by both of its
+    halves: the build registers what its conventions copied under this name
+    (:func:`~osprey.cli.build_persistence.ownership_canonical`), and regen and
+    prune ask whether a path they are about to write is owned under it
+    (:func:`~osprey.cli.templates.claude_code.is_user_owned`). Derived here or
+    nowhere — a spelling that drifted between writer and reader would fail
+    silently, un-owning every artifact of the affected class rather than
+    raising anything.
+
+    The name is the destination, minus two things that are not part of an
+    artifact's identity: the ``.claude/`` prefix (a rule is
+    ``rules/facility``), and ``.md`` on a file. Anything else keeps its
+    suffix, which is what the artifact is actually known by — ``settings.json``
+    wires each hook as ``.claude/hooks/<filename>``, so
+    ``hooks/osprey_limits.py`` is its name. A directory keeps its name whole:
+    it may legitimately end in ``.md``, and it owns every file beneath it.
+
+    Args:
+        dest_rel: Project-relative posix destination path.
+        is_directory: True when the destination is a whole directory copied as
+            a unit (a skill, a service).
+
+    Returns:
+        The ownership name. Whether that destination's *class* is ownable at
+        all is a separate question, answered by ``ownership_canonical``.
+    """
+    name = dest_rel[len(".claude/") :] if dest_rel.startswith(".claude/") else dest_rel
+    if not is_directory and name.endswith(".md"):
+        name = name[: -len(".md")]
+    return name
 
 
 def _iter_files(root: Path, *, include_hidden: bool = False) -> Iterator[Path]:
@@ -686,15 +731,31 @@ def warn_unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()
     A misspelled convention directory (``rule/`` for ``rules/``) is otherwise
     silent: nothing reads it, so nothing complains, and the artifacts simply
     never reach the project.
+
+    The warning also names the nested facility-repo layout, because the other
+    way to arrive here is not a typo at all: a facility whose own directories
+    (``ioc/``, ``nginx/``, ``tests/``) sit beside ``profile.yml`` at one level
+    gets every one of them reported as unrecognized, and the remedy is to move
+    the profile into its own ``profile/`` directory below them. A repo already
+    laid out that way never reaches this warning — its root holds no
+    ``profile.yml``, so a build pointed there is refused outright, with a
+    pointer to ``osprey profile new``, before any entry is scanned. The two
+    causes read identically from here — one entry or twenty, all unknown — so
+    the message names both remedies rather than guessing which one applies.
     """
     unknown = unknown_root_entries(profile_dir, extra_known)
     if unknown:
         logger.warning(
             "  Profile has %d unrecognized top-level entry/entries: %s\n"
             "     Nothing copies them into the project — check for a typo.\n"
-            "     Convention directories: %s",
+            "     Convention directories: %s\n"
+            "     If %s is a facility repo rather than a profile, the profile is the\n"
+            "     nested profile/ directory — build from profile/profile.yml, and the\n"
+            "     repo's own directories stay invisible to the build. Run\n"
+            "     /osprey-build-interview to lay out that structure.",
             len(unknown),
             ", ".join(unknown),
             ", ".join(f"{name}/" for name in CONVENTION_SOURCES),
+            profile_dir,
         )
     return unknown
