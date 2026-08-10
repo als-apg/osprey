@@ -79,38 +79,25 @@ body {
 @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
 /* ---- Header ----
-   Sticky: now that <body> scrolls, a non-sticky header would carry the refresh
-   control and the last-scan timestamp off-screen exactly when the report is
-   long enough to need them. Opaque background (not the body's gradient) so
-   rows cannot show through as they pass underneath. */
+   Standalone identity only. Sticky: now that <body> scrolls, the title would
+   otherwise scroll away on a report several screens tall. Opaque background
+   (not the body's gradient) so rows cannot show through as they pass
+   underneath. */
 .hdr {
   position: sticky; top: 0; z-index: 50;
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center;
   padding: 16px 20px 10px; border-bottom: 1px solid var(--border-0);
   background: var(--bg-0);
 }
 .hdr-t { display: flex; align-items: baseline; gap: 10px; }
 .hdr-t h1 { font-family: var(--font-d); font-size: 22px; font-weight: 800; letter-spacing: 1px; }
 .hdr-sub { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--text-2); }
-.hdr-r { display: flex; align-items: center; gap: 12px; }
-.hdr-time { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.btn-ref {
-  background: none; border: 1px solid var(--border-0); color: var(--text-1);
-  width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center; transition: all .2s;
-}
-.btn-ref:hover { border-color: var(--beam); color: var(--beam); background: var(--accent-tint-08); }
-.btn-ref.spin svg { animation: spin .8s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
-/* Embedded in the web-terminal hub the host tile bar names this panel
- * (SYSTEM), so the standalone identity block is hidden; the timestamp and
- * refresh control stay, right-aligned. .hdr has two children (.hdr-t, .hdr-r)
- * with justify-content:space-between, so when .hdr-t is hidden, .hdr-r would
- * sit at flex-start (left edge). justify-content:flex-end is required to
- * move it to the right. */
-body.embedded .hdr-t { display: none; }
-body.embedded .hdr { justify-content: flex-end; }
+/* Embedded in the web-terminal hub the host tile bar is this panel's only
+ * header: it names the panel (SYSTEM), and the footer already carries the
+ * freshness signal ("Next scan in Ns"), so the whole standalone header goes
+ * and the panel contributes nothing of its own. */
+body.embedded .hdr { display: none; }
 
 /* ---- Hero: ring + summary ---- */
 .hero { display: flex; flex-direction: column; align-items: center; padding: 24px 16px 16px; gap: 16px; }
@@ -169,6 +156,7 @@ body.embedded .hdr { justify-content: flex-end; }
   width: 16px; height: 16px; border: 2px solid var(--border-1);
   border-top-color: var(--beam); border-radius: 50%; animation: spin 1s linear infinite;
 }
+@keyframes spin { to { transform: rotate(360deg); } }
 .err-s { grid-column: 1 / -1; text-align: center; padding: 48px 24px; color: var(--text-1); }
 .err-s .em { color: var(--err); margin-bottom: 16px; font-size: 13px; }
 .err-s button {

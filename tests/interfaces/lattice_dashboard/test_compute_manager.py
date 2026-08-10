@@ -7,6 +7,7 @@ test stays deterministic and leaves no background threads running.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import threading
 
@@ -161,6 +162,61 @@ class TestMonitorWorker:
 
         assert state.load()["figures"]["optics"]["status"] == "ready"
         assert any(e.get("type") == "figure_ready" for e in broadcaster.events)
+
+    def test_summary_updates_merged_into_state(self, manager):
+        """A worker's ``summary_updates`` block reaches state["summary"].
+
+        The header stat chips read state["summary"], which initialize() fills
+        once from the un-overridden ring. Without this merge they keep showing
+        the design tunes after a magnet override moves the working point.
+        """
+        mgr, state, broadcaster = manager
+        seeded = state.load()
+        seeded["summary"] = {"tunes": [0.30, 0.20], "chromaticity": [1.0, 1.5], "energy_gev": 2.0}
+        state.save(seeded)
+
+        output = state.figures_dir / "optics.json"
+        output.write_text(json.dumps({"s_pos": [0.0], "summary_updates": {"tunes": [0.44, 0.31]}}))
+        proc = FakePopen(["x"])
+        proc.returncode = 0
+
+        mgr._monitor_worker("optics", proc, output)
+
+        summary = state.load()["summary"]
+        assert summary["tunes"] == [0.44, 0.31]
+        # Keys the worker did not recompute survive the merge
+        assert summary["energy_gev"] == 2.0
+        # Clients learn about the new summary through the state signal
+        assert any(e.get("type") == "state_updated" for e in broadcaster.events)
+
+    def test_no_summary_updates_leaves_summary_alone(self, manager):
+        """Workers that publish no summary block neither clear nor re-signal."""
+        mgr, state, broadcaster = manager
+        seeded = state.load()
+        seeded["summary"] = {"tunes": [0.30, 0.20]}
+        state.save(seeded)
+
+        output = state.figures_dir / "da.json"
+        output.write_text(json.dumps({"da_x": [1.0]}))
+        proc = FakePopen(["x"])
+        proc.returncode = 0
+
+        mgr._monitor_worker("da", proc, output)
+
+        assert state.load()["summary"] == {"tunes": [0.30, 0.20]}
+        assert not any(e.get("type") == "state_updated" for e in broadcaster.events)
+
+    def test_unreadable_output_still_marks_ready(self, manager):
+        """Malformed worker JSON costs the summary refresh, not the figure."""
+        mgr, state, _ = manager
+        output = state.figures_dir / "optics.json"
+        output.write_text("not json {")
+        proc = FakePopen(["x"])
+        proc.returncode = 0
+
+        mgr._monitor_worker("optics", proc, output)
+
+        assert state.load()["figures"]["optics"]["status"] == "ready"
 
     def test_nonzero_exit_marks_error(self, manager):
         mgr, state, broadcaster = manager

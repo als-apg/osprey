@@ -22,6 +22,8 @@
  */
 
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
+import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
+import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
 
 /** defaultTabComponent name registered on the dockview instance. */
 export const OSPREY_TAB_COMPONENT = 'osprey-tile-tab';
@@ -106,6 +108,10 @@ class TileTab {
 
     /** @type {HTMLElement | null} visible name element (service tiles only) */
     this._titleEl = null;
+    /** @type {HTMLElement | null} contribution region (service tiles only) */
+    this._contribEl = null;
+    /** @type {string | null} service panel id the region is keyed by */
+    this._servicePanelId = null;
 
     if (id === TERMINAL_RAIL_ID) {
       root.classList.add('tile-tab-terminal');
@@ -122,6 +128,27 @@ class TileTab {
       title.className = 'tile-tab-title';
       root.appendChild(title);
       this._titleEl = title;
+
+      // Contribution region: the panel-controls slot between the tile's name
+      // and its close button (tile-header-contrib.js renders into it from the
+      // panel's last `osprey-header-contribution`). Keyed by the service
+      // panel id, i.e. the dockview placeholder id minus its prefix.
+      const contrib = document.createElement('div');
+      contrib.className = 'tile-tab-contrib';
+      // Interactive children act instead of dragging — same guard as the
+      // adopted terminal header; empty region surface still bubbles so the
+      // bar remains the drag handle.
+      contrib.addEventListener('pointerdown', (e) => {
+        if (e.target instanceof Element && e.target.closest('button')) {
+          e.stopPropagation();
+        }
+      });
+      root.appendChild(contrib);
+      this._contribEl = contrib;
+      this._servicePanelId = id.startsWith(PLACEHOLDER_PREFIX)
+        ? id.slice(PLACEHOLDER_PREFIX.length)
+        : id;
+      registerContribHost(this._servicePanelId, contrib);
     }
 
     const actions = document.createElement('div');
@@ -172,6 +199,9 @@ class TileTab {
 
   dispose() {
     for (const d of this._disposables.splice(0)) d.dispose();
+    if (this._contribEl && this._servicePanelId) {
+      unregisterContribHost(this._servicePanelId, this._contribEl);
+    }
   }
 }
 

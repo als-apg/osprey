@@ -96,6 +96,20 @@ export function sendModeToIframe(iframe) {
 }
 
 /**
+ * Send a tile-bar header action to one iframe — the hub→panel half of the
+ * header-contribution round-trip (tile-header-contrib.js owns the receive
+ * side and the bar rendering; design_system/js/header-contrib.js documents
+ * the contract). Funnels through the same guarded send as the theme/session/
+ * mode twins above.
+ * @param {HTMLIFrameElement | null} iframe
+ * @param {string} id      the contributed item's id
+ * @param {string} [value] nav items: the clicked entry's id
+ */
+export function sendHeaderActionToIframe(iframe, id, value) {
+  postToIframe(iframe, { type: 'osprey-header-action', id, ...(value != null ? { value } : {}) });
+}
+
+/**
  * Build the src for a panel embed — the load-time half of the host→follower
  * contract whose live half is the postMessage senders above: the target URL
  * stamped with `embedded` plus the current theme and mode, so the panel first-

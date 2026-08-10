@@ -221,6 +221,89 @@
   color: var(--text-secondary);
 }
 
+/* ---- Contribution region: the panel-controls slot ----
+ * Rendered by tile-header-contrib.js from an embedded panel's
+ * `osprey-header-contribution`. Sits between the tile name and the close
+ * button, separated by a hairline when non-empty. min-width:0 + hidden
+ * overflow let text items ellipsize before whole items are priority-hidden
+ * (.contrib-hidden). */
+.dock-root .tile-tab-contrib {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.dock-root .tile-tab-contrib.has-items {
+  border-left: 1px solid var(--border-default);
+  padding-left: 10px;
+}
+
+.dock-root .contrib-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.dock-root .contrib-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.dock-root .contrib-nav-link,
+.dock-root .contrib-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  line-height: var(--leading-none);
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dock-root .contrib-nav-link:hover,
+.dock-root .contrib-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.dock-root .contrib-nav-link.active {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.dock-root .contrib-btn {
+  border: 1px solid var(--border-default);
+}
+
+.dock-root .contrib-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.dock-root .contrib-btn-accent {
+  color: var(--color-accent);
+  border-color: var(--border-accent);
+}
+
+.dock-root .contrib-hidden {
+  display: none;
+}
+
 .dock-root .tile-tab-actions {
   margin-left: auto;
   display: flex;

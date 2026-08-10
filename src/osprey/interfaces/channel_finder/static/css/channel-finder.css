@@ -38,6 +38,10 @@
   --cf-space-6: 1.5rem;
   --cf-space-8: 2rem;
 
+  /* Height of the fixed bottom corpus strip — content padding and the
+     toast stack both clear it, so they read it from here. */
+  --cf-strip-h: 28px;
+
   --cf-radius-sm: 3px;
   --cf-radius-md: 5px;
   --cf-radius-lg: 8px;
@@ -117,8 +121,12 @@ a:hover { color: var(--color-accent-light); }
   z-index: 100;
 }
 
-/* Embedded in web terminal: the host tile header bar shows the panel name
- * and the hub owns theming — hide the logo and the theme switcher. */
+/* Embedded in web terminal: the hub's tile bar is the panel's only header —
+ * it shows the panel name, owns theming, and renders the Explore/Feedback
+ * tabs this panel contributes (see js/app.js). So the whole local header
+ * goes, along with the body padding that compensated for its fixed 48px. */
+body.embedded .app-header { display: none; }
+body.embedded .app-main { padding-top: 0; }
 body.embedded .app-logo { display: none; }
 body.embedded osprey-theme-switcher { display: none; }
 
@@ -143,75 +151,6 @@ body.embedded osprey-theme-switcher { display: none; }
   font-size: var(--cf-text-sm);
   letter-spacing: 0.12em;
   color: var(--text-primary);
-}
-
-.pipeline-switcher {
-  position: relative;
-}
-
-.pipeline-badge {
-  background: var(--accent-secondary-tint-15);
-  color: var(--color-accent-secondary-light);
-  font-family: var(--font-display);
-  font-size: 0.6rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 2px 10px;
-  border-radius: var(--cf-radius-full);
-  border: 1px solid var(--accent-secondary-tint-25);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.pipeline-badge:hover {
-  background: var(--accent-secondary-tint-25);
-}
-
-.pipeline-badge:empty { display: none; }
-
-.pipeline-dropdown {
-  display: none;
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 140px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--neutral-tint-35);
-  border-radius: var(--cf-radius-md);
-  box-shadow: var(--shadow-md);
-  z-index: 200;
-  overflow: hidden;
-  animation: fadeIn 0.12s ease;
-}
-
-.pipeline-dropdown.open { display: block; }
-
-.pipeline-dropdown-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: var(--cf-space-2) var(--cf-space-3);
-  font-family: var(--font-display);
-  font-size: var(--cf-text-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.pipeline-dropdown-item:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.pipeline-dropdown-item.active {
-  color: var(--color-accent-secondary-light);
-  background: var(--accent-secondary-tint-08);
 }
 
 /* ================================================================
@@ -286,6 +225,8 @@ body.embedded osprey-theme-switcher { display: none; }
 
 .app-main {
   padding-top: 48px;
+  /* Clears the fixed corpus strip so the last row of content stays readable. */
+  padding-bottom: var(--cf-strip-h);
   min-height: 100vh;
 }
 
@@ -297,6 +238,104 @@ body.embedded osprey-theme-switcher { display: none; }
 
 .view-container > * {
   animation: fadeIn 0.25s ease;
+}
+
+/* ================================================================
+   Corpus Strip
+   Slim utility bar pinned to the bottom of the viewport: corpus stats
+   on the left, pipeline switcher on the right. Body chrome, not header
+   chrome, so it reads identically standalone and embedded.
+   ================================================================ */
+
+.corpus-strip {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--cf-strip-h);
+  display: flex;
+  align-items: center;
+  gap: var(--cf-space-3);
+  padding: 0 var(--cf-space-4);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--neutral-tint-10);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+  z-index: 100;
+}
+
+/* Auto margin rather than space-between: the badges hide on narrow
+   viewports and the switcher must stay on the right regardless. */
+.pipeline-switcher {
+  position: relative;
+  margin-left: auto;
+}
+
+.pipeline-badge {
+  background: var(--accent-secondary-tint-15);
+  color: var(--color-accent-secondary-light);
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 10px;
+  border-radius: var(--cf-radius-full);
+  border: 1px solid var(--accent-secondary-tint-25);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.pipeline-badge:hover {
+  background: var(--accent-secondary-tint-25);
+}
+
+.pipeline-badge:empty { display: none; }
+
+/* Opens upward, right-aligned: the switcher sits at the bottom-right
+   corner of the viewport, so there is no room below or to the right. */
+.pipeline-dropdown {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  min-width: 140px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--neutral-tint-35);
+  border-radius: var(--cf-radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: 200;
+  overflow: hidden;
+  animation: fadeIn 0.12s ease;
+}
+
+.pipeline-dropdown.open { display: block; }
+
+.pipeline-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--cf-space-2) var(--cf-space-3);
+  font-family: var(--font-display);
+  font-size: var(--cf-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.pipeline-dropdown-item:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.pipeline-dropdown-item.active {
+  color: var(--color-accent-secondary-light);
+  background: var(--accent-secondary-tint-08);
 }
 
 /* ================================================================
@@ -969,7 +1008,9 @@ textarea.form-input {
 
 .toast-container {
   position: fixed;
-  bottom: var(--cf-space-4);
+  /* Above the corpus strip: a pipeline switch toasts right where the
+     switcher sits, so stacking them would hide the control. */
+  bottom: calc(var(--cf-strip-h) + var(--cf-space-4));
   right: var(--cf-space-4);
   z-index: 1000;
   display: flex;
@@ -1192,14 +1233,13 @@ textarea.form-input {
 }
 
 /* ================================================================
-   Stats Badges (Header)
+   Stats Badges (Corpus Strip)
    ================================================================ */
 
 .stats-badges {
   display: flex;
   align-items: center;
   gap: var(--cf-space-1);
-  margin-left: var(--cf-space-2);
 }
 
 .stats-badge {
@@ -1775,12 +1815,16 @@ textarea.form-input {
    in-context renderer under Simple mode, so they need no mode guard.
    ================================================================ */
 
-/* Header: drop the Explore/Feedback tabs, the pipeline switcher and the
-   stats badges — Simple keeps only the wordmark + theme toggle. */
+/* Chrome: drop the Explore/Feedback tabs and the whole corpus strip (stats
+   badges + pipeline switcher) — Simple keeps only the wordmark + theme
+   toggle. With the strip gone, .app-main no longer needs to clear it. */
 html[data-ui-mode="simple"] .header-nav,
-html[data-ui-mode="simple"] .pipeline-switcher,
-html[data-ui-mode="simple"] .stats-badges {
+html[data-ui-mode="simple"] .corpus-strip {
   display: none;
+}
+
+html[data-ui-mode="simple"] .app-main {
+  padding-bottom: 0;
 }
 
 /* Section header: keep the title (centred over the search), drop the

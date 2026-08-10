@@ -53,10 +53,17 @@ def run_worker(tmp_path, make_fodo, monkeypatch):
 
 def test_optics_main(run_worker):
     raw = run_worker(optics_mod.main)
-    assert set(raw) == {"s_pos", "beta_x", "beta_y", "eta_x", "baseline"}
+    assert set(raw) == {"s_pos", "beta_x", "beta_y", "eta_x", "baseline", "summary_updates"}
     assert len(raw["s_pos"]) == len(raw["beta_x"])
     assert all(np.isfinite(raw["beta_x"]))
     assert raw["baseline"] is None
+
+
+def test_optics_main_publishes_summary_updates(run_worker):
+    """The compute monitor merges this block into the dashboard's summary."""
+    raw = run_worker(optics_mod.main)
+    assert set(raw["summary_updates"]) == {"tunes", "chromaticity", "beta_max"}
+    assert raw["summary_updates"]["beta_max"][0] == pytest.approx(max(raw["beta_x"]))
 
 
 def test_optics_main_with_baseline(run_worker):

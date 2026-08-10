@@ -13,6 +13,15 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Docked panels now show **one** header bar instead of two. A panel embedded
+  in the web terminal contributes its real toolbar controls (view switcher,
+  action buttons, live text) into the tile's header bar over a new
+  postMessage contract; its own top bar disappears. ARIEL, Channel Finder,
+  the lattice dashboard, and System Health were curated accordingly — the
+  lattice summary stats moved into the panel body, Channel Finder's pipeline
+  switcher and corpus stats into a bottom strip, and the lattice Baseline
+  button now asks for confirmation before overwriting.
+
 - Profiles carry artifacts into a build through **convention directories** —
   `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
   `web-terminal-context/`, `mcp_servers/`, `services/`, and `project/` for
@@ -236,6 +245,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Lattice dashboard summary stats (energy, tunes, chromaticity) no longer
+  freeze at load time — they recompute with the fast figures after a magnet
+  change. Also removed dead panel chrome the audit surfaced: ARIEL's unwired
+  "Connected" indicator and the System Health panel's no-op manual refresh
+  and misleading fetch-time timestamp.
 - Importing the control-system connectors no longer drags in pandas. The
   connector factory imported the archiver base eagerly for a type annotation,
   so anything that wanted only `osprey.connectors.control_system` had to

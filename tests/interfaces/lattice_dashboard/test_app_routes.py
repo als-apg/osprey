@@ -192,6 +192,68 @@ class TestFigures:
         assert client.get("/api/data/optics").status_code == 404
 
 
+class _FinishedProc:
+    """A worker process that has already exited cleanly."""
+
+    returncode = 0
+
+    def communicate(self, timeout=None):
+        return (b"", b"")
+
+
+class TestSummaryFreshness:
+    """The stat chips' numbers must follow the magnet overrides.
+
+    set_param() only marks figures stale, so state["summary"] used to keep
+    the tunes initialize() computed on the un-overridden ring for the whole
+    session. The optics worker now recomputes them on the ring it actually
+    tracked, and the compute monitor merges that into the served state.
+    """
+
+    def test_state_summary_reflects_worker_recompute(self, ws):
+        root, client = ws
+        state = _seed_state_with_families(root)
+        seeded = state.load()
+        seeded["summary"] = {"tunes": [0.30, 0.20], "chromaticity": [1.0, 1.5]}
+        state.save(seeded)
+
+        client.post("/api/state/param", json={"family": "QF", "value": 2.3})
+        assert client.get("/api/state").json()["summary"]["tunes"] == [0.30, 0.20]
+
+        # The optics worker finishes on the override-applied ring
+        output = state.figures_dir / "optics.json"
+        output.write_text(
+            json.dumps(
+                {
+                    **RAW_FIXTURES["optics"],
+                    "summary_updates": {
+                        "tunes": [0.4412, 0.3107],
+                        "chromaticity": [-2.4, -1.8],
+                        "beta_max": [14.0, 9.0],
+                    },
+                }
+            )
+        )
+        ComputeManager(state, _SSEBroadcaster())._monitor_worker("optics", _FinishedProc(), output)
+
+        summary = client.get("/api/state").json()["summary"]
+        assert summary["tunes"] == [0.4412, 0.3107]
+        assert summary["chromaticity"] == [-2.4, -1.8]
+        assert summary["beta_max"] == [14.0, 9.0]
+
+    def test_extra_key_does_not_disturb_the_figure(self, ws):
+        """The figure adapter ignores the summary block the monitor consumes."""
+        root, client = ws
+        state = LatticeState(root / "lattice")
+        (state.figures_dir / "optics.json").write_text(
+            json.dumps({**RAW_FIXTURES["optics"], "summary_updates": {"tunes": [0.44, 0.31]}})
+        )
+
+        r = client.get("/api/figures/optics")
+        assert r.status_code == 200
+        assert "data" in r.json()
+
+
 class TestBaselineAndSettings:
     def test_set_and_clear_baseline(self, ws):
         _, client = ws

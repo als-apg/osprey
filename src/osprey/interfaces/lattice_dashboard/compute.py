@@ -6,6 +6,7 @@ and broadcasts SSE events when figures are ready.
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 import sys
@@ -24,6 +25,32 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger("osprey.lattice_dashboard.compute")
+
+
+def _read_summary_updates(output_path: Path, name: str) -> dict[str, Any] | None:
+    """Extract a worker's optional ``summary_updates`` block from its output.
+
+    A worker that recomputes header-summary quantities on the ring it actually
+    tracked (currently the optics worker: tunes, chromaticity, beta_max)
+    publishes them under this top-level key; the figure adapters ignore it.
+
+    Args:
+        output_path: The worker's raw-data JSON file.
+        name: Figure name, for log context.
+
+    Returns:
+        The block, or None when the worker published none or the file could
+        not be parsed — a summary refresh is worth losing, a figure is not.
+    """
+    try:
+        payload = json.loads(output_path.read_text())
+    except (OSError, ValueError):
+        logger.warning("%s: could not read worker output for summary updates", name)
+        return None
+    if not isinstance(payload, dict):
+        return None
+    updates = payload.get("summary_updates")
+    return updates if isinstance(updates, dict) else None
 
 
 class ComputeManager:
@@ -139,8 +166,13 @@ class ComputeManager:
             return
 
         logger.info("%s worker completed successfully", name)
-        self._state.mark_ready(name)
+        summary_updates = _read_summary_updates(output_path, name)
+        self._state.mark_ready(name, summary_updates)
         self._broadcaster.broadcast({"type": "figure_ready", "name": name})
+        if summary_updates:
+            # figure_ready only makes the client fetch that one figure. The
+            # summary chips come from /api/state, so ask for a state re-read.
+            self._broadcaster.broadcast({"type": "state_updated"})
 
     def cancel_all(self) -> None:
         """Terminate all running workers."""

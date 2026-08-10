@@ -1,10 +1,10 @@
 // @ts-check
 /* OSPREY Lattice Dashboard — Frontend Entry Point
  *
- * Composes the net/render/ui/settings modules and bootstraps the page:
- * DOMContentLoaded button/toggle wiring, initial state fetch, and the SSE
+ * Composes the net/render/ui/header/settings modules and bootstraps the
+ * page: DOMContentLoaded toggle wiring, initial state fetch, and the SSE
  * connection. No REST/SSE/DOM logic of its own — see net.js, render.js,
- * ui.js, and settings.js for that.
+ * ui.js, header.js, and settings.js for that.
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
@@ -22,6 +22,7 @@ import {
   createRenderer,
 } from './render.js';
 import { createUI } from './ui.js';
+import { createHeader } from './header.js';
 import { loadSettings, renderSettingsForm } from './settings.js';
 
 // Panel embedded in the Web Terminal hub: apply the hub's broadcast theme
@@ -52,6 +53,7 @@ const renderer = createRenderer(ALL_FIGURES, {
 const net = createNetClient({
   onState: (state) => {
     renderer.renderState(state);
+    header.syncState(state);
     loadSettings();
   },
   onParamSet: (result) => updateFigureStatuses(result.figures),
@@ -79,16 +81,23 @@ const net = createNetClient({
 
 const ui = createUI(ALL_FIGURES);
 
+// ── Header Actions (standalone top bar + embedded tile bar) ──
+
+const header = createHeader({
+  onRefresh: refreshFast,
+  onVerify: runVerification,
+  onBaseline: net.setBaseline,
+});
+
 // ── Initialization ──────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
   // Check embedded query param
   applyEmbedded();
 
-  // Bind buttons
-  document.getElementById('btn-refresh')?.addEventListener('click', refreshFast);
-  document.getElementById('btn-verify')?.addEventListener('click', runVerification);
-  document.getElementById('btn-baseline')?.addEventListener('click', net.setBaseline);
+  // Refresh/Verify/Baseline. Must follow applyEmbedded(): the tile-bar
+  // contribution it publishes is a no-op until the body class is set.
+  header.init();
 
   // Layout toggle (guarded — btn may not exist in cached HTML)
   const layoutBtn = document.getElementById('btn-layout');

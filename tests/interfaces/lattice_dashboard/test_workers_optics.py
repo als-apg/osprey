@@ -11,14 +11,30 @@ class TestComputeOptics:
     """compute_optics returns Twiss arrays from a real pyAT ring."""
 
     def test_returns_four_aligned_arrays(self, fodo_ring):
-        s_pos, beta_x, beta_y, eta_x = compute_optics(fodo_ring)
+        s_pos, beta_x, beta_y, eta_x, _ = compute_optics(fodo_ring)
 
         n = len(fodo_ring) + 1  # refpts = range(len(ring)+1)
         assert len(s_pos) == n
         assert len(beta_x) == len(beta_y) == len(eta_x) == n
 
+    def test_summary_updates_match_the_tracked_ring(self, fodo_ring):
+        """The header-summary block is computed from the same optics call."""
+        _, beta_x, beta_y, _, summary = compute_optics(fodo_ring)
+
+        assert set(summary) == {"tunes", "chromaticity", "beta_max"}
+        assert len(summary["tunes"]) == len(summary["chromaticity"]) == 2
+        assert summary["beta_max"] == [float(np.max(beta_x)), float(np.max(beta_y))]
+        assert all(np.isfinite(v) for v in summary["tunes"])
+
+    def test_summary_updates_follow_a_magnet_change(self, make_fodo):
+        """Detuning the quads moves the tunes the chips display."""
+        _, _, _, _, design = compute_optics(make_fodo())
+        _, _, _, _, detuned = compute_optics(make_fodo(kf=1.1))
+
+        assert design["tunes"] != detuned["tunes"]
+
     def test_physical_values(self, fodo_ring):
-        s_pos, beta_x, beta_y, eta_x = compute_optics(fodo_ring)
+        s_pos, beta_x, beta_y, eta_x, _ = compute_optics(fodo_ring)
 
         # Beta functions are strictly positive and finite
         assert np.all(beta_x > 0)
