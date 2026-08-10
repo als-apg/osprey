@@ -138,6 +138,40 @@ enforces:
 If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.
 
+Dependency Update Pull Requests
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Dependabot opens pull requests for dependency bumps, subject to a **seven-day
+cooldown**: a release is not proposed until it has been public for a week, so
+that a hijacked or malicious version has time to be found and yanked before it
+reaches this repository. Security updates are exempt, by design — a fix for a
+known vulnerability should not wait.
+
+These pull requests run with a deliberate gap in coverage. GitHub treats a
+Dependabot-triggered run as if it came from a fork: it receives only the
+Dependabot secret store, never the repository's Actions secrets. The lanes that
+need a live model endpoint therefore **skip** rather than run — the agentic
+flows, the E2E suite, the dispatch stacks, and the two chat bridges. The run
+summary of the ``All CI Checks Passed`` job names them explicitly, so a green
+check on a dependency PR is never mistaken for full coverage.
+
+To close that gap before merging, review the diff and then revalidate the branch
+yourself. Because *you* trigger it, that run gets the normal secrets:
+
+.. code-block:: bash
+
+   gh workflow run ci.yml --ref <dependabot-branch> -f revalidate_secret_lanes=true
+
+Find the branch name with ``gh pr view <number> --json headRefName``. Watch the
+resulting run to completion before merging.
+
+The reason this is a manual step rather than an automatic one is worth stating:
+mirroring the model API key into the Dependabot secret store would make these
+lanes pass unattended, but it would also hand a live credential to a
+newly-published third-party package at install time — the precise supply-chain
+exposure the cooldown exists to reduce. The human read of the diff is the point,
+not an inconvenience around it.
+
 Osprey Agent Workflow Skill
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

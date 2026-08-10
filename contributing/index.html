@@ -539,6 +539,34 @@ enforces:</p>
 <p>If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.</p>
 </section>
+<section id="dependency-update-pull-requests">
+<h3>Dependency Update Pull Requests<a class="headerlink" href="#dependency-update-pull-requests" title="Link to this heading">#</a></h3>
+<p>Dependabot opens pull requests for dependency bumps, subject to a <strong>seven-day
+cooldown</strong>: a release is not proposed until it has been public for a week, so
+that a hijacked or malicious version has time to be found and yanked before it
+reaches this repository. Security updates are exempt, by design — a fix for a
+known vulnerability should not wait.</p>
+<p>These pull requests run with a deliberate gap in coverage. GitHub treats a
+Dependabot-triggered run as if it came from a fork: it receives only the
+Dependabot secret store, never the repository’s Actions secrets. The lanes that
+need a live model endpoint therefore <strong>skip</strong> rather than run — the agentic
+flows, the E2E suite, the dispatch stacks, and the two chat bridges. The run
+summary of the <code class="docutils literal notranslate"><span class="pre">All</span> <span class="pre">CI</span> <span class="pre">Checks</span> <span class="pre">Passed</span></code> job names them explicitly, so a green
+check on a dependency PR is never mistaken for full coverage.</p>
+<p>To close that gap before merging, review the diff and then revalidate the branch
+yourself. Because <em>you</em> trigger it, that run gets the normal secrets:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gh<span class="w"> </span>workflow<span class="w"> </span>run<span class="w"> </span>ci.yml<span class="w"> </span>--ref<span class="w"> </span>&lt;dependabot-branch&gt;<span class="w"> </span>-f<span class="w"> </span><span class="nv">revalidate_secret_lanes</span><span class="o">=</span><span class="nb">true</span>
+</pre></div>
+</div>
+<p>Find the branch name with <code class="docutils literal notranslate"><span class="pre">gh</span> <span class="pre">pr</span> <span class="pre">view</span> <span class="pre">&lt;number&gt;</span> <span class="pre">--json</span> <span class="pre">headRefName</span></code>. Watch the
+resulting run to completion before merging.</p>
+<p>The reason this is a manual step rather than an automatic one is worth stating:
+mirroring the model API key into the Dependabot secret store would make these
+lanes pass unattended, but it would also hand a live credential to a
+newly-published third-party package at install time — the precise supply-chain
+exposure the cooldown exists to reduce. The human read of the diff is the point,
+not an inconvenience around it.</p>
+</section>
 <section id="osprey-agent-workflow-skill">
 <h3>Osprey Agent Workflow Skill<a class="headerlink" href="#osprey-agent-workflow-skill" title="Link to this heading">#</a></h3>
 <p>If you use the Osprey agent (e.g., via <a class="reference external" href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>),
@@ -968,6 +996,7 @@ composed sheet then pick it up unchanged.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#commit-message-format">Commit Message Format</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pull-request-process">Pull Request Process</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#branch-protection-on-main">Branch Protection on <code class="docutils literal notranslate"><span class="pre">main</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dependency-update-pull-requests">Dependency Update Pull Requests</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-workflow-skill">Osprey Agent Workflow Skill</a></li>
 </ul>
 </li>
