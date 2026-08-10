@@ -198,7 +198,7 @@ def decommission_user(
     write_web_terminal_artifacts(updated_config)
 
     runtime = get_runtime_command(config)[0]
-    env = runtime_env(config)
+    env = runtime_env(config, ignore_orphans=True)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     remove_container(runtime, web_container_name(facility_prefix, user), env=env)
 
@@ -280,7 +280,7 @@ def prune_users(
     roster_names = {entry["name"] for entry in normalize_users(web_terminals.get("users"))}
 
     runtime = get_runtime_command(config)[0]
-    env = runtime_env(config)
+    env = runtime_env(config, ignore_orphans=True)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     project = resolve_project_name(config)
 
@@ -426,7 +426,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
 
     runtime_cmd = get_runtime_command(config)
     runtime = runtime_cmd[0]
-    env = runtime_env(config)
+    env = runtime_env(config, ignore_orphans=True)
     project = resolve_project_name(config)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
 
@@ -643,7 +643,7 @@ def _reconcile_auth_after_user_removal(
     # nginx serving the removed user's route until the next deploy. Advisory
     # and never raises (it warns).
     if rerendered:
-        reload_nginx_config(web_stack_compose_cmd(config), runtime_env(config))
+        reload_nginx_config(web_stack_compose_cmd(config), runtime_env(config, ignore_orphans=True))
 
     recreate_error: OSError | subprocess.CalledProcessError | None = None
     # The recreate runs on a PARTIAL purge (see above) but not on one that

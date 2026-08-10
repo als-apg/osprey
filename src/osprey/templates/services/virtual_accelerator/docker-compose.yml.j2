@@ -6,17 +6,31 @@
 # Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 #
-# Native architecture: the service resolves to the host's arch (no platform
-# pin). On arm64 hosts the native deps (accelerator-toolbox and the CA server
-# stack's epicscorelibs/pvxslibs) have no manylinux_aarch64 wheels, so they
-# compile from sdist during the image build — a one-time cost of a couple of
-# minutes, no x86 emulation involved.
+# ARCHITECTURE: linux/amd64, and on Apple Silicon that means emulation.
+#
+# The image is amd64-only by construction — Dockerfile pins
+# `FROM --platform=linux/amd64` and hard-fails any other build arch, because
+# pcaspy (the Channel Access server behind the serving stack) publishes no
+# linux/aarch64 wheel at any interpreter. An arm64 image would build cleanly
+# and then have no CA server at all, so the pin is a correctness guard, not a
+# packaging shortcut. Read that Dockerfile's header before touching it.
+#
+# `platform:` below states that out loud rather than leaving it implicit. It
+# is what the build already produces; declaring it means compose stops warning
+# "the requested image's platform (linux/amd64) does not match the detected
+# host platform (linux/arm64/v8)" on every single `deploy up` from an arm64
+# machine — a warning that read as a defect when it was in fact the design.
+# The cost it names is real and unchanged: on Apple Silicon the virtual
+# accelerator runs under QEMU emulation and is correspondingly slower.
+#
+# OSPREY_VA_PLATFORM overrides it, for the one case the pin would otherwise
+# get wrong: a published multi-arch OSPREY_VA_IMAGE that does have a native
+# arm64 variant worth resolving to (`OSPREY_VA_PLATFORM=linux/arm64`).
 
 services:
   virtual-accelerator:
-    # OSPREY_VA_IMAGE now inherits host-arch resolution too: a single-arch amd64
-    # published image on an arm64 host must supply its own `platform` override (VA-8).
     image: ${OSPREY_VA_IMAGE:-{{ services.virtual_accelerator.image | default(osprey_labels.project_name ~ '-va:local') }}}
+    platform: ${OSPREY_VA_PLATFORM:-linux/amd64}
     build:
       # With multiple `-f` compose files, ALL relative paths (build contexts and
       # bind mounts alike) resolve against the FIRST file's dir — the compose

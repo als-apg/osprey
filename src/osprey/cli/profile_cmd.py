@@ -14,6 +14,7 @@ Usage:
     osprey profile presets
     osprey profile validate my-facility/profile/
     osprey profile new my-facility --preset control-assistant
+    osprey profile try my-facility --preset control-assistant --dev -d
 """
 
 from __future__ import annotations
@@ -296,6 +297,130 @@ def new(
     click.echo(f"  3. Edit {profile_rel}/profile.yml and the files under {profile_rel}/data/")
     click.echo(
         f"  4. Build a project from it: osprey build <PROJECT_NAME> {profile_rel}/profile.yml"
+    )
+
+
+@profile.command(name="try")
+@click.argument("project_name")
+@click.argument(
+    "profile_path",
+    required=False,
+    default=None,
+    type=click.Path(exists=False, dir_okay=False),
+)
+@click.option(
+    "--preset",
+    default=None,
+    metavar="NAME",
+    help="Bundled preset to try (see `osprey profile presets`). Materializes "
+    "<PROJECT_NAME>-profile/ the first time; reused as-is afterwards.",
+)
+@click.option(
+    "--override",
+    "-O",
+    "overrides",
+    multiple=True,
+    type=click.Path(exists=False, dir_okay=False, path_type=Path),
+    help="Layer a YAML file on top of the profile before building (repeatable).",
+)
+@click.option(
+    "--set",
+    "set_pairs",
+    multiple=True,
+    metavar="KEY.PATH=VALUE",
+    help="Inline scalar/list override written into the profile before the "
+    "build reads it (repeatable). RHS parsed as YAML.",
+)
+@click.option(
+    "--output-dir",
+    "-o",
+    type=click.Path(),
+    default=".",
+    help="Directory the profile and project land in (default: current directory).",
+)
+@click.option(
+    "--detached",
+    "-d",
+    is_flag=True,
+    help="Run the deployed services in detached mode.",
+)
+@click.option(
+    "--dev",
+    is_flag=True,
+    help="Development mode: bake the local osprey checkout into the containers "
+    "instead of installing from PyPI.",
+)
+@click.pass_context
+def try_(
+    ctx: click.Context,
+    project_name: str,
+    profile_path: str | None,
+    preset: str | None,
+    overrides: tuple[Path, ...],
+    set_pairs: tuple[str, ...],
+    output_dir: str,
+    detached: bool,
+    dev: bool,
+) -> None:
+    """Materialize, build, and deploy in one command.
+
+    Chains the whole lifecycle — profile, build, deploy up — so trying a
+    preset (or a profile edit) is a single command instead of three runs
+    from three directories. Each phase prints in sequence, ending in the
+    deploy's endpoint summary.
+
+    The profile is settled exactly as `osprey build --preset` settles it:
+    the first run materializes <PROJECT_NAME>-profile/ in the output
+    directory, every later run reuses that directory as it stands, and
+    --set / -O are written into it first. The project is re-rendered in
+    place on a rerun (.env, _agent_data/ and .git are preserved) — rerunning
+    is the point, so no --force is needed.
+
+    PROJECT_NAME: project directory to create or re-render.
+
+    PROFILE_PATH: optional path to an existing profile.yml (mutually
+    exclusive with --preset).
+
+    Examples:
+
+    \b
+      $ osprey profile try my-assistant --preset control-assistant \\
+            --set provider=als-apg --set model=haiku --dev -d
+      $ osprey profile try my-assistant my-profile/profile.yml -d
+    """
+    # Imported at call time, not module top: the deploy chain is heavy and
+    # `osprey --help` must stay off it (the lazy-import budget test in
+    # tests/cli/test_main.py pins this).
+    from . import build_cmd, deploy_cmd
+
+    # Phase separators are one line each on purpose: build and deploy narrate
+    # themselves, and the value added here is only the seam between them.
+    click.echo(f"━━ 1/2 build: {project_name} ━━")
+    # force=True is the re-render-in-place behaviour documented above; it
+    # never touches the profile, which is reused (and --set/-O written into
+    # it) by the build itself.
+    ctx.invoke(
+        build_cmd.build,
+        project_name=project_name,
+        profile=profile_path,
+        preset=preset,
+        overrides=overrides,
+        set_pairs=set_pairs,
+        output_dir=output_dir,
+        force=True,
+    )
+
+    project_dir = Path(output_dir).resolve() / project_name
+    click.echo(f"\n━━ 2/2 deploy up: {project_dir.name} ━━")
+    # `deploy up`, the subcommand — not the `deploy` group, which takes no
+    # arguments of its own and would run nothing.
+    ctx.invoke(
+        deploy_cmd.up,
+        project=str(project_dir),
+        config="config.yml",
+        detached=detached,
+        dev=dev,
+        expose=False,
     )
 
 
