@@ -600,6 +600,41 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Panel-awareness hooks: rendered into the project and wired to their event
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "hook_file,event",
+    [
+        ("osprey_panels_context.py", "SessionStart"),
+        ("osprey_workspace_delta.py", "UserPromptSubmit"),
+    ],
+)
+def test_panel_hooks_rendered_and_wired(built_control_assistant_project, hook_file, event):
+    """Both halves of panel awareness must survive a fresh render.
+
+    The template hook directory is catalog-bound: a hook file that is not listed
+    in the build-artifact catalog and the template manifest never reaches a
+    project's ``.claude/hooks/``, and one that is shipped but wired to no event
+    never runs. Neither failure is visible from the template tree alone, which
+    is what this pair of assertions covers.
+    """
+    project = built_control_assistant_project
+
+    assert (project / ".claude" / "hooks" / hook_file).is_file(), (
+        f"{hook_file} was not rendered into the project — check the build-artifact "
+        f"catalog and the template manifest"
+    )
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    commands = [hook["command"] for rule in settings["hooks"][event] for hook in rule["hooks"]]
+    assert any(hook_file in command for command in commands), (
+        f"{hook_file} is shipped but wired to no {event} entry in settings.json"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Crown-jewel invariant
 # ---------------------------------------------------------------------------
 

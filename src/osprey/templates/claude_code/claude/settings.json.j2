@@ -116,6 +116,11 @@
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_focus_validate.py\" 2>/dev/null || true",
             "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_workspace_delta.py\" 2>/dev/null || true",
+            "timeout": 3
           }
         ]
       }{% for rule in declared.get('UserPromptSubmit', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}

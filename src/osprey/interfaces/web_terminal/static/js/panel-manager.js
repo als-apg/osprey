@@ -28,14 +28,14 @@ import {
   initDockIframeAdapter, focusPanel, hidePanel, concealPanel,
   setKnownServicePanels, setServerVisiblePanels,
 } from './dock-iframe.js';
+import {
+  initPanelPlacement, openPanelBeside, dropPanelAt, applyAgentSwitch, applyArrange,
+} from './panel-placement.js';
 import { createPanelIframe } from './panel-iframe-factory.js';
 import {
   PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL, DEFAULT_PANEL_FALLBACK,
 } from './panel-catalog.js';
-import {
-  initDockSync, withEchoSuppressed, setTileCloseHandler,
-  dockPanelBesideActive, dockPanelAt,
-} from './dock-sync.js';
+import { initDockSync, withEchoSuppressed, setTileCloseHandler } from './dock-sync.js';
 import { initRailDrag, railDragStart, railDragEnd } from './rail-drag.js';
 import { startHealthPolling as startPolling } from './panel-health.js';
 import { openTerminalPanel, closeTerminalPanel } from './dock-workspace.js';
@@ -86,13 +86,21 @@ import {
  * @property {string} [path]
  * @property {'agent'} [source]
  *
+ * @typedef {object} PanelArrangeEvent
+ * @property {'panel_arrange'} type
+ * @property {string[]} tiles      - the service tiles to have open, left to right
+ * @property {string} [focus]      - requested focus target, one of `tiles`
+ * @property {boolean} [prune_rail] - preset path: rail membership becomes exactly `tiles`
+ * @property {'agent'} [source]
+ *
  * @typedef {object} AgentActivityEvent
  * @property {'agent_activity'} type
  * @property {string} tool
  * @property {{ kind: 'panel' | 'channel' | 'run' | 'artifact', panel?: string, detail?: string }} target
  * @property {number} [ts]
  *
- * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelRegisterEvent | AgentActivityEvent} PanelSSEEvent
+ * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelRegisterEvent | PanelArrangeEvent
+ *   | AgentActivityEvent} PanelSSEEvent
  */
 
 // ---- State ----
@@ -177,16 +185,32 @@ export async function initPanelManager(panelId) {
   // and agent use. Wires lazily once the dockview shell is up; no-ops without it.
   initDockSync();
 
+  // Hand panel-placement (the tile-geometry half of this module: open-beside,
+  // agent switch, arrange rebuild) live access to the state it places panels
+  // through. Every entry is a closure over this module's private state, so the
+  // placement verbs see the same rail/health/membership the SSE handlers do.
+  initPanelPlacement({
+    isKnown: (id) => !!panelState[id],
+    isHealthy: (id) => !!panelState[id]?.healthy,
+    isMember: (id) => visiblePanels.has(id),
+    members: () => [...visiblePanels],
+    label: labelOf,
+    addMember: ensureRailMembership,
+    dropMember: (id) => { visiblePanels.delete(id); removeEntry(railEl, id); },
+    activate: activateTab,
+    reveal: showPanel,
+    getActive: () => activeTabId,
+    clearActive: clearActivePanel,
+    renderEmpty: renderEmptyState,
+    glow: flashAgentGlow,
+    openTerminal: openTerminalPanel,
+  });
+
   // Rail drag-and-drop: a rail entry dropped on a tile edge opens (or moves)
   // that panel as a new tile at the drop position, then reveals it through the
   // same activate/show tail every other open path uses. Wires lazily like
   // initDockSync; no-ops without a dock shell.
-  initRailDrag({
-    onDropPanel: (id, position) => {
-      dockPanelAt(id, labelOf(id), position);
-      revealOpenedPanel(id);
-    },
-  });
+  initRailDrag({ onDropPanel: dropPanelAt });
 
   // Fetch panel config and filter PANELS before rendering
   let panelConfig = null;
@@ -341,14 +365,25 @@ export async function initPanelManager(panelId) {
   // unchanged behavior). createEventSource also drives the module-level
   // sseState in api.js, but nothing currently reads getConnectionState().sse
   // (only .ws is consumed, by app.js's status dot), so that side effect is
-  // harmless. Three event types are handled:
+  // harmless. These event types are handled:
   //
-  //   panel_focus      {type, panel, url?}      — explicit switch_panel MCP call;
-  //                                               always honor (user asked for it).
+  //   panel_focus      {type, panel, url?}      — explicit switch_panel MCP call
+  //                                               or the echo of a human focus
+  //                                               gesture; always honor. An
+  //                                               agent-tagged frame surfaces
+  //                                               the panel without evicting
+  //                                               anything (applyAgentSwitch);
+  //                                               a human echo takes the tile
+  //                                               over as it always has.
   //   panel_visibility {type, panel, visible}   — show/hide a rail entry; if the
   //                                               active panel is hidden, switch to
   //                                               the next visible+healthy panel or
   //                                               empty state.
+  //   panel_arrange    {type, tiles, focus?, prune_rail?}
+  //                                             — a whole-workspace layout
+  //                                               request: exactly these
+  //                                               service tiles, left to right
+  //                                               (see panel-placement.js).
   //   panel_register   {type, id, label, url, healthEndpoint, path}
   //                                             — add a runtime panel; do NOT
   //                                               auto-activate (URL may not be ready).
@@ -366,30 +401,31 @@ export async function initPanelManager(panelId) {
         const data = /** @type {PanelSSEEvent} */ (raw);
 
         if (data.type === 'panel_focus' && data.panel) {
-          // Agent asked the panel to switch — honor unconditionally. An
-          // explicit switch also ends the simple-UX chat-only suppression,
-          // even when activateTab still refuses (unhealthy panel): the intent
-          // to surface the workspace is clear, so the next health settle may
-          // fill the slot.
+          // A switch — agent or human — honor unconditionally. It also ends the
+          // simple-UX chat-only suppression, even when the activation still
+          // refuses (unhealthy panel): the intent to surface the workspace is
+          // clear, so the next health settle may fill the slot.
           workspaceSuppressed = false;
           if (data.url) navigatePanel(data.panel, data.url);
-          activateTab(data.panel);
-          if (data.source === 'agent') flashAgentGlow(data.panel);
+          // An AGENT switch is polite: focus the panel's own tile, or open one
+          // beside the operator's — never take a tile away (applyAgentSwitch).
+          // Every other frame is the echo of a human gesture (rail click, dock
+          // tab focus) whose takeover semantics are the operator's own choice,
+          // so it keeps the plain activation. The glow runs after the switch so
+          // a just-added entry can flash.
+          if (data.source === 'agent') {
+            applyAgentSwitch(data.panel);
+            flashAgentGlow(data.panel);
+          } else {
+            activateTab(data.panel);
+          }
 
         } else if (data.type === 'panel_visibility' && data.panel) {
           const { panel, visible } = data;
-          // Update the membership set and add/remove the matching rail entry
-          // (membership IS the rail — there is no dimmed in-between state). A
-          // re-added entry is rebuilt cold, so re-apply its live health/enabled
-          // state. The agent glow runs after the add so a just-added entry can
-          // flash.
+          // Update the membership set and add/remove the matching rail entry.
+          // The agent glow runs after the add so a just-added entry can flash.
           if (visible) {
-            visiblePanels.add(panel);
-            const spec = PANELS.find((p) => p.id === panel);
-            if (spec) {
-              addEntry(railEl, { id: spec.id, label: spec.label }, railOptions());
-              applyEntryState(panel);
-            }
+            ensureRailMembership(panel);
           } else {
             visiblePanels.delete(panel);
             removeEntry(railEl, panel);
@@ -430,6 +466,16 @@ export async function initPanelManager(panelId) {
               renderEmptyState('No panels visible');
             }
           }
+
+        } else if (data.type === 'panel_arrange' && Array.isArray(data.tiles)) {
+          // A whole-workspace arrangement (agent arrange_workspace, or a human
+          // "Layouts" click — one server operation, one apply path). Precedence
+          // against the visibility channel above: a hide keeps its existing
+          // meaning everywhere, while an arrange only ADDS membership for the
+          // tiles it lists — except on the preset path, where prune_rail
+          // reproduces today's membership-exclusive semantics. See
+          // panel-placement.js's header for the full split.
+          applyArrange(data);
 
         } else if (data.type === 'panel_register' && data.id) {
           // Seed membership before addPanel so the appended entry is a member
@@ -524,32 +570,6 @@ function labelOf(id) {
 }
 
 /**
- * Shared reveal tail for every "open as a new tile" path (rail ⊞, rail drop):
- * a member panel is focused locally + reported (activateTab no-ops while the
- * panel is unhealthy — the placeholder tile still appears and fills on the
- * next health settle); a non-member is revealed through the same
- * visibility-POST path the "+" menu uses.
- * @param {string} panelId
- */
-function revealOpenedPanel(panelId) {
-  if (visiblePanels.has(panelId)) activateTab(panelId, { userInitiated: true });
-  else showPanel(panelId);
-}
-
-/**
- * Open a panel as a NEW tile beside the active group — the rail ⊞ corner's
- * action. An already-open panel is MOVED beside the active tile (dockPanelAt's
- * move semantics), never duplicated. In simple mode the placement no-ops in
- * dock-sync and the reveal tail takes the single tile over like a rail click.
- * @param {string} panelId
- */
-function openPanelBeside(panelId) {
-  if (panelId === TERMINAL_RAIL_ID) { openTerminalPanel(); return; }
-  dockPanelBesideActive(panelId, labelOf(panelId));
-  revealOpenedPanel(panelId);
-}
-
-/**
  * Destructive full render of the rail: the terminal entry first (the session
  * tile is the workspace's anchor), then every MEMBER service panel in PANELS
  * order — non-members have no entry at all. The terminal entry is enabled
@@ -618,6 +638,21 @@ function applyEntryState(panelId) {
   if (!ps) return;
   if (ps.healthy) setEntryEnabled(railEl, panelId, true);
   if (activeTabId === panelId) setActive(railEl, panelId);
+}
+
+/**
+ * Give a panel its rail entry as a MEMBER: record the membership and append the
+ * entry (membership IS the rail — there is no dimmed in-between state). The
+ * entry is built cold, so its live health/active state is re-applied after the
+ * add. Idempotent: addEntry no-ops for an id that already has an entry.
+ * @param {string} panelId
+ */
+function ensureRailMembership(panelId) {
+  visiblePanels.add(panelId);
+  const spec = PANELS.find((p) => p.id === panelId);
+  if (!spec) return;
+  addEntry(railEl, { id: spec.id, label: spec.label }, railOptions());
+  applyEntryState(panelId);
 }
 
 /**
@@ -908,21 +943,14 @@ export function showPanel(panelId) {
 }
 
 /**
- * Apply a config-defined preset ("Layout") exclusively: show its members, hide
- * every visible non-member, focus the first healthy member locally. Feeds
- * panel-manager's live state into the pure applyPreset() orchestrator; each
- * show/hide rides the same setPanelVisibility POST + SSE echo the "+"/"×" use.
- * focus is a purely-local activateTab (no visibility re-POST for the primary).
- * @param {string[]} panels
+ * Apply a config-defined preset ("Layout") by name — the "+" menu's and the
+ * command palette's Layouts action. One arrange request; the panel_arrange echo
+ * opens exactly the preset's tiles and prunes the rail to its members on every
+ * client, so nothing is applied locally ahead of it.
+ * @param {string} name
  */
-export function applyMenuPreset(panels) {
-  applyPreset(panels, {
-    getVisible: () => visiblePanels,
-    getKnown: () => new Set(PANELS.map(p => p.id)),
-    isHealthy: (id) => !!panelState[id]?.healthy,
-    setVisibility: setPanelVisibility,
-    focus: (id) => activateTab(id, { userInitiated: true }),
-  });
+export function applyMenuPreset(name) {
+  applyPreset(name);
 }
 
 // ---- Panel Navigation ----

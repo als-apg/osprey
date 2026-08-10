@@ -82,6 +82,45 @@ export function setServiceRedock(fn) {
 }
 
 /**
+ * Callback dock-sync registers to learn when the BOOT layout is final — i.e.
+ * when initPersistence has finished deciding what this session starts with,
+ * whether that is a restored expert layout, the synthesized simple layout, or
+ * the plain default because no project key came back.
+ *
+ * It exists because the occupancy reporter must not describe a layout the
+ * restore is about to replace, and the restore's timing is a network round trip,
+ * not a delay anyone can budget for. Registration (rather than dock-sync being
+ * imported here) keeps the dependency one-way: dock-sync already imports this
+ * module, and the reverse import would close a cycle.
+ * @type {(() => void) | null}
+ */
+let layoutRestored = null;
+
+/** Whether the boot layout has already been announced. "Settled" is a LATCHED
+ *  state, not a passing event: initPersistence's fetch routinely resolves before
+ *  dock-sync has finished its own retry-poll wiring, so an announcement made to
+ *  nobody must still be delivered to whoever registers next. Without this a fast
+ *  server — the common case locally — silently costs the reporter its first
+ *  report. */
+let layoutRestoredAlready = false;
+
+/**
+ * Register the boot-layout-settled hook. Fires immediately when the boot layout
+ * has already settled, so registration order does not matter.
+ * @param {() => void} fn
+ */
+export function setLayoutRestoredHook(fn) {
+  layoutRestored = fn;
+  if (layoutRestoredAlready) fn();
+}
+
+/** Announce the boot layout as final, latching it for any later subscriber. */
+function announceLayoutRestored() {
+  layoutRestoredAlready = true;
+  layoutRestored?.();
+}
+
+/**
  * Wrap an already-rendered page subtree as a dockview content renderer. dockview
  * MOVES `element` into its content container (a DOM relocation, not a clone), so
  * every reference terminal.js / chat.js / panel-manager.js already hold into the
@@ -503,6 +542,12 @@ function applyStoredLayout(api) {
  * default, then wire settled-change persistence. onDidLayoutChange is subscribed
  * AFTER the stored layout is applied so the restore itself doesn't trigger a
  * redundant write-back.
+ *
+ * Every exit announces the boot layout as final through the layoutRestored hook
+ * — including the no-project-key early return, where the default arrangement IS
+ * the final one. Missing an exit would leave the occupancy reporter waiting on
+ * its fallback deadline, so the announcement is unconditional rather than tied
+ * to a restore having happened.
  * @param {any} api
  */
 async function initPersistence(api) {
@@ -513,7 +558,10 @@ async function initPersistence(api) {
       projectKey = info.project_key;
     }
   } catch { /* offline / endpoint error — no persistence this session */ }
-  if (!projectKey) return;
+  if (!projectKey) {
+    announceLayoutRestored();
+    return;
+  }
   layoutStorageKey = LAYOUT_KEY_PREFIX + projectKey;
 
   // Boot into the mode the server rendered. In simple mode the locked layout is
@@ -526,6 +574,7 @@ async function initPersistence(api) {
   } else {
     applyStoredLayout(api);
   }
+  announceLayoutRestored();
   api.onDidLayoutChange(schedulePersist);
 }
 

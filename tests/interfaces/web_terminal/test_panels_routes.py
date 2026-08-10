@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -117,6 +118,9 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "family_rail_defaults",
         "project_key",
         "workspace_has_artifacts",
+        "open_tiles",
+        "open_tiles_age_s",
+        "open_tiles_dock",
     }
 
 
@@ -187,3 +191,115 @@ def test_workspace_flag_recomputed_per_request(tmp_path):
     assert _panels(app)["workspace_has_artifacts"] is False
     (ws / "result.csv").write_text("a,b\n")
     assert _panels(app)["workspace_has_artifacts"] is True
+
+
+# ---- Focus adds rail membership ---- #
+
+
+def _make_focus_app(visible: list[str] | None = None) -> FastAPI:
+    """An app with a stub broadcaster and a known panel inventory.
+
+    ``visible`` is the launcher-rail membership; ``None`` leaves the attribute
+    unset so the route's "no explicit list" fallback is exercised.
+    """
+    app = FastAPI()
+    app.include_router(router)
+    app.state.broadcaster = MagicMock()
+    app.state.enabled_panels = {"ariel", "lattice"}
+    app.state.custom_panels = [{"id": "grafana", "label": "GRAFANA", "url": "http://10.0.0.5:3000"}]
+    if visible is not None:
+        app.state.visible_panels = visible
+    return app
+
+
+def _frames(app: FastAPI) -> list[dict]:
+    """Every broadcast frame the request produced, in order."""
+    return [call.args[0] for call in app.state.broadcaster.broadcast.call_args_list]
+
+
+def test_focus_on_non_member_adds_rail_membership():
+    """An agent switch_panel on a hidden panel must not leave a client-only entry."""
+    app = _make_focus_app(visible=["ariel"])
+    with TestClient(app) as client:
+        resp = client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
+    assert resp.status_code == 200
+    assert app.state.visible_panels == ["ariel", "grafana"]
+
+
+def test_focus_on_non_member_is_consistent_on_read_back():
+    """list_panels must agree with the tool's promise that the panel is visible."""
+    app = _make_focus_app(visible=["ariel"])
+    with TestClient(app) as client:
+        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
+        body = client.get("/api/panels").json()
+    assert "grafana" in body["visible"]
+    assert body["active"] == "grafana"
+
+
+def test_focus_on_non_member_broadcasts_visibility_before_focus():
+    """Ordering is load-bearing: clients add the rail entry, then focus it."""
+    app = _make_focus_app(visible=["ariel"])
+    with TestClient(app) as client:
+        client.post("/api/panel-focus", json={"panel": "grafana"})
+    frames = _frames(app)
+    assert [f["type"] for f in frames] == ["panel_visibility", "panel_focus"]
+    assert frames[0] == {"type": "panel_visibility", "panel": "grafana", "visible": True}
+
+
+def test_focus_visibility_frame_carries_the_source_tag():
+    """The agent glow must fire on the rail entry the agent just added."""
+    app = _make_focus_app(visible=["ariel"])
+    with TestClient(app) as client:
+        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
+    assert _frames(app)[0]["source"] == "agent"
+
+
+def test_focus_on_member_emits_only_a_focus_frame():
+    """A human rail click is unchanged — no spurious visibility traffic."""
+    app = _make_focus_app(visible=["ariel", "grafana"])
+    with TestClient(app) as client:
+        client.post("/api/panel-focus", json={"panel": "grafana"})
+    assert _frames(app) == [{"type": "panel_focus", "panel": "grafana"}]
+
+
+def test_focus_on_member_leaves_rail_order_untouched():
+    app = _make_focus_app(visible=["ariel", "grafana"])
+    with TestClient(app) as client:
+        client.post("/api/panel-focus", json={"panel": "ariel"})
+    assert app.state.visible_panels == ["ariel", "grafana"]
+
+
+def test_focus_without_explicit_membership_treats_enabled_as_the_rail():
+    """Mirrors get_panels: an unset list means the enabled built-ins are visible."""
+    app = _make_focus_app(visible=None)
+    with TestClient(app) as client:
+        client.post("/api/panel-focus", json={"panel": "ariel"})
+    assert _frames(app) == [{"type": "panel_focus", "panel": "ariel"}]
+
+
+def test_focus_without_explicit_membership_still_adds_a_custom_non_member():
+    """A custom panel is not in the enabled set, so it is a genuine non-member."""
+    app = _make_focus_app(visible=None)
+    with TestClient(app) as client:
+        client.post("/api/panel-focus", json={"panel": "grafana"})
+    assert [f["type"] for f in _frames(app)] == ["panel_visibility", "panel_focus"]
+    assert "grafana" in app.state.visible_panels
+
+
+def test_focus_on_unknown_panel_changes_nothing():
+    app = _make_focus_app(visible=["ariel"])
+    with TestClient(app) as client:
+        resp = client.post("/api/panel-focus", json={"panel": "nope"})
+    assert resp.status_code == 422
+    assert app.state.visible_panels == ["ariel"]
+    app.state.broadcaster.broadcast.assert_not_called()
+
+
+def test_focus_with_url_keeps_the_url_on_the_focus_frame_only():
+    """The visibility frame is membership-only; the url rides the focus frame."""
+    app = _make_focus_app(visible=["ariel"])
+    with TestClient(app) as client:
+        client.post("/api/panel-focus", json={"panel": "grafana", "url": "/x"})
+    visibility, focus = _frames(app)
+    assert "url" not in visibility
+    assert focus["url"].endswith("/x")
