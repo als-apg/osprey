@@ -67,7 +67,16 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"
 # published osprey-framework so dev builds are not blocked; otherwise the build
 # fails loudly.
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+# setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling
+# (CompileError escapes uncaught), which fails any source build of the EPICS
+# toolchain (pvxslibs/epicscorelibs/softioc) on platforms without a binary
+# wheel — notably linux/arm64 images built on Apple Silicon. PIP_CONSTRAINT
+# reaches pip's isolated build environments, where a plain requirement pin
+# would not. Drop the constraint once a fixed setuptools or setuptools_dso
+# release is out.
 RUN export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
+    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && { pip install --no-cache-dir "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
