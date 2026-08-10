@@ -116,7 +116,7 @@ dependencies = [
     # serve a login page whose form can never be submitted.
     "python-multipart>=0.0.18",
     # Utilities
-    "unique-namer>=0.1.0",
+    "unique-namer>=1.6.2",
     # EPICS Channel Access client (used by control_system connector,
     # limits_validator, and python_executor wrapper).
     "pyepics",
