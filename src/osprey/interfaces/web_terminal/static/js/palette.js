@@ -50,7 +50,7 @@ import { el } from '/design-system/js/dom.js';
  *   getPresets?: () => Array<{ name: string, panels: string[] }>,
  *   showPanel?: (id: string) => void,
  *   focusPanel?: (id: string) => void,
- *   applyPreset?: (panels: string[]) => void,
+ *   applyPreset?: (name: string) => void,
  *   revealSetting?: (dotKey: string) => void,
  *   actions?: Array<{ label: string, detail?: string, run: () => void }>,
  *   fetchConfig?: () => Promise<any>,

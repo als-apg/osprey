@@ -51,7 +51,7 @@ import { getRailPosition, setRailPosition } from './rail-position.js';
  * @property {(id: string) => void} onShowPanel      - reveal + focus a hidden panel
  * @property {(fields: {id: string, label: string, url: string}) => Promise<RegisterResult>} onRegisterUrl
  * @property {() => {name: string, panels: string[]}[]} getPresets - config-defined layouts, in config order
- * @property {(panels: string[]) => void} onApplyPreset - apply a layout (show members, hide the rest)
+ * @property {(name: string) => void} onApplyPreset  - apply a named layout (those panels open, the rest close)
  */
 
 /**
@@ -151,7 +151,7 @@ export function initPanelAddMenu(opts) {
         // textContent — preset.name is config-supplied JSON (never innerHTML).
         item.textContent = preset.name;
         item.addEventListener('click', () => {
-          opts.onApplyPreset(preset.panels);
+          opts.onApplyPreset(preset.name);
           closeMenu();
         });
         layouts.appendChild(item);

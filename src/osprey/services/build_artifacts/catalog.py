@@ -254,6 +254,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/hooks/osprey_panels_context.py",
             description="SessionStart hook that injects the web surface (simple/expert) and panel inventory into agent context",
         ),
+        BuildArtifact(
+            canonical_name="hooks/workspace-delta",
+            template_path="claude/hooks/osprey_workspace_delta.py",
+            output_path=".claude/hooks/osprey_workspace_delta.py",
+            description="UserPromptSubmit hook that reports web workspace changes since the agent's last turn",
+        ),
         # ── Skills ──────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="skills/session-report",
