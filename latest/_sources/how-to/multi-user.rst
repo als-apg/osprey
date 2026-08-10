@@ -439,11 +439,12 @@ secret — it is the identifier your provider already publishes for that person.
 
    **No secret may contain a dollar sign** — not in ``.env.auth``, and not in
    the ``.env`` and ``.env.production`` that carry your provider API key and
-   facility passwords. Whichever way the container stack reads these files, it
-   substitutes ``$`` sequences inside the *values* on the way through —
-   ``secret$abc`` arrives as ``secret``, and ``P@$$w0rd`` arrives as
-   ``P@$w0rd``. The file on disk still reads correctly, so the only symptom is
-   a login or a token exchange that refuses for no visible reason.
+   facility passwords. Depending on which container stack reads these files,
+   ``$`` sequences inside the *values* are substituted on the way through —
+   with Docker Compose, ``secret$abc`` arrives as ``secret`` and ``P@$$w0rd``
+   arrives as ``P@$w0rd``; other stacks mangle a different set. Either way the
+   file on disk still reads correctly, so the only symptom is a login or a
+   token exchange that refuses for no visible reason.
 
    This bites hardest with a client secret your identity provider generated for
    you, since you did not choose those characters. If yours contains a ``$``,
@@ -453,6 +454,12 @@ secret — it is the identifier your provider already publishes for that person.
    ``osprey deploy`` refuses to start a stack whose secrets would be corrupted
    this way and names the offending variables, so you find out before the
    deployment is running rather than after someone cannot log in.
+
+   The same rule extends to each user's ``oidc_subject``, which travels a
+   different route (the rendered compose file rather than an env file) but is
+   rewritten the same way: lint refuses a subject containing ``$`` and names
+   the user. If your provider genuinely issues one, map a different claim via
+   ``auth.oidc.claim``.
 
 Three more keys are optional. ``auth.port`` is the port the authentication
 service listens on (default ``9070``); ``auth.session_lifetime`` is how long a

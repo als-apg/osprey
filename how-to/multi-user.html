@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 09, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 10, 2026"/>
   </head>
   
   
@@ -1335,11 +1335,12 @@ secret — it is the identifier your provider already publishes for that person.
 <p class="admonition-title">Warning</p>
 <p><strong>No secret may contain a dollar sign</strong> — not in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, and not in
 the <code class="docutils literal notranslate"><span class="pre">.env</span></code> and <code class="docutils literal notranslate"><span class="pre">.env.production</span></code> that carry your provider API key and
-facility passwords. Whichever way the container stack reads these files, it
-substitutes <code class="docutils literal notranslate"><span class="pre">$</span></code> sequences inside the <em>values</em> on the way through —
-<code class="docutils literal notranslate"><span class="pre">secret$abc</span></code> arrives as <code class="docutils literal notranslate"><span class="pre">secret</span></code>, and <code class="docutils literal notranslate"><span class="pre">P&#64;$$w0rd</span></code> arrives as
-<code class="docutils literal notranslate"><span class="pre">P&#64;$w0rd</span></code>. The file on disk still reads correctly, so the only symptom is
-a login or a token exchange that refuses for no visible reason.</p>
+facility passwords. Depending on which container stack reads these files,
+<code class="docutils literal notranslate"><span class="pre">$</span></code> sequences inside the <em>values</em> are substituted on the way through —
+with Docker Compose, <code class="docutils literal notranslate"><span class="pre">secret$abc</span></code> arrives as <code class="docutils literal notranslate"><span class="pre">secret</span></code> and <code class="docutils literal notranslate"><span class="pre">P&#64;$$w0rd</span></code>
+arrives as <code class="docutils literal notranslate"><span class="pre">P&#64;$w0rd</span></code>; other stacks mangle a different set. Either way the
+file on disk still reads correctly, so the only symptom is a login or a
+token exchange that refuses for no visible reason.</p>
 <p>This bites hardest with a client secret your identity provider generated for
 you, since you did not choose those characters. If yours contains a <code class="docutils literal notranslate"><span class="pre">$</span></code>,
 issue a new one rather than trying to escape it — escaping is not portable
@@ -1347,6 +1348,11 @@ between container runtimes, so there is no spelling that works everywhere.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> refuses to start a stack whose secrets would be corrupted
 this way and names the offending variables, so you find out before the
 deployment is running rather than after someone cannot log in.</p>
+<p>The same rule extends to each user’s <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>, which travels a
+different route (the rendered compose file rather than an env file) but is
+rewritten the same way: lint refuses a subject containing <code class="docutils literal notranslate"><span class="pre">$</span></code> and names
+the user. If your provider genuinely issues one, map a different claim via
+<code class="docutils literal notranslate"><span class="pre">auth.oidc.claim</span></code>.</p>
 </div>
 <p>Three more keys are optional. <code class="docutils literal notranslate"><span class="pre">auth.port</span></code> is the port the authentication
 service listens on (default <code class="docutils literal notranslate"><span class="pre">9070</span></code>); <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> is how long a
