@@ -17,6 +17,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   command a deploy runs. Normal runs no longer echo those commands, so a
   deploy reads as a report — ending in the endpoint summary — rather than a
   transcript.
+- `osprey profile try` runs the whole lifecycle as one command: settle the
+  profile (materialized on the first run, reused — with `--set`/`-O` written
+  into it — on every later one), build the project (re-rendered in place on a
+  rerun), and `deploy up`, ending in the endpoint summary. One command with
+  each phase printed in sequence, instead of three commands chained across
+  three directories. `--dev` and `-d` pass through to the deploy.
 - Profiles carry artifacts into a build through **convention directories** —
   `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
   `web-terminal-context/`, `mcp_servers/`, `services/`, and `project/` for

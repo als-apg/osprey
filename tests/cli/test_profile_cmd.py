@@ -2,7 +2,8 @@
 
 The group holds the verbs that act on a build profile as editable *source*
 (``presets``, ``validate``, ``new``), as opposed to ``osprey build``, which
-consumes a profile and derives a project from it.
+consumes a profile and derives a project from it — plus ``try``, the one-shot
+that chains profile → build → deploy up into a single command.
 """
 
 from __future__ import annotations
@@ -45,10 +46,10 @@ def test_profile_group_is_registered_on_the_cli() -> None:
     assert group.get_command(None, "profile") is profile
 
 
-def test_profile_help_lists_the_three_subcommands(runner: CliRunner) -> None:
+def test_profile_help_lists_the_four_subcommands(runner: CliRunner) -> None:
     result = runner.invoke(profile, ["--help"])
     assert result.exit_code == 0, result.output
-    for name in ("presets", "validate", "new"):
+    for name in ("presets", "validate", "new", "try"):
         assert name in result.output
 
 
@@ -183,6 +184,117 @@ def test_emit_helper_leaves_nothing_behind_on_an_invalid_override(tmp_path: Path
 
 
 # --------------------------------------------------------------------------
+# try — the one-shot: build (which settles the profile), then deploy up.
+#
+# The chained commands are patched out with plain callables: ctx.invoke on a
+# non-Command passes through exactly the kwargs `try` supplies, so these tests
+# pin the contract between `try` and the commands it chains — everything past
+# that seam is build's and deploy's own test coverage.
+# --------------------------------------------------------------------------
+
+
+def test_try_chains_build_then_deploy_up(runner: CliRunner, monkeypatch, tmp_path) -> None:
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "osprey.cli.build_cmd.build", lambda **kw: calls.append(("build", kw)) and None
+    )
+    monkeypatch.setattr(
+        "osprey.cli.deploy_cmd.up", lambda **kw: calls.append(("deploy", kw)) and None
+    )
+
+    result = runner.invoke(
+        profile,
+        [
+            "try",
+            "my-assistant",
+            "--preset",
+            "control-assistant",
+            "--set",
+            "provider=als-apg",
+            "--set",
+            "model=haiku",
+            "--output-dir",
+            str(tmp_path),
+            "--dev",
+            "-d",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert [name for name, _ in calls] == ["build", "deploy"]
+
+    build_kw = calls[0][1]
+    assert build_kw["project_name"] == "my-assistant"
+    assert build_kw["preset"] == "control-assistant"
+    assert build_kw["set_pairs"] == ("provider=als-apg", "model=haiku")
+    # Rerunnability is the point of a one-shot test loop: the re-render is
+    # forced, and (per build --force) the profile itself is never touched.
+    assert build_kw["force"] is True
+
+    # The `up` SUBCOMMAND, not the `deploy` group -- the group takes no
+    # arguments of its own, so invoking it would run nothing at all.
+    deploy_kw = calls[1][1]
+    assert deploy_kw["project"] == str(tmp_path / "my-assistant")
+    assert deploy_kw["detached"] is True
+    assert deploy_kw["dev"] is True
+    assert deploy_kw["expose"] is False
+
+
+def test_try_accepts_a_profile_path_instead_of_a_preset(
+    runner: CliRunner, monkeypatch, tmp_path
+) -> None:
+    """The positional profile passes through; preset stays None (build enforces XOR)."""
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "osprey.cli.build_cmd.build", lambda **kw: calls.append(("build", kw)) and None
+    )
+    monkeypatch.setattr(
+        "osprey.cli.deploy_cmd.up", lambda **kw: calls.append(("deploy", kw)) and None
+    )
+
+    result = runner.invoke(
+        profile,
+        ["try", "my-assistant", "my-profile/profile.yml", "--output-dir", str(tmp_path)],
+    )
+
+    assert result.exit_code == 0, result.output
+    build_kw = calls[0][1]
+    assert build_kw["profile"] == "my-profile/profile.yml"
+    assert build_kw["preset"] is None
+
+
+def test_try_prints_a_separator_before_each_phase(runner: CliRunner, monkeypatch, tmp_path) -> None:
+    """The seam between the chained commands is the one thing try narrates."""
+    monkeypatch.setattr("osprey.cli.build_cmd.build", lambda **kw: None)
+    monkeypatch.setattr("osprey.cli.deploy_cmd.up", lambda **kw: None)
+
+    result = runner.invoke(
+        profile, ["try", "my-assistant", "--preset", "hello-world", "-o", str(tmp_path)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "1/2 build: my-assistant" in result.output
+    assert "2/2 deploy up: my-assistant" in result.output
+
+
+def test_try_skips_deploy_when_the_build_fails(runner: CliRunner, monkeypatch) -> None:
+    """A build that did not complete leaves nothing worth deploying."""
+    import click as _click
+
+    def _failing_build(**kw):
+        raise _click.ClickException("build failed")
+
+    deployed: list[dict] = []
+    monkeypatch.setattr("osprey.cli.build_cmd.build", _failing_build)
+    monkeypatch.setattr("osprey.cli.deploy_cmd.up", lambda **kw: deployed.append(kw))
+
+    result = runner.invoke(profile, ["try", "my-assistant", "--preset", "hello-world"])
+
+    assert result.exit_code != 0
+    assert deployed == []
+
+
+# --------------------------------------------------------------------------
 # Lazy-import budget
 # --------------------------------------------------------------------------
 
@@ -198,7 +310,10 @@ def test_module_import_stays_lazy() -> None:
         "import sys; import osprey.cli.profile_cmd; "
         "heavy = [m for m in ("
         "'osprey.cli.templates.manager', 'osprey.cli.build_profile', "
-        "'osprey.cli.build_profile_emit') if m in sys.modules]; "
+        "'osprey.cli.build_profile_emit', "
+        # `try` chains into build and deploy; both must stay behind its
+        # function-local import or `osprey --help` pays for the whole chain.
+        "'osprey.cli.build_cmd', 'osprey.cli.deploy_cmd') if m in sys.modules]; "
         "print(','.join(heavy))"
     )
     out = subprocess.run(
