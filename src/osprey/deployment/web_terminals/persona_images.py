@@ -584,7 +584,7 @@ def auto_render_missing_personas(
         ]
         logger.key_info("Auto-rendering persona %r project at %s", persona_name, project_path)
         logger.info("  ↳ from %s", profile_path)
-        logger.info("Running command:\n    %s", " ".join(cmd))
+        logger.debug("Running command:\n    %s", " ".join(cmd))
         subprocess.run(cmd, env=env, check=True)
 
 
@@ -692,7 +692,7 @@ def build_persona_images(
                 dev_mode and wheel_staged,
             )
             logger.key_info("Building persona image %s-%s:local:", project, persona_name)
-            logger.info("Running command:\n    %s", " ".join(cmd))
+            logger.debug("Running command:\n    %s", " ".join(cmd))
             subprocess.run(cmd, env=env, check=True)
         finally:
             # Remove BOTH staged artifacts (wheel + requirements manifest) so

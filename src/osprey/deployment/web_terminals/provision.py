@@ -31,6 +31,7 @@ from osprey.deployment.runtime_helper import (
     get_image_id,
     get_runtime_command,
     runtime_env,
+    with_plain_progress,
 )
 from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
 from osprey.deployment.web_terminals.auth_credentials import (
@@ -464,7 +465,7 @@ def build_auth_sidecar_image(config: dict, dev_mode: bool, env: dict[str, str]) 
     cmd.append(str(context_dir))
 
     logger.key_info("Building auth sidecar image %s:", tag)
-    logger.info("Running command:\n    %s", " ".join(cmd))
+    logger.debug("Running command:\n    %s", " ".join(cmd))
     subprocess.run(cmd, env=env, check=True)
 
 
@@ -491,7 +492,7 @@ def web_stack_compose_cmd(config: dict, env_file_args: list[str] | None = None) 
         from osprey.deployment.container_lifecycle import _env_file_args
 
         env_file_args = _env_file_args()
-    cmd = get_runtime_command(config)
+    cmd = with_plain_progress(get_runtime_command(config))
     cmd.extend(("-f", "docker-compose.web.yml"))
     cmd.extend(env_file_args)
     return cmd
@@ -606,7 +607,7 @@ def _force_recreate_services(
     :func:`force_recreate_auth_sidecar`) exist to avoid.
     """
     cmd = web_cmd + ["up", "-d", "--force-recreate", *services]
-    logger.info(f"Running command:\n    {' '.join(cmd)}")
+    logger.debug(f"Running command:\n    {' '.join(cmd)}")
     subprocess.run(cmd, env=run_env, check=True)
 
 
@@ -795,7 +796,7 @@ def deploy_up_web_terminals(
     # Skipped when no real service is deployed -- see docstring for why
     # `up` on the network-only top-level file alone would fail outright.
     if config.get("deployed_services"):
-        services_base = get_runtime_command(config)
+        services_base = with_plain_progress(get_runtime_command(config))
         for compose_file in compose_files:
             services_base.extend(("-f", compose_file))
         services_base.extend(env_file_args)
@@ -809,7 +810,7 @@ def deploy_up_web_terminals(
         # COMPOSE_PROJECT_NAME, so orphan-removal in either would destroy the
         # OTHER stack's containers as "orphans" of the shared project.
         services_rm = services_base + ["rm", "-f"]
-        logger.info(f"Running command:\n    {' '.join(services_rm)}")
+        logger.debug(f"Running command:\n    {' '.join(services_rm)}")
         subprocess.run(services_rm, env=run_env)
         if dev_mode:
             # Mirrors the plain non-web path's dev-mode build (see deploy_up):
@@ -818,13 +819,13 @@ def deploy_up_web_terminals(
             # then `up --no-build`, to dodge the `up --build` containerd
             # image-store race.
             services_build = services_base + ["build"]
-            logger.info(f"Running command:\n    {' '.join(services_build)}")
+            logger.debug(f"Running command:\n    {' '.join(services_build)}")
             subprocess.run(services_build, env=run_env, check=True)
         services_cmd = services_base + ["up"]
         if dev_mode:
             services_cmd.append("--no-build")
         services_cmd.append("-d")
-        logger.info(f"Running command:\n    {' '.join(services_cmd)}")
+        logger.debug(f"Running command:\n    {' '.join(services_cmd)}")
         subprocess.run(services_cmd, env=run_env, check=True)
 
     # ---- web-terminal stack (own compose project directory: project root) --
@@ -833,7 +834,7 @@ def deploy_up_web_terminals(
     # Same stale-container preflight as the services stack above (and same
     # no-`--remove-orphans` constraint — see that comment).
     web_rm = web_cmd + ["rm", "-f"]
-    logger.info(f"Running command:\n    {' '.join(web_rm)}")
+    logger.debug(f"Running command:\n    {' '.join(web_rm)}")
     subprocess.run(web_rm, env=run_env)
 
     if not local_mode:
@@ -842,11 +843,11 @@ def deploy_up_web_terminals(
         # MODE BRANCH section. This is the load-bearing guard the task exists
         # to add; never run `pull` unconditionally here again.
         pull_cmd = web_cmd + ["pull"]
-        logger.info(f"Running command:\n    {' '.join(pull_cmd)}")
+        logger.debug(f"Running command:\n    {' '.join(pull_cmd)}")
         subprocess.run(pull_cmd, env=run_env, check=True)
 
     up_cmd = web_cmd + ["up", "-d"]
-    logger.info(f"Running command:\n    {' '.join(up_cmd)}")
+    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
     subprocess.run(up_cmd, env=run_env, check=True)
 
     # Post-`up` recreate for podman's same-tag image drift. A changed
@@ -873,12 +874,15 @@ def deploy_up_web_terminals(
     # advisory only and never raises from here. The host-reachability probe
     # runs last and is likewise advisory (see warn_if_web_stack_unreachable:
     # on Docker Desktop a fully-healthy stack can still be unreachable from
-    # the host).
+    # the host). It gets this invocation's `web_cmd`/`run_env` so it can bounce
+    # the stack to re-register a stale Docker Desktop port forward -- the one
+    # failure mode `up -d` structurally cannot fix on its own, because the
+    # containers' definitions are unchanged and compose reconciles nothing.
     # -----------------------------------------------------------------------
     enable_linger(config, run_env)
     seed_user_containers(config, env=run_env)
     run_verify_script(project_root, run_env)
-    warn_if_web_stack_unreachable(config)
+    warn_if_web_stack_unreachable(config, web_cmd=web_cmd, run_env=run_env)
 
 
 def _reconcile_web_stack_recreates(
@@ -996,7 +1000,7 @@ def deploy_down_web_terminals(
         return
     down_cmd = web_stack_compose_cmd(config, env_file_args)
     down_cmd.append("down")
-    logger.info(f"Running command:\n    {' '.join(down_cmd)}")
+    logger.debug(f"Running command:\n    {' '.join(down_cmd)}")
     result = subprocess.run(
         down_cmd, env=runtime_env(config, env), capture_output=True, text=True, check=False
     )

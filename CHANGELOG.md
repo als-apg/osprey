@@ -13,6 +13,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `osprey -v` (`--verbose`) shows debug output, including every container
+  command a deploy runs. Normal runs no longer echo those commands, so a
+  deploy reads as a report — ending in the endpoint summary — rather than a
+  transcript.
 - Profiles carry artifacts into a build through **convention directories** —
   `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
   `web-terminal-context/`, `mcp_servers/`, `services/`, and `project/` for
@@ -266,6 +270,22 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- On Docker Desktop (macOS/Windows), `osprey deploy up` now repairs a web
+  stack that is fully healthy yet unreachable from the browser. Docker
+  Desktop forwards a host-network port only if it watched the container open
+  it, so a container that restarted while Docker Desktop itself was starting
+  stays invisible from the host — and re-running `deploy up` could never fix
+  it, because nothing in the container's definition changed. The post-deploy
+  reachability probe now restarts the web stack once and re-checks before
+  pointing at the host-networking setting.
+- A deploy is quieter about things that were never wrong: no more
+  orphan-container warnings for its own sibling stack (two compose
+  invocations share one project by design), no more garbled progress
+  rendering on long service names (docker runs use `--progress plain`), and
+  no more platform-mismatch warning for the virtual accelerator on Apple
+  Silicon — that image is amd64 by design (its Channel Access server has no
+  arm64 wheels), and the compose service now declares it via
+  `platform: linux/amd64`, overridable with `OSPREY_VA_PLATFORM`.
 - Importing the control-system connectors no longer drags in pandas. The
   connector factory imported the archiver base eagerly for a type annotation,
   so anything that wanted only `osprey.connectors.control_system` had to

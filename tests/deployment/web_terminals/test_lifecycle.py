@@ -1299,9 +1299,13 @@ def test_passwd_carries_the_env_file_fragment_into_the_recreate(
 
     lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
 
-    assert argv[0][:6] == [
+    assert argv[0][:8] == [
         "docker",
         "compose",
+        # Global flags precede the -f list; docker only (see
+        # runtime_helper.with_plain_progress).
+        "--progress",
+        "plain",
         "-f",
         "docker-compose.web.yml",
         "--env-file",

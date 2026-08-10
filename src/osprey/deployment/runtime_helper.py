@@ -133,6 +133,20 @@ def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> 
     command should build its env through this function rather than passing
     ``os.environ`` (or a copy of it) directly.
 
+    Also sets ``COMPOSE_IGNORE_ORPHANS``. That one is structural, not
+    cosmetic: a web-terminal deploy runs TWO compose invocations against the
+    single project this function pins — the backend services under
+    ``build/services/*.yml`` and the web stack under
+    ``docker-compose.web.yml`` — so each one necessarily sees the other's
+    containers as orphans of the shared project, and says so at length, twice
+    per deploy. The warning's own suggested remedy (``--remove-orphans``) is
+    the one thing that must never be run here: it would delete the other
+    stack, which is exactly why both call sites in
+    :mod:`~osprey.deployment.web_terminals.provision` forbid the flag. A
+    warning whose only advertised fix is destructive, in a situation the
+    design guarantees, is pure noise — so it is turned off at the source
+    rather than left for every operator to learn to ignore.
+
     Args:
         config: Configuration dictionary used to resolve the project name.
             Falsy values (``None``, ``{}``) resolve the same as an empty dict,
@@ -141,13 +155,60 @@ def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> 
             ``os.environ``. Never mutated — a fresh copy is always returned.
 
     Returns:
-        A new environment dict with ``COMPOSE_PROJECT_NAME`` set.
+        A new environment dict with ``COMPOSE_PROJECT_NAME`` and
+        ``COMPOSE_IGNORE_ORPHANS`` set.
     """
     from osprey.deployment.compose_generator import resolve_project_name
 
     env = dict(base_env if base_env is not None else os.environ)
     env["COMPOSE_PROJECT_NAME"] = resolve_project_name(config or {})
+    env["COMPOSE_IGNORE_ORPHANS"] = "1"
     return env
+
+
+def with_plain_progress(cmd: list[str]) -> list[str]:
+    """Add ``--progress plain`` to a docker compose argv so it cannot garble.
+
+    Takes an already-resolved compose argv rather than resolving one itself,
+    deliberately: every call site reaches its runtime through the
+    ``get_runtime_command`` name bound in *its own* module, which is the seam
+    the deploy tests monkeypatch. A helper that called ``get_runtime_command``
+    internally would resolve this module's binding instead, walk straight past
+    that patch, and run live runtime detection inside unit tests.
+
+    Compose's default (``auto``) selects a TTY renderer on an interactive
+    terminal, which repaints each frame by moving the cursor up N lines and
+    rewriting them — without erasing to end of line. Long project and service names
+    (``my-control-assistant-bluesky-queueserver`` and friends) wrap on a
+    normal-width terminal, the renderer's N is then wrong by the number of
+    wrapped lines, and successive frames overprint each other into
+    unreadable fragments. ``plain`` is append-only, so it has no frame
+    arithmetic to get wrong.
+
+    Docker only, deliberately. ``--progress`` is a docker compose v2 flag;
+    ``podman compose`` delegates to whichever provider the host has, and a
+    provider that rejects an unknown flag would turn a cosmetic improvement
+    into a failed deploy. Podman hosts keep today's behaviour, and lose
+    little: ``auto`` already resolves to ``plain`` whenever stdout is not a
+    terminal, which covers CI and systemd — the places a production deploy's
+    output is actually captured.
+
+    ``--progress`` is a global flag, valid ahead of every compose subcommand,
+    so callers append their ``-f``/``--env-file`` arguments and the subcommand
+    afterwards exactly as before.
+
+    Args:
+        cmd: A compose argv base, e.g. ``["docker", "compose"]``, as returned
+            by :func:`get_runtime_command`. Extended in place and returned, so
+            ``with_plain_progress(get_runtime_command(config))`` reads as one
+            expression at the call site.
+
+    Returns:
+        The same list, with the flag appended when the runtime is docker.
+    """
+    if cmd and cmd[0] == "docker":
+        cmd.extend(("--progress", "plain"))
+    return cmd
 
 
 def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[bool, str]:

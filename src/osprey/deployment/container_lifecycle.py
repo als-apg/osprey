@@ -26,6 +26,7 @@ from osprey.deployment.runtime_helper import (
     get_runtime_command,
     runtime_env,
     verify_runtime_is_running,
+    with_plain_progress,
 )
 from osprey.deployment.service_tokens import (
     _VAR_GENERATORS,  # noqa: F401  (re-exported for tests)
@@ -1556,7 +1557,7 @@ def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
     try:
         cmd = _project_image_build_cmd(config, runtime, project_root, dev_mode and wheel_staged)
         logger.key_info("Building dispatch worker project image %s:", project_image)
-        logger.info("Running command:\n    %s", " ".join(cmd))
+        logger.debug("Running command:\n    %s", " ".join(cmd))
         subprocess.run(cmd, env=env, check=True)
     finally:
         # Remove BOTH staged artifacts (wheel + requirements manifest) so
@@ -1795,7 +1796,7 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # "services" project whose up/down cross-adopts sibling stacks.
     run_env = runtime_env(config, env)
 
-    base_cmd = get_runtime_command(config)
+    base_cmd = with_plain_progress(get_runtime_command(config))
     for compose_file in compose_files:
         base_cmd.extend(("-f", compose_file))
     base_cmd.extend(_env_file_args())
@@ -1810,7 +1811,7 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # zero-churn. Volumes are never touched — destroying state stays the job
     # of clean/rebuild. Best-effort: if it fails, `up` surfaces the real error.
     rm_cmd = base_cmd + ["rm", "-f"]
-    logger.info(f"Running command:\n    {' '.join(rm_cmd)}")
+    logger.debug(f"Running command:\n    {' '.join(rm_cmd)}")
     subprocess.run(rm_cmd, env=run_env)
 
     if dev_mode:
@@ -1823,7 +1824,7 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
         # plain `up` so compose's implicit build-on-up still covers a build-only
         # service that has no published upstream tag to pull.
         build_cmd = base_cmd + ["build"]
-        logger.info(f"Running command:\n    {' '.join(build_cmd)}")
+        logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
         subprocess.run(build_cmd, env=run_env, check=True)
 
     # --remove-orphans reconciles away containers whose service left the
@@ -1838,7 +1839,7 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     if detached:
         cmd.append("-d")
 
-    logger.info(f"Running command:\n    {' '.join(cmd)}")
+    logger.debug(f"Running command:\n    {' '.join(cmd)}")
     if detached:
         subprocess.run(cmd, env=run_env, check=True)
         log_endpoint_summary(config, compose_files)
@@ -1889,7 +1890,7 @@ def deploy_down(config_path, dev_mode=False):
         for f in compose_files:
             logger.info(f"  - {f}")
 
-    cmd = get_runtime_command(config)
+    cmd = with_plain_progress(get_runtime_command(config))
     for compose_file in compose_files:
         cmd.extend(("-f", compose_file))
 
@@ -1900,7 +1901,7 @@ def deploy_down(config_path, dev_mode=False):
 
     cmd.append("down")
 
-    logger.info(f"Running command:\n    {' '.join(cmd)}")
+    logger.debug(f"Running command:\n    {' '.join(cmd)}")
     # execvpe (not execvp) so the COMPOSE_PROJECT_NAME pin reaches compose:
     # `down` must target the same project `up` created, or it either misses this
     # deploy's containers or (unpinned) tears down the shared "services" project.
@@ -1938,12 +1939,12 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     # so generating them would change nothing until the next `deploy up`.
     _ensure_bluesky_control_plane_keys(config)
 
-    cmd = get_runtime_command(config)
+    cmd = with_plain_progress(get_runtime_command(config))
     for compose_file in compose_files:
         cmd.extend(("-f", compose_file))
     cmd.extend(["--env-file", ".env", "restart"])
 
-    logger.info(f"Running command:\n    {' '.join(cmd)}")
+    logger.debug(f"Running command:\n    {' '.join(cmd)}")
     subprocess.run(cmd, env=runtime_env(config, os.environ.copy()))
 
     # If detached mode requested, detach after restart

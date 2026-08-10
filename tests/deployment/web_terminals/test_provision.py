@@ -76,6 +76,10 @@ def test_deploy_down_web_terminals_runs_compose_down_on_web_file(monkeypatch, tm
     assert recorded["cmd"] == [
         "docker",
         "compose",
+        # Global flags precede the -f list; docker only (see
+        # runtime_helper.with_plain_progress).
+        "--progress",
+        "plain",
         "-f",
         "docker-compose.web.yml",
         "--env-file",
