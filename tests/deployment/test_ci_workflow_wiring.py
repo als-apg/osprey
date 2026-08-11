@@ -60,6 +60,12 @@ VA_TEST_FILE = "tests/e2e/test_va_substrate_equivalence.py"
 LIFECYCLE_TEST_FILE = "tests/e2e/test_deploy_lifecycle.py"
 ORM_JOB = "orm-roundtrip-e2e"
 ORM_TEST_FILE = "tests/e2e/test_orm_roundtrip.py"
+GRID_TEST_FILE = "tests/e2e/test_grid_scan_roundtrip.py"
+QUEUE_JOB = "bluesky-queue-e2e"
+QUEUE_TEST_FILE = "tests/e2e/test_bluesky_queue_e2e.py"
+SCAN_AGENTIC_JOB = "scan-agentic-e2e"
+SCAN_AGENTIC_TEST_FILE = "tests/e2e/test_scan_stack_agentic.py"
+SCAN_AGENTIC_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 OVERLAY_JOB = "dispatch-overlay-e2e"
 OVERLAY_TEST_FILE = "tests/e2e/test_dispatch_overlay_visibility.py"
 CATALOG_JOB = "bluesky-catalog-e2e"
@@ -86,7 +92,7 @@ PROBE_BASE_ASSIGNMENT = re.compile(rf'{PROBE_BASE_VAR}="\$\{{{ALS_APG_BASE_URL_E
 # Guards against silent under-discovery: if probe steps are renamed or reshaped
 # so the finder stops matching them, the count check fails loudly instead of
 # passing over an empty list. Raise this when probe lanes are added.
-EXPECTED_MIN_ALS_APG_PROBES = 7
+EXPECTED_MIN_ALS_APG_PROBES = 8
 
 CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
 PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
@@ -827,6 +833,25 @@ def test_orm_roundtrip_job_has_no_llm_secret__mutation_adds_secret() -> None:
     )
     with pytest.raises(AssertionError):
         assert not _job_declares_secret(mutated, ORM_JOB, SECRET_TOKEN)
+
+
+def test_orm_roundtrip_job_runs_the_grid_scan_module(workflow: dict[str, Any]) -> None:
+    """The grid-scan roundtrip's ``dockerbuild`` marker takes it OUT of the
+    shared lane; this job is where it went. The blanket marker->--ignore guard
+    proves it left, and nothing else proves it arrived — delete the ``Run grid
+    scan roundtrip`` step and every other wiring test still passes while the
+    module runs nowhere at all."""
+    assert GRID_TEST_FILE in json.dumps(_jobs(workflow)[ORM_JOB]["steps"])
+
+
+def test_orm_roundtrip_job_runs_the_grid_scan_module__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[ORM_JOB]["steps"]
+    kept = [step for step in steps if GRID_TEST_FILE not in json.dumps(step)]
+    assert len(kept) == len(steps) - 1, "expected exactly one step to name the grid module"
+    _jobs(mutated)[ORM_JOB]["steps"] = kept
+    with pytest.raises(AssertionError):
+        test_orm_roundtrip_job_runs_the_grid_scan_module(mutated)
 
 
 def test_dispatch_overlay_job_exists(workflow: dict[str, Any]) -> None:
@@ -1652,3 +1677,263 @@ def test_browser_lane_is_triggered_by_the_perimeter__mutation_drops_the_sidecar_
     assert [p for p in AUTH_PERIMETER_PATHS if p not in paths] == [
         "src/osprey/services/auth_sidecar/**"
     ]
+
+
+# ---------------------------------------------------------------------------
+# (i) bluesky-queue-e2e: the queue stack's own lane, secret-free
+# ---------------------------------------------------------------------------
+
+
+def test_bluesky_queue_job_exists(workflow: dict[str, Any]) -> None:
+    """``test_bluesky_queue_e2e.py`` is ``--ignore``'d by the shared e2e-tests
+    lane (it deploys the whole queue stack twice), so this dedicated job is the
+    only place it runs at all — without it the file is collected nowhere. The
+    job existing is not enough: one of its steps has to actually name the
+    module, or the lane reports green having run nothing."""
+    assert QUEUE_JOB in _jobs(workflow)
+    assert QUEUE_TEST_FILE in json.dumps(_jobs(workflow)[QUEUE_JOB])
+
+
+def test_bluesky_queue_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][QUEUE_JOB]
+    with pytest.raises(AssertionError):
+        test_bluesky_queue_job_exists(mutated)
+
+
+def test_bluesky_queue_job_exists__mutation_drops_the_run_step() -> None:
+    """The vacuous-green half: the job survives, but nothing in it names the
+    e2e module any more."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[QUEUE_JOB]["steps"]
+    kept = [step for step in steps if QUEUE_TEST_FILE not in json.dumps(step)]
+    assert len(kept) == len(steps) - 1, "expected exactly one step to name the e2e module"
+    _jobs(mutated)[QUEUE_JOB]["steps"] = kept
+    with pytest.raises(AssertionError):
+        test_bluesky_queue_job_exists(mutated)
+
+
+def test_bluesky_queue_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+    """Every stage drives the bridge HTTP API and the osprey CLI directly — an
+    LLM secret appearing here would mean the lane's scope silently grew."""
+    assert not _job_declares_secret(workflow, QUEUE_JOB, SECRET_TOKEN)
+
+
+def test_bluesky_queue_job_has_no_llm_secret__mutation_adds_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][QUEUE_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        assert not _job_declares_secret(mutated, QUEUE_JOB, SECRET_TOKEN)
+
+
+def test_e2e_lane_ignores_bluesky_queue(workflow: dict[str, Any]) -> None:
+    """The guards above catch "runs nowhere"; this one catches "runs twice".
+
+    The module carries no ``dockerbuild`` marker, so the blanket
+    marker->--ignore guard does not reach it and this bespoke check is the
+    only thing holding the ``--ignore`` in place. Drop that line and the whole
+    queueserver stack — bridge, Redis, Tiled, VA, panels sidecar, on fixed
+    host ports — boots a second time inside the shared lane's ``-n 4`` run,
+    concurrently with its own job. Nothing would fail; it would just get slow
+    and flaky in a way nobody could attribute."""
+    assert _run_step_ignores_all(workflow, [QUEUE_TEST_FILE]) == []
+
+
+def test_e2e_lane_ignores_bluesky_queue__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], QUEUE_TEST_FILE)
+    assert _run_step_ignores_all(mutated, [ORM_TEST_FILE]) == []  # others survive
+    assert _run_step_ignores_all(mutated, [QUEUE_TEST_FILE]) == [QUEUE_TEST_FILE]
+
+
+def test_all_checks_passed_needs_bluesky_queue(workflow: dict[str, Any]) -> None:
+    """``needs:`` alone is not a gate — the roll-up runs ``if: always()``, so a
+    needed job that failed still lets it start; the ``check_pr_lane`` line is
+    what turns the result into an exit code. Both halves are pinned.
+
+    These two assertions travel with the lane: if ``bluesky-queue-e2e`` cannot
+    go green in the PR, the job, its gate entry AND this guard pair are dropped
+    together and re-landed together in the follow-up. A gate entry left behind
+    without its lane blocks every merge; a lane left behind without its gate
+    entry is unwatched."""
+    assert QUEUE_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{QUEUE_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_bluesky_queue__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(QUEUE_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_bluesky_queue(mutated)
+
+
+def test_all_checks_passed_needs_bluesky_queue__mutation_drops_check_pr_lane_line() -> None:
+    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
+    job) while the line that reads its result is gone — the lane could go red
+    forever inside a green check."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if QUEUE_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert QUEUE_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_bluesky_queue(mutated)
+
+
+# ---------------------------------------------------------------------------
+# (k) scan-agentic-e2e: the agent-driven scan lane, secret-gated
+# ---------------------------------------------------------------------------
+
+
+def test_scan_agentic_job_exists(workflow: dict[str, Any]) -> None:
+    """``test_scan_stack_agentic.py`` is ``--ignore``'d by the shared e2e-tests
+    lane (its two live tests deploy the VA/bridge/queue stack on fixed host
+    ports), so this dedicated job is the only place any of it runs — the
+    offline floor and judge checks included, since they live in the same
+    module. The job existing is not enough: one of its steps has to name the
+    module, or the lane reports green having run nothing.
+
+    Unlike the queue lane above, nothing bespoke holds that ``--ignore`` in
+    place: the module's live tests carry the ``dockerbuild`` marker, so the
+    blanket guard in section (e)
+    (``test_every_dockerbuild_marked_file_is_ignored_in_e2e_lane``) is what
+    pins it. This check is the other half of that pair — (e) proves the module
+    left the shared lane, and only this one proves it arrived somewhere."""
+    assert SCAN_AGENTIC_JOB in _jobs(workflow)
+    assert SCAN_AGENTIC_TEST_FILE in json.dumps(_jobs(workflow)[SCAN_AGENTIC_JOB])
+
+
+def test_scan_agentic_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][SCAN_AGENTIC_JOB]
+    with pytest.raises(AssertionError):
+        test_scan_agentic_job_exists(mutated)
+
+
+def test_scan_agentic_job_exists__mutation_drops_the_run_step() -> None:
+    """The vacuous-green half: the job survives, but nothing in it names the
+    e2e module any more."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[SCAN_AGENTIC_JOB]["steps"]
+    kept = [step for step in steps if SCAN_AGENTIC_TEST_FILE not in json.dumps(step)]
+    assert len(kept) == len(steps) - 1, "expected exactly one step to name the e2e module"
+    _jobs(mutated)[SCAN_AGENTIC_JOB]["steps"] = kept
+    with pytest.raises(AssertionError):
+        test_scan_agentic_job_exists(mutated)
+
+
+def test_scan_agentic_job_declares_llm_secret(workflow: dict[str, Any]) -> None:
+    """Both live tests drive a real agent and then a real judge, and both are
+    ``requires_als_apg``-marked — without the secret they skip, so a job
+    missing it would green-wash the lane down to its offline checks."""
+    assert _job_declares_secret(workflow, SCAN_AGENTIC_JOB, SECRET_TOKEN)
+
+
+def test_scan_agentic_job_declares_llm_secret__mutation_strips_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][SCAN_AGENTIC_JOB] = json.loads(
+        json.dumps(mutated["jobs"][SCAN_AGENTIC_JOB]).replace("secrets.ALS_APG_API_KEY", "")
+    )
+    with pytest.raises(AssertionError):
+        assert _job_declares_secret(mutated, SCAN_AGENTIC_JOB, SECRET_TOKEN)
+
+
+def _junit_reports_written_by(steps: list[dict[str, Any]]) -> list[str]:
+    """Report paths the given steps write, in step order."""
+    return [r for step in steps for r in _JUNIT_RE.findall(step["run"])]
+
+
+def _scan_agentic_pytest_steps(wf: dict[str, Any]) -> list[dict[str, Any]]:
+    """This job's pytest invocations. Matched on the full ``uv run pytest``
+    invocation for the same reason as the gchat helper: the zero-skip gate step
+    below runs ``uv run python`` and merely names pytest in its comment, and
+    counting that as a pytest step would demand a junit report it never
+    writes."""
+    return [s for s in _jobs(wf)[SCAN_AGENTIC_JOB]["steps"] if "uv run pytest " in s.get("run", "")]
+
+
+def test_scan_agentic_job_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
+    """The secret check above only proves the key is present; this proves the
+    lane cannot green while its expensive half quietly does nothing.
+
+    Every skip this module can take is a CI misconfiguration rather than a
+    legitimate environment gap — absent docker, absent SDK, absent ``claude``
+    CLI, absent provider key — and pytest exits 0 for all of them. The CLI one
+    is not hypothetical: claude-agent-sdk bundles its own CLI and installs no
+    ``claude`` console script, so ``is_claude_code_available()`` can skip both
+    live tests on a runner where the SDK would have worked, leaving the offline
+    floor and judge checks to carry a green check on their own. So the job
+    reads the junit report and fails on any skip, and on an empty collection,
+    which would otherwise satisfy a zero-skip check trivially. Every pytest
+    step must write a report the gate actually reads: a run whose report
+    nothing inspects is back to skipping its way to green."""
+    reports = _junit_reports_written_by(_scan_agentic_pytest_steps(workflow))
+    assert len(reports) == len(_scan_agentic_pytest_steps(workflow)), (
+        f"every pytest step in '{SCAN_AGENTIC_JOB}' must write a --junitxml report; got {reports}"
+    )
+    gate = _find_named_step(workflow, SCAN_AGENTIC_JOB, SCAN_AGENTIC_SKIP_GATE_STEP)["run"]
+    unread = [r for r in reports if r not in gate]
+    assert unread == [], f"'{SCAN_AGENTIC_SKIP_GATE_STEP}' never reads: {unread}"
+    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
+    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+
+
+def test_scan_agentic_job_fails_on_any_skipped_test__mutation_drops_the_junit_report() -> None:
+    """A pytest step that writes no report is invisible to the gate — the
+    lane keeps running, and the gate keeps passing on a file it never reads."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _scan_agentic_pytest_steps(mutated)[0]
+    step["run"] = _JUNIT_RE.sub("", step["run"])
+    with pytest.raises(AssertionError, match="must write a --junitxml report"):
+        test_scan_agentic_job_fails_on_any_skipped_test(mutated)
+
+
+def test_scan_agentic_job_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
+    """A gate that prints the skip count without exiting non-zero is
+    decorative: the job still reports success over a lane that ran nothing."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, SCAN_AGENTIC_JOB, SCAN_AGENTIC_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    with pytest.raises(AssertionError, match="must fail the job"):
+        test_scan_agentic_job_fails_on_any_skipped_test(mutated)
+
+
+def test_all_checks_passed_needs_scan_agentic(workflow: dict[str, Any]) -> None:
+    """``needs:`` alone is not a gate — the roll-up runs ``if: always()``, so a
+    needed job that failed still lets it start; the ``check_pr_lane`` line is
+    what turns the result into an exit code. Both halves are pinned.
+
+    Same drop-together/re-land-together discipline as the queue lane: if
+    ``scan-agentic-e2e`` cannot go green in the PR, the job, its gate entry AND
+    this guard pair leave as a unit and come back as a unit. Splitting them
+    either wedges the merge gate on a job that no longer exists or leaves the
+    lane running unwatched."""
+    assert SCAN_AGENTIC_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{SCAN_AGENTIC_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_scan_agentic__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(SCAN_AGENTIC_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_scan_agentic(mutated)
+
+
+def test_all_checks_passed_needs_scan_agentic__mutation_drops_check_pr_lane_line() -> None:
+    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
+    job) while the line that reads its result is gone — the lane could go red
+    forever inside a green check. Worth pinning twice over here, because this
+    lane is the expensive one: nobody re-reads a lane's log once the roll-up
+    is green."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if SCAN_AGENTIC_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert SCAN_AGENTIC_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_scan_agentic(mutated)

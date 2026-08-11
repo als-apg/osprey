@@ -41,6 +41,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   rerun), and `deploy up`, ending in the endpoint summary. One command with
   each phase printed in sequence, instead of three commands chained across
   three directories. `--dev` and `-d` pass through to the deploy.
+- Bluesky scan agents can discover the worker's device namespace: a
+  `list_devices` MCP tool and a `GET /devices` bridge endpoint. Substrate
+  devices are named by their control-system channel address, and `queue_add`
+  now checks a plan's device names against the worker's list at add time,
+  refusing unknown names with a clear error instead of failing later in the
+  worker.
+- CI runs the whole Bluesky scan-stack e2e family: a new agent-driven scan
+  lane (ORM and grid scans executed end-to-end and graded by a structural
+  floor plus an LLM judge), a queue-stack lane, and the grid-scan roundtrip
+  adopted into the ORM lane — all wired into the merge gate.
 - Profiles carry artifacts into a build through **convention directories** —
   `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
   `web-terminal-context/`, `mcp_servers/`, `services/`, and `project/` for

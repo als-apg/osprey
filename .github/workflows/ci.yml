@@ -810,10 +810,16 @@ jobs:
           # file's tests on one worker, preserving in-file ordering and
           # module-scoped fixtures — the documented registry-order hazard is
           # about mixing e2e with unit tests, not about file-level
-          # parallelism. The only fixed-port stacks in this lane
-          # (grid-scan/ORM VA on 5064) are GitHub-Actions-skipped anyway.
+          # parallelism. No fixed-port stack (the VA on CA 5064) actually
+          # boots in this lane: every module that binds that port leaves by
+          # --ignore below and runs in its own job — the scan-stack agentic
+          # module and the VA substrate equivalence proof each in one, and
+          # the ORM and grid-scan roundtrips together in orm-roundtrip-e2e,
+          # where they run as sequential steps so the two stacks never
+          # contend for 5064.
           uv run pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile \
             --ignore=tests/e2e/test_preset_agentic.py \
+            --ignore=tests/e2e/test_scan_stack_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
             --ignore=tests/e2e/test_dispatch_overlay_visibility.py \
             --ignore=tests/e2e/test_bluesky_deploy.py \
@@ -823,6 +829,7 @@ jobs:
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
             --ignore=tests/e2e/test_orm_roundtrip.py \
+            --ignore=tests/e2e/test_grid_scan_roundtrip.py \
             --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
             --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
             --ignore=tests/e2e/test_bluesky_panels_deploy.py \
@@ -1255,19 +1262,36 @@ jobs:
         uv run pytest tests/e2e/test_va_substrate_equivalence.py -v --tb=short
 
   orm-roundtrip-e2e:
-    name: ORM Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
+    name: ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors va-substrate-equivalence-e2e
-    # gating). This job needs no secrets — the ORM roundtrip drives the
-    # bridge HTTP API directly, no LLM involved. It previously ran inside the
+    # gating). This job needs no secrets — both roundtrips drive the bridge
+    # HTTP API directly, no LLM involved. It previously ran inside the
     # shared e2e-tests lane (its ~7min full VA/bridge/Tiled build + deploy
     # was the lane's second-biggest time sink); same extraction pattern as
     # every other dockerbuild-marked file.
+    #
+    # Two modules, run as two SEQUENTIAL steps rather than one pytest
+    # invocation: both stand up their own VA and bind CA port 5064 by design,
+    # so overlapping them would collide. Sequential steps also keep the two
+    # failures separately attributable in the job log.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Builds the native PyAT/serving-stack VA image from source like
     # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
-    # cold image cache can't red the job.
-    timeout-minutes: 45
+    # cold image cache can't red the job. Raised from 45 when the grid-scan
+    # roundtrip joined. Each module's own internal caps, wire to wire: 300s
+    # build + 1200s deploy + 300s health + its scan + a 300s `deploy down`
+    # in the teardown, and flaky(reruns=1) repeats the SCAN only (the module
+    # fixtures survive a rerun, so no second build/deploy) — 2580s for ORM
+    # (240s scan) and 2340s for grid (120s scan), ~82min if both ran every
+    # timeout to the wire.
+    #
+    # 75 is therefore deliberately NOT that pathological sum: it bounds the
+    # realistic run, where the second module reuses the first's images and
+    # nothing sits at its cap, while still leaving the suite's own named
+    # timeouts — not a bare GHA cancellation — to report a genuine hang.
+    # Tighten once there are observed green timings for the pair.
+    timeout-minutes: 75
 
     steps:
     - name: Checkout repository
@@ -1299,6 +1323,190 @@ jobs:
     - name: Run ORM roundtrip E2E
       run: |
         uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
+
+    - name: Run grid scan roundtrip E2E
+      run: |
+        uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v --tb=short
+
+  bluesky-queue-e2e:
+    name: Bluesky Queue E2E (queueserver + Redis + Tiled + VA, full Docker stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (mirrors orm-roundtrip-e2e gating). This
+    # job needs no secrets — every stage drives the bridge HTTP API and the
+    # osprey CLI directly, no LLM involved.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Sized from the suite's own internal caps rather than a guess: the 2400s
+    # `osprey deploy up` budget is spent TWICE (stage 8 flips the control
+    # system to mock and redeploys the whole stack), plus a 900s whole-queue
+    # drain budget and stage 6's deliberately long 4000-point abort scan. This
+    # lane has never run in GHA before, so the cap is deliberately generous —
+    # tighten it once there are observed green timings to tighten against.
+    timeout-minutes: 75
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run Bluesky queue E2E
+      run: |
+        uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v --tb=short
+
+  scan-agentic-e2e:
+    name: Scan Stack Agentic E2E (agent-driven ORM + grid scans on the deployed queue stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (secrets unavailable on forks). Both live
+    # tests drive a real agent against the deployed stack, so this lane needs
+    # ALS_APG_API_KEY — the same gating as dispatch-overlay-e2e.
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    # One pytest invocation covers the whole module: the offline floor/judge
+    # checks plus the two live agent runs, which share a single module-scoped
+    # deploy of the VA/bridge/queue stack.
+    #
+    # Sized from the fixture's own named caps, not from a wall-clock
+    # observation. Before a single test body runs, the module-scoped deploy can
+    # spend 360s force-removing its three images (3 x 120s, bounded and
+    # non-fatal) + BUILD_TIMEOUT_SEC 300 + DEPLOY_UP_TIMEOUT_SEC 2400 +
+    # HEALTH_TIMEOUT_SEC 300 = 3360s, i.e. 56min, with DOWN_TIMEOUT_SEC 300
+    # more in teardown. A 45 cap would therefore be cut short by GHA before the
+    # fixture's own TimeoutExpired handling — which prints what was still
+    # building and the dead containers' logs — ever got to say why.
+    #
+    # 75 matches bluesky-queue-e2e, which carries the same 2400s deploy budget,
+    # and like that lane it is deliberately NOT the pathological sum: it bounds
+    # the realistic run (locally the whole cold cycle, image build included,
+    # took ~33min on an Apple Silicon box and ~7.5min warm; GHA builds
+    # natively) while leaving a genuine hang to be reported by the suite's
+    # named timeouts rather than by a bare GHA cancellation. Tighten once
+    # there are observed green timings on a runner.
+    timeout-minutes: 75
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Same probe as dispatch-overlay-e2e: fail fast if the proxy is
+        # unreachable rather than burning a multi-minute stack build first.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          exit 1
+        fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          head -c 500 /tmp/probe.txt; echo
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Run scan stack agentic E2E
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        uv run pytest tests/e2e/test_scan_stack_agentic.py -v --tb=short \
+          --junitxml=junit-scan-agentic-e2e.xml
+
+    - name: Fail the lane on any skipped test
+      run: |
+        # Every way this lane can skip is a CI misconfiguration, not a
+        # legitimate environment gap: no container runtime, no SDK, no `claude`
+        # CLI, no provider key. Each turns the job into a green check over a
+        # lane that deployed nothing and measured nothing, and pytest's exit
+        # code cannot express the difference.
+        #
+        # The `claude` CLI case is the live one, not a hypothetical:
+        # claude-agent-sdk (0.2.110) bundles its own CLI and installs no
+        # `claude` console script, so the module's
+        # `is_claude_code_available()` skipif can fire on a runner where the
+        # SDK would in fact work — silently reducing this lane to its offline
+        # floor/judge checks while both agent runs vanish.
+        #
+        # Safe alongside the live tests' `flaky(reruns=2)`: pytest-rerunfailures
+        # does not record rerun attempts as testcases, so an absorbed sampling
+        # flake leaves the skipped count at zero.
+        uv run python - <<'PY'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = "junit-scan-agentic-e2e.xml"
+        total = skipped = 0
+        for suite in ET.parse(report).getroot().iter("testsuite"):
+            total += int(suite.get("tests", 0))
+            skipped += int(suite.get("skipped", 0))
+        print(f"{report}: {total} test(s), {skipped} skipped")
+        failed = False
+        if total == 0:
+            print(f"::error::{report} collected no tests")
+            failed = True
+        if skipped:
+            print(f"::error::{report} reports {skipped} skipped test(s)")
+            failed = True
+        if failed:
+            sys.exit(1)
+        print("✅ every scan-stack agentic test ran; none skipped")
+        PY
 
   tiled-roundtrip-e2e:
     name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
@@ -2032,7 +2240,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
     runs-on: ubuntu-latest
     if: always()
 
@@ -2122,7 +2330,9 @@ jobs:
         check_pr_lane "Bluesky deploy E2E"           "${{ needs.bluesky-deploy-e2e.result }}"
         check_pr_lane "Bluesky panels deploy E2E"    "${{ needs.bluesky-panels-deploy-e2e.result }}"
         check_pr_lane "VA substrate equivalence E2E" "${{ needs.va-substrate-equivalence-e2e.result }}"
-        check_pr_lane "ORM roundtrip E2E"            "${{ needs.orm-roundtrip-e2e.result }}"
+        check_pr_lane "ORM + Grid roundtrip E2E"     "${{ needs.orm-roundtrip-e2e.result }}"
+        check_pr_lane "Bluesky queue E2E"            "${{ needs.bluesky-queue-e2e.result }}"
+        check_pr_lane "Scan stack agentic E2E"       "${{ needs.scan-agentic-e2e.result }}"
         check_pr_lane "Tiled roundtrip E2E"          "${{ needs.tiled-roundtrip-e2e.result }}"
         check_pr_lane "Bluesky catalog E2E"          "${{ needs.bluesky-catalog-e2e.result }}"
         check_pr_lane "Bluesky sandbox escape E2E"   "${{ needs.bluesky-sandbox-escape-e2e.result }}"
@@ -2155,6 +2365,7 @@ jobs:
             echo "- E2E Tests"
             echo "- Dispatch Deploy E2E / Dispatch Overlay E2E"
             echo "- Nextcloud Talk Bridge E2E / Google Chat Bridge E2E"
+            echo "- Scan Stack Agentic E2E"
             echo
             echo "**This gate cannot vouch for them.** After reviewing the dependency diff,"
             echo "revalidate the branch as a maintainer (that run does get the secrets):"
