@@ -1157,6 +1157,11 @@ banner; on a browse-only deployment it names the flip:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<span class="w"> </span>virtual_accelerator
 </pre></div>
 </div>
+<p class="sd-card-text">That switch needs a real archive behind it. A project built from the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset has one and the command just works; a project
+still reading the mock archiver is refused, and told to point
+<code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at a store its deployment writes first — see
+<a class="reference internal" href="../use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
 </div>
 </details><div class="admonition seealso">
 <p class="admonition-title">See also</p>

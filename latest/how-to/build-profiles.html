@@ -1515,45 +1515,52 @@ convention directory instead.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Container services for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> (see <a class="reference internal" href="#profile-services"><span class="std std-ref">Services</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">va_archiver</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p>absent</p></td>
+<td><p>Declares a stored archive for a simulated machine: a MongoDB store and a
+recorder the deploy stands up, seeds and records into
+(see <a class="reference internal" href="#profile-va-archiver"><span class="std std-ref">The va_archiver block</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Commands to run at build phases (<code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>,
 <code class="docutils literal notranslate"><span class="pre">validate</span></code>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Variables the deployment needs: <code class="docutils literal notranslate"><span class="pre">required</span></code>, <code class="docutils literal notranslate"><span class="pre">defaults</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Python packages to install into the project venv.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Base interpreter the project environment is built from
 (see <a class="reference internal" href="#profile-environment"><span class="std std-ref">The execution environment</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>PEP 440 specifier (e.g. <code class="docutils literal notranslate"><span class="pre">&gt;=2026.5.0</span></code>). The build aborts if unsatisfied.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
 <td><p>How to install OSPREY in the project venv: <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">pip</span></code>, or a
 PEP 508 spec.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">project</span></code></p></td>
 <td><p>Python used by MCP servers: <code class="docutils literal notranslate"><span class="pre">project</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, or an absolute path.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><em>written</em></p></td>
 <td><p>Which preset this profile was materialized from, and that preset’s hash.
@@ -1731,6 +1738,152 @@ copied into the project’s <code class="docutils literal notranslate"><span cla
 <p>A service directory placed in the profile’s <code class="docutils literal notranslate"><span class="pre">services/</span></code> convention directory is
 carried across the same way and marked as yours — that is what
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">services/&lt;name&gt;</span></code> produces.</p>
+</section>
+<section id="the-va-archiver-block">
+<span id="profile-va-archiver"></span><h2>The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block<a class="headerlink" href="#the-va-archiver-block" title="Link to this heading">#</a></h2>
+<p>A deployment that serves simulated channels still needs somewhere to keep what
+those channels did. Declaring <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> is what gives it one: the build
+adds a MongoDB store and a recorder to the service stack, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>
+seeds the store with history and then records the running machine into it, and
+the <code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> connector reads it back.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">va_archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">  </span><span class="nt">retention_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">  </span><span class="nt">hot_span_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">48</span>
+<span class="w">  </span><span class="nt">hot_cadence_sec</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">  </span><span class="nt">tail_cadence_sec</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<span class="w">  </span><span class="nt">freshness_channel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:DCCT:01:CURRENT:RB</span>
+</pre></div>
+</div>
+<p>Every key is optional and the defaults describe a working archive; the block’s
+presence is the decision, not its contents.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 12.0%" />
+<col style="width: 58.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">retention_days</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
+<td><p>How far back the archive reaches — both what a fresh deployment holds
+and what a running one keeps.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hot_span_hours</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">48</span></code></p></td>
+<td><p>How much of the recent end is kept at the dense cadence. May not exceed
+<code class="docutils literal notranslate"><span class="pre">retention_days</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hot_cadence_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>Seconds between samples inside the hot span.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tail_cadence_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
+<td><p>Seconds between samples outside it. Must be a whole multiple of
+<code class="docutils literal notranslate"><span class="pre">hot_cadence_sec</span></code> — the sparse tier is a subset of the dense grid, so a
+cadence that does not divide would put the two on timestamps that never
+coincide.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">recorder_cadence_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>How often the recorder samples the live machine.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">recorder_tail_cadence_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">60</span></code></p></td>
+<td><p>How often one of those samples is additionally kept for the full
+retention span, so recorded history survives as the dense copy ages out.
+Same whole-multiple rule.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">recorder_poll_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">30</span></code></p></td>
+<td><p>How often the recorder re-reads the deployment’s config to decide whether
+to record at all. It records only for a <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> control
+system, and this is what lets that flip take effect without a restart.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code></p></td>
+<td><p>unset</p></td>
+<td><p>Canary channel for a derived <code class="docutils literal notranslate"><span class="pre">archiver_freshness</span></code> health check. Unset
+derives no check (see <a class="reference internal" href="configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">host</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">localhost</span></code></p></td>
+<td><p>Where the store is. <strong>Required</strong> when <code class="docutils literal notranslate"><span class="pre">deploy_services</span></code> is false: an
+attached project deploys no store of its own, so it has to name the host
+whose archive it reads.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">port_host</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">27017</span></code></p></td>
+<td><p>Host port the store publishes on — or, for an attached project, the port
+the other host published.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">database</span></code> / <code class="docutils literal notranslate"><span class="pre">collection</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey_archiver</span></code> / <code class="docutils literal notranslate"><span class="pre">pv_history</span></code></p></td>
+<td><p>Where the samples live inside the store.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">compression</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">zstd</span></code></p></td>
+<td><p>Block compressor for the collection: <code class="docutils literal notranslate"><span class="pre">zstd</span></code>, <code class="docutils literal notranslate"><span class="pre">snappy</span></code>, <code class="docutils literal notranslate"><span class="pre">zlib</span></code> or
+<code class="docutils literal notranslate"><span class="pre">none</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">username</span></code> / <code class="docutils literal notranslate"><span class="pre">auth_database</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span></code> / <code class="docutils literal notranslate"><span class="pre">admin</span></code></p></td>
+<td><p>The database user the deployment creates and the agent connects as, and
+the database it authenticates against.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">password_env</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">MONGO_ROOT_PASSWORD</span></code></p></td>
+<td><p><strong>Name</strong> of the variable holding that password. The value is minted into
+the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>; it is never a profile field.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timeout_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
+<td><p>How long the connector waits to reach the store.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<section id="one-fact-one-home">
+<h3>One fact, one home<a class="headerlink" href="#one-fact-one-home" title="Link to this heading">#</a></h3>
+<p>The block is where the archive is described, and the build writes the rest from
+it. Do <strong>not</strong> also spell these in <code class="docutils literal notranslate"><span class="pre">config:</span></code> — a profile that does is refused,
+by name, rather than silently having one copy win:</p>
+<ul class="simple">
+<li><p>the connector’s eight connection keys —
+<code class="docutils literal notranslate"><span class="pre">archiver.mongodb_archiver.host</span></code>, <code class="docutils literal notranslate"><span class="pre">.port</span></code>, <code class="docutils literal notranslate"><span class="pre">.name</span></code>, <code class="docutils literal notranslate"><span class="pre">.collection</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.auth</span></code>, <code class="docutils literal notranslate"><span class="pre">.username</span></code>, <code class="docutils literal notranslate"><span class="pre">.password_env</span></code>, <code class="docutils literal notranslate"><span class="pre">.timeout</span></code> — all derived from
+the keys above;</p></li>
+<li><p>the shape knobs, written to <code class="docutils literal notranslate"><span class="pre">va_archiver.*</span></code> in the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+for the seeder and the recorder to read;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">health.categories.archiver</span></code>, when <code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code> is set.</p></li>
+</ul>
+<p>Two homes for one fact are free to disagree, and the disagreement is the
+dangerous case: a stale <code class="docutils literal notranslate"><span class="pre">collection</span></code> or <code class="docutils literal notranslate"><span class="pre">host</span></code> in <code class="docutils literal notranslate"><span class="pre">config:</span></code> points the
+agent at an archive nothing is writing, which reads as empty rather than as
+broken.</p>
+<p>What the block does <em>not</em> do is select the archiver. Declaring where an archive
+lives and choosing it as the deployment’s archiver are separate decisions, so
+the block never flips <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> out from under you — set
+<code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{archiver.type:</span> <span class="pre">mongodb_archiver}</span></code> yourself, or the project deploys a
+store and then reads something else beside it.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> <strong>refuses</strong> a profile that pairs a <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>
+control system with the mock archiver, or with no <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at all
+(which resolves to the mock): a simulated machine whose history is
+synthesized at read time reports a past that never happened, and nothing can
+catch it. The error names the fix — declare this block and select
+<code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code>, point the archiver at a store you run yourself, or set
+the control system to <code class="docutils literal notranslate"><span class="pre">mock</span></code> for an honestly storeless project. See
+<a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
+</div>
+</section>
 </section>
 <section id="lifecycle-commands">
 <h2>Lifecycle commands<a class="headerlink" href="#lifecycle-commands" title="Link to this heading">#</a></h2>
@@ -2131,6 +2284,10 @@ relax the constraint in the profile.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-permissions">Tool permissions</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#services">Services</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-va-archiver-block">The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#one-fact-one-home">One fact, one home</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lifecycle-commands">Lifecycle commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment variables</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dependencies">Dependencies</a><ul class="visible nav section-nav flex-column">

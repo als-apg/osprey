@@ -604,7 +604,8 @@ channel through the <code class="docutils literal notranslate"><span class="pre"
 <code class="docutils literal notranslate"><span class="pre">warning</span></code>, as is an empty query window. An unreachable archiver, or an
 <code class="docutils literal notranslate"><span class="pre">archiver_freshness</span></code> check declared with no <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> configured,
 is an <code class="docutils literal notranslate"><span class="pre">error</span></code>. A reachable archiver UI does not prove data is flowing
-— this probe checks the data.</p></td>
+— this probe checks the data. A project that deploys its own archive can
+have this check <strong>derived</strong> rather than declared (below).</p></td>
 </tr>
 </tbody>
 </table>
@@ -648,6 +649,47 @@ tile on the web dashboard, graded against the bands you choose:</p>
 <p>Reads go through the suite’s control-system connector — the same connector,
 selected by <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code>, the agent itself uses — so a green canary
 also proves the connector configuration end to end.</p>
+</section>
+<section id="recipe-archive-freshness-without-declaring-a-check">
+<h2>Recipe: archive freshness, without declaring a check<a class="headerlink" href="#recipe-archive-freshness-without-declaring-a-check" title="Link to this heading">#</a></h2>
+<p>A project that deploys its own archive — one whose build profile carries a
+<code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block (see <a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a>) — can have the freshness
+check written for it. Name one canary channel and nothing else:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># in the build profile, not config.yml</span>
+<span class="nt">va_archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">freshness_channel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SR:DIAG:DCCT:01:CURRENT:RB</span>
+</pre></div>
+</div>
+<p>The build turns that into a complete <code class="docutils literal notranslate"><span class="pre">archiver</span></code> category holding one
+<code class="docutils literal notranslate"><span class="pre">archiver_freshness</span></code> check on that channel — the same thing you would write by
+hand, plus a <code class="docutils literal notranslate"><span class="pre">max_age_s</span></code> you do not have to choose.</p>
+<p><strong>Where the threshold comes from.</strong> It is <strong>three times the recorder’s own
+sample cadence</strong>, with a floor of 60 seconds. The recorder is what writes this
+archive, so how long a healthy archive can go without a sample is a fact about
+<em>it</em>, not a preference: three intervals tolerates two missed ticks before the
+check says anything, which is where “the recorder is behind” stops being
+ordinary scheduling jitter, and the floor keeps a fast recorder from alarming
+sooner than a container can restart. Slow the recorder down and the threshold
+follows — there is no second number to remember to re-tune.</p>
+<p>Which channel is representative is the one thing only you know, so there is no
+default: a profile that names none derives no check rather than having the
+framework guess. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset names the stored-beam DCCT
+current, for the reason a control room would pick it — it is the first thing to
+stop moving when the machine does.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>On a deployment whose control system is <code class="docutils literal notranslate"><span class="pre">mock</span></code>, the recorder idles by
+design (it records a virtual accelerator, nothing else), so the newest sample
+is whatever the deploy seeded and the check reports the archive as <strong>stale</strong>.
+That is a <code class="docutils literal notranslate"><span class="pre">warning</span></code>, never an <code class="docutils literal notranslate"><span class="pre">error</span></code>, and it is an honest answer rather
+than a misconfiguration: the store is reachable, it is simply not being
+written. Flip the control system back and it goes green within a poll.</p>
+</div>
+<p>Declare the check yourself <em>or</em> name a <code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code> — not both. A
+profile that sets <code class="docutils literal notranslate"><span class="pre">freshness_channel</span></code> and also declares
+<code class="docutils literal notranslate"><span class="pre">health.categories.archiver</span></code> in its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block is refused at build time,
+because the two would be one fact in two homes, merged in whichever order the
+keys happened to be read.</p>
 </section>
 <section id="built-in-service-categories">
 <h2>Built-in service categories<a class="headerlink" href="#built-in-service-categories" title="Link to this heading">#</a></h2>
@@ -1027,6 +1069,7 @@ shared health cache across sessions.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-health-block">The <code class="docutils literal notranslate"><span class="pre">health:</span></code> block</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#probe-checks">Probe checks</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-a-control-system-smoke-test">Recipe: a control-system smoke test</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#recipe-archive-freshness-without-declaring-a-check">Recipe: archive freshness, without declaring a check</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#built-in-service-categories">Built-in service categories</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-derived-mcp-server-checks-health-auto">Auto-derived MCP server checks (<code class="docutils literal notranslate"><span class="pre">health.auto</span></code>)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#timeouts">Timeouts</a></li>
