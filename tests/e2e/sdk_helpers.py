@@ -193,6 +193,7 @@ def init_project(
     channel_finder_mode: str | None = None,
     tier: int | None = None,
     connector: str = "mock",
+    archiver: str = "mock_archiver",
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
 
@@ -202,6 +203,16 @@ def init_project(
     runs projects without their containers, so the preset's production default
     would turn every channel read/write into a connection timeout. Tests that
     deploy a real stack build through their own fixtures, not this helper.
+
+    ``archiver`` is pinned for the same reason and is the archive half of that
+    same fact: the preset selects ``mongodb_archiver`` and declares the
+    ``va_archiver:`` block that deploys the store it reads, so a containerless
+    build would leave every ``archiver_read`` failing at connect for want of a
+    store — and, before that, for want of the password ``osprey deploy up``
+    mints. Pinning both halves to the mock is not a way around the pairing rule
+    in :mod:`osprey.connectors.honesty` but the case it explicitly allows: a
+    mock control system with the mock archiver claims nothing is real, so
+    nothing lies. Tests that want recorded history deploy a store of their own.
 
     Tier selection follows a per-mode default: tier 1 is in_context-only, while
     ``hierarchical``/``middle_layer`` require tier 3. When ``tier`` is left
@@ -257,6 +268,18 @@ def init_project(
         "--set",
         f"connector={connector}",
     ]
+    # An override FILE, not ``--set config.archiver.type=``: the preset spells
+    # the key in its literal dotted form, and a ``--set`` nested path would
+    # merge a second, competing ``archiver`` mapping alongside it whose winner
+    # is decided by key order — which the build refuses outright rather than
+    # render. A ``-O`` layer replaces the dotted key in the spelling the
+    # profile already uses.
+    archiver_override = tmp_path / "_archiver-pin.yml"
+    archiver_override.write_text(
+        f"config:\n  archiver.type: {archiver}\n",
+        encoding="utf-8",
+    )
+    args.extend(["-O", str(archiver_override)])
     if effective_tier is not None:
         args.extend(["--tier", str(effective_tier)])
     if channel_finder_mode is not None:
