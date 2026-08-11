@@ -10,6 +10,44 @@ AT lattice model); BPMs are the pyat-coupled SR ``DIAG:BPM`` readbacks. Never
 a hardcoded preset channel — always derived from the deployed project's own
 data.
 
+Device name == channel address
+------------------------------
+
+Each device is keyed by the address it drives or reads -- a corrector by its
+``:SP`` address, a BPM by its read address -- not by a synthetic
+``corrector_01``/``bpm_01`` label. This is deliberate: channel-finder output
+IS the worker namespace. The addresses an agent discovers are exactly the
+names a plan may reference, so there is no second, agent-invisible namespace
+to translate through and no discovery surface that has to be kept in sync
+with this derivation.
+
+The conscious trade-off is in queueserver's device-permission patterns
+(``user_group_permissions.yaml``'s ``allowed_devices``/``forbidden_devices``).
+``:`` is that mini-language's own component separator and is not escapable,
+so an address cannot be written *literally* in a rule. A rule may still
+target exactly one address-named device, but only by wildcarding each colon
+--- ``:?^SR.MAG.HCM.01.CURRENT.SP$:depth=1`` selects that one device, since
+``.`` matches ``:`` --- or by falling back to a catch-all like
+``:?.*:depth=5``, which is what this project ships.
+
+Beware the fail-open trap when writing such a rule: a pattern that attempts
+a literal (or backslash-escaped) colon address raises inside
+``load_allowed_plans_and_devices``, which catches every exception and falls
+back to the *unfiltered* device set -- so an operator reaching for a tighter
+rule can silently end up with allow-everything.
+
+That is accepted rather than worked around: as ``user_group_permissions.
+yaml``'s own header states, the permission layer is not the safety boundary
+and must not be mistaken for one. Every write a plan performs still passes
+the connector's per-put reference monitor and the bridge's arming + limits
+facade, which are the boundary.
+
+Deploy caveat: ``container_lifecycle._ensure_bluesky_substrate_env`` never
+overwrites an already-set value, so a project deployed before this naming
+change keeps whatever ``BLUESKY_EPICS_MOTORS``/``_DETECTORS`` its ``.env``
+already holds until those lines are removed. Fresh deploys get the
+address names automatically.
+
 Two consumers share this module (DRY, one derivation):
 
 - ``osprey.deployment.container_lifecycle`` (``_ensure_bluesky_substrate_env``),
@@ -36,6 +74,7 @@ only from the host-side deploy/CLI process and from tests.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -75,17 +114,31 @@ def _usable_keys(limits: dict[str, Any]) -> set[str]:
     return {k for k in limits if not k.startswith("_") and k != "defaults"}
 
 
-def _numbered(prefix: str, items: list[_T], count: int | None, unit_label: str) -> dict[str, _T]:
-    """Name ``items`` as ``{prefix}_NN``. ``count=None`` takes all; an int
+def _keyed_by_address(
+    items: list[_T], address_of: Callable[[_T], str], count: int | None, unit_label: str
+) -> dict[str, _T]:
+    """Key ``items`` by ``address_of(item)`` -- the device name IS the channel
+    address (see the module docstring). ``count=None`` takes all; an int
     raises ``AssertionError`` when fewer than ``count`` are available, else
-    slices to exactly ``count``."""
+    slices to exactly ``count``.
+
+    The "exactly ``count``" promise holds only while the addresses are
+    distinct, which both callers guarantee by deriving them from
+    ``channel_limits.json`` keys. Colliding addresses would silently return a
+    shorter dict, so the invariant is asserted rather than assumed."""
     if count is not None and len(items) < count:
         raise AssertionError(
             f"deployed project's channel_limits.json only yields {len(items)} "
             f"{unit_label}, need {count}"
         )
     take = len(items) if count is None else count
-    return {f"{prefix}_{i + 1:02d}": items[i] for i in range(take)}
+    keyed = {address_of(items[i]): items[i] for i in range(take)}
+    if len(keyed) != take:
+        raise AssertionError(
+            f"duplicate addresses among the selected {unit_label}: "
+            f"{take} selected, {len(keyed)} distinct names"
+        )
+    return keyed
 
 
 def select_correctors(
@@ -104,7 +157,9 @@ def select_correctors(
     slice. When ``count`` is an int, raises ``AssertionError`` if fewer than
     ``count`` pairs are available; returns exactly ``count`` pairs otherwise.
 
-    Returns a dict of synthetic motor name -> ``(sp_address, rb_address)``.
+    Returns a dict of ``sp_address -> (sp_address, rb_address)``: the motor's
+    device name is its own ``:SP`` address, so a plan can reference the
+    address the agent discovered (see the module docstring).
     """
     from osprey.services.virtual_accelerator.manifest import (
         PARTITION_PYAT_COUPLED,
@@ -126,7 +181,7 @@ def select_correctors(
         if rb in keys:
             pairs.append((sp, rb))
 
-    return _numbered("corrector", pairs, count, "SR corrector (HCM/VCM) pairs")
+    return _keyed_by_address(pairs, lambda pair: pair[0], count, "SR corrector (HCM/VCM) pairs")
 
 
 def select_bpms(limits: dict[str, Any], count: int | None = None) -> dict[str, str]:
@@ -137,7 +192,9 @@ def select_bpms(limits: dict[str, Any], count: int | None = None) -> dict[str, s
     set. When ``count`` is an int, raises ``AssertionError`` if fewer than
     ``count`` readbacks are available; returns exactly ``count`` otherwise.
 
-    Returns a dict of synthetic detector name -> readback address.
+    Returns a dict of ``read_address -> read_address``: the detector's device
+    name is its own read address, so a plan can reference the address the
+    agent discovered (see the module docstring).
     """
     from osprey.services.virtual_accelerator.manifest import (
         PARTITION_PYAT_COUPLED,
@@ -157,7 +214,7 @@ def select_bpms(limits: dict[str, Any], count: int | None = None) -> dict[str, s
             continue
         addresses.append(addr)
 
-    return _numbered("bpm", addresses, count, "SR BPM readbacks")
+    return _keyed_by_address(addresses, lambda addr: addr, count, "SR BPM readbacks")
 
 
 def format_motors_env(correctors: dict[str, tuple[str, str]]) -> str:

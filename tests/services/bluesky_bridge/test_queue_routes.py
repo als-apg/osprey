@@ -594,6 +594,335 @@ def test_enqueue_refuses_a_non_admissible_session_plan(
     assert draft._last_launched_revision == 0
 
 
+# ---------------------------------------------------------------------------
+# POST /queue/items — add-time device pre-check
+# ---------------------------------------------------------------------------
+
+
+def _devices(*names: str) -> dict[str, Any]:
+    """A manager ``devices_allowed`` reply naming exactly ``names``."""
+    return {"success": True, "devices_allowed": {name: {"is_movable": True} for name in names}}
+
+
+def _fields(*declared: str) -> frozenset[str]:
+    """``required_devices`` entries as the walk compares them."""
+    return frozenset(queue._device_field(name) for name in declared)
+
+
+# Representative params for every shipped plan, keyed by plan name, with the
+# device names the pre-check must find in them. Asserted below to cover the
+# whole shipped catalog, so a newly shipped plan fails here until its shape is
+# stated — the walk's correctness is per-shape, and an unlisted shape is an
+# untested one.
+_SHIPPED_PLAN_ARGS: dict[str, tuple[dict[str, Any], set[str]]] = {
+    "grid_scan": (_GRID_SCAN_ARGS, {"COR1", "BPM1"}),
+    "orm": (
+        {
+            "correctors": ["COR1"],
+            "detectors": ["BPM1"],
+            "span_a": 1.0,
+            "num": 3,
+            "sweep": "bidirectional",
+        },
+        {"COR1", "BPM1"},
+    ),
+}
+
+
+def test_the_walk_ignores_non_device_strings_beside_a_device_name() -> None:
+    """The nearest ENCLOSING field decides, never an ancestor.
+
+    A plan whose device field holds objects — ``{"targets": [{"device": ...,
+    "mode": "fast"}]}`` — must not have ``"fast"`` read as a device name. A
+    walk that stays "inside" a matched field once it enters one collects it and
+    refuses the enqueue over a mode string: a false refusal, and one no agent
+    can fix, because nothing it does to the device name makes ``"fast"`` a
+    device. Rebinding the key at each dict level makes that shape a MISS
+    instead, which is the direction this check is allowed to be wrong in.
+    """
+    params = {"targets": [{"device": "COR1", "mode": "fast"}]}
+
+    assert queue._referenced_device_names(params, _fields("targets")) == set()
+
+
+def test_the_walk_finds_a_device_name_nested_under_its_own_field() -> None:
+    """The miss above is not the walk giving up on nesting: name the inner
+    field and the nested device name is still found, which is exactly how
+    `grid_scan` declares `setpoints` for its `axes[].setpoint` values."""
+    params = {"targets": [{"device": "COR1", "mode": "fast"}]}
+
+    assert queue._referenced_device_names(params, _fields("devices")) == {"COR1"}
+
+
+@pytest.mark.parametrize("plan_name", sorted(_SHIPPED_PLAN_ARGS))
+def test_the_walk_agrees_with_the_dry_runs_device_bucketing(plan_name: str) -> None:
+    """Cross-check against `plan_validation._collect_device_names`, the house
+    walk the validator mints mock devices from: every name this pre-check would
+    refuse on must be one that walk also reads as a device name. Anything this
+    walk saw and that one did not would be a name refused here that no dry run
+    could ever have exercised."""
+    from osprey.services.bluesky_bridge.plan_validation import _collect_device_names
+
+    params, expected = _SHIPPED_PLAN_ARGS[plan_name]
+    declared = plan_loader.get_facility_plans().plans[plan_name].metadata.required_devices
+
+    referenced = queue._referenced_device_names(params, _fields(*declared))
+    motors, detectors = _collect_device_names(params)
+
+    assert referenced == expected
+    assert referenced <= (motors | detectors)
+
+
+def test_every_shipped_plan_has_its_param_shape_covered() -> None:
+    """Keeps the cross-check above honest as the catalog grows."""
+    shipped = {
+        name
+        for name, spec in plan_loader.get_facility_plans().plans.items()
+        if spec.provenance == "shipped"
+    }
+
+    assert shipped == set(_SHIPPED_PLAN_ARGS), (
+        "a shipped plan's param shape is missing from _SHIPPED_PLAN_ARGS — the "
+        "device pre-check's walk is only tested against the shapes listed there"
+    )
+
+
+def test_enqueue_refuses_a_device_the_worker_did_not_build(client: TestClient, connector) -> None:
+    """The one mistake no schema catches: a device name is just a string, and
+    it is resolved in the worker on the run's FIRST iteration — so without this
+    check the caller learns of it only after an enqueue, a start, and a failed
+    run. `COR1` here is nested under `axes[].setpoint`, which is where
+    `grid_scan` carries the field its metadata calls `setpoints`."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices("BPM1"))
+    _install(manager)
+    revision = _make_draft(client)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unknown_device"
+    # The worker's own sentence, word for word, so both layers describe the
+    # same event the same way.
+    assert detail["detail"] == (
+        "plan 'grid_scan' referenced device 'COR1', which this worker did not "
+        "build; available devices: ['BPM1']"
+    )
+    assert detail["devices"] == ["COR1"]
+    assert detail["available_devices"] == ["BPM1"]
+    assert "item_add" not in manager.method_names()
+    # A refused enqueue never burns the draft revision.
+    assert draft._launching == set()
+    assert draft._last_launched_revision == 0
+
+
+def test_a_session_tier_plan_is_refused_in_the_session_plans_own_words(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`session_upload.py`'s wrapper opens with "session plan {name}" where the
+    catalog wrapper opens with "plan {name}". Whichever would have raised at
+    run time, this refusal reads the same — otherwise the earlier, friendlier
+    refusal is the one that sounds like a different problem."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices("BPM1"))
+    _install(manager)
+    revision = _make_draft(client)
+    monkeypatch.setattr(
+        plan_loader.get_facility_plans().plans["grid_scan"], "provenance", "session"
+    )
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["detail"].startswith(
+        "session plan 'grid_scan' referenced device 'COR1'"
+    )
+
+
+def test_the_refusal_sentence_caps_a_long_device_list(client: TestClient, connector) -> None:
+    """A real worker builds hundreds of devices. The sentence is prose someone
+    reads, so it summarizes past a cap — while `available_devices` still
+    carries every name, which is what a caller picks a correction from."""
+    connector("virtual_accelerator")
+    built = [f"BPM{n}" for n in range(50)]
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*built))
+    _install(manager)
+    revision = _make_draft(client)
+
+    detail = client.post("/queue/items", json={"draft_revision": revision}).json()["detail"]
+
+    assert "(+30 more; full list in available_devices)" in detail["detail"]
+    assert len(detail["available_devices"]) == 50
+    # Truncation is a rendering choice, never a claim that the set is smaller.
+    assert "BPM49" in detail["available_devices"]
+
+
+def test_a_declared_field_absent_from_the_params_is_not_checked(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Metadata naming a field the params do not carry yields no device names
+    to check, and the manager is never asked. Fail-open: a mismatch between a
+    plan's declaration and its schema is an authoring problem to report, never
+    grounds to refuse an enqueue whose names may be perfectly good."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("BPM1"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    _install(manager)
+    revision = _make_draft(client)
+    spec = plan_loader.get_facility_plans().plans["grid_scan"]
+    monkeypatch.setattr(spec.metadata, "required_devices", ["telescopes"])
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200
+    assert "devices_allowed" not in manager.method_names()
+
+
+def test_enqueue_passes_when_the_worker_holds_every_named_device(
+    client: TestClient, connector
+) -> None:
+    """The check must never refuse a name the worker actually has — and asking
+    the manager at all is what makes the refusal above non-vacuous."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("BPM1", "COR1"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    _install(manager)
+    revision = _make_draft(client)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200
+    assert "devices_allowed" in manager.method_names()
+    assert len(manager.kwargs_for("item_add")) == 1
+
+
+def test_the_device_precheck_reads_only_the_declared_device_fields(
+    client: TestClient, connector
+) -> None:
+    """`orm` carries a plain string parameter (`sweep`) alongside its device
+    fields. Only the fields its metadata declares are device names; treating
+    every string as one would refuse a perfectly good enqueue."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("BPM1", "COR1"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    _install(manager)
+    resp = client.patch(
+        "/draft",
+        json={
+            "plan_name": "orm",
+            "plan_args_patch": {
+                "correctors": ["COR1"],
+                "detectors": ["BPM1"],
+                "span_a": 1.0,
+                "num": 3,
+                "sweep": "bidirectional",
+            },
+            "client_id": "test",
+        },
+    )
+    assert resp.status_code == 200
+
+    added = client.post("/queue/items", json={"draft_revision": resp.json()["revision"]})
+
+    assert added.status_code == 200
+    # The check did run — this is a pass-through, not a skipped pre-check.
+    assert "devices_allowed" in manager.method_names()
+
+
+def test_a_plan_declaring_no_required_devices_is_never_pre_checked(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Metadata is what says which params are device names; without it there is
+    nothing to check, and inventing a rule for those plans would refuse
+    enqueues on a guess. The manager is never even asked."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices("BPM1"),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    _install(manager)
+    revision = _make_draft(client)
+    monkeypatch.setattr(plan_loader.get_facility_plans().plans["grid_scan"], "metadata", None)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200
+    assert "devices_allowed" not in manager.method_names()
+
+
+async def test_an_unreadable_plan_registry_skips_the_precheck(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The registry re-scans the session-plan directory on every call, so it
+    can fail on I/O. That must skip the pre-check rather than raise through an
+    enqueue whose device names may be perfectly good.
+
+    Driven directly rather than through the route: the launch validation gate
+    reads the same registry a step earlier, so a route-level failure would be
+    reporting on that call rather than this one.
+    """
+
+    def _unreadable() -> Any:
+        raise OSError("plan directory is not readable")
+
+    monkeypatch.setattr(plan_loader, "get_facility_plans", _unreadable)
+    manager = FakeManager(devices_allowed=_devices("BPM1"))
+
+    await queue._check_devices_exist(QueueBackend(manager), "grid_scan", _GRID_SCAN_ARGS)
+
+    assert manager.method_names() == []
+
+
+def test_an_unreadable_device_list_does_not_block_the_enqueue(
+    client: TestClient, connector
+) -> None:
+    """Fail-open, deliberately: the worker is still the enforcement point, and
+    a convenience gate must never be what costs an operator an enqueue that
+    would have run. A manager that is genuinely gone is reported by the add
+    itself, not by this check."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=RequestTimeoutError("no answer", {}),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    _install(manager)
+    revision = _make_draft(client)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200
+    assert len(manager.kwargs_for("item_add")) == 1
+
+
+def test_a_worker_reporting_no_devices_at_all_does_not_block_the_enqueue(
+    client: TestClient, connector
+) -> None:
+    """An empty device list reads as an environment that is not up yet, not as
+    a worker on which every name is wrong."""
+    connector("virtual_accelerator")
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices(),
+        item_add={"success": True, "item": {"item_uid": "u1"}},
+    )
+    _install(manager)
+    revision = _make_draft(client)
+
+    assert client.post("/queue/items", json={"draft_revision": revision}).status_code == 200
+
+
 def test_enqueue_records_the_progress_denominator(
     client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
 ) -> None:

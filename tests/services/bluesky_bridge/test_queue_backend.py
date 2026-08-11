@@ -483,6 +483,22 @@ async def test_task_result_and_plans_allowed_read_the_manager() -> None:
     assert manager.kwargs_for("task_result") == [{"task_uid": "task-1"}]
 
 
+async def test_devices_allowed_reads_the_manager() -> None:
+    manager = FakeManager(
+        devices_allowed={"success": True, "devices_allowed": {"COR1": {"is_movable": True}}}
+    )
+
+    reply = await QueueBackend(manager).devices_allowed()
+
+    assert reply["devices_allowed"]["COR1"] == {"is_movable": True}
+    assert manager.method_names() == ["devices_allowed"]
+
+
+async def test_devices_allowed_without_a_manager_fails_closed() -> None:
+    with pytest.raises(QueueUnavailableError):
+        await QueueBackend(None).devices_allowed()
+
+
 # ------------------------------------------------------------------ capability
 
 

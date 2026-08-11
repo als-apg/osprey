@@ -28,9 +28,9 @@ say it out loud — in setpoints and monitors, not in software terms:
 
 .. code-block:: text
 
-   Set up a 2-D grid scan: sweep corrector_01 from -0.5 to 0.5 A in 5 steps
-   and corrector_02 from -0.3 to 0.3 A in 5 steps, reading bpm_01 and bpm_02
-   at every point.
+   Set up a 2-D grid scan: sweep the horizontal steering correctors in
+   sectors 1 and 2 from -0.5 to 0.5 A in 5 steps each, reading the BPMs
+   either side of them at every point.
 
 The agent turns this into a ``grid_scan`` plan and stages it as a **shared
 draft** — a plan-in-progress that you and the agent both see and can both

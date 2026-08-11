@@ -37,7 +37,7 @@ def _json_response(status_code: int, body: object) -> httpx.Response:
 
 
 # ---------------------------------------------------------------------------
-# Round-trip passthrough for each of the 5 GET endpoints
+# Round-trip passthrough for each of the 6 GET endpoints
 # ---------------------------------------------------------------------------
 
 
@@ -56,6 +56,24 @@ def test_list_plans_round_trips_body_and_status() -> None:
     assert response.json() == [{"name": "grid_scan", "provenance": "shipped"}]
     assert len(seen) == 1
     assert str(seen[0].url) == f"{_BRIDGE_URL}/plans"
+
+
+def test_list_devices_round_trips_body_and_status() -> None:
+    """The operator half of device discovery: a panel reads the worker's device
+    names through the same relay the agent's tool reads them through."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return _json_response(200, [{"name": "COR1", "is_movable": True}])
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        response = client.get("/devices")
+
+    assert response.status_code == 200
+    assert response.json() == [{"name": "COR1", "is_movable": True}]
+    assert str(seen[0].url) == f"{_BRIDGE_URL}/devices"
 
 
 def test_get_plan_source_round_trips() -> None:

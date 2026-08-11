@@ -106,6 +106,16 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
         "Re-running the same plan unchanged still needs a draft edit — a revision is "
         "consumed exactly once.",
     ],
+    # Raised by queue_add's device pre-check. The name is wrong, not the
+    # draft — so the hint must NOT send the agent back to re-read a revision
+    # that was never the problem; it points at the device list instead.
+    "unknown_device": [
+        "A device name in the staged plan is not one this worker built. Call "
+        "list_devices for the names it actually has, then set_draft the corrected "
+        "name (which mints a new revision) and add that revision.",
+        "The error's details carry available_devices — the complete set — so pick "
+        "from it rather than guessing a spelling or a nearby name.",
+    ],
     "session_plan_unvalidated": [
         "Session plans need a current passing validation; run validate_plan on the plan "
         "and add it again once it passes.",
@@ -413,6 +423,11 @@ async def queue_add(draft_revision: int) -> str:
           get_draft and add the revision it reports now.
         - draft_revision_already_launched: this revision was already queued.
           Edit the draft to mint a new revision.
+        - unknown_device: a device name in the staged plan is not one this
+          worker built, caught before the item was queued rather than as a
+          failed run. ``details.available_devices`` is the complete set of
+          names it does have (list_devices reads the same set) — correct the
+          name with set_draft, which mints a new revision, then add that one.
         - session_plan_unvalidated / session_plan_not_in_namespace: the plan is
           a session plan with no current passing validation, or its validated
           bytes are not in the worker's namespace. Run validate_plan again.

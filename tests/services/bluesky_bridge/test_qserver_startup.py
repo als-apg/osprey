@@ -185,6 +185,44 @@ def test_build_devices_builds_connector_mediated_devices_from_the_pv_lists() -> 
     assert devices["bpm_01"]._osprey_connector is connector
 
 
+def test_address_named_devices_build_and_stay_visible_to_queueserver() -> None:
+    """A device named by its own channel address survives the whole worker path.
+
+    ``substrate_devices`` names each device after the address it drives or
+    reads, so the worker namespace is keyed by colon-bearing names that are not
+    Python identifiers. Nothing in this path may quietly drop them: the plan
+    functions' identifier filter applies to plan names only, and the manager's
+    namespace scan — which decides what the manager will accept in a queue item
+    — reports devices by their namespace key.
+    """
+    from bluesky_queueserver.manager.profile_ops import existing_plans_and_devices_from_nspace
+
+    connector = FakeConnector()
+    setpoint = "SR:MAG:HCM:01:CURRENT:SP"
+    readback = "SR:MAG:HCM:01:CURRENT:RB"
+    bpm = "SR:DIAG:BPM:01:POSITION:X"
+    env = {
+        "BLUESKY_EPICS_SUBSTRATE": "1",
+        "BLUESKY_EPICS_MOTORS": f"{setpoint}={setpoint}|{readback}",
+        "BLUESKY_EPICS_DETECTORS": f"{bpm}={bpm}",
+    }
+
+    devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
+
+    assert sorted(devices) == [bpm, setpoint]
+    assert isinstance(devices[setpoint], ConnectorSettable)
+    assert isinstance(devices[bpm], ConnectorReadable)
+    # ophyd-async takes the colon name verbatim — it is also the event-data key.
+    assert devices[setpoint].name == setpoint
+
+    namespace = qserver_startup.build_namespace(
+        env={}, run_engine=FakeRunEngine(), devices=devices, plans={}
+    )
+    _plans, existing_devices, _, _ = existing_plans_and_devices_from_nspace(nspace=namespace)
+
+    assert {setpoint, bpm} <= set(existing_devices)
+
+
 def test_built_devices_read_through_the_connector() -> None:
     connector = FakeConnector()
     env = {
