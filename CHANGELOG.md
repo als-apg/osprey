@@ -13,6 +13,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- An archiver read that comes back empty now says why: the response carries a
+  coverage verdict — the window predates or postdates the archive, the channel
+  was never recorded, or the window holds a genuine gap — with the archive's
+  real bounds, so an empty answer is never a silent one.
+
 - A virtual accelerator can now be deployed with a real archive behind it: a
   MongoDB store plus an archiver-recorder service that records the machine's
   channels as they move. Scenario history is seeded into the store when the

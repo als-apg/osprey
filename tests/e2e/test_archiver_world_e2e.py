@@ -723,7 +723,7 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
         time.sleep(RECORDER_POLL_SEC)
 
 
-def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_world):
+def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_world, monkeypatch):
     """The honesty claim, stated twice: no points, and a truthful start.
 
     An archiver that answers a pre-archival question with synthesized values is
@@ -758,6 +758,36 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     assert actual_oldest is not None
     # Reported coverage is the oldest sample really held, not a declared window.
     assert abs((archival_start - actual_oldest).total_seconds()) < 1.0
+
+    # -- the same emptiness, as the AGENT is told it --------------------------
+    # Through the real MCP tool against the deployed store: the connector
+    # reporting an empty frame and the agent being TOLD why are different
+    # claims, and only the second one closes the gap this feature is about.
+    from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
+
+    monkeypatch.chdir(archiver_world.project_dir)
+    from osprey.mcp_server.control_system.server_context import initialize_server_context
+
+    initialize_server_context()
+    from osprey.mcp_server.control_system.tools.archiver_read import archiver_read
+
+    tool = get_tool_fn(archiver_read)
+    response = asyncio.run(
+        tool(
+            channels=[channel],
+            start_time=before.isoformat(),
+            end_time=(archival_start - timedelta(hours=1)).isoformat(),
+        )
+    )
+    payload = extract_response_dict(response)
+    assert payload["status"] == "success"
+    coverage = payload["summary"]["coverage"]
+    assert coverage["verdict"] == "window_precedes_archive", coverage
+    # The bound the agent is shown is the store's true oldest sample, not a
+    # declared window — same claim as above, now at the tool surface.
+    reported_start = datetime.fromisoformat(coverage["channels"][channel]["archive_start"])
+    oldest_utc = actual_oldest if actual_oldest.tzinfo else actual_oldest.replace(tzinfo=UTC)
+    assert abs((reported_start - oldest_utc).total_seconds()) < 1.0
 
 
 # ---------------------------------------------------------------------------
