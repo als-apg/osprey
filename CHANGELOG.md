@@ -13,6 +13,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- The OSPREY agent can see what is actually on screen. `list_panels` now
+  reports the open service tiles in left-to-right order plus how long ago that
+  arrangement last changed, and tells "nothing open" apart from "no browser
+  reporting" — so the agent can work from your view instead of guessing at it.
+  It is also told what changed in the workspace between turns, and told nothing
+  when nothing changed.
+- `arrange_workspace` sets a whole layout in one call: exactly these tiles, in
+  this order, optionally focusing one — or a named layout from the deployment's
+  config, the same arrangement the **Layouts** menu applies. Clicking
+  **Layouts** yourself behaves as it did before.
 - Docked panels now show **one** header bar instead of two. A panel embedded
   in the web terminal contributes its real toolbar controls (view switcher,
   action buttons, live text) into the tile's header bar over a new
@@ -110,6 +120,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Asking the agent to open a panel no longer replaces what you were looking at.
+  `switch_panel` opens the tile *beside* your current one — focusing it instead
+  if it is already open — so no tile you had open is evicted. The Simple web
+  UI's single workspace slot is unchanged.
 - Raised minimum versions for `psycopg`, `psycopg-pool`, `uvicorn`, `rich`,
   `fastapi`, `charset-normalizer`, `unique-namer`, and `pymongo`.
 - **The profile is the source of truth for a built project.** Every

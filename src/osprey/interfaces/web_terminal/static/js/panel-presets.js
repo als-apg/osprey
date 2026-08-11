@@ -2,18 +2,24 @@
 /* OSPREY Web Terminal — Panel Presets ("Layouts")
  *
  * A preset is a config-defined, named set of panel ids a human applies in one
- * click from the "+" popover's "Layouts" section. Applying a preset is
- * EXCLUSIVE: show exactly the preset's members, hide every currently-visible
- * non-member ("those panels open and the rest close").
+ * click from the "+" popover's "Layouts" section (or from the command palette).
+ * Applying a preset is EXCLUSIVE: exactly the preset's members end up open, and
+ * every non-member leaves the rail ("those panels open and the rest close").
  *
- * This is a thin layer over the existing panel-visibility path — each show/hide
- * is the same setPanelVisibility() POST the "×"/"+" controls already use, so a
- * preset click and an agent show/hide call are indistinguishable downstream.
- * There is no parallel state system: the canonical visible set still lives on
- * the server and is broadcast over the panel_visibility SSE echo.
+ * The click is a one-line request: the preset NAME goes to /api/panel-arrange,
+ * the server resolves its members from `web.presets` and broadcasts a single
+ * panel_arrange frame, and every client — this one included — applies the
+ * arrangement from that echo (panel-placement.js). A human "Layouts" click and
+ * an agent `arrange_workspace(preset=...)` call are therefore literally the same
+ * server operation, with no local orchestration to drift from it.
+ *
+ * {@link computePresetDiff} stays here as the executable statement of those
+ * exclusive semantics — the resolution the route performs mirrors its fail-safe
+ * filtering, and its tests are where that contract is pinned.
  */
 
 import { initPanelAddMenu } from './panel-add-menu.js';
+import { arrangePanels } from './panel-commands.js';
 
 /**
  * @typedef {object} PresetDiff
@@ -26,9 +32,16 @@ import { initPanelAddMenu } from './panel-add-menu.js';
  * Compute the exclusive show/hide diff for applying a preset.
  *
  * Members are first filtered to knownSet (enabled built-ins + custom ids) so a
- * typo'd or disabled id is skipped fail-safe. If no member survives filtering,
- * ``focus`` is null and {@link applyPreset} no-ops — never strand the user on a
- * blank "No panels visible" tabset.
+ * typo'd or disabled id is skipped fail-safe; a preset where no member survives
+ * that filtering reports `focus: null`.
+ *
+ * That last case is ENFORCED server-side, not here: routes/panels.py's
+ * `_resolve_preset_tiles` applies the same filtering and rejects an empty
+ * result with a 422 naming the valid ids, so the arrangement is never
+ * broadcast. Since {@link applyPreset} is fire-and-forget the rejection is
+ * dropped silently, which lands on the intended fail-safe — an inapplicable
+ * preset leaves the workspace exactly as it was, rather than stranding the
+ * operator on a blank one.
  *
  * @param {string[]} members - the preset's member panel ids, in config order
  * @param {Set<string>} visibleSet - currently-visible panel ids
@@ -47,35 +60,18 @@ export function computePresetDiff(members, visibleSet, knownSet) {
 }
 
 /**
- * @typedef {object} ApplyPresetDeps
- * @property {() => Set<string>} getVisible - current visible-panel id set
- * @property {() => Set<string>} getKnown   - all known panel id set
- * @property {(id: string) => boolean} isHealthy - whether a panel can be focused (loaded/reachable)
- * @property {(id: string, visible: boolean) => void} setVisibility - the visibility POST helper
- * @property {(id: string) => void} focus   - focus a panel LOCALLY (no visibility POST)
- */
-
-/**
- * Apply a preset EXCLUSIVELY: show its members, hide every visible non-member.
+ * Apply a config-defined preset by NAME: one arrange request, applied on every
+ * client by the panel_arrange handler.
  *
- * Ordering avoids a transient all-hidden flash: show every member first, then
- * focus LOCALLY (not waiting for the SSE echo), then hide the non-members. The
- * focus target is the preset's primary member when it is healthy, else the first
- * healthy member — focusing an unhealthy panel is a no-op, so an offline primary
- * would otherwise strand focus on the outgoing panel. No-op entirely when no
- * member is known (empty guard).
- *
- * @param {string[]} members
- * @param {ApplyPresetDeps} deps
+ * Nothing is orchestrated locally. The server resolves the preset's members
+ * (filtered fail-safe to known ids, as {@link computePresetDiff} describes),
+ * prunes rail membership to them, and broadcasts the arrangement; the echo then
+ * opens exactly those tiles and focuses the first healthy one — the same focus
+ * rule this module used to apply by hand, now applied once for everyone.
+ * @param {string} name  a `web.presets` entry name
  */
-export function applyPreset(members, { getVisible, getKnown, isHealthy, setVisibility, focus }) {
-  const known = getKnown();
-  const { toShow, toHide, focus: primary } = computePresetDiff(members, getVisible(), known);
-  if (primary === null) return;
-  for (const id of toShow) setVisibility(id, true);
-  const target = isHealthy(primary) ? primary : members.find((id) => known.has(id) && isHealthy(id));
-  if (target) focus(target);
-  for (const id of toHide) setVisibility(id, false);
+export function applyPreset(name) {
+  arrangePanels({ preset: name });
 }
 
 /**
@@ -85,7 +81,7 @@ export function applyPreset(members, { getVisible, getKnown, isHealthy, setVisib
  * @property {(id: string) => void} onShowPanel - reveal + focus a hidden panel
  * @property {(fields: {id: string, label: string, url: string}) => Promise<{ok: boolean, error?: string}>} onRegisterUrl
  * @property {() => {name: string, panels: string[]}[]} getPresets - config-defined layouts, in config order
- * @property {(panels: string[]) => void} onApplyPreset - apply a layout exclusively
+ * @property {(name: string) => void} onApplyPreset - apply a named layout exclusively
  */
 
 /**

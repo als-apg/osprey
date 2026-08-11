@@ -52,7 +52,7 @@
  *   actions?: Array<{ label: string, detail?: string, run: () => void }>,
  *   showPanel?: (id: string) => void,
  *   focusPanel?: (id: string) => void,
- *   applyPreset?: (panels: string[]) => void,
+ *   applyPreset?: (name: string) => void,
  *   revealSetting?: (dotKey: string) => void,
  * }} PaletteDeps
  */
@@ -189,27 +189,25 @@ function buildPanels(deps) {
 }
 
 /**
- * Build the Layouts group: one item per preset, whose `run` applies the
- * preset's panel set via the injected `applyPreset`.
+ * Build the Layouts group: one item per preset, whose `run` applies that preset
+ * BY NAME via the injected `applyPreset` — the same one-call path the "+"
+ * menu's Layouts section uses, so both surfaces produce the same arrangement.
  *
  * @param {PaletteDeps} deps
  * @returns {Item[]}
  */
 function buildLayouts(deps) {
   const applyPreset = deps.applyPreset;
-  return safeList(deps.getPresets).map((preset) => {
-    const panels = Array.isArray(preset.panels) ? preset.panels : [];
-    return {
-      group: 'Layouts',
-      label: `Layout: ${preset.name}`,
-      searchText: preset.name,
-      run: () => {
-        if (typeof applyPreset === 'function') {
-          applyPreset(panels);
-        }
-      },
-    };
-  });
+  return safeList(deps.getPresets).map((preset) => ({
+    group: 'Layouts',
+    label: `Layout: ${preset.name}`,
+    searchText: preset.name,
+    run: () => {
+      if (typeof applyPreset === 'function') {
+        applyPreset(preset.name);
+      }
+    },
+  }));
 }
 
 /**

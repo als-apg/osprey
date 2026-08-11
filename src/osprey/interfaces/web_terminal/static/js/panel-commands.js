@@ -38,6 +38,61 @@ export function setPanelFocus(panelId) {
 }
 
 /**
+ * Report which service tiles this client currently has on screen, in spatial
+ * reading order. A REPORT rather than a command: the server records it as the
+ * workspace's `open_tiles` for the agent to read and broadcasts nothing, so one
+ * operator's tile gestures never rearrange another's workspace. An empty list is
+ * a meaningful report — every service tile closed — so a caller that cannot
+ * determine occupancy must skip the call rather than send `[]`.
+ *
+ * Unlike the fire-and-forget commands above this resolves with the server's
+ * acknowledgement, because the caller's dedupe baseline must track what the
+ * server actually holds: a report the server never received must not be
+ * remembered as sent, or the layout it described would be deduped away forever.
+ * Never rejects — a failed or rejected report resolves null, which callers read
+ * as "baseline unchanged, report again next time".
+ * @param {string[]} tiles  service panel ids, left-to-right
+ * @param {boolean} dock    whether this client has a dock shell; a false report
+ *   carries no meaningful tile order, only the fact that a client is watching
+ * @returns {Promise<{status: string, tiles: string[], dock: boolean,
+ *   updated: boolean} | null>}  the acknowledgement — `updated: false` marks a
+ *   server-side deduped no-op, which is still an acknowledgement — or null when
+ *   the report did not land.
+ */
+export async function reportPanelLayout(tiles, dock) {
+  try {
+    const resp = await fetch(withPrefix('/api/panel-layout'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tiles, dock }),
+    });
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Request a whole-workspace tile arrangement: exactly these service tiles open,
+ * left to right. Fire-and-forget like the commands above — the server validates
+ * the request and broadcasts one panel_arrange frame, and this client applies
+ * the arrangement from that echo just like every other client, so a human
+ * "Layouts" click and an agent arrange_workspace call are one operation.
+ *
+ * Pass exactly one of `tiles` and `preset`; a `preset` is resolved to its
+ * members server-side and additionally prunes rail membership to them.
+ * @param {{tiles?: string[], preset?: string, focus?: string}} request
+ */
+export function arrangePanels(request) {
+  fetch(withPrefix('/api/panel-arrange'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  }).catch(() => {});
+}
+
+/**
  * Register a runtime URL panel. Returns the outcome so the caller (the "+" menu)
  * can surface the server's rejection reason (registration disabled, host not in
  * the allowlist, SSRF-blocked). The panel_register SSE echo adds the tab on

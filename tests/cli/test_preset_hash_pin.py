@@ -21,9 +21,9 @@ from osprey.cli.build_profile_merge import _hash_resolved_profile
 
 # preset name -> resolved-content hash, pre-rename.
 PINNED_PRESET_HASHES: dict[str, str] = {
-    "ariel-standalone": "sha256:a401c62979ff477c8294954a39c15076f3b6d981826f2ec01ffbe863ae23e9e5",
+    "ariel-standalone": "sha256:a08bde688f81f7604da07822db5def68d6c0d294688f15ec8720ac5df11a8cee",
     "channel-finder-standalone": (
-        "sha256:03c3d35070730762db3d46ef88beabe3b0e0bf98abd5fff72d81a95d2b6fc918"
+        "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
     ),
     # The web-terminal presets were re-pinned when the shipped roster went
     # from a bare-string first user to fully explicit name/index/persona
@@ -46,14 +46,20 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Re-pinned again when control-assistant gained the test-ioc-safety rule
     # selection (renders only for EPICS-family control systems). Both extends
     # children inherit it, so all three digests moved.
-    "control-assistant": "sha256:9b354d59dfb523bd6a3591de7155c0d2c91c82710aac2db98127b8f8d0db78b2",
+    #
+    # Re-pinned again when every preset that ships panels-context also gained
+    # the workspace-delta hook, which reports web workspace changes between the
+    # agent's turns. All four rosters list it, so every digest moved — a rebuilt
+    # project gains a hook file and a UserPromptSubmit wiring entry, which is
+    # exactly what the staleness advisory should report.
+    "control-assistant": "sha256:577f397a604c904e0f742546321bfe5ee39d9e1ec16eb60c5ff68f1fbe7cc6ae",
     "control-assistant-readonly": (
-        "sha256:f85d545d3c9f61693dd7a48861b2ae46443c2e6e90447560391db1cc79311ac4"
+        "sha256:eaf69900f7783e6b77bceaa52cf69d6e609dc74969715dacf8a639a77cbbe1db"
     ),
     "control-assistant-readwrite": (
-        "sha256:c4b63c8a00876924117edafc80d3e785ca2e3c01375d8908390b78bef3788110"
+        "sha256:a04ca9401c9e3dcf2e1bb233b7764183fc00d682473311cc12cbdbc6ce495ed2"
     ),
-    "hello-world": "sha256:e1666b0b1a1d1232bc3aa9c32ccf11e3555a217162fda292f4240396ef19ec8a",
+    "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }
 
 

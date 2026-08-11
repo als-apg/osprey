@@ -123,7 +123,7 @@ describe('initPanelAddMenu — Layouts section', () => {
     expect(headings).not.toContain('Layouts');
   });
 
-  test('clicking a preset calls onApplyPreset with its panels and closes the menu', () => {
+  test('clicking a preset calls onApplyPreset with its NAME and closes the menu', () => {
     const dom = mountMenuDom();
     const onApplyPreset = vi.fn();
     const presets = [{ name: 'Machine setup', panels: ['channel-finder', 'lattice'] }];
@@ -133,7 +133,9 @@ describe('initPanelAddMenu — Layouts section', () => {
     const item = /** @type {HTMLElement} */ (dom.menu.querySelector('.panel-add-item'));
     item.click();
 
-    expect(onApplyPreset).toHaveBeenCalledWith(['channel-finder', 'lattice']);
+    // The name is the whole request — members are resolved server-side, so the
+    // menu never hands a panel list around.
+    expect(onApplyPreset).toHaveBeenCalledWith('Machine setup');
     expect(dom.menu.classList.contains('open')).toBe(false); // menu closed after apply
   });
 });

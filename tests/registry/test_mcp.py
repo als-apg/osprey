@@ -198,6 +198,27 @@ class TestResolveServers:
                 f"{name} must set CONFIG_FILE={expected!r}, got {srv['env'].get('CONFIG_FILE')!r}"
             )
 
+    def test_workspace_panel_tools_allow_split(self):
+        """Only the workspace-scoped panel verbs are auto-approved.
+
+        The split is not "read-only versus mutating": ``switch_panel`` adds a
+        rail entry when it surfaces a non-member, and ``arrange_workspace``
+        adds membership for a tiles request and prunes it for a preset. It is
+        scope and reversibility — these three act on the workspace the operator
+        is already looking at, and every effect is undoable from the rail or
+        the Layouts menu, so a prompt per call would only break the one-call
+        arrange flow. ``show_panel`` / ``hide_panel`` are the explicit
+        per-panel membership verbs and ``register_panel`` adds a proxied
+        upstream, so all three stay behind a prompt. This pins that split
+        rather than leaving it to the order of a list literal.
+        """
+        ctx = _base_ctx()
+        servers = resolve_servers({}, ctx)
+        workspace = [s for s in servers if s["name"] == "osprey_workspace"][0]
+        allow = set(workspace["permissions_allow"])
+        assert {"list_panels", "switch_panel", "arrange_workspace"} <= allow
+        assert allow.isdisjoint({"show_panel", "hide_panel", "register_panel"})
+
     def test_health_server_entry(self):
         """The health server is an opt-in, read-only server.
 
