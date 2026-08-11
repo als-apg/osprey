@@ -231,6 +231,19 @@ class ConfigKeyGuard:
         return self._joined[rel_root]
 
     @staticmethod
+    def site_roots(site: dict[str, Any]) -> list[str]:
+        """An orphan site's scan roots — ``root`` is one path or a list.
+
+        A site grows a second root when the code it guards moves to another
+        tree (the connectors extraction moved the config loader out of
+        src/osprey/utils, leaving a shim the regex can never match). Every
+        root is scanned on the branch; the back-test SUMS hits across roots,
+        because a root newer than the baseline commit had nothing to match.
+        """
+        root = site["root"]
+        return list(root) if isinstance(root, list) else [root]
+
+    @staticmethod
     def count_matches(pattern: str, text: str) -> int:
         return len(re.findall(pattern, text, re.M))
 
@@ -478,16 +491,17 @@ class ConfigKeyGuard:
     def check_orphan_sites(self) -> None:
         for key, sites in self.manifest["orphan_sites"].items():
             for site in sites:
-                root, pattern = site["root"], site["regex"]
-                if not (self.root / root).exists():
-                    self.fail("orphan-site", f"root for {key} does not exist: {root}")
-                    continue
-                hits = self.count_matches(pattern, self.joined(root))
-                if hits:
-                    self.fail(
-                        "orphan-site",
-                        f"removed site for {key} matches {hits}x under {root}/: {pattern}",
-                    )
+                pattern = site["regex"]
+                for root in self.site_roots(site):
+                    if not (self.root / root).exists():
+                        self.fail("orphan-site", f"root for {key} does not exist: {root}")
+                        continue
+                    hits = self.count_matches(pattern, self.joined(root))
+                    if hits:
+                        self.fail(
+                            "orphan-site",
+                            f"removed site for {key} matches {hits}x under {root}/: {pattern}",
+                        )
 
     def check_ui_literal_precision(self) -> None:
         """The settings.js orphan regex must not match the live re-keyed leaf.
@@ -756,10 +770,12 @@ class ConfigKeyGuard:
         """
         for key, sites in self.manifest["orphan_sites"].items():
             for site in sites:
-                root, pattern = site["root"], site["regex"]
-                base_text = self._base_text(commit, root)
-                base_hits = self.count_matches(pattern, base_text)
-                branch_hits = self.count_matches(pattern, self.joined(root))
+                pattern = site["regex"]
+                roots = self.site_roots(site)
+                base_hits = sum(
+                    self.count_matches(pattern, self._base_text(commit, root)) for root in roots
+                )
+                branch_hits = sum(self.count_matches(pattern, self.joined(root)) for root in roots)
                 if base_hits < 1 or branch_hits != 0:
                     self.fail(
                         "back-test",
@@ -787,6 +803,12 @@ class ConfigKeyGuard:
         cache_key = f"\x00base\x00{commit}\x00{rel_root}"
         if cache_key in self._joined:
             return self._joined[cache_key]
+        # A root that did not exist at *commit* contributes no base text: a
+        # multi-root site may name a tree newer than the back-test baseline,
+        # and its falsifiability is proved by the root(s) that DID exist.
+        if self.git("cat-file", "-e", f"{commit}:{rel_root}").returncode != 0:
+            self._joined[cache_key] = ""
+            return ""
         with tempfile.TemporaryDirectory() as tmp:
             archive = subprocess.run(
                 ["git", "archive", commit, "--", rel_root],

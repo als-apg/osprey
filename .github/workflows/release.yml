@@ -6,6 +6,12 @@ on:
       - 'v*.*.*'  # Triggers on version tags like v2026.5.0
       - 'osprey-connectors-v*'  # Triggers on connector package tags like osprey-connectors-v0.1.0
 
+# ORDERING: the framework wheel depends on osprey-connectors from PyPI
+# (workspace sources apply only to local dev), so a connectors release
+# satisfying the framework's `osprey-connectors` requirement must be published
+# BEFORE a v*.*.* tag that needs it — validate-install-docs resolves the
+# framework wheel's deps from PyPI and blocks the publish otherwise.
+
 permissions:
   contents: write  # Required for creating GitHub releases
   id-token: write  # Required for trusted publishing to PyPI

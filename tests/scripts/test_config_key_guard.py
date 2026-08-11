@@ -245,6 +245,33 @@ def test_mode_4_orphan_site_regex_matching_again_goes_red():
     assert "synthetic" in details(guard)
 
 
+def test_mode_4_scans_every_root_of_a_multi_root_site():
+    """A site's ``root`` may be a list; resurrection under ANY root goes red.
+
+    The applications site grew a second root when the config loader moved to
+    the osprey-connectors workspace member (src/osprey/utils/config.py is now a
+    shim its regex can never match) — a site scanning only the shim tree would
+    be a green light wired to nothing.
+    """
+
+    def resurrect_under_the_second_root(manifest):
+        manifest["orphan_sites"]["synthetic"] = [
+            {
+                "root": [
+                    "src/osprey/templates",
+                    "packages/osprey-connectors/src/osprey_connectors",
+                ],
+                "regex": "class MockArchiverConnector",
+                "why": "negative control: matches only under the connectors root",
+            }
+        ]
+
+    guard = make_guard(resurrect_under_the_second_root)
+    guard.check_orphan_sites()
+    assert "orphan-site" in modes(guard)
+    assert "packages/osprey-connectors" in details(guard)
+
+
 def test_mode_5_all_templates_parity_miss_goes_red():
     def demand_parity_where_none_exists(manifest):
         # web.theme is live in project, commented in control_assistant and
@@ -550,6 +577,35 @@ def test_back_test_catches_a_regex_that_cannot_fail():
         ]
 
     guard = make_guard(wire_it_to_nothing)
+    guard.back_test(_baseline_commit())
+    assert "back-test" in modes(guard)
+    assert "cannot fail" in details(guard)
+
+
+@pytest.mark.slow
+@needs_baseline
+def test_back_test_sums_hits_across_roots_newer_than_the_baseline():
+    """A root absent at the baseline reads as zero base hits, not an error —
+    and summing across roots must not mask a regex that cannot fail anywhere.
+
+    The falsifiability of the real multi-root site (applications) is proved by
+    ``test_back_test_confirms_every_orphan_regex_is_falsifiable`` over the
+    unmodified manifest.
+    """
+
+    def cannot_fail_under_either_root(manifest):
+        manifest["orphan_sites"]["synthetic"] = [
+            {
+                "root": [
+                    "src/osprey/templates",
+                    "packages/osprey-connectors/src/osprey_connectors",
+                ],
+                "regex": "zzz_never_existed_anywhere",
+                "why": "negative control",
+            }
+        ]
+
+    guard = make_guard(cannot_fail_under_either_root)
     guard.back_test(_baseline_commit())
     assert "back-test" in modes(guard)
     assert "cannot fail" in details(guard)

@@ -365,16 +365,25 @@ jobs:
         uv venv /tmp/lean-check --python 3.11
         uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl
         /tmp/lean-check/bin/python -c "
-        import sys
+        import importlib, pkgutil, sys
         import osprey_connectors.control_system.epics_connector
         import osprey_connectors.control_system.limits_validator
         import osprey_connectors.errors, osprey_connectors.config, osprey_connectors.logger
         import osprey_connectors.simulation
         bad = sorted({m.split('.')[0] for m in sys.modules} & {'litellm','openai','anthropic','fastapi','playwright','osprey'})
         assert not bad, f'lean wheel loaded: {bad}'
-        import osprey_connectors.archiver.epics_archiver_connector
-        import osprey_connectors.factory
-        print('LEAN WHEEL OK')
+        # Every module in the wheel must import on the bare venv — a missed
+        # osprey.* rewrite in a leaf nothing imports transitively (honesty,
+        # procedural, the mock/doocs/mongodb connectors) would otherwise ship.
+        # walk_packages swallows package import errors unless onerror raises.
+        import osprey_connectors
+        def _raise(name):
+            raise ImportError(f'failed to walk {name}')
+        modules = [m.name for m in pkgutil.walk_packages(osprey_connectors.__path__, 'osprey_connectors.', onerror=_raise)]
+        for name in modules:
+            importlib.import_module(name)
+        assert 'osprey' not in sys.modules, 'a lean-wheel module imported the osprey framework'
+        print(f'LEAN WHEEL OK ({len(modules)} modules)')
         "
 
   static-checks:

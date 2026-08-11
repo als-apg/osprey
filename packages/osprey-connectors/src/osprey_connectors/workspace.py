@@ -160,7 +160,7 @@ def load_osprey_config() -> dict:
 
 def reset_config_cache() -> None:
     """Clear all config caches — used between tests."""
-    from osprey.utils import config as config_module
+    from osprey_connectors import config as config_module
 
     config_module._default_config = None
     config_module._default_configurable = None
