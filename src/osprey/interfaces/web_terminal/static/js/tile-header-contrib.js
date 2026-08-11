@@ -20,10 +20,17 @@
  *
  * Narrow tiles: text items ellipsize via CSS first; when the region still
  * overflows, whole items are hidden lowest-priority-first (re-measured on
- * every render and host resize). No overflow menu — curated bars are sparse.
+ * every render and host resize). A panel may also contribute its own `menu`
+ * item; the bar itself still has no overflow menu — curated bars are sparse.
+ *
+ * Rendering is a keyed reconcile, not a rebuild. Items are matched on
+ * `kind:id`; a survivor is patched in place and never detached, because a
+ * contributed search box may be focused and mid-word when its panel re-sends.
+ * The per-kind DOM lives in tile-header-items.js.
  */
 
 import { sendHeaderActionToIframe } from './panel-iframe-sync.js';
+import { createItem, disposeItem, patchItem } from './tile-header-items.js';
 
 /** Hard caps so a misbehaving panel cannot flood the bar. */
 const MAX_ITEMS = 12;
@@ -97,14 +104,49 @@ function sanitizeItems(raw) {
   if (!Array.isArray(raw)) return [];
   /** @type {HeaderItem[]} */
   const out = [];
+  /** Reconcile keys the DOM by `kind:id`; a repeat would alias one element. */
+  const seen = new Set();
   for (const item of raw.slice(0, MAX_ITEMS)) {
     if (!item || typeof item !== 'object' || typeof (/** @type {any} */ (item).id) !== 'string') {
       continue;
     }
     const it = /** @type {any} */ (item);
+    const key = `${it.kind}:${it.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     const base = { id: it.id, priority: typeof it.priority === 'number' ? it.priority : 0 };
     if (it.kind === 'text' && typeof it.text === 'string') {
       out.push({ ...base, kind: 'text', text: clip(it.text) });
+    } else if (it.kind === 'search') {
+      out.push({
+        ...base,
+        kind: 'search',
+        placeholder: typeof it.placeholder === 'string' ? clip(it.placeholder) : '',
+        value: typeof it.value === 'string' ? clip(it.value) : '',
+      });
+    } else if (it.kind === 'menu' && Array.isArray(it.items)) {
+      const entries = it.items
+        .slice(0, MAX_ITEMS)
+        .filter(
+          (/** @type {any} */ n) =>
+            n && typeof n.id === 'string' && typeof n.label === 'string'
+        )
+        .map((/** @type {any} */ n) => ({
+          id: n.id,
+          label: clip(n.label),
+          // Absent stays absent: an entry without `checked` is a plain
+          // action and must not render as an unticked checkbox.
+          ...(typeof n.checked === 'boolean' ? { checked: n.checked } : {}),
+          disabled: n.disabled === true,
+        }));
+      if (entries.length) {
+        out.push({
+          ...base,
+          kind: 'menu',
+          label: typeof it.label === 'string' ? clip(it.label) : undefined,
+          items: entries,
+        });
+      }
     } else if (it.kind === 'button' && typeof it.label === 'string') {
       out.push({
         ...base,
@@ -162,6 +204,8 @@ export function unregisterContribHost(panelId, host) {
   hosts.delete(panelId);
   observers.get(panelId)?.disconnect();
   observers.delete(panelId);
+  // A menu popover lives on document.body, so it would outlive its button.
+  for (const node of host.children) disposeItem(/** @type {HTMLElement} */ (node));
 }
 
 /**
@@ -171,52 +215,51 @@ export function unregisterContribHost(panelId, host) {
  */
 function render(panelId, host) {
   const items = contributions.get(panelId) ?? [];
-  host.replaceChildren();
   host.classList.toggle('has-items', items.length > 0);
-  for (const item of items) {
-    const el = renderItem(panelId, item);
-    el.dataset.priority = String(item.priority ?? 0);
-    host.appendChild(el);
-  }
-  applyPriorityHide(host);
-}
 
-/**
- * @param {string} panelId
- * @param {HeaderItem} item
- * @returns {HTMLElement}
- */
-function renderItem(panelId, item) {
-  if (item.kind === 'text') {
-    const span = document.createElement('span');
-    span.className = 'contrib-text';
-    span.textContent = item.text ?? '';
-    return span;
+  /** Live elements from the previous contribution, keyed as they were built. */
+  /** @type {Map<string, HTMLElement>} */
+  const live = new Map();
+  for (const node of [...host.children]) {
+    const el = /** @type {HTMLElement} */ (node);
+    if (el.dataset.contribKey) live.set(el.dataset.contribKey, el);
   }
-  if (item.kind === 'button') {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'contrib-btn';
-    if (item.tone === 'accent') btn.classList.add('contrib-btn-accent');
-    btn.textContent = item.label ?? '';
-    if (item.title) btn.title = item.title;
-    btn.disabled = item.disabled === true;
-    btn.addEventListener('click', () => dispatchAction(panelId, item.id));
-    return btn;
+
+  /** @type {(id: string, value?: string) => void} */
+  const dispatch = (id, value) => dispatchAction(panelId, id, value);
+
+  /** @type {HTMLElement[]} */
+  const ordered = [];
+  for (const item of items) {
+    const key = `${item.kind}:${item.id}`;
+    const existing = live.get(key);
+    let el;
+    if (existing) {
+      live.delete(key);
+      el = patchItem(item, existing);
+    } else {
+      el = createItem(item, dispatch);
+      el.dataset.contribKey = key;
+    }
+    el.dataset.priority = String(item.priority ?? 0);
+    ordered.push(el);
   }
-  // nav
-  const nav = document.createElement('span');
-  nav.className = 'contrib-nav';
-  for (const entry of item.items ?? []) {
-    const link = document.createElement('button');
-    link.type = 'button';
-    link.className = 'contrib-nav-link';
-    link.classList.toggle('active', entry.active === true);
-    link.textContent = entry.label;
-    link.addEventListener('click', () => dispatchAction(panelId, item.id, entry.id));
-    nav.appendChild(link);
+
+  for (const stale of live.values()) {
+    disposeItem(stale);
+    stale.remove();
   }
-  return nav;
+
+  // Place in contribution order WITHOUT touching elements already in the
+  // right slot: re-inserting a node detaches it first, which would blur a
+  // focused search box. Only a genuine reorder moves anything.
+  let ref = host.firstChild;
+  for (const el of ordered) {
+    if (ref === el) ref = el.nextSibling;
+    else host.insertBefore(el, ref);
+  }
+
+  applyPriorityHide(host);
 }
 
 /**
