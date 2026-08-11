@@ -113,55 +113,16 @@
           <span class="command-palette-trigger-label">Search</span>
           <span class="command-palette-kbd" aria-hidden="true">&#8984;K</span>
         </button>
-        <!-- Identity chip: who you are, and the only way out. The user badge and
-             the logout button used to be two separate controls floating in this
-             cluster; they are one fact ("you are signed in as alice") and one
-             action on that fact, so they collapse into a single chip whose
-             popover holds the action. Logging out ends the session, so the extra
-             click the popover costs is a feature, not a tax.
-
-             Rendered only when the server knows a user (OSPREY_TERMINAL_USER),
-             i.e. multi-user deployments; single-user terminals see search +
-             display menu alone, exactly as before. The logout control keeps its
-             `#logout-btn` id and `data-landing-url` contract — app.js's
-             initLogoutButton() and palette-boot.js's "Log out" command both find
-             it by id, so this move is placement-only. -->
-        {% if terminal_user %}
-        <div class="identity-menu" id="identity-menu">
-          <button class="identity-trigger" id="identity-menu-btn" type="button"
-                  title="Signed in as {{ terminal_user }}"
-                  aria-label="Signed in as {{ terminal_user }}"
-                  aria-haspopup="true" aria-expanded="false">
-            <span class="identity-avatar" aria-hidden="true">{{ terminal_user[0]|upper }}</span>
-            <span class="identity-name">{{ terminal_user }}</span>
-            <svg class="identity-caret" aria-hidden="true" width="10" height="10"
-                 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
-                 stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="identity-card" id="identity-menu-card" role="group" aria-label="Session">
-            <div class="identity-card-identity">
-              <span class="identity-card-name">{{ terminal_user }}</span>
-              {% if app_name %}<span class="identity-card-sub">{{ app_name }}</span>{% endif %}
-            </div>
-            {% if landing_url %}
-            <button class="identity-card-logout" id="logout-btn" type="button"
-                    data-landing-url="{{ landing_url }}"
-                    title="Log out {{ terminal_user }} and return to the landing page"
-                    aria-label="Log out {{ terminal_user }} and return to the landing page">
-              <span class="identity-card-logout-icon" aria-hidden="true">&#128682;</span>Log out
-            </button>
-            {% endif %}
-          </div>
-        </div>
-        {% endif %}
         <!-- Display menu: the header sliders button. Collapses the Expert/Simple mode
              toggle and both theme axes (light/dark + family) into one popover
-             card so the header stays quiet. display-menu.js owns open/close
-             and the two theme rows; the View row keeps the #mode-toggle /
-             .mode-segment contract, so app.js's initModeToggle() still owns
-             the mode flip and the active segment stays CSS-driven off
-             html[data-ui-mode]. The family pills are populated by
-             display-menu.js from the tokens.js THEMES registry. -->
+             card so the header stays quiet, and — where the deployment knows a
+             user — closes with the session footer (who you are, System Settings,
+             Log out). display-menu.js owns open/close and the two theme rows;
+             the View row keeps the #mode-toggle / .mode-segment contract, so
+             app.js's initModeToggle() still owns the mode flip and the active
+             segment stays CSS-driven off html[data-ui-mode]. The family pills
+             are populated by display-menu.js from the tokens.js THEMES
+             registry. -->
         <div class="display-menu" id="display-menu">
           <!-- Faders, not a gear: the gear is this app's glyph for the settings
                DRAWER (its own header and the System Settings row below both use
@@ -202,17 +163,49 @@
                 <!-- One pill per theme family, rendered by display-menu.js -->
               </div>
             </div>
-            <!-- System Settings: the last row of the card, and the only way
-                 into the settings drawer from the header. It keeps the
-                 `data-drawer-trigger` contract (settings.js's warning gate is
-                 the sole open path; app.js mirrors `.active` onto it), so the
-                 move from a standalone header gear into this card changes
-                 placement only. Present in BOTH ui modes — the warning gate,
-                 not the mode, is what guards expert configuration. -->
-            <button class="display-menu-settings" id="display-menu-settings" type="button"
-                    data-drawer-trigger="settings-drawer" title="Open system settings">
-              <span class="display-menu-settings-icon" aria-hidden="true">&#9881;</span>System Settings
-            </button>
+            <!-- Session footer: who you are, then the two actions this card
+                 offers on the terminal itself. Identity used to sit in a header
+                 chip of its own whose popover held Log out; with that action
+                 moved here, the chip would have been a popover wrapped around a
+                 static label, so the name folded in beside the action it
+                 qualifies. An operator on several terminals can still confirm
+                 WHICH deployment they are about to leave before they leave it.
+
+                 Rendered only when the server knows a user
+                 (OSPREY_TERMINAL_USER), i.e. multi-user deployments. -->
+            {% if terminal_user %}
+            <div class="display-menu-identity">
+              <span class="display-menu-identity-avatar" aria-hidden="true">{{ terminal_user[0]|upper }}</span>
+              <span class="display-menu-identity-name">{{ terminal_user }}</span>
+              {% if app_name %}<span class="display-menu-identity-sub">{{ app_name }}</span>{% endif %}
+            </div>
+            {% endif %}
+            <!-- Both buttons keep the contracts they arrived with, so this is a
+                 placement change and nothing else: Settings keeps
+                 `data-drawer-trigger` (settings.js's warning gate is the sole
+                 open path; app.js mirrors `.active` onto it), and Log out keeps
+                 `#logout-btn` + `data-landing-url` (app.js's initLogoutButton()
+                 and palette-boot.js's "Log out" command both find it by id).
+
+                 A flex pair, not a 2-column grid: a single-user terminal renders
+                 no logout, and Settings should then fill the row rather than
+                 sit in half of it. Both are present in BOTH ui modes — the
+                 warning gate, not the mode, is what guards expert
+                 configuration. -->
+            <div class="display-menu-actions">
+              <button class="display-menu-settings" id="display-menu-settings" type="button"
+                      data-drawer-trigger="settings-drawer" title="Open system settings">
+                <span class="display-menu-settings-icon" aria-hidden="true">&#9881;</span>Settings
+              </button>
+              {% if terminal_user and landing_url %}
+              <button class="display-menu-logout" id="logout-btn" type="button"
+                      data-landing-url="{{ landing_url }}"
+                      title="Log out {{ terminal_user }} and return to the landing page"
+                      aria-label="Log out {{ terminal_user }} and return to the landing page">
+                <span class="display-menu-logout-icon" aria-hidden="true">&#128682;</span>Log out
+              </button>
+              {% endif %}
+            </div>
           </div>
         </div>
       </div>

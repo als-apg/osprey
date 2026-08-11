@@ -138,6 +138,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- **Log out** moved into the web terminal's display menu, alongside
+  **Settings** — the two now sit side by side under a line naming the signed-in
+  user. The separate user chip in the header is gone, leaving search and the
+  display menu there. Single-user terminals are unchanged apart from
+  **System Settings** being relabelled **Settings**.
 - Pairing a virtual accelerator with the mock archiver is refused — at build,
   at deploy, and at MCP server startup — because the VA moves channels for
   modelled reasons while the mock archiver invents history at read time, and

@@ -17,10 +17,11 @@
  *     pill click drives setFamily()
  *   - a View-row segment click closes the card (the mode flip itself is
  *     app.js's initModeToggle(), out of scope here)
- *   - the System Settings row: it is the card's last child, closes the card on
- *     click, and keeps the `[data-drawer-trigger]`-not-`[data-drawer]`
- *     contract settings.js's warning gate binds to (the open itself is
- *     settings.js's, out of scope here)
+ *   - the session footer: the Settings / Log out row is the card's last child,
+ *     Settings keeps the `[data-drawer-trigger]`-not-`[data-drawer]` contract
+ *     settings.js's warning gate binds to and closes the card on click (the
+ *     open itself is settings.js's, out of scope here), and Log out
+ *     deliberately does not close it (the logout itself is app.js's)
  *
  * Module-identity note (same as theme-switcher.test.mjs): this file imports
  * theme-manager.js and display-menu.js exactly once, at the top, and resets
@@ -51,8 +52,16 @@ const FIXTURE = `
         <button class="display-seg-option mode-segment" data-mode="simple" type="button">Simple</button>
       </div>
       <div class="display-menu-families" id="family-picker" role="group"></div>
-      <button class="display-menu-settings" id="display-menu-settings" type="button"
-              data-drawer-trigger="settings-drawer">System Settings</button>
+      <div class="display-menu-identity">
+        <span class="display-menu-identity-avatar" aria-hidden="true">A</span>
+        <span class="display-menu-identity-name">alice</span>
+      </div>
+      <div class="display-menu-actions">
+        <button class="display-menu-settings" id="display-menu-settings" type="button"
+                data-drawer-trigger="settings-drawer">Settings</button>
+        <button class="display-menu-logout" id="logout-btn" type="button"
+                data-landing-url="https://facility.example/portal">Log out</button>
+      </div>
     </div>
   </div>
   <div id="outside"></div>
@@ -142,16 +151,27 @@ describe('display-menu', () => {
       expect(qs('#display-menu-card').classList.contains('open')).toBe(true);
     });
 
-    test('a System Settings click closes the card', () => {
+    test('a Settings click closes the card', () => {
       mountAndInit();
       qs('#display-menu-btn').click();
 
       qs('#display-menu-settings').click();
       expect(qs('#display-menu-card').classList.contains('open')).toBe(false);
     });
+
+    test('a Log out click leaves the card OPEN', () => {
+      // Deliberate: the logout handler (app.js) navigates away on every path,
+      // and closing the card first would hide the button's own aria-busy state
+      // while the POST is still in flight.
+      mountAndInit();
+      qs('#display-menu-btn').click();
+
+      qs('#logout-btn').click();
+      expect(qs('#display-menu-card').classList.contains('open')).toBe(true);
+    });
   });
 
-  describe('System Settings row', () => {
+  describe('Session footer', () => {
     test('keeps the data-drawer-trigger contract settings.js binds its gate to', () => {
       mountAndInit();
       // The row must remain the [data-drawer-trigger="settings-drawer"] the
@@ -163,12 +183,15 @@ describe('display-menu', () => {
       expect(trigger?.hasAttribute('data-drawer')).toBe(false);
     });
 
-    test('lives inside the card, after every preference row', () => {
+    test('the action row closes the card, after every preference row', () => {
       mountAndInit();
       const card = qs('#display-menu-card');
-      const settings = qs('#display-menu-settings');
-      expect(card.contains(settings)).toBe(true);
-      expect(card.lastElementChild).toBe(settings);
+      const actions = qs('.display-menu-actions');
+      expect(card.lastElementChild).toBe(actions);
+      // Settings leads, Log out follows: the destructive control is not the
+      // one under the cursor when the card opens.
+      expect(actions.firstElementChild).toBe(qs('#display-menu-settings'));
+      expect(actions.lastElementChild).toBe(qs('#logout-btn'));
     });
 
     test('init still no-ops when the row is absent', () => {
