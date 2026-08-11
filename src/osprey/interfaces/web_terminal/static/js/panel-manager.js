@@ -117,6 +117,12 @@ let activeTabId = null;
 /** @type {Record<string, PanelState>} */
 const panelState = {};
 
+/** A panel's cold state — shared by the init loop and runtime addPanel().
+ *  @returns {PanelState} */
+function freshPanelState() {
+  return { url: null, healthy: false, iframe: null, pollTimer: null, polling: false, configLoaded: false };
+}
+
 // Rail MEMBERSHIP — the server-owned visible set, seeded from /api/panels at
 // init. An id in here has a rail entry; toggling one is paired with
 // addEntry()/removeEntry() on the rail.
@@ -260,14 +266,7 @@ export async function initPanelManager(panelId) {
 
   // Initialize state for each (now-filtered) panel
   for (const panel of PANELS) {
-    panelState[panel.id] = {
-      url: null,
-      healthy: false,
-      iframe: null,
-      pollTimer: null,
-      polling: false,
-      configLoaded: false,
-    };
+    panelState[panel.id] = freshPanelState();
   }
 
   // Seed visiblePanels from server config ('visible' field added by Task 1.1).
@@ -396,6 +395,13 @@ export async function initPanelManager(panelId) {
   // adds a transient glow on the rail entry — never a persistent badge, the
   // action itself already happened. Untagged frames behave exactly as before.
   createEventSource('/api/files/events', { // prefixed via createEventSource (api.js)
+    // SSE has no replay: anything broadcast while this client was
+    // disconnected (or dropped by the server's bounded per-client queue) is
+    // gone for good, and every panel command's DOM effect IS its SSE echo —
+    // without a resync a client that missed one frame never converges again.
+    // The hook fires on every open, including the first; the extra boot-time
+    // fetch is a no-op delta.
+    onOpen: () => { void resyncPanelState(); },
     onMessage: (raw) => {
       try {
         const data = /** @type {PanelSSEEvent} */ (raw);
@@ -421,51 +427,7 @@ export async function initPanelManager(panelId) {
           }
 
         } else if (data.type === 'panel_visibility' && data.panel) {
-          const { panel, visible } = data;
-          // Update the membership set and add/remove the matching rail entry.
-          // The agent glow runs after the add so a just-added entry can flash.
-          if (visible) {
-            ensureRailMembership(panel);
-          } else {
-            visiblePanels.delete(panel);
-            removeEntry(railEl, panel);
-          }
-          if (data.source === 'agent') flashAgentGlow(panel);
-
-          // Simple-UX reveal: showing a panel while the workspace is chat-only
-          // suppressed brings up the workspace ON that panel — this is the
-          // "agent produced an artifact, show_panel('artifacts')" onboarding
-          // path the panels-context SessionStart hook instructs. {auto: true}
-          // keeps the health guard: an unhealthy panel leaves the slot for a
-          // later settle (suppression is already cleared).
-          if (visible && workspaceSuppressed) {
-            workspaceSuppressed = false;
-            if (!activeTabId) activateTab(panel, { auto: true });
-          }
-
-          if (!visible) {
-            // EVERY hide drops the panel's dock tile (one panel per tile — a
-            // closed panel's placeholder would be a ghost tile), active or
-            // not. The echo guard covers dockview auto-activating a neighbor
-            // on removal: that programmatic change is a server-applied echo
-            // and must not POST focus back (the fallback below owns focus).
-            withEchoSuppressed(() => hidePanel(panel));
-          }
-
-          // CC-1: if we just hid the currently active panel, switch away from it
-          if (!visible && panel === activeTabId) {
-            // Find the first panel that is visible, healthy, and not the one being hidden
-            const fallback = PANELS.find(
-              p => p.id !== panel && visiblePanels.has(p.id) && panelState[p.id]?.healthy
-            );
-            if (fallback) {
-              activateTab(fallback.id);
-            } else {
-              // No usable panel remains — strand-proof: clear active state and show empty pane
-              activeTabId = null;
-              renderEmptyState('No panels visible');
-            }
-          }
+          applyPanelVisibility(data.panel, data.visible, data.source);
 
         } else if (data.type === 'panel_arrange' && Array.isArray(data.tiles)) {
           // A whole-workspace arrangement (agent arrange_workspace, or a human
@@ -493,9 +455,86 @@ export async function initPanelManager(panelId) {
           if (t.kind !== 'panel' || !t.panel || !setEntryAttention(railEl, t.panel, true)) onAgentActivity(data);
         }
 
-      } catch { /* ignore malformed events */ }
+      } catch (err) {
+        // A throw mid-dispatch can leave rail membership, the dock layout and
+        // the overlay's managed set describing different workspaces — never
+        // swallow it without evidence.
+        console.error('panel-manager: SSE frame dispatch failed', err, raw);
+      }
     },
   });
+}
+
+/**
+ * Apply a server-visible membership change — the single body behind the
+ * panel_visibility SSE branch and the reconnect resync, so a resynced client
+ * ends up exactly where a connected one would be.
+ *
+ * Order matters and is pinned by the test suite: membership + rail entry
+ * first (the agent glow runs after the add so a just-added entry can flash);
+ * then the simple-UX chat-only reveal (showing a panel while the workspace is
+ * suppressed brings the workspace up ON that panel — {auto: true} keeps the
+ * health guard); then, on a hide, the dock tile drop (one panel per tile — a
+ * closed panel's placeholder would be a ghost tile) under the echo guard
+ * (dockview auto-activating a neighbor on removal is a server-applied echo
+ * and must not POST focus back), and finally the active-panel fallback so a
+ * hidden active panel never strands a blank pane.
+ * @param {string} panel
+ * @param {boolean} visible
+ * @param {'agent'} [source]
+ */
+function applyPanelVisibility(panel, visible, source) {
+  if (visible) {
+    ensureRailMembership(panel);
+  } else {
+    visiblePanels.delete(panel);
+    removeEntry(railEl, panel);
+  }
+  if (source === 'agent') flashAgentGlow(panel);
+
+  if (visible && workspaceSuppressed) {
+    workspaceSuppressed = false;
+    if (!activeTabId) activateTab(panel, { auto: true });
+  }
+
+  if (!visible) {
+    withEchoSuppressed(() => hidePanel(panel));
+    if (panel === activeTabId) {
+      const fallback = PANELS.find(
+        p => p.id !== panel && visiblePanels.has(p.id) && panelState[p.id]?.healthy
+      );
+      if (fallback) {
+        activateTab(fallback.id);
+      } else {
+        activeTabId = null;
+        renderEmptyState('No panels visible');
+      }
+    }
+  }
+}
+
+/**
+ * Re-converge rail membership with the server after the SSE stream (re)opens.
+ * The authoritative visible set is re-fetched and applied as a delta through
+ * applyPanelVisibility — the same path the panel_visibility frames use.
+ * Scope: membership of panels known to this page. A runtime panel whose
+ * panel_register frame was missed entirely stays unknown until reload.
+ */
+async function resyncPanelState() {
+  let config = null;
+  try {
+    config = await fetchJSON('/api/panels');
+  } catch {
+    return; // offline — the next reconnect retries
+  }
+  if (!config || !Array.isArray(config.visible)) return;
+  const serverVisible = new Set(config.visible);
+  for (const id of serverVisible) {
+    if (!visiblePanels.has(id) && panelState[id]) applyPanelVisibility(id, true);
+  }
+  for (const id of [...visiblePanels]) {
+    if (!serverVisible.has(id)) applyPanelVisibility(id, false);
+  }
 }
 
 // ---- Rail Rendering ----
@@ -684,14 +723,7 @@ function addPanel(spec) {
   // Keep the adapter's known-service set current (never orphan a runtime panel).
   setKnownServicePanels(PANELS.map((p) => p.id));
 
-  panelState[spec.id] = {
-    url: null,
-    healthy: false,
-    iframe: null,
-    pollTimer: null,
-    polling: false,
-    configLoaded: false,
-  };
+  panelState[spec.id] = freshPanelState();
 
   // Append exactly one entry. addEntry is non-destructive — never a full
   // re-render — so every live entry keeps its active/disabled/LED state, and it

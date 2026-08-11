@@ -314,6 +314,22 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Web terminal panels no longer freeze permanently — rendering but ignoring
+  every click — when a drag from the panel rail loses its end event (for
+  example the dragged entry was removed mid-drag by the agent or another
+  client). Drag cleanup now has document-level failsafes.
+- The web terminal's panel event stream reconnects after a proxy or backend
+  hiccup and re-syncs rail membership on every reconnect, so a browser that
+  missed events while disconnected converges instead of silently drifting.
+  Event-handling errors are now logged instead of swallowed.
+- Workspace gallery: the "Draft created" confirmation no longer sticks as a
+  permanent full-panel overlay after a successful logbook submit.
+- Workspace gallery: deleting the artifact being viewed fullscreen (locally
+  or agent-side) exits fullscreen instead of stranding a pane with no
+  controls.
+- The web terminal welcome screen wires its dismiss controls before any
+  fallible boot step, and a terminal-library load failure degrades the
+  terminal card instead of aborting the whole page boot.
 - Lattice dashboard summary stats (energy, tunes, chromaticity) no longer
   freeze at load time — they recompute with the fast figures after a magnet
   change. Also removed dead panel chrome the audit surfaced: ARIEL's unwired
