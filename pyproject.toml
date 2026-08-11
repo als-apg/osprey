@@ -38,7 +38,7 @@ classifiers = [
 # Core runtime dependencies from requirements.txt analysis
 dependencies = [
     # Core framework dependencies
-    "rich>=14.0.0",
+    "rich>=15.0.0",
     "click>=8.4.2",
     "questionary>=2.1.1",
     "python-dotenv>=1.1.0",
@@ -82,7 +82,7 @@ dependencies = [
     "websocket-client>=1.7.0",
     "urllib3>=2.7.0",
     "certifi>=2025.4.26",
-    "charset-normalizer>=3.4.2",
+    "charset-normalizer>=3.4.9",
     "idna>=3.18",
     "MarkupSafe>=3.0.2",
     "markdown>=3.5",  # Markdown-to-HTML rendering for artifact converters
@@ -100,8 +100,8 @@ dependencies = [
     # Natural language processing
     "nltk>=3.10.0",
     # ARIEL Web Interface (FastAPI server)
-    "fastapi>=0.140.0",
-    "uvicorn[standard]>=0.51.0",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.52.1",
     # OIDC client + JOSE (token verification) for the multi-user web-terminal
     # auth sidecar. Declared explicitly rather than relied on as fastmcp's
     # transitive dependency — the sidecar imports it directly.
@@ -116,13 +116,13 @@ dependencies = [
     # serve a login page whose form can never be submitted.
     "python-multipart>=0.0.18",
     # Utilities
-    "unique-namer>=0.1.0",
+    "unique-namer>=1.6.2",
     # EPICS Channel Access client (used by control_system connector,
     # limits_validator, and python_executor wrapper).
     "pyepics",
     # PostgreSQL (required for native logbook_search capability and checkpointing)
-    "psycopg[binary,pool]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.1.0,<4.0.0",
+    "psycopg[binary,pool]>=3.3.4,<4.0.0",
+    "psycopg-pool>=3.3.1,<4.0.0",
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
@@ -201,8 +201,8 @@ dev = [
     "testcontainers[postgres]>=4.14.2",  # Real PostgreSQL for integration tests
     "testcontainers[mongodb]>=4.14.2",  # MongoDB for archiver-mongodb integration tests
     "docker>=7.2.0",  # Docker SDK for testcontainers availability check
-    "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
-    "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
+    "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
+    "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
 ]
 
@@ -211,7 +211,7 @@ dev = [
 ariel = [
     # PostgreSQL with pgvector for vector similarity search
     "psycopg[pool]>=3.1.0,<4.0.0",
-    "psycopg-pool>=3.1.0,<4.0.0",
+    "psycopg-pool>=3.3.1,<4.0.0",
 ]
 
 # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
@@ -226,7 +226,7 @@ sheets = [
 
 # MongoDB archiver connector backend
 archiver-mongodb = [
-    "pymongo>=4.0",
+    "pymongo>=4.17.0",
 ]
 
 # Google Chat bridge (osprey.bridges.google_chat): Pub/Sub event ingestion,
