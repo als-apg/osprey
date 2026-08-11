@@ -518,7 +518,7 @@ BPM, and holds each setpoint for a settling time I can choose.
 </div>
 <p>The agent writes the plan file, runs it through the validator, and
 tells you the result. From there it is a normal plan: it appears in
-the PLAN panel, you review its parameters, and it queues and runs like
+BLUESKY’s Plans view, you review its parameters, and it queues and runs like
 any other — with its session-tier badge visible, so a reviewer always
 knows what they are looking at.</p>
 <p>Session plans are working drafts, not durable installations: they live
@@ -536,8 +536,8 @@ Install a facility library</label><div class="sd-tab-content docutils">
 </div>
 <p>Every plan in it is installed read-only into the scan stack and
 trusted at <strong>facility</strong> tier — no per-session validation, available in
-every deployment built from the profile, listed in the PLAN panel and
-the agent’s catalog like the shipped plans.</p>
+every deployment built from the profile, listed in BLUESKY’s Plans
+view and the agent’s catalog like the shipped plans.</p>
 <p>To <em>remove</em> a plan from the catalog — shipped or otherwise — list it
 under <code class="docutils literal notranslate"><span class="pre">excluded_plans</span></code> in the same block, and it becomes invisible
 and non-runnable everywhere.</p>
@@ -551,8 +551,8 @@ and non-runnable everywhere.</p>
 <li><p class="sd-card-text"><strong>Metadata</strong> — the plan’s name, a human description, its category,
 which kinds of devices it needs, and whether it writes to the machine.</p></li>
 <li><p class="sd-card-text"><strong>Parameters</strong> — a schema describing the knobs (names, types, limits).
-This is what the PLAN panel turns into a form, so a well-described
-parameter becomes a well-labeled field.</p></li>
+This is what BLUESKY’s Plans view turns into a form, so a
+well-described parameter becomes a well-labeled field.</p></li>
 <li><p class="sd-card-text"><strong>The plan function</strong> — builds the actual Bluesky plan from the
 parameters and the resolved devices.</p></li>
 </ul>

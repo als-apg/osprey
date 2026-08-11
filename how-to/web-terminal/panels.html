@@ -531,31 +531,34 @@ the entries for you):</p>
 <p>The hub shows the service as a tab and proxies requests to it from the same
 origin, so the browser never needs direct access to the backing port.</p>
 </section>
-<section id="the-bluesky-panels">
-<h2>The Bluesky panels<a class="headerlink" href="#the-bluesky-panels" title="Link to this heading">#</a></h2>
-<p>Two tabs cover a scan end to end, both served by the <code class="docutils literal notranslate"><span class="pre">bluesky-panels</span></code>
-sidecar:</p>
-<p><strong>PLAN</strong> (<code class="docutils literal notranslate"><span class="pre">/plan/</span></code>) is where a plan is composed. It binds to the same shared
-draft the OSPREY agent edits, so a field the agent sets glows in the form as it
-lands, and a field you change by hand flows back to the agent. <strong>Add to queue</strong>
-puts the exact revision on screen into the scan queue.</p>
-<p><strong>BLUESKY</strong> (<code class="docutils literal notranslate"><span class="pre">/bluesky/</span></code>) is the queue and the results. Its top half lists
-what the queue server is holding, with <strong>Start queue</strong>, <strong>Stop after current
-item</strong> and <strong>Abort running plan</strong>; its bottom half shows the selected run’s
-table and live chart. <a class="reference internal" href="../bluesky/queue.html"><span class="doc">Scans and the Queue</span></a> covers what those controls
+<section id="the-bluesky-panel">
+<h2>The Bluesky panel<a class="headerlink" href="#the-bluesky-panel" title="Link to this heading">#</a></h2>
+<p>One tab covers a scan end to end, served by the <code class="docutils literal notranslate"><span class="pre">bluesky-panels</span></code> sidecar.
+<strong>BLUESKY</strong> (<code class="docutils literal notranslate"><span class="pre">/bluesky/</span></code>) has three views, and the queue’s state — with
+<strong>Stop after current item</strong> and <strong>Abort running plan</strong> — stays on screen across
+all three:</p>
+<p><strong>Plans</strong> is where a plan is composed. It binds to the same shared draft the
+OSPREY agent edits, so a field the agent sets glows in the form as it lands,
+and a field you change by hand flows back to the agent. <strong>Add to queue</strong> puts
+the exact revision on screen into the scan queue.</p>
+<p><strong>Queue</strong> lists what the queue server is holding, with <strong>Start queue</strong> and the
+reorder/remove controls, plus the runs that have finished. Picking any run
+opens it under Results. <a class="reference internal" href="../bluesky/queue.html"><span class="doc">Scans and the Queue</span></a> covers what those controls
 do.</p>
+<p><strong>Results</strong> shows the selected run’s record, table and live chart.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>BLUESKY was called RESULTS</strong>, and it now holds the queue as well as the
-results the old tab showed. The sidecar still serves the same bundle at
-<code class="docutils literal notranslate"><span class="pre">/results/</span></code> <strong>for one release</strong>, so existing bookmarks and panel entries
-keep resolving; the alias goes away after that, so move any
-<code class="docutils literal notranslate"><span class="pre">web.panels.results.*</span></code> entry of your own to <code class="docutils literal notranslate"><span class="pre">web.panels.bluesky.*</span></code>.</p>
-<p>In the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset that rename is already made. It changes
-the preset’s resolved content, so an <strong>already-deployed project will report
-staleness</strong> on its next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>. That advisory is correct
-rather than noise — unlike a cosmetic re-pin, this one renames a tab a user
-sees — and the remedy is the rebuild the advisory prints.</p>
+<p><strong>PLAN and RESULTS were separate tabs.</strong> RESULTS became BLUESKY when that
+bundle absorbed the queue, and PLAN then became BLUESKY’s Plans view. The
+sidecar still serves the same bundle at <code class="docutils literal notranslate"><span class="pre">/results/</span></code> and <code class="docutils literal notranslate"><span class="pre">/plan/</span></code> <strong>for
+one release</strong>, so existing bookmarks and panel entries keep resolving; the
+aliases go away after that, so drop any <code class="docutils literal notranslate"><span class="pre">web.panels.plan.*</span></code> entry of your
+own and move <code class="docutils literal notranslate"><span class="pre">web.panels.results.*</span></code> to <code class="docutils literal notranslate"><span class="pre">web.panels.bluesky.*</span></code>.</p>
+<p>In the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset both changes are already made. They
+change the preset’s resolved content, so an <strong>already-deployed project will
+report staleness</strong> on its next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>. That advisory is
+correct rather than noise — unlike a cosmetic re-pin, this one changes the
+tabs a user sees — and the remedy is the rebuild the advisory prints.</p>
 </div>
 </section>
 <section id="adding-your-own-panel">
@@ -703,7 +706,7 @@ shape of it.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-panel-rail-lives">Where the panel rail lives</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-backed-by-a-url">Panels backed by a URL</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bluesky-panels">The Bluesky panels</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bluesky-panel">The Bluesky panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panel-layouts-presets">Panel layouts (“presets”)</a></li>
 </ul>

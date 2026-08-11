@@ -590,10 +590,10 @@ deployment, whatever else you write below.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">skills:</span></code> — <code class="docutils literal notranslate"><span class="pre">writing-bluesky-plans</span></code> and <code class="docutils literal notranslate"><span class="pre">operating-bluesky-scans</span></code>.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">agents:</span></code> — <code class="docutils literal notranslate"><span class="pre">logbook-search</span></code> and <code class="docutils literal notranslate"><span class="pre">logbook-deep-research</span></code>. Both
 query a logbook database at runtime, and this facility does not deploy one.</p></li>
-<li><p>from <code class="docutils literal notranslate"><span class="pre">web_panels:</span></code> — <code class="docutils literal notranslate"><span class="pre">ariel</span></code>, <code class="docutils literal notranslate"><span class="pre">events</span></code>, <code class="docutils literal notranslate"><span class="pre">plan</span></code> and <code class="docutils literal notranslate"><span class="pre">results</span></code>.</p></li>
+<li><p>from <code class="docutils literal notranslate"><span class="pre">web_panels:</span></code> — <code class="docutils literal notranslate"><span class="pre">ariel</span></code>, <code class="docutils literal notranslate"><span class="pre">events</span></code> and <code class="docutils literal notranslate"><span class="pre">bluesky</span></code>.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">config:</span></code> — the <code class="docutils literal notranslate"><span class="pre">claude_code.servers.bluesky.enabled</span></code> line and every
-<code class="docutils literal notranslate"><span class="pre">web.panels.events.*</span></code>, <code class="docutils literal notranslate"><span class="pre">web.panels.plan.*</span></code> and <code class="docutils literal notranslate"><span class="pre">web.panels.results.*</span></code>
-override. The panels they configure no longer exist.</p></li>
+<code class="docutils literal notranslate"><span class="pre">web.panels.events.*</span></code> and <code class="docutils literal notranslate"><span class="pre">web.panels.bluesky.*</span></code> override. The panels they
+configure no longer exist.</p></li>
 </ul>
 <p>Keep the <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> block. It is the trigger for the soft-IOC this
 facility drives.</p>

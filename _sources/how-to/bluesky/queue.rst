@@ -48,7 +48,7 @@ One queue, three ways to drive it
       small set of tools:
 
       - ``get_draft`` / ``set_draft`` — compose the shared draft you see in
-        the PLAN panel.
+        BLUESKY's Plans view.
       - ``queue_add`` / ``queue_start`` — the two steps. Both ask for your
         approval, and both are switched off entirely while the project's
         control-system writes are disabled.
