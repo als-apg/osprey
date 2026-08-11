@@ -42,20 +42,18 @@ this directory.
 
 Gating: needs Docker; the VA image builds natively for the host arch, so on
 Apple Silicon PyAT/softioc compile from source (no prebuilt aarch64 wheels) --
-slow (minutes) on a cold image cache. Advisory CI lane (see ci.yml); run
-locally with ``E2E_REUSE_IMAGES=1`` set for fast iteration once the image
-cache is warm.
+slow (minutes) on a cold image cache. Runs on CI in the ``orm-roundtrip-e2e``
+job, as the first of two sequential steps -- ``test_grid_scan_roundtrip.py``
+follows it in the same job, so the two stacks never contend for 5064. Run
+locally with ``E2E_REUSE_IMAGES=1`` set for fast iteration once the image cache
+is warm.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
-import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -117,46 +115,8 @@ MATCH_RTOL = 1e-6
 MATCH_ATOL = 1e-9  # meters
 
 
-def _channel_limits(project_dir: Path) -> dict[str, Any]:
-    return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
-
-
-def _minted_token(project_dir: Path) -> str:
-    from osprey.utils.dotenv import parse_dotenv_file
-
-    env_path = project_dir / ".env"
-    assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
-    env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_LAUNCH_TOKEN")
-    assert token, (
-        "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env — `deploy up` "
-        "mints it for every deployed service that declares it"
-    )
-    return token
-
-
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
 def _get(path: str) -> tuple[int, Any]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "GET")
 
 
 class DeployedOrmStack:
@@ -180,29 +140,16 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         PROJECT_NAME, output_dir=base, timeout=BUILD_TIMEOUT_SEC
     )
 
-    limits = _channel_limits(project_dir)
+    limits = _orm_stack.channel_limits(project_dir)
     correctors = _orm_stack.select_correctors(limits)
     bpms = _orm_stack.select_bpms(limits)
     _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
-    # Force fresh --dev builds so the deployed containers run CURRENT source
-    # (osprey deploy up does not pass --build to compose, so it would
-    # otherwise reuse a stale cached image). Exact-named images only.
-    # E2E_REUSE_IMAGES=1 skips this for fast local iteration on the test
-    # itself when the osprey source is unchanged; never set it in CI.
-    if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.va_image("orm-roundtrip")],
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.bridge_image("orm-roundtrip")],
-            capture_output=True,
-            text=True,
-        )
+    _orm_stack.force_image_rebuild(
+        _orm_stack.va_image(PROJECT_NAME), _orm_stack.bridge_image(PROJECT_NAME)
+    )
 
     try:
         up = subprocess.run(
@@ -220,7 +167,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
         try:
-            _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
         yield DeployedOrmStack(project_dir=project_dir, correctors=correctors, bpms=bpms)
@@ -303,7 +250,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
         "num": NUM_POINTS,
     }
 
-    token = _minted_token(deployed_orm_stack.project_dir)
+    token = _orm_stack.minted_launch_token(deployed_orm_stack.project_dir)
     run_id, status_body = _queue_drive.run_scan(
         BRIDGE_URL,
         "orm",

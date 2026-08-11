@@ -12,8 +12,11 @@ the FR1/FR2 contract has to hold:
   accelerator is deployed to consume it.
 
 Companion to ``tests/simulation/test_scenario_physics_render.py``, which pins the
-same renderer at the function level; the end-to-end proof is
-``tests/e2e/test_orm_agentic_scenario.py``.
+same renderer at the function level. Between them they are the whole proof: no
+e2e activates a physics fault. Every deployed scan-stack e2e boots a HEALTHY
+machine -- ``_orm_stack.write_scan_env`` writes no physics block, so
+``tests/e2e/test_orm_roundtrip.py`` and ``tests/e2e/test_scan_stack_agentic.py``
+exercise only this mechanism's no-fault path.
 """
 
 from __future__ import annotations
