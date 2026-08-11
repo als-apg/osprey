@@ -823,6 +823,7 @@ jobs:
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
             --ignore=tests/e2e/test_orm_roundtrip.py \
+            --ignore=tests/e2e/test_archiver_world_e2e.py \
             --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
             --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
             --ignore=tests/e2e/test_bluesky_panels_deploy.py \
@@ -1299,6 +1300,60 @@ jobs:
     - name: Run ORM roundtrip E2E
       run: |
         uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
+
+  archiver-world-e2e:
+    name: Archiver World E2E (VA + mongodb store + recorder, full Docker stack)
+    runs-on: ubuntu-latest
+    # Same-repo-PR gating, same reason as orm-roundtrip-e2e: this job needs no
+    # secrets — every assertion in the file is mechanical (seed duration, store
+    # size, a setpoint round-trip, a noise-band step, document counts), and the
+    # archiver read goes through the connector directly rather than an agent
+    # turn — but the same-repo restriction is house policy for any extra
+    # Docker-build-and-deploy job, not just secret-gated ones. A secret
+    # appearing here would mean the lane's scope silently grew; that is guarded
+    # by test_archiver_world_job_has_no_llm_secret.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Builds the native PyAT/serving-stack VA image from source (same cost as
+    # orm-roundtrip-e2e) and then seeds a DEFAULT-knob archive: 30-day
+    # retention at two tiers across the full channel manifest. The seed itself
+    # carries a 3-minute budget asserted inside the test; this cap is for the
+    # cold image cache around it.
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    # No ghcr login step, unlike the orm lane it is otherwise modelled on: the
+    # trimmed stack pulls nothing from ghcr. The VA image builds locally from
+    # python:3.11-slim, mongodb is mongo:7 from Docker Hub, and the recorder
+    # reuses the VA image — openobserve is not deployed here at all.
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      # archiver-mongodb: the staged bring-up preflights pymongo before any
+      # image build, so without the extra this lane aborts in seconds with an
+      # install hint rather than running.
+      run: uv sync --extra dev --extra archiver-mongodb
+
+    - name: Run archiver world E2E
+      # -s so the measured budgets this lane owns (seed duration, store size,
+      # write->read latency) reach the log on a GREEN run. Pytest captures
+      # stdout on passing tests, and a budget lane that only shows its numbers
+      # when it fails cannot be read for the trend that precedes a failure.
+      run: |
+        uv run pytest tests/e2e/test_archiver_world_e2e.py -v -s --tb=short
 
   tiled-roundtrip-e2e:
     name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
@@ -2032,7 +2087,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
     runs-on: ubuntu-latest
     if: always()
 
@@ -2123,6 +2178,7 @@ jobs:
         check_pr_lane "Bluesky panels deploy E2E"    "${{ needs.bluesky-panels-deploy-e2e.result }}"
         check_pr_lane "VA substrate equivalence E2E" "${{ needs.va-substrate-equivalence-e2e.result }}"
         check_pr_lane "ORM roundtrip E2E"            "${{ needs.orm-roundtrip-e2e.result }}"
+        check_pr_lane "Archiver world E2E"           "${{ needs.archiver-world-e2e.result }}"
         check_pr_lane "Tiled roundtrip E2E"          "${{ needs.tiled-roundtrip-e2e.result }}"
         check_pr_lane "Bluesky catalog E2E"          "${{ needs.bluesky-catalog-e2e.result }}"
         check_pr_lane "Bluesky sandbox escape E2E"   "${{ needs.bluesky-sandbox-escape-e2e.result }}"
