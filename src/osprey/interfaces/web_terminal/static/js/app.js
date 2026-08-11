@@ -15,7 +15,6 @@ import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initDisplayMenu } from './display-menu.js';
-import { initIdentityMenu } from './identity-menu.js';
 import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -61,7 +60,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initLogoutButton();
   initModeToggle();
   initDisplayMenu();
-  initIdentityMenu();
   initRailPosition();
   initDrawerTriggerHighlight();
   initSettings();
@@ -148,10 +146,11 @@ export function initLogoutButton() {
  * prefix (`window.__OSPREY_PREFIX__`, which `compute_url_prefix()` sets to
  * exactly `/u/<user>` for a multi-user container and to `""` otherwise).
  *
- * Read from the prefix rather than from the identity chip's text because the
- * prefix is the copy the app already routes every one of its own requests
- * through — the chip is display markup, and taking a name from rendered text
- * to put it back in a URL is how a display change becomes a wiring bug.
+ * Read from the prefix rather than from the display menu's identity line
+ * because the prefix is the copy the app already routes every one of its own
+ * requests through — that line is display markup, and taking a name from
+ * rendered text to put it back in a URL is how a display change becomes a
+ * wiring bug.
  * Returns `""` for a plain `osprey web`, which has no per-user prefix.
  */
 function terminalUserFromPrefix() {
