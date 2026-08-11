@@ -226,6 +226,54 @@ describe('railDragStart / railDragEnd — payload + shields', () => {
     expect(setIframePointerShield).toHaveBeenLastCalledWith(false);
   });
 
+  test('a document-level terminator lowers the shields when the source\'s dragend is lost', async () => {
+    // HTML5 delivers dragend only to the drag's SOURCE element; a rail entry
+    // removed mid-drag (SSE hide_panel / arrange prune) can never fire it, and
+    // during a native drag mouseup/pointerup are suppressed. Without a
+    // document-level fallback the shields stay up forever and every panel
+    // iframe is left pointer-events:none — the "frozen workspace" bug.
+    const api = makeApi();
+    const { mod, container } = await wire(api);
+    mod.railDragStart('ariel', fakeDT());
+    expect(container.classList.contains('dock-dragging')).toBe(true);
+
+    // The source button was removed; the user's next gesture reaches document.
+    document.dispatchEvent(new Event('mouseup'));
+
+    expect(container.classList.contains('dock-dragging')).toBe(false);
+    expect(setIframePointerShield).toHaveBeenLastCalledWith(false);
+  });
+
+  test('terminator listeners disarm after firing — a later gesture cannot re-lower mid-drag', async () => {
+    const api = makeApi();
+    const { mod, container } = await wire(api);
+
+    // First drag ends via the failsafe.
+    mod.railDragStart('ariel', fakeDT());
+    document.dispatchEvent(new Event('mouseup'));
+    expect(container.classList.contains('dock-dragging')).toBe(false);
+
+    // Second drag: the stale listeners must be gone, so the shield stays up
+    // until this drag's own terminator.
+    mod.railDragStart('okf', fakeDT());
+    expect(container.classList.contains('dock-dragging')).toBe(true);
+    document.dispatchEvent(new Event('dragend'));
+    expect(container.classList.contains('dock-dragging')).toBe(false);
+  });
+
+  test('railDragEnd also disarms the failsafe (normal completion path)', async () => {
+    const api = makeApi();
+    const { mod, container } = await wire(api);
+    mod.railDragStart('ariel', fakeDT());
+    mod.railDragEnd();
+    expect(container.classList.contains('dock-dragging')).toBe(false);
+    setIframePointerShield.mockClear();
+
+    // No armed listener may fire later and fight a dockview-owned gesture.
+    document.dispatchEvent(new Event('mouseup'));
+    expect(setIframePointerShield).not.toHaveBeenCalled();
+  });
+
   test('cancels in simple mode (locked layout)', async () => {
     const api = makeApi();
     const { mod, container } = await wire(api);

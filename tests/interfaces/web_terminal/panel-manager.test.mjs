@@ -1373,3 +1373,96 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
     expect(posts(calls)).toEqual([]);
   });
 });
+
+describe('SSE reconnect resync — membership re-converges from /api/panels', () => {
+  /**
+   * Boot against a MUTABLE server state and an EventSource stub whose
+   * `open()` drives the onopen handler — the reconnect seam. SSE has no
+   * replay, so a frame published while a client was disconnected is simply
+   * gone; on every open panel-manager must re-fetch /api/panels and apply
+   * the authoritative visible set as a delta.
+   */
+  async function bootResync() {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    const server = { visible: ['artifacts', 'ariel'] };
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: ['artifacts', 'ariel'],
+          custom: [],
+          default: null,
+          visible: [...server.visible],
+          active: null,
+          labels: {},
+        });
+      }
+      if (url === '/api/artifact-server') {
+        return jsonOk({ url: '/panel/artifacts', available: true });
+      }
+      if (url === '/api/ariel-server') {
+        return jsonOk({ url: '/panel/ariel', available: true });
+      }
+      return jsonOk({ status: 'ok' });
+    }));
+
+    /** @type {{ onopen?: (() => void) | null }[]} */
+    const sources = [];
+    class FakeEventSource {
+      constructor() {
+        /** @type {(() => void) | null} */
+        this.onopen = null;
+        sources.push(this);
+      }
+      close() {}
+    }
+    vi.stubGlobal('EventSource', FakeEventSource);
+
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+    return { mod, server, open: () => { for (const s of sources) s.onopen?.(); } };
+  }
+
+  /** @param {string} id */
+  const entry = (id) => document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`);
+
+  test('a hide missed while disconnected is applied on reconnect', async () => {
+    const { mod, server, open } = await bootResync();
+    expect(entry('ariel')).not.toBeNull();
+
+    // The agent hid ariel while this client's SSE stream was down: the
+    // panel_visibility frame never arrived. The stream then reconnects.
+    server.visible = ['artifacts'];
+    open();
+
+    await vi.waitFor(() => expect(entry('ariel')).toBeNull());
+    expect(mod.getHiddenPanels().map((p) => p.id)).toContain('ariel');
+  });
+
+  test('a show missed while disconnected is applied on reconnect', async () => {
+    const { server, open } = await bootResync();
+    server.visible = ['artifacts'];
+    open();
+    await vi.waitFor(() => expect(entry('ariel')).toBeNull());
+
+    server.visible = ['artifacts', 'ariel'];
+    open();
+
+    await vi.waitFor(() => expect(entry('ariel')).not.toBeNull());
+  });
+
+  test('an in-sync reconnect changes nothing', async () => {
+    const { open } = await bootResync();
+    const before = [...document.querySelectorAll('.panel-rail-button')].map(
+      (b) => b.getAttribute('data-panel-id'),
+    );
+
+    open();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const after = [...document.querySelectorAll('.panel-rail-button')].map(
+      (b) => b.getAttribute('data-panel-id'),
+    );
+    expect(after).toEqual(before);
+  });
+});
