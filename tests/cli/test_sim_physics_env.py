@@ -298,7 +298,11 @@ class TestPromptAbort:
         project = _make_project(tmp_path, ariel=True)
 
         with self._stub_purge_info(), patch("osprey.simulation.apply.apply_scenarios") as mock:
-            mock.return_value = SimpleNamespace(active=["nominal", "corr-fault"], logbook_seeded=3)
+            # ``archiver=None``: this project declares no stored archive, so the
+            # rewrite has nothing to do and raises no second prompt.
+            mock.return_value = SimpleNamespace(
+                active=["nominal", "corr-fault"], logbook_seeded=3, archiver=None
+            )
             result = _apply(project, monkeypatch, "corr-fault", input="y\n")
 
         assert result.exit_code == 0, result.output

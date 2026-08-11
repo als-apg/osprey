@@ -16,6 +16,19 @@ legitimate — but the divergence is logged at WARNING.
 
 Both directions are covered here, plus the template that no longer ships the
 third copy of the path.
+
+A note on the virtual-accelerator cases below, which would otherwise read as
+contradicting the honesty rule: pairing a ``virtual_accelerator`` control system
+with the mock archiver is now refused at build, at deploy and at MCP startup
+(see :mod:`osprey.connectors.honesty`), so no deployment can reach that
+configuration. These tests still exercise it, and legitimately — they construct
+the connector directly, below the level where any of those three refusals live,
+to pin the *resolution* rule: given a mock archiver and a VA-typed control
+system, the simulation file resolves through the VA's own config key rather than
+the mock's. That resolution has to stay correct because the type-aware lookup is
+shared with the ``sim`` CLI and with projects whose control system is a VA while
+some *other* archiver is selected. What is forbidden is deploying the pairing,
+not computing what it would resolve to.
 """
 
 from __future__ import annotations

@@ -44,9 +44,16 @@ This application demonstrates production-validated patterns for building AI assi
   Channel Access with live storage-ring physics (corrector setpoints move BPM
   readbacks). **Requires the VA service** — add `virtual_accelerator` to
   `deployed_services` in `config.yml`, run `osprey deploy up`, then
-  `osprey config set-control-system virtual_accelerator`. See the
-  "Use the Virtual Accelerator" how-to guide for scenarios, limits, and the
-  archiver live-vs-history note.
+  `osprey config set-control-system virtual_accelerator`.
+
+  That last command **also requires a real archive**, and is refused while the
+  project still reads the `mock_archiver`: a simulated machine whose history is
+  synthesized at read time reports a past that never happened. Point
+  `archiver.type` at a store this deployment writes first — the way to get one
+  is a `va_archiver:` block in the build profile, which makes `osprey deploy up`
+  stand up a store and a recorder beside the VA and seed the history. See the
+  "Use the Virtual Accelerator" how-to guide for the archive, scenarios and
+  limits.
 - **`epics`** — production EPICS via the facility gateway.
 
 ---

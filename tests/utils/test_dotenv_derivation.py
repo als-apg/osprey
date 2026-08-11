@@ -401,3 +401,39 @@ class TestKeyClassEnumerations:
 
         minted = {var for vars_ in _SERVICE_TOKEN_VARS.values() for var in vars_}
         assert minted <= RUNTIME_WRITER_KEYS
+
+    def test_runtime_writer_keys_hold_nothing_beyond_the_three_writers(self):
+        """The drift guard in the other direction: no key without an owner.
+
+        The subset checks above catch a writer whose key was never enumerated
+        here. They cannot catch the reverse — a name added to the duplicated
+        enumeration that no writer actually produces, which quietly promotes an
+        ordinary rendered key into one an existing project value always wins
+        over. The three groups the enumeration's own comments claim are the
+        whole of it, so assert exactly that.
+        """
+        from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS
+        from osprey.services.bluesky_bridge.substrate_devices import (
+            DETECTORS_ENV,
+            MOTORS_ENV,
+            SUBSTRATE_ENV,
+        )
+        from osprey.simulation.apply import _PHYSICS_ENV_VARS
+
+        owned = (
+            set(_PHYSICS_ENV_VARS)
+            | {SUBSTRATE_ENV, MOTORS_ENV, DETECTORS_ENV}
+            | {var for vars_ in _SERVICE_TOKEN_VARS.values() for var in vars_}
+        )
+        assert RUNTIME_WRITER_KEYS == owned
+
+    def test_the_minted_archiver_password_is_runtime_written(self):
+        """MONGO_ROOT_PASSWORD is pinned by the volume that adopted it.
+
+        Named explicitly rather than left to the set check above because what
+        the archiver's Mongo volume holds is not reproducible at all: a rebuild
+        that re-derived this key from the profile would mint a value the
+        existing volume rejects, and recovering means discarding every seeded
+        and recorded sample in it.
+        """
+        assert "MONGO_ROOT_PASSWORD" in RUNTIME_WRITER_KEYS

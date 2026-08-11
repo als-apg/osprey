@@ -23,6 +23,7 @@ from typing import Any
 
 from osprey.connectors.archiver.base import ArchiverConnector
 from osprey.connectors.control_system.base import ControlSystemConnector
+from osprey.errors import ConfigurationError
 
 logger = logging.getLogger("osprey.mcp_server.control_system.server_context")
 
@@ -114,7 +115,9 @@ class ControlSystemContext:
             connector_type="archiver",
         )
 
-        # 4. Validate config (warnings, not fatal)
+        # 4. Validate config: warnings for the misconfigurations a tool can
+        #    still work around, and one hard refusal for the pairing no tool can
+        #    (see _validate).
         self._validate()
 
         self._initialized = True
@@ -210,7 +213,25 @@ class ControlSystemContext:
         register_builtin_connectors()
 
     def _validate(self) -> None:
-        """Emit warnings for common misconfigurations."""
+        """Warn about common misconfigurations, and refuse the one that lies.
+
+        Warnings for the rest: an unknown connector type still produces a server
+        whose other tools work, and a missing section is often a project mid-edit.
+
+        The exception is a virtual accelerator paired with the mock archiver.
+        Every tool in this server would answer, and the archiver's answers would
+        be invented — so the failure is not visible in any single call, only in
+        the agent's account of a machine it is also reading live. This is the
+        honesty rule's runtime site: it catches a ``config.yml`` hand-edited into
+        the pairing long after the build refused to write it.
+
+        Raises:
+            ConfigurationError: If ``config.yml`` pairs a virtual accelerator
+                with the mock archiver (an unset ``archiver.type`` included —
+                the factory resolves it to the mock).
+        """
+        self._refuse_invented_history()
+
         from osprey.connectors.factory import ConnectorFactory
 
         cs = self.config.control_system
@@ -230,6 +251,36 @@ class ControlSystemContext:
             known_arch = set(ConnectorFactory.list_archivers())
             if arch_type and arch_type not in known_arch and "." not in arch_type:
                 logger.warning("Unknown archiver.type: %s (registered: %s)", arch_type, known_arch)
+
+    def _refuse_invented_history(self) -> None:
+        """Abort startup on a virtual accelerator with a synthesizing archiver.
+
+        Judged by :func:`~osprey.connectors.honesty.pairing_in_rendered_config`,
+        which resolves both keys through *nested sections only* — exactly as
+        :attr:`MCPServerConfig.control_system` and :attr:`MCPServerConfig.archiver`
+        do a few lines above, and exactly as the factory then reads what they
+        hand it. A guard that resolved a config differently from the reader it
+        guards would not be a guard; the divergence would be the way through.
+        """
+        from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+        from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, VIRTUAL_ACCELERATOR
+
+        pairing = pairing_in_rendered_config(self.config.raw)
+        if not pairing.is_invented_history:
+            return
+
+        raise ConfigurationError(
+            f"Refusing to start: {self.config.config_path} pairs control_system.type "
+            f"{VIRTUAL_ACCELERATOR!r} with archiver.type "
+            f"{pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY} "
+            f"Under this file's `archiver:` section, set `type:` to a connector that "
+            f"reads a store this deployment actually writes (a project built from the "
+            f"control-assistant preset deploys one, and its type reads "
+            f"{MONGODB_ARCHIVER!r}); or, if this deployment is meant to be a "
+            f"simulation nothing is real in, set the `type:` under `control_system:` "
+            f"to {MOCK!r} — a mock machine with a mock archive claims nothing it "
+            f"cannot back up."
+        )
 
     async def shutdown(self) -> None:
         """Disconnect all connectors. Called on server shutdown."""

@@ -117,6 +117,25 @@ virtual_accelerator:
   # connector that talks to it.
   port: 5064
 
+# ── Stored archive for the simulated machine ─────────────────────────────────
+# A facility that deploys the VA must also say where that machine's history
+# lives: pairing a simulated machine with the synthesizing mock archiver is
+# refused at build, at deploy, and at MCP startup. This block is the answer —
+# it renders a MongoDB store and an archiver-recorder beside the soft-IOC,
+# seeds the store on first deploy, and derives the connector's connection keys.
+# Selecting it as the deployment's archiver is a separate line, under `config:`.
+va_archiver:
+  host: localhost      # where the agent reaches the store this project deploys
+  retention_days: 30   # how far back the archive reaches
+  hot_span_hours: 48   # how much of it is kept at the dense cadence
+  # The channel `osprey health` reads to decide whether the archive is still
+  # being written, as opposed to merely reachable. The stored-beam current is
+  # this facility's canary: it is the first thing to stop moving when the
+  # machine does. Naming it here is what derives the `archiver_freshness`
+  # check — including its staleness threshold, which follows the recorder's
+  # cadence rather than being a second number to keep in step.
+  freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
+
 # ── Facility-owned compose services ──────────────────────────────────────────
 # One entry per directory under `services/`. `template:` is profile-relative
 # (or `osprey.<name>` for a packaged one); everything under `config:` is
@@ -138,6 +157,11 @@ config:
   # live machine would. Use "epics" once the connector points at real hardware,
   # or "mock" for a browse-only stack that touches nothing.
   control_system.type: virtual_accelerator
+  # Selects the archive the `va_archiver:` block above declares. A separate
+  # decision from declaring where the archive lives — the block never flips this
+  # key out from under a facility that set it — and a required one here: a
+  # virtual accelerator left on the mock archiver is refused.
+  archiver.type: mongodb_archiver
   # The system-health MCP server is off-by-default in the framework registry
   # (default_enabled=False); opt in so operators can run read-only stack checks.
   claude_code.servers.health.enabled: true
@@ -148,8 +172,13 @@ config:
   # Exactly the three services this facility runs. Set explicitly because the
   # packaged control_assistant skeleton also declares `postgresql` — declared
   # is not deployed, and this list is what `osprey deploy up` reads.
-  # `virtual_accelerator` and `facility-mcp` are appended by their injectors
-  # above; naming openobserve here is what keeps postgresql out.
+  #
+  # Only `openobserve` is named here. Four more are appended by the injectors
+  # their blocks above trigger — `facility-mcp` and `virtual_accelerator`, plus
+  # `mongodb` and `archiver_recorder` from the `va_archiver:` block — so this
+  # facility deploys five services in total. Naming openobserve here is what
+  # keeps postgresql out: it is declared by the packaged skeleton but nothing
+  # this facility runs needs it.
   deployed_services:
     - openobserve
   # Container-name prefix for the web stack: names are `<prefix>-nginx` /

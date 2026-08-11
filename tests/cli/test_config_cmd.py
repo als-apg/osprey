@@ -190,6 +190,96 @@ class TestConfigSetControlSystemCommand:
         assert "invalid" in result.output.lower() or "choice" in result.output.lower()
 
 
+STORELESS_PROJECT = "control_system:\n  type: mock\n\narchiver:\n  type: mock_archiver\n"
+ARCHIVED_PROJECT = (
+    "control_system:\n  type: mock\n\narchiver:\n  type: mongodb_archiver\n"
+    "  mongodb_archiver:\n    host: localhost\n"
+)
+NO_ARCHIVER_SECTION = "control_system:\n  type: mock\n"
+
+
+class TestSetControlSystemRefusesAMockPast:
+    """The command may not switch a project onto a machine whose past is fiction.
+
+    Switching to the virtual accelerator changes one key, and the archiver keeps
+    whatever it was — so this command can *create* the pairing the build, the
+    deploy and the MCP server all refuse. It asks the same question they do,
+    before the write rather than after, and refuses rather than prompting: it is
+    non-interactive and runs in scripts.
+    """
+
+    def _run(self, cli_runner, tmp_path, contents, system_type):
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(contents)
+
+        with patch("osprey.cli.project_utils.resolve_config_path") as mock_resolve:
+            mock_resolve.return_value = str(config_file)
+            result = cli_runner.invoke(set_control_system, [system_type])
+
+        return result, config_file.read_text()
+
+    def test_va_onto_a_mock_archiver_is_refused(self, cli_runner, tmp_path):
+        result, after = self._run(cli_runner, tmp_path, STORELESS_PROJECT, "virtual_accelerator")
+
+        assert result.exit_code != 0
+        assert after == STORELESS_PROJECT, "a refused switch must not write anything"
+
+    def test_va_with_no_archiver_section_is_refused(self, cli_runner, tmp_path):
+        """Unset counts as mock — the common way into the pairing is naming nothing."""
+        result, after = self._run(cli_runner, tmp_path, NO_ARCHIVER_SECTION, "virtual_accelerator")
+
+        assert result.exit_code != 0
+        assert after == NO_ARCHIVER_SECTION
+
+    def test_refusal_names_a_fix(self, cli_runner, tmp_path):
+        """A refusal that does not say what to do instead is just an obstacle."""
+        result, _ = self._run(cli_runner, tmp_path, STORELESS_PROJECT, "virtual_accelerator")
+
+        # Rich wraps the console output, so match on fragments that survive a
+        # line break falling anywhere inside the message.
+        output = " ".join(result.output.split())
+        assert "mongodb_archiver" in output
+        assert "archiver:" in output
+        assert "set-control-system" in output, "the menu that writes the keys is the fix"
+        assert "reports a past that never happened" in output, "the shared reason"
+
+    def test_refusal_is_not_followed_by_a_generic_error(self, cli_runner, tmp_path):
+        """The message is complete; nothing appends a second, emptier line."""
+        result, _ = self._run(cli_runner, tmp_path, STORELESS_PROJECT, "virtual_accelerator")
+
+        assert "Failed to update control system" not in result.output
+
+    def test_va_onto_a_real_archive_goes_through(self, cli_runner, tmp_path):
+        result, after = self._run(cli_runner, tmp_path, ARCHIVED_PROJECT, "virtual_accelerator")
+
+        assert result.exit_code == 0
+        assert "type: virtual_accelerator" in after
+        assert "type: mongodb_archiver" in after
+
+    def test_epics_onto_a_mock_archiver_goes_through(self, cli_runner, tmp_path):
+        """Only the simulated machine is affected. A real machine with no archive
+        attached yet is a real facility mid-migration, and it stays legal."""
+        result, after = self._run(cli_runner, tmp_path, STORELESS_PROJECT, "epics")
+
+        assert result.exit_code == 0
+        assert "type: epics" in after
+        assert "type: mock_archiver" in after
+
+    def test_mock_onto_a_mock_archiver_goes_through(self, cli_runner, tmp_path):
+        """A mock machine with a mock archive claims nothing it cannot back up."""
+        result, after = self._run(cli_runner, tmp_path, STORELESS_PROJECT, "mock")
+
+        assert result.exit_code == 0
+        assert "type: mock_archiver" in after
+
+    def test_case_insensitive_spelling_is_refused_too(self, cli_runner, tmp_path):
+        """Click accepts the type case-insensitively; the guard sees the same value."""
+        result, after = self._run(cli_runner, tmp_path, STORELESS_PROJECT, "VIRTUAL_ACCELERATOR")
+
+        assert result.exit_code != 0
+        assert after == STORELESS_PROJECT
+
+
 class TestConfigSetEpicsGatewayCommand:
     """Test config set-epics-gateway subcommand."""
 

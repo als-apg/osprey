@@ -1,6 +1,6 @@
 """The ``BuildProfile`` dataclass — the parsed shape of a profile and its validator.
 
-Holds the 34 profile fields, the paradigm-aware tier default, and the
+Holds the 37 profile fields, the paradigm-aware tier default, and the
 consistency checks a profile must pass before a build touches disk. Kept
 separate from the YAML loader so the shape and its rules can be imported (and
 constructed in tests) without pulling in preset resolution or ``extends``
@@ -25,6 +25,11 @@ from osprey.build.build_tiers import (
 from osprey.errors import BuildProfileError
 from osprey.profiles.web_panels import BUILTIN_PANELS
 
+from .build_profile_archiver import (
+    VAArchiverConfig,
+    va_archiver_errors,
+    va_mock_archiver_errors,
+)
 from .build_profile_deploy import DeployConfig
 from .build_profile_presets import _triggers_dir
 from .build_profile_schema import (
@@ -156,6 +161,16 @@ class BuildProfile:
     bluesky_panels: BlueskyPanelsConfig | None = None
     nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
     gchat_bridge: GChatBridgeProfileConfig | None = None
+    va_archiver: VAArchiverConfig | None = None
+    """The stored archive a simulated deployment keeps its history in
+    (``va_archiver:``).
+
+    ``None`` for a profile that declares none — history then comes from
+    whatever archiver ``config:`` selects, including the synthesizing mock. When
+    present, the block carries every knob the store's shape depends on and the
+    build derives the connector's connection keys from it (see
+    :mod:`osprey.cli.build_profile_archiver`).
+    """
     provenance: ProfileProvenance | None = None
     """What ``osprey profile new`` materialized this profile from (``provenance:``).
 
@@ -683,6 +698,17 @@ class BuildProfile:
             sp = self.bluesky_panels
             if not (1 <= sp.port <= 65535):
                 errors.append(f"bluesky_panels.port must be in 1..65535 (got {sp.port})")
+
+        # Validate the archiver store's knobs, and its agreement with the rest
+        # of the profile — see va_archiver_errors for why the rules live beside
+        # the block but are reported from here.
+        errors.extend(va_archiver_errors(self.va_archiver, self.config, bool(self.deploy_services)))
+
+        # The honesty rule's build-time site: a simulated machine may not be
+        # paired with an archiver that invents its history. Checked against the
+        # resolved `config:` rather than the block, because a profile can reach
+        # the pairing by declaring no block at all — which is the common way in.
+        errors.extend(va_mock_archiver_errors(self.config))
 
         # Validate the chat bridges — same checks per channel, see _validate_chat_bridge.
         if self.nextcloud_bridge is not None:

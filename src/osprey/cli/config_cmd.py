@@ -302,6 +302,72 @@ def export(output: str, format: str):
         raise click.Abort() from None
 
 
+def _refuse_invented_history(config_path: Path, control_type: str) -> None:
+    """Refuse a switch that would leave a simulated machine a mock past.
+
+    This command changes one key, so the config it would produce is this file
+    with ``control_system.type`` replaced — and that projection is what gets
+    judged, by the same function the deploy and the MCP server judge a rendered
+    config with. Asking the question before the write rather than after is the
+    whole point: the pairing they refuse is one this command can *create*, by
+    switching a project onto a simulated machine while its archiver stays the
+    one that invents history.
+
+    Only the virtual accelerator is affected. Switching to EPICS or mock is
+    never this problem — a mock machine with a mock archive claims nothing, and
+    a real machine with no archive attached yet is a real facility's real state.
+
+    Refuses rather than prompting for an archiver: this command is
+    non-interactive and runs in scripts, where a prompt has nobody to answer it.
+    The interactive menu is where an archiver gets chosen, and the message says
+    so.
+
+    Args:
+        config_path: The project's ``config.yml``.
+        control_type: The type about to be written, already lower-cased.
+
+    Raises:
+        click.Abort: If the resulting config would pair a virtual accelerator
+            with an archiver that synthesizes its history — an unset
+            ``archiver.type`` included.
+    """
+    from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+    from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, VIRTUAL_ACCELERATOR
+    from osprey.utils.config_writer import config_read
+
+    if control_type != VIRTUAL_ACCELERATOR:
+        return
+
+    projected = config_read(config_path)
+    control_system = projected.get("control_system")
+    if not isinstance(control_system, dict):
+        control_system = {}
+        projected["control_system"] = control_system
+    control_system["type"] = control_type
+
+    pairing = pairing_in_rendered_config(projected)
+    if not pairing.is_invented_history:
+        return
+
+    console.print(
+        f"❌ Refusing the switch: it would pair control_system.type "
+        f"{VIRTUAL_ACCELERATOR!r} with archiver.type {pairing.archiver_phrase}",
+        style=Styles.ERROR,
+    )
+    console.print(f"\n   {VA_MOCK_ARCHIVER_WHY}", style=Styles.DIM)
+    console.print(
+        f"\n💡 Give the project a real archive first, then switch: under this file's "
+        f"`archiver:` section set `type:` to a connector reading a store this "
+        f"deployment writes — {MONGODB_ARCHIVER!r} for the store a project built "
+        f"from the control-assistant preset deploys, with its connection keys under "
+        f"`archiver: {MONGODB_ARCHIVER}:`. The interactive menu (run `osprey`, then "
+        f"config → set-control-system) writes those keys along with the selection. "
+        f"To keep an honestly storeless project, stay on {MOCK!r}.",
+        style=Styles.DIM,
+    )
+    raise click.Abort()
+
+
 @config.command(name="set-control-system")
 @click.argument(
     "system_type",
@@ -321,6 +387,10 @@ def set_control_system(system_type: str, project: str):
 
     Note: Pattern detection is control-system-agnostic (same for all types).
     This setting only affects which connector is loaded at runtime.
+
+    Note: Switching to virtual_accelerator is refused while the project still
+    reads the mock archiver, which invents history rather than storing it. Point
+    archiver.type at a real store first.
 
     Requires: Must be run from a project directory containing config.yml
 
@@ -363,6 +433,8 @@ def set_control_system(system_type: str, project: str):
             )
             raise click.Abort() from None
 
+        _refuse_invented_history(config_path, system_type.lower())
+
         new_content, preview = set_control_system_type(config_path, system_type.lower())
         # Use UTF-8 encoding explicitly to support Unicode characters on Windows
         config_path.write_text(new_content, encoding="utf-8")
@@ -371,6 +443,11 @@ def set_control_system(system_type: str, project: str):
         console.print(f"   Configuration: {config_path}", style=Styles.DIM)
         _regen_claude_artifacts(config_path.parent)
 
+    except click.Abort:
+        # The aborts above have already said what went wrong and how to fix it;
+        # letting them fall into the handler below would append a second,
+        # emptier error line to a message that was complete.
+        raise
     except Exception as e:
         console.print(f"❌ Failed to update control system: {e}", style=Styles.ERROR)
         raise click.Abort() from None

@@ -191,10 +191,26 @@ keys:
 
   # ── Archiver ────────────────────────────────────────────────────────
   archiver: {evidence: 'get_config_value\("archiver", \{\}\)'}
-  archiver.type: {evidence: 'mock_archiver'}
+  # Evidenced by the factory's own diagnostic for an unset type, not by the name
+  # of whichever connector happens to be the default. The literal 'mock_archiver'
+  # used to serve here and stopped describing the key the moment the
+  # control-assistant default became mongodb_archiver — a matcher that tracks a
+  # default is a matcher that goes quiet on the change it should have caught.
+  archiver.type: {evidence: 'archiver\.type is not set'}
   archiver.epics_archiver: {evidence: 'epics_archiver'}
   archiver.epics_archiver.url: {covered-by: archiver.epics_archiver}
   archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver}
+  # The stored archive's connection block, rendered by the control_assistant
+  # template and written from the profile's `va_archiver:` block at build time.
+  archiver.mongodb_archiver: {evidence: 'mongodb_archiver'}
+  archiver.mongodb_archiver.host: {covered-by: archiver.mongodb_archiver}
+  archiver.mongodb_archiver.port: {covered-by: archiver.mongodb_archiver}
+  archiver.mongodb_archiver.name: {covered-by: archiver.mongodb_archiver}
+  archiver.mongodb_archiver.collection: {covered-by: archiver.mongodb_archiver}
+  archiver.mongodb_archiver.auth: {covered-by: archiver.mongodb_archiver}
+  archiver.mongodb_archiver.username: {covered-by: archiver.mongodb_archiver}
+  archiver.mongodb_archiver.password_env: {covered-by: archiver.mongodb_archiver}
+  archiver.mongodb_archiver.timeout: {covered-by: archiver.mongodb_archiver}
 
   # ── Execution ───────────────────────────────────────────────────────
   execution: {evidence: 'execution = config\.get\("execution"\) if isinstance\(config, dict\) else None'}
@@ -587,7 +603,12 @@ orphan_sites:
       why: the deleted top-level config block in the templates — a genuine, fireable site
   api.providers.ollama.host:
     - root: src/osprey/templates
-      regex: '^\s+host:\s*localhost'
+      # Anchored on the base_url line that preceded it, not on `host: localhost`
+      # alone. Bare, it claimed every indented `host: localhost` in every
+      # template — so the first unrelated block to use that ordinary default
+      # (the archiver's stored-connection block) read as the deleted ollama key
+      # coming back. An orphan regex has to name the site it is proving gone.
+      regex: '\$\{OLLAMA_HOST[^\n]*\n\s+host:\s*localhost'
       why: the deleted ollama host/port pair (replaced by a single base_url)
   api.providers.ollama.port:
     - root: src/osprey/templates

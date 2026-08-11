@@ -38,6 +38,7 @@ logger = get_logger("deployment.host_ports")
 # catalog sidecar, whose host port lives under the bluesky service's config.
 _SERVICE_REMEDY_KEYS = {
     "postgresql": "services.postgresql.port_host",
+    "mongodb": "services.mongodb.port_host",
     "openobserve": "services.openobserve.port",
     "event-dispatcher": "services.event_dispatcher.port",
     "bluesky-bridge": "services.bluesky.port",

@@ -21,7 +21,17 @@ from osprey.cli.deploy_cmd import deploy
 #: options it acts on and no others, so that a misapplied flag (``up
 #: --dry-run``) is a parse error instead of a silent no-op.
 VERB_OPTIONS = {
-    "up": {"--project", "-p", "--config", "-c", "--detached", "-d", "--dev", "--expose"},
+    "up": {
+        "--project",
+        "-p",
+        "--config",
+        "-c",
+        "--detached",
+        "-d",
+        "--dev",
+        "--expose",
+        "--keep-archiver-base",
+    },
     "down": {"--project", "-p", "--config", "-c", "--dev"},
     "restart": {"--project", "-p", "--config", "-c", "--detached", "-d", "--expose"},
     "status": {"--project", "-p", "--config", "-c"},
@@ -677,7 +687,12 @@ class TestDeployLegacySpellings:
         assert Path.cwd() == project_dir.resolve()
         (config_path,), kwargs = mock_deploy_up.call_args
         assert Path(config_path) == project_dir.resolve() / "config.yml"
-        assert kwargs == {"detached": True, "dev_mode": False, "expose_network": False}
+        assert kwargs == {
+            "detached": True,
+            "dev_mode": False,
+            "expose_network": False,
+            "keep_archiver_base": False,
+        }
 
     def test_relative_project_resolves_against_the_callers_directory(
         self, cli_runner, tmp_path, monkeypatch
@@ -718,7 +733,12 @@ class TestDeployLegacySpellings:
         assert result.exit_code == 0
         (config_path,), kwargs = mock_deploy_up.call_args
         assert Path(config_path) == custom_config
-        assert kwargs == {"detached": False, "dev_mode": True, "expose_network": True}
+        assert kwargs == {
+            "detached": False,
+            "dev_mode": True,
+            "expose_network": True,
+            "keep_archiver_base": False,
+        }
 
     @pytest.mark.parametrize(
         ("argv", "target", "expected_kwargs"),

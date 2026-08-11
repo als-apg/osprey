@@ -10,6 +10,7 @@ import subprocess
 import sys
 from importlib.util import find_spec
 from pathlib import Path
+from typing import Any
 
 from osprey.cli.styles import (
     Messages,
@@ -17,6 +18,7 @@ from osprey.cli.styles import (
     get_questionary_style,
 )
 from osprey.connectors import types
+from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY
 
 try:
     import questionary
@@ -41,23 +43,70 @@ def mongodb_archiver_available() -> bool:
     return find_spec("pymongo") is not None
 
 
-def build_archiver_choices() -> list:
-    """Build the wizard's archiver choices, gating MongoDB on its extra.
+def build_archiver_choices(control_type: str | None = None) -> list:
+    """Build the wizard's archiver choices for *control_type*.
 
     MongoDB stays visible when the extra is missing but is disabled and
     annotated with the install command, so the wizard cannot write an
     ``archiver.type`` the installed environment can't construct.
+
+    The mock archiver is offered for every control system except the virtual
+    accelerator. That one pairing is refused by the build, by the deploy and by
+    the MCP server alike (see :mod:`osprey.connectors.honesty`), so listing it
+    here would only be a trap: an option that writes a config nothing will run.
+    EPICS keeps it — a facility mid-migration legitimately reads a real machine
+    with no archive attached yet.
     """
     mongodb_available = mongodb_archiver_available()
-    return [
+    choices = [
         Choice("EPICS Archiver Appliance", value=types.EPICS_ARCHIVER),
         Choice(
             "MongoDB",
             value=types.MONGODB_ARCHIVER,
             disabled=None if mongodb_available else MONGODB_UNAVAILABLE_HINT,
         ),
-        Choice("Mock archiver (keep)", value=types.MOCK_ARCHIVER),
     ]
+    if control_type != types.VIRTUAL_ACCELERATOR:
+        choices.append(Choice("Mock archiver (keep)", value=types.MOCK_ARCHIVER))
+    return choices
+
+
+def _is_invented_history(archiver_type: str | None) -> bool:
+    """Whether *archiver_type* selects the archiver that synthesizes its answers.
+
+    Resolved through the connector factory's own resolver rather than compared
+    by name, so a blank or unset selection counts as the mock here exactly as it
+    does at the three sites that refuse it.
+    """
+    return types.resolve_archiver_type({"type": archiver_type}) == types.MOCK_ARCHIVER
+
+
+def mongodb_archiver_settings() -> dict[str, Any]:
+    """The connection keys a MongoDB archiver selection has to write with it.
+
+    Selecting the archiver *type* alone leaves a config the connector refuses
+    to build — host, database, collection, credentials and timeout are all
+    required and none of them default. The values come from the same block the
+    build derives them from (``va_archiver:``), so a store the wizard points at
+    and a store the build deploys are described identically rather than by two
+    hand-maintained copies free to disagree.
+
+    Returns:
+        Dotted ``archiver.mongodb_archiver.*`` keys, ready for
+        :func:`~osprey.utils.config_writer.set_control_system_type`.
+    """
+    from osprey.cli.build_profile_archiver import (
+        CONNECTION_CONFIG_PREFIX,
+        VAArchiverConfig,
+        va_archiver_config_overrides,
+    )
+
+    overrides = va_archiver_config_overrides(VAArchiverConfig())
+    return {
+        key: value
+        for key, value in overrides.items()
+        if key.startswith(f"{CONNECTION_CONFIG_PREFIX}.")
+    }
 
 
 def handle_project_selection(project_path: Path):
@@ -549,9 +598,30 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
             console.print(f"[dim]MongoDB archiver unavailable — {MONGODB_UNAVAILABLE_HINT}[/dim]\n")
         archiver_type = questionary.select(
             "Which archiver?",
-            choices=build_archiver_choices(),
+            choices=build_archiver_choices(control_type),
             style=custom_style,
         ).ask()
+        if archiver_type is None:
+            # Backing out of the archiver prompt leaves the control system
+            # alone too: writing half the pair is how a project acquires a
+            # combination nobody chose.
+            console.print(f"\n{Messages.warning('No archiver selected — nothing changed')}")
+            input("\nPress ENTER to continue...")
+            return
+        if control_type == types.VIRTUAL_ACCELERATOR and _is_invented_history(archiver_type):
+            # The choice list does not offer this pairing; this refuses it for
+            # the paths that do not go through the list, so the wizard cannot
+            # author what the build, the deploy and the MCP server all refuse.
+            console.print(
+                f"\n{Messages.error('Refusing to write a simulated machine a mock past')}"
+            )
+            console.print(f"\n[dim]{VA_MOCK_ARCHIVER_WHY}[/dim]")
+            console.print(
+                "\n[dim]Select the MongoDB archiver — 'osprey deploy up' stands the store "
+                "up beside the accelerator — or keep the current control system.[/dim]"
+            )
+            input("\nPress ENTER to continue...")
+            return
     elif control_type == types.DOOCS:
         # The DOOCS archiver reads DOOCS local histories, so it is the only
         # archiver that pairs with a DOOCS control system. Offering the
@@ -561,8 +631,15 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     else:
         archiver_type = types.MOCK_ARCHIVER
 
-    # Update configuration
-    new_content, preview = set_control_system_type(config_path, control_type, archiver_type)
+    # Update configuration. Selecting MongoDB writes the connection block with
+    # it: the connector requires every one of those keys, so a config carrying
+    # only the type is one the archiver refuses to build.
+    archiver_settings = (
+        mongodb_archiver_settings() if archiver_type == types.MONGODB_ARCHIVER else None
+    )
+    new_content, preview = set_control_system_type(
+        config_path, control_type, archiver_type, archiver_settings=archiver_settings
+    )
 
     # Show preview
     console.print("\n" + preview)
