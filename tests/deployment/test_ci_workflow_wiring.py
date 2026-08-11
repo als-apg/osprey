@@ -1937,3 +1937,72 @@ def test_all_checks_passed_needs_scan_agentic__mutation_drops_check_pr_lane_line
     assert SCAN_AGENTIC_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
     with pytest.raises(AssertionError):
         test_all_checks_passed_needs_scan_agentic(mutated)
+
+
+# ---------------------------------------------------------------------------
+# (l) every CLI-dependent lane exposes the SDK's bundled Claude CLI
+# ---------------------------------------------------------------------------
+
+#: Lanes that run tests gated on ``is_claude_code_available()``. That helper
+#: shells ``claude --version`` off PATH, and ``claude-agent-sdk`` ships a
+#: working binary but installs no console script — so on a bare runner the
+#: gated tests skip and the lane greens having executed nothing. Each lane
+#: therefore puts the SDK's bundled CLI on PATH before running pytest.
+CLI_DEPENDENT_JOBS = (
+    "agentic-per-preset",
+    "e2e-tests",
+    "channel-finder-benchmarks",
+    SCAN_AGENTIC_JOB,
+)
+
+BUNDLED_CLI_STEP = "Put the SDK's bundled Claude CLI on PATH"
+
+
+@pytest.mark.parametrize("job_name", CLI_DEPENDENT_JOBS)
+def test_cli_dependent_lane_exposes_the_bundled_claude(
+    job_name: str, workflow: dict[str, Any] | None = None
+) -> None:
+    """A lane running agent tests must make ``claude`` resolvable on PATH.
+
+    Without it the lane is vacuously green: pytest exits 0 having skipped
+    every test that needed an agent. Only ``scan-agentic-e2e`` carries a
+    zero-skip gate to catch that at runtime, so for the other three this
+    guard is the only thing standing between a silent skip and a green
+    check.
+
+    Pinned by content, not just by step name: the step must both resolve the
+    SDK's ``_bundled`` directory and append it to ``GITHUB_PATH``. Appending
+    something else, or resolving without exporting, would leave the skips in
+    place while the step still looked present.
+    """
+    wf = workflow if workflow is not None else _load_workflow()
+    step = _find_named_step(wf, job_name, BUNDLED_CLI_STEP)
+    run = step["run"]
+    assert "_bundled" in run, f"{job_name}: step must resolve the SDK's bundled CLI directory"
+    assert "GITHUB_PATH" in run, f"{job_name}: step must append that directory to GITHUB_PATH"
+
+
+@pytest.mark.parametrize("job_name", CLI_DEPENDENT_JOBS)
+def test_cli_dependent_lane_exposes_the_bundled_claude__mutation_drops_step(job_name: str) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[job_name]["steps"]
+    kept = [s for s in steps if s.get("name") != BUNDLED_CLI_STEP]
+    assert len(kept) == len(steps) - 1, "expected exactly one step dropped"
+    _jobs(mutated)[job_name]["steps"] = kept
+    with pytest.raises(AssertionError):
+        test_cli_dependent_lane_exposes_the_bundled_claude(job_name, mutated)
+
+
+@pytest.mark.parametrize("job_name", CLI_DEPENDENT_JOBS)
+def test_cli_dependent_lane_exposes_the_bundled_claude__mutation_drops_export(
+    job_name: str,
+) -> None:
+    """The quiet half: the step stays and still resolves the directory, but
+    never exports it — so PATH is unchanged and every agent test skips again
+    behind a step whose name says otherwise."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, job_name, BUNDLED_CLI_STEP)
+    step["run"] = "\n".join(line for line in step["run"].splitlines() if "GITHUB_PATH" not in line)
+    assert "_bundled" in step["run"], "the resolve line survives"
+    with pytest.raises(AssertionError):
+        test_cli_dependent_lane_exposes_the_bundled_claude(job_name, mutated)

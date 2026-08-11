@@ -673,6 +673,21 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
+    - name: Put the SDK's bundled Claude CLI on PATH
+      # `claude-agent-sdk` ships a working `claude` binary but installs no
+      # console script, so a fresh runner has none on PATH. The SDK finds its
+      # own bundled copy, but osprey's launcher and health check shell
+      # `claude` off PATH, and every agent test skips when `claude --version`
+      # fails -- a lane that reports green having executed nothing. Exposing
+      # the bundled binary makes the SDK, the product, and the skip guards
+      # agree on one CLI, with no npm install and no SDK/CLI version drift.
+      # Verify before exporting: a missing binary must fail the lane loudly
+      # rather than silently restore the skips this step exists to remove.
+      run: |
+        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
+        "$bundled/claude" --version
+        echo "$bundled" >> "$GITHUB_PATH"
+
     - name: Run Tier 3 agentic test for preset
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
@@ -751,6 +766,16 @@ jobs:
           exit 1
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Put the SDK's bundled Claude CLI on PATH
+      # See the identical step in agentic-per-preset: the SDK bundles a
+      # `claude` binary but installs no console script, so without this the
+      # CLI-gated tests in this lane skip and the lane greens having run only
+      # the tests that need no agent.
+      run: |
+        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
+        "$bundled/claude" --version
+        echo "$bundled" >> "$GITHUB_PATH"
 
     - name: Run E2E tests
       # E2E_FILTER comes from workflow_dispatch `inputs.e2e_filter` and is
@@ -899,6 +924,14 @@ jobs:
           exit 1
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Put the SDK's bundled Claude CLI on PATH
+      # See the identical step in agentic-per-preset: without it the
+      # benchmark module's CLI-gated tests skip and the lane greens empty.
+      run: |
+        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
+        "$bundled/claude" --version
+        echo "$bundled" >> "$GITHUB_PATH"
 
     - name: Run channel-finder MCP benchmarks
       env:
@@ -1460,6 +1493,15 @@ jobs:
           exit 1
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Put the SDK's bundled Claude CLI on PATH
+      # See the identical step in agentic-per-preset. This lane's zero-skip
+      # gate below is what first surfaced the missing CLI: pytest passed
+      # while both live tests skipped on `claude --version`.
+      run: |
+        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
+        "$bundled/claude" --version
+        echo "$bundled" >> "$GITHUB_PATH"
 
     - name: Run scan stack agentic E2E
       env:
