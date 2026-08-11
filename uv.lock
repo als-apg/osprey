@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-08-03T21:34:47.889425Z"
+exclude-newer = "2026-08-04T08:52:16.026376Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -4487,13 +4487,16 @@ sheets = [
     { name = "gspread" },
 ]
 virtual-accelerator = [
+    { name = "aioca" },
     { name = "lume-pva-apg", extra = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "pcaspy", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "pymongo" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "accelerator-toolbox", extras = ["plot"], specifier = ">=0.7.1" },
+    { name = "aioca", marker = "extra == 'virtual-accelerator'", specifier = ">=1.7" },
     { name = "aiofiles", specifier = ">=25.1.0" },
     { name = "aiohttp", specifier = ">=3.10" },
     { name = "aiohttp-socks", specifier = ">=0.8.0" },
@@ -4574,6 +4577,7 @@ requires-dist = [
     { name = "pyepics" },
     { name = "pymongo", marker = "extra == 'all'", specifier = ">=4.17.0" },
     { name = "pymongo", marker = "extra == 'archiver-mongodb'", specifier = ">=4.17.0" },
+    { name = "pymongo", marker = "extra == 'virtual-accelerator'", specifier = ">=4.17.0" },
     { name = "pysocks", marker = "extra == 'all'", specifier = ">=1.7" },
     { name = "pysocks", marker = "extra == 'gchat'", specifier = ">=1.7" },
     { name = "pytest", marker = "extra == 'all'" },

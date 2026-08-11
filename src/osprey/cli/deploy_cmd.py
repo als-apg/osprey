@@ -66,6 +66,11 @@ _expose_option = click.option(
     is_flag=True,
     help="Expose services to all network interfaces (0.0.0.0). WARNING: This exposes services to the network! Only use with proper authentication configured.",
 )
+_keep_archiver_base_option = click.option(
+    "--keep-archiver-base",
+    is_flag=True,
+    help="Keep the existing archiver history even when the profile's retention/cadence knobs no longer match it. Without this, changed knobs rebuild the base series and discard recorded samples.",
+)
 _archive_option = click.option(
     "--archive",
     is_flag=True,
@@ -254,10 +259,24 @@ def deploy() -> None:
 @_detached_option
 @_dev_option
 @_expose_option
-def up(project: str | None, config: str, detached: bool, dev: bool, expose: bool) -> None:
+@_keep_archiver_base_option
+def up(
+    project: str | None,
+    config: str,
+    detached: bool,
+    dev: bool,
+    expose: bool,
+    keep_archiver_base: bool,
+) -> None:
     """Start all configured services."""
     with _deploy_session(project, config) as config_path:
-        deploy_up(config_path, detached=detached, dev_mode=dev, expose_network=expose)
+        deploy_up(
+            config_path,
+            detached=detached,
+            dev_mode=dev,
+            expose_network=expose,
+            keep_archiver_base=keep_archiver_base,
+        )
 
 
 @deploy.command()

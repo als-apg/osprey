@@ -407,8 +407,14 @@ class TestMockArchiverProcessing:
 
 
 class TestMockArchiverProceduralKinds:
-    """Every PV-kind branch of the procedural generator shapes a plausible series:
-    finite, varying, with a mean near the kind's base value — no exact values."""
+    """Every PV-kind branch of the procedural generator reaches the frame.
+
+    The generator's own contract (absolute-time determinism, VA-anchored
+    baselines, per-kind shapes) is covered in
+    ``tests/simulation/test_procedural_generator.py``; what this pins is the
+    connector's half — that a channel the simulation engine does not serve is
+    routed through it and lands in the long frame as a plausible series.
+    """
 
     @pytest.mark.parametrize(
         ("pv_name", "base_value"),
@@ -420,16 +426,25 @@ class TestMockArchiverProceduralKinds:
             ("SOME:RANDOM:PV", 100.0),
         ],
     )
-    def test_each_kind_generates_a_plausible_series(self, pv_name, base_value):
+    @pytest.mark.asyncio
+    async def test_each_kind_generates_a_plausible_series(self, pv_name, base_value):
         connector = MockArchiverConnector()
-        connector._noise_level = 0.01
+        await connector.connect({"noise_level": 0.01})
 
-        values = connector._generate_time_series(pv_name, 200)
+        df = await connector.get_data(
+            pv_list=[pv_name],
+            start_date=datetime(2024, 1, 1, 0, 0, 0),
+            end_date=datetime(2024, 1, 1, 3, 20, 0),
+            precision_ms=60_000,
+        )
+        values = df.loc[df["channel"] == pv_name, "value"].to_numpy()
 
         assert len(values) == 200
         assert np.all(np.isfinite(values))
         assert values.std() > 0, "the series must vary, not sit at the base value"
         assert values.mean() == pytest.approx(base_value, rel=0.5)
+
+        await connector.disconnect()
 
 
 class TestMockArchiverReproducibility:

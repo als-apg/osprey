@@ -8,7 +8,12 @@ import pandas as pd
 import pytest
 
 from osprey.connectors.archiver.base import ArchiverMetadata
-from osprey.connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
+from osprey.connectors.archiver.mongodb_archiver_connector import (
+    HOST_OVERRIDE_ENV,
+    PORT_OVERRIDE_ENV,
+    MongoDBArchiverConnector,
+    address_overrides,
+)
 from osprey.connectors.factory import ConnectorFactory
 
 # xdist_group("docker"): the session ``mongodb_container`` fixture starts a real
@@ -129,15 +134,24 @@ class TestConnectDisconnectLifecycle:
             await connector.connect(config)
 
     @pytest.mark.asyncio
-    async def test_connect_missing_password_env_var_raises_value_error(self, mongodb_config):
-        """Test that connect raises ValueError when password env var is not set."""
+    async def test_connect_unset_password_env_var_raises_connection_error(self, mongodb_config):
+        """An unset password variable is a deployment state, not a config error.
+
+        ``deploy up`` mints the password into the project's ``.env``, so this is
+        exactly what a built-but-never-deployed project hits on its first
+        archiver call. It must raise ConnectionError — that is what reaches the
+        agent as an actionable ``connection_error`` envelope naming the fix,
+        rather than as an opaque internal error.
+        """
         config = mongodb_config.copy()
         config["password_env"] = "NONEXISTENT_ENV_VAR"
 
         connector = MongoDBArchiverConnector()
 
-        with pytest.raises(ValueError, match="Environment variable.*not set"):
+        with pytest.raises(ConnectionError, match="NONEXISTENT_ENV_VAR.*is not set") as exc_info:
             await connector.connect(config)
+
+        assert "osprey deploy up" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_disconnect_clears_state(self, mongodb_config):
@@ -185,8 +199,10 @@ class TestImportErrorHandling:
             with pytest.raises(ImportError) as exc_info:
                 await connector.connect(mongodb_config)
 
+            # Naming the extra, not the bare package: that is how a user of
+            # this framework actually installs the dependency.
             assert "pymongo is required" in str(exc_info.value)
-            assert "pip install pymongo" in str(exc_info.value)
+            assert "osprey-framework[archiver-mongodb]" in str(exc_info.value)
 
 
 @pytest.mark.integration
@@ -382,7 +398,13 @@ class TestMetadataMethods:
 
     @pytest.mark.asyncio
     async def test_get_metadata_returns_archiver_metadata(self, mongodb_config, mongodb_test_data):
-        """Test that get_metadata returns ArchiverMetadata dataclass."""
+        """get_metadata reports the coverage the collection actually holds.
+
+        The fixture seeds hourly documents from ``start_date`` up to (not
+        including) ``end_date``, so the newest stored sample is one hour before
+        ``end_date``. Asserting that exact boundary is what proves the bounds
+        are read from the store rather than echoed from the request.
+        """
         connector = MongoDBArchiverConnector()
         await connector.connect(mongodb_config)
 
@@ -393,6 +415,8 @@ class TestMetadataMethods:
         assert metadata.pv_name == pv_name
         assert metadata.is_archived is True  # Should be True since we have test data
         assert pv_name in metadata.description
+        assert metadata.archival_start == mongodb_test_data["start_date"]
+        assert metadata.archival_end == mongodb_test_data["end_date"] - timedelta(hours=1)
 
         await connector.disconnect()
 
@@ -407,6 +431,9 @@ class TestMetadataMethods:
         assert isinstance(metadata, ArchiverMetadata)
         assert metadata.pv_name == "NONEXISTENT:PV"
         assert metadata.is_archived is False  # Should be False for nonexistent PV
+        # No stored samples means no coverage window — not an invented one.
+        assert metadata.archival_start is None
+        assert metadata.archival_end is None
 
         await connector.disconnect()
 
@@ -928,12 +955,273 @@ class TestErrorHandlingWithoutDocker:
     @pytest.mark.asyncio
     async def test_availability_query_errors_degrade_to_not_archived(self):
         """get_metadata()/check_availability() report not-archived instead of raising."""
-        connector = self._erroring_connector(count_documents=RuntimeError("cursor lost"))
+        connector = self._erroring_connector(
+            find_one=RuntimeError("cursor lost"),
+            count_documents=RuntimeError("cursor lost"),
+        )
 
         metadata = await connector.get_metadata("BEAM:CURRENT")
         assert isinstance(metadata, ArchiverMetadata)
         assert metadata.pv_name == "BEAM:CURRENT"
         assert metadata.is_archived is False
+        # An unreadable store reports no coverage rather than inventing one.
+        assert metadata.archival_start is None
+        assert metadata.archival_end is None
 
         availability = await connector.check_availability(["BEAM:CURRENT", "BEAM:LIFETIME"])
         assert availability == {"BEAM:CURRENT": False, "BEAM:LIFETIME": False}
+
+    @pytest.mark.asyncio
+    async def test_get_data_pymongo_connection_loss_maps_to_connection_error(self):
+        """A pymongo connection-class failure mid-query must surface as ConnectionError.
+
+        The MCP tool wrapper invalidates the cached connector on ConnectionError
+        and on nothing else, so mapping this to the generic ValueError would
+        leave a dead client cached and every later archiver call failing until
+        the server restarted.
+        """
+        pymongo_errors = pytest.importorskip("pymongo.errors")
+        # ServerSelectionTimeoutError -> AutoReconnect -> ConnectionFailure: the
+        # deepest subclass, so this proves the whole family is covered.
+        lost = pymongo_errors.ServerSelectionTimeoutError("no replica set members available")
+
+        connector = self._erroring_connector(find=lost)
+        connector._ConnectionFailure = pymongo_errors.ConnectionFailure
+
+        with pytest.raises(ConnectionError, match="Lost connection to MongoDB") as exc_info:
+            await connector.get_data(
+                pv_list=["BEAM:CURRENT"],
+                start_date=datetime(2024, 1, 1, tzinfo=UTC),
+                end_date=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+
+        assert exc_info.value.__cause__ is lost
+
+    @pytest.mark.asyncio
+    async def test_get_data_maps_to_value_error_when_pymongo_types_unbound(self):
+        """A connector that never ran connect() still maps unknown failures sanely.
+
+        ``_connection_error_types()`` returns an empty tuple then, and an empty
+        tuple in an ``except`` clause must simply not match rather than blow up.
+        """
+        connector = self._erroring_connector(find=RuntimeError("cursor lost"))
+        assert connector._ConnectionFailure is None
+
+        with pytest.raises(ValueError, match="Error retrieving data from MongoDB"):
+            await connector.get_data(
+                pv_list=["BEAM:CURRENT"],
+                start_date=datetime(2024, 1, 1, tzinfo=UTC),
+                end_date=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+
+    @pytest.mark.asyncio
+    async def test_lost_connection_reaches_the_tool_wrapper_as_an_invalidation(self):
+        """The mapping is only useful if it makes the MCP layer drop the connector.
+
+        This is the half a per-connector unit test cannot see: ``get_data``
+        raising ConnectionError and ``connector_error_handler`` invalidating on
+        ConnectionError are two separate pieces, and the recovery behaviour is
+        the claim that spans them. Wiring the real connector's failure into the
+        real handler is what pins it.
+        """
+        from unittest.mock import AsyncMock
+
+        from fastmcp.exceptions import ToolError
+
+        from osprey.mcp_server.control_system.error_handling import connector_error_handler
+
+        pymongo_errors = pytest.importorskip("pymongo.errors")
+        connector = self._erroring_connector(find=pymongo_errors.AutoReconnect("primary stepped"))
+        connector._ConnectionFailure = pymongo_errors.ConnectionFailure
+
+        registry = MagicMock()
+        registry.invalidate_connector = AsyncMock()
+
+        with patch(
+            "osprey.mcp_server.control_system.server_context.get_server_context",
+            return_value=registry,
+        ):
+            with pytest.raises(ToolError):
+                async with connector_error_handler("archiver_read", connector_name="archiver"):
+                    await connector.get_data(
+                        pv_list=["BEAM:CURRENT"],
+                        start_date=datetime(2024, 1, 1, tzinfo=UTC),
+                        end_date=datetime(2024, 1, 2, tzinfo=UTC),
+                    )
+
+        registry.invalidate_connector.assert_awaited_once_with("archiver")
+
+
+class TestHonestMetadataWithoutDocker:
+    """``get_metadata`` reports the coverage the store actually holds."""
+
+    @staticmethod
+    def _connector_with_extent(oldest, newest):
+        """A connected connector whose find_one returns the given boundary docs."""
+        connector = MongoDBArchiverConnector()
+        connector._connected = True
+        connector._collection = MagicMock()
+        calls = []
+
+        def _find_one(query, projection, sort):
+            calls.append(sort)
+            if oldest is None:
+                return None
+            return oldest if sort == [("date", 1)] else newest
+
+        connector._collection.find_one = _find_one
+        return connector, calls
+
+    @pytest.mark.asyncio
+    async def test_reports_the_oldest_and_newest_stored_sample(self):
+        """archival_start/end come from the store, not from a declared window."""
+        first = datetime(2025, 6, 1, 12, 0, tzinfo=UTC)
+        last = datetime(2025, 7, 1, 12, 0, tzinfo=UTC)
+        connector, calls = self._connector_with_extent({"date": first}, {"date": last})
+
+        metadata = await connector.get_metadata("BEAM:CURRENT")
+
+        assert metadata.is_archived is True
+        assert metadata.archival_start == first
+        assert metadata.archival_end == last
+        # Ascending then descending: the two ends of the {date: 1} index.
+        assert calls == [[("date", 1)], [("date", -1)]]
+
+    @pytest.mark.asyncio
+    async def test_unstored_pv_reports_no_coverage(self):
+        """A PV with no documents is not archived and claims no coverage window.
+
+        The mock archiver's habit of reporting archival_start=2000 for anything
+        asked of it is precisely the fiction this replaces.
+        """
+        connector, calls = self._connector_with_extent(None, None)
+
+        metadata = await connector.get_metadata("NOT:STORED")
+
+        assert metadata.is_archived is False
+        assert metadata.archival_start is None
+        assert metadata.archival_end is None
+        # No second lookup once the first comes back empty.
+        assert calls == [[("date", 1)]]
+
+
+class TestInNetworkAddressOverride:
+    """The config block is the host-side truth; the environment is the
+    per-container translation, and it wins.
+
+    Both halves matter. A container handed the host-side address dials its own
+    loopback and reaches nothing; a host process handed a compose alias dials a
+    name that does not resolve. One config, two vantage points, and the
+    environment is what says which one this process is at.
+    """
+
+    @staticmethod
+    def _config(**overrides):
+        config = {
+            "host": "localhost",
+            "port": 27017,
+            "name": "testdb",
+            "collection": "testcoll",
+            "auth": "admin",
+            "username": "user",
+            "password_env": "MONGODB_MOCK_PASSWORD",
+        }
+        config.update(overrides)
+        return config
+
+    def test_no_environment_means_no_override(self, monkeypatch):
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+
+        assert address_overrides() == (None, None)
+
+    def test_the_environment_is_read_as_host_and_typed_port(self, monkeypatch):
+        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+
+        assert address_overrides() == ("archiver-mongodb", 27017)
+
+    def test_whitespace_is_unset_not_an_address_of_nothing(self, monkeypatch):
+        """A compose file that renders an empty value must not point the reader
+        at the empty string — it must leave the configured value alone."""
+        monkeypatch.setenv(HOST_OVERRIDE_ENV, "   ")
+        monkeypatch.setenv(PORT_OVERRIDE_ENV, "  ")
+
+        assert address_overrides() == (None, None)
+
+    def test_the_halves_are_independent(self, monkeypatch):
+        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+
+        assert address_overrides() == ("archiver-mongodb", None)
+
+    def test_a_port_that_is_not_a_port_is_refused_not_ignored(self, monkeypatch):
+        """Falling back to the host-side port would send a container to an
+        address nothing serves, for a reason nobody is looking at."""
+        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017a")
+
+        with pytest.raises(ValueError, match=PORT_OVERRIDE_ENV):
+            address_overrides()
+
+    @pytest.mark.asyncio
+    async def test_the_connector_dials_the_override_over_its_config(self, monkeypatch):
+        """The end this exists for: the worker's `archiver_read` reaches the
+        store by its network alias while config.yml still says localhost."""
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+
+        connector = MongoDBArchiverConnector()
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await connector.connect(self._config(host="localhost", port=27117))
+
+        kwargs = mock_client_cls.call_args.kwargs
+        assert kwargs["host"] == "archiver-mongodb"
+        assert kwargs["port"] == 27017
+
+    @pytest.mark.asyncio
+    async def test_the_connector_keeps_its_config_when_no_override_is_set(self, monkeypatch):
+        """The host-side path, which is every agent running outside a container."""
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+
+        connector = MongoDBArchiverConnector()
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await connector.connect(self._config(host="facility-mongo.example.org", port=27117))
+
+        kwargs = mock_client_cls.call_args.kwargs
+        assert kwargs["host"] == "facility-mongo.example.org"
+        assert kwargs["port"] == 27117
+
+    @pytest.mark.asyncio
+    async def test_an_environment_only_address_is_a_legitimate_one(self, monkeypatch):
+        """The required-ness check is about having an address, not about where
+        it came from."""
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
+        config = self._config()
+        del config["host"]
+
+        connector = MongoDBArchiverConnector()
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await connector.connect(config)
+
+        assert mock_client_cls.call_args.kwargs["host"] == "archiver-mongodb"
+
+    @pytest.mark.asyncio
+    async def test_no_address_from_either_source_is_still_refused(self, monkeypatch):
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
+        config = self._config()
+        del config["host"]
+
+        with pytest.raises(ValueError, match="host is required"):
+            await MongoDBArchiverConnector().connect(config)
+
+    def test_the_recorder_reads_this_same_contract(self):
+        """Two consumers, one reader — so they cannot come to disagree about
+        what an empty value means or how the port is typed."""
+        from osprey.services.archiver_recorder import config as recorder_config
+
+        assert recorder_config.address_overrides is address_overrides

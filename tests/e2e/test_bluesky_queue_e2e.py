@@ -517,7 +517,7 @@ def _wait_for_manager_state(wanted: tuple[str, ...], timeout: float) -> str:
 
 
 def _override_yaml() -> str:
-    """Host-hygiene overrides ONLY -- never ``control_system.type``.
+    """Host hygiene and CI sizing ONLY -- never ``control_system.type``.
 
     ``dispatch: null`` drops the event-dispatcher stack (Node + Claude CLI
     image) and ``modules.web_terminals.enabled: false`` drops the per-persona
@@ -526,6 +526,16 @@ def _override_yaml() -> str:
     move ariel-postgres and OpenObserve -- services the preset deploys
     unconditionally, with no profile knob -- off 5432/5080, which a locally
     running tutorial deploy routinely holds.
+
+    ``_orm_stack.VA_ARCHIVER_CI_KNOBS`` shrinks the archive the preset's
+    ``va_archiver:`` block declares (see the constant). It is a sizing override,
+    not a behavioral one: the store and its recorder still deploy, still record,
+    and still hold both tiers -- there is just far less seeded history to write
+    first, none of which this proof reads. Nothing here touches what the stack
+    IS, which is the property the docstring above is about: this module inherits
+    ``control_system.type`` from the preset on purpose, so that a preset that
+    stopped defaulting to the virtual accelerator would fail these stages rather
+    than be papered over here.
 
     Written as flat dotted-string keys under ``config:`` (the preset's own
     convention): a ``--set`` would build a NESTED dict for every dotted segment
@@ -536,7 +546,7 @@ def _override_yaml() -> str:
         "config:\n"
         f"  services.postgresql.port_host: {POSTGRES_PORT}\n"
         f"  services.openobserve.port: {OPENOBSERVE_PORT}\n"
-        "  modules.web_terminals.enabled: false\n"
+        "  modules.web_terminals.enabled: false\n" + _orm_stack.VA_ARCHIVER_CI_KNOBS
     )
 
 

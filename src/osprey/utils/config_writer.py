@@ -593,6 +593,7 @@ def set_control_system_type(
     control_type: str,
     archiver_type: str | None = None,
     create_backup: bool = True,
+    archiver_settings: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     """Update control system and optionally archiver type in config.yml.
 
@@ -603,6 +604,12 @@ def set_control_system_type(
         control_type: 'mock', 'epics', or 'virtual_accelerator'
         archiver_type: Optional archiver type ('mock_archiver', 'epics_archiver')
         create_backup: If True, creates a .bak file before modifying
+        archiver_settings: Optional dotted keys the selected archiver needs to
+            be constructible at all — ``archiver.mongodb_archiver.host`` and
+            its siblings. Written the same way every other key here is: split
+            into nested sections, because a rendered config.yml is read as
+            nested sections and a top-level dotted line in it configures
+            nothing.
 
     Returns:
         Tuple of (updated_content, preview) where updated_content is the new file content
@@ -611,6 +618,9 @@ def set_control_system_type(
 
     if archiver_type:
         updates["archiver.type"] = archiver_type
+
+    if archiver_settings:
+        updates.update(archiver_settings)
 
     update_yaml_file(config_path, updates, create_backup=create_backup)
 
@@ -623,6 +633,9 @@ def set_control_system_type(
 
     if archiver_type:
         preview_lines.append(f"archiver.type: {archiver_type}")
+
+    for key, value in (archiver_settings or {}).items():
+        preview_lines.append(f"{key}: {value}")
 
     preview_lines.append("\n[dim]Updated config.yml[/dim]")
 

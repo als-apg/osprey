@@ -104,9 +104,10 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "deploy",  # CI/registry/host coordinates, filled in per facility
         "mcp_servers",  # facility tool servers
         "artifact_server",  # gallery categories + host/port
-        "dispatch",  # the six optional feature blocks
+        "dispatch",  # the seven optional feature blocks
         "bluesky",
         "virtual_accelerator",
+        "va_archiver",
         "bluesky_panels",
         "nextcloud_bridge",
         "gchat_bridge",
@@ -314,6 +315,44 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # virtual_accelerator:
 #   port: 5064
 """,
+    "va_archiver": """
+# --- Stored archive ----------------------------------------------------------
+# Where a simulated deployment keeps its history: a MongoDB store the build
+# seeds with a deterministic base series, a recorder samples the running
+# machine into, and the mongodb_archiver connector reads back. Declaring it
+# makes history stored data rather than values synthesized at read time.
+#
+# Every knob below travels into the rendered config.yml, so retention and
+# cadence are profile edits rather than code changes. The connector's own
+# connection keys are DERIVED from this block — do not also write
+# archiver.mongodb_archiver.* under `config:`, which would be the same fact
+# twice. Selecting the archiver stays a separate decision: set
+# `archiver.type: mongodb_archiver` in `config:` to read from this store.
+#
+# The password is never written here: `osprey deploy up` mints it into the
+# deployment's .env under the name password_env gives.
+#
+# An attached project (deploy_services: false) deploys no store of its own and
+# must set `host` to the machine whose archive it reads.
+#
+# va_archiver:
+#   retention_days: 30          # how far back history reaches
+#   hot_span_hours: 48          # recent window kept at the dense cadence
+#   hot_cadence_sec: 10         # seconds between samples inside it
+#   tail_cadence_sec: 60        # ...and outside it (a multiple of the above)
+#   recorder_cadence_sec: 10    # how often the live machine is sampled
+#   recorder_tail_cadence_sec: 60
+#   recorder_poll_sec: 30       # how often the recorder re-reads config.yml
+#   port_host: 27017
+#   database: osprey_archiver
+#   collection: pv_history
+#   compression: zstd           # zstd | snappy | zlib | none
+#   username: osprey
+#   auth_database: admin
+#   password_env: MONGO_ROOT_PASSWORD
+#   timeout_sec: 5
+#   host: archive.example.org   # only for an attached project
+""",
     "bluesky_panels": """
 # --- Bluesky web panels ------------------------------------------------------
 # Scan-monitoring panels for the web terminal (requires the bluesky block).
@@ -382,6 +421,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "dispatch",
     "bluesky",
     "virtual_accelerator",
+    "va_archiver",
     "bluesky_panels",
     "nextcloud_bridge",
     "gchat_bridge",

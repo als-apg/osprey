@@ -13,6 +13,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- A virtual accelerator can now be deployed with a real archive behind it: a
+  MongoDB store plus an archiver-recorder service that records the machine's
+  channels as they move. Scenario history is seeded into the store when the
+  stack comes up, so questions about what a channel did earlier are answered
+  from recorded samples rather than synthesized at read time.
+- Simulation scenarios are generated against absolute timestamps, so a
+  scenario's history lands at the wall-clock times it describes instead of
+  being anchored to when it was run.
 - The OSPREY agent can see what is actually on screen. `list_panels` now
   reports the open service tiles in left-to-right order plus how long ago that
   arrangement last changed, and tells "nothing open" apart from "no browser
@@ -120,6 +128,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Pairing a virtual accelerator with the mock archiver is refused — at build,
+  at deploy, and at MCP server startup — because the VA moves channels for
+  modelled reasons while the mock archiver invents history at read time, and
+  the pair reports a past that never happened. The mock archiver remains the
+  default for mock control systems; a project that pairs the two must move to
+  the MongoDB archiver or to a mock control system.
 - Asking the agent to open a panel no longer replaces what you were looking at.
   `switch_panel` opens the tile *beside* your current one — focusing it instead
   if it is already open — so no tile you had open is evicted. The Simple web

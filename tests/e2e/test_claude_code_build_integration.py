@@ -95,7 +95,10 @@ def init_project(
     for rationale. The connector is pinned to ``mock`` for the same reason
     that helper pins it: this harness runs projects without their containers,
     and the preset's ``virtual_accelerator`` default needs the deployed VA to
-    answer Channel Access.
+    answer Channel Access. The archiver is pinned for that same reason and by
+    the same means — the preset reads a MongoDB store this harness never
+    deploys — and the override file, rather than ``--set``, is what the
+    preset's dotted ``archiver.type`` spelling requires.
     """
     runner = CliRunner()
     args = [
@@ -113,6 +116,9 @@ def init_project(
         "--set",
         "connector=mock",
     ]
+    archiver_override = tmp_path / "_archiver-pin.yml"
+    archiver_override.write_text("config:\n  archiver.type: mock_archiver\n", encoding="utf-8")
+    args.extend(["-O", str(archiver_override)])
     result = runner.invoke(build, args)
     assert result.exit_code == 0, f"osprey build failed: {result.output}"
     project_dir = tmp_path / name

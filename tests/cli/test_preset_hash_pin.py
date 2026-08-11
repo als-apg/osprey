@@ -52,12 +52,36 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # agent's turns. All four rosters list it, so every digest moved — a rebuilt
     # project gains a hook file and a UserPromptSubmit wiring entry, which is
     # exactly what the staleness advisory should report.
-    "control-assistant": "sha256:577f397a604c904e0f742546321bfe5ee39d9e1ec16eb60c5ff68f1fbe7cc6ae",
+    #
+    # Re-pinned again when control-assistant gained a stored archive: a
+    # `va_archiver:` block, `archiver.type: mongodb_archiver` in `config:`, and
+    # pymongo in `dependencies`. The block derives eight
+    # `archiver.mongodb_archiver.*` keys into the resolved config, so this is a
+    # key change rather than a comment change and the digest is expected to
+    # move. Both extends children inherit it, so all three moved.
+    # Re-pinned again when control-assistant named its freshness canary:
+    # `va_archiver.freshness_channel`. The block derives a
+    # `health.categories.archiver.checks` entry from it — the check itself plus
+    # a staleness threshold computed from `recorder_cadence_sec` — so this is a
+    # key change, not a comment change, and the digest is expected to move. A
+    # rebuilt project gains a health check it did not have, which is exactly
+    # what the staleness advisory should announce. Both extends children inherit
+    # it, so all three moved.
+    # ...and again when the block stated `recorder_cadence_sec: 10` explicitly
+    # instead of riding the dataclass default. Behavior-neutral — the resolved
+    # value is unchanged — but the resolved CONTENT now carries the key, so the
+    # digest moves. Stated rather than defaulted because the freshness threshold
+    # is derived from it, and the preset's own convention is to document the
+    # shape it deploys rather than hide it in a dataclass.
+    # The archive and the workspace-delta hook landed either side of the same
+    # rebase, so the digests below carry both at once: re-pinning against
+    # either change alone would leave the other unaccounted for.
+    "control-assistant": "sha256:5ef868a0c4e912bffbbceb1387b8f95f0a19a4dbfb475915bdeb3467c0ed8162",
     "control-assistant-readonly": (
-        "sha256:eaf69900f7783e6b77bceaa52cf69d6e609dc74969715dacf8a639a77cbbe1db"
+        "sha256:7c30309acfa2cc519813eaf3c830b1a3b6829abf5602f11308d3308db8fb5a7f"
     ),
     "control-assistant-readwrite": (
-        "sha256:a04ca9401c9e3dcf2e1bb233b7764183fc00d682473311cc12cbdbc6ce495ed2"
+        "sha256:2721cb96194dc0da4030f05aaea0926fd7febad61a0cd51e5f3c2652d4271679"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }
