@@ -32,6 +32,11 @@ A plan file is a single Python module exposing exactly three things:
      `"accelerator"`).
    - `required_devices` (list[str]) — names of the `PARAMS` fields that name
      devices the plan drives or reads (e.g. `["correctors", "detectors"]`).
+     Each entry names the field *immediately* around the device-name strings,
+     so for a nested shape name the inner key, not the outer one — `grid_scan`
+     carries its devices as `axes[].setpoint` and declares `"setpoints"`. The
+     bridge reads this to check device names before queuing, and a field it
+     cannot match is simply not checked.
    - `writes` (bool) — whether the plan moves a device (vs. read-only).
      Authoring metadata only; it has no effect on whether writes actually
      happen — that is governed entirely by `control_system.writes_enabled`.

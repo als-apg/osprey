@@ -432,6 +432,51 @@ def list_plans() -> list:
     return [spec.to_dict() for spec in get_facility_plans().plans.values()]
 
 
+# The per-device keys `GET /devices` republishes from the manager's own device
+# description. The rest of what it carries (`classname`, `module`, the
+# component tree) is worker-internal detail nothing can be done with from
+# outside the worker; these three protocol flags are the part that answers the
+# question a caller actually has — whether a device can be driven as a
+# setpoint or only read as a detector. Absent keys stay absent rather than
+# defaulting to False: "the manager did not say" is not "no".
+_DEVICE_FLAG_KEYS = ("is_movable", "is_readable", "is_flyable")
+
+
+def _device_entry(name: str, description: Any) -> dict[str, Any]:
+    """One `GET /devices` entry: the name, plus whichever flags the manager gave it."""
+    if not isinstance(description, dict):
+        return {"name": name}
+    return {
+        "name": name,
+        **{key: description[key] for key in _DEVICE_FLAG_KEYS if key in description},
+    }
+
+
+@app.get("/devices")
+async def list_devices() -> list[dict]:
+    """Devices the queueserver worker built, by the name plans resolve them under.
+
+    The companion of `GET /plans`: a plan's device parameters carry device
+    *names* as strings, and this is the set those names must come from. A name
+    absent here is a device the worker does not have, and a plan naming it
+    fails on the run's first iteration — after an enqueue and a start — so this
+    route is what turns picking a device into a lookup rather than a guess.
+
+    Each entry is `{"name", ...}` plus whatever of `is_movable`/`is_readable`/
+    `is_flyable` the manager reported for it, which is how a caller tells a
+    drivable setpoint from a read-only detector.
+    """
+    try:
+        reply = await get_queue_backend().devices_allowed()
+    except QueueBackendError as exc:
+        # Same mapping as every other manager-backed read (see `list_runs`).
+        raise queue._http_error(exc) from exc
+    allowed = reply.get("devices_allowed")
+    if not isinstance(allowed, dict):
+        return []
+    return [_device_entry(name, description) for name, description in sorted(allowed.items())]
+
+
 # ---------------------------------------------------------------------------
 # Session-plan authoring + validation
 # ---------------------------------------------------------------------------

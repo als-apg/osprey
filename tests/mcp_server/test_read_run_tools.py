@@ -100,6 +100,36 @@ async def test_list_plans_bridge_error():
             await _fn("list_plans")()
 
 
+# ── list_devices ────────────────────────────────────────────────────────────
+async def test_list_devices_success():
+    devices = [
+        {"name": "BPM1", "is_movable": False, "is_readable": True},
+        {"name": "COR1", "is_movable": True, "is_readable": True},
+    ]
+    with patch(f"{_MOD}._http_get_json", return_value=(200, devices)) as m:
+        result = await _fn("list_devices")()
+    assert m.call_args.args[0] == "/devices"
+    data = extract_response_dict(result)
+    assert data["status"] == "success"
+    assert data["devices"] == devices
+
+
+async def test_list_devices_empty():
+    """A worker that built no devices is an empty list, not an error — the
+    agent's next move (say so, rather than guess a name) is the same either
+    way, and only an explicit empty answer supports saying it."""
+    with patch(f"{_MOD}._http_get_json", return_value=(200, [])):
+        result = await _fn("list_devices")()
+    assert extract_response_dict(result)["devices"] == []
+
+
+async def test_list_devices_bridge_error():
+    with patch(f"{_MOD}._http_get_json", return_value=(503, {"detail": "no manager"})):
+        with assert_raises_error(error_type="bluesky_bridge_error") as ctx:
+            await _fn("list_devices")()
+    assert "no manager" in ctx["envelope"]["error_message"]
+
+
 # ── list_runs ────────────────────────────────────────────────────────────────
 async def test_list_runs_success():
     runs = [{"id": "abc123", "status": "completed"}]

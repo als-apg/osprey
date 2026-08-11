@@ -310,6 +310,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         permissions_allow=[
             bsky.GET_RUN,
             bsky.LIST_PLANS,
+            bsky.LIST_DEVICES,
             bsky.LIST_RUNS,
             bsky.GET_RUN_DATA,
             # Draft tools never touch hardware — editing the shared

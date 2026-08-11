@@ -82,8 +82,10 @@ anything itself.
 
 Pick the plan first with **`list_plans()`** — check its `provenance` (prefer a
 higher trust tier), its `required_devices`, and its `writes` flag before
-selecting it. Then stage the **entire** scan configuration in a **single**
-`set_draft` call and note the `revision` it returns:
+selecting it. **`list_devices()`** lists the device names this worker actually
+built, which is where every device name in `plan_args` must come from — read it
+rather than guessing a name. Then stage the **entire** scan configuration in a
+**single** `set_draft` call and note the `revision` it returns:
 
 ```
 set_draft(plan_name="grid_scan", plan_args_patch={<every parameter, complete>})

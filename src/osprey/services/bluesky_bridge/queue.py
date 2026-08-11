@@ -53,7 +53,10 @@ need a current passing record) runs before anything reaches the manager; any
 failure releases the reservation so the revision stays enqueueable; success
 consumes it via `draft.record_and_broadcast_launch`. The OSPREY run id is
 threaded through the item's metadata (`queue_backend.RUN_ID_META_KEY`) so
-start documents, live rows, and Tiled results all key back to it.
+start documents, live rows, and Tiled results all key back to it. One check is
+new rather than inherited: a plan whose device parameters name something the
+worker's namespace lacks is refused at add time (`_check_devices_exist`),
+because that mistake would otherwise only surface as a failed run.
 
 A deployment whose capability record says it cannot execute (mock connector,
 unreadable config, no manager) refuses enqueue outright — a browse-only
@@ -395,6 +398,176 @@ def _session_refusal(exc: SessionPlanNotReadyError) -> HTTPException:
 
 
 # ---------------------------------------------------------------------------
+# Add-time device pre-check
+# ---------------------------------------------------------------------------
+# A plan resolves its device parameters by string name against the worker's
+# namespace, and it does so on the run's FIRST iteration — so a name the worker
+# has no device for is not caught by any schema, and surfaces only as a failed
+# run after an enqueue and a start. Checking the names against the worker's own
+# `devices_allowed` before the add turns that into one legible refusal at the
+# moment the name was chosen.
+
+
+def _device_field(name: str) -> str:
+    """A device-field name reduced to what a plural/singular pair share.
+
+    ``PLAN_METADATA["required_devices"]`` names the PARAMS *fields* that carry
+    device names, but a plan is free to nest them: `orm` declares
+    ``"correctors"`` and has a ``correctors`` field, while `grid_scan` declares
+    ``"setpoints"`` and carries each one as ``axes[].setpoint``. Comparing on
+    the trailing-``s``-stripped form matches both without hard-coding either
+    plan's shape.
+    """
+    return name.removesuffix("s")
+
+
+def _referenced_device_names(
+    value: Any, fields: frozenset[str], *, key: str | None = None
+) -> set[str]:
+    """Every string in ``value`` whose NEAREST enclosing field is a device field.
+
+    Walks the enqueued params rather than reading fixed keys, so a nested
+    device field (`grid_scan`'s ``axes[].setpoint``) is found without
+    hard-coding any plan's shape. The bucketing rule is
+    `plan_validation._collect_device_names`': the enclosing key is rebound at
+    every dict level and carried unchanged through list levels, so a string is
+    a device name only if the field *immediately* above it says so.
+
+    That "nearest" is the whole safety property, and it is why this is not a
+    sticky "anywhere under a device field" flag. Given a plan declaring
+    ``required_devices: ["targets"]`` whose params are
+    ``{"targets": [{"device": "COR1", "mode": "fast"}]}``, a sticky flag
+    collects ``"fast"`` too and refuses a perfectly good enqueue over a mode
+    string — a false refusal no agent can fix, since nothing it changes about
+    the device name makes ``"fast"`` a device. Rebinding at each dict level
+    turns that same shape into a MISS instead (neither string is collected,
+    and the worker stays the enforcement point) — which is the direction this
+    check must always fail.
+    """
+    if isinstance(value, str):
+        return {value} if key is not None and _device_field(key) in fields else set()
+    if isinstance(value, dict):
+        names: set[str] = set()
+        for sub_key, sub_value in value.items():
+            names |= _referenced_device_names(sub_value, fields, key=str(sub_key))
+        return names
+    if isinstance(value, (list, tuple, set)):
+        names = set()
+        for item in value:
+            names |= _referenced_device_names(item, fields, key=key)
+        return names
+    return set()
+
+
+# How many device names the refusal SENTENCE lists before summarizing the
+# rest. A real facility worker builds hundreds, and the sentence is prose an
+# agent and an operator read — the complete set is always on the wire
+# structurally in ``available_devices``, so nothing is lost by capping the
+# readable copy.
+_SENTENCE_DEVICE_LIMIT = 20
+
+
+def _available_devices_phrase(available: set[str]) -> str:
+    """The refusal sentence's device list, capped at `_SENTENCE_DEVICE_LIMIT`."""
+    names = sorted(available)
+    if len(names) <= _SENTENCE_DEVICE_LIMIT:
+        return f"{names}"
+    shown = names[:_SENTENCE_DEVICE_LIMIT]
+    return f"{shown} (+{len(names) - len(shown)} more; full list in available_devices)"
+
+
+def _refuse_unknown_devices(
+    plan_name: str, unknown: set[str], available: set[str], *, session_tier: bool
+) -> NoReturn:
+    """Raise the 400 for an enqueue naming a device this worker did not build.
+
+    The sentence is the worker's own (`qserver_startup.py`'s plan wrapper and
+    `session_upload.py`'s raise it when the name reaches the RunEngine), down
+    to which noun it opens with: the session-plan wrapper says "session plan
+    {name}", the catalog wrapper says "plan {name}", and this refusal matches
+    whichever one would have raised. Whichever layer catches the mistake, the
+    operator and the agent read the same sentence about the same event.
+
+    Two deliberate differences from the run-time version, both additive:
+    ``devices`` carries EVERY unknown name (the run-time raise can only ever
+    report the first one it tripped over), and the in-sentence device list is
+    capped — `available_devices` carries it whole.
+
+    400, not 409: the request itself names something that does not exist, and
+    the fix is in the caller's hands — pick a name `GET /devices` lists.
+    """
+    first = sorted(unknown)[0]
+    label = "session plan" if session_tier else "plan"
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "code": "unknown_device",
+            "detail": (
+                f"{label} {plan_name!r} referenced device {first!r}, which this worker "
+                f"did not build; available devices: {_available_devices_phrase(available)}"
+            ),
+            "plan": plan_name,
+            "devices": sorted(unknown),
+            "available_devices": sorted(available),
+        },
+    )
+
+
+async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args: Any) -> None:
+    """Refuse the enqueue if it names a device the worker's namespace lacks.
+
+    Deliberately narrow, and fail-open at every step where the answer is not
+    certain: a plan that declares no ``required_devices`` metadata, params with
+    no device-field strings in them, a manager that will not answer, and a
+    manager reporting no devices at all all pass straight through. The worker
+    remains the enforcement point — this only moves the *legible* cases
+    earlier, and an availability failure here must never cost an operator an
+    enqueue that would have run.
+    """
+    from .plan_loader import get_facility_plans
+
+    try:
+        # `get_facility_plans()` re-scans the session-plan directory on every
+        # call, so it runs off the loop (`draft._resolve_plan_schema` states the
+        # house rule). Wrapped because a plan-directory read failure must skip
+        # the pre-check, never 500 an enqueue that would otherwise have run.
+        facility_plans = await asyncio.to_thread(get_facility_plans)
+    except Exception as exc:
+        logger.warning("device pre-check skipped; the plan registry is unreadable: %s", exc)
+        return
+
+    spec = facility_plans.plans.get(plan_name)
+    metadata = spec.metadata if spec is not None else None
+    declared = metadata.required_devices if metadata is not None else None
+    if not declared:
+        return
+
+    referenced = _referenced_device_names(plan_args, frozenset(_device_field(f) for f in declared))
+    if not referenced:
+        return
+
+    try:
+        reply = await backend.devices_allowed()
+    except Exception as exc:
+        # Availability over the pre-check: the manager being unreachable is
+        # already reported by the add itself, and a convenience gate must not
+        # be the thing that refuses an enqueue.
+        logger.warning("device pre-check skipped; the worker's device list is unreadable: %s", exc)
+        return
+
+    allowed = reply.get("devices_allowed")
+    if not isinstance(allowed, dict) or not allowed:
+        # A worker reporting no devices at all is a worker whose environment is
+        # not up yet, not a worker on which every name is wrong.
+        return
+
+    unknown = referenced - set(allowed)
+    if unknown:
+        session_tier = spec is not None and spec.provenance in ("session", "unreviewed")
+        _refuse_unknown_devices(plan_name, unknown, set(allowed), session_tier=session_tier)
+
+
+# ---------------------------------------------------------------------------
 # Status summaries + SSE plumbing
 # ---------------------------------------------------------------------------
 
@@ -619,14 +792,18 @@ async def add_queue_item(
     3. The validation gate runs unchanged (session plans need a current
        passing record; sync file I/O, so it runs in a thread) before anything
        reaches the manager.
-    4. Under ``_arming_lock``: status pre-check (active + unarmed → refuse
+    4. `_check_devices_exist` refuses (400) a plan whose device parameters name
+       something the worker's namespace lacks — the one class of mistake the
+       schema cannot catch and the run would otherwise report on its first
+       iteration, after a start.
+    5. Under ``_arming_lock``: status pre-check (active + unarmed → refuse
        before adding), the session-plan admissibility re-check
        (`session_upload.check_session_plan_ready` — 409 for a session plan
        with no current passing record in the live namespace), the add itself,
        then — for unarmed callers only — the post-add ``status(reload=True)``
        re-check that removes the item and refuses if the manager transitioned
        underneath the add.
-    5. Only then is the reservation consumed, the run's expected point count
+    6. Only then is the reservation consumed, the run's expected point count
        recorded for progress (`document_plane.record_run_params`), and the
        draft's ``launched`` frame broadcast; the SSE poller is nudged so
        panels see the new item immediately.
@@ -663,6 +840,11 @@ async def add_queue_item(
         # snapshot is request-shaped (`plan_name` attribute), which is all
         # `_validate_launchable_request` reads.
         await asyncio.to_thread(_validate_launchable_request, checked)
+
+        # Device names resolve in the worker, on the run's first iteration, so
+        # an unresolvable one is checked here or not at all until a failed run.
+        # Outside the arming lock: it is a manager read that starts nothing.
+        await _check_devices_exist(backend, checked.plan_name, checked.plan_args)
 
         try:
             async with _arming_lock:
