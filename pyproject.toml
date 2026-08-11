@@ -253,11 +253,28 @@ screen-capture-linux = [
     "python-xlib>=0.33",
 ]
 
-# Virtual Accelerator: the serving stack, both transports. Everything else the
-# VA needs (PyAT, the manifest/lattice layer) is a core dependency, so these two
-# entries are the whole extra; `osprey-framework[virtual-accelerator]` keeps
-# resolving for every existing reference to it (CI `uv sync --extra`, both VA
-# images).
+# Virtual Accelerator: the serving stack, both transports, plus what the
+# archiver recorder needs to run on the SAME image. Everything else the VA needs
+# (PyAT, the manifest/lattice layer) is a core dependency;
+# `osprey-framework[virtual-accelerator]` keeps resolving for every existing
+# reference to it (CI `uv sync --extra`, both VA images).
+#
+# The last two entries are the recorder's, not the IOC's. The recorder
+# (osprey.services.archiver_recorder) ships as a compose-template-only service
+# that runs this image with a different command -- deliberately, so it adds no
+# image build to any deploy or to the seven VA-stack CI lanes -- which makes its
+# two dependencies part of what this extra has to deliver:
+#
+#   * aioca is its Channel Access CLIENT. The serving stack below is a CA
+#     *server* and ships no client, and while `ophyd-async[ca]` (a core
+#     dependency) does pull aioca in today, that is a transitive fact about
+#     another package's extra, not a declaration -- and the recorder imports
+#     aioca directly. Declared here so it stays installed if ophyd-async ever
+#     changes backends.
+#   * pymongo arrives through the `archiver-mongodb` extra rather than a second
+#     `pymongo>=4.0` line, so the floor keeps exactly one definition and cannot
+#     drift between the connector's extra and this one. Same self-referencing
+#     form the `all` extra uses.
 #
 # lume-pva-apg is the serving package `serving/runner.py` subclasses. Its `ca`
 # and `pva` extras are what put the two transports on the wire -- pcaspy for
@@ -316,6 +333,13 @@ screen-capture-linux = [
 virtual-accelerator = [
     "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "lume-pva-apg[ca,pva]==0.1.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    # Recorder-side (see the note above); deliberately UNMARKED, unlike the two
+    # serving entries. That marker is not a house style to copy — it exists
+    # because pcaspy publishes no usable wheel off linux/x86_64. These two do,
+    # everywhere, so marking them would only make the recorder's dependencies
+    # silently absent on a developer's machine.
+    "aioca>=1.7",
+    "osprey-framework[archiver-mongodb]",
 ]
 
 # All optional dependencies for complete installation

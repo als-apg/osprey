@@ -342,6 +342,22 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/archiver_recorder",
+            template_path="archiver_recorder",
+            output_path="services/archiver_recorder",
+            description="Archiver recorder compose template (runs on the VA image)",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/mongodb",
+            template_path="mongodb",
+            output_path="services/mongodb",
+            description="MongoDB compose template (archiver store)",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/openobserve",
             template_path="openobserve",
             output_path="services/openobserve",

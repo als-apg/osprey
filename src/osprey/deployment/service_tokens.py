@@ -90,6 +90,15 @@ _VAR_GENERATORS: dict[str, Callable[[], str]] = {
     # alphanumeric by construction and matches the Tiled recipe: same 256
     # bits of entropy, zero escaping concerns in .env, YAML, or the URI.
     "ARIEL_DB_PASSWORD": lambda: secrets.token_hex(32),
+    # The archiver Mongo root password follows the ARIEL_DB_PASSWORD rationale.
+    # The connector passes it to ``MongoClient`` as a keyword argument, where
+    # escaping would not matter — but it is not the only consumer: the recorder
+    # and the scenario seeder connect to the same store, the compose
+    # healthcheck reaches it through ``mongosh``, and any of those may spell the
+    # connection as a ``mongodb://user:pass@host`` URI. Hex is alphanumeric by
+    # construction, so every spelling is safe unescaped, with the same 256 bits
+    # of entropy as the default recipe.
+    "MONGO_ROOT_PASSWORD": lambda: secrets.token_hex(32),
 }
 
 
@@ -134,6 +143,21 @@ def _validate_ariel_dsn(value: str) -> bool:
     except UnicodeDecodeError:
         return False
     return True
+
+
+def _validate_uri_safe_password(value: str) -> bool:
+    """True if ``value`` can sit unescaped in a URI's password slot.
+
+    The password half of :func:`_validate_ariel_dsn`, applied to a bare secret
+    rather than to an assembled URI: a value carrying a URI-reserved character
+    (``@ : / ? #``) or whitespace reshapes any connection string it is
+    substituted into, silently and without a parse error. Shared by every
+    minted password that some consumer may spell as a URI, so the character
+    class is stated once — two copies of a rule this subtle drift apart.
+    """
+    if not value:
+        return False
+    return not any(c in value for c in "@:/?#") and not any(c.isspace() for c in value)
 
 
 def _validate_openobserve_password(value: str) -> bool:
@@ -188,9 +212,11 @@ _VAR_VALIDATORS: dict[str, Callable[[str], bool]] = {
     # operator-supplied value containing a URI-reserved character would
     # silently reshape the DSN (see _validate_ariel_dsn) — reject it at the
     # deploy boundary instead.
-    "ARIEL_DB_PASSWORD": lambda v: (
-        bool(v) and not any(c in v for c in "@:/?#") and not any(c.isspace() for c in v)
-    ),
+    "ARIEL_DB_PASSWORD": _validate_uri_safe_password,
+    # Same character rule, different consumer: the archiver Mongo password is
+    # read by the recorder, the seeder, and the agent's connector, at least one
+    # of which may assemble a mongodb:// URI around it.
+    "MONGO_ROOT_PASSWORD": _validate_uri_safe_password,
 }
 
 # Human-readable constraint text shown in the RuntimeError _ensure_service_tokens
@@ -212,6 +238,11 @@ _VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
     "ARIEL_DB_PASSWORD": (
         "must be non-empty with no whitespace and no URI-reserved character "
         "(@ : / ? #) — the value is substituted into the ariel DSN's password slot"
+    ),
+    "MONGO_ROOT_PASSWORD": (
+        "must be non-empty with no whitespace and no URI-reserved character "
+        "(@ : / ? #) — the archiver store's clients may spell the connection "
+        "as a mongodb:// URI carrying this value unescaped"
     ),
 }
 
@@ -240,12 +271,12 @@ def _validate_var(var: str, value: str) -> bool:
     Per-*format* constraints stay opt-in and fail-open, as ``_VAR_VALIDATORS``
     documents: a var absent from that dict still passes. Only the ``$`` rule is
     unconditional, because it is a property of how compose loads the file rather
-    than of what any one service accepts. The three registered validators that
-    reason about character safety — ``_validate_ariel_dsn`` and the
-    ``ARIEL_DB_PASSWORD`` lambda, which reject the URI-reserved ``@:/?#``, and
+    than of what any one service accepts. The registered validators that
+    reason about character safety — ``_validate_ariel_dsn`` and
+    ``_validate_uri_safe_password``, which reject the URI-reserved ``@:/?#``, and
     ``_validate_openobserve_password``, whose "at least one special character"
     requirement a ``$`` actively *satisfied* — all admitted ``$`` on their own.
-    Layering it here fixes those three and every var added later in one place.
+    Layering it here fixes all of them and every var added later in one place.
     """
     if "$" in value:
         return False
