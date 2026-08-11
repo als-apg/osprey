@@ -1,10 +1,11 @@
 // @ts-check
 /**
- * draft-client — the plan panel's live view of the server-held shared plan
- * draft (the plan-panel integration and the launch revision gate).
+ * draft-client — the Plans view's live view of the server-held shared plan
+ * draft (the plan-draft integration and the launch revision gate).
  *
- * Split out of panel.js to keep panel.js focused on plan browsing/launch
- * chrome, and — more importantly — so the revision/binding/pending-key rules
+ * Split out of plans-view.js to keep that module focused on plan
+ * browsing/launch chrome, and — more importantly — so the
+ * revision/binding/pending-key rules
  * are a pure, DOM-light state machine that vitest can drive with plain frame
  * objects, without a real `EventSource` (happy-dom does not implement one;
  * see `createSSEConnection`, the one function here that touches it, kept
@@ -734,53 +735,18 @@ export function describeDraftReplaceFailure(status, body) {
 
 // ---------------------------------------------------------------------------
 // Launch banner — a launched-frame becomes a visible "revision N queued
-// -> run <id>" note whose action switches the workspace to the BLUESKY panel,
-// where the queue and the run's live rows are. Both pieces below are pure (an
-// endpoint builder and a detached-DOM builder) so the navigation target and
-// the sink-hardened rendering are unit-testable without the live panel,
-// exactly like the reducers/classify above.
+// -> run <id>" note whose action opens that run's results. Kept pure (a
+// detached-DOM builder) so the sink-hardened rendering is unit-testable
+// without the live panel, exactly like the reducers/classify above.
 // ---------------------------------------------------------------------------
 
 /**
- * The web terminal's registered id for the BLUESKY panel — the queue/results
- * surface a queued run belongs to. Panels are switched by id through the
- * host, never by guessing a sibling panel's URL.
- */
-export const BLUESKY_PANEL_ID = 'bluesky';
-
-/**
- * The web terminal's panel-focus endpoint, derived from this panel's own
- * proxy mount prefix.
- *
- * A `POST {panel}` there sets the active panel and broadcasts the host's
- * `panel_focus` event, which its panel manager turns into the same
- * `showPanel` call the command palette uses. That indirection is the point:
- * the host owns tab activation, lazy iframe creation, and rail state, none of
- * which a sibling panel can reproduce by navigating to a URL — and a panel id
- * survives changes to how panels are mounted, where a hand-built path does
- * not.
- *
- * `prefix` is this panel's mount prefix (`/panel/plan`, or `/u/<user>/panel/
- * plan` under a multi-user mount): dropping its trailing `/panel/<id>` yields
- * the host root the API hangs off, so the multi-user prefix is preserved
- * automatically. An empty prefix (panel served directly, no shell) yields the
- * root-absolute path, which simply has no host behind it.
- *
- * @param {string} prefix
- * @returns {string}
- */
-export function panelFocusUrl(prefix) {
-  return `${prefix.replace(/\/panel\/[^/]+$/, '')}/api/panel-focus`;
-}
-
-/**
  * Build the launch banner's detached content: a text prefix plus the action
- * that switches the workspace to the BLUESKY panel. Rendered with
- * createElement/textContent only — this panel keeps a strict no-innerHTML
- * posture (see panel.js's module docstring), so an agent/other-tab-supplied
- * `run_id` reaches the DOM only as a text node, never as parsed markup.
- * `data-run-id` is carried for parity with the panel's other data-* rows and
- * for test assertions.
+ * that opens the queued run's results. Rendered with createElement/textContent
+ * only — this panel keeps a strict no-innerHTML posture (see plans-view.js's module
+ * docstring), so an agent/other-tab-supplied `run_id` reaches the DOM only as
+ * a text node, never as parsed markup. `data-run-id` is carried for parity
+ * with the panel's other data-* rows and for test assertions.
  *
  * @param {Document} doc
  * @param {{runId: string, revision: number}} banner
@@ -796,7 +762,7 @@ export function buildLaunchBanner(doc, banner, onOpen) {
   const open = doc.createElement('button');
   open.type = 'button';
   open.className = 'launch-run-link';
-  open.textContent = 'Open BLUESKY';
+  open.textContent = 'Open results';
   open.dataset.runId = banner.runId;
   open.addEventListener('click', () => onOpen(banner.runId));
   frag.appendChild(open);
@@ -809,7 +775,7 @@ export function buildLaunchBanner(doc, banner, onOpen) {
  * `buildLaunchBanner` above: createElement/textContent only — the plan name
  * is agent-influenced data, so it reaches the DOM strictly as a text node
  * (and a `data-plan-name` attribute set via the dataset property), never as
- * parsed markup. The action button invokes `onView(planName)` — panel.js
+ * parsed markup. The action button invokes `onView(planName)` — plans-view.js
  * wires that to its own `selectPlan`, which binds to the draft and clears
  * `formDirty`, making the banner predicate go false (self-clearing).
  *
@@ -908,11 +874,11 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
  * @property {HTMLFormElement} formEl  The param form; listened on for real
  *   user `input`/`change` events (never `form-change`, which `applyValues`
  *   also dispatches programmatically).
- * @property {() => CollectorLike|null} getCollector  Live getter — panel.js
+ * @property {() => CollectorLike|null} getCollector  Live getter — plans-view.js
  *   re-renders the form (and its collector) per selected plan.
  * @property {() => string[]} getPlanNames  Currently-loaded plan names (the
  *   sidebar catalog), for the unknown-draft-plan check.
- * @property {(name: string) => Promise<void>} selectPlan  panel.js's own
+ * @property {(name: string) => Promise<void>} selectPlan  plans-view.js's own
  *   plan-selection routine (fetch source, render schema form, wire summary).
  *   Reused for the cross-plan rebind path so schema/source loading logic
  *   lives in exactly one place.
@@ -949,7 +915,7 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
 /**
  * @typedef {object} DraftClient
  * @property {(name: string) => Promise<void>} onPlanSelected  Call after
- *   panel.js finishes rendering the newly-selected plan's form.
+ *   plans-view.js finishes rendering the newly-selected plan's form.
  * @property {() => Promise<void>} onDiscardClick
  * @property {() => Promise<void>} onAffordanceClick  Bind to the draft the
  *   affordance is pointing at (the currently-selected plan already matches

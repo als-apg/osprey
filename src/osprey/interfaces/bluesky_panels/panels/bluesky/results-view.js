@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * BLUESKY panel — the results half.
+ * BLUESKY panel — the Results view.
  *
  * Follows ONE run: polls `GET /runs/{id}` for its record and
  * `GET /runs/{id}/data` for a bounded rows/columns window, both through the
@@ -154,12 +154,31 @@ export function shouldKeepPolling(status, partial) {
  * }} ResultsElements */
 
 /**
- * @param {{api: (path: string) => string, elements: ResultsElements}} deps
+ * @param {{
+ *   api: (path: string) => string,
+ *   elements: ResultsElements,
+ *   onPollingChange?: (polling: boolean) => void,
+ * }} deps `onPollingChange` reports whether this view is currently polling for
+ *   a run — i.e. whether data is still arriving. The panel shell turns that
+ *   into the Results tab's activity marker when the operator is looking at
+ *   another tab. It fires only on a transition, so a caller may re-render
+ *   freely from it.
  * @returns {{follow: (runId: string|null) => void, currentRunId: () => string|null, destroy: () => void}}
  */
-export function createResultsView({ api, elements }) {
+export function createResultsView({ api, elements, onPollingChange }) {
   /** @type {{runId: string|null, timer: ReturnType<typeof setTimeout>|null, lastData: RunData|null}} */
   const state = { runId: null, timer: null, lastData: null };
+
+  /**
+   * Announce a change in whether the view is polling. Derived from the timer
+   * alone — the single fact that decides it — so there is no second flag that
+   * could survive a `follow()` or an early `stopPolling()` return.
+   *
+   * @param {boolean} polling
+   */
+  function notifyPolling(polling) {
+    if (onPollingChange) onPollingChange(polling);
+  }
 
   /** @param {HTMLElement} node */
   const show = (node) => {
@@ -233,17 +252,28 @@ export function createResultsView({ api, elements }) {
     }
   }
 
+  /**
+   * The one place `state.timer` is written, so "is this view polling?" has a
+   * single answer and the transition is reported exactly once. Rescheduling
+   * (timer -> timer) is not a transition and stays silent.
+   *
+   * @param {ReturnType<typeof setTimeout>|null} timer
+   */
+  function setPollTimer(timer) {
+    const wasPolling = state.timer !== null;
+    if (state.timer !== null) clearTimeout(state.timer);
+    state.timer = timer;
+    const polling = timer !== null;
+    if (polling !== wasPolling) notifyPolling(polling);
+  }
+
   function stopPolling() {
-    if (state.timer !== null) {
-      clearTimeout(state.timer);
-      state.timer = null;
-    }
+    setPollTimer(null);
   }
 
   /** @param {number} delayMs */
   function scheduleNextPoll(delayMs) {
-    stopPolling();
-    state.timer = setTimeout(pollOnce, delayMs);
+    setPollTimer(setTimeout(pollOnce, delayMs));
   }
 
   async function pollOnce() {

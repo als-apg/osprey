@@ -256,11 +256,10 @@ _KNOWN_DANGLING_VARS: frozenset[tuple[str, str]] = frozenset(
             "src/osprey/interfaces/design_system/static/js/components/osprey-theme-switcher.js",
             "…",
         ),
-        # Same prose false positive in the bluesky panels: their header comments
-        # describe token usage as "var(--…)". These files were always clean —
-        # they only entered the fleet-wide scan when the package moved from
+        # Same prose false positive in the bluesky panel: its header comment
+        # describes token usage as "var(--…)". This file was always clean — it
+        # only entered the fleet-wide scan when the package moved from
         # services/ to interfaces/ (layering fix).
-        ("src/osprey/interfaces/bluesky_panels/panels/plan/panel.css", "…"),
         ("src/osprey/interfaces/bluesky_panels/panels/bluesky/panel.css", "…"),
     }
 )

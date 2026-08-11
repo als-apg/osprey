@@ -52,12 +52,19 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # agent's turns. All four rosters list it, so every digest moved — a rebuilt
     # project gains a hook file and a UserPromptSubmit wiring entry, which is
     # exactly what the staleness advisory should report.
-    "control-assistant": "sha256:577f397a604c904e0f742546321bfe5ee39d9e1ec16eb60c5ff68f1fbe7cc6ae",
+    #
+    # Re-pinned again when the PLAN panel was folded into BLUESKY as its Plans
+    # tab: the preset's `plan` web_panels entry and its `web.panels.plan.*`
+    # overrides are gone. Like the RESULTS rename above, this is NOT
+    # behavior-neutral — a rebuilt project loses a tab and gains it back inside
+    # another — so staleness firing on already-deployed projects is the correct
+    # signal. Both extends children inherit it, so all three digests moved.
+    "control-assistant": "sha256:3fa6f5784c2e5ee47dfc74eadb604e012691e8d0efcd8d25534384c9a3446cfa",
     "control-assistant-readonly": (
-        "sha256:eaf69900f7783e6b77bceaa52cf69d6e609dc74969715dacf8a639a77cbbe1db"
+        "sha256:355f7b8511ba5a06cac25dd14a39c3cf38fc961c2b0055b33e2d009953826800"
     ),
     "control-assistant-readwrite": (
-        "sha256:a04ca9401c9e3dcf2e1bb233b7764183fc00d682473311cc12cbdbc6ce495ed2"
+        "sha256:23c3bf72e35d422022c9e325dc6fe8e7a8981e77d3e2e3e80b7cfe2e30ecd335"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

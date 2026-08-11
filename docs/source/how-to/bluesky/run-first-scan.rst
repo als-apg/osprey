@@ -100,7 +100,7 @@ token, no switch can disable them:
    :icon: gear
 
    - The draft you watched lives on the **Bluesky bridge**, a small service in
-     your project. The agent edits it with its drafting tools; the PLAN panel
+     your project. The agent edits it with its drafting tools; the Plans view
      is a live view of the same object.
    - **Add to queue** pinned the exact draft revision you saw. A revision can
      be queued only once, so a double-click cannot queue a duplicate.

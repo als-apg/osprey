@@ -36,7 +36,7 @@ Two ways to add a plan
 
       The agent writes the plan file, runs it through the validator, and
       tells you the result. From there it is a normal plan: it appears in
-      the PLAN panel, you review its parameters, and it queues and runs like
+      BLUESKY's Plans view, you review its parameters, and it queues and runs like
       any other — with its session-tier badge visible, so a reviewer always
       knows what they are looking at.
 
@@ -56,8 +56,8 @@ Two ways to add a plan
 
       Every plan in it is installed read-only into the scan stack and
       trusted at **facility** tier — no per-session validation, available in
-      every deployment built from the profile, listed in the PLAN panel and
-      the agent's catalog like the shipped plans.
+      every deployment built from the profile, listed in BLUESKY's Plans
+      view and the agent's catalog like the shipped plans.
 
       To *remove* a plan from the catalog — shipped or otherwise — list it
       under ``excluded_plans`` in the same block, and it becomes invisible
@@ -72,8 +72,8 @@ Two ways to add a plan
    - **Metadata** — the plan's name, a human description, its category,
      which kinds of devices it needs, and whether it writes to the machine.
    - **Parameters** — a schema describing the knobs (names, types, limits).
-     This is what the PLAN panel turns into a form, so a well-described
-     parameter becomes a well-labeled field.
+     This is what BLUESKY's Plans view turns into a form, so a
+     well-described parameter becomes a well-labeled field.
    - **The plan function** — builds the actual Bluesky plan from the
      parameters and the resolved devices.
 

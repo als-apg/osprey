@@ -111,10 +111,10 @@ stack than Demo Facility runs, so the first edit is subtraction. Delete:
 * from ``skills:`` — ``writing-bluesky-plans`` and ``operating-bluesky-scans``.
 * from ``agents:`` — ``logbook-search`` and ``logbook-deep-research``. Both
   query a logbook database at runtime, and this facility does not deploy one.
-* from ``web_panels:`` — ``ariel``, ``events``, ``plan`` and ``results``.
+* from ``web_panels:`` — ``ariel``, ``events`` and ``bluesky``.
 * from ``config:`` — the ``claude_code.servers.bluesky.enabled`` line and every
-  ``web.panels.events.*``, ``web.panels.plan.*`` and ``web.panels.results.*``
-  override. The panels they configure no longer exist.
+  ``web.panels.events.*`` and ``web.panels.bluesky.*`` override. The panels they
+  configure no longer exist.
 
 Keep the ``virtual_accelerator:`` block. It is the trigger for the soft-IOC this
 facility drives.

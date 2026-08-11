@@ -83,20 +83,19 @@ web_panels:
   - channel-finder  # Interactive channel-finder web UI
   - okf             # KNOWLEDGE tab — browse the facility knowledge bundle
   - events          # EVENTS dashboard tab (event dispatcher)
-  - plan       # Bluesky plan selection & execute
-  - bluesky    # Scan queue + the selected run's live results
+  - bluesky         # Plan authoring, the scan queue, and the run's live results
   - system-health   # SYSTEM tab — framework health dashboard (sidecar-backed)
 
 # ── Bluesky stack (turn-key, VA-backed) ─────────────────────────────────────────
 # The tutorial ships the FULL Bluesky-mediated Bluesky stack out of the box:
 # a Bluesky bridge (+ co-deployed Tiled catalog), a PyAT Virtual
 # Accelerator soft-IOC standing in for real EPICS hardware, and the
-# bluesky-panels sidecar that serves the two web_panels above. Each top-level
+# bluesky-panels sidecar that serves the BLUESKY web_panel above. Each top-level
 # block below is an injector trigger (`_inject_bluesky`/`_inject_va`/
 # `_inject_bluesky_panels` in build_cmd.py) — it renders the corresponding
 # `services.<name>` compose service, appends to `deployed_services`, and (for
 # bluesky_panels) registers the `web.panels.<id>` URLs. Remove this section
-# (and the two panel ids above) to ship a Bluesky-free tutorial.
+# (and the panel id above) to ship a Bluesky-free tutorial.
 bluesky:
   port: 8090
   tiled_enabled: true      # co-deploys the Tiled catalog sidecar alongside the bridge
@@ -145,14 +144,11 @@ config:
   web.panels.events.url: "${EVENT_DISPATCHER_URL:-http://localhost:8020}"
   web.panels.events.path: /dashboard
   web.panels.events.health_endpoint: /health
-  # SCAN panels — the operator UI for the mediated Bluesky stack (plan authoring,
-  # the scan queue, and the selected run's live results), served by the
-  # bluesky-panels sidecar.
+  # SCAN panel — the operator UI for the mediated Bluesky stack, served by the
+  # bluesky-panels sidecar. One panel with three tabs: plan authoring, the scan
+  # queue, and the selected run's live results.
   # URL defaults to the host-published sidecar port; override BLUESKY_PANELS_URL for
   # a containerized/remote web terminal (same pattern as the EVENTS panel above).
-  web.panels.plan.label: PLAN
-  web.panels.plan.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
-  web.panels.plan.path: /plan/
   web.panels.bluesky.label: BLUESKY
   web.panels.bluesky.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
   web.panels.bluesky.path: /bluesky/

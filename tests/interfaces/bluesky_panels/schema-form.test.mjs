@@ -20,7 +20,7 @@ import {
   renderSchemaForm,
   resolveNode,
   OMIT,
-} from '../../../src/osprey/interfaces/bluesky_panels/panels/plan/schema-form.js';
+} from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/schema-form.js';
 
 const ORM_SCHEMA = {
   properties: {

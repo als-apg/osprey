@@ -10,7 +10,7 @@
  *   - coalescing: newer frames (same or different target) replace the single
  *     visible entry and reset the timer (latest wins)
  *   - suppression: artifact frames while 'artifacts' is active, run frames
- *     while 'plan' is active, panel-kind frames while their own panel is
+ *     while 'bluesky' is active, panel-kind frames while their own panel is
  *     active — all suppressed; shown otherwise, and a suppressed frame never
  *     disturbs an already-visible entry or its timer
  *   - agent-supplied strings land as text nodes only (no element injection)
@@ -125,8 +125,8 @@ describe('suppression: active panel self-signals', () => {
     expect(mount.textContent).toContain('orbit-plot.png');
   });
 
-  test('run frame while plan panel is active is suppressed, shown otherwise', () => {
-    activePanel = 'plan';
+  test('run frame while the bluesky panel is active is suppressed, shown otherwise', () => {
+    activePanel = 'bluesky';
     const strip = makeStrip();
     strip.handleActivity(frame({ kind: 'run', detail: 'grid-7' }, 'run_plan'));
     expect(mount.children.length).toBe(0);
@@ -193,7 +193,7 @@ describe('unknown target kinds', () => {
 describe('pure suppression helpers', () => {
   test('suppressionPanelFor maps each kind onto its self-signaling panel', () => {
     expect(suppressionPanelFor({ kind: 'artifact' })).toBe('artifacts');
-    expect(suppressionPanelFor({ kind: 'run' })).toBe('plan');
+    expect(suppressionPanelFor({ kind: 'run' })).toBe('bluesky');
     expect(suppressionPanelFor({ kind: 'panel', panel: 'lattice' })).toBe('lattice');
     expect(suppressionPanelFor({ kind: 'panel' })).toBeNull(); // malformed: no panel id
     expect(suppressionPanelFor({ kind: 'channel' })).toBeNull();
@@ -205,9 +205,9 @@ describe('pure suppression helpers', () => {
     expect(isSuppressed({ kind: 'channel', detail: 'SR01:HCM1:SP' }, null)).toBe(false);
 
     expect(isSuppressed({ kind: 'artifact' }, 'artifacts')).toBe(true);
-    expect(isSuppressed({ kind: 'artifact' }, 'plan')).toBe(false);
+    expect(isSuppressed({ kind: 'artifact' }, 'bluesky')).toBe(false);
 
-    expect(isSuppressed({ kind: 'run' }, 'plan')).toBe(true);
+    expect(isSuppressed({ kind: 'run' }, 'bluesky')).toBe(true);
     expect(isSuppressed({ kind: 'run' }, 'artifacts')).toBe(false);
 
     expect(isSuppressed({ kind: 'panel', panel: 'okf' }, 'okf')).toBe(true);

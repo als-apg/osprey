@@ -5,7 +5,7 @@
  * Everything in this module is pure (or, for `createQueueStream`, injectable):
  * the reducers that turn the bridge's SSE frames into panel state, the
  * predicates that decide which queue control is live, the refusal classifier,
- * and the progress formatter. `panel.js` owns every DOM node; this module owns
+ * and the progress formatter. `queue-view.js` owns every DOM node; this module owns
  * every decision, so the wire contract is unit-testable with plain objects.
  *
  * Wire shapes this module speaks (bridge `queue.py`, relayed verbatim by the
@@ -259,7 +259,7 @@ export function stopButtonLabel(stop, confirmArmed) {
  * The stop button's class.
  *
  * `.confirm` is the caution treatment, and it means ARMED-AND-CONSEQUENTIAL —
- * the same meaning it carries on the PLAN panel's Add-to-queue and
+ * the same meaning it carries on the Plans view's Add-to-queue and
  * discard-draft buttons, which paint it only once their confirm is armed. A
  * plain stop never gets it: styling the safe halt as the dangerous action and
  * the hardware-arming withdrawal as the routine one is precisely backwards.
@@ -330,7 +330,7 @@ export function abortButtonLabel(confirmArmed) {
  * The abort button's class.
  *
  * `.confirm` is the caution treatment and means ARMED-AND-CONSEQUENTIAL — the
- * same sense the PLAN panel's discard-draft carries, where the consequence is
+ * same sense the Plans view's discard-draft carries, where the consequence is
  * destruction rather than arming. It is applied only on the armed second step:
  * at rest this is a halt, and painting a halt as the dangerous action is the
  * inversion the sibling control already had to fix.
@@ -480,7 +480,7 @@ export function moveDownBody(items, index) {
  * The OSPREY run id the enqueue path stamped into an item's metadata, or
  * `null` for an item enqueued out of band (a `qserver` CLI, another client).
  * Such an item is real queue work and is shown, but it has no run to open in
- * the results half.
+ * the Results view.
  *
  * @param {QueueItem|null} item
  * @returns {string|null}
