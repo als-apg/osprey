@@ -510,9 +510,9 @@ nothing to configure first.</p>
 <h2>Step 1: Ask<a class="headerlink" href="#step-1-ask" title="Link to this heading">#</a></h2>
 <p>Open the Web Terminal (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>) and ask for the scan the way you would
 say it out loud — in setpoints and monitors, not in software terms:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Set up a 2-D grid scan: sweep corrector_01 from -0.5 to 0.5 A in 5 steps
-and corrector_02 from -0.3 to 0.3 A in 5 steps, reading bpm_01 and bpm_02
-at every point.
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Set up a 2-D grid scan: sweep the horizontal steering correctors in
+sectors 1 and 2 from -0.5 to 0.5 A in 5 steps each, reading the BPMs
+either side of them at every point.
 </pre></div>
 </div>
 <p>The agent turns this into a <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code> plan and stages it as a <strong>shared
