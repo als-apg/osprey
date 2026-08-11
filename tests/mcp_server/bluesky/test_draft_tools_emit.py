@@ -65,20 +65,22 @@ async def test_set_draft_success_emits_one_panel_activity():
     ):
         result = await _set_fn()(plan_name="grid_scan")
 
-    notify.assert_called_once_with(tool="set_draft", kind="panel", panel="plan", detail="grid_scan")
+    notify.assert_called_once_with(
+        tool="set_draft", kind="panel", panel="bluesky", detail="grid_scan"
+    )
     # Tool result is unchanged by the emit.
     assert extract_response_dict(result) == _SET_RESP
 
 
 async def test_set_draft_panel_id_resolved_from_web_panels_config():
-    """A facility that registered the plan panel (mount path ``/plan/``) under
-    a non-canonical ``web.panels`` key gets that id in the emit — the id is
+    """A facility that registered the panel (mount path ``/bluesky/``) under a
+    non-canonical ``web.panels`` key gets that id in the emit — the id is
     config-resolved, never hardcoded."""
     config = {
         "web": {
             "panels": {
-                "results": {"url": "http://localhost:9000", "path": "/results/"},
-                "operator-plan": {"url": "http://localhost:9000", "path": "/plan/"},
+                "grafana": {"url": "http://localhost:9000", "path": "/d/scan/"},
+                "operator-plan": {"url": "http://localhost:9000", "path": "/bluesky/"},
             }
         }
     }
@@ -90,6 +92,44 @@ async def test_set_draft_panel_id_resolved_from_web_panels_config():
         await _set_fn()(plan_name="grid_scan")
 
     assert notify.call_args.kwargs["panel"] == "operator-plan"
+
+
+async def test_set_draft_panel_id_falls_back_to_a_pre_merge_plan_mount():
+    """A deployment built before PLAN was folded into BLUESKY still registers a
+    panel at ``/plan/``. The sidecar serves the merged bundle there, so the
+    highlight must land on it rather than on a ``bluesky`` entry the config
+    does not have."""
+    config = {"web": {"panels": {"plan": {"url": "http://localhost:9000", "path": "/plan/"}}}}
+    with (
+        patch(f"{_MOD}._http_patch_json", return_value=(200, _SET_RESP)),
+        patch(f"{_MOD}.notify_agent_activity") as notify,
+        patch("osprey.utils.workspace.load_osprey_config", return_value=config),
+    ):
+        await _set_fn()(plan_name="grid_scan")
+
+    assert notify.call_args.kwargs["panel"] == "plan"
+
+
+async def test_set_draft_panel_id_prefers_the_current_mount_over_the_legacy_one():
+    """A config.yml rebuilt in place can carry BOTH: the new registration and
+    the deprecated alias left over from before the merge. The current spelling
+    wins, or the rebuild would still highlight the retired entry."""
+    config = {
+        "web": {
+            "panels": {
+                "plan": {"url": "http://localhost:9000", "path": "/plan/"},
+                "bluesky": {"url": "http://localhost:9000", "path": "/bluesky/"},
+            }
+        }
+    }
+    with (
+        patch(f"{_MOD}._http_patch_json", return_value=(200, _SET_RESP)),
+        patch(f"{_MOD}.notify_agent_activity") as notify,
+        patch("osprey.utils.workspace.load_osprey_config", return_value=config),
+    ):
+        await _set_fn()(plan_name="grid_scan")
+
+    assert notify.call_args.kwargs["panel"] == "bluesky"
 
 
 # =========================================================================
@@ -104,7 +144,9 @@ async def test_clear_draft_success_emits_cleared_detail():
     ):
         result = await _clear_fn()()
 
-    notify.assert_called_once_with(tool="clear_draft", kind="panel", panel="plan", detail="cleared")
+    notify.assert_called_once_with(
+        tool="clear_draft", kind="panel", panel="bluesky", detail="cleared"
+    )
     assert extract_response_dict(result) == _CLEAR_RESP
 
 

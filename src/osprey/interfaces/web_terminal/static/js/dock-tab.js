@@ -139,7 +139,7 @@ class TileTab {
       // adopted terminal header; empty region surface still bubbles so the
       // bar remains the drag handle.
       contrib.addEventListener('pointerdown', (e) => {
-        if (e.target instanceof Element && e.target.closest('button')) {
+        if (e.target instanceof Element && e.target.closest(INTERACTIVE)) {
           e.stopPropagation();
         }
       });

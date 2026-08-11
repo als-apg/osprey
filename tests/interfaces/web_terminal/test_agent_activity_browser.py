@@ -18,7 +18,7 @@ Coverage:
       proven by ordering: a valid frame POSTed *after* the malformed ones
       lands (its badge appears) while the strip stays empty and no other
       badge exists.
-  (4) the plan panel's guarded auto-switch, against a real in-process
+  (4) the Plans view's guarded auto-switch, against a real in-process
       bluesky bridge + panels sidecar: a PATCH /draft with client_id
       ``mcp-agent`` while the panel is unbound on another plan switches the
       panel to the drafted plan and flashes the applied arg fields
@@ -332,11 +332,11 @@ def test_malformed_post_422_and_no_dom_change(tmp_path, chromium_browser):
 
 
 # ---------------------------------------------------------------------------
-# (4) plan panel guarded auto-switch — real bridge + sidecar, live SSE relay
+# (4) Plans view guarded auto-switch — real bridge + sidecar, live SSE relay
 # ---------------------------------------------------------------------------
 #
-# No hub involved: the guard lives entirely inside the plan panel bundle
-# (draft-client.js), which the bluesky panels sidecar serves at /plan/ with
+# No hub involved: the guard lives entirely inside the bluesky panel bundle
+# (draft-client.js), which the bluesky panels sidecar serves at /bluesky/ with
 # the shared design-system assets mounted — so the page is loaded directly
 # from the sidecar, exactly as the visual-regression suite loads panels. The
 # sidecar's /draft relay and /draft/events SSE hop run against the REAL
@@ -400,15 +400,15 @@ def _plan_panel_stack(tmp_path: Path) -> Iterator[str]:
         bridge_draft._clear()
 
 
-def _open_plan_panel(browser: Browser, sidecar_url: str) -> tuple[Page, str, str]:
-    """Open /plan/ directly, wait for boot + SSE, return (page, selected, other).
+def _open_plans_view(browser: Browser, sidecar_url: str) -> tuple[Page, str, str]:
+    """Open /bluesky/ directly, wait for boot + SSE, return (page, selected, other).
 
     Boot auto-selects the first catalog plan; the draft targets the OTHER one
     so the agent PATCH is a genuine cross-plan switch, not a same-plan bind.
     """
     page = browser.new_page()
     page.add_init_script(_PROBES_INIT_SCRIPT)
-    page.goto(f"{sidecar_url}/plan/", wait_until="domcontentloaded")
+    page.goto(f"{sidecar_url}/bluesky/", wait_until="domcontentloaded")
 
     selected_row = page.locator(".plan-row.selected")
     expect(selected_row).to_have_count(1, timeout=10_000)
@@ -432,7 +432,7 @@ def test_agent_draft_patch_auto_switches_plan_and_flashes_fields(tmp_path, chrom
     document-start MutationObserver, not by racing the 900ms animation).
     """
     with _plan_panel_stack(tmp_path) as sidecar_url:
-        page, _selected, other = _open_plan_panel(chromium_browser, sidecar_url)
+        page, _selected, other = _open_plans_view(chromium_browser, sidecar_url)
 
         r = requests.patch(
             f"{sidecar_url}/draft",
@@ -471,7 +471,7 @@ def test_operator_draft_patch_does_not_switch_or_flash(tmp_path, chromium_browse
     that async handling before the negative assertions run.
     """
     with _plan_panel_stack(tmp_path) as sidecar_url:
-        page, selected, other = _open_plan_panel(chromium_browser, sidecar_url)
+        page, selected, other = _open_plans_view(chromium_browser, sidecar_url)
 
         r = requests.patch(
             f"{sidecar_url}/draft",

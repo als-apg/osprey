@@ -9,7 +9,7 @@
  * and this module is what makes that affordable: the safe way to build a node
  * is also the short way.
  *
- * Shared by panel.js, plan-browser.js and schema-form.js so all three build
+ * Shared by plans-view.js, plan-browser.js and schema-form.js so all three build
  * nodes the same way rather than each carrying its own copy.
  *
  * @module hyperscript

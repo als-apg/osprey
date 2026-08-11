@@ -111,6 +111,20 @@ body.embedded .header { display: none; }
    needs the logo named directly, not just its hidden ancestor. */
 body.embedded .logo { display: none; }
 
+/* Embedded Expert: the browser column's toolbar row is contributed to the
+   host tile bar instead (gallery.js, header-contrib.js), so keeping it in
+   the body too would show every control twice. Simple is excluded because
+   the hub collapses a service tile's bar to zero height there — anything
+   contributed would simply vanish. */
+:root:not([data-ui-mode="simple"]) body.embedded .sidebar-controls-row { display: none; }
+/* With that row gone the header frames nothing (the layout toggle beside it
+   ships [hidden]), so drop its padding and rule rather than leave an empty
+   strip above the tree. */
+:root:not([data-ui-mode="simple"]) body.embedded .sidebar-header {
+  padding: 0;
+  border-bottom: none;
+}
+
 /* ================================================================
    Reset & Base
    ================================================================ */

@@ -77,11 +77,11 @@ SPLITTER_HOSTS = [
         styles=(f"{_IFACE}/artifacts/static/css/gallery.css",),
     ),
     Host(
-        label="plan",
-        html=f"{_IFACE}/bluesky_panels/panels/plan/index.html",
-        js=f"{_IFACE}/bluesky_panels/panels/plan/panel.js",
+        label="bluesky-plans",
+        html=f"{_IFACE}/bluesky_panels/panels/bluesky/index.html",
+        js=f"{_IFACE}/bluesky_panels/panels/bluesky/plans-view.js",
         orientations=frozenset({"vertical"}),
-        styles=(f"{_IFACE}/bluesky_panels/panels/plan/panel.css",),
+        styles=(f"{_IFACE}/bluesky_panels/panels/bluesky/panel.css",),
     ),
     Host(
         label="lattice",

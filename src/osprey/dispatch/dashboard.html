@@ -16,7 +16,13 @@
 // theme-boot.js already resolved pre-paint and whatever the hub broadcasts
 // when this page is embedded as the in-terminal EVENTS panel.
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 initTheme({ role: 'follower' });
+// Stamps body.embedded when the hub frames this page as the EVENTS panel,
+// which drops .app-head below — a tile gets exactly ONE header, the hub's tile
+// bar — and arms the header-contribution helpers the main script publishes to.
+// Standalone the class never appears, so the in-body header stays.
+applyEmbedded();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Event Dispatcher</title>
@@ -52,6 +58,10 @@ body {
   border-bottom: 1px solid var(--border-default);
   padding: 14px 20px 12px;
 }
+/* Embedded, the hub's tile bar IS this panel's header: it carries the title,
+   and the main script contributes the tabs and the status sentence to it. A
+   second bar underneath would be a duplicate, so the whole thing goes. */
+body.embedded .app-head { display: none; }
 .head-row {
   display: flex;
   align-items: baseline;
@@ -1144,6 +1154,53 @@ function navigate(next, { push = true } = {}) {
   render();
 }
 
+/* ============================================================
+   Tile-bar header contribution — the embedded panel's chrome
+
+   Embedded, .app-head is hidden and the hub's tile bar carries this panel's
+   chrome instead: the two tabs, and the status sentence behind them. The
+   design-system helpers are ES modules while this is a classic inline script,
+   so they arrive through a dynamic import() rather than a top-level one. Until
+   it settles — and standalone, where contributeHeader() is a no-op by
+   construction — every publish below simply does nothing.
+
+   The tabs are chrome Simple mode already drops, and the hub collapses a
+   service tile's whole bar there, so neither item needs a Simple gate.
+   ============================================================ */
+
+let headerContrib = null;
+const headerContribReady = import('/design-system/js/header-contrib.js')
+  .then((mod) => { headerContrib = mod; })
+  .catch((e) => {
+    // Helpers unreachable: the tile bar keeps its title and close button, and
+    // the panel keeps working — one lost affordance, not a broken screen.
+    console.warn('Header contribution unavailable:', e);
+  });
+
+/* The hub renders exactly what the LAST contribution says and never mutates
+   item state itself, so the WHOLE contribution goes out again on every
+   navigation, status refresh and mode flip. render() is the single call site,
+   which is what keeps the bar and the body in step. */
+function publishHeader() {
+  if (!headerContrib) return;
+  // A detail screen is reached FROM a tab, so the tab it belongs to stays lit
+  // — the same rule navigate() applies to the in-body tabs.
+  const triggersSide = view.name === 'triggers' || view.name === 'trigger';
+  headerContrib.contributeHeader([
+    {
+      kind: 'nav',
+      id: 'view',
+      items: [
+        { id: 'activity', label: 'Activity', active: !triggersSide },
+        { id: 'triggers', label: 'Triggers', active: triggersSide },
+      ],
+    },
+    // Longest item in the bar and the least urgent — a narrow tile drops the
+    // status sentence before it drops the way to change screens.
+    { kind: 'text', id: 'status', text: $('#status-text').textContent, priority: -1 },
+  ]);
+}
+
 function loadUrl() {
   const p = new URL(window.location.href).searchParams;
   if (p.has('lane')) filters.lane = p.get('lane') || '';
@@ -1926,6 +1983,8 @@ async function toggleTrigger(name, currentStatus) {
 
 function render() {
   renderStatus();
+  // After renderStatus(), so the contributed status text is the one on screen.
+  publishHeader();
   if (view.name === 'activity') { renderLanes(); renderRunList(); }
   else if (view.name === 'triggers') renderTriggerList();
   else if (view.name === 'trigger') renderTriggerDetail();
@@ -1979,7 +2038,9 @@ function wire() {
 // Live Expert<->Simple switch broadcast by the hub (panel-manager postMessage).
 // The pre-paint rung (mode-boot.js) set the initial data-ui-mode; this is the
 // runtime flip. Coerce anything but "simple" to "expert", stamp <html>, then
-// re-render: wording is chosen off isSimple(), so it must be recomputed.
+// re-render: wording is chosen off isSimple(), so it must be recomputed. Both
+// branches below reach render(), which re-publishes the tile-bar contribution
+// with the re-worded status sentence.
 window.addEventListener('message', (e) => {
   if (e.origin !== window.location.origin) return;
   if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
@@ -2000,6 +2061,20 @@ function init() {
   wire();
   navigate(view, { push: false });
   startPolling();
+
+  // Tile-bar tabs route through the SAME navigate() the in-body tabs call, so
+  // there is one routing path however the operator reaches a screen. The
+  // publish here covers the ordinary case where navigate() above ran before
+  // the helpers landed; re-publishing when they were already in hand is free,
+  // since a contribution is an idempotent replace.
+  headerContribReady.then(() => {
+    if (!headerContrib) return;
+    headerContrib.onHeaderAction((id, value) => {
+      if (id !== 'view') return;
+      if (value === 'activity' || value === 'triggers') navigate({ name: value });
+    });
+    publishHeader();
+  });
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
