@@ -27,6 +27,14 @@ model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 # Channel-finder pipeline. Override via --set channel_finder_mode=in_context|middle_layer.
 channel_finder_mode: hierarchical
 
+# Extra packages the built project's environment needs. pymongo is what the
+# archiver connector, the deploy-time seeder and the recorder all read the store
+# through; the tutorial declares a `va_archiver:` block below, so without it the
+# staged bring-up aborts at its pymongo preflight before any image is built.
+# Matches the pin the `archiver-mongodb` extra carries in pyproject.toml.
+dependencies:
+  - pymongo>=4.0
+
 # ── Artifact selection ───────────────────────────────────────────────────────
 # Each list entry is a short name resolved from the osprey artifact library.
 # Remove entries you do not need; add facility-specific artifacts via overlay.
@@ -110,6 +118,52 @@ virtual_accelerator:
 bluesky_panels:
   port: 8095
 
+# ── Stored archive (MongoDB) ─────────────────────────────────────────────────
+# Declaring this block is what gives the tutorial a REAL archive: `osprey deploy
+# up` stands up a MongoDB store and an archiver-recorder beside the VA, seeds the
+# store with history on the first deploy, and records the machine from then on.
+# Without it the agent's history is synthesized at read time — plausible numbers
+# for questions nobody recorded the answer to.
+#
+# The block is the single home for the archive's coordinates: the build derives
+# the connector's eight `archiver.mongodb_archiver.*` keys AND the shape knobs
+# below from it, and REFUSES a profile that also spells them in `config:` (one
+# fact, two homes, free to disagree). Selecting the archiver is a separate
+# decision and lives in `config:` as `archiver.type` — see the note there.
+#
+# Every key is optional; these are the shipped defaults, stated so the tutorial
+# documents the shape it deploys rather than hiding it in a dataclass.
+va_archiver:
+  # Where the agent reaches the store. Stated rather than left to the deploy to
+  # infer, because a profile resolved WITHOUT a service stack — a persona delta,
+  # an attached project, any of the resolution paths that carry no
+  # deploy_services — is required to name the host whose archive it reads, and
+  # would otherwise fail to resolve at all. `localhost` is the host side of the
+  # published `port_host`, which is where this project's own store answers;
+  # point it at the real host when attaching to someone else's.
+  host: localhost
+  retention_days: 30       # how far back the archive reaches
+  hot_span_hours: 48       # how much of it is kept at the dense cadence
+  hot_cadence_sec: 10      # seconds between samples inside the hot span
+  tail_cadence_sec: 60     # and outside it (must be a whole multiple of the above)
+  # How often the recorder samples the running machine. Stated because the
+  # freshness threshold below is derived from it: leaving it to the dataclass
+  # default would hide the one number that decides when this deployment calls
+  # its own archive stale.
+  recorder_cadence_sec: 10
+  # The channel `osprey health` reads to tell a REACHABLE archive from one still
+  # being WRITTEN — a wedged recorder leaves the store answering queries while
+  # history quietly stops, and only the age of the newest sample separates the
+  # two. Naming it here derives the whole `archiver_freshness` check, threshold
+  # included: that follows `recorder_cadence_sec` above, so slowing the recorder
+  # cannot leave a stale threshold behind.
+  #
+  # The stored-beam DCCT current is this simulated facility's canary, for the
+  # reason a real control room would pick it: it is the first thing to stop
+  # moving when the machine does. Point it at your own equivalent when you take
+  # this preset to hardware; drop the key and no check is derived.
+  freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
+
 # ── Config overrides ─────────────────────────────────────────────────────────
 # These key.path entries are written into config.yml after the template renders.
 # Uncomment and set values appropriate for your facility.
@@ -123,6 +177,17 @@ config:
   # scans are browse-only (a settle-verified run never COMPLETEs on mock) —
   # flip back with `osprey config set-control-system mock`.
   control_system.type: virtual_accelerator
+  # Selects the archive declared by the `va_archiver:` block above as the
+  # deployment's archiver. This is a SEPARATE decision from declaring where the
+  # archive lives, and deliberately so: the block never flips `archiver.type`
+  # out from under a facility that set it. A project that declared the block but
+  # left this alone would deploy a store and then read the mock beside it.
+  #
+  # Dotted, like every key here. A nested `archiver:` mapping would prefix
+  # -collapse; and spelling any `archiver.mongodb_archiver.*` key here is
+  # refused outright while the block is present, because the build already
+  # derives those from it.
+  archiver.type: mongodb_archiver
   # The Bluesky MCP server is off-by-default in the framework registry
   # (default_enabled=False); opt in here so the tutorial's agent can author
   # and launch scan plans out of the box.

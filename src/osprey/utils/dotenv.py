@@ -160,6 +160,7 @@ RUNTIME_WRITER_KEYS = frozenset(
         "BLUESKY_TILED_API_KEY",
         "ZO_ROOT_USER_PASSWORD",
         "ARIEL_DB_PASSWORD",
+        "MONGO_ROOT_PASSWORD",
     }
 )
 

@@ -2629,3 +2629,282 @@ def test_profile_pointing_into_the_osprey_package_is_refused(tmp_path: Path, cap
     reported = caplog.text + (str(result.exception) if result.exception else "")
     assert "inside the installed osprey package" in reported
     assert not (preset_yml.parent / "web-terminal-context").exists()
+
+
+# ---------------------------------------------------------------------------
+# The archiver store + recorder (_inject_va_archiver, step 10e)
+# ---------------------------------------------------------------------------
+
+
+class TestInjectVAArchiver:
+    """The two archiver services, and the config the profile block derives.
+
+    The injector's job is the pair of services; the connection block and the
+    archive's knobs are NOT its job — they are config overrides, so an attached
+    project (which reaches no injector) gets them too. Both halves are asserted
+    here because together they are what makes a built project's archive real.
+    """
+
+    def _write_config(self, project_path: Path, **overrides: object) -> None:
+        """The smallest config.yml the injector needs, plus any overrides."""
+        from ruamel.yaml import YAML
+
+        config: dict = {"deployed_services": [], "services": {}}
+        config.update(overrides)
+        yaml_rt = YAML()
+        with open(project_path / "config.yml", "w") as fh:
+            yaml_rt.dump(config, fh)
+
+    def _project(self, tmp_path: Path, **overrides: object) -> Path:
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        self._write_config(project_path, **overrides)
+        return project_path
+
+    def _inject(self, project_path: Path, **knobs: object):
+        from osprey.cli.build_cmd import _inject_va_archiver
+        from osprey.cli.build_profile_archiver import VAArchiverConfig
+
+        _inject_va_archiver(VAArchiverConfig(**knobs), project_path)  # type: ignore[arg-type]
+
+    def _read_config(self, project_path: Path) -> dict:
+        return yaml.safe_load((project_path / "config.yml").read_text()) or {}
+
+    def test_both_service_templates_land_in_the_project(self, tmp_path: Path) -> None:
+        """A store nothing writes to and a recorder with nowhere to write are
+        each half a feature, so both are copied or neither is."""
+        project_path = self._project(tmp_path)
+
+        self._inject(project_path)
+
+        for name in ("mongodb", "archiver_recorder"):
+            assert (project_path / "services" / name / "docker-compose.yml.j2").is_file()
+
+    def test_both_services_are_deployed(self, tmp_path: Path) -> None:
+        project_path = self._project(tmp_path)
+
+        self._inject(project_path)
+
+        assert self._read_config(project_path)["deployed_services"] == [
+            "mongodb",
+            "archiver_recorder",
+        ]
+
+    def test_the_store_block_carries_what_its_compose_template_reads(self, tmp_path: Path) -> None:
+        """port_host, username and compression are read by the template with a
+        `| default`, so a wrong value here renders a working-but-wrong store."""
+        project_path = self._project(tmp_path)
+
+        self._inject(project_path, port_host=27100, username="facility", compression="snappy")
+
+        mongodb = self._read_config(project_path)["services"]["mongodb"]
+        assert mongodb["path"] == "./services/mongodb"
+        assert mongodb["port_host"] == 27100
+        assert mongodb["username"] == "facility"
+        assert mongodb["compression"] == "snappy"
+        # No password key, following the postgres convention: one minted .env
+        # variable is what the container and every reader authenticate with, so
+        # a key here would be read by nothing and lose to it silently.
+        assert "password" not in mongodb
+
+    def test_the_store_defaults_match_what_its_template_assumes(self, tmp_path: Path) -> None:
+        """The compose template supplies its own `| default` for each of these.
+        Writing a different value here would render a store the connection block
+        cannot authenticate against — with no error until deploy time."""
+        project_path = self._project(tmp_path)
+
+        self._inject(project_path)
+
+        mongodb = self._read_config(project_path)["services"]["mongodb"]
+        assert mongodb["port_host"] == 27017
+        assert mongodb["username"] == "osprey"
+        assert mongodb["compression"] == "zstd"
+
+    def test_the_recorder_block_carries_its_template_path(self, tmp_path: Path) -> None:
+        """The compose generator resolves each deployed service's template dir
+        from `path`, and the recorder needs nothing else — everything it reads
+        arrives from the mounted config.yml at run time."""
+        project_path = self._project(tmp_path)
+
+        self._inject(project_path)
+
+        assert self._read_config(project_path)["services"]["archiver_recorder"] == {
+            "path": "./services/archiver_recorder"
+        }
+
+    def test_no_image_is_pinned_for_either_service(self, tmp_path: Path) -> None:
+        """The store falls to the template's pinned upstream tag and the
+        recorder to the VA's image; writing either here would defeat the
+        env/config/default override chain."""
+        project_path = self._project(tmp_path)
+
+        self._inject(project_path)
+
+        services = self._read_config(project_path)["services"]
+        assert "image" not in services["mongodb"]
+        assert "image" not in services["archiver_recorder"]
+
+    def test_injecting_twice_does_not_deploy_a_service_twice(self, tmp_path: Path) -> None:
+        """A rebuild over an existing project re-runs the injector."""
+        project_path = self._project(tmp_path)
+
+        self._inject(project_path)
+        self._inject(project_path)
+
+        assert self._read_config(project_path)["deployed_services"] == [
+            "mongodb",
+            "archiver_recorder",
+        ]
+
+    def test_a_claimed_service_template_is_left_untouched(self, tmp_path: Path) -> None:
+        """`osprey scaffold claim services/mongodb` means the facility owns that
+        copy — refreshing it would discard their edits on every rebuild."""
+        project_path = self._project(tmp_path, scaffold={"user_owned": ["services/mongodb"]})
+        claimed = project_path / "services" / "mongodb"
+        claimed.mkdir(parents=True)
+        (claimed / "docker-compose.yml.j2").write_text("# hand-edited", encoding="utf-8")
+
+        self._inject(project_path)
+
+        assert (claimed / "docker-compose.yml.j2").read_text() == "# hand-edited"
+        # The unclaimed half of the pair still refreshes.
+        assert (project_path / "services" / "archiver_recorder").is_dir()
+
+    def test_an_existing_va_service_block_survives_injection(self, tmp_path: Path) -> None:
+        """Step 10e runs after the VA's own injector, and the recorder template
+        gates on `virtual_accelerator` being in deployed_services."""
+        project_path = self._project(
+            tmp_path,
+            deployed_services=["virtual_accelerator"],
+            services={"virtual_accelerator": {"path": "./services/virtual_accelerator"}},
+        )
+
+        self._inject(project_path)
+
+        config = self._read_config(project_path)
+        assert config["deployed_services"] == [
+            "virtual_accelerator",
+            "mongodb",
+            "archiver_recorder",
+        ]
+        assert "virtual_accelerator" in config["services"]
+
+    def test_the_injector_writes_no_connection_block(self, tmp_path: Path) -> None:
+        """It belongs to the config-override path, which an attached project
+        also runs — writing it here too would be a second home for it."""
+        project_path = self._project(tmp_path)
+
+        self._inject(project_path)
+
+        assert "archiver" not in self._read_config(project_path)
+
+
+class TestVAArchiverConfigDerivation:
+    """The `va_archiver:` block's keys reach a built project's config.yml."""
+
+    def _build(self, tmp_path: Path, project_name: str, **profile_keys: object) -> Path:
+        """Build the hello-world preset with *profile_keys* layered on top."""
+        from click.testing import CliRunner
+
+        from osprey.cli.build_cmd import build
+
+        argv = [
+            project_name,
+            "--preset",
+            "hello-world",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ]
+        if profile_keys:
+            override = tmp_path / f"{project_name}-override.yml"
+            override.write_text(yaml.safe_dump(profile_keys, sort_keys=False), encoding="utf-8")
+            argv[1:1] = ["-O", str(override)]
+
+        result = CliRunner().invoke(build, argv)
+        assert result.exit_code == 0, result.output
+        return tmp_path / project_name
+
+    def _config(self, project_path: Path) -> dict:
+        return yaml.safe_load((project_path / "config.yml").read_text()) or {}
+
+    def test_the_connector_can_connect_to_what_the_build_wrote(self, tmp_path: Path) -> None:
+        """The connector raises on the first missing key, so a partial block
+        would build cleanly and die at the first archiver call."""
+        project = self._build(tmp_path, "archived", va_archiver={"port_host": 27100})
+
+        mongo = self._config(project)["archiver"]["mongodb_archiver"]
+        # The agent runs on the host, so it reaches the store on the published
+        # port. Container-side consumers use the `archiver-mongodb` network
+        # alias instead and never this block.
+        assert mongo["host"] == "localhost"
+        assert mongo["port"] == 27100
+        assert mongo["name"] and mongo["collection"]
+        # The store mints its root user, and a root user's credentials live in
+        # `admin` — authenticating against the data database would fail.
+        assert mongo["auth"] == "admin"
+        assert mongo["username"] == "osprey"
+        assert mongo["password_env"] == "MONGO_ROOT_PASSWORD"
+        # Short by design: the common failure is a project built but never
+        # deployed, and a fast explanatory error beats a minute of silence.
+        assert mongo["timeout"] == 5
+
+    def test_the_password_is_never_written_into_the_project(self, tmp_path: Path) -> None:
+        """It reaches the store, the recorder and the agent as one minted .env
+        variable. A literal anywhere in config.yml would be both a secret on
+        disk and a second value free to disagree with the minted one."""
+        project = self._build(tmp_path, "archived", va_archiver={})
+
+        config = self._config(project)
+        assert "password" not in config["services"]["mongodb"]
+        assert "password" not in config["archiver"]["mongodb_archiver"]
+
+    def test_the_archive_knobs_reach_the_services_that_read_them(self, tmp_path: Path) -> None:
+        """FR7: retention and cadence are profile edits, not code changes, so
+        they must be in the config the seeder and recorder read."""
+        project = self._build(
+            tmp_path, "archived", va_archiver={"retention_days": 2, "hot_span_hours": 2}
+        )
+
+        knobs = self._config(project)["va_archiver"]
+        assert knobs["retention_days"] == 2
+        assert knobs["hot_span_hours"] == 2
+        assert knobs["hot_cadence_sec"] == 10
+        assert knobs["tail_cadence_sec"] == 60
+        assert knobs["recorder_cadence_sec"] == 10
+        assert knobs["recorder_poll_sec"] == 30
+
+    def test_the_services_are_injected_by_the_build(self, tmp_path: Path) -> None:
+        project = self._build(tmp_path, "archived", va_archiver={})
+
+        config = self._config(project)
+        assert {"mongodb", "archiver_recorder"} <= set(config["deployed_services"])
+        assert (project / "services" / "mongodb" / "docker-compose.yml.j2").is_file()
+        assert (project / "services" / "archiver_recorder" / "docker-compose.yml.j2").is_file()
+
+    def test_a_profile_without_the_block_gets_neither(self, tmp_path: Path) -> None:
+        """Opt-in: nothing about an unarchived project changes."""
+        project = self._build(tmp_path, "plain")
+
+        config = self._config(project)
+        assert "va_archiver" not in config
+        assert "mongodb" not in config["deployed_services"]
+        assert not (project / "services" / "mongodb").exists()
+
+    def test_an_attached_project_is_told_where_the_archive_is(self, tmp_path: Path) -> None:
+        """It scaffolds no services and so reaches no injector — the connection
+        block is exactly what it still needs, and the host it names is the one
+        running the shared store."""
+        project = self._build(
+            tmp_path,
+            "attached",
+            deploy_services=False,
+            va_archiver={"host": "archive.example.org", "port_host": 27100},
+        )
+
+        config = self._config(project)
+        assert config["archiver"]["mongodb_archiver"]["host"] == "archive.example.org"
+        assert config["archiver"]["mongodb_archiver"]["port"] == 27100
+        assert config["deployed_services"] == []
+        assert not (project / "services" / "mongodb").exists()

@@ -1,0 +1,117 @@
+# The mongodb service owns the archiver store: one collection of
+# `{date: ISODate, <PV>: value}` documents, written by the base seeder (host
+# CLI, over the published port below), by `osprey sim apply` when a scenario
+# rewrites event windows, and by the archiver_recorder service (in-network)
+# when a Virtual Accelerator is being recorded. `MongoDBArchiverConnector`
+# reads it. There is one store and one timeline — seeded history and recorded
+# history are the same documents in the same collection.
+#
+# Neither the database nor the collection is created here: the seeder creates
+# them, together with the `{date: 1}` index the connector's sort needs and the
+# TTL index that expires per-document `expireAt` stamps. That ordering is
+# deliberate — `osprey deploy up` stages this service first, seeds, and only
+# then starts the recorder, so nothing races the collection into existence
+# with the wrong options.
+
+services:
+  mongodb:
+    # Public upstream image, overridable like every other service image
+    # (env → config → default): set OSPREY_MONGODB_IMAGE, or
+    # services.mongodb.image in config.yml, to point at a mirror or a pinned
+    # digest (e.g. for air-gapped registries).
+    image: ${OSPREY_MONGODB_IMAGE:-{{ (services.mongodb | default({})).image | default('mongo:7', true) }}}
+    # container_name is a HOST-GLOBAL docker identifier: a bare
+    # `archiver-mongodb` collides when two OSPREY projects deploy the archiver
+    # store on one host, forcing them to serialize. Namespace it per-project so
+    # concurrent deploys don't fight over one name. The name in-network
+    # consumers resolve (`archiver-mongodb`) is pinned separately as a network
+    # alias below, so the rename doesn't reach them.
+    container_name: {{ osprey_labels.project_name }}-archiver-mongodb
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    # Block compression for every collection this server creates. It is set on
+    # the SERVER, not per-collection, precisely because the seeder creates the
+    # archiver collection implicitly on its first insert: an implicitly created
+    # collection inherits the server-wide compressor, so there is no window in
+    # which documents land uncompressed while some later call tries to set
+    # collection options. `zstd` roughly halves the store against the default
+    # `snappy` at this schema's redundancy (one small document per timestamp,
+    # highly repetitive keys); `services.mongodb.compression` moves it for a
+    # facility that would rather trade disk for CPU. Whatever it is set to
+    # becomes part of the seed-manifest fingerprint, so changing it triggers a
+    # reported reseed rather than a store that is half one codec and half the
+    # other.
+    #
+    # The official image's entrypoint prepends `mongod` to any command starting
+    # with `-`, and appends `--bind_ip_all` when no bind is given, so this
+    # short form keeps both behaviors.
+    command: ["--wiredTigerCollectionBlockCompressor", "{{ (services.mongodb | default({})).compression | default('zstd', true) }}"]
+    ports:
+      # Published for the HOST side of the archiver: the agent's connector, the
+      # base seeder inside `osprey deploy up`, and `osprey sim apply`'s event
+      # rewrite all reach the store this way (bind_address defaults to
+      # loopback, so it is not exposed off-box). In-network consumers use the
+      # `archiver-mongodb` alias below instead and never this port mapping.
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services.mongodb | default({})).port_host | default(27017, true) }}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: {{ (services.mongodb | default({})).username | default('osprey', true) }}
+      # Sourced from the project .env: `osprey deploy up` mints a strong
+      # MONGO_ROOT_PASSWORD when unset, and the agent-side connector block
+      # (`archiver.mongodb_archiver.password_env: MONGO_ROOT_PASSWORD`), the
+      # seeder and the recorder all read that SAME variable, so container and
+      # readers authenticate with one value. Mirrors postgres's
+      # ARIEL_DB_PASSWORD convention, including the absence of a `password:`
+      # key in the `services.mongodb` config block — one set there would be
+      # read by nothing and would silently lose to the minted variable. The
+      # `osprey` fallback applies only before the first deploy or on a bare
+      # `docker compose up`.
+      #
+      # NOTE: mongod reads MONGO_INITDB_ROOT_USERNAME/PASSWORD only when
+      # initializing a FRESH data volume; a pre-existing volume keeps its
+      # original credentials until recreated. Rotating the minted password
+      # therefore requires removing the volume below — which also discards the
+      # seeded and recorded history, so `deploy up` warns before it comes to
+      # that rather than leaving the store silently unauthenticatable.
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-osprey}
+      TZ: {{ system.timezone }}
+    volumes:
+      # The store itself. Named (not a bind mount) so it is namespaced per
+      # compose project and survives `deploy down`: a base seed costs minutes,
+      # and re-seeding on every restart would make the archiver's history
+      # younger than the machine it claims to describe.
+      - archiver_mongodb_data:/data/db
+    networks:
+      # The container_name above is per-project, so pin the name in-network
+      # consumers actually address as an alias. The recorder resolves
+      # `archiver-mongodb` (it cannot use the host-published port from inside
+      # the network), and the dispatch worker overrides the agent's archiver
+      # host with the same name. Naming the ROLE rather than the compose
+      # service key keeps both consumers correct if the service key ever moves.
+      osprey-network:
+        aliases:
+          - archiver-mongodb
+    healthcheck:
+      # `ping` is one of the few commands mongod answers before
+      # authentication, so this probe needs no credentials — which is what
+      # keeps the healthcheck from becoming a second place the minted password
+      # has to be spelled. It proves the server is accepting connections and
+      # answering commands, which is exactly the condition the seeder and the
+      # recorder wait on.
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count: a FRESH volume makes mongod
+      # create the admin user and preallocate WiredTiger's journal before it
+      # answers, which the default (immediate) probing would otherwise count as
+      # failures against the retry budget.
+      start_period: 15s
+
+volumes:
+  archiver_mongodb_data:
+
+networks:
+  osprey-network:

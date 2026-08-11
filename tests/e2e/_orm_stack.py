@@ -119,6 +119,23 @@ DEFAULT_CORRECTOR_COUNT = 4
 DEFAULT_BPM_COUNT = 4
 
 
+# The archive every VA lane deploys, shrunk to what a lane actually reads.
+#
+# The control-assistant preset declares a `va_archiver:` block sized for a
+# tutorial deployment -- a month of history behind two dense days -- and
+# `deploy up` writes every sample of it into the store before the stack answers.
+# No lane here reads that history; they need the store to exist, the recorder to
+# be recording, and the two-tier boundary to be somewhere a contract can find it.
+# Two days of retention behind a two-hour dense head is about a sixteenth of the
+# samples: seconds of seeding instead of a minute, and a store sized to match.
+#
+# One snippet shared by all four VA lanes (`override_yaml` below, plus the three
+# that write their own override) rather than four hand-copied blocks that drift.
+# Deep-merged onto the preset's block, so `host:` and both cadences keep the
+# values the preset ships -- only the two span knobs move.
+VA_ARCHIVER_CI_KNOBS = "va_archiver:\n  retention_days: 2\n  hot_span_hours: 2\n"
+
+
 def override_yaml() -> str:
     """FR11's ``--override`` YAML content: VA control system + the scan MCP
     server.
@@ -139,6 +156,12 @@ def override_yaml() -> str:
     nested ``modules:`` mapping would wholesale-replace the subtree (see the
     preset's own comment above its ``modules.web_terminals`` block).
 
+    ``VA_ARCHIVER_CI_KNOBS`` shrinks the archive the preset's ``va_archiver:``
+    block declares to a CI-sized one -- see the constant for why. It trails
+    ``dispatch: null`` so it stays outside the ``config:`` block (both are
+    top-level profile keys, and ``test_bluesky_panels_deploy`` splices its port
+    moves in ahead of that line).
+
     Written as flat dotted-string keys under ``config:`` (matching the
     preset's own convention), not a `--set config.control_system.type=...`
     CLI override -- `--set` builds a NESTED dict for every dotted segment,
@@ -150,7 +173,7 @@ def override_yaml() -> str:
         "  control_system.type: virtual_accelerator\n"
         "  claude_code.servers.bluesky.enabled: true\n"
         "  modules.web_terminals.enabled: false\n"
-        "dispatch: null\n"
+        "dispatch: null\n" + VA_ARCHIVER_CI_KNOBS
     )
 
 

@@ -60,6 +60,8 @@ VA_TEST_FILE = "tests/e2e/test_va_substrate_equivalence.py"
 LIFECYCLE_TEST_FILE = "tests/e2e/test_deploy_lifecycle.py"
 ORM_JOB = "orm-roundtrip-e2e"
 ORM_TEST_FILE = "tests/e2e/test_orm_roundtrip.py"
+ARCHIVER_JOB = "archiver-world-e2e"
+ARCHIVER_TEST_FILE = "tests/e2e/test_archiver_world_e2e.py"
 OVERLAY_JOB = "dispatch-overlay-e2e"
 OVERLAY_TEST_FILE = "tests/e2e/test_dispatch_overlay_visibility.py"
 CATALOG_JOB = "bluesky-catalog-e2e"
@@ -827,6 +829,110 @@ def test_orm_roundtrip_job_has_no_llm_secret__mutation_adds_secret() -> None:
     )
     with pytest.raises(AssertionError):
         assert not _job_declares_secret(mutated, ORM_JOB, SECRET_TOKEN)
+
+
+# ---------------------------------------------------------------------------
+# (g) the archiver-world lane: its own job, secret-free, and gated on both halves
+# ---------------------------------------------------------------------------
+
+
+def test_archiver_world_job_exists(workflow: dict[str, Any]) -> None:
+    assert ARCHIVER_JOB in _jobs(workflow)
+
+
+def test_archiver_world_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][ARCHIVER_JOB]
+    with pytest.raises(AssertionError):
+        assert ARCHIVER_JOB in _jobs(mutated)
+
+
+def test_archiver_world_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+    """Every assertion in that file is mechanical — seed duration, store size, a
+    setpoint round-trip, a noise-band step, document counts — and the archiver
+    read goes through the connector rather than an agent turn. A secret
+    appearing in this job would mean the lane's scope silently grew."""
+    assert not _job_declares_secret(workflow, ARCHIVER_JOB, SECRET_TOKEN)
+
+
+def test_archiver_world_job_has_no_llm_secret__mutation_adds_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][ARCHIVER_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        assert not _job_declares_secret(mutated, ARCHIVER_JOB, SECRET_TOKEN)
+
+
+def test_archiver_world_job_installs_the_pymongo_extra(workflow: dict[str, Any]) -> None:
+    """The staged bring-up preflights pymongo before any image build, so without
+    the extra this lane aborts in seconds with an install hint instead of running
+    — a green-looking job that tested nothing."""
+    installed = json.dumps(_jobs(workflow)[ARCHIVER_JOB])
+    assert "archiver-mongodb" in installed, (
+        f"the '{ARCHIVER_JOB}' lane must `uv sync` the archiver-mongodb extra"
+    )
+
+
+def test_archiver_world_job_installs_the_pymongo_extra__mutation_drops_extra() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][ARCHIVER_JOB] = json.loads(
+        json.dumps(mutated["jobs"][ARCHIVER_JOB]).replace(" --extra archiver-mongodb", "")
+    )
+    with pytest.raises(AssertionError):
+        test_archiver_world_job_installs_the_pymongo_extra(mutated)
+
+
+def test_archiver_world_job_runs_pytest_unbuffered(workflow: dict[str, Any]) -> None:
+    """``-s`` is what puts this lane's measured budgets in the log on a GREEN run.
+
+    Pytest captures stdout and replays it only for failures, so without this the
+    seed duration, store size and write->read latency appear exactly when nobody
+    can act on them any more. The budgets are the lane's product — a run that
+    hides them still passes, and the trend that precedes a breach is invisible.
+    """
+    steps = json.dumps(_jobs(workflow)[ARCHIVER_JOB]["steps"])
+    assert ARCHIVER_TEST_FILE in steps
+    assert " -s " in steps or steps.rstrip().endswith(" -s"), (
+        f"the '{ARCHIVER_JOB}' lane must run pytest with -s so the MEASURED "
+        "budget lines reach the log on a passing run"
+    )
+
+
+def test_archiver_world_job_runs_pytest_unbuffered__mutation_drops_the_flag() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][ARCHIVER_JOB] = json.loads(
+        json.dumps(mutated["jobs"][ARCHIVER_JOB]).replace(" -v -s ", " -v ")
+    )
+    with pytest.raises(AssertionError):
+        test_archiver_world_job_runs_pytest_unbuffered(mutated)
+
+
+def test_all_checks_passed_needs_archiver_world(workflow: dict[str, Any]) -> None:
+    """Both halves of the gate, for the reason spelled out on the gchat pair:
+    ``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care."""
+    assert ARCHIVER_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{ARCHIVER_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_archiver_world__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(ARCHIVER_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_archiver_world(mutated)
+
+
+def test_all_checks_passed_needs_archiver_world__mutation_drops_check_pr_lane_line() -> None:
+    """The dangerous half: the job is still waited on, but nothing reads its
+    result — the lane could go red forever inside a green check."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if ARCHIVER_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert ARCHIVER_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_archiver_world(mutated)
 
 
 def test_dispatch_overlay_job_exists(workflow: dict[str, Any]) -> None:

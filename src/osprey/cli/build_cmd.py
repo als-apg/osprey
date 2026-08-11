@@ -53,6 +53,7 @@ from .build_injectors import (
     _inject_nextcloud_bridge,
     _inject_profile_services,
     _inject_va,
+    _inject_va_archiver,
     _locate_pkg_services,
 )
 from .build_lifecycle import (
@@ -95,6 +96,7 @@ __all__ = [
     "_inject_nextcloud_bridge",
     "_inject_profile_services",
     "_inject_va",
+    "_inject_va_archiver",
     "_locate_pkg_services",
     "_persist_artifact_server",
     "_persist_mcp_servers",
@@ -375,6 +377,7 @@ def build(
         ProfileWriteBackGuard,
         preset_profile_dir,
     )
+    from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides
     from .profile_cmd import _resolve_profile_file
     from .project_utils import _clear_claude_code_project_state
@@ -740,17 +743,26 @@ def build(
         if profile_env_example.is_file():
             shutil.copy2(profile_env_example, project_path / ".env.example")
 
-        # 8. Apply config overrides, plus what the deploy block contributes.
-        #    Appended last and written in one pass, so the derived leaf lands
-        #    inside whatever `modules.web_terminals` subtree the profile's own
-        #    entries wrote rather than being replaced by it.
-        derived = deploy_config_overrides(build_profile.deploy, build_profile.config)
+        # 8. Apply config overrides, plus what the deploy and va_archiver blocks
+        #    contribute. Appended last and written in one pass, so the derived
+        #    leaf lands inside whatever `modules.web_terminals` subtree the
+        #    profile's own entries wrote rather than being replaced by it.
+        #    Derived keys the profile also spells are rejected at validation, so
+        #    winning here can never silently overwrite a facility's own value.
+        derived_by_block = {
+            "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
+            "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
+        }
+        derived = {
+            key: value for block in derived_by_block.values() for key, value in block.items()
+        }
         config_overrides = {**build_profile.config, **derived}
         if config_overrides:
             _apply_config_overrides(project_path, config_overrides)
             logger.info("  ✓ Applied %d config override(s)", len(config_overrides))
-            for key, value in derived.items():
-                logger.info("      %s: %s (from the profile's deploy block)", key, value)
+            for block, entries in derived_by_block.items():
+                for key, value in entries.items():
+                    logger.info("      %s: %s (from the profile's %s block)", key, value, block)
 
         # 9-10d. Service scaffolding + injection. Skipped wholesale for an
         # attached project (deploy_services: false): its service sections were
@@ -810,6 +822,17 @@ def build(
             # 10d. Inject the Virtual Accelerator soft-IOC service
             if build_profile.virtual_accelerator is not None:
                 _inject_va(build_profile.virtual_accelerator, project_path)
+
+            # 10e. Inject the archiver store + recorder. Must follow step 10d:
+            # the recorder's compose template gates its image source, its
+            # startup ordering and its Channel Access addressing on
+            # `virtual_accelerator` being in `deployed_services`, which is
+            # exactly what _inject_va writes there. The connection block and
+            # the archive's knobs are not written here — they reached the
+            # rendered config through step 8, which an attached project also
+            # runs (see va_archiver_config_overrides).
+            if build_profile.va_archiver is not None:
+                _inject_va_archiver(build_profile.va_archiver, project_path)
         else:
             logger.info(
                 "deploy_services: false — attached project; no services scaffolded "

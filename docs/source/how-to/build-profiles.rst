@@ -625,6 +625,12 @@ Profile YAML reference
      - mapping
      - ``{}``
      - Container services for ``osprey deploy`` (see :ref:`profile-services`).
+   * - ``va_archiver``
+     - mapping
+     - absent
+     - Declares a stored archive for a simulated machine: a MongoDB store and a
+       recorder the deploy stands up, seeds and records into
+       (see :ref:`profile-va-archiver`).
    * - ``lifecycle``
      - mapping
      - ``{}``
@@ -846,6 +852,136 @@ copied into the project's ``services/`` tree, and the service is registered in
 A service directory placed in the profile's ``services/`` convention directory is
 carried across the same way and marked as yours — that is what
 ``osprey scaffold claim services/<name>`` produces.
+
+.. _profile-va-archiver:
+
+The ``va_archiver`` block
+=========================
+
+A deployment that serves simulated channels still needs somewhere to keep what
+those channels did. Declaring ``va_archiver:`` is what gives it one: the build
+adds a MongoDB store and a recorder to the service stack, ``osprey deploy up``
+seeds the store with history and then records the running machine into it, and
+the ``mongodb_archiver`` connector reads it back.
+
+.. code-block:: yaml
+
+   va_archiver:
+     host: localhost
+     retention_days: 30
+     hot_span_hours: 48
+     hot_cadence_sec: 10
+     tail_cadence_sec: 60
+     freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
+
+Every key is optional and the defaults describe a working archive; the block's
+presence is the decision, not its contents.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 12 58
+
+   * - Key
+     - Default
+     - Meaning
+   * - ``retention_days``
+     - ``30``
+     - How far back the archive reaches — both what a fresh deployment holds
+       and what a running one keeps.
+   * - ``hot_span_hours``
+     - ``48``
+     - How much of the recent end is kept at the dense cadence. May not exceed
+       ``retention_days``.
+   * - ``hot_cadence_sec``
+     - ``10``
+     - Seconds between samples inside the hot span.
+   * - ``tail_cadence_sec``
+     - ``60``
+     - Seconds between samples outside it. Must be a whole multiple of
+       ``hot_cadence_sec`` — the sparse tier is a subset of the dense grid, so a
+       cadence that does not divide would put the two on timestamps that never
+       coincide.
+   * - ``recorder_cadence_sec``
+     - ``10``
+     - How often the recorder samples the live machine.
+   * - ``recorder_tail_cadence_sec``
+     - ``60``
+     - How often one of those samples is additionally kept for the full
+       retention span, so recorded history survives as the dense copy ages out.
+       Same whole-multiple rule.
+   * - ``recorder_poll_sec``
+     - ``30``
+     - How often the recorder re-reads the deployment's config to decide whether
+       to record at all. It records only for a ``virtual_accelerator`` control
+       system, and this is what lets that flip take effect without a restart.
+   * - ``freshness_channel``
+     - unset
+     - Canary channel for a derived ``archiver_freshness`` health check. Unset
+       derives no check (see :doc:`configure-health-checks`).
+   * - ``host``
+     - ``localhost``
+     - Where the store is. **Required** when ``deploy_services`` is false: an
+       attached project deploys no store of its own, so it has to name the host
+       whose archive it reads.
+   * - ``port_host``
+     - ``27017``
+     - Host port the store publishes on — or, for an attached project, the port
+       the other host published.
+   * - ``database`` / ``collection``
+     - ``osprey_archiver`` / ``pv_history``
+     - Where the samples live inside the store.
+   * - ``compression``
+     - ``zstd``
+     - Block compressor for the collection: ``zstd``, ``snappy``, ``zlib`` or
+       ``none``.
+   * - ``username`` / ``auth_database``
+     - ``osprey`` / ``admin``
+     - The database user the deployment creates and the agent connects as, and
+       the database it authenticates against.
+   * - ``password_env``
+     - ``MONGO_ROOT_PASSWORD``
+     - **Name** of the variable holding that password. The value is minted into
+       the deployment's ``.env``; it is never a profile field.
+   * - ``timeout_sec``
+     - ``5``
+     - How long the connector waits to reach the store.
+
+One fact, one home
+------------------
+
+The block is where the archive is described, and the build writes the rest from
+it. Do **not** also spell these in ``config:`` — a profile that does is refused,
+by name, rather than silently having one copy win:
+
+- the connector's eight connection keys —
+  ``archiver.mongodb_archiver.host``, ``.port``, ``.name``, ``.collection``,
+  ``.auth``, ``.username``, ``.password_env``, ``.timeout`` — all derived from
+  the keys above;
+- the shape knobs, written to ``va_archiver.*`` in the rendered ``config.yml``
+  for the seeder and the recorder to read;
+- ``health.categories.archiver``, when ``freshness_channel`` is set.
+
+Two homes for one fact are free to disagree, and the disagreement is the
+dangerous case: a stale ``collection`` or ``host`` in ``config:`` points the
+agent at an archive nothing is writing, which reads as empty rather than as
+broken.
+
+What the block does *not* do is select the archiver. Declaring where an archive
+lives and choosing it as the deployment's archiver are separate decisions, so
+the block never flips ``archiver.type`` out from under you — set
+``config: {archiver.type: mongodb_archiver}`` yourself, or the project deploys a
+store and then reads something else beside it.
+
+.. warning::
+
+   ``osprey build`` **refuses** a profile that pairs a ``virtual_accelerator``
+   control system with the mock archiver, or with no ``archiver.type`` at all
+   (which resolves to the mock): a simulated machine whose history is
+   synthesized at read time reports a past that never happened, and nothing can
+   catch it. The error names the fix — declare this block and select
+   ``mongodb_archiver``, point the archiver at a store you run yourself, or set
+   the control system to ``mock`` for an honestly storeless project. See
+   :doc:`use-virtual-accelerator`.
 
 
 Lifecycle commands

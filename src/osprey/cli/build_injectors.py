@@ -6,7 +6,8 @@ registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
 ``BlueskyPanelsConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
-``GChatBridgeProfileConfig``).
+``GChatBridgeProfileConfig``) plus ``VAArchiverConfig``, whose block lives in
+:mod:`osprey.cli.build_profile_archiver`.
 ``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
 and facility-declared service templates.
 """
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
         NextcloudBridgeProfileConfig,
         VAConfig,
     )
+    from osprey.cli.build_profile_archiver import VAArchiverConfig
 
 logger = get_logger("build")
 
@@ -989,4 +991,125 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         "    Images:     `osprey deploy up` builds the gchat-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_GCHAT_BRIDGE_IMAGE to use a published image."
+    )
+
+
+def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> None:
+    """Wire the stored archiver — store plus recorder — into a built project.
+
+    1. Copy the bundled ``mongodb`` and ``archiver_recorder`` compose templates
+       into ``<project>/services/``.
+    2. Write ``services.{mongodb,archiver_recorder}`` config + register both in
+       ``deployed_services``.
+    3. Print a post-build hint (deploy-time seed, minted password, what the
+       recorder waits for).
+
+    A two-service injector like :func:`_inject_dispatch`, and paired for the
+    same reason: a store nothing writes to and a recorder with nowhere to write
+    are each half a feature. They are deployed together and the recorder's
+    compose template health-gates on the store.
+
+    Must run *after* :func:`_inject_va`, which is what puts
+    ``virtual_accelerator`` into ``deployed_services`` — the recorder template
+    reads that membership to decide whether it can reuse the VA's image and
+    address the IOC in-network, or must be told both from the environment.
+
+    The connection block the agent reads (``archiver.mongodb_archiver.*``) and
+    the archive's shape knobs (``va_archiver.*``) are deliberately NOT written
+    here: they come from :func:`~osprey.cli.build_profile_archiver.va_archiver_config_overrides`
+    on the ordinary config-override path, which an attached project reaches and
+    this injector does not.
+
+    Args:
+        va_archiver: Validated archiver configuration from the build profile.
+        project_path: Root of the built project.
+    """
+    from ruamel.yaml import YAML
+
+    # 1. Copy the bundled compose templates (located the same way as service
+    #    templates). The recorder ships no Dockerfile — it runs the VA's image
+    #    with a different command — so there is nothing to build here either.
+    pkg_services = _locate_pkg_services()
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    owned = _user_owned_services(project_path)
+
+    for name in ("mongodb", "archiver_recorder"):
+        src_dir = pkg_services / name
+        if not src_dir.is_dir():
+            logger.warning("No package template for archiver service %r at %s", name, src_dir)
+            continue
+        _refresh_service_dir(src_dir, dest_services_root / name, name, owned)
+
+    # 1a. The recorder bind-mounts the simulation data dir read-only to read the
+    # channel manifest. An app bundle that ships no such tree would leave the
+    # mount source missing, and the container runtime materializes a missing
+    # source itself, root-owned — which then locks the host out of a directory
+    # inside its own project. Same guard, same reason, as the VA injector's.
+    (project_path / "data" / "simulation").mkdir(parents=True, exist_ok=True)
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found — skipping archiver config registration")
+        return
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    with open(config_path) as fh:
+        config = yaml.load(fh)
+
+    # Only the keys the compose templates read: how the store publishes itself,
+    # who it creates, and how it compresses. They restate profile knobs the
+    # agent-side connection block also carries — one profile value rendered into
+    # the two places that read it, which is derivation rather than a second home
+    # for the fact. No ``image`` key on either service: the store falls to the
+    # template's pinned upstream tag, and the recorder to the VA's image.
+    config.setdefault("services", {})
+    anchored_put(
+        config["services"],
+        "mongodb",
+        {
+            "path": "./services/mongodb",
+            "port_host": va_archiver.port_host,
+            "username": va_archiver.username,
+            "compression": va_archiver.compression,
+        },
+    )
+    anchored_put(
+        config["services"],
+        "archiver_recorder",
+        {"path": "./services/archiver_recorder"},
+    )
+    deployed = config.get("deployed_services", []) or []
+    for name in ("mongodb", "archiver_recorder"):
+        if name not in [str(s) for s in deployed]:
+            anchored_append(deployed, name)
+    config["deployed_services"] = deployed
+
+    with open(config_path, "w") as fh:
+        yaml.dump(config, fh)
+
+    # 3. Post-build hint.
+    logger.info(
+        "  ✓ Injected archiver store + recorder (port %d, %d-day retention)",
+        va_archiver.port_host,
+        va_archiver.retention_days,
+    )
+    logger.info(
+        "    History:    `osprey deploy up` seeds the base series before the "
+        "stack starts (minutes on a first deploy, skipped when the knobs have "
+        "not changed). Until then the archive is empty and archiver reads "
+        "honestly return nothing."
+    )
+    logger.info(
+        "    Password:   `osprey deploy up` mints %s into .env; the store, the "
+        "recorder and the agent all authenticate with that one value.",
+        va_archiver.password_env,
+    )
+    logger.info(
+        "    Recording:  the recorder writes only while control_system.type is "
+        "'virtual_accelerator' — on any other control system it idles. It "
+        "re-reads that setting on an interval, so the flip needs no restart."
     )

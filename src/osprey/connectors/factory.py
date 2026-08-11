@@ -117,16 +117,17 @@ class ConnectorFactory:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get("type")
-        if not connector_type:
-            # Fail closed: an under-specified config must never bring up a live
-            # control system. A blank value is treated as absent for the same
-            # reason.
+        # Fail closed: an under-specified config must never bring up a live
+        # control system. A blank value is treated as absent for the same
+        # reason. The fallback lives in types.resolve_control_system_type so
+        # that anything deciding what this call WILL build — the honesty rule's
+        # three refusals above all — resolves it identically.
+        connector_type = types.resolve_control_system_type(config)
+        if not config.get("type"):
             logger.warning(
                 f"control_system.type is not set; defaulting to '{types.MOCK}'. "
                 f"Set control_system.type explicitly to select a connector."
             )
-            connector_type = types.MOCK
 
         connector_class = cls._control_system_connectors.get(connector_type)
 
@@ -204,16 +205,17 @@ class ConnectorFactory:
                 logger.warning(f"Could not load config: {e}, using defaults")
                 config = {}
 
-        connector_type = config.get("type")
-        if not connector_type:
-            # Fail closed: a config with no `archiver:` section is under-specified,
-            # not a declaration that a facility archiver exists. A blank value is
-            # treated as absent for the same reason.
+        # Fail closed: a config with no `archiver:` section is under-specified,
+        # not a declaration that a facility archiver exists. A blank value is
+        # treated as absent for the same reason. The fallback lives in
+        # types.resolve_archiver_type because the honesty rule's refusals have
+        # to answer "what will this build?" with exactly this answer.
+        connector_type = types.resolve_archiver_type(config)
+        if not config.get("type"):
             logger.warning(
                 f"archiver.type is not set; defaulting to '{types.MOCK_ARCHIVER}'. "
                 f"Set archiver.type explicitly to select a connector."
             )
-            connector_type = types.MOCK_ARCHIVER
 
         connector_class = cls._archiver_connectors.get(connector_type)
 
@@ -338,7 +340,12 @@ def isolated_connector_registries(*, clear: bool = False) -> Iterator[ConnectorR
 
 
 _BUILTIN_CONTROL_SYSTEMS = (types.MOCK, types.EPICS, types.VIRTUAL_ACCELERATOR, types.DOOCS)
-_BUILTIN_ARCHIVERS = (types.MOCK_ARCHIVER, types.EPICS_ARCHIVER, types.DOOCS_ARCHIVER)
+_BUILTIN_ARCHIVERS = (
+    types.MOCK_ARCHIVER,
+    types.EPICS_ARCHIVER,
+    types.MONGODB_ARCHIVER,
+    types.DOOCS_ARCHIVER,
+)
 
 
 def register_builtin_connectors() -> None:
@@ -359,17 +366,20 @@ def register_builtin_connectors() -> None:
         name for name in _BUILTIN_ARCHIVERS if name not in ConnectorFactory._archiver_connectors
     ]
     if not missing_control_systems and not missing_archivers:
-        # The optional MongoDB archiver is only probed alongside the required
-        # built-ins, so a missing pymongo isn't re-imported on every call.
         return
 
-    # The DOOCS connectors import doocs4py inside connect(), not at module
-    # scope, so they register unconditionally like any other built-in. A
-    # machine with no DOOCS environment only finds out when it tries to
-    # connect — which is the point at which it would have failed anyway.
+    # The DOOCS and MongoDB connectors import their optional drivers (doocs4py,
+    # pymongo) inside connect(), not at module scope, so they register
+    # unconditionally like any other built-in. A machine without the driver
+    # only finds out when it tries to connect — which is the point at which it
+    # would have failed anyway. Registering MongoDB conditionally instead used
+    # to leave it out of _BUILTIN_ARCHIVERS, which broke convergence: a registry
+    # holding the other built-ins satisfied the early return above and never
+    # healed the missing mongodb_archiver entry.
     from osprey.connectors.archiver.doocs_archiver_connector import DOOCSArchiverConnector
     from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
     from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
+    from osprey.connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
     from osprey.connectors.control_system.doocs_connector import DOOCSConnector
     from osprey.connectors.control_system.epics_connector import EPICSConnector
     from osprey.connectors.control_system.mock_connector import MockConnector
@@ -384,17 +394,9 @@ def register_builtin_connectors() -> None:
     archivers: list[tuple[str, type[ArchiverConnector]]] = [
         (types.MOCK_ARCHIVER, MockArchiverConnector),
         (types.EPICS_ARCHIVER, EPICSArchiverConnector),
+        (types.MONGODB_ARCHIVER, MongoDBArchiverConnector),
         (types.DOOCS_ARCHIVER, DOOCSArchiverConnector),
     ]
-
-    try:
-        from osprey.connectors.archiver.mongodb_archiver_connector import (
-            MongoDBArchiverConnector,
-        )
-
-        archivers.append((types.MONGODB_ARCHIVER, MongoDBArchiverConnector))
-    except ImportError:
-        pass
 
     for name, connector_class in control_systems:
         if name not in ConnectorFactory._control_system_connectors:

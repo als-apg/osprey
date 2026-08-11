@@ -72,6 +72,28 @@ services:
       # the container runtime — is what makes emit work under docker AND podman.
       # Inert unless claude_code.telemetry is enabled with backend: openobserve.
       OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
+{#- In-network address of the archiver store, for the same reason and by the
+    same convention as OSPREY_OTEL_OPENOBSERVE_HOST above. The worker answers
+    questions about what the machine did, so its agent reaches for
+    `archiver_read` like any other -- but the connection block in config.yml is
+    written for the HOST side (`localhost` and the published `port_host`), which
+    from inside this container names its own loopback.
+
+    Gated on `deployed_services` membership, like the openobserve link above and
+    for a sharper reason than symmetry: these two are a LITERAL address, not a
+    fallback. A project whose archiver is a store someone else runs -- a
+    facility MongoDB, an Archiver Appliance -- has a config block that is
+    already correct from anywhere, and sending this worker to `archiver-mongodb`
+    would point it at a name that resolves to nothing. Set only when THIS
+    project deploys the store, which is the only case where the configured
+    host-side address is the wrong one from in here. #}
+{% if 'mongodb' in (deployed_services | default([])) %}
+      # `archiver-mongodb` is the store's network alias, pinned in the mongodb
+      # template precisely so this name survives the per-project container_name;
+      # 27017 is its CONTAINER port, never the host publish.
+      OSPREY_ARCHIVER_MONGODB_HOST: archiver-mongodb
+      OSPREY_ARCHIVER_MONGODB_PORT: "27017"
+{% endif %}
     # Bind-mount source is relative to the compose project directory
     # (build/services/), not this service's subdir — hence the dispatch_worker/ prefix.
     volumes:

@@ -53,18 +53,43 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # project gains a hook file and a UserPromptSubmit wiring entry, which is
     # exactly what the staleness advisory should report.
     #
-    # Re-pinned again when the PLAN panel was folded into BLUESKY as its Plans
+    # Re-pinned again when control-assistant gained a stored archive: a
+    # `va_archiver:` block, `archiver.type: mongodb_archiver` in `config:`, and
+    # pymongo in `dependencies`. The block derives eight
+    # `archiver.mongodb_archiver.*` keys into the resolved config, so this is a
+    # key change rather than a comment change and the digest is expected to
+    # move. Both extends children inherit it, so all three moved.
+    # Re-pinned again when control-assistant named its freshness canary:
+    # `va_archiver.freshness_channel`. The block derives a
+    # `health.categories.archiver.checks` entry from it — the check itself plus
+    # a staleness threshold computed from `recorder_cadence_sec` — so this is a
+    # key change, not a comment change, and the digest is expected to move. A
+    # rebuilt project gains a health check it did not have, which is exactly
+    # what the staleness advisory should announce. Both extends children inherit
+    # it, so all three moved.
+    # ...and again when the block stated `recorder_cadence_sec: 10` explicitly
+    # instead of riding the dataclass default. Behavior-neutral — the resolved
+    # value is unchanged — but the resolved CONTENT now carries the key, so the
+    # digest moves. Stated rather than defaulted because the freshness threshold
+    # is derived from it, and the preset's own convention is to document the
+    # shape it deploys rather than hide it in a dataclass.
+    # The archive and the workspace-delta hook landed either side of the same
+    # rebase, so the digests below carry both at once: re-pinning against
+    # either change alone would leave the other unaccounted for.
+    # ...and again when the PLAN panel was folded into BLUESKY as its Plans
     # tab: the preset's `plan` web_panels entry and its `web.panels.plan.*`
     # overrides are gone. Like the RESULTS rename above, this is NOT
     # behavior-neutral — a rebuilt project loses a tab and gains it back inside
     # another — so staleness firing on already-deployed projects is the correct
-    # signal. Both extends children inherit it, so all three digests moved.
-    "control-assistant": "sha256:3fa6f5784c2e5ee47dfc74eadb604e012691e8d0efcd8d25534384c9a3446cfa",
+    # signal. The archive work and the panel merge landed either side of this
+    # merge, so as above the digests carry both at once. Both extends children
+    # inherit it, so all three moved.
+    "control-assistant": "sha256:edf098ea7affaa4ddec708eee5dba46cb5799738c9914526eaf475582e3c0326",
     "control-assistant-readonly": (
-        "sha256:355f7b8511ba5a06cac25dd14a39c3cf38fc961c2b0055b33e2d009953826800"
+        "sha256:4cb215e59d6b99ae530c60d6305e97ca8eb459aa4f9d5049f2e329d6e87911ae"
     ),
     "control-assistant-readwrite": (
-        "sha256:23c3bf72e35d422022c9e325dc6fe8e7a8981e77d3e2e3e80b7cfe2e30ecd335"
+        "sha256:90be07f5620df02e44c40b1b75b8b2ce12a738f06dc816a5a8c0febfa631ec08"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

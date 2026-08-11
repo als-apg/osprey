@@ -227,6 +227,12 @@ quirks worth knowing:
 
       osprey config set-control-system virtual_accelerator
 
+   That switch needs a real archive behind it. A project built from the
+   ``control-assistant`` preset has one and the command just works; a project
+   still reading the mock archiver is refused, and told to point
+   ``archiver.type`` at a store its deployment writes first — see
+   :doc:`../use-virtual-accelerator`.
+
 .. seealso::
 
    :doc:`run-first-scan`

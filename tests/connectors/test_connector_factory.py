@@ -1,5 +1,7 @@
 """Tests for connector factory."""
 
+from unittest.mock import patch
+
 import pytest
 
 from osprey.connectors.archiver.base import ArchiverConnector
@@ -178,3 +180,82 @@ class TestConnectorFactory:
 
             # This demonstrates how easy it is to switch connector types
             # Just change the config!
+
+
+class TestBuiltinArchiverRegistration:
+    """``register_builtin_connectors()`` heals a partially-populated registry.
+
+    The function short-circuits when every name in ``_BUILTIN_ARCHIVERS`` is
+    already registered. ``mongodb_archiver`` used to be appended outside that
+    tuple, so a registry holding the other archivers satisfied the early return
+    and the MongoDB entry was never added — leaving a project configured for
+    ``mongodb_archiver`` unable to build its connector at all. These pin the
+    tuple as the complete list.
+    """
+
+    def test_mongodb_archiver_is_registered_from_a_partial_registry(self):
+        """A registry holding the other archivers still gains mongodb_archiver."""
+        from osprey.connectors import types
+        from osprey.connectors.archiver.doocs_archiver_connector import DOOCSArchiverConnector
+        from osprey.connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
+        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
+        from osprey.connectors.factory import register_builtin_connectors
+
+        # The exact state that used to short-circuit: every built-in present
+        # except the MongoDB archiver. The autouse fixture already registered
+        # the two mock names.
+        ConnectorFactory.register_control_system(types.EPICS, EPICSConnector)
+        ConnectorFactory.register_control_system(
+            types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector
+        )
+        ConnectorFactory.register_control_system(types.DOOCS, DOOCSConnector)
+        ConnectorFactory.register_archiver(types.EPICS_ARCHIVER, EPICSArchiverConnector)
+        ConnectorFactory.register_archiver(types.DOOCS_ARCHIVER, DOOCSArchiverConnector)
+        assert types.MONGODB_ARCHIVER not in ConnectorFactory._archiver_connectors
+
+        register_builtin_connectors()
+
+        assert types.MONGODB_ARCHIVER in ConnectorFactory._archiver_connectors
+
+    def test_registration_does_not_require_pymongo(self):
+        """The MongoDB connector registers with pymongo absent from the process.
+
+        It defers the pymongo import to ``connect()``, so registration must not
+        depend on the driver being installed — the same rationale that lets the
+        DOOCS connectors register without doocs4py.
+        """
+        import builtins
+
+        from osprey.connectors import types
+        from osprey.connectors.factory import register_builtin_connectors
+
+        real_import = builtins.__import__
+
+        def no_pymongo(name, *args, **kwargs):
+            if name == "pymongo" or name.startswith("pymongo."):
+                raise ImportError("No module named 'pymongo'")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=no_pymongo):
+            register_builtin_connectors()
+
+        assert types.MONGODB_ARCHIVER in ConnectorFactory._archiver_connectors
+
+    def test_factory_builtins_and_framework_registry_agree_on_archivers(self):
+        """The factory's built-in archiver names match the framework registry's.
+
+        Two independent lists name the shipped archivers; a name in one and not
+        the other means a connector the registry advertises but the factory
+        cannot construct, or the reverse.
+        """
+        from osprey.connectors.factory import _BUILTIN_ARCHIVERS
+        from osprey.registry.builtins import FrameworkRegistryProvider
+
+        registry_archivers = {
+            reg.name
+            for reg in FrameworkRegistryProvider().get_registry_config().connectors
+            if reg.connector_type == "archiver"
+        }
+        assert set(_BUILTIN_ARCHIVERS) == registry_archivers
