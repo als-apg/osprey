@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*.*.*'  # Triggers on version tags like v2026.5.0
+      - 'osprey-connectors-v*'  # Triggers on connector package tags like osprey-connectors-v0.1.0
 
 permissions:
   contents: write  # Required for creating GitHub releases
@@ -13,6 +14,7 @@ jobs:
   build:
     name: Build Distribution
     runs-on: ubuntu-latest
+    if: startsWith(github.ref_name, 'v')
 
     steps:
     - name: Checkout repository
@@ -65,11 +67,13 @@ jobs:
   validate-install-docs:
     name: Validate Install Docs
     needs: [build]
+    if: startsWith(github.ref_name, 'v')
     uses: ./.github/workflows/validate-install-docs.yml
 
   publish-to-pypi:
     name: Publish to PyPI
     needs: [build, validate-install-docs]
+    if: startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -90,6 +94,7 @@ jobs:
   create-github-release:
     name: Create GitHub Release
     needs: [publish-to-pypi]
+    if: startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
 
     steps:
@@ -128,3 +133,44 @@ jobs:
         body_path: release_notes.md
         draft: false
         prerelease: false
+
+  publish-connectors-to-pypi:
+    name: Publish osprey-connectors to PyPI
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref_name, 'osprey-connectors-v')
+    environment:
+      name: pypi
+      url: https://pypi.org/project/osprey-connectors/
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Verify version matches tag
+      run: |
+        TAG_VERSION="${GITHUB_REF_NAME#osprey-connectors-v}"
+        PACKAGE_VERSION=$(grep '^version = ' packages/osprey-connectors/pyproject.toml | cut -d'"' -f2)
+        echo "Tag version: $TAG_VERSION"
+        echo "Package version: $PACKAGE_VERSION"
+        if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+          echo "❌ Version mismatch! Tag: $TAG_VERSION, Package: $PACKAGE_VERSION"
+          exit 1
+        fi
+        echo "✅ Version matches: $TAG_VERSION"
+
+    - name: Build osprey-connectors package
+      run: uv build --package osprey-connectors
+
+    - name: Check package
+      run: uvx twine check dist/*
+
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        verbose: true

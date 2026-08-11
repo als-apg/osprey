@@ -392,7 +392,7 @@ def test_kept_reader_names_are_present_in_src_but_never_grepped():
     an implementation that had quietly stopped looking at anything at all.
     """
     guard = make_guard()
-    src = guard.joined(guard_module.EVIDENCE_ROOT)
+    src = "\n".join(guard.joined(root) for root in guard_module.EVIDENCE_ROOTS)
 
     covered = {name for entry in MANIFEST["kept_readers"].values() for name in entry["covers"]}
     assert covered, "the manifest is supposed to record deliberate surviving readers"
@@ -400,7 +400,7 @@ def test_kept_reader_names_are_present_in_src_but_never_grepped():
 
     unarmed = sorted(leaf for leaf in leaves if leaf not in src)
     assert not unarmed, (
-        f"these kept-reader names are absent from {guard_module.EVIDENCE_ROOT}/, so this "
+        f"these kept-reader names are absent from {' and '.join(guard_module.EVIDENCE_ROOTS)}, so this "
         f"test could not detect a deleted-name grep being added: {unarmed}"
     )
 

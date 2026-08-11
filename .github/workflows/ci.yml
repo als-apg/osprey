@@ -141,7 +141,7 @@ jobs:
       # the scheduler that makes it safe.
       run: |
         if [ "${{ matrix.python-version }}" = "3.11" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
@@ -258,15 +258,15 @@ jobs:
 
     - name: Run ruff (linting)
       run: |
-        uv run ruff check src/ tests/ --output-format=github
+        uv run ruff check src/ packages/ tests/ --output-format=github
 
     - name: Run ruff (formatting)
       run: |
-        uv run ruff format --check src/ tests/
+        uv run ruff format --check src/ packages/ tests/
 
     - name: Run mypy (type checking)
       run: |
-        uv run mypy src/ --no-error-summary || true
+        uv run mypy src/ packages/osprey-connectors/src/ --no-error-summary || true
       continue-on-error: true
 
   docs:
@@ -340,6 +340,42 @@ jobs:
         name: package
         path: dist/
         retention-days: 7
+
+  lean-wheel:
+    name: Lean connectors wheel
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Install Python
+      run: uv python install 3.11
+
+    - name: Build osprey-connectors wheel
+      run: uv build --package osprey-connectors
+
+    - name: Verify wheel is self-contained on a bare venv
+      run: |
+        uv venv /tmp/lean-check --python 3.11
+        uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl
+        /tmp/lean-check/bin/python -c "
+        import sys
+        import osprey_connectors.control_system.epics_connector
+        import osprey_connectors.control_system.limits_validator
+        import osprey_connectors.errors, osprey_connectors.config, osprey_connectors.logger
+        import osprey_connectors.simulation
+        bad = sorted({m.split('.')[0] for m in sys.modules} & {'litellm','openai','anthropic','fastapi','playwright','osprey'})
+        assert not bad, f'lean wheel loaded: {bad}'
+        import osprey_connectors.archiver.epics_archiver_connector
+        import osprey_connectors.factory
+        print('LEAN WHEEL OK')
+        "
 
   static-checks:
     name: Tier 0 — Static (preset YAML, skill ↔ MCP-tool consistency)
@@ -2087,7 +2123,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, lean-wheel]
     runs-on: ubuntu-latest
     if: always()
 
@@ -2156,6 +2192,10 @@ jobs:
         fi
         if [[ "${{ needs.build-boot-smoke.result }}" != "success" ]]; then
           echo "❌ Tier 1 build + boot smoke failed"
+          exit 1
+        fi
+        if [[ "${{ needs.lean-wheel.result }}" != "success" ]]; then
+          echo "❌ Lean connectors wheel check failed"
           exit 1
         fi
         check_pr_lane() {

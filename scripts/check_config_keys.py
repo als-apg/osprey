@@ -65,7 +65,10 @@ DEFAULT_MANIFEST = REPO_ROOT / "scripts" / "config_key_manifest.yml"
 
 REQUIRED_SECTIONS = ("keys", "deleted", "orphan_sites", "render_contexts")
 
-EVIDENCE_ROOT = "src/osprey"
+# Reader evidence may live in the framework tree or in the extracted
+# osprey-connectors workspace member (config/logger/connectors moved there;
+# the src/osprey paths are compatibility shims with no reader bodies).
+EVIDENCE_ROOTS = ("src/osprey", "packages/osprey-connectors/src/osprey_connectors")
 PRESET_DIR = "src/osprey/profiles/presets"
 
 #: Ledger 6.1 wired one ``# osprey:panel-port <name>`` stanza per panel-port
@@ -335,7 +338,7 @@ class ConfigKeyGuard:
     # ── failure mode 2: evidence ────────────────────────────────────────
 
     def check_evidence(self) -> None:
-        text = self.joined(EVIDENCE_ROOT)
+        text = "\n".join(self.joined(root) for root in EVIDENCE_ROOTS)
         for key, spec in self.manifest["keys"].items():
             if not isinstance(spec, dict):
                 continue
@@ -345,7 +348,7 @@ class ConfigKeyGuard:
             if not self.has_match(pattern, text):
                 self.fail(
                     "evidence",
-                    f"evidence for {key} no longer matches under {EVIDENCE_ROOT}/: {pattern}",
+                    f"evidence for {key} no longer matches under {' or '.join(EVIDENCE_ROOTS)}: {pattern}",
                 )
 
     def check_covered_by_chains(self) -> None:
@@ -389,7 +392,7 @@ class ConfigKeyGuard:
         if not literals:
             return
         counts = dict.fromkeys(literals, 0)
-        for _path, text in self.texts(EVIDENCE_ROOT):
+        for _path, text in (pair for root in EVIDENCE_ROOTS for pair in self.texts(root)):
             for key, word in literals.items():
                 if word in text:
                     counts[key] += 1

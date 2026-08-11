@@ -5,14 +5,14 @@ Provides :class:`SimulationEngine`, which loads a machine description
 time-series to the mock control-system and archiver connectors.
 """
 
-from osprey.simulation.engine import (
+from osprey_connectors.simulation import (
+    DEFAULT_SCENARIO,
+    ExpressionError,
     SimReading,
     SimulationEngine,
     engine_from_connector_config,
     engine_serves,
 )
-from osprey.simulation.expressions import ExpressionError
-from osprey.simulation.machine import DEFAULT_SCENARIO
 
 __all__ = [
     "DEFAULT_SCENARIO",
