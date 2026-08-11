@@ -6,12 +6,10 @@ Ideal for R&D and development without archiver access.
 
 """
 
-import zlib
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import pandas as pd
 
 from osprey.connectors.archiver._timerange import (
@@ -20,8 +18,9 @@ from osprey.connectors.archiver._timerange import (
     utc_window,
 )
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
-from osprey.connectors.pv_taxonomy import classify_pv
 from osprey.simulation import engine_serves
+from osprey.simulation.procedural import generate_series
+from osprey.simulation.series import epoch_seconds_array
 from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
 
@@ -106,7 +105,9 @@ class MockArchiverConnector(ArchiverConnector):
 
     Features:
     - Accepts any PV names
-    - Generates realistic time series with trends and noise
+    - Generates realistic time series with texture and noise
+    - Values are a pure function of (channel, absolute timestamp), so two
+      overlapping windows agree on every timestamp they share
     - Configurable sampling rate and noise level
     - Returns pandas DataFrames matching real archiver format
 
@@ -139,9 +140,11 @@ class MockArchiverConnector(ArchiverConnector):
                 - simulation_file: Optional path to a machine.json driving the
                   data-driven simulation engine (relative paths resolve against
                   the project root). Engine-known channels are synthesized from
-                  the machine model; without it, every channel uses the generic
-                  PV-type procedural synthesizer. Unset, it is derived from the
-                  control system's own ``simulation_file`` so live reads and
+                  the machine model; without it, every channel goes through the
+                  shared procedural generator
+                  (:mod:`osprey.simulation.procedural`), whose baselines are the
+                  ones the Virtual Accelerator serves. Unset, it is derived from
+                  the control system's own ``simulation_file`` so live reads and
                   archived history come from one machine model.
         """
         # A zero or negative rate would divide by zero later; reject it at
@@ -215,15 +218,24 @@ class MockArchiverConnector(ArchiverConnector):
         index = pd.date_range(start=start_date, end=end_date, periods=num_points)
 
         # Generate data for each PV. Channels known to the simulation engine
-        # are synthesized from the machine model; everything else uses the
-        # generic procedural generation.
+        # are synthesized from the machine model; everything else goes through
+        # the shared procedural generator, evaluated at this grid's absolute
+        # timestamps — the same values a store seeded from it holds.
+        t_abs = epoch_seconds_array(index)
+        if t_abs is None:  # pragma: no cover - the index above is always datetimes
+            # Refusing beats the alternative the engine can afford: it falls
+            # back to sample-index counters, which is deterministic per window
+            # but not per timestamp — and history that disagrees with a store
+            # seeded from the same generator is the failure this path replaced.
+            raise ValueError(f"Cannot derive epoch seconds for the {start_date} to {end_date} grid")
+
         resolved = resolve_processing(processing, precision_ms)
         series = {}
         for pv in pv_list:
             if engine_serves(self._sim_engine, pv):
                 values = self._sim_engine.synthesize_series(pv, index)
             else:
-                values = self._generate_time_series(pv, num_points)
+                values = generate_series(pv, t_abs, noise_level=self._noise_level)
             series[pv] = pd.Series(values, index=index, name=pv)
 
         data = aggregate_long_frame(series, resolved)
@@ -252,87 +264,3 @@ class MockArchiverConnector(ArchiverConnector):
     async def check_availability(self, pv_names: list[str]) -> dict[str, bool]:
         """All PVs are available in mock archiver."""
         return dict.fromkeys(pv_names, True)
-
-    def _generate_time_series(
-        self,
-        pv_name: str,
-        num_points: int,
-    ) -> np.ndarray:
-        """
-        Generate generic synthetic time series with trends and noise.
-
-        Used for PVs that are not known to the data-driven simulation engine
-        (e.g. projects without a machine file). Creates realistic-looking data
-        with:
-        - Sinusoidal variations
-        - Linear trends
-        - Random noise
-        - PV-type-specific characteristics (current/voltage/power/pressure/
-          temperature/lifetime/default)
-        - BPMs use random offsets with slow oscillations
-
-        Scenario-specific physics (vacuum bursts, RF thermal excursions, etc.)
-        is supplied by the simulation engine, not this generic generator.
-        """
-        t = np.linspace(0, 1, num_points)
-        pv_lower = pv_name.lower()
-        # crc32, not hash(): str hashing is salted per process, which would
-        # break cross-process reproducibility.
-        rng = np.random.default_rng(seed=zlib.crc32(pv_name.encode()))
-
-        # BPM channels — reproducible random offsets with slow oscillations
-        if "position" in pv_lower or "pos" in pv_lower or "bpm" in pv_lower:
-            base = 0.0
-            offset_range = 0.1  # ±100 µm equilibrium position
-            perturbation_amp = 0.01  # ±10 µm oscillation
-            trend = np.ones(num_points) * base
-
-            offset = rng.uniform(-offset_range, offset_range)
-            phase = rng.uniform(0, 2 * np.pi)
-            frequency = rng.uniform(0.01, 0.5)
-
-            wave = perturbation_amp * np.sin(2 * np.pi * t * frequency + phase)
-
-            noise_amplitude = perturbation_amp * self._noise_level
-            noise = rng.normal(0, noise_amplitude, num_points)
-
-            return trend + offset + wave + noise
-
-        # Shape a trend + wave per PV kind. Classification (name -> kind/base)
-        # is shared with the control-system mock via classify_pv; the synthesis
-        # shapes below are archiver-specific.
-        kind = classify_pv(pv_name)
-        base = kind.base_value
-        if kind.name == "beam_current":
-            # Ten sawtooth refill cycles across the window: current decays 5%
-            # over each cycle, then jumps back to base.
-            period = num_points // 10
-            trend = base * (1 - 0.05 * (np.arange(num_points) % period) / period)
-            wave = 5 * np.sin(2 * np.pi * t * 5)
-        elif kind.name == "current":
-            trend = base + 10 * t
-            wave = 10 * np.sin(2 * np.pi * t * 3)
-        elif kind.name == "voltage":
-            trend = np.ones(num_points) * base
-            wave = 50 * np.sin(2 * np.pi * t * 2)
-        elif kind.name == "power":
-            trend = base + 5 * t
-            wave = 5 * np.sin(2 * np.pi * t * 4)
-        elif kind.name == "pressure":
-            trend = base * (1 + 0.1 * t)
-            wave = base * 0.05 * np.sin(2 * np.pi * t * 10)
-        elif kind.name == "temperature":
-            trend = base + 2 * t
-            wave = 0.5 * np.sin(2 * np.pi * t * 8)
-        elif kind.name == "lifetime":
-            trend = base - 2 * t
-            wave = 1 * np.sin(2 * np.pi * t * 3)
-        else:
-            trend = base + 20 * t
-            wave = 10 * np.sin(2 * np.pi * t * 2)
-
-        noise_amplitude = abs(base) * self._noise_level
-        # Draw from the seeded per-PV rng, not the unseeded global np.random.
-        noise = rng.normal(0, noise_amplitude, num_points)
-
-        return trend + wave + noise

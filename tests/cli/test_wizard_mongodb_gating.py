@@ -87,9 +87,22 @@ def test_template_documents_mongodb_option():
 
 
 def test_template_shows_required_mongodb_keys():
-    """A commented block covers every key the connector refuses to default."""
+    """A LIVE block covers every key the connector refuses to default.
+
+    Live rather than commented. The template's own default stays
+    ``mock_archiver`` — a project that deploys no store should read a mock that
+    admits it is one — but the control-assistant PRESET selects
+    ``mongodb_archiver`` and deploys the store to back it, and the build writes
+    these keys from its ``va_archiver:`` block. A commented example could not
+    receive them: the override sets leaves in an existing mapping, so the block
+    has to exist for the preset's values to land in it rather than beside it.
+    """
     template = CONTROL_ASSISTANT_CONFIG.read_text(encoding="utf-8")
 
-    assert "# mongodb_archiver:" in template
+    assert "\n  mongodb_archiver:\n" in template, "the mongodb block must be live, not commented"
+    block = template.split("\n  mongodb_archiver:\n", 1)[1]
+    # Stop at the next key at the same depth, so a later `host:` elsewhere in the
+    # template cannot stand in for one this block is missing.
+    body = block.split("\n\n", 1)[0]
     for key in ("host", "name", "collection", "auth", "username", "password_env"):
-        assert f"#   {key}:" in template, f"required key {key!r} missing from example block"
+        assert f"    {key}:" in body, f"required key {key!r} missing from the mongodb block"

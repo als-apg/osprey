@@ -21,6 +21,7 @@ from typing import Any
 from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
 from osprey.errors import BuildProfileError
 
+from .build_profile_archiver import parse_va_archiver_block
 from .build_profile_deploy import parse_deploy_block
 from .build_profile_document import _normalize_profile_aliases, _read_profile_document
 from .build_profile_merge import resolve_profile_document
@@ -126,7 +127,7 @@ def load_profile_document(path: Path) -> LoadedProfile:
 # needs, and a dynamic stamp would let the emitting release satisfy its own
 # gate while silently ignoring the keys it just wrote. Pinned by test — bump it
 # only when a release adds profile keys older releases cannot honor.
-_PROFILE_SCHEMA_MIN_OSPREY = "2026.8.0"
+_PROFILE_SCHEMA_MIN_OSPREY = "2026.9.0"
 
 
 # Top-level keys recognized by BuildProfile. Anything else is almost certainly
@@ -181,6 +182,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "bluesky_panels",
         "nextcloud_bridge",
         "gchat_bridge",
+        "va_archiver",
         "provenance",
     }
 )
@@ -602,5 +604,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         bluesky_panels=bluesky_panels,
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
+        va_archiver=parse_va_archiver_block(raw),
         provenance=provenance,
     )
