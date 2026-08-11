@@ -31,6 +31,11 @@
 import { initTheme } from "/design-system/js/theme-manager.js";
 import { applyEmbedded } from "/design-system/js/frame-params.js";
 import { debounce } from "/design-system/js/dom.js";
+import {
+  contributeHeader,
+  onHeaderAction,
+  isSimpleMode,
+} from "/design-system/js/header-contrib.js";
 import "/design-system/js/components/osprey-theme-switcher.js";
 import { el, isFallback, readPanelParams, STRUCTURE_MARKER } from "./helpers.js";
 import { initTree, renderTree, highlightActive, highlightStructure, selectConcept } from "./tree.js";
@@ -42,17 +47,41 @@ import { initSidebarResize } from "./resize.js";
 // (replacing the legacy `theme:set` the panel's earlier TODO expected).
 initTheme({ role: "follower" });
 
+/**
+ * Publish this panel's tile-bar contribution. Embedded in Expert, the sidebar's
+ * search box lives in the hub's tile bar instead (style.css hides the in-body
+ * one), rendered as the hub's own magnifier pill.
+ *
+ * Simple contributes nothing: the hub collapses a service tile's bar to zero
+ * height there, so a contributed box would be invisible — and this panel's
+ * Simple layout is a reading view that drops the whole sidebar anyway.
+ *
+ * Sent WHOLE (the hub replaces, never diffs) and a no-op standalone.
+ */
+function publishHeaderContribution() {
+  contributeHeader(
+    isSimpleMode()
+      ? []
+      : [
+          // Placeholder matches the in-body input in index.html.
+          { kind: "search", id: "search", placeholder: "Search concepts…" },
+        ]
+  );
+}
+
 // Live Expert<->Simple switch broadcast by the hub (same-origin postMessage),
 // the mode-axis sibling of the osprey-theme-change follower wired by initTheme
 // above. mode-boot.js already stamped the initial data-ui-mode pre-paint; this
 // is the runtime flip. The Simple layout is pure CSS gated on the attribute
-// (see style.css), so stamping <html> is all the switch needs — nothing to
-// re-render.
+// (see style.css), so stamping <html> covers the body; the tile-bar
+// contribution is mode-dependent, so re-publish it too — that is what moves the
+// search box between the bar and the body on a live flip.
 window.addEventListener("message", (e) => {
   if (e.origin !== window.location.origin) return;
   if (e.data && e.data.type === "osprey-mode-change" && e.data.mode) {
     const mode = e.data.mode === "simple" ? "simple" : "expert";
     document.documentElement.setAttribute("data-ui-mode", mode);
+    publishHeaderContribution();
   }
 });
 
@@ -416,6 +445,13 @@ function requireEl(id) {
     runSearch(searchInput.value);
   });
 
+  // Embedded: the same box lives in the hub's tile bar and posts its text back
+  // here. The hub already debounces before reporting, so this runs the search
+  // directly rather than through debouncedSearch.
+  onHeaderAction(function (id, value) {
+    if (id === "search") runSearch(value || "");
+  });
+
   if (structureLink) {
     structureLink.addEventListener("click", function (ev) {
       ev.preventDefault();
@@ -497,4 +533,6 @@ function requireEl(id) {
   loadTree();
   loadBundleHealth();
   bootFromParams();
+  // Embedded: hand the search box to the host tile bar (Expert only).
+  publishHeaderContribution();
 })();

@@ -2,8 +2,9 @@
 
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Any
+from collections import Counter
+from datetime import UTC, datetime, timedelta
+from typing import Any, NamedTuple
 
 import pandas as pd
 
@@ -50,6 +51,137 @@ def _parse_time(time_str: str) -> datetime:
     return dt
 
 
+class _CoverageProbe(NamedTuple):
+    """What the connector could say about one empty channel."""
+
+    available: bool | None
+    metadata: Any  # ArchiverMetadata | None — untyped to keep the import lazy
+    note: str | None
+
+
+def _pin_utc(dt: datetime | None) -> datetime | None:
+    """pymongo reads naive datetimes as UTC; make that explicit before comparing."""
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
+def _classify_coverage(
+    start_utc: datetime, end_utc: datetime, probe: _CoverageProbe
+) -> dict[str, Any]:
+    """One empty channel's entry: a verdict, plus bounds when they are known."""
+    md = probe.metadata
+    if probe.available is False or (md is not None and not md.is_archived):
+        return {"verdict": "never_recorded"}
+    a_start = _pin_utc(md.archival_start) if md is not None else None
+    a_end = _pin_utc(md.archival_end) if md is not None else None
+    if a_start is None or a_end is None:
+        entry: dict[str, Any] = {"verdict": "coverage_unknown"}
+        if probe.note:
+            entry["note"] = probe.note
+        return entry
+    if end_utc < a_start:
+        verdict = "window_precedes_archive"
+    elif start_utc > a_end:
+        verdict = "window_follows_archive"
+    else:
+        verdict = "gap_within_coverage"
+    return {
+        "verdict": verdict,
+        "archive_start": a_start.isoformat(),
+        "archive_end": a_end.isoformat(),
+    }
+
+
+def _coverage_message(
+    start_utc: datetime, end_utc: datetime, overall: str, channels: dict[str, dict[str, Any]]
+) -> str:
+    """Plain language for the agent: the asked window, the real bounds, no guessing."""
+    window = f"{start_utc.isoformat()} → {end_utc.isoformat()}"
+    n = len(channels)
+    noun = "1 channel" if n == 1 else f"{n} channels"
+    if overall == "window_precedes_archive":
+        oldest = min(entry["archive_start"] for entry in channels.values())
+        return (
+            f"No archived data for {noun} in {window}: archiving begins {oldest}, "
+            f"after the queried window ends. The archive reports only what it holds — "
+            f"nothing is extrapolated. Data exists from {oldest} onward."
+        )
+    if overall == "window_follows_archive":
+        newest = max(entry["archive_end"] for entry in channels.values())
+        return (
+            f"No archived data for {noun} in {window}: the archive's newest sample is "
+            f"{newest}, before the queried window begins. If this deployment records "
+            f"continuously, recording may have stopped."
+        )
+    if overall == "never_recorded":
+        return (
+            f"Not in this archive: {', '.join(channels)}. No history was ever "
+            f"recorded for {'this channel' if n == 1 else 'these channels'}."
+        )
+    if overall == "gap_within_coverage":
+        return (
+            f"The queried window {window} lies inside archive coverage but holds no "
+            f"samples for {noun}: nothing was recorded there. A gap is recorded "
+            f"silence — the channel was not answering — not data awaiting synthesis."
+        )
+    if overall == "coverage_unknown":
+        return (
+            f"No data in {window} for {noun}, and this archiver backend reports no "
+            f"coverage bounds, so the reason cannot be determined from here."
+        )
+    counts = Counter(entry["verdict"] for entry in channels.values())
+    parts = ", ".join(f"{count}× {verdict}" for verdict, count in counts.items())
+    return (
+        f"No archived data in {window} for {noun}, for differing reasons: {parts}. "
+        f"See coverage.channels for each channel's verdict and bounds."
+    )
+
+
+async def _probe_coverage(connector: Any, channels: list[str]) -> dict[str, _CoverageProbe]:
+    """Ask the connector about each empty channel; a failed probe is a note.
+
+    Failures degrade to ``coverage_unknown`` downstream rather than raising:
+    the data that DID come back must never be lost to its own explanation.
+    """
+    try:
+        availability = await connector.check_availability(channels)
+    except Exception:  # noqa: BLE001 — any probe failure degrades, none propagate
+        availability = {}
+    probes: dict[str, _CoverageProbe] = {}
+    for ch in channels:
+        try:
+            md = await connector.get_metadata(ch)
+        except Exception as exc:  # noqa: BLE001
+            probes[ch] = _CoverageProbe(
+                available=availability.get(ch), metadata=None, note=f"metadata probe failed: {exc}"
+            )
+        else:
+            probes[ch] = _CoverageProbe(available=availability.get(ch), metadata=md, note=None)
+    return probes
+
+
+def _compose_coverage(
+    start_utc: datetime, end_utc: datetime, probes: dict[str, _CoverageProbe]
+) -> dict[str, Any] | None:
+    """Explain the empty channels of a read, from facts — or admit not knowing.
+
+    Returns ``None`` when nothing was empty (the common path adds no block, no
+    tokens, no schema noise). Never raises: an explanation that failed to
+    compose must not cost the agent the data that DID come back.
+    """
+    if not probes:
+        return None
+    channels = {ch: _classify_coverage(start_utc, end_utc, probe) for ch, probe in probes.items()}
+    verdicts = {entry["verdict"] for entry in channels.values()}
+    overall = next(iter(verdicts)) if len(verdicts) == 1 else "mixed"
+    return {
+        "verdict": overall,
+        "message": _coverage_message(start_utc, end_utc, overall, channels),
+        "channels": channels,
+    }
+
+
 @mcp.tool()
 async def archiver_read(
     channels: list[str],
@@ -77,7 +209,10 @@ async def archiver_read(
 
     Returns:
         JSON summary with per-channel point counts and stats, and the data
-        file path.
+        file path. When a requested channel has zero points in the window,
+        ``summary.coverage`` explains why — the window precedes/follows the
+        archive's real bounds, the channel was never recorded, or the window
+        holds an honest gap — so an empty answer is never a silent one.
     """
     if not channels:
         return make_error(
@@ -177,6 +312,12 @@ async def archiver_read(
                 stats["mean"] = round(float(numeric.mean()), 6)
             per_channel[ch] = stats
 
+        empty_channels = [ch for ch in unique_channels if per_channel[ch]["points"] == 0]
+        coverage = None
+        if empty_channels:
+            probes = await _probe_coverage(connector, empty_channels)
+            coverage = _compose_coverage(start_dt.astimezone(UTC), end_dt.astimezone(UTC), probes)
+
         # Full data payload goes to file; compact summary returned inline
         data_payload = {
             "query": {
@@ -195,6 +336,8 @@ async def archiver_read(
             "time_range": {"start": str(start_dt), "end": str(end_dt)},
             "per_channel": per_channel,
         }
+        if coverage is not None:
+            summary["coverage"] = coverage
         access_details = {
             "data_file_structure": {
                 "root_keys": ["query", "series"],

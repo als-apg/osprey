@@ -8,6 +8,7 @@
 import { initTheme, subscribe } from "/design-system/js/theme-manager.js";
 import { onModeChange } from "/design-system/js/frame-params.js";
 import { applyEmbedded } from "/design-system/js/frame-params.js";
+import { contributeHeader, isSimpleMode, onHeaderAction } from "/design-system/js/header-contrib.js";
 import "/design-system/js/components/osprey-theme-switcher.js";
 import {
   getArtifacts,
@@ -49,6 +50,7 @@ const sidebarBody = /** @type {HTMLElement} */ (document.getElementById("sidebar
 const sidebar = document.getElementById("browse-sidebar");
 const resizeHandle = document.getElementById("resize-handle");
 const scopePill = /** @type {HTMLElement|null} */ (document.getElementById("scope-pill"));
+const orientToggleBtn = document.getElementById("orient-toggle-btn");
 
 // ---- Simple-mode DOM refs (frame 2b) ----
 const simpleEmpty = document.getElementById("simple-empty");
@@ -123,15 +125,86 @@ function updateHealth(ok) {
 }
 
 /**
- * Reflect the all-sessions scope in its two indicators: the ⋯-menu
- * checkbox item and the scope pill above the list (visible only while the
- * non-default all-sessions scope is on).
+ * Reflect the all-sessions scope in its indicators: the ⋯-menu checkbox
+ * item, the tile bar's contributed copy of it, and the scope pill above the
+ * list (visible only while the non-default all-sessions scope is on).
  */
 function updateScopeUi() {
   const on = getShowAllSessions();
   const btn = document.getElementById("all-sessions-btn");
   if (btn) btn.setAttribute("aria-checked", String(on));
   if (scopePill) scopePill.hidden = !on;
+  publishHeaderContribution();
+}
+
+/**
+ * Flip the all-sessions scope. Shared by the ⋯-menu checkbox item and the
+ * tile bar's contributed entry.
+ */
+function toggleAllSessions() {
+  setShowAllSessions(!getShowAllSessions());
+  updateScopeUi();
+  fetchArtifacts();
+}
+
+// ---- Tile-Bar Header Contribution ----
+// Embedded, the browser column's toolbar row is the tile bar's job: the hub
+// renders the filter, the Types/Activity pair and the ⋯ menu between the
+// tile's name and its close button, and gallery.css hides the in-body row
+// (see header-contrib.js for the contract). Every action round-trips back
+// into the very handlers the in-body controls call, so the two surfaces
+// cannot drift. All of this is inert standalone — contributeHeader() and
+// onHeaderAction() are no-ops outside an embedded frame.
+
+/**
+ * Publish this panel's WHOLE tile-bar contribution. The hub renders only the
+ * last one it received, so every state change (filter mode, scope, browse
+ * orientation, Expert<->Simple) re-sends the lot rather than a delta.
+ */
+function publishHeaderContribution() {
+  const mode = sidebarRenderer.getBrowseMode();
+  // priority = what survives a narrow tile, highest last to go: the filter
+  // outranks the mode pair, which outranks the ⋯ menu (whose entries are all
+  // infrequent or reachable elsewhere, while losing the filter leaves an
+  // operator scrolling a long tree by hand).
+  /** @type {import("/design-system/js/header-contrib.js").HeaderItem[]} */
+  const items = [];
+  // Simple collapses a service tile's bar to zero height, which would take
+  // the filter with it; it stays a body control there.
+  if (!isSimpleMode()) {
+    items.push({
+      kind: "search",
+      id: "filter",
+      priority: 3,
+      placeholder: "Filter...",
+      value: searchInput ? searchInput.value : "",
+    });
+  }
+  items.push({
+    // The in-body pair is icon-only (its titles carry the long form); a bar
+    // strip has room for the words the rest of the UI already uses.
+    kind: "nav",
+    id: "browse-mode",
+    priority: 2,
+    items: [
+      { id: "tree", label: "Types", active: mode === "tree" },
+      { id: "activity", label: "Activity", active: mode === "activity" },
+    ],
+  });
+  items.push({
+    kind: "menu",
+    id: "sidebar-menu",
+    priority: 1,
+    label: "More options",
+    items: [
+      { id: "all-sessions", label: "All sessions", checked: getShowAllSessions() },
+      { id: "refresh", label: "Refresh" },
+      // browse-layout.js owns this wording and names the layout a click
+      // switches TO, so read the live button rather than restate it.
+      { id: "orient", label: orientToggleBtn?.querySelector(".orient-label")?.textContent || "" },
+    ],
+  });
+  contributeHeader(items);
 }
 
 // ---- Simple Mode (frame 2b) ----
@@ -237,16 +310,38 @@ if (searchInput) {
   searchInput.addEventListener("input", debounce(() => sidebarRenderer.renderSidebar(), 200));
 }
 
+/**
+ * Apply a filter string that did not come from typing in #search — today the
+ * tile bar's contributed box, which debounces on the hub side. render.js
+ * reads #search directly, so writing it keeps one source of truth (and the
+ * in-body box in step for the switch back to a body-control mode).
+ * @param {string} text
+ */
+function applyFilter(text) {
+  if (!searchInput || searchInput.value === text) return;
+  searchInput.value = text;
+  sidebarRenderer.renderSidebar();
+}
+
+/**
+ * Switch the browser column between the type tree and the activity timeline,
+ * syncing the in-body pair. Shared by those buttons and the tile bar's
+ * contributed nav so both surfaces drive one path.
+ * @param {string|undefined} mode
+ */
+function applyBrowseMode(mode) {
+  if (!mode || mode === sidebarRenderer.getBrowseMode()) return;
+  sidebarRenderer.setBrowseMode(mode);
+  document.querySelectorAll(".mode-btn").forEach((b) => {
+    b.classList.toggle("active", /** @type {HTMLElement} */ (b).dataset.mode === mode);
+  });
+  sidebarRenderer.renderSidebar();
+  publishHeaderContribution();
+}
+
 // Mode toggle (tree/activity)
 document.querySelectorAll(".mode-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    const mode = /** @type {HTMLElement} */ (btn).dataset.mode;
-    if (mode === sidebarRenderer.getBrowseMode()) return;
-    sidebarRenderer.setBrowseMode(mode);
-    document.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    sidebarRenderer.renderSidebar();
-  });
+  btn.addEventListener("click", () => applyBrowseMode(/** @type {HTMLElement} */ (btn).dataset.mode));
 });
 
 // Layout toggle (list/gallery)
@@ -471,8 +566,11 @@ window.addEventListener("message", (e) => {
 
 // Live Expert<->Simple switch broadcast by the hub — the shared receive-side
 // helper stamps data-ui-mode; re-render Simple so its content is fresh on
-// arrival.
-onModeChange(() => renderSimple());
+// arrival, and re-publish since the filter is an Expert-only bar item.
+onModeChange(() => {
+  renderSimple();
+  publishHeaderContribution();
+});
 
 // ---- Init ----
 
@@ -480,7 +578,7 @@ initBrowseLayout({
   handle: resizeHandle,
   handleY: document.getElementById("resize-handle-y"),
   sidebar,
-  toggle: document.getElementById("orient-toggle-btn"),
+  toggle: orientToggleBtn,
 });
 initSidebarMenu({
   button: document.getElementById("sidebar-menu-btn"),
@@ -489,13 +587,28 @@ initSidebarMenu({
 if (refreshBtn) refreshBtn.addEventListener("click", doRefresh);
 
 const allSessionsBtn = document.getElementById("all-sessions-btn");
-if (allSessionsBtn) {
-  allSessionsBtn.addEventListener("click", () => {
-    setShowAllSessions(!getShowAllSessions());
-    updateScopeUi();
-    fetchArtifacts();
-  });
-}
+if (allSessionsBtn) allSessionsBtn.addEventListener("click", toggleAllSessions);
+
+// Tile bar round-trip: every branch lands in the same handler the matching
+// in-body control does. The first publish comes after initBrowseLayout, so
+// the orientation entry reads the label that call already settled on.
+onHeaderAction((id, value) => {
+  if (id === "filter") {
+    applyFilter(value || "");
+  } else if (id === "browse-mode") {
+    applyBrowseMode(value);
+  } else if (id === "sidebar-menu") {
+    if (value === "all-sessions") toggleAllSessions();
+    else if (value === "refresh") doRefresh();
+    else if (value === "orient") {
+      // browse-layout.js owns the flip and relabels its button synchronously,
+      // so driving the button and re-publishing keeps the entry honest.
+      orientToggleBtn?.click();
+      publishHeaderContribution();
+    }
+  }
+});
+publishHeaderContribution();
 
 // Scope pill ✕ — one-click way back to the default this-session scope.
 const scopePillClear = document.getElementById("scope-pill-clear");

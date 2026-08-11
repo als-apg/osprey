@@ -120,7 +120,7 @@ export const OMIT = Symbol('omit');
 /**
  * The callable ``renderSchemaForm`` returns: a zero-arg function that reads
  * the whole form into a ``plan_args`` object (unchanged contract — this is
- * what ``panel.js`` calls as ``collectPlanArgs()``), plus two properties
+ * what ``plans-view.js`` calls as ``collectPlanArgs()``), plus two properties
  * layered on top for programmatic draft application:
  * ``applyValues(values)`` sets every field present in ``values`` (keys
  * absent from ``values`` are left untouched) and dispatches one

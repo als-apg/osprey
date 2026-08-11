@@ -76,12 +76,20 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # The archive and the workspace-delta hook landed either side of the same
     # rebase, so the digests below carry both at once: re-pinning against
     # either change alone would leave the other unaccounted for.
-    "control-assistant": "sha256:5ef868a0c4e912bffbbceb1387b8f95f0a19a4dbfb475915bdeb3467c0ed8162",
+    # ...and again when the PLAN panel was folded into BLUESKY as its Plans
+    # tab: the preset's `plan` web_panels entry and its `web.panels.plan.*`
+    # overrides are gone. Like the RESULTS rename above, this is NOT
+    # behavior-neutral — a rebuilt project loses a tab and gains it back inside
+    # another — so staleness firing on already-deployed projects is the correct
+    # signal. The archive work and the panel merge landed either side of this
+    # merge, so as above the digests carry both at once. Both extends children
+    # inherit it, so all three moved.
+    "control-assistant": "sha256:edf098ea7affaa4ddec708eee5dba46cb5799738c9914526eaf475582e3c0326",
     "control-assistant-readonly": (
-        "sha256:7c30309acfa2cc519813eaf3c830b1a3b6829abf5602f11308d3308db8fb5a7f"
+        "sha256:4cb215e59d6b99ae530c60d6305e97ca8eb459aa4f9d5049f2e329d6e87911ae"
     ),
     "control-assistant-readwrite": (
-        "sha256:2721cb96194dc0da4030f05aaea0926fd7febad61a0cd51e5f3c2652d4271679"
+        "sha256:90be07f5620df02e44c40b1b75b8b2ce12a738f06dc816a5a8c0febfa631ec08"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

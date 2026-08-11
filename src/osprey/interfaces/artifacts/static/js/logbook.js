@@ -360,7 +360,15 @@ function showModal() {
 }
 
 function hideModal() {
-  if (modal) modal.style.display = "none";
+  // Dismiss on DOM state, never the `modal` cache: the submit success path
+  // nulls the cache (so the next open rebuilds a fresh composer) before
+  // scheduling the auto-dismiss, and the close/backdrop handlers must keep
+  // working in that window. The cached overlay is only concealed (it is
+  // reused); an uncached one is an orphan and is removed outright.
+  document.querySelectorAll(".logbook-overlay").forEach(function (el) {
+    if (el === modal) /** @type {HTMLElement} */ (el).style.display = "none";
+    else el.remove();
+  });
   resetModal();
 }
 
@@ -516,4 +524,4 @@ function injectLogbookButtons() {
   }
 }
 
-export { injectLogbookButtons, makeBtn, updateHeaderTitle, getSteeringValues, getContextValues };
+export { injectLogbookButtons, makeBtn, updateHeaderTitle, getSteeringValues, getContextValues, hideModal };

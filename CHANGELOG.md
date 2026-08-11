@@ -13,6 +13,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- An archiver read that comes back empty now says why: the response carries a
+  coverage verdict — the window predates or postdates the archive, the channel
+  was never recorded, or the window holds a genuine gap — with the archive's
+  real bounds, so an empty answer is never a silent one.
+
 - A virtual accelerator can now be deployed with a real archive behind it: a
   MongoDB store plus an archiver-recorder service that records the machine's
   channels as they move. Scenario history is seeded into the store when the
@@ -39,6 +44,19 @@ Compatibility is documented in release notes, not encoded in the version string.
   lattice summary stats moved into the panel body, Channel Finder's pipeline
   switcher and corpus stats into a bottom strip, and the lattice Baseline
   button now asks for confirmation before overwriting.
+- The rest of the docked panels moved their toolbars into that one header bar
+  too. **WORKSPACE** contributes its filter, its Types/Activity switch and its
+  ⋯ menu; **KNOWLEDGE** its search; **EVENTS** its Activity/Triggers tabs. A
+  panel's search box now renders with the same magnifier as the terminal's own
+  search, so the two read alike. In Simple view the search stays in the panel
+  body, where that view puts it front and centre.
+- The **PLAN** and **BLUESKY** tabs are now one **BLUESKY** panel with three
+  views — Plans, Queue, Results. The queue's state and its two halts (**Stop
+  after current item**, **Abort running plan**) stay on screen across all
+  three, and picking a run in Queue opens it under Results. Projects that
+  still register a `plan` panel keep working for one release: the sidecar
+  serves the merged panel at `/plan/` too. Drop `plan` from your profile's
+  `web_panels` and remove any `web.panels.plan.*` override.
 - `osprey -v` (`--verbose`) shows debug output, including every container
   command a deploy runs. Normal runs no longer echo those commands, so a
   deploy reads as a report — ending in the endpoint summary — rather than a
@@ -329,11 +347,29 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Web terminal panels no longer freeze permanently — rendering but ignoring
+  every click — when a drag from the panel rail loses its end event (for
+  example the dragged entry was removed mid-drag by the agent or another
+  client). Drag cleanup now has document-level failsafes.
+- The web terminal's panel event stream reconnects after a proxy or backend
+  hiccup and re-syncs rail membership on every reconnect, so a browser that
+  missed events while disconnected converges instead of silently drifting.
+  Event-handling errors are now logged instead of swallowed.
+- Workspace gallery: the "Draft created" confirmation no longer sticks as a
+  permanent full-panel overlay after a successful logbook submit.
+- Workspace gallery: deleting the artifact being viewed fullscreen (locally
+  or agent-side) exits fullscreen instead of stranding a pane with no
+  controls.
+- The web terminal welcome screen wires its dismiss controls before any
+  fallible boot step, and a terminal-library load failure degrades the
+  terminal card instead of aborting the whole page boot.
 - Lattice dashboard summary stats (energy, tunes, chromaticity) no longer
   freeze at load time — they recompute with the fast figures after a magnet
   change. Also removed dead panel chrome the audit surfaced: ARIEL's unwired
   "Connected" indicator and the System Health panel's no-op manual refresh
   and misleading fetch-time timestamp.
+- The **EVENTS** panel drew two header bars when docked — its own, plus the
+  tile's. It now hides its own, like every other panel.
 - On Docker Desktop (macOS/Windows), `osprey deploy up` now repairs a web
   stack that is fully healthy yet unreachable from the browser. Docker
   Desktop forwards a host-network port only if it watched the container open

@@ -555,3 +555,100 @@ describe('connection state: initial shape and listener registration', () => {
     }
   });
 });
+
+describe('createEventSource: reconnection and resync hook', () => {
+  /**
+   * EventSource stub with the pieces the reconnect logic reads: a settable
+   * per-instance readyState (spec constants: 0 CONNECTING, 1 OPEN, 2 CLOSED)
+   * and recorded instances.
+   * @returns {any[]}
+   */
+  function stubEventSourceRich() {
+    /** @type {any[]} */
+    const instances = [];
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        /** @param {string} url */
+        constructor(url) {
+          this.url = url;
+          this.readyState = 0;
+          this.closed = false;
+          instances.push(this);
+        }
+        close() {
+          this.closed = true;
+          this.readyState = 2;
+        }
+      }
+    );
+    return instances;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5000', reload: vi.fn() });
+    // Health probe answers 200 so the reload-on-401 path stays quiet here.
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test('a CLOSED stream is reconnected with backoff (the browser will not retry it)', () => {
+    // Per spec the browser auto-retries only network-level failures; a non-2xx
+    // or wrong content-type (proxy 502 during a backend restart) parks the
+    // EventSource in CLOSED permanently. Without our own reconnect the panel
+    // SSE channel dies for the rest of the page's life.
+    const instances = stubEventSourceRich();
+    api.createEventSource('/events');
+    expect(instances).toHaveLength(1);
+
+    instances[0].readyState = 2; // CLOSED
+    instances[0].onerror();
+
+    vi.advanceTimersByTime(1000);
+    expect(instances).toHaveLength(2);
+  });
+
+  test('a CONNECTING stream is left to the browser\'s own retry (no duplicate connection)', () => {
+    const instances = stubEventSourceRich();
+    api.createEventSource('/events');
+
+    instances[0].readyState = 0; // CONNECTING: built-in retry is running
+    instances[0].onerror();
+
+    vi.advanceTimersByTime(60000);
+    expect(instances).toHaveLength(1);
+  });
+
+  test('onOpen fires on every open — the caller\'s state-resync hook', () => {
+    const instances = stubEventSourceRich();
+    const onOpen = vi.fn();
+    api.createEventSource('/events', { onOpen });
+
+    instances[0].onopen();
+    expect(onOpen).toHaveBeenCalledTimes(1);
+
+    // Lost stream, our reconnect, second open: the hook must fire again so
+    // the caller can re-fetch state it missed while disconnected.
+    instances[0].readyState = 2;
+    instances[0].onerror();
+    vi.advanceTimersByTime(1000);
+    instances[1].onopen();
+    expect(onOpen).toHaveBeenCalledTimes(2);
+  });
+
+  test('stop() cancels a pending reconnect', () => {
+    const instances = stubEventSourceRich();
+    const source = api.createEventSource('/events');
+
+    instances[0].readyState = 2;
+    instances[0].onerror();
+    source.stop();
+
+    vi.advanceTimersByTime(60000);
+    expect(instances).toHaveLength(1);
+  });
+});

@@ -10,7 +10,7 @@
  * with no panel-side code at all, so nothing here may ever become a gate on
  * whether a plan can be composed or queued.
  *
- * Kept separate from panel.js because these are pure data and pure functions
+ * Kept separate from plans-view.js because these are pure data and pure functions
  * over collected `plan_args` — no DOM, no fetches, no panel state — and because
  * adding a plan should mean adding an entry here, not editing the panel.
  *

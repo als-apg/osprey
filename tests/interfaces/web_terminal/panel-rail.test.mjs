@@ -271,6 +271,40 @@ describe('drag from the rail (onDragStart / onDragEnd)', () => {
     expect(ev.defaultPrevented).toBe(true);
   });
 
+  test('removing a mid-drag entry ends its drag gesture (removeEntry heals the shields)', () => {
+    // A detached drag source can never fire dragend (HTML5 delivers it to the
+    // source element only), so the caller's onDragEnd — which lowers the
+    // iframe pointer shields — would never run and every panel would stay
+    // frozen. removeEntry must end the gesture itself before detaching.
+    /** @type {string[]} */
+    const ended = [];
+    createRail(rail, PANELS, {
+      onDragStart: () => true,
+      onDragEnd: (id) => ended.push(id),
+    });
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    entry.dispatchEvent(dragEvent('dragstart'));
+    expect(entry.classList.contains('dragging')).toBe(true);
+
+    removeEntry(rail, 'ariel');
+
+    expect(getEntry(rail, 'ariel')).toBeNull();
+    expect(ended).toEqual(['ariel']);
+  });
+
+  test('removeEntry of an idle entry does not fire onDragEnd', () => {
+    /** @type {string[]} */
+    const ended = [];
+    createRail(rail, PANELS, {
+      onDragStart: () => true,
+      onDragEnd: (id) => ended.push(id),
+    });
+
+    removeEntry(rail, 'ariel');
+
+    expect(ended).toEqual([]);
+  });
+
   test('dragend clears the dragging state and calls onDragEnd', () => {
     /** @type {string[]} */
     const ended = [];

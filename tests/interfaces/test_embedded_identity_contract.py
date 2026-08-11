@@ -25,6 +25,7 @@ CONTRACT = [
     ("channel_finder/static/css/channel-finder.css", "body.embedded .app-header"),
     ("lattice_dashboard/static/dashboard.css", "body.embedded #topbar"),
     ("health/static/dashboard.css", "body.embedded .hdr"),
+    ("bluesky_panels/panels/bluesky/panel.css", "body.embedded .panel-chrome"),
     # Theme switchers (hub owns theming)
     ("ariel/static/css/layout.css", "body.embedded osprey-theme-switcher"),
     ("channel_finder/static/css/channel-finder.css", "body.embedded osprey-theme-switcher"),
@@ -40,4 +41,24 @@ def test_embedded_rule_present(css_file: str, selector: str) -> None:
     assert selector in normalized, (
         f"{css_file} must hide '{selector.removeprefix('body.embedded ').strip()}' "
         "when embedded in the web-terminal hub (host tile bar owns identity/theming)"
+    )
+
+
+#: The EVENTS panel is a single self-contained page served by the event
+#: dispatcher rather than a design-system interface, so its rule lives in an
+#: inline ``<style>`` outside ``INTERFACES`` — same contract, different file.
+DISPATCH_DASHBOARD = (
+    Path(__file__).resolve().parents[2] / "src" / "osprey" / "dispatch" / "dashboard.html"
+)
+
+
+def test_dispatch_dashboard_hides_own_header_when_embedded() -> None:
+    html = " ".join(DISPATCH_DASHBOARD.read_text(encoding="utf-8").split())
+    assert "body.embedded .app-head { display: none; }" in html, (
+        "dispatch/dashboard.html must hide its own .app-head when embedded "
+        "(host tile bar owns identity)"
+    )
+    assert "applyEmbedded()" in html, (
+        "dispatch/dashboard.html must call applyEmbedded() or the body.embedded "
+        "rule above can never match"
     )

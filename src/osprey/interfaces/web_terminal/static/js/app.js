@@ -19,7 +19,20 @@ import { followThemeFamily, getRailPosition, setRailPosition } from './rail-posi
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
-  initTerminal('terminal-container');
+  // Welcome modal FIRST: #welcome-overlay ships in the DOM from first paint
+  // (opaque, full-viewport, z-index 10000) and only this init wires its
+  // dismiss controls. Any earlier throw would leave the page permanently
+  // covered with no way out — so the overlay must be dismissable before any
+  // fallible init runs. Self-contained: needs only the DOM and /health.
+  void initWelcomeModal();
+  // Guarded: xterm.js loads from a CDN by default (local only in
+  // OSPREY_OFFLINE), so a network blip must degrade the terminal card, not
+  // kill the whole boot.
+  try {
+    initTerminal('terminal-container');
+  } catch (err) {
+    console.error('Failed to init terminal:', err);
+  }
   // Simple-mode operator chat. Guarded so a chat init failure can't break the
   // rest of the boot (the expert terminal is already up at this point).
   try {
@@ -55,9 +68,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initHookDebug();
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();
-
-  // Welcome modal (once per server session)
-  initWelcomeModal();
 });
 
 /* ---- New Session Button ---- */
