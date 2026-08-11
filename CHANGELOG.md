@@ -124,6 +124,8 @@ Compatibility is documented in release notes, not encoded in the version string.
   `switch_panel` opens the tile *beside* your current one — focusing it instead
   if it is already open — so no tile you had open is evicted. The Simple web
   UI's single workspace slot is unchanged.
+- Raised minimum versions for `psycopg`, `psycopg-pool`, `uvicorn`, `rich`,
+  `fastapi`, `charset-normalizer`, `unique-namer`, and `pymongo`.
 - **The profile is the source of truth for a built project.** Every
   `osprey build` reads a profile directory; there is no build straight out of a
   bundled preset. `--preset NAME` materializes `<PROJECT_NAME>-profile/` beside
