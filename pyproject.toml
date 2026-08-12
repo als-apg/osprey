@@ -162,7 +162,7 @@ dependencies = [
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
     "typing_extensions>=4.16.0",
-    # `osprey deploy up --dev` builds a wheel from the local checkout. A shipped
+    # `osprey up --dev` builds a wheel from the local checkout. A shipped
     # CLI flag must not depend on an optional extra: an editable install without
     # `--extra dev` would otherwise satisfy every other --dev precondition and
     # fail only at wheel-build time.
@@ -513,7 +513,6 @@ ignore = [
 "tests/e2e/conftest.py" = ["F811"]  # Allow pytest hook redefinition
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
-"src/osprey/templates/apps/control_assistant/_agent_data/example_scripts/**/*.py" = ["E402"]  # Example scripts with late imports
 "src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
 
 [tool.ruff.lint.isort]

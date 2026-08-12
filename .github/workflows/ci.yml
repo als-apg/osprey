@@ -907,34 +907,42 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Create hello_world project
+    - name: Create hello_world deployment repo
       run: |
         # CI only has ALS_APG_API_KEY (cborg's IP allowlist excludes GitHub
-        # Actions runners). Drive provider selection through `osprey build
-        # --set` instead of post-build sed surgery — keeps the contract
-        # explicit and survives template re-formatting.
-        uv run osprey build hello-world-test --preset hello-world \
-          --skip-deps --skip-lifecycle \
+        # Actions runners). Drive provider selection through `osprey init
+        # --set`, which bakes it into the emitted profile.yml, instead of
+        # post-build sed surgery — keeps the contract explicit and survives
+        # template re-formatting.
+        #
+        # Two steps, because they are two things: `init` writes the source
+        # zone, `build` renders it. --skip-deps/--skip-lifecycle belong to the
+        # render and so live on `build`.
+        uv run osprey init hello-world-test --preset hello-world \
           --set provider=als-apg --set model=haiku
         cd hello-world-test
+        uv run osprey build --skip-deps --skip-lifecycle
         uv run osprey skills install osprey-build-interview
         ls -la
 
-    - name: osprey deploy up (graceful no-op for hello-world)
+    - name: osprey up (graceful no-op for hello-world)
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         cd hello-world-test
-        # hello-world declares no deployed_services, so deploy up should
-        # exit 0 with a "no services configured" notice rather than
-        # crashing on TemplateNotFound.
-        uv run osprey deploy up -d --dev
+        # hello-world declares no deployed_services, so `up` should exit 0
+        # with a "no services configured" notice rather than crashing on
+        # TemplateNotFound.
+        uv run osprey up -d --dev
 
-    - name: osprey deploy down
+    - name: osprey down
       if: always()
       run: |
         cd hello-world-test
-        uv run osprey deploy down || true
+        # No `|| true`: this teardown is expected to succeed, and swallowing
+        # its exit code is how the retired verb here went unnoticed — a
+        # guaranteed usage error read as a clean no-op teardown.
+        uv run osprey down
 
   dispatch-deploy-e2e:
     name: Dispatch Deploy E2E (full Docker stack + real agent runs + multi-user web tier)
@@ -1177,7 +1185,7 @@ jobs:
     # secret-gated LLM lane), contradicting its own docstring ("never
     # collected by the fast lane"). This job is that missing lane.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # The VA image build + `osprey deploy up` inside the test carry their own
+    # The VA image build + `osprey up` inside the test carry their own
     # generous internal timeouts (5min build, 20min deploy-up) to absorb a
     # cold image cache; that's 25min before the five CA proofs (P1-P5, with
     # P1-P4 each eligible for one flaky rerun) even start. This job is

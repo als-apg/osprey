@@ -149,7 +149,7 @@ if [ -n "$scan_stack_touched" ]; then
   echo "  uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v"
   echo ""
   echo "  Never 'pytest -m e2e' — the marker selection breaks registry isolation."
-  echo "  Each module tears its own stack down via 'osprey deploy down'."
+  echo "  Each module tears its own stack down via 'osprey down'."
   WARNINGS=$((WARNINGS + 1))
 else
   echo "✓ No scan-stack changes — container e2e not required for this diff"

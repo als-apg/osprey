@@ -51,11 +51,12 @@ if TYPE_CHECKING:
     from docs.screenshots.recipes import DocShot
     from playwright.sync_api import Browser
 
-# Host TCP port Postgres publishes once ``osprey deploy up -d`` is healthy.
+# Host TCP port Postgres publishes once ``osprey up -d`` is healthy.
 _POSTGRES_PORT = 5432
 
-# Project name for the throwaway tutorial build. ``osprey build <name> --preset
-# control-assistant -o <dir>`` renders the project at ``<dir>/<name>``.
+# Directory name for the throwaway tutorial deployment repo. ``osprey init
+# <dir>/<name> --preset control-assistant`` creates the repo; ``osprey build``
+# run inside it renders ``<dir>/<name>/build``.
 _TUTORIAL_PROJECT_NAME = "docshots-tutorial"
 
 # Floor (bytes) below which a captured hero PNG is treated as too trivial to be a
@@ -321,15 +322,15 @@ def _tutorial_stack(*, artifact_port: int) -> Iterator[Path]:
     """Build the tutorial project, bring up Postgres, seed ARIEL, yield the dir.
 
     Lifecycle order (each step's failure degrades to :class:`ScreenshotSkip`):
-    make a temp build root, ``osprey build <name> --preset control-assistant``
-    into it (``--skip-deps``: the capture drives ``osprey``/ARIEL from the current
-    environment, so the built project needs no venv of its own) with the
-    artifact-server port pinned, ``osprey deploy up -d`` (detached — the
+    make a temp build root, ``osprey init <dir> --preset control-assistant``
+    into it with the artifact-server port pinned, ``osprey build --skip-deps``
+    (the capture drives ``osprey``/ARIEL from the current environment, so the
+    deployment needs no venv of its own), ``osprey up -d`` (detached — the
     non-detached form would ``execvpe`` away the runner), wait for Postgres on
     :data:`_POSTGRES_PORT` *before* seeding, then ``osprey sim apply nominal``
-    frozen to :data:`recipes.ANCHOR`. Yields the rendered project directory
-    (``<build_root>/<name>``). The ``finally`` block always tears the project down
-    with the project-scoped ``osprey deploy down`` and removes the build root — it
+    frozen to :data:`recipes.ANCHOR`. Yields the deployment repo directory
+    (``<build_root>/<name>``). The ``finally`` block always tears the deployment
+    down with the repo-scoped ``osprey down`` and removes the build root — it
     never issues any prune, volume, or system-wide command.
     """
     try:
@@ -339,24 +340,30 @@ def _tutorial_stack(*, artifact_port: int) -> Iterator[Path]:
 
     project_dir = build_root / _TUTORIAL_PROJECT_NAME
     try:
+        # Two steps because they are two things: `init` writes the source
+        # zone (and bakes --set into the emitted profile.yml), `build` renders
+        # it. --skip-deps belongs to the render.
         _run_stack_step(
             [
                 "osprey",
-                "build",
-                _TUTORIAL_PROJECT_NAME,
+                "init",
+                str(project_dir),
                 "--preset",
                 "control-assistant",
-                "-o",
-                str(build_root),
-                "--skip-deps",
+                "--no-git",
                 "--set",
                 f"config.artifact_server.port={artifact_port}",
             ],
             cwd=None,
+            what="create the control-assistant tutorial repo",
+        )
+        _run_stack_step(
+            ["osprey", "build", "--skip-deps"],
+            cwd=project_dir,
             what="build the control-assistant tutorial",
         )
         _run_stack_step(
-            ["osprey", "deploy", "up", "-d"],
+            ["osprey", "up", "-d"],
             cwd=project_dir,
             what="bring up Postgres",
         )
@@ -372,14 +379,21 @@ def _tutorial_stack(*, artifact_port: int) -> Iterator[Path]:
         yield project_dir
     finally:
         try:
+            # check=True: this is the only teardown for a real container
+            # stack, and a silent failure leaks it for the rest of the run.
+            # A raise here is caught below and reported rather than dropped.
             subprocess.run(
-                ["osprey", "deploy", "down"],
+                ["osprey", "down"],
                 cwd=str(project_dir),
                 capture_output=True,
-                check=False,
+                check=True,
             )
-        except OSError:
-            pass
+        except (OSError, subprocess.CalledProcessError) as exc:
+            # Reported, never raised: this runs in a `finally`, and raising
+            # here would replace whatever brought us into it. But it is not
+            # swallowed either — a leaked container stack outlives the run and
+            # the next one inherits it.
+            print(f"WARNING: `osprey down` failed; container stack may be leaking: {exc}")
         shutil.rmtree(build_root, ignore_errors=True)
 
 
@@ -489,7 +503,7 @@ def _capture_agentic(
     trust prompt, types the operator prompt, waits (bounded) for a matching
     artifact, reveals the artifacts panel, opens the plot, and screenshots the
     viewport. Every launched process and page is torn down in ``finally``; the
-    web server is stopped with the project-scoped ``osprey web stop --project``.
+    web server is stopped with the repo-scoped ``osprey web stop --repo``.
     """
     web_port = free_port()
     try:
@@ -497,7 +511,7 @@ def _capture_agentic(
             [
                 "osprey",
                 "web",
-                "--project",
+                "--repo",
                 str(project_dir),
                 "--detach",
                 "--port",
@@ -575,13 +589,19 @@ def _capture_agentic(
         return written
     finally:
         try:
+            # `--repo`, not the retired `--project`. check=True for the same
+            # reason as the stack teardown: a silently-failed stop leaves a
+            # detached web terminal running.
             subprocess.run(
-                ["osprey", "web", "stop", "--project", str(project_dir)],
+                ["osprey", "web", "stop", "--repo", str(project_dir)],
                 capture_output=True,
-                check=False,
+                check=True,
             )
-        except OSError:
-            pass
+        except (OSError, subprocess.CalledProcessError) as exc:
+            # Same rule as the stack teardown: reported, not raised, not
+            # swallowed. A stop that failed leaves a detached web terminal
+            # holding its port.
+            print(f"WARNING: `osprey web stop` failed; a web terminal may still be running: {exc}")
         try:
             proc.terminate()
         except (OSError, ValueError):
