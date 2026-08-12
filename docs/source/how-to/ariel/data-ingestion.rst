@@ -288,7 +288,7 @@ All ingested and enhanced data lives in PostgreSQL. The core ``enhanced_entries`
 .. admonition:: pgvector requirement
    :class: important
 
-   The **pgvector** extension is required for semantic search. It is automatically installed in the Osprey-managed PostgreSQL container (``osprey deploy up``). For external databases, install it manually: ``CREATE EXTENSION IF NOT EXISTS vector;``
+   The **pgvector** extension is required for semantic search. It is automatically installed in the Osprey-managed PostgreSQL container (``osprey up``). For external databases, install it manually: ``CREATE EXTENSION IF NOT EXISTS vector;``
 
 Core Tables
 -----------

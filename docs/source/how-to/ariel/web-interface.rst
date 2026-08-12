@@ -343,7 +343,7 @@ Running the Web Interface
 
    The web UI runs in-process via ``osprey ariel web`` and is also exposed
    as a panel under ``osprey web``. There is no shipped container service
-   template for it --- ``osprey deploy up`` only brings up dependencies
+   template for it --- ``osprey up`` only brings up dependencies
    such as PostgreSQL.
 
 **Programmatic usage:**

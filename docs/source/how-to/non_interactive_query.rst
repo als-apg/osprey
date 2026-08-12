@@ -9,7 +9,7 @@ pipelines, health checks, and automated workflows.
    :icon: book
 
    - What ``osprey query`` does and when to reach for it
-   - How project resolution works (``--project`` → ``OSPREY_PROJECT`` → cwd)
+   - How deployment resolution works (nearest ``profile.yml``, or ``--repo``)
    - The ``--json`` flag for machine-readable output
    - Exit codes and what each means
    - The read-only guarantee and how it is enforced
@@ -33,30 +33,25 @@ Use ``osprey query`` when you need to verify that the *entire agent stack*
 works end-to-end against your real control system, not just that the model
 is reachable.
 
-Project Resolution
-==================
+Deployment Resolution
+=====================
 
-``osprey query`` resolves the project directory in this order:
-
-1. ``--project DIR`` flag (explicit)
-2. ``OSPREY_PROJECT`` environment variable
-3. Current working directory (cwd)
+``osprey query`` asks the deployment enclosing the current directory: it walks
+up to the nearest ``profile.yml`` and answers from that repository's ``build/``
+as it was last rendered. ``--repo DIRECTORY`` names another one.
 
 .. code-block:: bash
 
-   # Explicit project
-   osprey query --project ~/projects/als-assistant "List vacuum sections"
-
-   # Via environment variable
-   export OSPREY_PROJECT=~/projects/als-assistant
+   # The deployment you are standing in
+   cd ~/deployments/als-assistant
    osprey query "List vacuum sections"
 
-   # Current directory (cwd)
-   cd ~/projects/als-assistant
-   osprey query "List vacuum sections"
+   # A deployment somewhere else
+   osprey query --repo ~/deployments/als-assistant "List vacuum sections"
 
-The command exits with code ``2`` if no valid project is found at the
-resolved path.
+When ``profile.yml`` or a file it points at has changed since that build, a
+warning on stderr says so and the query runs anyway. The command exits with
+code ``2`` if there is no build to answer from.
 
 Exit Codes
 ==========
@@ -142,7 +137,7 @@ guarantee is specifically that the run performs no hardware write, no code or
 shell execution, and no deletion of stored data.
 
 There is no ``--allow-writes`` flag. If you need an agent run that can write,
-use ``osprey claude chat`` or the event-dispatch pipeline instead.
+use ``osprey chat`` or the event-dispatch pipeline instead.
 
 .. note::
 
@@ -177,12 +172,12 @@ For pipelines that parse results, use ``--json`` and ``jq``:
    echo "$result" | jq '.final_text'
    echo "$result" | jq '.exit_code'
 
-For a project not in the current directory:
+For a deployment not in the current directory:
 
 .. code-block:: bash
 
    osprey query \
-     --project /opt/osprey/als-assistant \
+     --repo /opt/osprey/als-assistant \
      "List all vacuum sections" \
      || exit 1
 

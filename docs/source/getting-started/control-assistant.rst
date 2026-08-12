@@ -46,11 +46,13 @@ Create a project from the ``control-assistant`` preset:
 
 .. code-block:: bash
 
-   osprey build my-control-assistant --preset control-assistant
+   osprey init my-control-assistant --preset control-assistant
    cd my-control-assistant
+   osprey build
 
-As in Hello World, this writes ``my-control-assistant-profile/`` beside the
-project and builds from it; provider keys go in that directory's ``.env``.
+As in Hello World, this writes one repository whose ``profile.yml`` is the
+source and whose ``build/`` is the render; provider keys go in the repository's
+``.env``.
 
 No hardware is involved, so every example below is safe to run; hardware writes
 are still gated behind the human-approval prompt. Unlike ``hello-world``, the
@@ -67,7 +69,7 @@ Then bring the stack up (this needs Docker or Podman):
 
 .. code-block:: bash
 
-   osprey deploy up
+   osprey up
 
 This starts the containers the preset declares: the Virtual Accelerator
 soft-IOC the agent reads and writes, and the **archive** — a MongoDB store and a
@@ -302,16 +304,15 @@ Step 7: Tune the Assistant and Go to Production
 **Choose a channel-finder strategy.** The preset defaults to ``hierarchical``
 mode, which scales to large facilities with thousands of channels. For a small
 facility (under ~1,000 channels) the ``in_context`` strategy can be simpler and
-faster. The strategy is a build-time choice, so select it when you build:
+faster. The strategy is a build-time choice, so set it and rebuild:
 
 .. code-block:: bash
 
-   osprey build my-control-assistant --preset control-assistant \
-       --set channel_finder_mode=in_context --force
+   osprey set channel_finder_mode=in_context
+   osprey build
 
-``--force`` re-renders the existing project directory. The ``--set`` value is
-written into ``my-control-assistant-profile/profile.yml`` first, so it stays in
-effect for every later build — you can also just edit that file instead.
+``osprey set`` writes the value into ``profile.yml``, so it stays in effect for
+every later build — you can also just edit that file instead.
 
 See :doc:`../how-to/use-channel-finder` for a comparison of the strategies.
 
@@ -324,7 +325,7 @@ described:
 
 .. code-block:: yaml
 
-   # my-control-assistant-profile/profile.yml
+   # profile.yml
    va_archiver:
      retention_days: 7        # a week is plenty for a demo, and seeds faster
      hot_span_hours: 24
@@ -336,27 +337,25 @@ copy these keys into the project's ``config.yml`` — the build writes that file
 from the block, and a second copy is free to disagree with the first.
 
 **Switch to real hardware.** As in Hello World, moving to production is a
-configuration change, not a code change. Point the connectors at your facility in
-``config.yml``:
+configuration change, not a code change. Point the connectors at your facility
+in ``profile.yml``:
 
-.. code-block:: yaml
+.. code-block:: bash
 
-   control_system:
-     type: epics            # was: virtual_accelerator
-
-   archiver:
-     type: epics_archiver   # was: mongodb_archiver
+   osprey set connector=epics
+   osprey set config.archiver.type=epics_archiver
 
 The archive this tutorial deploys is a *simulated* machine's history, which is
 not what you want against hardware — so the archiver moves to your facility's
 appliance at the same time as the control system.
 
-Because these are build-time inputs, regenerate the agent's artifacts and relaunch:
+Because these are build-time inputs, re-render the agent's artifacts and
+relaunch:
 
 .. code-block:: bash
 
-   osprey claude regen
-   claude
+   osprey build
+   osprey chat
 
 Your queries don't change --- "Read the current in the booster's defocusing
 quadrupole" and "Plot the storage-ring beam current over the last 24 hours" now

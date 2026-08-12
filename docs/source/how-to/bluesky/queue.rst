@@ -208,7 +208,7 @@ quirks worth knowing:
    :icon: server
 
    A project built from the ``control-assistant`` preset brings the whole
-   stack up with ``osprey deploy up``: the **bridge** (the HTTP front door,
+   stack up with ``osprey up``: the **bridge** (the HTTP front door,
    port 8090), the **queue server** with its own storage, the **PLAN /
    BLUESKY panels** sidecar (port 8095), the **Virtual Accelerator** (the
    preset's default control system), and — when enabled — **Tiled** (port
@@ -243,12 +243,13 @@ quirks worth knowing:
 
    .. code-block:: bash
 
-      osprey config set-control-system virtual_accelerator
+      osprey set connector=virtual_accelerator
 
-   That switch needs a real archive behind it. A project built from the
-   ``control-assistant`` preset has one and the command just works; a project
-   still reading the mock archiver is refused, and told to point
-   ``archiver.type`` at a store its deployment writes first — see
+   Run ``osprey build`` and ``osprey up`` afterwards to carry the change into
+   the running stack. That switch needs a real archive behind it: a deployment
+   created from the ``control-assistant`` preset has one and the flip just
+   works; one still reading the mock archiver is refused at build time, and told
+   to point ``archiver.type`` at a store its deployment writes first — see
    :doc:`../use-virtual-accelerator`.
 
 .. seealso::
