@@ -974,6 +974,11 @@ jobs:
       run: uv sync --extra dev
 
     - name: Create hello_world deployment repo
+      env:
+        # Exported at init time so the shell-harvest seeds it into the repo's
+        # .env — the flow `up`'s .env preflight expects (without it, `up`
+        # refuses on the missing secret store).
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         # CI only has ALS_APG_API_KEY (cborg's IP allowlist excludes GitHub
         # Actions runners). Drive provider selection through `osprey init
