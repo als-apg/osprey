@@ -2,7 +2,7 @@
 
 import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
 import { onConnectionStateChange, fetchJSON, withPrefix } from './api.js';
-import { initPanelManager, broadcastMode, handleUiModeFlip } from './panel-manager.js';
+import { initPanelManager, broadcastMode, handleUiModeFlip, navigateAndActivatePanel } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -361,6 +361,25 @@ function initIframePasteBridge() {
     if (e.data && e.data.type === 'osprey-paste-to-terminal' && e.data.text) {
       pasteToTerminal(e.data.text);
       focusTerminal();
+    }
+    // A panel asking its host to move THIS client to another panel — the
+    // sender-local twin of the panel_focus SSE path (the gallery's logbook
+    // submit is the first caller). Deliberately not a server broadcast: a
+    // human gesture in one browser must not move anyone else's workspace,
+    // and it gets a plain activation with no agent attribution.
+    //
+    // The url must be root-relative and NOT protocol-relative. The origin
+    // check above is necessary but not sufficient: a same-origin sender can
+    // still be an agent-authored artifact rendered in a sandboxed panel, and
+    // this url reaches an iframe src via buildEmbedSrc, which preserves
+    // whatever scheme it is handed. `javascript:alert(1)` survives it intact
+    // and would execute in the HOST origin, and `//evil.example/x` resolves
+    // to a cross-origin document — so a leading-slash test alone is a hole.
+    // Every real panel url is root-relative and already server-prefixed.
+    if (e.data && e.data.type === 'osprey:navigate'
+        && typeof e.data.panel === 'string' && typeof e.data.url === 'string'
+        && e.data.url.startsWith('/') && !e.data.url.startsWith('//')) {
+      navigateAndActivatePanel(e.data.panel, e.data.url);
     }
   });
 

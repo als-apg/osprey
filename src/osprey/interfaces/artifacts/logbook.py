@@ -19,7 +19,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from osprey.mcp_server.http import notify_panel_focus
 from osprey.mcp_server.session import gather_session_metadata
 from osprey.models.tiers import VALID_TIERS
 from osprey.utils.workspace import resolve_shared_data_root
@@ -576,12 +575,17 @@ async def submit(req: SubmitRequest):
         base_url = os.environ.get("ARIEL_WEB_URL", "/panel/ariel")
         url = f"{base_url}/#create?draft={draft_id}"
 
-        # Notify web terminal to switch to ARIEL panel (non-fatal)
-        try:
-            notify_panel_focus("ariel", url=url)
-        except Exception:
-            pass
-
+        # No panel_focus broadcast here. Composing a logbook entry is a HUMAN
+        # gesture in the gallery, and notify_panel_focus is an agent-source,
+        # all-clients channel: it painted agent styling on every connected
+        # browser and yanked every operator's workspace to ARIEL because one
+        # person clicked Submit. Navigation is now sender-local — the gallery
+        # page posts `osprey:navigate` to its host window (see the submit
+        # success path in static/js/logbook.js and the host listener in
+        # web_terminal/static/js/app.js), so only the client that gestured
+        # moves, with no agent attribution. A standalone (non-embedded)
+        # gallery has no host to notify and keeps the returned URL as its
+        # only affordance.
         return SubmitResponse(
             draft_id=draft_id,
             url=url,
