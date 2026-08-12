@@ -90,7 +90,9 @@ def test_delta_keeps_the_preset_comments() -> None:
         profile_filename="my-profile/personas/readonly.yml",
     )
 
-    assert "it is what makes the read-only terminal read-only" in text
+    assert "it is what makes the" in text
+    assert "read-only terminal read-only" in text
+    assert "Pared-down operator layout" in text
 
 
 def test_header_explains_the_implicit_merge_and_names_the_source() -> None:
