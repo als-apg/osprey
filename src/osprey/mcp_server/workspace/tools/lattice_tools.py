@@ -13,17 +13,15 @@ Ten tools wrapping the lattice dashboard HTTP surface:
   - ``lattice_update_settings``: Deep-merge new settings (partial update).
 """
 
-import functools
 import json
 import logging
 import os
 
-import anyio
 import httpx
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import notify_agent_activity
+from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.workspace import load_osprey_config
 
@@ -73,15 +71,7 @@ async def _notify_lattice(tool: str, detail: str) -> None:
         tool: Name of the lattice tool that mutated the dashboard.
         detail: Short human-readable description of what changed.
     """
-    await anyio.to_thread.run_sync(
-        functools.partial(
-            notify_agent_activity,
-            tool,
-            "panel",
-            panel="lattice",
-            detail=detail,
-        )
-    )
+    await notify_agent_activity_async(tool, "panel", panel="lattice", detail=detail)
 
 
 @mcp.tool()

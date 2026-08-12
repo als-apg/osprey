@@ -1,15 +1,16 @@
 """MCP tool: execute_file — run an existing Python file with safety checks."""
 
-import functools
 import json
 import logging
 from pathlib import Path
 
-import anyio
-
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import notify_agent_activity
+from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
+from osprey.mcp_server.python_executor.tools._execution_gates import (
+    enforce_deployment_writes_gate,
+    require_known_execution_mode,
+)
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute_file")
 
@@ -33,7 +34,7 @@ async def execute_file(
                    relative paths resolve against the project root.
         description: Human-readable description of what the script does.
         execution_mode: "readonly" (default) blocks detected write patterns;
-                        "readwrite" allows them.
+                        "readwrite" allows them. Any other value is rejected.
         script_args: Optional command-line arguments for the script
                      (populates ``sys.argv[1:]``).
         save_output: If True, save the code and output to a workspace data file.
@@ -47,6 +48,10 @@ async def execute_file(
             "No file path provided.",
             ["Provide a path to a Python (.py) file."],
         )
+
+    # Reject unrecognised modes before any gate: the write gates branch on
+    # string equality and an unknown value would satisfy neither branch.
+    require_known_execution_mode(execution_mode)
 
     # Resolve project root and file path
     from osprey.mcp_server.python_executor.executor import _resolve_project_root
@@ -130,6 +135,9 @@ async def execute_file(
         logger.warning("Pattern detection module unavailable — skipping write detection")
         patterns = {"has_writes": False, "has_reads": False, "detected_patterns": {}}
 
+    # Deployment-level kill switch (independent of pattern detection accuracy).
+    enforce_deployment_writes_gate(execution_mode)
+
     if patterns.get("has_writes") and execution_mode == "readonly":
         return make_error(
             "safety_error",
@@ -158,20 +166,14 @@ async def execute_file(
 
     # Same emit contract as the ``execute`` tool — see the comment there for why
     # `execution_time_seconds` is the launch discriminator and why the mode test
-    # is the complement of the readonly gate rather than equality with
-    # "readwrite".
+    # is the complement of the readonly gate.
     if (
         patterns.get("has_writes")
         and execution_mode != "readonly"
         and exec_result.execution_time_seconds is not None
     ):
-        await anyio.to_thread.run_sync(
-            functools.partial(
-                notify_agent_activity,
-                "execute_file",
-                "channel",
-                detail="ran a script with control-system writes",
-            )
+        await notify_agent_activity_async(
+            "execute_file", "channel", detail="ran a script with control-system writes"
         )
 
     # Build response using original code (not augmented) for metadata/notebook

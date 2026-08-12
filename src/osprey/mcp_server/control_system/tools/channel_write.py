@@ -4,17 +4,14 @@ Safety: PreToolUse hooks enforce human approval before this tool runs.
 Tool docstring is the static prompt visible to Claude Code.
 """
 
-import functools
 import json
 import logging
-
-import anyio
 
 from osprey.errors import ChannelWriteBlockedError
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import notify_agent_activity
+from osprey.mcp_server.http import notify_agent_activity_async
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
 
@@ -213,13 +210,8 @@ async def channel_write(
         # never raises; the blocking call runs off the event loop.
         executed_channels = [r["channel"] for r in results_serialised if r["success"]]
         if executed_channels:
-            await anyio.to_thread.run_sync(
-                functools.partial(
-                    notify_agent_activity,
-                    "channel_write",
-                    "channel",
-                    detail=", ".join(executed_channels),
-                )
+            await notify_agent_activity_async(
+                "channel_write", "channel", detail=", ".join(executed_channels)
             )
 
         # Return ephemeral result (no persistent storage for channel writes)

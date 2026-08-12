@@ -205,6 +205,65 @@ def test_delete_all_emits_per_surviving_entry(project, notified):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("actor", ["human", "system"])
+def test_non_agent_deletes_never_emit(project, notified, actor):
+    """The frames are *agent* activity: a delete by the gallery user or a
+    retention sweep must not be reported as an agent action."""
+    from osprey.mcp_server.startup import initialize_workspace_singletons
+    from osprey.stores.artifact_store import artifact_mutation_actor
+
+    initialize_workspace_singletons()
+    store = ArtifactStore(workspace_root=project / "_agent_data")
+
+    save_figure(store, title="Orbit X")
+    wait_drained()
+    notified.clear()
+
+    with artifact_mutation_actor(actor):
+        store.delete_all()
+    wait_drained()
+
+    assert notified == []
+
+
+@pytest.mark.unit
+def test_actor_tag_is_scoped_to_the_context(project, notified):
+    """The agent default is restored when a non-agent scope exits."""
+    from osprey.mcp_server.startup import initialize_workspace_singletons
+    from osprey.stores.artifact_store import artifact_mutation_actor
+
+    initialize_workspace_singletons()
+    store = ArtifactStore(workspace_root=project / "_agent_data")
+
+    doomed = store.save_file(
+        file_content=b"\x89PNG fake",
+        filename="doomed.png",
+        artifact_type="image",
+        title="Doomed",
+        mime_type="image/png",
+        tool_source="execute",
+    )
+    kept = store.save_file(
+        file_content=b"\x89PNG fake",
+        filename="kept.png",
+        artifact_type="image",
+        title="Kept",
+        mime_type="image/png",
+        tool_source="execute",
+    )
+    wait_drained()
+    notified.clear()
+
+    with artifact_mutation_actor("human"):
+        store.delete_entry(doomed.id)
+    store.delete_entry(kept.id)
+    wait_drained()
+
+    assert [kwargs["tool"] for kwargs, _ in notified] == ["artifact_delete"]
+    assert "Kept" in notified[0][0]["detail"]
+
+
+@pytest.mark.unit
 def test_notify_runs_on_the_worker_not_the_caller(project, notified):
     """The store callback must not do HTTP on the thread that saved."""
     from osprey.mcp_server.startup import initialize_workspace_singletons

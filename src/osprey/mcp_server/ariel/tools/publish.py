@@ -1,15 +1,13 @@
 """MCP tool: entry_publish — publish an existing ARIEL entry to the facility logbook."""
 
-import functools
 import json
 import logging
 
-import anyio
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.ariel.server import build_entry_url, make_error, mcp
 from osprey.mcp_server.ariel.server_context import get_ariel_context
-from osprey.mcp_server.http import notify_agent_activity
+from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.publish")
@@ -49,16 +47,10 @@ async def entry_publish(
         # Agent-activity highlight for the ARIEL panel. Only reached once the
         # upstream write succeeded — every refusal (not_found, not_supported,
         # auth_required, internal_error) raises out of publish_entry above and
-        # emits nothing. Passive: no focus steal. notify_agent_activity never
+        # emits nothing. Passive: no focus steal. notify_agent_activity_async never
         # raises; the blocking call runs off the event loop.
-        await anyio.to_thread.run_sync(
-            functools.partial(
-                notify_agent_activity,
-                "entry_publish",
-                "panel",
-                panel="ariel",
-                detail=result.entry_id,
-            )
+        await notify_agent_activity_async(
+            "entry_publish", "panel", panel="ariel", detail=result.entry_id
         )
 
         # The just-published entry now carries a facility-assigned id, so the

@@ -49,7 +49,6 @@ Panel name registry
 """
 
 import asyncio
-import functools
 import json
 import logging
 import os
@@ -67,7 +66,7 @@ from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import (
     _post_json_with_response,
-    notify_agent_activity,
+    notify_agent_activity_async,
     notify_panel_focus,
     phoebus_bridge_url,
 )
@@ -660,17 +659,12 @@ async def phoebus_drive(
     # ``type`` is the exception: it writes the widget's PV through the runtime
     # and so reports fired=false even though the value landed. Every refusal
     # (validation, handle enforcement, unreachable bridge, non-200) returns
-    # above, so those emit nothing. notify_agent_activity never raises; the
+    # above, so those emit nothing. notify_agent_activity_async never raises; the
     # blocking call runs off the event loop.
     fired = bool(body.get("fired"))
     if fired or (verb_l == "type" and mode_l == "semantic"):
-        await anyio.to_thread.run_sync(
-            functools.partial(
-                notify_agent_activity,
-                "phoebus_drive",
-                "channel",
-                detail=f"{verb_l} {widget} on {display}",
-            )
+        await notify_agent_activity_async(
+            "phoebus_drive", "channel", detail=f"{verb_l} {widget} on {display}"
         )
 
     return json.dumps(
