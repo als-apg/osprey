@@ -108,8 +108,10 @@ token, no switch can disable them:
      process with its own copy of the devices. That is why the queue survives
      restarts of everything around it.
    - **Start queue** is checked against a **launch token** the deployment
-     holds. For the agent, starting is additionally switched off entirely
-     whenever the project's control-system writes are disabled.
+     holds. In deployed control rooms the agent never holds it — asking the
+     agent to start a scan gets you a **start request** to confirm in the
+     queue panel. For the agent, starting is additionally switched off
+     entirely whenever the project's control-system writes are disabled.
 
 .. dropdown:: First-run hiccups
    :color: info

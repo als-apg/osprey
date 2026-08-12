@@ -584,8 +584,10 @@ be queued only once, so a double-click cannot queue a duplicate.</p></li>
 process with its own copy of the devices. That is why the queue survives
 restarts of everything around it.</p></li>
 <li><p class="sd-card-text"><strong>Start queue</strong> is checked against a <strong>launch token</strong> the deployment
-holds. For the agent, starting is additionally switched off entirely
-whenever the project’s control-system writes are disabled.</p></li>
+holds. In deployed control rooms the agent never holds it — asking the
+agent to start a scan gets you a <strong>start request</strong> to confirm in the
+queue panel. For the agent, starting is additionally switched off
+entirely whenever the project’s control-system writes are disabled.</p></li>
 </ul>
 </div>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">

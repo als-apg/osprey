@@ -982,12 +982,13 @@ flow, so you rarely need to name a tool yourself.</p>
 HTTP API</label><div class="sd-tab-content docutils">
 <p>The panels and the agent both talk to the <strong>Bluesky bridge</strong>, and your
 own tooling can too:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>POST /queue/items        add the current draft revision
-POST /queue/start        start draining (needs the launch token)
-POST /queue/stop         stop after the running item
-POST /queue/abort        abort the running plan — never gated
-GET  /queue              what is queued and running
-GET  /runs               recent runs; /runs/&lt;id&gt;/data for the numbers
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>POST /queue/items          add the current draft revision
+POST /queue/start          start draining (needs the launch token)
+POST /queue/start-request  ask a token holder to start — arms nothing
+POST /queue/stop           stop after the running item
+POST /queue/abort          abort the running plan — never gated
+GET  /queue                what is queued and running
+GET  /runs                 recent runs; /runs/&lt;id&gt;/data for the numbers
 </pre></div>
 </div>
 <p>Every refusal comes back with a <code class="docutils literal notranslate"><span class="pre">detail</span></code> object of the form
@@ -1040,10 +1041,14 @@ add an armed one.)</p></td>
 <tr class="row-odd"><td><p class="sd-card-text">Start the queue</p></td>
 <td><p class="sd-card-text">The launch token.</p></td>
 </tr>
-<tr class="row-even"><td><p class="sd-card-text">Stop the queue / abort the running plan</p></td>
+<tr class="row-even"><td><p class="sd-card-text">Ask for a start (file a start request)</p></td>
+<td><p class="sd-card-text">Nothing — the request arms nothing. Confirming it <em>is</em> the
+token-gated start, done from the queue panel.</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">Stop the queue / abort the running plan</p></td>
 <td><p class="sd-card-text">Nothing. Ever. Anywhere.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text">Withdraw a pending stop</p></td>
+<tr class="row-even"><td><p class="sd-card-text">Withdraw a pending stop</p></td>
 <td><p class="sd-card-text">The launch token — it lets the queue keep draining.</p></td>
 </tr>
 </tbody>
@@ -1054,6 +1059,13 @@ add an armed one.)</p></td>
 <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> tools are denied outright — it cannot queue or start
 anything, even on an idle queue. Its halts and its read tools are never
 taken away.</p>
+<p class="sd-card-text">In a deployed control room the agent’s environment never holds the launch
+token at all — the token lives with the operator panels. The agent’s
+<code class="docutils literal notranslate"><span class="pre">queue_start</span></code> then files a <strong>start request</strong>: it appears in the BLUESKY
+queue panel beside the queue it would drain, with <em>Confirm start</em> and
+<em>Dismiss</em> controls. Confirming fires the panel’s own token-carrying start;
+dismissing starts nothing. Either way, the human’s click is the arming
+decision.</p>
 </div>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
@@ -1064,7 +1076,12 @@ taken away.</p>
 been queued once. Re-read the draft; edit it to mint a fresh revision
 for a repeat.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">launch_token_required</span></code></dt><dd><p class="sd-card-text">The operation was armed and the deployment is not. Nothing was started.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">launch_token_required</span></code></dt><dd><p class="sd-card-text">The operation was armed and the caller held no valid token. Nothing was
+started. (An agent asking for a plain start never hits this — it files a
+start request for the panel instead.)</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">queue_empty</span></code></dt><dd><p class="sd-card-text">A start was requested with nothing queued, so there was nothing a
+confirmation could run. Stage and add a plan first.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">browse_only_connector</span></code></dt><dd><p class="sd-card-text">This deployment cannot execute scans at all — it is pointed at the
 <code class="docutils literal notranslate"><span class="pre">mock</span></code> control system. Composing still works; the refusal names the

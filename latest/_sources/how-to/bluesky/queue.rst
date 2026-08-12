@@ -66,12 +66,13 @@ One queue, three ways to drive it
 
       .. code-block:: text
 
-         POST /queue/items        add the current draft revision
-         POST /queue/start        start draining (needs the launch token)
-         POST /queue/stop         stop after the running item
-         POST /queue/abort        abort the running plan — never gated
-         GET  /queue              what is queued and running
-         GET  /runs               recent runs; /runs/<id>/data for the numbers
+         POST /queue/items          add the current draft revision
+         POST /queue/start          start draining (needs the launch token)
+         POST /queue/start-request  ask a token holder to start — arms nothing
+         POST /queue/stop           stop after the running item
+         POST /queue/abort          abort the running plan — never gated
+         GET  /queue                what is queued and running
+         GET  /runs                 recent runs; /runs/<id>/data for the numbers
 
       Every refusal comes back with a ``detail`` object of the form
       ``{"code": ..., "detail": ...}`` — a stable code for software to
@@ -115,6 +116,9 @@ quirks worth knowing:
         - The launch token — this hands work straight to a moving machine.
       * - Start the queue
         - The launch token.
+      * - Ask for a start (file a start request)
+        - Nothing — the request arms nothing. Confirming it *is* the
+          token-gated start, done from the queue panel.
       * - Stop the queue / abort the running plan
         - Nothing. Ever. Anywhere.
       * - Withdraw a pending stop
@@ -125,6 +129,14 @@ quirks worth knowing:
    ``queue_start`` tools are denied outright — it cannot queue or start
    anything, even on an idle queue. Its halts and its read tools are never
    taken away.
+
+   In a deployed control room the agent's environment never holds the launch
+   token at all — the token lives with the operator panels. The agent's
+   ``queue_start`` then files a **start request**: it appears in the BLUESKY
+   queue panel beside the queue it would drain, with *Confirm start* and
+   *Dismiss* controls. Confirming fires the panel's own token-carrying start;
+   dismissing starts nothing. Either way, the human's click is the arming
+   decision.
 
 .. dropdown:: When something is refused
    :color: info
@@ -138,7 +150,13 @@ quirks worth knowing:
       for a repeat.
 
    ``launch_token_required``
-      The operation was armed and the deployment is not. Nothing was started.
+      The operation was armed and the caller held no valid token. Nothing was
+      started. (An agent asking for a plain start never hits this — it files a
+      start request for the panel instead.)
+
+   ``queue_empty``
+      A start was requested with nothing queued, so there was nothing a
+      confirmation could run. Stage and add a plan first.
 
    ``browse_only_connector``
       This deployment cannot execute scans at all — it is pointed at the
