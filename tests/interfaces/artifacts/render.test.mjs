@@ -215,7 +215,7 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
 
     expect(dataTransfer.setData).toHaveBeenCalledWith(
       'text/plain',
-      'Please have a look at _agent_data/artifacts/beam_profile.png'
+      'Please have a look at var/agent_data/artifacts/beam_profile.png'
     );
     expect(dataTransfer.effectAllowed).toBe('copy');
   });

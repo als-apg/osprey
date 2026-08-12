@@ -2129,7 +2129,7 @@ describe('queueOutcomeBanner', () => {
   });
 
   test('the cannot-execute banner carries the capability detail verbatim (it holds the flip command)', () => {
-    const detail = 'run `osprey config set-control-system virtual_accelerator` and redeploy.';
+    const detail = 'run `osprey set connector=virtual_accelerator` and redeploy.';
     expect(
       queueOutcomeBanner({ type: 'cannot_execute', reason: 'browse_only_connector', detail }).message
     ).toBe(detail);
@@ -2162,7 +2162,7 @@ describe('classifyCapability', () => {
 
   test('a browse-only deployment keeps the flip command verbatim', () => {
     const detail =
-      'This deployment uses the mock connector … run `osprey config set-control-system virtual_accelerator` and redeploy.';
+      'This deployment uses the mock connector … run `osprey set connector=virtual_accelerator` and redeploy.';
     expect(
       classifyCapability(200, {
         status: 'ok',
@@ -2233,7 +2233,7 @@ describe('capabilityBanner', () => {
   });
 
   test('the bridge sentence is shown verbatim — it carries the flip command', () => {
-    const detail = 'run `osprey config set-control-system virtual_accelerator` and redeploy.';
+    const detail = 'run `osprey set connector=virtual_accelerator` and redeploy.';
     expect(capabilityBanner(cannot('browse_only_connector', detail))?.message).toBe(detail);
   });
 

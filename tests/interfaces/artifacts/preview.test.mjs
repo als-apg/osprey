@@ -283,14 +283,14 @@ describe('renderPreview: delete flow', () => {
 });
 
 describe('renderPreview: copy path', () => {
-  test('copies the _agent_data path and toggles a "copied" class', async () => {
+  test('copies the agent-data path and toggles a "copied" class', async () => {
     vi.useFakeTimers();
     setSelectedArtifact(makeArtifact());
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
     const btn = byId('preview-copy-path');
     btn.click();
-    await vi.waitFor(() => expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith('_agent_data/artifacts/beam_profile.png'));
+    await vi.waitFor(() => expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith('var/agent_data/artifacts/beam_profile.png'));
 
     expect(btn.classList.contains('copied')).toBe(true);
     vi.advanceTimersByTime(1500);

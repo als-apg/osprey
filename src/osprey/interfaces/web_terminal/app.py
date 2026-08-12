@@ -855,7 +855,7 @@ def _create_lifespan(
         # config.yml is a build-time input: safety-critical fields (e.g. the
         # writes_enabled kill-switch baked into settings.json's permissions.deny)
         # only take effect once the artifacts are re-rendered. Regenerating here
-        # — mirroring `osprey claude chat` — means an edited config.yml is honored
+        # — mirroring `osprey chat` — means an edited config.yml is honored
         # on the next server start. Fail open so a regen error never blocks launch.
         try:
             from osprey.cli.templates.manager import TemplateManager
@@ -891,11 +891,33 @@ def _create_lifespan(
             )
 
         if app.state.config_path:
+            from osprey.utils.workspace import repo_root_for_config
+
             _project_dir = Path(app.state.config_path).parent
-            # load_provider_spec expands ${VAR} in provider config before resolving.
-            _spec = load_provider_spec(_project_dir)
+            # load_provider_spec expands ${VAR} in provider config before
+            # resolving, and it does so against the REPO root's .env — the
+            # deployment's secret store, which deliberately does not live in
+            # the render `osprey build` re-creates from scratch. Reading the
+            # spec from <repo>/build/config.yml while expanding from <repo>/.env
+            # is the same split the dispatch worker uses; without it a custom
+            # provider's `base_url: ${ARGO_PROD_URL}` starts the terminal
+            # pointed at a literal placeholder. In a container the two coincide
+            # (the project dir IS the render), which repo_root_for_config
+            # answers with the same call.
+            _env_dir = repo_root_for_config(app.state.config_path)
+            _spec = load_provider_spec(_project_dir, env_dir=_env_dir)
             if _spec:
-                inject_provider_env(os.environ, _spec, project_dir=_project_dir)
+                # The SPEC is read from the render; the ENV is read from the
+                # repo. inject_provider_env's bulk `.env` passthrough is given
+                # the repo root for the same reason load_provider_spec is given
+                # it above: `<repo>/build/.env` is a file no build ever writes,
+                # so pointing the injection at the render made the whole layer
+                # a no-op — every key it was supposed to publish silently
+                # absent. Every other launch path (chat, the dispatch worker)
+                # already reads the repo's `.env`; this is web joining them.
+                # Inside a container the two directories coincide, so nothing
+                # about the deployed case changes.
+                inject_provider_env(os.environ, _spec, project_dir=_env_dir)
 
                 # Start translation proxy for OpenAI-compatible providers
                 if _spec.needs_proxy and _spec.upstream_base_url:
@@ -912,7 +934,30 @@ def _create_lifespan(
                         _spec.upstream_base_url,
                     )
 
-        workspace_dir = Path(config.get("watch_dir") or "./_agent_data").resolve()
+        # The watcher's default follows the deployment's CONFIGURED agent-data
+        # root, anchored on the repo. The literal it replaced — `./_agent_data`
+        # — was wrong twice over: it named a directory the three-zone layout
+        # retired (state lives under `var/`), and it anchored on the working
+        # directory, so a terminal started from anywhere but the repo root
+        # watched a path that did not exist and reported no sessions at all.
+        #
+        # Deliberately NOT resolve_agent_data_root(): that applies
+        # OSPREY_SESSION_ID isolation, and this watcher's whole job is to see
+        # EVERY session's directory rather than one.
+        if config.get("watch_dir"):
+            workspace_dir = Path(config["watch_dir"]).resolve()
+        else:
+            from osprey.utils.workspace import (
+                agent_data_base_dir,
+                anchored_path,
+                load_osprey_config,
+                resolve_project_root,
+            )
+
+            _osprey_config = load_osprey_config()
+            workspace_dir = anchored_path(
+                agent_data_base_dir(_osprey_config), resolve_project_root(_osprey_config)
+            ).resolve()
         app.state.workspace_dir = workspace_dir  # base path (file watcher watches all sessions)
         app.state.workspace_base = workspace_dir  # alias for clarity
         app.state.watcher = WorkspaceWatcher(workspace_dir, app.state.broadcaster)

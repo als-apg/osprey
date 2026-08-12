@@ -1,7 +1,7 @@
 """Unit tests for the canonical EPICS-substrate scan-device derivation.
 
 Covers ``osprey.services.bluesky_bridge.substrate_devices`` -- the single
-source shared by ``osprey deploy up`` (``container_lifecycle.
+source shared by ``osprey up`` (``container_lifecycle.
 _ensure_bluesky_substrate_env``) and ``tests/e2e/_orm_stack.py`` -- plus, in
 ``TestEnsureScanSubstrateEnv`` below, the ``container_lifecycle`` deploy-path
 wiring itself, called directly (Docker-free).

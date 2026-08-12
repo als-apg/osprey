@@ -60,7 +60,12 @@ from osprey.mcp_server.phoebus.tools.bridge_tools import (
     _bridge_error_message,
     _http_post_open,
 )
-from osprey.utils.workspace import load_osprey_config
+from osprey.utils.workspace import (
+    agent_data_base_dir,
+    anchored_path,
+    load_osprey_config,
+    resolve_project_root,
+)
 
 logger = logging.getLogger("osprey.mcp_server.tools.phoebus_databrowser")
 
@@ -101,9 +106,19 @@ def _archiver_url() -> str | None:
 
 
 def _plot_dir() -> Path:
-    """Resolve the directory generated ``.plt`` files are written to."""
+    """Resolve the directory generated ``.plt`` files are written to.
+
+    Runtime output, so it belongs under the deployment's agent-data root — read
+    from ``agent_data.base_dir`` rather than spelled here — and a configured
+    ``phoebus.plot_dir`` is anchored on the repo root the same way every other
+    configured path is. Both halves matter: the default used to name the retired
+    ``./_agent_data``, and either value used to resolve against the working
+    directory, which for an MCP server is whatever launched it.
+    """
     config = load_osprey_config()
-    out = Path(config.get("phoebus", {}).get("plot_dir", "./_agent_data/plots"))
+    configured = (config.get("phoebus", {}) or {}).get("plot_dir")
+    relative = str(configured or f"{agent_data_base_dir(config)}/plots")
+    out = anchored_path(relative, resolve_project_root(config))
     out.mkdir(parents=True, exist_ok=True)
     return out
 

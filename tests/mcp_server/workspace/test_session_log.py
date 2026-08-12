@@ -10,6 +10,7 @@ TranscriptReader, then mock read_current_session() to return them.
 
 import json
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -202,7 +203,7 @@ async def test_no_filters(basic_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(basic_events),
@@ -219,7 +220,7 @@ async def test_agent_filter(basic_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(basic_events),
@@ -240,7 +241,7 @@ async def test_agent_excludes_outside_calls(basic_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(basic_events),
@@ -257,7 +258,7 @@ async def test_tool_filter(basic_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(basic_events),
@@ -274,7 +275,7 @@ async def test_errors_only(basic_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(basic_events),
@@ -292,7 +293,7 @@ async def test_event_type_filter(basic_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(basic_events),
@@ -309,7 +310,7 @@ async def test_last_n(basic_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(basic_events),
@@ -328,7 +329,7 @@ async def test_last_n_clamped_to_200(basic_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(basic_events),
@@ -344,7 +345,7 @@ async def test_combined_filters(basic_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(basic_events),
@@ -361,7 +362,7 @@ async def test_empty_events(tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader([]),
@@ -378,7 +379,7 @@ async def test_no_transcript(tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader([]),
@@ -400,7 +401,7 @@ async def test_agent_id_filter(concurrent_agent_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(concurrent_agent_events),
@@ -423,7 +424,7 @@ async def test_since_filter(concurrent_agent_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(concurrent_agent_events),
@@ -442,7 +443,7 @@ async def test_before_filter(concurrent_agent_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(concurrent_agent_events),
@@ -461,7 +462,7 @@ async def test_since_before_combined(concurrent_agent_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(concurrent_agent_events),
@@ -480,7 +481,7 @@ async def test_list_agents_mode(concurrent_agent_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(concurrent_agent_events),
@@ -507,7 +508,7 @@ async def test_agent_id_correlation(concurrent_agent_events, tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(concurrent_agent_events),
@@ -554,7 +555,7 @@ async def test_time_window_fallback(tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader(events),
@@ -575,7 +576,7 @@ async def test_since_invalid_format(tmp_path):
     fn = _get_session_log()
     with (
         patch(
-            "osprey.mcp_server.workspace.tools.session_log.resolve_workspace_root",
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
             return_value=tmp_path,
         ),
         _patch_transcript_reader([]),
@@ -585,3 +586,53 @@ async def test_since_invalid_format(tmp_path):
 
     envelope = _exc_ctx["envelope"]
     assert "since" in envelope["error_message"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_transcript_is_read_from_the_agents_render_dir(tmp_path, monkeypatch):
+    """The reader is pointed at the RENDER — the directory the agent runs in.
+
+    TranscriptReader encodes the directory it is given into the
+    ``~/.claude/projects/<encoded>/`` name, so a wrong directory does not raise:
+    the lookup finds nothing and the tool reports an empty session log. That is
+    the failure this pins, and it is why the assertion is on the CONSTRUCTOR
+    ARGUMENT rather than on the returned events — every other test in this file
+    stubs the class wholesale, which cannot see where it was aimed.
+
+    The anchor must also be independent of the agent-data root: with
+    OSPREY_SESSION_ID set, ``resolve_workspace_root`` moves to
+    ``<root>/sessions/<id>``, so anything derived by walking up from it changes
+    per session. Setting the variable here holds that property, not just the
+    directory.
+    """
+    render_dir = tmp_path / "repo" / "build"
+    render_dir.mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_SESSION_ID", "sess-should-not-matter")
+
+    seen: list = []
+
+    class _RecordingReader:
+        def __init__(self, project_dir):
+            seen.append(Path(project_dir))
+
+        def read_current_session(self):
+            return []
+
+    fn = _get_session_log()
+    with (
+        patch(
+            "osprey.mcp_server.workspace.tools.session_log.deployed_render_dir",
+            return_value=render_dir,
+        ),
+        patch(
+            "osprey.mcp_server.workspace.tools.session_log.TranscriptReader",
+            _RecordingReader,
+        ),
+    ):
+        json.loads(await fn())
+
+    assert seen == [render_dir]
+    # Not the repo root, and not the session-isolated agent-data root.
+    assert seen[0] != render_dir.parent
+    assert "agent_data" not in str(seen[0])

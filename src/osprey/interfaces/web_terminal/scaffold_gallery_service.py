@@ -219,7 +219,7 @@ class ScaffoldGalleryService:
         A claim moves the artifact out of the project, so from then on the
         profile file — not the project's — is what the operator means when they
         open it, and the only place a save is not thrown away by the next
-        ``build --force``. Only single files qualify: a skill or a service is a
+        ``osprey build``. Only single files qualify: a skill or a service is a
         whole directory the gallery does not edit as text.
         """
         if name is None:

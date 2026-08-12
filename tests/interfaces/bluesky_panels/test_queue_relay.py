@@ -644,7 +644,7 @@ def test_enqueue_browse_only_capability_409_passes_through_with_its_capability()
             "detail": (
                 "This deployment uses the mock connector, which cannot move hardware, so "
                 "scan plans can be composed and validated but not executed. To execute "
-                "plans, run `osprey config set-control-system virtual_accelerator` and "
+                "plans, run `osprey set connector=virtual_accelerator` and "
                 "redeploy."
             ),
             "capability": {

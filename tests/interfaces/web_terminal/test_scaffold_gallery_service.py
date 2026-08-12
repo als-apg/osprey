@@ -11,6 +11,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
+from osprey.cli.init_cmd import init
 from osprey.interfaces.web_terminal.scaffold_gallery_service import (
     ScaffoldGalleryService,
     restore_scaffold_bodies,
@@ -26,27 +27,25 @@ SAFE_ARTIFACT = "rules/safety"  # Always available, real content
 
 @pytest.fixture()
 def project_dir(tmp_path):
-    """Create a real OSPREY project via ``osprey build --preset control-assistant``.
+    """A real render of the control-assistant preset, through the real verbs.
 
-    The gallery tests assert presence of channel-finder/data-visualizer agents
-    and the diagnose skill, which only ship with the full control-assistant
-    preset (not hello-world).
+    ``osprey init`` materializes the deployment repo, ``osprey build`` renders
+    its build zone, and that RENDER is what the gallery service reads — it is
+    the directory holding config.yml, the manifest and the ``.claude/`` tree.
+
+    The control-assistant preset specifically: the gallery tests assert the
+    channel-finder and data-visualizer agents and the diagnose skill, none of
+    which ship with hello-world.
     """
     runner = CliRunner()
-    result = runner.invoke(
-        build,
-        [
-            "gallery-test",
-            "--preset",
-            "control-assistant",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    repo = tmp_path / "gallery-test"
+
+    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    assert created.exit_code == 0, created.output
+
+    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
-    return tmp_path / "gallery-test"
+    return repo / "build"
 
 
 @pytest.fixture()
@@ -55,15 +54,29 @@ def service(project_dir):
 
 
 def _unreachable_profile(project_dir: Path) -> Path:
-    """Delete the profile a project names, leaving the manifest pointing at it.
+    """Remove the profile a render names, leaving the manifest pointing at it.
 
     What a deployed container looks like: the manifest records the path the
     build machine resolved, and that path does not exist here.
+
+    The SOURCE ZONE goes; the render does not. Under the three-zone layout the
+    profile's parent IS the repo root, so deleting the parent — which is what a
+    sibling-profile layout allowed — would take the render under test with it.
     """
     manifest = json.loads((project_dir / ".osprey-manifest.json").read_text(encoding="utf-8"))
     profile_path = manifest.get("build_args", {}).get("profile_path_abs")
-    assert profile_path, "preset builds are expected to materialize a profile"
-    shutil.rmtree(Path(profile_path).parent)
+    assert profile_path, "a render is expected to record the profile it came from"
+    repo_root = Path(profile_path).parent
+    assert project_dir.parent == repo_root, (
+        "this helper assumes the render sits inside the repo whose profile it names"
+    )
+    Path(profile_path).unlink()
+    for source in ("data", "personas", "triggers.yml"):
+        entry = repo_root / source
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink(missing_ok=True)
     return project_dir
 
 
@@ -1006,7 +1019,7 @@ class TestProfileMode:
         """An edit has to land where the next build reads from.
 
         Writing the project copy would look identical in the UI and be gone at
-        the next `build --force` — the same silent loss the claim path exists
+        the next `build` — the same silent loss the claim path exists
         to prevent, one layer up.
         """
         service.scaffold_override(SAFE_ARTIFACT)

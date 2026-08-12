@@ -89,7 +89,7 @@ async def verify(
 
     plus, in password mode, that the entry's credential-generation tag still
     matches the digest of the user's *current* stored hash. That last check is
-    what makes ``osprey deploy passwd`` take effect immediately: rotating the
+    what makes ``osprey users passwd`` take effect immediately: rotating the
     password changes the stored hash, so every session minted against the old
     one stops verifying — without server-side session state, and surviving the
     container recreate that rotation performs (which is also what clears the

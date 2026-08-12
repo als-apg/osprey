@@ -14,7 +14,13 @@ from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
-from osprey.utils.workspace import load_osprey_config, resolve_config_path
+from osprey.utils.workspace import (
+    agent_data_base_dir,
+    anchored_path,
+    load_osprey_config,
+    repo_root_for_config,
+    resolve_config_path,
+)
 
 logger = logging.getLogger("osprey.mcp_server.tools.setup")
 
@@ -40,7 +46,7 @@ _COLD_CHANGE_NOTES = {
         "control_system.writes_enabled": (
             "cold — the PreToolUse hook re-reads this immediately, but the connector "
             "caches it at launch and the enforced `permissions.deny` list is not "
-            "regenerated. Run `osprey claude regen` and restart the agent, or writes "
+            "regenerated. Run `osprey build` and restart the agent, or writes "
             "stay blocked."
         ),
     },
@@ -142,8 +148,13 @@ async def setup_inspect() -> str:
         }
         masked_env = _mask_env(osprey_env)
 
-        # Workspace
-        ws_dir = project_root / "_agent_data"
+        # Workspace. The agent-data root is durable state and lives under the
+        # deployment REPO root, not beside the render `project_root` points at —
+        # so resolve it from the config's own `agent_data.base_dir` anchored on
+        # the repo, the same derivation every writer uses.
+        ws_dir = anchored_path(
+            agent_data_base_dir(config), repo_root_for_config(resolve_config_path())
+        )
         workspace = {
             "exists": ws_dir.is_dir(),
             "subdirs": _list_dirs_in(ws_dir) if ws_dir.is_dir() else [],
@@ -198,7 +209,7 @@ def _classify_change(file: str, key_path: str) -> str:
     specific_note = _COLD_CHANGE_NOTES.get(file, {}).get(key_path)
     if specific_note:
         return specific_note
-    return "cold — requires MCP server restart (`osprey claude restart` or new session)"
+    return "cold — requires an MCP server restart (start a new agent session)"
 
 
 def _set_nested(data: dict, keys: list[str], value) -> None:
@@ -263,7 +274,7 @@ async def setup_patch(file: str, key_path: str, value: str) -> str:
             return make_error(
                 "not_found",
                 f"File not found: {file}",
-                [f"Create {file} first, or run `osprey claude regen`."],
+                [f"Create {file} first, or run `osprey build`."],
             )
 
         keys = key_path.split(".")

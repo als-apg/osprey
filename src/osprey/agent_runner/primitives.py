@@ -109,16 +109,38 @@ def _apply_e2e_overrides(spec: Any) -> Any:
     return dataclasses.replace(spec, tier_to_model=tier_to_model, env_block=env_block)
 
 
+def _secrets_dir(project_dir: Path) -> Path:
+    """The directory whose ``.env`` holds the secrets *project_dir*'s config needs.
+
+    Callers here hand over the RENDER — ``<repo>/build``, the directory holding
+    ``config.yml``. Secrets are not in it and must not be: ``.env`` is the
+    durable secrets zone at the repo root, deliberately outside the zone every
+    ``osprey build`` wipes. Reading ``.env`` beside the config therefore reads
+    nothing at all, leaving ``${VAR}`` expansion with ``os.environ`` alone —
+    which is why a provider whose ``base_url``/``api_key`` lives only in the
+    repo's ``.env`` resolved to a literal placeholder here while the same
+    deployment authenticated fine under ``osprey chat``.
+
+    Resolved through the helper the runtime resolves a repo root with, so a flat
+    directory that holds its own ``config.yml`` still answers itself — the
+    previous behaviour, kept for every caller that passes one.
+    """
+    from osprey.utils.workspace import repo_root_for_config
+
+    return repo_root_for_config(Path(project_dir) / "config.yml")
+
+
 def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> Any:
     """Return the project's ``ClaudeCodeModelSpec`` or ``None``.
 
-    Reads ``config.yml`` and runs the same resolver ``osprey claude chat``
+    Reads ``config.yml`` and runs the same resolver ``osprey chat``
     uses, so test routing matches production exactly.  Surfaces any unexpected
     error (missing config, YAML parse failure, resolver import failure) rather
     than masking it as ``None``.
 
     Args:
-        project_dir: Path to an initialized OSPREY project.
+        project_dir: Path to an initialized OSPREY project — the render holding
+            ``config.yml``.
         provider: When given, overrides ``claude_code.provider`` in the loaded
             config before resolving — used by cross-provider model sweeps in
             the benchmark runner.
@@ -127,9 +149,11 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
 
     # load_provider_spec reads config.yml and expands ${VAR} in provider config
     # (e.g. a custom provider's base_url: ${ARGO_PROD_URL}) against an
-    # os.environ + project .env overlay before resolving. The e2e/benchmark
+    # os.environ + project .env overlay before resolving. The overlay is taken
+    # from the repo's secrets zone (see _secrets_dir), which is the same pairing
+    # the dispatch worker and `osprey chat` read the spec with. The e2e/benchmark
     # override is applied last so it still wins (and is inert in production).
-    spec = load_provider_spec(project_dir, provider=provider)
+    spec = load_provider_spec(project_dir, env_dir=_secrets_dir(project_dir), provider=provider)
     return _apply_e2e_overrides(spec)
 
 
@@ -169,8 +193,10 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
           401s. For proxy providers (cborg/als-apg) the two var names differ;
           for anthropic-direct they coincide.
 
-        A project-level ``.env`` is honoured first, so a freshly-configured key
-        overrides a stale shell export (mirrors ``inject_provider_env``).
+        The deployment's ``.env`` — at the repo root, not beside the config
+        being read (see :func:`_secrets_dir`) — is honoured first, so a
+        freshly-configured key overrides a stale shell export (mirrors
+        ``inject_provider_env``).
     """
     spec = _resolve_project_spec(project_dir, provider=provider)
     if spec is None:
@@ -181,12 +207,13 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
         )
     env: dict[str, str] = dict(spec.env_block)
 
-    # Overlay a project-level .env so freshly-configured keys win over stale
+    # Overlay the deployment's .env so freshly-configured keys win over stale
     # shell exports; strictly a superset of reading os.environ alone. Uses the
-    # shared overlay helper (no circular import: resolver never imports primitives).
+    # shared overlay helper (no circular import: resolver never imports primitives),
+    # against the repo's secrets zone rather than the render — see _secrets_dir.
     from osprey.build.claude_code_resolver import _env_lookup
 
-    lookup: dict[str, str] = _env_lookup(project_dir)
+    lookup: dict[str, str] = _env_lookup(_secrets_dir(project_dir))
 
     if spec.auth_secret_env:
         secret = lookup.get(spec.auth_secret_env)

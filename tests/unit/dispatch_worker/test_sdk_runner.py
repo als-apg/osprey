@@ -138,13 +138,16 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
     """
     from types import SimpleNamespace
 
-    # Arrange — a project with one declared subagent
-    agents_dir = tmp_path / ".claude" / "agents"
+    # Arrange — a repo whose RENDER declares one subagent. ``.claude/`` is build
+    # output, so it sits in the render beside the rendered config, never at the
+    # repo root.
+    agents_dir = tmp_path / "build" / ".claude" / "agents"
     agents_dir.mkdir(parents=True)
     (agents_dir / "channel-finder.md").write_text(
         "---\nname: channel-finder\ntools: mcp__channel-finder__search\n---\n"
     )
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
+    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
     captured: dict = {}
 
     async def fake_query(options, project_dir, prompt):
@@ -204,18 +207,86 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_config_file_env_points_at_project(monkeypatch):
-    """The dispatched agent's env sets CONFIG_FILE to the project's config.yml.
+async def test_config_file_env_points_at_the_render(monkeypatch):
+    """The dispatched agent's env sets CONFIG_FILE to the RENDER's config.yml.
 
     The worker process CWD is the image WORKDIR (not the project dir), and
     OSPREY config resolution falls back to CWD/config.yml when CONFIG_FILE is
     unset — so without this, every dispatched run errors with "No config.yml
-    found in current directory". Regression guard for that container bug.
+    found in current directory". With no CONFIG_FILE in the worker's own
+    environment the fallback is the repo's render zone, never a flat
+    ``<repo>/config.yml`` — a path no three-zone deployment has.
     """
     monkeypatch.setenv("OSPREY_PROJECT_DIR", "/srv/myproj")
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt):
+    async def fake_query(options, render_dir, prompt):
+        captured["options"] = options
+        captured["render_dir"] = render_dir
+        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+
+    assert captured["options"].env["CONFIG_FILE"] == "/srv/myproj/build/config.yml"
+
+
+@pytest.mark.asyncio
+async def test_worker_trusts_the_config_file_its_service_sets(monkeypatch):
+    """CONFIG_FILE from the environment is carried through, never re-derived.
+
+    The dispatch-worker compose service sets it to the staged render config it
+    bind-mounts; a runner that recomputed the path from OSPREY_PROJECT_DIR would
+    silently point the agent at a different file than the worker itself reads.
+    """
+    monkeypatch.setenv("OSPREY_PROJECT_DIR", "/srv/myproj")
+    monkeypatch.setenv("CONFIG_FILE", "/srv/staged/config.yml")
+    captured: dict = {}
+
+    async def fake_query(options, render_dir, prompt):
+        captured["options"] = options
+        captured["render_dir"] = render_dir
+        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+
+    assert captured["options"].env["CONFIG_FILE"] == "/srv/staged/config.yml"
+    # ...and the agent runs beside that config, so it discovers the .claude/
+    # tree and .mcp.json that were rendered with it.
+    assert captured["options"].cwd == "/srv/staged"
+    assert captured["render_dir"] == "/srv/staged"
+
+
+@pytest.mark.asyncio
+async def test_subagent_surfaces_are_discovered_from_the_render(tmp_path, monkeypatch):
+    """Declared subagents are read from the render's ``.claude/agents/``.
+
+    SAFETY surface. The allowlist is enforced per-context: a subagent is held to
+    its own declared tools, and delegation to an agent the parser never saw is
+    denied outright. Reading the repo root instead of the render finds no agent
+    files at all — which stays fail-closed (every delegation denied) but costs
+    dispatch its subagents silently, so pin the discovery path itself.
+    """
+    agents_dir = tmp_path / "build" / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    (agents_dir / "channel-finder.md").write_text(
+        "---\nname: channel-finder\ntools: mcp__channel-finder__search\n---\n"
+    )
+    # A decoy at the repo root: the parser must NOT pick this up.
+    root_agents = tmp_path / ".claude" / "agents"
+    root_agents.mkdir(parents=True)
+    (root_agents / "impostor.md").write_text("---\nname: impostor\ntools: Bash\n---\n")
+
+    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
+    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
+    captured: dict = {}
+
+    async def fake_query(options, render_dir, prompt):
         captured["options"] = options
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
@@ -223,7 +294,40 @@ async def test_config_file_env_points_at_project(monkeypatch):
     monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
 
-    assert captured["options"].env["CONFIG_FILE"] == "/srv/myproj/config.yml"
+    (hook,) = captured["options"].hooks["PreToolUse"][0].hooks
+    delegate = {"tool_name": "Task", "tool_input": {"subagent_type": "channel-finder"}}
+    assert await hook(delegate, "t", None) == {}
+    # The repo-root file is not the agent surface — delegating to it is denied.
+    impostor = {"tool_name": "Task", "tool_input": {"subagent_type": "impostor"}}
+    assert (await hook(impostor, "t", None))["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.asyncio
+async def test_no_discoverable_agents_denies_every_delegation(tmp_path, monkeypatch):
+    """A worker that finds NO agent files stays fail-closed.
+
+    An empty surface map must never mean "anything goes": both delegation and
+    any tool call arriving in a subagent context are denied.
+    """
+    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
+    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
+    captured: dict = {}
+
+    async def fake_query(options, render_dir, prompt):
+        captured["options"] = options
+        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+
+    (hook,) = captured["options"].hooks["PreToolUse"][0].hooks
+    delegate = {"tool_name": "Task", "tool_input": {"subagent_type": "channel-finder"}}
+    assert (await hook(delegate, "t", None))["hookSpecificOutput"]["permissionDecision"] == "deny"
+    in_subagent = {"tool_name": "Read", "agent_id": "a1", "agent_type": "channel-finder"}
+    assert (await hook(in_subagent, "t", None))["hookSpecificOutput"][
+        "permissionDecision"
+    ] == "deny"
 
 
 @pytest.mark.asyncio

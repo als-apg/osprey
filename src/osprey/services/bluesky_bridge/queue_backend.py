@@ -107,7 +107,7 @@ REASON_MANAGER_UNREACHABLE = "manager_unreachable"
 # The one-line flip that turns a browse-only deployment into an executing one.
 # Carried in the capability detail so the refusal tells the operator exactly
 # what to do rather than only what went wrong.
-FLIP_COMMAND = "osprey config set-control-system virtual_accelerator"
+FLIP_COMMAND = "osprey set connector=virtual_accelerator"
 
 # Same exception set `_resolve_control_system_type` treats as "no readable
 # config" — see `_resolve_connector_type` for why this module probes for it

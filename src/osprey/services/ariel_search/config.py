@@ -24,7 +24,7 @@ _DEFAULT_DB_USERNAME = "ariel"
 _DEFAULT_DB_NAME = "ariel"
 _DEFAULT_DB_PORT = 5432
 #: Matches the ``${ARIEL_DB_PASSWORD:-ariel}`` fallback the compose service
-#: uses, so the agent stays launchable before the first `osprey deploy up`
+#: uses, so the agent stays launchable before the first `osprey up`
 #: mints a real password into the project ``.env``.
 _DEFAULT_DB_PASSWORD = "ariel"
 

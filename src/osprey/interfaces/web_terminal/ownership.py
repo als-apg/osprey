@@ -10,7 +10,7 @@ depends entirely on what the gallery is running on top of:
   copied. Claims move the artifact there (``osprey scaffold claim``, callable as
   :func:`osprey.cli.scaffold_cmd.claim_into_profile`) and the gallery reads and
   saves the profile's copy from then on. Writing the project copy instead would
-  be overwritten by the next ``build --force``.
+  be overwritten by the next ``osprey build``.
 
 * **Volume** — a deployed web terminal. The project tree is baked into the
   image, so every write to it is destroyed on the next container recreation,

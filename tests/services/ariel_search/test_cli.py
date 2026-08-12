@@ -452,7 +452,7 @@ class TestQuickstartCommand:
         assert "not configured" in result.output.lower()
 
     def test_quickstart_connection_failure_shows_guidance(self, runner, monkeypatch):
-        """quickstart shows 'osprey deploy up' guidance on connection failure."""
+        """quickstart shows 'osprey up' guidance on connection failure."""
         from unittest.mock import AsyncMock, patch
 
         mock_config = {
@@ -472,7 +472,7 @@ class TestQuickstartCommand:
             result = runner.invoke(ariel_group, ["quickstart"])
 
         assert result.exit_code == 1
-        assert "osprey deploy up" in result.output
+        assert "osprey up" in result.output
 
     def test_quickstart_success_flow(self, runner, monkeypatch, tmp_path):
         """quickstart completes successfully with mocked database."""
@@ -615,7 +615,7 @@ class TestSyncCommand:
         assert "not configured" in result.output.lower()
 
     def test_sync_connection_failure_shows_guidance(self, runner, monkeypatch):
-        """sync shows 'osprey deploy up' guidance on connection failure."""
+        """sync shows 'osprey up' guidance on connection failure."""
         from unittest.mock import AsyncMock, patch
 
         mock_config = {
@@ -635,7 +635,7 @@ class TestSyncCommand:
             result = runner.invoke(ariel_group, ["sync"])
 
         assert result.exit_code == 1
-        assert "osprey deploy up" in result.output
+        assert "osprey up" in result.output
 
 
 class TestSearchResultRendering:

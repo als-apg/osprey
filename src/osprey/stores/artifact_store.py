@@ -1,8 +1,9 @@
 """Artifact storage for OSPREY MCP tools.
 
 Manages interactive artifacts (plots, tables, HTML, markdown) produced by
-Claude during analysis sessions.  Artifacts are stored in
-``_agent_data/artifacts/`` and served by the Artifact Server gallery.
+Claude during analysis sessions.  Artifacts are stored under the agent-data
+root (``agent_data.base_dir``) in ``artifacts/``, and served by the Artifact
+Server gallery.
 
 Two entry points create artifacts:
   1. ``save_artifact()`` — injected into ``execute`` namespace
@@ -406,12 +407,12 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             filepath.write_bytes(content)
 
             # data_file is the agent-facing pointer: a path relative to the
-            # project CWD (one level above the workspace dir), so the agent
-            # can pass it directly to ``open()`` from its working directory.
+            # repo root, which is where agent code's working directory is, so
+            # the agent can pass it directly to ``open()``.
             # Falls back to a bare filename if the workspace layout doesn't
             # support a clean relative path (defensive — should not happen).
             try:
-                agent_path = str(filepath.relative_to(self._workspace.parent))
+                agent_path = str(filepath.relative_to(self.repo_root))
             except ValueError:
                 agent_path = safe_filename
 

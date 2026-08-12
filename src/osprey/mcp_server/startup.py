@@ -68,7 +68,7 @@ def initialize_workspace_singletons() -> None:
     """Initialize the ArtifactStore singleton on the SHARED data root.
 
     The artifact store is served by long-lived daemons (the artifact gallery)
-    that read the shared ``_agent_data/`` root. Session isolation is handled
+    that read the shared ``var/agent_data/`` root. Session isolation is handled
     at the index level via ``ArtifactEntry.session_id`` — never in the store
     path. Rooting the store at the session-relocated path
     (``resolve_agent_data_root`` appends ``sessions/<id>/`` when

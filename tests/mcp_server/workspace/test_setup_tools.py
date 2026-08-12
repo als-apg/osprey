@@ -29,19 +29,42 @@ def _get_setup_patch():
 
 @pytest.fixture
 def project_dir(tmp_path):
-    """Create a minimal OSPREY project structure for setup tool tests."""
-    # config.yml
+    """A minimal deployment repo, and the *render* the setup tools act on.
+
+    Three zones, because the setup tools straddle two of them: everything they
+    read or patch (``config.yml``, ``.mcp.json``, ``.claude/``) is build output
+    under ``build/``, while the agent-data root they report is durable state
+    under ``var/``. A flat project made those one directory, so a tool reading
+    the wrong zone still passed.
+
+    Returns the RENDER directory — which is what ``setup_inspect`` computes as
+    its ``project_root`` (``resolve_config_path().parent``), so the fixture's
+    return value and the tool's own notion of the project agree. The repo root
+    is its parent.
+
+    The ``agent_data`` key is deliberately absent: this exercises the DEFAULT
+    derivation of the agent-data root. ``test_inspect_workspace_is_the_repos_
+    agent_data_root`` covers the explicitly-configured ``base_dir``, so the two
+    approach the same anchoring rule from opposite ends.
+    """
+    repo = tmp_path / "facility-repo"
+    render = repo / "build"
+
+    # SOURCE zone — what makes `repo` a deployment repo at all.
+    repo.mkdir()
+    (repo / "profile.yml").write_text("name: Setup Tools Fixture\n")
+
+    # BUILD zone — config.yml, .mcp.json and .claude/ are all build output.
+    render.mkdir()
     config = {
         "control_system": {
             "type": "mock",
             "writes_enabled": True,
             "limits_checking": {"enabled": False},
         },
-        "agent_data": {"base_dir": "./_agent_data"},
     }
-    (tmp_path / "config.yml").write_text(yaml.dump(config))
+    (render / "config.yml").write_text(yaml.dump(config))
 
-    # .mcp.json
     mcp_json = {
         "mcpServers": {
             "workspace": {
@@ -50,37 +73,29 @@ def project_dir(tmp_path):
             }
         }
     }
-    (tmp_path / ".mcp.json").write_text(json.dumps(mcp_json, indent=2))
+    (render / ".mcp.json").write_text(json.dumps(mcp_json, indent=2))
 
-    # .claude directory structure
-    claude_dir = tmp_path / ".claude"
+    claude_dir = render / ".claude"
     (claude_dir / "rules").mkdir(parents=True)
     (claude_dir / "agents").mkdir(parents=True)
     (claude_dir / "skills" / "session-report").mkdir(parents=True)
 
-    # Rules
     (claude_dir / "rules" / "safety.md").write_text("# Safety Rules")
     (claude_dir / "rules" / "error-handling.md").write_text("# Error Handling")
-
-    # Agents
     (claude_dir / "agents" / "channel-finder.md").write_text("# Channel Finder")
-
-    # Skills
     (claude_dir / "skills" / "session-report" / "SKILL.md").write_text("# Session Report")
 
-    # Settings
     settings = {
         "permissions": {"allow": [], "deny": [], "ask": []},
         "hooks": {"PreToolUse": []},
     }
     (claude_dir / "settings.json").write_text(json.dumps(settings, indent=2))
 
-    # Workspace
-    ws = tmp_path / "_agent_data"
-    for subdir in ["data", "plots", "memory"]:
-        (ws / subdir).mkdir(parents=True)
+    # STATE zone — durable, one zone over from the render, wiped by neither.
+    for subdir in ("data", "plots", "memory"):
+        (repo / "var" / "agent_data" / subdir).mkdir(parents=True)
 
-    return tmp_path
+    return render
 
 
 def _patch_config_path(project_dir: Path):
@@ -191,6 +206,36 @@ async def test_inspect_workspace(project_dir):
     assert result["workspace"]["exists"] is True
     assert "data" in result["workspace"]["subdirs"]
     assert "plots" in result["workspace"]["subdirs"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_inspect_workspace_is_the_repos_agent_data_root(tmp_path):
+    """The workspace section reports durable state, not a sibling of the render.
+
+    In a deployment repo the config is build output while the agent-data root is
+    durable state one zone over, so it is resolved from ``agent_data.base_dir``
+    anchored on the REPO root — reading it beside the config would report a
+    directory nothing writes to.
+    """
+    (tmp_path / "build").mkdir()
+    config = {"agent_data": {"base_dir": "var/agent_data"}}
+    (tmp_path / "build" / "config.yml").write_text(yaml.dump(config))
+    for subdir in ("artifacts", "memory"):
+        (tmp_path / "var" / "agent_data" / subdir).mkdir(parents=True)
+
+    fn = _get_setup_inspect()
+    with (
+        patch(
+            "osprey.mcp_server.workspace.tools.setup.resolve_config_path",
+            return_value=tmp_path / "build" / "config.yml",
+        ),
+        _patch_load_config(config),
+    ):
+        result = json.loads(await fn())
+
+    assert result["workspace"]["exists"] is True
+    assert sorted(result["workspace"]["subdirs"]) == ["artifacts", "memory"]
 
 
 @pytest.mark.asyncio

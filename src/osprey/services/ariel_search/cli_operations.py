@@ -173,7 +173,7 @@ async def get_status(config_dict: dict) -> dict:
             return {
                 "status": "error",
                 "message": "Cannot connect to the ARIEL database. "
-                "Make sure the database is running: osprey deploy up",
+                "Make sure the database is running: osprey up",
             }
         return {"status": "error", "message": msg}
 
@@ -604,7 +604,7 @@ async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> di
         if "connection" in msg.lower() or "connect" in msg.lower():
             return {
                 "error": "Cannot connect to the ARIEL database. "
-                "Make sure the database is running: osprey deploy up"
+                "Make sure the database is running: osprey up"
             }
         if "relation" in msg and "does not exist" in msg:
             return {

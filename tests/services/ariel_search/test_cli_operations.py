@@ -189,7 +189,7 @@ class TestGetStatus:
         _patch_service_raises(monkeypatch, RuntimeError("could not connect to server"))
         out = await ops.get_status(dict(_DB))
         assert out["status"] == "error"
-        assert "osprey deploy up" in out["message"]
+        assert "osprey up" in out["message"]
 
     async def test_generic_error_returns_raw_message(self, monkeypatch):
         _patch_service_raises(monkeypatch, RuntimeError("boom-unexpected"))
@@ -216,7 +216,7 @@ class TestRunSearch:
     async def test_connection_error_maps_to_friendly_message(self, monkeypatch):
         _patch_service_raises(monkeypatch, RuntimeError("connection refused"))
         out = await ops.run_search(dict(_DB), "q", "keyword", 5)
-        assert "osprey deploy up" in out["error"]
+        assert "osprey up" in out["error"]
 
     async def test_missing_relation_suggests_migrate(self, monkeypatch):
         _patch_service_raises(

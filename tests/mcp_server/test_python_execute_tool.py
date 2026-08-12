@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -170,7 +171,7 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
     assert "artifact_id" in data
     assert "data_file" in data
     # data_file is a project-CWD-relative path the agent can open() directly
-    assert data["data_file"].startswith("_agent_data/artifacts/")
+    assert data["data_file"].startswith(f"{DEFAULT_AGENT_DATA_BASE_DIR}/artifacts/")
     assert (tmp_path / data["data_file"]).exists()
 
 
@@ -606,7 +607,7 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
     assert "data_file" in data
 
     # data_file is a project-CWD-relative path the agent can open() directly
-    assert data["data_file"].startswith("_agent_data/artifacts/")
+    assert data["data_file"].startswith(f"{DEFAULT_AGENT_DATA_BASE_DIR}/artifacts/")
     data_file = tmp_path / data["data_file"]
     assert data_file.exists()
     # ArtifactStore writes raw JSON (no envelope)

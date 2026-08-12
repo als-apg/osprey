@@ -35,6 +35,17 @@ class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
         # Unified schema: single "hierarchy" section
         hierarchy_def = data["hierarchy"]
 
+        # Both keys below are read unguarded, so their absence has to be named
+        # here or it surfaces as a bare KeyError that says nothing about which
+        # file is malformed.
+        missing = [key for key in ("levels", "naming_pattern") if key not in hierarchy_def]
+        if missing:
+            raise ValueError(
+                "Invalid database format: the 'hierarchy' section must contain "
+                f"'levels' and 'naming_pattern'; this one has no {' or '.join(repr(k) for k in missing)}. "
+                "See data/channel_databases/hierarchical.json for the expected format."
+            )
+
         # Extract levels list and build derived structures
         levels_list = hierarchy_def["levels"]
         self.hierarchy_levels = [level["name"] for level in levels_list]

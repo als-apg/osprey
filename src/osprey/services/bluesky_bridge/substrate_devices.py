@@ -13,8 +13,8 @@ data.
 Two consumers share this module (DRY, one derivation):
 
 - ``osprey.deployment.container_lifecycle`` (``_ensure_bluesky_substrate_env``),
-  which auto-configures a VA-backed Bluesky stack's ``.env`` on ``osprey deploy
-  up`` so the bridge starts in substrate mode with real channel names,
+  which auto-configures a VA-backed Bluesky stack's ``.env`` on ``osprey up``
+  so the bridge starts in substrate mode with real channel names,
   turn-key.
 - ``tests/e2e/_orm_stack.py``, whose ``select_correctors``/``select_bpms``/
   ``write_scan_env`` delegate here instead of re-deriving the same logic.

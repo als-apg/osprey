@@ -26,7 +26,7 @@ are not synchronised.
 Run contract (see docker/virtual-accelerator/README.md for the full version):
 
     -v <project>/data/simulation:/data/simulation             # the DIRECTORY, never a file
-    -v <project>/_agent_data/simulation:/state/simulation:ro  # scenario state
+    -v <repo>/var/agent_data/simulation:/state/simulation:ro  # scenario state
     -p 5064:5064/tcp
 
 ``VA_DATA_DIR`` overrides the mount point (default ``/data/simulation``) for

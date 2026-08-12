@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 _yaml = YAML(typ="rt")
 _yaml.preserve_quotes = True
 _yaml.width = 4096  # prevent aggressive line-wrapping
+# Emit block sequences indented under their key, which is how every YAML this
+# framework generates is written. ruamel's default (offset 0) would pull each
+# list item back to its parent's column on the first write, so a one-key
+# `osprey set` reflowed ~80 lines of a hand-formatted, git-tracked profile —
+# comments preserved, but every list in the file re-indented around them.
+_yaml.indent(mapping=2, sequence=4, offset=2)
 
 
 # =============================================================================
@@ -539,21 +545,6 @@ def _set_nested_value(data: dict, path: str, value: Any, root: Any = None) -> No
             (defaults to *data*).
     """
     _set_dotted_anchored(root if root is not None else data, data, path, value, create_only=False)
-
-
-# =============================================================================
-# Config File Discovery
-# =============================================================================
-
-
-def find_config_file() -> Path | None:
-    """Find the config.yml file in current directory.
-
-    Returns:
-        Path to config.yml or None if not found
-    """
-    config_path = Path.cwd() / "config.yml"
-    return config_path if config_path.exists() else None
 
 
 # =============================================================================

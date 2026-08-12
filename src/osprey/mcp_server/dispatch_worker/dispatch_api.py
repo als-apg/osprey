@@ -34,8 +34,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, field_validator
 
 from osprey.agent_runner.artifact_resolve import (
+    deployed_config_path,
+    deployed_repo_root,
     describe_run_artifacts,
     describe_run_input_artifacts,
+    dispatch_log_dir,
     get_run_store,
     load_run_record,
     resolve_single_run_artifact,
@@ -97,25 +100,22 @@ _tasks: dict[str, asyncio.Task] = {}
 _MAX_RUNS = 1000
 
 
-# Agent-data root for THIS worker. Anchored to OSPREY_PROJECT_DIR rather than
-# resolve_shared_data_root(): that helper locates the project via OSPREY_CONFIG
-# and falls back to CWD, but the worker is configured with CONFIG_FILE and its
-# CWD is the image WORKDIR (/app) — so it would resolve to /app/_agent_data
-# while the agent's tools write to <project>/_agent_data.
-def _agent_data_dir() -> str:
-    return os.path.join(os.environ.get("OSPREY_PROJECT_DIR", "/app/project"), "_agent_data")
-
-
-# Persistent log directory — lives on the _agent_data volume mount so it
-# survives container restarts.
-_LOG_DIR = os.path.join(_agent_data_dir(), "dispatch")
+# Persistent log directory — one JSON record per completed run, on the durable
+# agent-data volume so it survives container restarts. Resolved per call (see
+# ``artifact_resolve.dispatch_log_dir``) from the config the worker was pointed
+# at, which is the same derivation the compose generator renders the volume's
+# mount target from — so the records land inside the mount rather than on the
+# container's writable layer, where a restart would drop them.
+def _log_dir() -> str:
+    return str(dispatch_log_dir())
 
 
 def _persist_run(run_id: str, run: dict[str, Any]) -> None:
     """Write a completed run to disk as JSON."""
+    log_dir = _log_dir()
     try:
-        os.makedirs(_LOG_DIR, exist_ok=True)
-        path = os.path.join(_LOG_DIR, f"{run_id}.json")
+        os.makedirs(log_dir, exist_ok=True)
+        path = os.path.join(log_dir, f"{run_id}.json")
         with open(path, "w") as f:
             json.dump({"run_id": run_id, **run}, f, indent=2, default=str)
     except Exception:
@@ -124,16 +124,17 @@ def _persist_run(run_id: str, run: dict[str, Any]) -> None:
 
 def _load_persisted_runs() -> None:
     """Load previously persisted runs from disk into _runs."""
-    if not os.path.isdir(_LOG_DIR):
+    log_dir = _log_dir()
+    if not os.path.isdir(log_dir):
         return
     loaded = 0
-    for fname in sorted(os.listdir(_LOG_DIR), reverse=True):
+    for fname in sorted(os.listdir(log_dir), reverse=True):
         if not fname.endswith(".json"):
             continue
         if loaded >= _MAX_RUNS:
             break
         try:
-            with open(os.path.join(_LOG_DIR, fname)) as f:
+            with open(os.path.join(log_dir, fname)) as f:
                 data = json.load(f)
             run_id = data.pop("run_id", fname.removesuffix(".json"))
             _runs[run_id] = data
@@ -141,7 +142,7 @@ def _load_persisted_runs() -> None:
         except Exception:
             logger.warning("Failed to load %s", fname)
     if loaded:
-        logger.info("Loaded %d persisted runs from %s", loaded, _LOG_DIR)
+        logger.info("Loaded %d persisted runs from %s", loaded, log_dir)
 
 
 def _inject_provider_env_once() -> None:
@@ -150,9 +151,14 @@ def _inject_provider_env_once() -> None:
     Replicates what the OSPREY web server does at startup so the dispatch
     worker's SDK sessions use the same auth and model configuration.
     """
-    project_dir = os.environ.get("OSPREY_PROJECT_DIR", "/app/project")
-    config_path = os.path.join(project_dir, "config.yml")
-    if not os.path.isfile(config_path):
+    # The render's config (``<repo>/build/config.yml``), taken from the
+    # environment the compose service sets rather than re-derived from the repo
+    # root: a flat ``<repo>/config.yml`` names no file in a three-zone
+    # deployment, so this read used to miss and the worker started with no
+    # provider auth at all — silently, on the warning branch below.
+    config_path = deployed_config_path()
+    repo_root = deployed_repo_root()
+    if not config_path.is_file():
         logger.warning("No config.yml at %s — skipping provider env injection", config_path)
         return
 
@@ -174,20 +180,23 @@ def _inject_provider_env_once() -> None:
         )
 
     try:
-        from pathlib import Path
-
         from osprey.build.claude_code_resolver import inject_provider_env, load_provider_spec
         from osprey.build.claude_code_telemetry import TelemetryConfigError
 
-        # load_provider_spec expands ${VAR} in provider config (e.g. a custom
-        # provider's base_url: ${ARGO_PROD_URL}) against the container-mounted
-        # /app/project/.env before resolving.
+        # Read the spec from the render (the directory holding that config.yml)
+        # while expanding ``${VAR}`` against the REPO root's ``.env``: secrets
+        # are durable state and deliberately do not live in the disposable
+        # render, so a custom provider's ``base_url: ${ARGO_PROD_URL}`` resolves
+        # from the repo or not at all. (In a container the value normally
+        # arrives as process env via the compose ``env_file``, which the overlay
+        # includes either way.)
         #
         # Telemetry is an observability add-on; a misconfigured telemetry block
         # must never take down the worker's provider auth. Degrade telemetry
         # (loud ERROR) and re-resolve without it, keeping auth/base-url/model.
+        render_dir = config_path.parent
         try:
-            spec = load_provider_spec(Path(project_dir))
+            spec = load_provider_spec(render_dir, env_dir=repo_root)
         except TelemetryConfigError:
             logger.error(
                 "claude_code.telemetry is misconfigured — continuing WITHOUT "
@@ -195,14 +204,14 @@ def _inject_provider_env_once() -> None:
                 "block to restore emit.",
                 exc_info=True,
             )
-            spec = load_provider_spec(Path(project_dir), include_telemetry=False)
+            spec = load_provider_spec(render_dir, env_dir=repo_root, include_telemetry=False)
         if spec:
-            injected = inject_provider_env(os.environ, spec, project_dir=Path(project_dir))
+            injected = inject_provider_env(os.environ, spec, project_dir=repo_root)
             logger.info("Provider env injected: %s (provider=%s)", injected, spec.provider)
 
             # Non-native (OpenAI-protocol) providers need the in-process
             # translation proxy. Deliver the loopback via os.environ (matching
-            # claude_cmd) because sdk_runner.build_clean_env copies os.environ
+            # the ``osprey chat`` launch path) because build_clean_env copies os.environ
             # into the SDK env; the in-container proxy thread is reachable by the
             # SDK CLI. Start the proxy from spec.upstream_base_url — the OpenAI
             # root *with* /v1 — NOT os.environ["ANTHROPIC_BASE_URL"], which the
@@ -227,10 +236,11 @@ def _inject_provider_env_once() -> None:
 async def _lifespan(app: FastAPI):
     """Startup/shutdown lifecycle — provider env injection and run recovery.
 
-    ``.claude/`` and ``data/`` (MCP config, safety hooks, skills) are baked into
-    the project image at build time (``COPY .`` + ``osprey claude regen``), so
-    the worker starts with those artifacts already in place — no runtime
-    regeneration is needed here. Provider auth/model config and the translation
+    ``.claude/`` and ``data/`` (MCP config, safety hooks, skills) are already in
+    the image: ``osprey build`` renders them into the repo's ``build/`` zone on
+    the HOST, and the project image copies the whole repo in one step. Nothing
+    regenerates them inside the container, at image build or at startup — so the
+    worker starts with those artifacts in place. Provider auth/model config and the translation
     proxy (for non-native providers) still have to be established at process
     startup, since they depend on the mounted ``config.yml`` and environment.
     """
@@ -381,7 +391,10 @@ def _start_retention_sweep() -> asyncio.Task | None:
 
     return asyncio.create_task(
         retention.retention_loop(
-            _LOG_DIR,
+            # The function, not its result: this runs during lifespan startup,
+            # so a config that is not readable yet would otherwise pin the sweep
+            # to the fallback root for the whole process.
+            _log_dir,
             _get_store,
             retention_days,
             _in_flight_run_ids,

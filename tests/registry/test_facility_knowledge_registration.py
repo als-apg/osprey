@@ -167,7 +167,7 @@ class TestFacilityKnowledgeResolved:
         ctx = _base_ctx(project_root="/my/project")
         servers = resolve_servers({}, ctx)
         fk = _get_fk(servers)
-        assert fk["env"]["OSPREY_CONFIG"] == "/my/project/config.yml"
+        assert fk["env"]["OSPREY_CONFIG"] == "/my/project/build/config.yml"
 
     def test_can_be_disabled_via_override(self):
         ctx = _base_ctx()
@@ -222,7 +222,7 @@ class TestFacilityKnowledgeTemplates:
         ctx = self._full_ctx()
         data = json.loads(self._render(template_manager, "claude_code/mcp.json.j2", ctx))
         env = data["mcpServers"]["osprey_facility_knowledge"].get("env", {})
-        assert env.get("OSPREY_CONFIG") == "/tmp/test-project/config.yml"
+        assert env.get("OSPREY_CONFIG") == "/tmp/test-project/build/config.yml"
 
     def test_settings_json_read_tools_in_allow(self, template_manager):
         ctx = self._full_ctx()

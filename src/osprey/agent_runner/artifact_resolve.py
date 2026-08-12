@@ -35,6 +35,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.utils.workspace import agent_data_base_dir, anchored_path, rendered_config_path
+
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactStore
 
@@ -65,24 +67,144 @@ class ArtifactRef:
 
 
 # ---------------------------------------------------------------------------
+# Deployed-repo zones
+# ---------------------------------------------------------------------------
+
+#: Repo root assumed when a deployed process was started without
+#: ``OSPREY_PROJECT_DIR``. Every compose template sets it; this only keeps an
+#: ad-hoc invocation from resolving against the image WORKDIR.
+_DEFAULT_PROJECT_DIR = "/app/project"
+
+#: Parsed deployed configs, keyed by ``(path, mtime_ns)``. The zone resolvers
+#: below run on every artifact request, and each would otherwise re-read and
+#: re-parse the same YAML; keying on the mtime keeps a rewritten config from
+#: being served from the cache.
+_deployed_config_cache: dict[tuple[str, int], dict[str, Any]] = {}
+
+#: Config paths already reported absent, so the warning below is one line per
+#: deployment rather than one per dispatch run.
+_reported_missing_configs: set[str] = set()
+
+
+def deployed_repo_root() -> Path:
+    """The deployment REPO root as a deployed process sees it.
+
+    ``OSPREY_PROJECT_DIR`` is what the compose templates set (the dispatch
+    worker's is ``/app/<project>``), and it names the repo root — the directory
+    holding the three zones, not the render inside it. Read from the environment
+    rather than the CWD because a service process runs from the image WORKDIR,
+    which is not the project.
+    """
+    return Path(os.environ.get("OSPREY_PROJECT_DIR", _DEFAULT_PROJECT_DIR))
+
+
+def deployed_config_path() -> Path:
+    """The rendered ``config.yml`` a deployed process was pointed at.
+
+    ``CONFIG_FILE`` / ``OSPREY_CONFIG`` are the contract: the dispatch worker's
+    compose service sets them to the staged render config it bind-mounts, which
+    is the same file the agent's own MCP servers resolve (``registry.mcp``
+    renders them from ``{project_root}/build/config.yml``). Trusting the
+    environment is what keeps the process and its subprocesses on one config;
+    with neither set, fall back to the repo's render zone rather than assuming a
+    flat project directory.
+
+    A configured value is anchored on the repo root if it is relative. The
+    compose templates all set it absolute, so this is not the ordinary path —
+    but :func:`deployed_render_dir` takes this path's PARENT as the directory an
+    agent CLI is launched in, and a relative value left unanchored would resolve
+    that against whatever CWD the process happened to have, which for a service
+    process is the image WORKDIR and not necessarily the project.
+    """
+    configured = os.environ.get("CONFIG_FILE") or os.environ.get("OSPREY_CONFIG")
+    if configured:
+        expanded = Path(os.path.expandvars(configured)).expanduser()
+        return expanded if expanded.is_absolute() else deployed_repo_root() / expanded
+    return rendered_config_path(deployed_repo_root())
+
+
+def deployed_render_dir() -> Path:
+    """The render zone holding the config above — the agent's project directory.
+
+    ``.claude/``, ``.mcp.json`` and ``CLAUDE.md`` sit beside the rendered config,
+    so this is the directory an agent CLI must run in to discover them. It is
+    derived from the config path rather than spelled as ``<repo>/build`` so a
+    deployment that relocated its config keeps every artifact resolved beside it.
+    """
+    return deployed_config_path().parent
+
+
+def _deployed_config() -> dict[str, Any]:
+    """Parse the deployed config, or ``{}`` when it is absent or unreadable.
+
+    Deliberately a plain YAML read rather than the config builder: this runs
+    inside processes that must not acquire the framework's config singleton as a
+    side effect of resolving a directory, and the one key read from it
+    (``agent_data.base_dir``) is a literal path.
+    """
+    path = deployed_config_path()
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        # Deliberately not cached: the config is a bind mount, and this is
+        # called during lifespan startup, so "not there" can mean "not there
+        # YET". Caching the miss would pin every later caller to the defaults.
+        # The report is, though — once per path, because this is on the
+        # per-dispatch path and a line per run would bury itself.
+        if str(path) not in _reported_missing_configs:
+            _reported_missing_configs.add(str(path))
+            logger.warning(
+                "No config at %s — using agent-data defaults. A deployed worker "
+                "should have this file bind-mounted; if it appears later, the "
+                "next call picks it up (and this is not repeated).",
+                path,
+            )
+        return {}
+
+    key = (str(path), stamp)
+    cached = _deployed_config_cache.get(key)
+    if cached is None:
+        import yaml
+
+        try:
+            loaded = yaml.safe_load(path.read_text())
+        except (OSError, yaml.YAMLError):
+            logger.warning("Could not read %s — using agent-data defaults", path, exc_info=True)
+            loaded = None
+        cached = loaded if isinstance(loaded, dict) else {}
+        _deployed_config_cache.clear()
+        _deployed_config_cache[key] = cached
+    return cached
+
+
+def deployed_agent_data_root() -> Path:
+    """The durable agent-data root of the deployed repo (``var/agent_data``).
+
+    Resolved from the ``agent_data.base_dir`` of the very config the process was
+    pointed at, anchored on ``OSPREY_PROJECT_DIR`` — which is exactly how the
+    compose generator derives the worker's volume mount target
+    (``osprey_container_agent_data_dir``, the same key joined onto the same
+    project root). Sharing that one derivation is what makes the volume mount
+    where the process writes: a project that relocates its agent-data root moves
+    both sides at once, and an absolute ``base_dir`` is left alone by both.
+    """
+    return anchored_path(agent_data_base_dir(_deployed_config()), deployed_repo_root())
+
+
+# ---------------------------------------------------------------------------
 # Run-record + store location
 # ---------------------------------------------------------------------------
 
 
-def _agent_data_root() -> Path:
-    """Return the ``_agent_data`` root for the deployed project.
+def dispatch_log_dir() -> Path:
+    """Directory holding one persisted JSON record per completed dispatch run.
 
-    Mirrors the dispatch worker's persistence layout (see
-    ``dispatch_api._LOG_DIR``): both derive from ``OSPREY_PROJECT_DIR`` so a
-    resolver running in the worker process (whose CWD is the image WORKDIR, not
-    the project dir) reads the same location the dispatched agent wrote to.
+    The single spelling of that location, shared by the worker that writes the
+    records (``dispatch_api._persist_run``), the retention sweep that ages them
+    out, and the status route that reads one back after its in-memory entry was
+    evicted.
     """
-    project_dir = os.environ.get("OSPREY_PROJECT_DIR", "/app/project")
-    return Path(project_dir) / "_agent_data"
-
-
-def _dispatch_log_dir() -> Path:
-    return _agent_data_root() / "dispatch"
+    return deployed_agent_data_root() / "dispatch"
 
 
 def _run_artifacts_dir(run_id: str) -> Path:
@@ -92,7 +214,7 @@ def _run_artifacts_dir(run_id: str) -> Path:
     resolution of the same run overwrites the same files (bounded by run count,
     not request count) instead of leaking a new temp dir on every request.
     """
-    out = _agent_data_root() / "dispatch" / "artifacts" / run_id
+    out = dispatch_log_dir() / "artifacts" / run_id
     out.mkdir(parents=True, exist_ok=True)
     return out
 
@@ -104,7 +226,7 @@ def load_run_record(run_id: str) -> dict[str, Any] | None:
     worker's in-memory cap is still readable on disk). It is NOT used for
     artifact association — that is the store's write-time ``run_id`` tag.
     """
-    path = _dispatch_log_dir() / f"{run_id}.json"
+    path = dispatch_log_dir() / f"{run_id}.json"
     if not path.is_file():
         return None
     try:
@@ -115,14 +237,14 @@ def load_run_record(run_id: str) -> dict[str, Any] | None:
 
 
 def _get_store() -> ArtifactStore:
-    """Build an ArtifactStore rooted at the project's ``_agent_data``.
+    """Build an ArtifactStore rooted at the deployed repo's agent-data root.
 
     Not the module-level singleton: the worker process CWD differs from the
     project dir, so the singleton's default root would point at the wrong place.
     """
     from osprey.stores.artifact_store import ArtifactStore
 
-    return ArtifactStore(workspace_root=_agent_data_root())
+    return ArtifactStore(workspace_root=deployed_agent_data_root())
 
 
 def get_run_store() -> ArtifactStore:
@@ -131,8 +253,8 @@ def get_run_store() -> ArtifactStore:
     The single source of truth for the store root shared by everything that
     reads or writes a dispatch run's artifacts — the resolver's descriptors and
     byte route here, and the worker's pre-run input-file ingestion. Routing both
-    through one constructor keeps them on the same ``_agent_data`` root, so a
-    file the worker writes is exactly the file the byte route later serves.
+    through one constructor keeps them on the same agent-data root, so a file the
+    worker writes is exactly the file the byte route later serves.
     """
     return _get_store()
 

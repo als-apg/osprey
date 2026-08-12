@@ -6,7 +6,7 @@ and SSE stream for live figure updates.
 Usage::
 
     from osprey.interfaces.lattice_dashboard.app import create_app
-    app = create_app(workspace_root=Path("./_agent_data"))
+    app = create_app()  # resolves the deployment's agent-data root
 """
 
 from __future__ import annotations
@@ -43,6 +43,7 @@ from osprey.interfaces.lattice_dashboard.workers.resonance import (
     build_figure as build_resonance,
 )
 from osprey.interfaces.vendor import vendor_url
+from osprey.utils.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.lattice_dashboard")
 
@@ -209,10 +210,15 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     """Create the Lattice Dashboard FastAPI application.
 
     Args:
-        workspace_root: Workspace root (e.g. ``./_agent_data``).
-            The lattice state lives under ``<workspace>/lattice/``.
+        workspace_root: Agent-data root (e.g. ``<repo>/var/agent_data``). The
+            lattice state lives under ``<workspace>/lattice/``. Omit it to
+            resolve the deployment's configured root, which is what the
+            framework launch path passes explicitly. The default used to be a
+            cwd-relative directory, so a direct caller standing anywhere but the
+            repo root got a fresh empty state rather than the running
+            deployment's.
     """
-    ws_root = Path(workspace_root) if workspace_root else Path("./_agent_data")
+    ws_root = Path(workspace_root) if workspace_root else resolve_shared_data_root()
     state_dir = ws_root / "lattice"
 
     state = LatticeState(state_dir)

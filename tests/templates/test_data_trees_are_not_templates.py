@@ -1,6 +1,6 @@
 """A bundle's ``data/`` tree is content, never templates.
 
-``osprey profile new`` materializes ``apps/<bundle>/data/`` into a facility's
+``osprey init`` materializes ``apps/<bundle>/data/`` into a facility's
 own profile source by literal copy, and ``osprey build`` copies a profile's
 ``data:`` root back out the same way. Neither side renders Jinja, so a ``.j2``
 file staged under ``apps/*/data/`` would reach the built project with its

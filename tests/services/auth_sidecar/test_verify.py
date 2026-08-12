@@ -200,7 +200,7 @@ class TestDenials:
             assert _verify(client, "alice", cookie).status_code == 401
 
     def test_rotated_password_is_denied(self) -> None:
-        """The generation tag is what makes ``deploy passwd`` take effect."""
+        """The generation tag is what makes ``osprey users passwd`` take effect."""
         cookie = _mint(_unlocked("alice"))
         rotated = {**PASSWORD_ENV, "OSPREY_AUTH_PW_HASH_ALICE": ROTATED_ALICE_HASH}
         with TestClient(_app(rotated)) as client:

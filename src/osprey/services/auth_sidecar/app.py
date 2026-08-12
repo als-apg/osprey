@@ -75,7 +75,7 @@ HEALTH_PATH = "/health"
 """The one path :class:`ConfigurationGuard` lets through unconfigured.
 
 nginx never proxies it — it exists for the container healthcheck and for
-``osprey deploy``'s post-up smoke check, both of which talk to the sidecar's own
+``osprey up``'s post-up smoke check, both of which talk to the sidecar's own
 port directly.
 """
 

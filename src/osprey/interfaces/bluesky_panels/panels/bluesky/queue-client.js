@@ -588,7 +588,7 @@ export function describeProgress(progress) {
  *
  * `detail.code` is the discriminator and `detail.detail` is the sentence to
  * show the operator VERBATIM — it is the bridge's own wording, and it carries
- * the remedy (the `osprey config set-control-system …` flip command on a
+ * the remedy (the `osprey set connector=…` flip command on a
  * browse-only refusal, which arming header is missing on
  * `launch_token_required`). Rewording it here would put a second, drifting
  * copy of the bridge's policy in the panel.

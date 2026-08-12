@@ -18,6 +18,7 @@ import pytest
 
 from osprey.connectors.archiver._timerange import long_frame
 from osprey.mcp_server.control_system.server_context import initialize_server_context
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -271,7 +272,7 @@ async def test_archiver_read_unparseable_time(archiver_project, field, kwargs):
 
 @pytest.mark.unit
 async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
-    """Archiver read saves data to _agent_data/artifacts/ via ArtifactStore."""
+    """Archiver read saves data to the agent-data artifacts dir via ArtifactStore."""
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
@@ -283,10 +284,10 @@ async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
     data = extract_response_dict(result)
     assert "data_file" in data
 
-    # data_file is a project-CWD-relative path (e.g.
-    # ``_agent_data/artifacts/{id}_archiver_read.json``) so the agent can
-    # pass it directly to open(). Test resolves it from the project root.
-    assert data["data_file"].startswith("_agent_data/artifacts/")
+    # data_file is a repo-root-relative path (e.g.
+    # ``var/agent_data/artifacts/{id}_archiver_read.json``) so the agent can
+    # pass it directly to open(). Test resolves it from the repo root.
+    assert data["data_file"].startswith(f"{DEFAULT_AGENT_DATA_BASE_DIR}/artifacts/")
     data_file = tmp_path / data["data_file"]
     assert data_file.exists()
 
@@ -300,7 +301,7 @@ async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
     assert "_osprey_metadata" not in file_content
 
     # Verify the index file was created (inside the artifacts subdir)
-    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
+    artifacts_dir = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "artifacts"
     index_file = artifacts_dir / "artifacts.json"
     assert index_file.exists()
 

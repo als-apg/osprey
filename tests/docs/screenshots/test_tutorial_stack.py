@@ -9,7 +9,7 @@ failure, and degrades to :class:`ScreenshotSkip` when the CLI is absent.
 
 Safety invariant asserted here: no assembled command ever contains a prune,
 ``-a``/``--all``, ``volume``, or ``system`` teardown — only the exact,
-project-scoped forms (``build``/``deploy up -d``/``sim apply``/``deploy down``).
+project-scoped forms (``build``/``osprey up -d``/``sim apply``/``osprey down``).
 """
 
 from __future__ import annotations
@@ -82,23 +82,32 @@ def test_command_assembly_is_exact_and_project_scoped(monkeypatch, tmp_path) -> 
 
     cmds = [_cmd_of(c) for c in run.call_args_list]
 
-    # build <name> --preset control-assistant -o <build_root> --skip-deps
-    #       --set config.artifact_server.port=<port>
-    build = next(c for c in cmds if "build" in c)
-    assert capture._TUTORIAL_PROJECT_NAME in build
-    assert "--preset" in build
-    assert build[build.index("--preset") + 1] == "control-assistant"
-    assert "--skip-deps" in build
-    assert "-o" in build
-    assert build[build.index("-o") + 1] == str(tmp_path)
-    assert f"config.artifact_server.port={_ARTIFACT_PORT}" in build
+    # Creation is TWO commands, because they are two things: `init` writes the
+    # source zone (and bakes --set into the emitted profile.yml), `build`
+    # renders it. --skip-deps belongs to the render, --preset/--set to init.
+    #
+    # init <build_root>/<name> --preset control-assistant --no-git
+    #      --set config.artifact_server.port=<port>
+    init = next(c for c in cmds if "init" in c)
+    assert proj in init, "init must name the deployment repo directory positionally"
+    assert "--preset" in init
+    assert init[init.index("--preset") + 1] == "control-assistant"
+    assert f"config.artifact_server.port={_ARTIFACT_PORT}" in init
     # The profile 'config' bucket key — a bare 'artifact_server.port' is dropped.
-    assert "artifact_server.port" not in build
+    assert "artifact_server.port" not in init
 
-    # deploy up MUST be detached (-d); the non-detached form execvpe's away.
-    deploy_up = next(c for c in cmds if "deploy" in c and "up" in c)
-    assert "-d" in deploy_up
-    up_call = next(c for c in run.call_args_list if "deploy" in _cmd_of(c) and "up" in _cmd_of(c))
+    # build (zero-argument), run FROM the repo it renders.
+    build = next(c for c in cmds if "build" in c)
+    assert "--skip-deps" in build
+    assert capture._TUTORIAL_PROJECT_NAME not in build, (
+        "build is zero-argument; the repo comes from its cwd, not an argument"
+    )
+    build_call = next(c for c in run.call_args_list if "build" in _cmd_of(c))
+    assert build_call.kwargs["cwd"] == proj
+
+    # osprey up MUST be detached (-d); the non-detached form execvpe's away.
+    up_call = next(c for c in run.call_args_list if _cmd_of(c)[:2] == ["osprey", "up"])
+    assert "-d" in _cmd_of(up_call)
     assert up_call.kwargs["cwd"] == proj
 
     # sim apply nominal --yes --now <ANCHOR>, cwd == project dir.
@@ -112,10 +121,8 @@ def test_command_assembly_is_exact_and_project_scoped(monkeypatch, tmp_path) -> 
     assert seed[seed.index("--now") + 1] == recipes.ANCHOR
     assert seed_call.kwargs["cwd"] == proj
 
-    # deploy down (teardown) is project-scoped to the temp dir.
-    down_call = next(
-        c for c in run.call_args_list if "deploy" in _cmd_of(c) and "down" in _cmd_of(c)
-    )
+    # osprey down (teardown) is repo-scoped to the temp dir.
+    down_call = next(c for c in run.call_args_list if _cmd_of(c)[:2] == ["osprey", "down"])
     assert down_call.kwargs["cwd"] == proj
 
 
@@ -172,10 +179,8 @@ def test_teardown_runs_when_seed_fails(monkeypatch, tmp_path) -> None:
         with capture._tutorial_stack(artifact_port=_ARTIFACT_PORT):
             pytest.fail("body must not run when seeding fails")
 
-    # deploy down (project-scoped, cwd=project dir) still ran despite the failure.
-    down_call = next(
-        c for c in run.call_args_list if "deploy" in _cmd_of(c) and "down" in _cmd_of(c)
-    )
+    # osprey down (repo-scoped, cwd=repo dir) still ran despite the failure.
+    down_call = next(c for c in run.call_args_list if _cmd_of(c)[:2] == ["osprey", "down"])
     assert down_call.kwargs["cwd"] == str(tmp_path / capture._TUTORIAL_PROJECT_NAME)
     # rmtree of the exact build root still ran.
     parent.rmtree.assert_called_once()

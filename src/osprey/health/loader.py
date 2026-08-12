@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from osprey.health.signatures import stat_signature
+from osprey.utils.workspace import deployment_env_path, repo_root_for_config
 
 if TYPE_CHECKING:
     from osprey.health.config import CategoryRecord, HealthSettings
@@ -119,7 +120,14 @@ class HealthConfigLoader:
     def load(self) -> LoadedHealthConfig:
         """Run one synchronous refresh phase and return the resolved inputs."""
         config_path = self._resolve_path()
-        env_path = config_path.parent / ".env"
+        # The deployment's own `.env` at the repo root, not the config's
+        # sibling. `build/.env` is a file no build writes, so watching it
+        # meant an edit or a token rotation in the real `.env` never
+        # invalidated this cache — canaries and env scans kept answering
+        # from the environment as it was at process start. Paired with
+        # `signatures.disk_signature`, which must stat the same file or the
+        # two disagree silently.
+        env_path = deployment_env_path(config_path)
 
         config_sig = stat_signature(config_path)
         env_sig = stat_signature(env_path)
@@ -166,7 +174,14 @@ class HealthConfigLoader:
         if settings is None:
             settings = parse_health_config(None)
 
-        project_path = config_path.parent
+        # The repo root, not the config's own directory: the rows this anchors
+        # — the `.env` presence check, the `registry_path` join, the disk
+        # sample — all belong to the repo, while the config it was resolved
+        # from lives one level down in `build/`. The same split the CLI makes
+        # (health_cmd._resolve_anchors) and the same root `deployment_env_path`
+        # above just watched, so the loader cannot report on one deployment
+        # while watching another.
+        project_path = repo_root_for_config(config_path)
         records, extra_rows = build_records(
             config_state,
             expanded,
@@ -174,6 +189,10 @@ class HealthConfigLoader:
             config_ok,
             project_path,
             settings.suite_timeout_s,
+            # The same anchor PAIR the CLI passes. Handing over only the repo
+            # root would put this surface back on one anchor for two zones —
+            # the asymmetry the CLI already had to correct once.
+            render_path=config_path.parent,
         )
         control_system = (expanded or {}).get("control_system", {}) or {}
         return LoadedHealthConfig(

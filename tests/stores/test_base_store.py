@@ -102,10 +102,12 @@ class TestConstruction:
         assert store._index_file == tmp_path / "mini" / "mini.json"
 
     def test_default_workspace_is_cwd_agent_data(self, tmp_path, monkeypatch):
+        from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+
         monkeypatch.chdir(tmp_path)
         store = _MiniStore()
-        assert store._workspace == tmp_path / "_agent_data"
-        assert store._store_dir == tmp_path / "_agent_data" / "mini"
+        assert store._workspace == tmp_path / DEFAULT_AGENT_DATA_BASE_DIR
+        assert store._store_dir == tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "mini"
 
     def test_empty_subdir_puts_index_at_workspace_root(self, tmp_path):
         class _FlatStore(_MiniStore):

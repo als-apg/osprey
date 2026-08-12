@@ -37,9 +37,10 @@ def _b64(body: bytes) -> str:
 def _root(tmp_path: Path, monkeypatch) -> Path:
     """Point OSPREY_PROJECT_DIR at a tmp project so get_run_store() roots there."""
     project = tmp_path / "project"
-    (project / "_agent_data" / "artifacts").mkdir(parents=True)
+    (project / "var" / "agent_data" / "artifacts").mkdir(parents=True)
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(project))
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
     return project
 
 
@@ -136,7 +137,7 @@ def test_input_files_input_artifacts_filename_is_caller_name(tmp_path, monkeypat
 def test_input_files_input_artifacts_only_input_origin(tmp_path, monkeypatch):
     # A produced artifact (origin empty) must not appear among input_artifacts.
     project = _root(tmp_path, monkeypatch)
-    store = ArtifactStore(workspace_root=project / "_agent_data")
+    store = ArtifactStore(workspace_root=project / "var" / "agent_data")
     store.save_file(
         file_content=PNG_BYTES,
         filename="made.png",

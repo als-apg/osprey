@@ -11,10 +11,10 @@ from datetime import datetime
 
 from fastmcp.exceptions import ToolError
 
+from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
-from osprey.utils.workspace import resolve_workspace_root
 
 logger = logging.getLogger("osprey.mcp_server.tools.session_log")
 
@@ -182,18 +182,29 @@ async def session_log(
     Returns:
         JSON with events list and metadata, or agent summary when list_agents=True.
     """
+    # Read events from Claude Code native transcripts. TranscriptReader encodes
+    # this directory into the `~/.claude/projects/<encoded>/` name, so it must be
+    # the directory the AGENT runs in — the RENDER, beside the `.claude/` tree
+    # and `.mcp.json` it discovers there. That is what `deployed_render_dir`
+    # answers, and the gallery resolves the same thing the same way.
+    #
+    # Emphatically NOT derived from the agent-data root: this used to walk up
+    # from it, which is off by a zone (the render is not the repo root) AND
+    # unstable, because `resolve_workspace_root` is the session-ISOLATED alias —
+    # with OSPREY_SESSION_ID set the root becomes
+    # `<repo>/var/agent_data/sessions/<id>`, so any walk-up moves with it. A
+    # wrong directory here is silent: find_transcript_dir returns None and the
+    # tool reports an empty session log rather than an error.
     try:
-        workspace_root = resolve_workspace_root()
+        project_dir = deployed_render_dir()
     except ToolError:
         raise
     except Exception as e:
         return make_error(
             "internal_error",
-            f"Could not resolve workspace root: {e}",
+            f"Could not resolve the agent's project directory: {e}",
         )
 
-    # Read events from Claude Code native transcripts
-    project_dir = workspace_root.parent  # workspace_root = project_dir/_agent_data
     reader = TranscriptReader(project_dir)
     all_events = reader.read_current_session()  # already sorted by timestamp
 
