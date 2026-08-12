@@ -1000,31 +1000,29 @@ async def test_execute_readwrite_without_write_patterns_no_emit(tool_name, tmp_p
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_uncanonical_write_mode_still_emits(tool_name, tmp_path, monkeypatch):
-    """A non-canonical mode spelling clears the readonly gate, so its writes must report.
+async def test_execute_uncanonical_write_mode_rejected_no_emit(tool_name, tmp_path, monkeypatch):
+    """A non-canonical mode spelling is refused at the boundary — emit nothing.
 
-    ``execution_mode`` is an unvalidated free string and is never normalized, so
-    "READWRITE" runs the script exactly as "readwrite" does. Testing equality
-    with "readwrite" instead of the gate's complement would silence this run.
+    "READWRITE" used to clear both write gates as an unvalidated free string
+    and run the script; it is now rejected before any gate, so nothing runs
+    and nothing reports.
     """
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
     with _execute_env(mod, tmp_path) as (notify, exec_code):
-        await call(execution_mode="READWRITE")
+        with assert_raises_error(error_type="validation_error"):
+            await call(execution_mode="READWRITE")
 
-    exec_code.assert_called_once()
-    notify.assert_called_once_with(tool_name, "channel", detail=_EXECUTE_DETAIL)
+    exec_code.assert_not_called()
+    notify.assert_not_called()
 
 
-async def test_execute_deployment_writes_disabled_no_emit(tmp_path, monkeypatch):
-    """The deployment kill switch refuses before launch — emit nothing.
-
-    Only the ``execute`` tool carries this gate; ``execute_file`` has no
-    equivalent, so this case is not parametrized.
-    """
+@pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
+async def test_execute_deployment_writes_disabled_no_emit(tool_name, tmp_path, monkeypatch):
+    """The deployment kill switch refuses before launch — emit nothing."""
     monkeypatch.chdir(tmp_path)
-    mod, call = _execute_tool_call("execute", tmp_path)
+    mod, call = _execute_tool_call(tool_name, tmp_path)
 
     with _execute_env(mod, tmp_path, writes_enabled=False) as (notify, exec_code):
         with assert_raises_error(error_type="safety_error"):

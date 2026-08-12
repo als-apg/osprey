@@ -637,6 +637,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The `nextcloud_bridge` block in a generated `profile.yml` described itself as
   turning "a Nextcloud folder" into a trigger source. It answers questions from
   a Talk room; the comment now says so.
+- The python executor tools now reject `execution_mode` values other than
+  `readonly` and `readwrite`. An unrecognized spelling used to slip past both
+  write gates and run write-pattern code even with
+  `control_system.writes_enabled=false`. The deployment-level kill switch also
+  now covers `execute_file`, which previously had no such check.
 
 ## [2026.8.0]
 

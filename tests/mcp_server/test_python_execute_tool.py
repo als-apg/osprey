@@ -248,6 +248,52 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("mode", ["ReadWrite", "READWRITE", "write", "read_write"])
+async def test_python_execute_rejects_unknown_execution_mode(tmp_path, monkeypatch, mode):
+    """Modes outside {readonly, readwrite} are rejected before any gate runs.
+
+    An unrecognized string used to fall through BOTH write gates: it is not
+    "readonly" (so the pattern block never fired) and not "readwrite" (so the
+    deployment kill switch never fired), letting write patterns execute even
+    with control_system.writes_enabled=false.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
+    mock_exec = _mock_execute_code()
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={
+                "has_writes": True,
+                "has_reads": False,
+                "detected_patterns": {"caput": ["caput('TEST:PV', 1.0)"]},
+            },
+        ),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=False),
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
+    ):
+        fn = _get_python_execute()
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await fn(
+                code="caput('TEST:PV', 1.0)",
+                description="unknown mode bypass",
+                execution_mode=mode,
+            )
+
+    mock_exec.assert_not_called()
+    assert "execution_mode" in ctx["envelope"]["error_message"]
+
+
+@pytest.mark.unit
 async def test_python_execute_empty_code(tmp_path, monkeypatch):
     """Empty code returns validation error."""
     monkeypatch.chdir(tmp_path)
