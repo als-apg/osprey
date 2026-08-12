@@ -202,7 +202,10 @@ class TestSetPanelFocusPrefix:
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         client = self._client()
 
-        resp = client.post("/api/panel-focus", json={"panel": "ariel", "url": "/panel/ariel"})
+        resp = client.post(
+            "/api/panel-focus",
+            json={"panel": "ariel", "url": "/panel/ariel", "source": "agent"},
+        )
 
         assert resp.status_code == 200
         event = client.app.state.broadcaster.broadcast.call_args[0][0]
@@ -214,7 +217,7 @@ class TestSetPanelFocusPrefix:
 
         resp = client.post(
             "/api/panel-focus",
-            json={"panel": "ariel", "url": "https://grafana.lan:3000/d/abc"},
+            json={"panel": "ariel", "url": "https://grafana.lan:3000/d/abc", "source": "agent"},
         )
 
         assert resp.status_code == 200
@@ -225,7 +228,10 @@ class TestSetPanelFocusPrefix:
         monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         client = self._client()
 
-        resp = client.post("/api/panel-focus", json={"panel": "ariel", "url": "//evil.example/x"})
+        resp = client.post(
+            "/api/panel-focus",
+            json={"panel": "ariel", "url": "//evil.example/x", "source": "agent"},
+        )
 
         assert resp.status_code == 200
         event = client.app.state.broadcaster.broadcast.call_args[0][0]
@@ -235,7 +241,10 @@ class TestSetPanelFocusPrefix:
         monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
         client = self._client()
 
-        resp = client.post("/api/panel-focus", json={"panel": "ariel", "url": "/panel/ariel"})
+        resp = client.post(
+            "/api/panel-focus",
+            json={"panel": "ariel", "url": "/panel/ariel", "source": "agent"},
+        )
 
         assert resp.status_code == 200
         event = client.app.state.broadcaster.broadcast.call_args[0][0]

@@ -202,7 +202,7 @@ class TestPanelFocus:
         # Subscribe before sending
         q = broadcaster.subscribe()
 
-        client.post("/api/panel-focus", json={"panel": "artifacts"})
+        client.post("/api/panel-focus", json={"panel": "artifacts", "source": "agent"})
 
         # The event should be in the queue
         assert not q.empty()

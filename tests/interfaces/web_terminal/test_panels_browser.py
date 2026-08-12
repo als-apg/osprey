@@ -935,8 +935,12 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         page.wait_for_timeout(800)
 
         posts = _track_panel_posts(page)
-        # Server-driven focus back to the already-docked data-viz.
-        r = requests.post(f"{base_url}/api/panel-focus", json={"panel": "data-viz"})
+        # Server-driven focus back to the already-docked data-viz. The source
+        # tag is what makes the server broadcast at all — a source-less human
+        # report is mirrored without a frame.
+        r = requests.post(
+            f"{base_url}/api/panel-focus", json={"panel": "data-viz", "source": "agent"}
+        )
         assert r.status_code == 200
 
         # It is applied — data-viz's tile takes the active focus (artifacts keeps
