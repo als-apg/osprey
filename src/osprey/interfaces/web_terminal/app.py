@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections import deque
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
@@ -27,6 +28,7 @@ from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
+from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
 from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 
@@ -700,6 +702,10 @@ def _create_lifespan(
         )
         app.state.broadcaster = FileEventBroadcaster()
         app.state.active_panel = None
+        # Bounded history of agent-activity events. The SSE stream only reaches
+        # browsers that are already connected, so the ring is what a browser
+        # opened (or reloaded) mid-session reads to catch up on recent actions.
+        app.state.agent_activity_ring = deque(maxlen=ACTIVITY_RING_MAX)
         # Optional human-readable deployment name shown in the header so
         # otherwise-identical web terminals are distinguishable. The
         # ``OSPREY_WEB_APP_NAME`` environment variable takes precedence over
