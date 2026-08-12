@@ -471,7 +471,7 @@ def _stamp_repo_manifest(
 
 
 def _render_compose_files(
-    zones: _RenderZones, runtime_root: str | None = None
+    zones: _RenderZones, runtime_root: str | None = None, dev_mode: bool = False
 ) -> dict[str, Any] | None:
     """Render the deployment's compose files into the staged tree.
 
@@ -508,6 +508,9 @@ def _render_compose_files(
     Args:
         zones: The render's paths.
         runtime_root: ``--runtime-root``, or ``None``.
+        dev_mode: ``--dev`` — stage a wheel from the local checkout into each
+            service build context and emit the ``OSPREY_DEV`` build arg, so the
+            images run this checkout instead of the pinned release.
 
     Returns:
         The loaded config, for callers that need the deployment's identity;
@@ -527,7 +530,7 @@ def _render_compose_files(
     os.chdir(zones.stage)
     try:
         config, compose_files = prepare_compose_files(
-            str(zones.stage / "config.yml"), output_root="."
+            str(zones.stage / "config.yml"), dev_mode=dev_mode, output_root="."
         )
     finally:
         os.chdir(previous)
@@ -1530,6 +1533,7 @@ def _build_repo(
     skip_lifecycle: bool,
     skip_deps: bool,
     runtime_root: str | None,
+    dev: bool = False,
 ) -> None:
     """Render a deployment repo's ``build/`` zone from its ``profile.yml``.
 
@@ -1553,6 +1557,9 @@ def _build_repo(
         runtime_root: Absolute path the *container* will see this repo at, when
             that differs from where it is being built. Substituted for the repo
             root everywhere the render records one.
+        dev: ``--dev`` — render a dev build: each service build context gets a
+            wheel from the local checkout and the ``OSPREY_DEV`` build arg, so
+            the images run this checkout instead of the pinned release.
 
     Raises:
         click.Abort: On any failure, a persona delta that will not resolve
@@ -1655,7 +1662,7 @@ def _build_repo(
             progress=logger.info,
         )
 
-        config = _render_compose_files(zones, runtime_root)
+        config = _render_compose_files(zones, runtime_root, dev_mode=dev)
 
         persona_renders = _render_persona_projects(shared, zones)
 
@@ -1956,12 +1963,19 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     help="Override project_root in the rendered config, for a build whose output "
     "runs somewhere other than where it was made (e.g. --runtime-root /app/als-assistant)",
 )
+@click.option(
+    "--dev",
+    is_flag=True,
+    help="Render a dev build: bake the local osprey checkout into the service "
+    "images instead of the published release.",
+)
 @repo_option
 def build(
     stream: bool,
     skip_lifecycle: bool,
     skip_deps: bool,
     runtime_root: str | None,
+    dev: bool,
     repo: Path | None,
 ) -> None:
     """Render this deployment repo's build/ from its profile.
@@ -1991,6 +2005,10 @@ def build(
 
       # CI: no venv, no lifecycle hooks
       $ osprey build --skip-lifecycle --skip-deps
+
+    \b
+      # Dev build: images run this checkout, not the published release
+      $ osprey build --dev
     """
     _build_repo(
         repo,
@@ -1998,4 +2016,5 @@ def build(
         skip_lifecycle=skip_lifecycle,
         skip_deps=skip_deps,
         runtime_root=runtime_root,
+        dev=dev,
     )

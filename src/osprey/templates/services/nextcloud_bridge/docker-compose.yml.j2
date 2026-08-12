@@ -5,7 +5,7 @@
 # `osprey up` builds its image locally on first run; subsequent runs
 # reuse the local tag. To use a prebuilt/published image instead, set
 # OSPREY_NEXTCLOUD_BRIDGE_IMAGE (e.g. OSPREY_NEXTCLOUD_BRIDGE_IMAGE=my-registry/osprey-nextcloud-bridge:dev).
-# Use `osprey up --dev` to bake in your local osprey checkout (incl.
+# Use `osprey build --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 {#- The worker's own wall-clock cap, read from the SAME config key the
     dispatch_worker template renders it from, so a facility that raises the cap

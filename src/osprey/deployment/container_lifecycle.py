@@ -13,6 +13,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
+import yaml
+
 from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
     REPO_ID_LABEL,
@@ -25,7 +27,7 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
-from osprey.deployment.errors import ComposeInterpolationError
+from osprey.deployment.errors import ComposeInterpolationError, DevModeUnavailableError
 from osprey.deployment.host_ports import (
     find_port_conflicts,
     format_conflict_report,
@@ -2483,6 +2485,58 @@ def up_as_built(
     )
 
 
+def _sidecar_dev_flavor(compose_files: list[str], repo_root: Path) -> tuple[list[str], list[str]]:
+    """Split the rendered compose files with framework-installing image builds by flavor.
+
+    Dev-ness is a property of the RENDER: ``osprey build --dev`` stages a wheel
+    from the local checkout into each service build context and emits the
+    ``OSPREY_DEV`` build arg; a plain build emits the pinned
+    ``osprey-framework==<version>`` install and nothing else. The rendered YAML
+    is therefore the single source of truth for which flavor ``build/`` holds —
+    read here rather than kept in side-channel bookkeeping that could disagree
+    with it.
+
+    Only services that install the framework at image-build time matter (their
+    ``build.args`` carry ``OSPREY_VERSION``). Pure-image services and images
+    built at start time (dispatch worker, personas) take their dev-ness from the
+    start verb and are none of this function's business.
+
+    Args:
+        compose_files: The rendered compose files, as returned by
+            :func:`as_built_compose_files`. Relative entries — the pinned
+            invocation contract spells them repo-relative — are resolved
+            against *repo_root*, not the working directory, so the answer does
+            not depend on where the caller stands.
+        repo_root: The deployment repo the relative entries anchor on.
+
+    Returns:
+        ``(pinned, dev)`` — the compose files whose framework-installing builds
+        were rendered without / with the dev flavor. A file that cannot be read
+        or parsed lands in neither list; the compose invocation that follows
+        will surface it on its own terms.
+    """
+    pinned: list[str] = []
+    dev: list[str] = []
+    for path in compose_files:
+        file = Path(path)
+        if not file.is_absolute():
+            file = repo_root / file
+        try:
+            doc = yaml.safe_load(file.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        services = doc.get("services") or {}
+        if not isinstance(services, Mapping):
+            continue
+        for service in services.values():
+            build = (service or {}).get("build") if isinstance(service, Mapping) else None
+            args = build.get("args") if isinstance(build, Mapping) else None
+            if isinstance(args, Mapping) and "OSPREY_VERSION" in args:
+                (dev if str(args.get("OSPREY_DEV", "")) == "1" else pinned).append(path)
+                break
+    return pinned, dev
+
+
 def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, list[str], bool]:
     """Read what a start would run, and refuse before anything is touched.
 
@@ -2505,6 +2559,9 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
     Raises:
         NoBuildError: When ``build/`` holds no rendered config, or none of the
             services it declares was rendered.
+        DevModeUnavailableError: When ``--dev`` was asked of a render that holds
+            pinned (non-dev) sidecar image builds — `up` never re-renders, so
+            honoring it is impossible without a dev build.
         RuntimeError: From the ``--dev`` preflight.
     """
     config_path = as_built_config_path(repo_root)
@@ -2539,6 +2596,38 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
             f"{config_path} declares services ({', '.join(str(s) for s in config['deployed_services'])}) "
             f"but no compose files were rendered for them under {repo_root / BUILD_DIRNAME}. "
             "Run `osprey build` to re-render build/."
+        )
+
+    # The render's flavor must match the start's. `up` never re-renders, so a
+    # `--dev` start of a pinned render would build sidecar images from contexts
+    # that hold no wheel and no OSPREY_DEV arg — the containers would come up
+    # running the pinned release (or fail on an unreleased pin) with nothing
+    # saying the local checkout was never involved. Same failure mode
+    # DevModeUnavailableError exists for, so it refuses the same way.
+    pinned, dev_flavored = _sidecar_dev_flavor(compose_files, repo_root)
+    if dev_mode and pinned:
+        names = ", ".join(sorted(Path(p).parent.name for p in pinned))
+        raise DevModeUnavailableError(
+            reason=(
+                f"build/ was rendered without --dev, and `up` never re-renders. "
+                f"The {names} image build(s) would install the pinned release "
+                f"instead of this checkout."
+            ),
+            remedy=(
+                "Render a dev build first:\n"
+                "    osprey build --dev\n"
+                "or chain it in one step:\n"
+                "    osprey up --build --dev"
+            ),
+        )
+    if not dev_mode and dev_flavored:
+        # The mirror case starts fine — `up` starts what was built, and what
+        # was built is a dev render — but the operator should know the images
+        # bake a local checkout, not the published release.
+        logger.warning(
+            "build/ is a dev render (osprey build --dev): the service images "
+            "bake in the local osprey checkout, not the published release. "
+            "Run `osprey build` for a release render."
         )
 
     return config, compose_files, _reconcile_exposure(config, compose_files)

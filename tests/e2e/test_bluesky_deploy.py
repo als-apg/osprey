@@ -220,7 +220,7 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         )
 
     build = _run(
-        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )

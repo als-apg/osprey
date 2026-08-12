@@ -506,7 +506,7 @@ def test_build_chains_the_render_then_stops_and_starts(
 ):
     chained: list = []
 
-    def _fake_chain(ctx, repo_root):
+    def _fake_chain(ctx, repo_root, *, dev=False):
         chained.append(repo_root)
 
     import osprey.cli.deploy_cmd as deploy_cmd

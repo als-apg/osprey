@@ -350,20 +350,25 @@ variables and a warning is logged.
 Development Mode
 ================
 
-The ``--dev`` flag deploys with your locally installed Osprey source
-instead of the PyPI version:
+The ``--dev`` flag runs the deployment on your locally installed Osprey
+source instead of the PyPI version. Dev-ness is a property of the *build*:
+``osprey build --dev`` stages a wheel from your local source into each
+service's build context and marks the render as a dev build. ``osprey up
+--dev`` then starts that render with freshly rebuilt images:
 
 .. code-block:: bash
 
+   osprey build --dev
    osprey up --dev
 
-The system builds a wheel from your local Osprey source, copies it into each
-service's build directory, and rebuilds the service images with that wheel
-installed — the images are built first, then started as-is. Your dev source
-is baked into the image at build time; nothing changes inside an
-already-running container. If the local source cannot be found (e.g., Osprey
-was installed from PyPI rather than editable mode), containers fall back to
-the PyPI version.
+   # or in one step
+   osprey up --build --dev
+
+Your dev source is baked into the images at build time; nothing changes
+inside an already-running container. ``osprey up --dev`` on a build that was
+rendered without ``--dev`` refuses rather than silently starting the
+published release, and a plain ``osprey up`` of a dev build warns that the
+images carry your local checkout.
 
 ``--dev`` requires the Python ``build`` package:
 
@@ -389,7 +394,7 @@ hints; on macOS, start Docker Desktop or run ``podman machine start``.
 
 **``--dev`` issues:** Confirm the Osprey wheel (``.whl``) exists in the
 service build directory, and that the image was rebuilt after your source
-change — rerun ``osprey up --dev`` to rebuild it.
+change — rerun ``osprey up --build --dev`` to re-render and rebuild it.
 
 .. seealso::
 

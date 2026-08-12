@@ -253,9 +253,14 @@ def _write_persona_project(root: Path) -> Path:
     ``127.0.0.1`` mirrors the production app: nginx shares the host network
     namespace and is the only thing meant to reach a per-user port.
 
-    ``config.yml`` and ``Dockerfile`` are exactly the two files a start requires
-    of a persona's rendered project (``_check_existing_render``), which is why a
-    stub this small is accepted where a rendered persona would otherwise be.
+    ``config.yml`` and ``Dockerfile`` are the two files a start requires of a
+    persona's rendered project (``_check_existing_render``) — in BOTH copies a
+    real build produces: the flat host render at the project path, and the
+    container copy at the ``.image/<name>`` sibling whose ``build/Dockerfile``
+    is what the persona image is actually built from
+    (``_persona_image_context``). The stub writes the same two files into each,
+    which is why something this small is accepted where a rendered persona
+    would otherwise be.
 
     ``busybox-extras`` is REQUIRED and easy to lose: alpine's default busybox
     does NOT include the ``httpd`` applet, so without this package the CMD dies
@@ -264,7 +269,8 @@ def _write_persona_project(root: Path) -> Path:
     container that never stayed up.
     """
     root.mkdir(parents=True)
-    (root / "config.yml").write_text(f"project_name: {PERSONA_PROJECT}\n", encoding="utf-8")
+    config_text = f"project_name: {PERSONA_PROJECT}\n"
+    (root / "config.yml").write_text(config_text, encoding="utf-8")
     container_dir = f"/app/{PERSONA_PROJECT}"
     (root / "Dockerfile").write_text(
         "FROM alpine:3.20\n"
@@ -296,6 +302,14 @@ def _write_persona_project(root: Path) -> Path:
         'exec httpd -f -p 127.0.0.1:\\"$OSPREY_TERMINAL_WEB_PORT\\" -h /srv"]\n',
         encoding="utf-8",
     )
+    # The container copy the image is actually built from: `docker build
+    # -f <context>/build/Dockerfile <context>` with the context at the
+    # `.image/<name>` sibling. The stub's recipe holds no host paths, so the
+    # container copy IS the host copy.
+    image_build = root.parent / ".image" / root.name / "build"
+    image_build.mkdir(parents=True)
+    (image_build / "config.yml").write_text(config_text, encoding="utf-8")
+    shutil.copy2(root / "Dockerfile", image_build / "Dockerfile")
     return root
 
 
@@ -401,7 +415,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
 
     build = _run_osprey(
         osprey_bin,
-        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )

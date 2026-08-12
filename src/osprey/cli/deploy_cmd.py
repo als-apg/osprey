@@ -62,7 +62,13 @@ def _stdin_is_a_terminal() -> bool:
 
 
 def gate_start_from_build(
-    ctx: click.Context, repo_root: Path, *, chain_build: bool, as_built: bool, verb: str
+    ctx: click.Context,
+    repo_root: Path,
+    *,
+    chain_build: bool,
+    as_built: bool,
+    verb: str,
+    dev: bool = False,
 ) -> None:
     """Decide whether a start verb may start this repo's ``build/``.
 
@@ -99,6 +105,8 @@ def gate_start_from_build(
         as_built: ``--as-built`` — start the existing render regardless.
         verb: The verb spelling the refusal's remedies use (``"up"`` or
             ``"restart"``).
+        dev: ``--dev`` on the start verb, forwarded to the chained build so
+            ``--build --dev`` renders the dev build the start then demands.
 
     Raises:
         click.Abort: On any refusal. Nothing has been started.
@@ -118,7 +126,7 @@ def gate_start_from_build(
         # instead of the check rather than after it. Through the root group's
         # own `build` command: chaining anything else would be a second way to
         # render a deployment, which is exactly what this feature removes.
-        _chain_build(ctx, repo_root)
+        _chain_build(ctx, repo_root, dev=dev)
         return
 
     report = check_drift(repo_root)
@@ -164,12 +172,20 @@ def gate_start_from_build(
     )
 
 
-def _chain_build(ctx: click.Context, repo_root: Path) -> None:
+def _chain_build(ctx: click.Context, repo_root: Path, *, dev: bool = False) -> None:
     """Run ``osprey build`` for *repo_root*, as ``--build`` promises.
 
     Looked up on the root group by name rather than imported, so this is one
     call into the same command an operator would type — there is no second code
     path that renders a deployment.
+
+    Args:
+        ctx: The invoking command's context.
+        repo_root: The deployment repo.
+        dev: Whether the start verb was given ``--dev``. Forwarded to the
+            chained build so the render it produces is the dev render the
+            start is about to demand — a chain that dropped it would render a
+            pinned build and then refuse to start it.
 
     Raises:
         click.ClickException: When the verb is unavailable in this installation,
@@ -184,7 +200,7 @@ def _chain_build(ctx: click.Context, repo_root: Path) -> None:
             "--build cannot run: `osprey build` is not available in this "
             "installation. Nothing was started."
         )
-    ctx.invoke(build_cmd, repo=repo_root)
+    ctx.invoke(build_cmd, repo=repo_root, dev=dev)
 
 
 def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
@@ -268,7 +284,8 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
 @click.option(
     "--dev",
     is_flag=True,
-    help="Bake the local osprey checkout into the images instead of the published release.",
+    help="Start the dev render with freshly built images running the local osprey "
+    "checkout. Needs a dev build (osprey build --dev), or --build to chain one.",
 )
 @click.option(
     "--build",
@@ -334,8 +351,8 @@ def up_verb(
       $ osprey up --as-built -d
 
     \b
-      # Test local osprey changes in the containers
-      $ osprey up --dev
+      # Test local osprey changes in the containers (dev render + start)
+      $ osprey up --build --dev
     """
     from osprey.cli.repo_resolver import find_repo_root
     from osprey.deployment.container_lifecycle import (
@@ -345,7 +362,9 @@ def up_verb(
     )
 
     repo_root = find_repo_root(repo)
-    gate_start_from_build(ctx, repo_root, chain_build=chain_build, as_built=as_built, verb="up")
+    gate_start_from_build(
+        ctx, repo_root, chain_build=chain_build, as_built=as_built, verb="up", dev=dev
+    )
 
     config_path = as_built_config_path(repo_root)
     if not config_path.is_file():
@@ -451,7 +470,8 @@ def down_verb(repo: Path | None) -> None:
 @click.option(
     "--dev",
     is_flag=True,
-    help="Bake the local osprey checkout into the images instead of the published release.",
+    help="Start the dev render with freshly built images running the local osprey "
+    "checkout. Needs a dev build (osprey build --dev), or --build to chain one.",
 )
 @click.option(
     "--build",
@@ -533,7 +553,7 @@ def restart_verb(
 
     repo_root = find_repo_root(repo)
     gate_start_from_build(
-        ctx, repo_root, chain_build=chain_build, as_built=as_built, verb="restart"
+        ctx, repo_root, chain_build=chain_build, as_built=as_built, verb="restart", dev=dev
     )
 
     config_path = as_built_config_path(repo_root)

@@ -181,6 +181,11 @@ Compatibility is documented in release notes, not encoded in the version string.
   Each verb finds the repo by walking up from the working directory, so none of
   them is given a project or config path — `--repo` overrides the starting
   point. Running `osprey` with no arguments prints the command list.
+- Dev mode is a property of the build: `osprey build --dev` bakes the local
+  osprey checkout into the service images, and `osprey up --dev` starts that
+  render — refusing a render built without `--dev` instead of silently starting
+  the published release (`osprey up --build --dev` chains both). A plain
+  `osprey up` of a dev build warns that the images carry the local checkout.
 - Deployed agents can no longer reconfigure their own harness: the Claude Code
   CLI's bundled harness-configuration skills (`update-config`,
   `keybindings-help`, `fewer-permission-prompts`) are switched off in every

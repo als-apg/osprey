@@ -671,7 +671,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         )
 
     build = _run(
-        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
@@ -1491,7 +1491,7 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
     assert flip.returncode == 0, f"osprey set connector=mock failed: {flip.stdout}\n{flip.stderr}"
 
     rebuild = _run(
-        [str(stack.osprey_bin), "build", "--skip-deps", "--skip-lifecycle"],
+        [str(stack.osprey_bin), "build", "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=stack.repo,
         timeout=BUILD_TIMEOUT_SEC,
     )

@@ -792,7 +792,7 @@ def _chain_up(ctx: click.Context, target: Path, *, detached: bool, dev: bool) ->
     previous = Path.cwd()
     os.chdir(target)
     try:
-        ctx.invoke(build_cmd, **_forwarded(build_cmd, target, {}))
+        ctx.invoke(build_cmd, **_forwarded(build_cmd, target, {"dev": dev}))
         ctx.invoke(up_cmd, **_forwarded(up_cmd, target, {"detached": detached, "dev": dev}))
     finally:
         os.chdir(previous)

@@ -295,6 +295,78 @@ def test_a_build_without_its_compose_files_is_not_silently_started(lifecycle_rep
 
 
 # ---------------------------------------------------------------------------
+# The dev-flavor gate
+# ---------------------------------------------------------------------------
+
+
+def _framework_service_compose(dev: bool) -> str:
+    """A service whose image build installs the framework, in either flavor.
+
+    ``OSPREY_VERSION`` in ``build.args`` is what marks a render as
+    framework-installing; ``osprey build --dev`` additionally emits
+    ``OSPREY_DEV: "1"``. Spelled here exactly as the service templates render
+    them.
+    """
+    dev_arg = '        OSPREY_DEV: "1"\n' if dev else ""
+    return (
+        "services:\n"
+        "  event-dispatcher:\n"
+        "    image: example:local\n"
+        "    build:\n"
+        "      context: ./build/services/event_dispatcher\n"
+        "      args:\n"
+        '        OSPREY_VERSION: "2026.6.2"\n'
+        f"{dev_arg}"
+        "    ports:\n"
+        '      - "127.0.0.1:18020:8020/tcp"\n'
+    )
+
+
+def test_dev_refuses_a_pinned_render_and_names_the_dev_build(lifecycle_repo, started, monkeypatch):
+    """``up --dev`` on a non-dev render cannot be honored, and says how to.
+
+    ``up`` never re-renders, so the sidecar contexts hold no wheel and no
+    ``OSPREY_DEV`` arg — starting would bring up containers running the pinned
+    release under a flag that means "run my local code".
+    """
+    import osprey.deployment.wheel_build as wheel_build
+
+    monkeypatch.setattr(wheel_build, "preflight_dev_mode", lambda: None)
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    build = render_build(lifecycle_repo)
+    (build / "services" / "event_dispatcher" / "docker-compose.yml").write_text(
+        _framework_service_compose(dev=False), encoding="utf-8"
+    )
+
+    with pytest.raises(container_lifecycle.DevModeUnavailableError) as excinfo:
+        container_lifecycle.up_as_built(lifecycle_repo, detached=True, dev_mode=True)
+
+    assert "rendered without --dev" in excinfo.value.reason
+    assert "event_dispatcher" in excinfo.value.reason
+    assert "osprey build --dev" in excinfo.value.remedy
+    assert "osprey up --build --dev" in excinfo.value.remedy
+    assert not started
+
+
+def test_a_dev_render_started_plain_warns_it_bakes_the_local_checkout(
+    lifecycle_repo, started, caplog
+):
+    """Plain ``up`` starts a dev render — what was built — but says what it is."""
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    build = render_build(lifecycle_repo)
+    (build / "services" / "event_dispatcher" / "docker-compose.yml").write_text(
+        _framework_service_compose(dev=True), encoding="utf-8"
+    )
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    assert started
+    assert "dev render" in caplog.text
+    assert "local osprey checkout" in caplog.text
+
+
+# ---------------------------------------------------------------------------
 # The drift gate
 # ---------------------------------------------------------------------------
 
@@ -337,7 +409,7 @@ def test_build_chains_the_render_then_starts(lifecycle_repo, started, monkeypatc
     render_build(lifecycle_repo, stamped_hash="stale")
     chained: list[Path] = []
 
-    def _fake_chain(ctx, repo_root):
+    def _fake_chain(ctx, repo_root, *, dev=False):
         chained.append(repo_root)
         # A real build would leave a matching fingerprint behind; the gate has
         # already been passed by then, so only the render's effect matters here.
@@ -373,7 +445,9 @@ def test_as_built_is_not_an_escape_from_having_no_build(lifecycle_repo, started,
 
 def test_build_is_an_escape_from_having_no_build(lifecycle_repo, started, monkeypatch):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
-    monkeypatch.setattr(deploy_cmd, "_chain_build", lambda ctx, repo: render_build(repo))
+    monkeypatch.setattr(
+        deploy_cmd, "_chain_build", lambda ctx, repo, *, dev=False: render_build(repo)
+    )
 
     assert run_up(lifecycle_repo, "-d", "--build").exit_code == 0
     assert started

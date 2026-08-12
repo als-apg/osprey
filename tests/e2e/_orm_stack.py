@@ -435,7 +435,15 @@ def build_project_subprocess(
         ("osprey init", cmd),
         (
             "osprey build",
-            [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+            [
+                str(osprey_bin),
+                "build",
+                "--repo",
+                str(repo),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--dev",
+            ],
         ),
     ):
         result = subprocess.run(
