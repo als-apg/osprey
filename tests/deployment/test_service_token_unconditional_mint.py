@@ -348,8 +348,9 @@ def test_explicitly_empty_value_is_left_empty_not_minted(
     """``TOKEN=`` is a deliberate value: the operator is choosing a fail-closed bridge.
 
     Minting over it would override that choice. On a loopback deploy the
-    service simply fails closed on its own; only ``--expose`` refuses (covered
-    in ``test_bluesky_token_mint.py``).
+    service simply fails closed on its own; only a deployment the build
+    rendered as reachable off-host refuses (covered in
+    ``test_bluesky_token_mint.py``).
     """
     (tmp_path / ".env").write_text("BLUESKY_LAUNCH_TOKEN=\n", encoding="utf-8")
     config = _config(

@@ -45,6 +45,17 @@ def captured_argv(monkeypatch, tmp_path):
     return captured
 
 
+def _addresses(cmd: list[str], compose_filename: str) -> bool:
+    """True when this argv's ``-f`` list names *compose_filename*.
+
+    The pinned invocation contract spells every ``-f`` as a repo-anchored
+    absolute path, so the old ``filename in cmd`` membership no longer holds.
+    Matched on the trailing path segment, which keeps ``docker-compose.yml``
+    from matching ``docker-compose.web.yml``.
+    """
+    return any(arg == compose_filename or arg.endswith("/" + compose_filename) for arg in cmd)
+
+
 def test_deploy_up_dev_mode_ups_no_build(captured_argv, tmp_path):
     """--dev builds in a separate step, so the final `up` carries --no-build,
     never --build in the same invocation (see the Defect A split tests for the
@@ -129,6 +140,29 @@ def test_process_env_token_not_written_to_dotenv(captured_argv, monkeypatch, tmp
     assert env.get("DISPATCH_WORKER_TOKEN")
 
 
+def test_tokens_are_minted_into_the_repo_root_not_the_cwd(
+    captured_argv, _clean_token_env, monkeypatch, tmp_path
+):
+    """The mint follows the config's repo, not wherever the command was typed.
+
+    Regression guard: the provisioners' ``env_path`` defaults to a cwd-relative
+    ``.env``, and this path left it unset while resolving the repo root a few
+    lines above. Run from any other directory and real secrets landed in a stray
+    file the stack never reads — the containers then start with their
+    fail-closed tokens unset, which looks secure and reports nothing.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    container_lifecycle.deploy_up(str(repo / "config.yml"), detached=True)
+
+    assert _parse_env(repo).get("EVENT_DISPATCHER_TOKEN")
+    assert not (elsewhere / ".env").exists()
+
+
 def test_non_dispatch_deploy_generates_no_tokens(monkeypatch, _clean_token_env, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
@@ -147,20 +181,20 @@ def test_non_dispatch_deploy_generates_no_tokens(monkeypatch, _clean_token_env, 
     assert not (tmp_path / ".env").exists()
 
 
-def test_expose_refuses_empty_token(captured_argv, monkeypatch, tmp_path):
-    # A token explicitly set empty must not be auto-overwritten, and --expose must
-    # refuse rather than bind a fail-open server to 0.0.0.0.
+def test_an_exposed_deploy_refuses_an_empty_token(captured_argv, monkeypatch, tmp_path):
+    # A token explicitly set empty must not be auto-overwritten, and a deployment
+    # reachable off-host must refuse rather than bind a fail-open server to it.
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "")
     monkeypatch.delenv("DISPATCH_WORKER_TOKEN", raising=False)
 
-    with pytest.raises(RuntimeError, match="refusing to --expose"):
+    with pytest.raises(RuntimeError, match="reachable off-host with an empty token"):
         container_lifecycle.deploy_up(
             str(tmp_path / "config.yml"), detached=True, expose_network=True
         )
 
 
 # ---------------------------------------------------------------------------
-# Web-terminal reconcile (osprey deploy up, modules.web_terminals.enabled)
+# Web-terminal reconcile (osprey up, modules.web_terminals.enabled)
 # ---------------------------------------------------------------------------
 
 
@@ -229,7 +263,7 @@ def test_web_deploy_writes_artifacts_and_includes_web_compose_file(captured_web_
     assert len(up_calls) == 1
     up_cmd = up_calls[0]["cmd"]
     assert "-f" in up_cmd
-    assert "docker-compose.web.yml" in up_cmd
+    assert _addresses(up_cmd, "docker-compose.web.yml")
 
 
 def test_web_deploy_always_runs_detached(captured_web_runs, tmp_path):
@@ -277,7 +311,7 @@ def test_services_only_deploy_is_unchanged(captured_argv, tmp_path):
     no pull step."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    assert "docker-compose.web.yml" not in captured_argv["cmd"]
+    assert not _addresses(captured_argv["cmd"], "docker-compose.web.yml")
     assert "pull" not in captured_argv["cmd"]
     assert "up" in captured_argv["cmd"]
 
@@ -398,7 +432,7 @@ def captured_combined_runs(monkeypatch, tmp_path):
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
 
-    def _fake_build(config, dev_mode, env):
+    def _fake_build(config, dev_mode, env, build_context=None):
         build_calls.append({"config": config, "dev_mode": dev_mode})
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _fake_build)
@@ -423,7 +457,7 @@ def test_combined_services_and_web_deploy_two_detached_up_calls(captured_combine
     the directory of the FIRST `-f` file. compose_files (build/services/...)
     and docker-compose.web.yml (project root) are written to resolve against
     two DIFFERENT directories, so they must never be merged into one `-f ...
-    -f docker-compose.web.yml` argv -- a real `osprey deploy up` with both
+    -f docker-compose.web.yml` argv -- a real `osprey up` with both
     enabled failed immediately with "env file .../build/services/
     .env.production not found" until this was split into two invocations.
     """
@@ -432,15 +466,15 @@ def test_combined_services_and_web_deploy_two_detached_up_calls(captured_combine
     up_calls = [c for c in captured_combined_runs["calls"] if "up" in c["cmd"]]
     assert len(up_calls) == 2
 
-    services_up = [c["cmd"] for c in up_calls if "docker-compose.yml" in c["cmd"]]
-    web_up = [c["cmd"] for c in up_calls if "docker-compose.web.yml" in c["cmd"]]
+    services_up = [c["cmd"] for c in up_calls if _addresses(c["cmd"], "docker-compose.yml")]
+    web_up = [c["cmd"] for c in up_calls if _addresses(c["cmd"], "docker-compose.web.yml")]
     assert len(services_up) == 1
     assert len(web_up) == 1
 
     # The services and web compose files must never appear together in one
     # argv -- that merge is exactly what broke path resolution.
-    assert "docker-compose.web.yml" not in services_up[0]
-    assert "docker-compose.yml" not in web_up[0]
+    assert not _addresses(services_up[0], "docker-compose.web.yml")
+    assert not _addresses(web_up[0], "docker-compose.yml")
 
     for cmd in (services_up[0], web_up[0]):
         assert "-d" in cmd
@@ -453,11 +487,11 @@ def test_combined_services_up_gets_dev_build_web_up_never_does(captured_combined
 
     cmds = [c["cmd"] for c in captured_combined_runs["calls"]]
     up_calls = [c for c in cmds if "up" in c]
-    services_up = next(c for c in up_calls if "docker-compose.yml" in c)
-    web_up = next(c for c in up_calls if "docker-compose.web.yml" in c)
+    services_up = next(c for c in up_calls if _addresses(c, "docker-compose.yml"))
+    web_up = next(c for c in up_calls if _addresses(c, "docker-compose.web.yml"))
 
     # A standalone services `build` ran (services compose file, no `up`).
-    services_build = [c for c in cmds if c[-1] == "build" and "docker-compose.yml" in c]
+    services_build = [c for c in cmds if c[-1] == "build" and _addresses(c, "docker-compose.yml")]
     assert len(services_build) == 1
 
     # No `up --build` anywhere; the services `up` is explicitly --no-build.
@@ -484,7 +518,7 @@ def test_web_only_deploy_never_runs_a_services_up(captured_web_runs, tmp_path):
 
     up_calls = [c["cmd"] for c in captured_web_runs["calls"] if "up" in c["cmd"]]
     assert len(up_calls) == 1
-    assert "docker-compose.web.yml" in up_calls[0]
+    assert _addresses(up_calls[0], "docker-compose.web.yml")
 
 
 def test_combined_deploy_services_up_never_pulls(captured_combined_runs, tmp_path):
@@ -497,8 +531,8 @@ def test_combined_deploy_services_up_never_pulls(captured_combined_runs, tmp_pat
 
     pull_calls = [c["cmd"] for c in captured_combined_runs["calls"] if "pull" in c["cmd"]]
     assert len(pull_calls) == 1
-    assert "docker-compose.web.yml" in pull_calls[0]
-    assert "docker-compose.yml" not in pull_calls[0]
+    assert _addresses(pull_calls[0], "docker-compose.web.yml")
+    assert not _addresses(pull_calls[0], "docker-compose.yml")
 
 
 # ---------------------------------------------------------------------------
@@ -614,13 +648,13 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
-    # Auto-render is a separate concern with its own dedicated tests below;
-    # keep it inert here so the mode-wiring tests exercise only the local/
-    # registry step ordering, never a real `osprey build` subprocess.
+    # The persona-render check is a separate concern with its own dedicated
+    # tests below; keep it inert here so the mode-wiring tests exercise only the
+    # local/registry step ordering rather than any repo's rendered state.
     monkeypatch.setattr(
         provision,
-        "auto_render_missing_personas",
-        lambda config, resolved_users, env, project_root=None: None,
+        "verify_persona_renders",
+        lambda config, resolved_users, repo_root=None: None,
     )
 
     def _fake_run(cmd, **kwargs):
@@ -727,16 +761,16 @@ def test_local_mode_unresolvable_persona_raises_before_any_compose_call(
     assert _mode_wiring_collab == []  # no compose subprocess ever ran
 
 
-def test_local_mode_calls_auto_render_then_ensure_env_production_then_build_then_compose(
+def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_compose(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """The local-mode preflight order is load-bearing: auto-render any missing
-    persona project FIRST, then ensure_env_production, then build the image,
-    then compose. ensure_env_production's claude_code credential sweep reads
-    each rendered persona's config.yml, so on a first deploy it must run
-    after auto-render (and still before any compose call). A spy on
-    auto_render_missing_personas (overriding the fixture's inert stub)
-    proves the wiring line actually runs it -- and runs it BEFORE
+    """The local-mode preflight order is load-bearing: check every persona has
+    the render `osprey build` wrote FIRST, then ensure_env_production, then
+    build the image, then compose. ensure_env_production's claude_code
+    credential sweep reads each rendered persona's config.yml, so a deploy
+    missing one has to be refused before that sweep runs (and long before any
+    compose call). A spy on verify_persona_renders (overriding the fixture's
+    inert stub) proves the wiring line actually runs it -- and runs it BEFORE
     build_persona_images, which needs the rendered context to exist."""
     order: list[str] = []
     config = _web_terminals_config("local")
@@ -748,8 +782,8 @@ def test_local_mode_calls_auto_render_then_ensure_env_production_then_build_then
     )
     monkeypatch.setattr(
         provision,
-        "auto_render_missing_personas",
-        lambda cfg, resolved_users, env, project_root=None: order.append("auto_render"),
+        "verify_persona_renders",
+        lambda cfg, resolved_users, repo_root=None: order.append("verify_persona_renders"),
     )
 
     def _fake_build(cfg, resolved_users, dev_mode, env):
@@ -764,15 +798,16 @@ def test_local_mode_calls_auto_render_then_ensure_env_production_then_build_then
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    # The fail-fast deploy_up preflight runs auto_render + ensure_env_production
-    # once BEFORE the image-build stage, and deploy_up_web_terminals re-runs the
-    # same (idempotent) pair; then exactly three compose calls (the
-    # stale-container `rm -f` preflight, the web `up -d`, then the advisory
-    # nginx config reload; no deployed_services, no pull in local mode).
+    # The fail-fast deploy_up preflight runs the persona check +
+    # ensure_env_production once BEFORE the image-build stage, and
+    # deploy_up_web_terminals re-runs the same (idempotent) pair; then exactly
+    # three compose calls (the stale-container `rm -f` preflight, the web
+    # `up -d`, then the advisory nginx config reload; no deployed_services, no
+    # pull in local mode).
     assert order == [
-        "auto_render",
+        "verify_persona_renders",
         "ensure_env_production",
-        "auto_render",
+        "verify_persona_renders",
         "ensure_env_production",
         "build_persona_images",
         "compose",
@@ -830,11 +865,12 @@ def test_registry_mode_never_calls_build_persona_images(monkeypatch, tmp_path, _
     assert build_calls == []
 
 
-def test_registry_mode_never_calls_auto_render(monkeypatch, tmp_path, _mode_wiring_collab):
-    """Auto-render is a local-mode-only step (registry mode pulls prebuilt
-    images) -- it must never run on the registry path, mirroring the
-    build_persona_images guard. A recording spy overrides the fixture's inert
-    stub so a stray call would be caught, not swallowed."""
+def test_registry_mode_never_verifies_persona_renders(monkeypatch, tmp_path, _mode_wiring_collab):
+    """The persona-render check is a local-mode-only step (registry mode pulls
+    prebuilt images and needs no render at all) -- it must never run on the
+    registry path, mirroring the build_persona_images guard. A recording spy
+    overrides the fixture's inert stub so a stray call would be caught, not
+    swallowed."""
     (tmp_path / ".env.production").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
@@ -842,7 +878,7 @@ def test_registry_mode_never_calls_auto_render(monkeypatch, tmp_path, _mode_wiri
     render_calls = []
     monkeypatch.setattr(
         provision,
-        "auto_render_missing_personas",
+        "verify_persona_renders",
         lambda *a, **k: render_calls.append(a),
     )
 
@@ -914,7 +950,7 @@ def test_post_up_hook_order_is_linger_then_seed_then_verify(
 def test_deploy_up_runs_verify_script_when_present_ignoring_exit_code(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """A nonzero verify.sh exit must not propagate out of `osprey deploy up` --
+    """A nonzero verify.sh exit must not propagate out of `osprey up` --
     advisory only, per the script's own convention and run_verify_script's
     contract."""
     (tmp_path / ".env.production").write_text("", encoding="utf-8")
@@ -1144,7 +1180,7 @@ def test_deploy_down_tears_down_web_stack_before_services(monkeypatch, tmp_path)
     services execvpe replaces the process — the services `-f` list can never
     carry docker-compose.web.yml (root-relative paths), so skipping this
     leaves the fixed-name web/nginx containers running after every
-    `osprey deploy down`."""
+    `osprey down`."""
     monkeypatch.chdir(tmp_path)
     _mock_down_config(
         monkeypatch, "myproj", extra={"modules": {"web_terminals": {"enabled": True}}}
@@ -1372,11 +1408,11 @@ def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
-    assert any("docker-compose.web.yml" in c and "up" in c for c in calls)
+    assert any(_addresses(c, "docker-compose.web.yml") and "up" in c for c in calls)
 
 
 # ---------------------------------------------------------------------------
-# Stale-container preflight — self-healing `deploy up`
+# Stale-container preflight — self-healing `osprey up`
 #
 # An aborted deploy leaves containers wedged in created/exited state, and
 # Docker Desktop reserves published host ports at container CREATE time — so
@@ -1421,7 +1457,7 @@ def test_deploy_up_runs_stale_container_preflight_before_up(captured_plain_runs,
     # Scoped to this deploy's own compose files — and it is `rm`, never a
     # `down` (which would stop running containers).
     rm_cmd = captured_plain_runs[rm_idx]
-    assert "docker-compose.yml" in rm_cmd
+    assert _addresses(rm_cmd, "docker-compose.yml")
     assert "down" not in rm_cmd
 
 
@@ -1459,12 +1495,12 @@ def test_combined_deploy_each_stack_gets_its_own_rm_preflight(captured_combined_
     cmds = [c["cmd"] for c in captured_combined_runs["calls"]]
     rm_calls = [c for c in cmds if c[-2:] == ["rm", "-f"]]
     assert len(rm_calls) == 2
-    assert any("docker-compose.yml" in c for c in rm_calls)
-    assert any("docker-compose.web.yml" in c for c in rm_calls)
+    assert any(_addresses(c, "docker-compose.yml") for c in rm_calls)
+    assert any(_addresses(c, "docker-compose.web.yml") for c in rm_calls)
     # The two stacks' files are never merged into one rm argv, and the
     # shared-project path never orphan-removes.
     for c in rm_calls:
-        assert not ("docker-compose.yml" in c and "docker-compose.web.yml" in c)
+        assert not (_addresses(c, "docker-compose.yml") and _addresses(c, "docker-compose.web.yml"))
     for c in cmds:
         assert "--remove-orphans" not in c
 
@@ -1505,7 +1541,7 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=True)
 
     # The services-stack invocations (the ones carrying the services compose file).
-    svc = [c for c in runs if "build/services/docker-compose.yml" in c]
+    svc = [c for c in runs if _addresses(c, "docker-compose.yml")]
     assert not any("up" in c and "--build" in c for c in svc)
     assert any(c[-1] == "build" for c in svc), [" ".join(c) for c in svc]
     assert any("up" in c and "--no-build" in c for c in svc), [" ".join(c) for c in svc]
@@ -1634,55 +1670,6 @@ def test_build_project_image_dev_cleans_staged_artifacts_on_build_failure(monkey
 
 
 # ---------------------------------------------------------------------------
-# _warn_unignored_build_dir -- --dev context-bloat guard (task 3.3). Warns when
-# the rendered project's build/ dir would be swept into the --dev build context
-# because .dockerignore doesn't exclude it; silent otherwise.
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def _captured_warnings(monkeypatch):
-    warnings: list = []
-    monkeypatch.setattr(
-        container_lifecycle.logger, "warning", lambda *a, **k: warnings.append((a, k))
-    )
-    return warnings
-
-
-def test_warn_unignored_build_dir_fires_when_build_present_and_unignored(
-    _captured_warnings, tmp_path
-):
-    """build/ exists and no .dockerignore (missing == not-matching) -> warn once."""
-    (tmp_path / "build").mkdir()
-    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
-    assert len(_captured_warnings) == 1
-
-
-def test_warn_unignored_build_dir_fires_when_dockerignore_lacks_build(_captured_warnings, tmp_path):
-    """build/ exists, .dockerignore present but lists other paths -> still warn."""
-    (tmp_path / "build").mkdir()
-    (tmp_path / ".dockerignore").write_text("*.whl\n.venv/\n", encoding="utf-8")
-    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
-    assert len(_captured_warnings) == 1
-
-
-def test_warn_unignored_build_dir_silent_when_build_absent(_captured_warnings, tmp_path):
-    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
-    assert _captured_warnings == []
-
-
-@pytest.mark.parametrize("ignore_line", ["build/", "build"])
-def test_warn_unignored_build_dir_silent_when_dockerignore_excludes_build(
-    _captured_warnings, tmp_path, ignore_line
-):
-    """A matching build/ (or build) line in .dockerignore silences the warning."""
-    (tmp_path / "build").mkdir()
-    (tmp_path / ".dockerignore").write_text(f"*.whl\n{ignore_line}\n", encoding="utf-8")
-    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
-    assert _captured_warnings == []
-
-
-# ---------------------------------------------------------------------------
 # Staleness advisory + endpoint summary wiring
 #
 # Both features are advisory modules that only matter if deploy_up actually
@@ -1759,7 +1746,7 @@ def test_deploy_up_summarizes_even_when_nothing_deploys(_wiring_calls, monkeypat
 
 
 # ---------------------------------------------------------------------------
-# deploy_up ordering: the web-terminal preflight (persona auto-render +
+# deploy_up ordering: the web-terminal preflight (persona render check +
 # .env.production credential gate) must run BEFORE the expensive project-image
 # build -- a missing provider secret aborts in seconds, not after minutes of
 # docker build.

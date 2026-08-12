@@ -170,9 +170,10 @@ def test_ensure_service_tokens_refuses_a_dollar_outside_the_validated_vars(tmp_p
 def test_ensure_service_tokens_refuses_before_minting_anything(tmp_path) -> None:
     """A refused deploy must not leave freshly minted tokens behind.
 
-    The raise skips ``_sync_secrets_to_profile``, so tokens appended before it
-    would be dropped by the next ``osprey build`` re-deriving ``.env`` from the
-    profile — and a second set minted. Checking ahead of the mint avoids it.
+    The operator fixes the offending value and re-runs; tokens appended before
+    the refusal would still be sitting in ``.env``, unused by any container that
+    ever started, and indistinguishable from the live ones. Checking ahead of
+    the mint keeps the file exactly as the refusal found it.
     """
     env_path = tmp_path / ".env"
     env_path.write_text("OLOG_PASSWORD=h0rse$battery\n", encoding="utf-8")
@@ -344,7 +345,9 @@ def test_sidecar_recreate_itself_is_never_blocked_by_the_scan(tmp_path, monkeypa
     unrelated secret. So the scan goes ahead of each mutation, never here.
     """
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    # Where the recreate addresses it: the repo's render zone, not the root.
+    (tmp_path / "build").mkdir()
+    (tmp_path / "build" / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
     (tmp_path / ".env.auth").write_text(
         "OSPREY_AUTH_OIDC_CLIENT_SECRET=idp$ecret\n", encoding="utf-8"
     )

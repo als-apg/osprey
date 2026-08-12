@@ -2,7 +2,7 @@
 
 All functions are available from their focused submodules:
 - compose_generator: template rendering, build dir setup, compose file creation
-- container_lifecycle: deploy up/down/restart/rebuild
+- container_lifecycle: osprey up/down/restart/rebuild
 - status_display: show_status with Rich output
 """
 

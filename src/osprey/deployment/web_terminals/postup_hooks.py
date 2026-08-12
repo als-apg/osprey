@@ -105,8 +105,8 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
     ships that file as ``<project_root>/scripts/verify.sh`` (the profile's
     ``project/`` mirror copies it verbatim): a health-check script
     parameterized per-facility with a probe for each enabled module.
-    Historically it was operator-run-by-hand only; this makes ``osprey deploy
-    up`` run it automatically as the last step of the post-up hook, once
+    Historically it was operator-run-by-hand only; this makes ``osprey up``
+    run it automatically as the last step of the post-up hook, once
     ``compose up -d`` has already succeeded and containers are running, so an
     operator gets an immediate health signal without a separate manual step.
 
@@ -118,7 +118,7 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
     verification is advisory, never deploy-blocking — but this runs it via
     ``bash`` (rather than executing the path directly) and ignores whatever
     exit code it reports either way, so a site-customized copy that doesn't
-    honor that convention still can never fail ``osprey deploy up``: this
+    honor that convention still can never fail ``osprey up``: this
     step runs after compose already reported success, so a nonzero exit is a
     signal to look closer, not evidence the deploy failed. Output streams
     straight to the operator's terminal (stdout/stderr are inherited, not
@@ -291,7 +291,7 @@ def warn_if_web_stack_unreachable(
                 else ", which is off unless host networking is enabled"
             )
             + ": Docker Desktop -> Settings -> Resources -> Network -> 'Enable "
-            "host networking', then Apply & Restart and re-run `osprey deploy up`."
+            "host networking', then Apply & Restart and re-run `osprey up`."
         )
     logger.warning(
         f"Web-terminal containers are up, but {url} is not reachable from "

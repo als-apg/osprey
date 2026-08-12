@@ -5,15 +5,22 @@ Docker or Podman compose.
 """
 
 import os
+import re
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
 from osprey.deployment.compose_generator import (
+    COMPOSE_ENV_FILENAME,
+    REPO_ID_LABEL,
     _copy_local_framework_for_override,
     clean_deployment,
+    compose_base_cmd,
     prepare_compose_files,
+    repo_identity,
     resolve_project_name,
+    resolve_repo_root,
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.errors import ComposeInterpolationError
@@ -38,7 +45,7 @@ from osprey.deployment.service_tokens import (
     _validate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _validate_var,
 )
-from osprey.deployment.staleness import warn_if_project_stale
+from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
 from osprey.deployment.web_terminals.provision import (
     deploy_down_web_terminals,
     deploy_up_web_terminals,
@@ -47,13 +54,11 @@ from osprey.deployment.web_terminals.provision import (
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.config import load_project_config
 from osprey.utils.dotenv import (
-    append_profile_env,
-    atomic_write,
     compose_unsafe_vars,
-    derive_project_env,
     parse_dotenv_file,
 )
 from osprey.utils.logger import get_logger
+from osprey.utils.workspace import container_image_context
 
 logger = get_logger("deployment.lifecycle")
 
@@ -123,6 +128,23 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
 # with a named-var/no-value error.
 _VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN"}
 
+#: Minted vars a service reads ONLY when it initializes a fresh data volume.
+#: For every other token, minting a new value and restarting is enough; for
+#: these two the container keeps whatever it was born with, so a fresh mint
+#: beside a surviving volume produces a credential mismatch that shows up as an
+#: authentication failure at start rather than as anything about ``.env``.
+#:
+#: The dangerous case is exactly "minted, not found": an operator who deleted
+#: ``.env`` (or just its minted section) while the volumes lived. Both vars are
+#: interpolated with a ``:-`` DEFAULT in their compose templates, so neither
+#: carries a ``:?`` guard that would abort the deploy and say so — which is why
+#: this warning is the only thing standing between that operator and a login
+#: that will not work for reasons nothing has named.
+_VOLUME_INITIALIZED_VARS: dict[str, str] = {
+    "ZO_ROOT_USER_PASSWORD": "openobserve",
+    "ARIEL_DB_PASSWORD": "postgresql",
+}
+
 # Document-plane CURVE certificate layout, relative to the project directory.
 # Fixed by the read-only mounts the bluesky compose template declares
 # (``../../data/bluesky_curve/<side>`` -> ``/app/curve``) together with the
@@ -181,252 +203,32 @@ def _append_env_block(env_path: Path, comment: str, values: dict[str, str]) -> N
     os.chmod(env_path, 0o600)
 
 
-# Named volumes each token-requiring service declares in its compose template,
-# spelled bare as the template spells them — compose namespaces a bare volume
-# with COMPOSE_PROJECT_NAME, which ``runtime_env`` pins to
-# ``resolve_project_name``, so the runtime name is ``<project>_<bare>``.
-#
-# The point of the map is a *not-a-first-deploy* signal: one of these volumes
-# existing means the service has been initialized before, under whatever secret
-# was current then. ``event_dispatcher`` has no entry because its template
-# declares no named volume (it bind-mounts its config), so there is nothing its
-# continuity could be read from.
-_SERVICE_STATE_VOLUMES: dict[str, tuple[str, ...]] = {
-    "dispatch_worker": ("dispatch_workspace",),
-    "bluesky": ("bluesky_tiled_catalog",),
-    "openobserve": ("openobserve_data",),
-    "postgresql": ("ariel_postgres_data",),
-}
-
-
-def _profile_env_path(project_dir: Path) -> Path | None:
-    """The profile ``.env`` that owns this project's secrets, or ``None``.
-
-    The deploy-side reading of
-    :func:`~osprey.cli.profile_root.resolve_project_profile`: the profile is
-    located through the project's own manifest and the ``.env`` sits at the
-    profile *root*, with ``require_profile_file=False`` because this answers
-    "where *would* this project's secrets live" — a question a caller offering
-    an operator a place to put a secret needs answered even when the profile
-    file is momentarily absent.
-
-    ``None`` means there is no profile to write to: a preset-built project, a
-    manifest predating the key, or a persona delta whose root has gone missing.
-    Only the last of those is worth a warning; the first two are ordinary. What
-    this adds over the shared resolver is that warning, in this path's own
-    words, so nothing about the deploy write-back leaks into a resolver other
-    callers read for other reasons.
-
-    A caller about to *write* there unattended owes the stronger check as well:
-    see :func:`_stale_manifest_profile`.
-    """
-    from osprey.cli.profile_root import ProjectProfileProblem, resolve_project_profile
-
-    resolved = resolve_project_profile(project_dir, require_profile_file=False)
-    if resolved.problem is ProjectProfileProblem.ROOT_UNRESOLVABLE:
-        # A persona delta whose root profile is gone. Reporting it as "no
-        # profile" is honest — we cannot say which directory the secrets belong
-        # in — and the manifest flag still records that they were not synced.
-        logger.warning(
-            "Cannot locate the profile root for %s (its profile.yml is missing), so the "
-            "service secrets this deploy uses stay in the project .env only.",
-            resolved.profile_path,
-        )
-    return resolved.env_path
-
-
-def _stale_manifest_profile(project_dir: Path) -> Path | None:
-    """The profile file the manifest records, when it is no longer there.
-
-    ``build_args.profile_path_abs`` is a build-machine absolute path and nothing
-    keeps it true: an operator reorganizes a profile repo, or moves a facility
-    profile one directory up. What usually survives the move is the *old parent
-    directory* — the repo's other files are still in it, only the profile file
-    has gone — and that directory resolves to a perfectly writable profile root,
-    so a write-back lands with no error at all. It creates a fresh ``.env``
-    there: a second, orphaned copy of the stack's secrets in a directory no
-    profile lives in any more, while the manifest is stamped as synced. Only the
-    recorded file's own absence tells that apart from a live profile.
-
-    ``None`` — nothing stale — covers both "the profile is where it should be"
-    and "the manifest records no profile at all"; the latter is a preset-built
-    project, which has its own degraded path.
-
-    :param project_dir: Project root (the directory holding the manifest).
-    :returns: The recorded path, when it is not an existing file.
-    """
-    from osprey.cli.templates.manifest import manifest_profile_path
-
-    profile_path = manifest_profile_path(project_dir)
-    if profile_path is None or profile_path.is_file():
-        return None
-    return profile_path
-
-
-def _sync_secrets_to_profile(env_path: Path, entries: dict[str, str]) -> None:
-    """Persist the secrets this deploy is running with into the owning profile.
-
-    The profile ``.env`` is the source of truth for facility secrets, but a
-    deploy is where several of them first come into existence (minted tokens,
-    volume-initializing passwords). Writing them back is what makes the project
-    reproducible: a rebuild from the same profile comes up on the same secrets
-    instead of minting a second set the running containers do not trust.
-
-    **Append-only.** A key already in the profile keeps its value — it is pinned
-    by the docker volume initialized with it and by every container already
-    trusting it — and a supplied value that disagrees is reported by name (never
-    by value) for the operator to resolve. The project ``.env`` is then
-    re-derived from the profile in ``deploy`` mode: profile-carried keys refresh
-    in place, keys the project lacks are appended, and nothing is deleted — a
-    deploy must not prune a project it did not build.
-
-    Degraded path — no profile recorded, or one that cannot be written (a
-    registry-mode host, a profile directory that has moved or been deleted): the
-    secrets stay in the project ``.env`` where they were minted, a warning names
-    the path that failed, and ``secrets_synced_to_profile: false`` goes into the
-    manifest so ``osprey build --force`` says so before wiping the only copy.
-
-    Never raises into a deploy: every failure here degrades to that path.
-
-    :param env_path: The project ``.env`` the deploy is writing.
-    :param entries: The effective value of each secret, keyed by var name.
-    """
-    from osprey.cli.templates.manifest import write_secrets_synced_to_profile
-
-    project_dir = env_path.resolve().parent
-    try:
-        _sync_secrets_to_profile_inner(env_path, project_dir, entries)
-    except Exception:
-        logger.warning(
-            "Could not persist this deploy's service secrets to the profile .env; they "
-            "remain in %s only. Re-running osprey deploy up after fixing the profile "
-            "will sync them.",
-            env_path.resolve(),
-            exc_info=True,
-        )
-        try:
-            write_secrets_synced_to_profile(project_dir, False)
-        except OSError:
-            # Whatever stopped the write-back may equally stop the stamp (a
-            # read-only project dir, a full disk). The warning above is already
-            # out; losing the manifest flag on top of it must not be what
-            # finally raises into the deploy.
-            logger.debug(
-                "Could not record secrets_synced_to_profile in the manifest at %s",
-                project_dir,
-                exc_info=True,
-            )
-
-
-def _sync_secrets_to_profile_inner(
-    env_path: Path, project_dir: Path, entries: dict[str, str]
-) -> None:
-    """The write-back half of :func:`_sync_secrets_to_profile`, free to raise."""
-    from osprey.cli.templates.manifest import write_secrets_synced_to_profile
-
-    profile_env = _profile_env_path(project_dir)
-    if profile_env is None:
-        # Not a failure: a preset-built project has no profile to own its
-        # secrets. The flag still records that the project .env is the only
-        # copy, which is what the pre-wipe warning needs to know.
-        write_secrets_synced_to_profile(project_dir, False)
-        return
-
-    stale_profile = _stale_manifest_profile(project_dir)
-    if stale_profile is not None:
-        # Both ends of the break are named: the profile that is no longer where
-        # the build left it, and the .env deliberately not written on its
-        # behalf. Re-pointing the manifest is a rebuild's job, not a deploy's —
-        # a deploy that went hunting for the profile's new home would be
-        # guessing which of several candidates the operator meant.
-        logger.warning(
-            "The profile this project was built from is no longer at %s, so this deploy's "
-            "service secrets were not written back: doing so would recreate %s under a "
-            "root the profile has left, where no build will ever read it. They remain in "
-            "%s. Rebuild from the profile's new location to sync them.",
-            stale_profile,
-            profile_env,
-            env_path.resolve(),
-        )
-        write_secrets_synced_to_profile(project_dir, False)
-        return
-
-    try:
-        result = append_profile_env(profile_env, entries)
-    except OSError as exc:
-        logger.warning(
-            "Could not write the service secrets to the profile .env at %s (%s). They "
-            "were minted into %s instead and exist nowhere else — copy them into the "
-            "profile, or re-run osprey deploy up once the profile is reachable.",
-            profile_env,
-            exc,
-            env_path.resolve(),
-        )
-        write_secrets_synced_to_profile(project_dir, False)
-        return
-
-    for conflict in result.conflicts:
-        # Values are never logged: the point is which var disagrees, not what
-        # either side holds.
-        logger.warning(
-            "%s differs between this deploy and the profile .env at %s. The profile's "
-            "value was kept (a minted secret is pinned by the volume and containers "
-            "that adopted it); this deploy keeps using its own. Reconcile them by hand "
-            "if the two stacks are meant to share the secret.",
-            conflict.key,
-            profile_env,
-        )
-
-    if result.added:
-        logger.key_info(
-            "Persisted service secret(s) %s to the profile .env at %s — a rebuild from "
-            "this profile will come up on the same secrets",
-            ", ".join(result.added),
-            profile_env,
-        )
-
-    _derive_project_env_from_profile(env_path, profile_env)
-    write_secrets_synced_to_profile(project_dir, not result.conflicts)
-
-
-def _derive_project_env_from_profile(env_path: Path, profile_env: Path) -> None:
-    """Refresh the project ``.env`` from the profile, overlay-only.
-
-    Deploy-mode derivation: there is no render to compare against here, so the
-    existing project file supplies the whole shape and the profile only updates
-    the keys it carries and appends the ones the project is missing. Written
-    through a temp file and ``os.replace`` — the whole file is rewritten, so a
-    crash mid-write must not truncate an operator's ``.env``.
-    """
-    profile_text = profile_env.read_text(encoding="utf-8") if profile_env.is_file() else ""
-    if not profile_text.strip():
-        return
-    existing_text = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
-    derived = derive_project_env(profile_text, "", existing_text, mode="deploy")
-    if derived == existing_text:
-        return
-
-    atomic_write(env_path, derived)
-
-
 def _ensure_service_tokens(
-    config: dict, expose_network: bool, env_path: Path | None = None
+    config: dict,
+    expose_network: bool,
+    env_path: Path | None = None,
 ) -> None:
-    """Self-provision required fail-closed service tokens into the project ``.env``.
+    """Self-provision required fail-closed service tokens into ``env_path``.
+
+    ``osprey up`` passes the deployment repo's own ``.env`` explicitly; a caller
+    that passes nothing falls back to a cwd-relative ``.env`` (see the
+    assignment below). Everything the rest of this docstring says about "the
+    ``.env``" is about the file the caller named.
 
     For any token var (per ``_SERVICE_TOKEN_VARS``, keyed by the deployed
-    services present) unset in BOTH the process env and the project ``.env``,
+    services present) unset in BOTH the process env and that ``.env``,
     generate a strong random value (``_generate_token``: ``token_urlsafe(32)``
     unless the var registers a different alphabet in ``_VAR_GENERATORS``) and
     append it to ``.env``
     (``chmod 0o600``, matching the build-time convention). Existing values are
-    never overwritten, so re-running ``deploy up`` is idempotent. No-op unless
+    never overwritten, so re-running ``osprey up`` is idempotent. No-op unless
     a token-requiring service is actually deployed.
 
     A token that is *present but explicitly empty* (e.g. ``TOKEN=`` exported in
     the shell) is left untouched — generating would silently override a
     deliberate value. For a loopback deploy the server simply fails closed; for
-    an exposed deploy (``--expose`` / bind 0.0.0.0) we refuse rather than bind a
+    a deployment the build rendered as reachable off-host (a wildcard bind, or
+    the host-networked web-terminal stack) we refuse rather than bind a
     fail-open-at-bind server to all interfaces.
 
     Minting is unconditional for every var a deployed service declares: these
@@ -436,12 +238,14 @@ def _ensure_service_tokens(
     limits), which every write path — agent-side and bridge-side alike — must
     still clear. No deploy-time value is read here for safety semantics.
 
-    Whatever the effective values turn out to be — minted here, already in the
-    project ``.env``, or exported in the shell — they are then persisted to the
-    ``.env`` of the profile the project was built from, so a rebuild reproduces
-    this stack rather than minting a second set of tokens its containers do not
-    trust. See :func:`_sync_secrets_to_profile` for the append-only rule and the
-    degraded path when there is no reachable profile.
+    A mint lands once and stays there. Nothing is copied anywhere afterwards:
+    the file written here IS the deployment's one secret store, sitting at the
+    repo root beside the ``profile.yml`` that describes the stack, and it is the
+    same file compose is pointed at (``--env-file <repo>/.env``). This used to
+    write the effective values on to a second ``.env`` owned by the profile,
+    because a rendered project and its profile were different directories and a
+    rebuild elsewhere would otherwise mint secrets the running containers reject.
+    One directory, one file, no second copy to keep in step.
 
     Independently of the above, every var in ``_VALIDATE_ONLY_VARS``
     (e.g. ``ARIEL_DSN``) is checked against its ``_VAR_VALIDATORS`` constraint
@@ -479,7 +283,9 @@ def _ensure_service_tokens(
     #     entry — how most services here receive their secrets — resolves
     #     through it;
     #   * the dispatch worker additionally gets the file entire, via
-    #     `env_file: ../../.env` in its compose template.
+    #     `env_file: ./.env` in its compose template — resolved against the
+    #     pinned compose project directory, which IS the repo root, so it is
+    #     this same file and not a copy inside the render.
     #
     # Measured on Docker Compose v2.34: `h0rse$battery` substitutes to `h0rse`,
     # and `secret$HOME` to the deploy host's home path with NO warning at all.
@@ -492,11 +298,11 @@ def _ensure_service_tokens(
     # travel in this file and are in neither set.
     #
     # Before the mint, deliberately. Scanning after would leave freshly minted
-    # tokens appended to .env while the raise skips _sync_secrets_to_profile,
-    # so the next `osprey build` re-derives .env from the profile, drops them,
-    # and mints a second set. Nothing is lost by checking early: every minted
-    # value is `$`-free by construction (see the alphabets in service_tokens),
-    # which the generator self-rejection test pins.
+    # tokens appended to a .env the deploy then refuses to use, so the operator
+    # fixes the offending value and the next run mints a second set beside the
+    # first. Nothing is lost by checking early: every minted value is `$`-free
+    # by construction (see the alphabets in service_tokens), which the generator
+    # self-rejection test pins.
     #
     # The file — not the effective value — is what matters: compose reads it
     # off disk, so a process-env override never reaches a container this way.
@@ -529,20 +335,45 @@ def _ensure_service_tokens(
                 env_path.resolve(),
             )
 
+            # A mint is the moment the volume-initialized vars become a hazard:
+            # the value is new, and any volume that already exists will keep
+            # ignoring it. Warn — never refuse — because the same mint is also
+            # the completely ordinary first-deploy case, where there is no
+            # volume yet and nothing is wrong. Names only, never values, in
+            # keeping with every other line this function logs.
+            for name in sorted(generated):
+                service = _VOLUME_INITIALIZED_VARS.get(name)
+                if service is None:
+                    continue
+                logger.warning(
+                    "%s was newly generated. %s reads it only when it initializes a "
+                    "fresh data volume, so if this deployment's %s volume already "
+                    "exists it keeps the credential it was created with and will "
+                    "reject the new one. If you cannot sign in to %s, remove that "
+                    "volume so it re-initializes (`osprey reset` does it for the "
+                    "whole stack), or put the original %s back in %s.",
+                    name,
+                    service,
+                    service,
+                    service,
+                    name,
+                    env_path.resolve(),
+                )
+
     # Validate the effective value of every required var — whichever of
     # process env, an existing .env, or a value just minted above the caller
     # actually sees — against its registered _VAR_VALIDATORS constraint (if
-    # any). Unconditional: runs on every deploy path (deploy_up, deploy_restart,
-    # rebuild_deployment), not only under --expose, so a malformed
-    # operator-supplied value is caught on the default loopback deploy too.
+    # any). Unconditional: runs on every deploy path, not only for a deployment
+    # that is reachable off-host, so a malformed operator-supplied value is
+    # caught on the default loopback deploy too.
     # Re-parse .env since the mint step above may have just appended to it.
     post = parse_dotenv_file(env_path) if env_path.is_file() else {}
     for name in required_vars:
         effective = _effective_value(name, post)
         if expose_network and not effective.strip():
             raise RuntimeError(
-                f"{name} is empty; refusing to --expose (bind 0.0.0.0) with an "
-                f"empty token. Set {name} in .env to a strong secret."
+                f"{name} is empty; refusing to start a deployment that is reachable "
+                f"off-host with an empty token. Set {name} in .env to a strong secret."
             )
         if effective and not _validate_var(name, effective):
             _raise_invalid_var(name, effective)
@@ -558,170 +389,10 @@ def _ensure_service_tokens(
         if not _validate_var(name, effective):
             _raise_invalid_var(name, effective)
 
-    # Persist the *effective* secrets — not just the ones minted a moment ago —
-    # into the profile that owns them, so a rebuild reproduces this stack
-    # instead of minting a second set of tokens the running containers reject.
-    # Values already in the profile win; see _sync_secrets_to_profile.
-    if required_vars:
-        effective_secrets = {
-            name: value for name in required_vars if (value := _effective_value(name, post))
-        }
-        if effective_secrets:
-            _sync_secrets_to_profile(env_path, effective_secrets)
-
-
-def _existing_volume_names(config: dict) -> set[str] | None:
-    """Every volume name the container runtime currently knows about.
-
-    Read-only — a plain ``volume ls``; nothing is created, removed or inspected,
-    and no volume's *contents* are ever read. ``None`` when the runtime cannot be
-    asked (not installed, not running, slow to answer), which callers must treat
-    as "unknown" rather than "no volumes": guessing "fresh" from a failed query
-    would silence a warning exactly when the host is least understood.
-
-    :param config: Loaded configuration dictionary (selects docker vs podman).
-    :returns: The set of volume names, or ``None`` when the query failed.
-    """
-    try:
-        runtime_bin = get_runtime_command(config)[0]
-        result = subprocess.run(
-            [runtime_bin, "volume", "ls", "--format", "{{.Name}}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except Exception:
-        logger.debug("Could not list container volumes", exc_info=True)
-        return None
-    if result.returncode != 0:
-        logger.debug("Volume listing exited %s", result.returncode)
-        return None
-    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
-
-
-def _preflight_token_continuity(config: dict, env_path: Path | None = None) -> None:
-    """Warn when a service's existing volume outlives the secret that opened it.
-
-    Several of the secrets ``_ensure_service_tokens`` mints are adopted *once*,
-    by a docker volume, at the moment the service first initializes: openobserve's
-    root password, the ARIEL database password. The container reads the var only
-    on a fresh volume — afterwards the volume is the authority, and a deploy that
-    supplies a different value simply fails to authenticate against data it can
-    no longer open.
-
-    So the dangerous state is a volume that already exists paired with a profile
-    that cannot reproduce the secret it was initialized with. That is what a
-    migration produces: a stack first deployed before the profile write-back
-    existed, or one whose write-back degraded (a stale manifest, an unreachable
-    profile) while its containers went on running. Nothing is wrong *yet* — the
-    project ``.env`` still holds the value and this deploy will come up. What
-    makes it dangerous is that the project ``.env`` is then the *only* copy, and
-    it is local state: a ``build --force`` in place preserves the minted value
-    (these are :data:`~osprey.utils.dotenv.RUNTIME_WRITER_KEYS`, whose existing
-    project value wins over both the profile and the render), but a build from
-    the profile anywhere else — a fresh checkout, another host — mints a new
-    secret that the surviving volume rejects.
-
-    The check is deliberately shallow, and stays advisory:
-
-    * volume *existence* is the whole not-first-deploy signal — no volume is read,
-      inspected, or mounted;
-    * the profile is checked by variable **name** only. Whether the profile's
-      value matches the one the volume adopted is unknowable from here (the
-      volume will not say), and comparing values would mean handling secrets to
-      answer a question this preflight is not asking;
-    * it warns and returns. A running stack is not broken by this state, so
-      refusing to start it would be the wrong trade — and the operator, not the
-      deploy, decides between copying the secret across and recreating the volume.
-
-    Runs on the ``deploy up`` path only (``rebuild`` reaches it through
-    ``deploy_up``, after ``clean`` has removed the volumes — correctly no longer
-    a not-first-deploy). ``deploy restart`` does not run it: it restarts existing
-    containers with the secrets they already hold and never re-initializes a
-    volume, so the warning would have nothing to act on.
-
-    Never raises into a deploy: an advisory that cannot answer stays quiet.
-
-    :param config: Loaded configuration dictionary (``deployed_services``).
-    :param env_path: Project ``.env`` path; defaults to ``Path(".env")``, matching
-        :func:`_ensure_service_tokens`. Overridable for tests.
-    """
-    try:
-        _preflight_token_continuity_inner(config, env_path or Path(".env"))
-    except Exception:
-        logger.debug("Token-continuity preflight did not run", exc_info=True)
-
-
-def _preflight_token_continuity_inner(config: dict, env_path: Path) -> None:
-    """The body of :func:`_preflight_token_continuity`, free to raise."""
-    services = {str(s) for s in (config.get("deployed_services") or [])}
-    # Iterate the map, not the deployed set, so the order services are reported
-    # in is deterministic regardless of set iteration order.
-    candidates = [
-        (name, volumes, _SERVICE_TOKEN_VARS[name])
-        for name, volumes in _SERVICE_STATE_VOLUMES.items()
-        if name in services and name in _SERVICE_TOKEN_VARS
-    ]
-    if not candidates:
-        return
-
-    project_dir = env_path.resolve().parent
-    profile_env = _profile_env_path(project_dir)
-    if profile_env is None or _stale_manifest_profile(project_dir) is not None:
-        # No profile owns these secrets, or the one the manifest names is gone.
-        # Either way the write-back path has already said so in its own words;
-        # a second warning about the same break would only dilute it.
-        return
-
-    existing = _existing_volume_names(config)
-    if existing is None:
-        return
-    profile_vars = parse_dotenv_file(profile_env) if profile_env.is_file() else {}
-    project_name = resolve_project_name(config)
-
-    for service, volumes, token_vars in candidates:
-        present: list[str] = []
-        for bare_name in volumes:
-            present.extend(_matching_volumes(existing, project_name, bare_name))
-        if not present:
-            continue  # first deploy of this service: the volume adopts what we supply
-        missing = [var for var in token_vars if var not in profile_vars]
-        if not missing:
-            continue
-        logger.warning(
-            "%s already has state in %s, so it was initialized under the secret that was "
-            "current then — but %s %s not in the profile .env at %s. A rebuild from this "
-            "profile will mint a fresh value the existing volume does not accept. Copy "
-            "%s across from %s, or remove the volume to let the service re-initialize.",
-            service,
-            ", ".join(present),
-            ", ".join(missing),
-            "is" if len(missing) == 1 else "are",
-            profile_env,
-            "it" if len(missing) == 1 else "them",
-            env_path.resolve(),
-        )
-
-
-def _matching_volumes(existing: set[str], project_name: str, bare_name: str) -> list[str]:
-    """The runtime volumes in ``existing`` that ``bare_name`` refers to.
-
-    Compose namespaces a bare volume as ``<project>_<bare>``, so that is what a
-    template's ``openobserve_data`` is actually called on the host — and the name
-    an operator would have to type to remove it, which is why the *runtime* names
-    are returned rather than a bare yes/no. The dispatch workspace is additionally
-    declared once **per worker** in per-worker mode (``dispatch_workspace_1``,
-    ``dispatch_workspace_2``, …), so a numbered suffix counts as the same volume;
-    without that, a stack running anything but the shared workspace would read as
-    a first deploy forever. Sorted, so a warning naming several is stable.
-    """
-    prefix = f"{project_name}_{bare_name}"
-    return sorted(name for name in existing if name == prefix or name.startswith(f"{prefix}_"))
-
 
 def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
     """Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
-    VA-backed Bluesky stack, making ``osprey deploy up`` turn-key.
+    VA-backed Bluesky stack, making ``osprey up`` turn-key.
 
     Additive and non-breaking, mirroring ``_ensure_service_tokens``'s
     "existing value wins, append what's missing" convention: when the
@@ -760,8 +431,8 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     :param config: Raw deploy config (``deployed_services`` membership).
     :param env_path: Project ``.env`` path; defaults to ``Path(".env")``
         (matching ``_ensure_service_tokens``), i.e. resolved against the
-        current working directory -- ``osprey deploy`` always chdirs into
-        the project directory first. Overridable for tests.
+        current working directory -- ``osprey up`` always chdirs into the
+        repo root first. Overridable for tests.
     """
     deployed_services = config.get("deployed_services")
     services = {str(s) for s in (deployed_services or [])}
@@ -783,7 +454,7 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
             "be listed and composed but never executed. Skipping "
             "BLUESKY_EPICS_SUBSTRATE auto-configuration (scan devices need an "
             "EPICS-like connector to speak Channel Access to). Flip it with "
-            "`osprey config set-control-system virtual_accelerator`."
+            "`osprey set connector=virtual_accelerator`."
         )
         return
 
@@ -1005,8 +676,8 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     value is derived from that one" — and two independently random keys are
     exactly a broken CURVE handshake. A pair-aware hook in that map would have
     to reach across variables mid-loop; a separate step is the smaller change,
-    and it leaves that function's minting, ``--expose`` and validation
-    semantics untouched.
+    and it leaves that function's minting, exposure and validation semantics
+    untouched.
 
     **Both halves are secrets.** The public key is not the usual
     "public keys are safe to publish" case: upstream ``bluesky-queueserver``
@@ -1071,7 +742,7 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
                 "control socket in plaintext, which is not a supported mode: the manager is "
                 "the one route to plan execution that does not pass the bridge's launch-token "
                 "gate, and its container shares a network with every other service. Either "
-                f"unset {var} and let `osprey deploy up` mint a keypair, or set "
+                f"unset {var} and let `osprey up` mint a keypair, or set "
                 f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR} to the private half of a CURVE keypair of "
                 "your own."
             )
@@ -1107,7 +778,7 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
             "public one you set, so nothing is generated here — the deploy will stop at "
             "the compose template's fail-closed guard on the private key rather than "
             "start the manager in plaintext. Set %s to the private half of that keypair, "
-            "or unset %s to let `osprey deploy up` mint a fresh pair.",
+            "or unset %s to let `osprey up` mint a fresh pair.",
             _QSERVER_ZMQ_PUBLIC_KEY_VAR,
             _QSERVER_ZMQ_PRIVATE_KEY_VAR,
             _QSERVER_ZMQ_PRIVATE_KEY_VAR,
@@ -1218,7 +889,7 @@ def _verify_qserver_keypair_pairs(private_key: str, public_key: str) -> None:
             "never complete a CURVE handshake with the RE manager, and every queue call "
             "would fail as an unexplained control-socket timeout. Set "
             f"{_QSERVER_ZMQ_PUBLIC_KEY_VAR} to the public half of that keypair, or unset "
-            "both and let `osprey deploy up` mint a matched pair."
+            "both and let `osprey up` mint a matched pair."
         )
 
 
@@ -1285,7 +956,7 @@ def _assert_env_interpolation_safe(var: str, value: str) -> None:
         "truncated, invalid key and the bluesky RE manager's control socket would "
         "fail to authenticate, with only a 'variable is not set' warning to explain "
         "it. This value cannot be used as-is. Supply a CURVE keypair whose halves "
-        f"contain no '$' (unset {var} to let `osprey deploy up` mint one), or set "
+        f"contain no '$' (unset {var} to let `osprey up` mint one), or set "
         f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR} to a private key whose derived public half "
         "is also '$'-free."
     )
@@ -1398,7 +1069,7 @@ def _resolve_pip_spec(dev_mode: bool = False) -> str:
     if not is_release():
         raise UnreleasedVersionPinError(
             unreleased_pin_reason(),
-            "Use `osprey deploy up --dev` to build and stage a wheel from this "
+            "Use `osprey up --dev` to build and stage a wheel from this "
             "checkout, or set OSPREY_PIP_SPEC to pin explicitly.",
         )
     return f"osprey-framework=={get_release_version()}"
@@ -1443,7 +1114,10 @@ def _project_image_build_cmd(
     :return: The full build command as an argv list.
     """
     project_name = resolve_project_name(config)
-    dockerfile = os.path.join(project_root, "Dockerfile")
+    # The Dockerfile lives inside the context's render, not at its root: the
+    # context is a deployment REPO (see workspace.container_image_context), and a
+    # repo keeps its build output one level down.
+    dockerfile = os.path.join(project_root, BUILD_DIRNAME, "Dockerfile")
     cmd = [
         runtime,
         "build",
@@ -1464,32 +1138,9 @@ def _project_image_build_cmd(
     return cmd
 
 
-def _warn_unignored_build_dir(project_root: str) -> None:
-    """Warn if a ``build/`` dir would bloat the ``--dev`` build context.
-
-    A rendered project accumulates a ``build/`` directory (compose files,
-    service contexts). When it isn't excluded via the project's
-    ``.dockerignore``, ``<runtime> build``'s context tar sweeps it up on every
-    ``--dev`` build — slow, and a foot-gun a one-line ``.dockerignore`` entry
-    fixes. Plain-text line check only (no docker introspection); a missing
-    ``.dockerignore`` counts as not-matching.
-    """
-    if not (Path(project_root) / "build").exists():
-        return
-    dockerignore = Path(project_root) / ".dockerignore"
-    lines = dockerignore.read_text(encoding="utf-8").splitlines() if dockerignore.is_file() else []
-    if any(line.strip().rstrip("/") == "build" for line in lines):
-        return
-    logger.warning(
-        "The project's build/ directory is not excluded from the --dev image "
-        "build context (no matching entry in %s), so it will be sent to the "
-        "container runtime on every build. Add a line 'build/' to .dockerignore, "
-        "or re-render the project with `osprey build --force`.",
-        dockerignore,
-    )
-
-
-def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
+def _build_project_image(
+    config: dict, dev_mode: bool, env: dict, build_context: Path | str | None = None
+) -> None:
     """Build the ``<project>:local`` image the dispatch worker references.
 
     The dispatch worker's compose service intentionally has no ``build:`` block
@@ -1517,6 +1168,14 @@ def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
     :param dev_mode: Whether ``--dev`` was passed (stage a local wheel).
     :param env: Environment for the build subprocess (also read for
         ``OSPREY_WORKER_IMAGE``).
+    :param build_context: The container repo this image is built from —
+        ``<repo>/build/.image/<project>``, which ``osprey build`` rendered
+        against the ``/app/<project>`` path the container sees rather than this
+        host's (:func:`osprey.utils.workspace.container_image_context`). Passed
+        explicitly because it is the one thing here that is NOT the compose
+        project directory. Building from ``<repo>/build`` instead would produce
+        an image whose every recorded path — ``project_root``, and the
+        ``OSPREY_CONFIG`` each MCP server is handed — names this machine.
     """
     services = {str(s) for s in (config.get("deployed_services") or [])}
     if "dispatch_worker" not in services:
@@ -1534,7 +1193,9 @@ def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
         return
 
     runtime = get_runtime_command(config)[0]
-    project_root = os.getcwd()
+    project_root = str(
+        Path(build_context) if build_context is not None else resolve_repo_root(config)
+    )
 
     # OSPREY_DEV=1 (the pin-relaxing build arg) is passed only when the wheel
     # was actually staged: on a failed build/staging the Dockerfile must keep
@@ -1543,7 +1204,13 @@ def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
     staged_artifacts: list[Path] = []
     wheel_staged = False
     if dev_mode:
-        _warn_unignored_build_dir(project_root)
+        # No build-context bloat guard here, deliberately. One used to warn when
+        # a context's `build/` was not excluded from it, back when `build/` was
+        # bulk the image had no use for. In this context `build/` IS the
+        # deployment being shipped, so that advice — add `build/` to
+        # `.dockerignore` — would produce an image with no config, no .mcp.json
+        # and no Claude Code artifacts. The guard has been removed rather than
+        # left uncalled, so nothing can call it back into service.
         before = _staged_dev_artifact_paths(project_root)
         wheel_staged = bool(_copy_local_framework_for_override(project_root))
         staged_artifacts = sorted(_staged_dev_artifact_paths(project_root) - before)
@@ -1569,22 +1236,169 @@ def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
                 logger.warning("Could not remove staged dev artifact %s", artifact)
 
 
-def _env_file_args() -> list[str]:
-    """``["--env-file", ".env"]`` if ``.env`` exists in the cwd, else ``[]``.
+def _env_file_args(repo_root: Path | str | None = None) -> list[str]:
+    """``["--env-file", "<repo>/.env"]`` if that file exists, else ``[]``.
 
-    Shared by :func:`deploy_up`'s plain-services compose invocation and
-    :func:`osprey.deployment.web_terminals.provision.deploy_up_web_terminals`'s
-    two invocations (``deploy_up`` passes the result in), so the "no .env"
-    warning (and the fallback-to-defaults behavior it describes) is only
-    defined once.
+    Thin binding of :func:`osprey.deployment.compose_generator.compose_env_file_args`
+    into this module, kept because
+    :func:`osprey.deployment.web_terminals.provision.web_stack_compose_cmd`
+    resolves the fragment through this name when a caller has none to thread
+    down. The rule and its "no .env" warning have one definition, in the module
+    that owns the invocation contract.
+
+    :param repo_root: The deployment repo whose ``.env`` this is. ``None``
+        falls back to the working directory, which every repo-scoped verb has
+        already chdir'd into.
     """
-    if Path(".env").exists():
-        return ["--env-file", ".env"]
-    logger.warning(
-        "No .env file found - services will start with default/empty environment variables"
+    from osprey.deployment.compose_generator import compose_env_file_args
+
+    return compose_env_file_args(repo_root if repo_root is not None else Path.cwd())
+
+
+#: A shell-variable name as compose's interpolator recognises one.
+_ENV_VAR_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _compose_interpolated_vars(text: str) -> set[str]:
+    """Every variable name a compose document *substitutes* from the environment.
+
+    Covers the forms compose's interpolator recognises — ``$VAR``, ``${VAR}``,
+    and each of the braced modifiers (``${VAR:-d}``, ``${VAR-d}``, ``${VAR:?m}``,
+    ``${VAR?m}``, ``${VAR:+a}``, ``${VAR+a}``) — because the modifier changes
+    what compose substitutes when the name is *unset*, not whether the name is
+    read. A variable with a default is still shadowed by an export.
+
+    ``$$`` is skipped: it is compose's escape for a literal ``$``, so the name
+    behind it is never resolved and warning about it would be a false positive.
+    Scanning continues *inside* the braces, so a default that itself interpolates
+    (``${A:-${B}}``) contributes both names.
+
+    A scanner rather than a single regex, because the braced form nests and the
+    ``$$`` escape has to be consumed before the character after it can be judged.
+    Deliberately syntactic — the whole document is scanned as text rather than
+    parsed as YAML, since compose substitutes before it parses, so a reference in
+    a comment-shaped or otherwise unparsed position is still a reference.
+
+    :param text: The raw contents of one rendered compose file.
+    :return: The referenced variable names.
+    """
+    names: set[str] = set()
+    index = 0
+    end = len(text)
+    while index < end:
+        if text[index] != "$":
+            index += 1
+            continue
+        nxt = text[index + 1] if index + 1 < end else ""
+        if nxt == "$":
+            index += 2  # `$$` — an escaped literal dollar, not a reference
+            continue
+        match = _ENV_VAR_NAME.match(text, index + 2 if nxt == "{" else index + 1)
+        if match:
+            names.add(match.group(0))
+            index = match.end()
+        else:
+            index += 1
+    return names
+
+
+def _preflight_env_shadowing(
+    compose_files: list[str],
+    repo_root: Path | str,
+    environ: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Warn when a shell export shadows the ``.env`` value compose would use.
+
+    ``<repo>/.env`` is the deployment's one secret store, and every compose
+    invocation is pointed at it explicitly (see
+    :func:`osprey.deployment.compose_generator.compose_env_file_args`). But
+    ``--env-file`` is the *lowest* precedence source for document interpolation:
+    a variable also exported in the calling shell wins, and compose says nothing
+    about it. So a stale export silently starts the stack on a value its volumes
+    were never initialized with — an openobserve that will not accept the
+    password in ``.env``, a database whose data directory answers to the pinned
+    value while the container is handed another one.
+
+    The same precedence the mint already designs to (``_ensure_service_tokens``
+    skips a var the process env sets, so no divergent value is ever written
+    into ``.env``): the export is honoured, the store is left intact, and
+    nothing on either path tells the operator the two disagree. This is that
+    telling.
+
+    Only variables the rendered compose files actually interpolate are compared,
+    against the file that will be passed as ``--env-file``. An exported name the
+    store does not pin is not a divergence (there is nothing for it to
+    contradict), and a pinned name no compose file reads cannot change what
+    starts.
+
+    **A warning, never a refusal.** Exporting a variable over the store is a
+    legitimate gesture — a one-off run against another host's credentials, a
+    rotation in progress — and a deploy that refused it would break the escape
+    hatch to protect people from using it.
+
+    **Names only, never values.** Which variable diverged is the actionable
+    fact; what either side holds is a secret, and a warning is the one place a
+    secret would leak into a terminal, a CI log and a bug report at once. Same
+    rule as :func:`osprey.utils.dotenv.compose_unsafe_vars` and the build's own
+    divergence warning.
+
+    :param compose_files: The compose files this deploy will start, in ``-f``
+        order. Relative entries resolve against *repo_root*, exactly as
+        :func:`osprey.deployment.compose_generator.compose_base_cmd` resolves
+        them. Unreadable entries are skipped — a missing compose file is the
+        start's own error to raise, not this advisory's.
+    :param repo_root: The deployment repo root; both the compose project
+        directory and the home of the ``.env`` compose is pointed at.
+    :param environ: The process environment to compare against. ``None`` reads
+        the live one.
+    :return: The shadowed variable names, sorted. Empty when there is no
+        divergence, no ``.env``, or nothing interpolated.
+    """
+    root = Path(repo_root).expanduser().absolute()
+    env_file = root / COMPOSE_ENV_FILENAME
+    if not env_file.is_file():
+        # No store to be shadowed: compose is given no --env-file at all, so the
+        # process env is the only source and nothing is being overridden.
+        return []
+
+    pinned = parse_dotenv_file(env_file)
+    if not pinned:
+        return []
+
+    process_env = os.environ if environ is None else environ
+
+    referenced: set[str] = set()
+    for compose_file in compose_files:
+        path = Path(compose_file)
+        path = path if path.is_absolute() else root / path
+        try:
+            referenced |= _compose_interpolated_vars(path.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+
+    shadowed = sorted(
+        name
+        for name in referenced
+        if name in pinned and name in process_env and process_env[name] != pinned[name]
     )
-    logger.info("To configure API keys: cp .env.example .env && edit .env")
-    return []
+    if not shadowed:
+        return []
+
+    logger.warning(
+        "Shell export shadows this deployment's .env: %s\n"
+        "  Exported here with a value that differs from the one pinned in %s. Compose "
+        "substitutes the EXPORTED value into the compose files — --env-file is the "
+        "lower-precedence source — so the stack starts on the shell's value while the "
+        "store keeps the one its volumes were initialized with. Values are never "
+        "printed.\n"
+        "  To start on the pinned value: unset %s. To adopt the exported one: edit "
+        ".env to match — but a volume that already exists keeps the credential it was "
+        "created with, whichever value the container is handed.",
+        ", ".join(shadowed),
+        env_file,
+        " ".join(shadowed),
+    )
+    return shadowed
 
 
 def _check_shared_disk_preflight(config: dict) -> None:
@@ -1663,20 +1477,9 @@ def _preflight_host_ports(config, compose_files):
 def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False):
     """Start services using container runtime (Docker or Podman).
 
-    When ``modules.web_terminals.enabled`` is set, the web-terminal stack is
-    reconciled too (rendering its artifacts and including
-    ``docker-compose.web.yml`` in the compose invocation) — see
-    :func:`osprey.deployment.web_terminals.provision.deploy_up_web_terminals`.
-    That reconcile always runs detached,
-    independent of ``detached``, and takes over from the plain services path
-    below.
-
-    Idempotent from any prior state: every path first clears this project's
-    own non-running containers (``compose rm -f`` — a wedged ``created``
-    container from an aborted deploy holds its published host ports on Docker
-    Desktop, blocking the next ``up``), and the plain path's ``up`` carries
-    ``--remove-orphans`` to reconcile away services dropped from the config.
-    Running containers and volumes are never touched by either measure.
+    The legacy entry point: it RE-RENDERS the compose files from the config it
+    is handed and then starts them. A deployment repo starts from
+    :func:`up_as_built` instead, which renders nothing.
 
     :param config_path: Path to the configuration file
     :type config_path: str
@@ -1689,12 +1492,87 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     """
     config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
 
+    # The compose project directory for every invocation below, resolved from
+    # the config path rather than inherited from the working directory — see
+    # compose_base_cmd for what it pins.
+    repo_root = resolve_repo_root(config, config_path)
+
     # Advisory staleness check BEFORE anything deploys: a project rendered by
     # an older framework/preset self-describes an out-of-date service set in
     # config.yml, so the deploy below would "succeed" at the wrong goal with
     # no error anywhere. Never blocks (see warn_if_project_stale).
     warn_if_project_stale(Path(config_path).resolve().parent)
 
+    _start_stack(
+        config,
+        compose_files,
+        repo_root,
+        detached=detached,
+        dev_mode=dev_mode,
+        expose_network=expose_network,
+        # ANCHORED, deliberately: the provisioners this reaches mint REAL
+        # SECRETS, and `_start_stack`'s default leaves them writing a
+        # cwd-relative `.env`. The repo root is resolved four lines up and every
+        # compose invocation below reads `<repo>/.env` with --env-file, so an
+        # unanchored mint writes tokens the stack never reads — a deploy that
+        # comes up with its fail-closed tokens unset, which looks secure and
+        # says nothing. Only the anchor changes here; the surrounding legacy
+        # start path is left structurally as-is (task 4.1 rewrites this region
+        # against main's archiver staging).
+        env_path=repo_root / COMPOSE_ENV_FILENAME,
+    )
+
+
+def _start_stack(
+    config: dict,
+    compose_files: list[str],
+    repo_root: Path | str,
+    *,
+    detached: bool = False,
+    dev_mode: bool = False,
+    expose_network: bool = False,
+    env_path: Path | None = None,
+    build_context: Path | str | None = None,
+) -> None:
+    """Provision, preflight and start one already-resolved stack.
+
+    Everything both start paths do once their compose files exist, in the one
+    order they must happen in. :func:`deploy_up` reaches here having just
+    rendered those files; :func:`up_as_built` reaches here having read the ones
+    a build already wrote. Nothing below can tell the difference, which is the
+    point: there is one deploy sequence, and the two verbs differ only in where
+    the inputs came from.
+
+    When ``modules.web_terminals.enabled`` is set, the web-terminal stack is
+    reconciled too (rendering its artifacts and including
+    ``docker-compose.web.yml`` in the compose invocation) — see
+    :func:`osprey.deployment.web_terminals.provision.deploy_up_web_terminals`.
+    That reconcile always runs detached, independent of ``detached``, and takes
+    over from the plain services path below.
+
+    Idempotent from any prior state: every path first clears this project's own
+    non-running containers (``compose rm -f`` — a wedged ``created`` container
+    from an aborted deploy holds its published host ports on Docker Desktop,
+    blocking the next ``up``), and the plain path's ``up`` carries
+    ``--remove-orphans`` to reconcile away services dropped from the config.
+    Running containers and volumes are never touched by either measure.
+
+    Args:
+        config: Loaded deploy config.
+        compose_files: The services stack's compose files, in ``-f`` order.
+        repo_root: The compose project directory every invocation is pinned to.
+        detached: Run in detached mode.
+        dev_mode: Stage the local framework into the images.
+        expose_network: Whether this deployment publishes on all interfaces.
+            Read as a statement of fact about what will be started, not as a
+            request: it gates the empty-token refusal, and the as-built path
+            derives it from the rendered bindings rather than from a flag.
+        env_path: The ``.env`` every provisioner writes. ``None`` leaves each
+            one on its own default, which is the working directory.
+        build_context: Directory holding the rendered ``Dockerfile`` for the
+            project image. ``None`` resolves the repo root — correct only for a
+            project directory that IS its own render.
+    """
     web_terminals_enabled = _web_terminals_enabled(config)
 
     # A web-terminals-only deploy (no backend services) is valid, so the
@@ -1702,7 +1580,7 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     if not config.get("deployed_services") and not web_terminals_enabled:
         logger.key_info(
             "No services configured for this project — deployed_services is empty in "
-            "config.yml. Skipping osprey deploy up."
+            "config.yml. Skipping osprey up."
         )
         # Still say what is (not) reachable — an unexpectedly empty deploy is
         # the classic stale-render shape, and "web terminal (not configured)"
@@ -1736,18 +1614,12 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # carries provider keys renders with osprey_env_present=True and picks up
     # the appended tokens, and a tokens-only .env carries no provider secret to
     # mount in the first place.
-    _ensure_service_tokens(config, expose_network)
-
-    # Advisory, after the write-back above has had its chance to put this
-    # deploy's secrets in the profile: a service whose volume predates the
-    # profile's copy of its secret is one rebuild away from being unopenable.
-    # Warns only — see _preflight_token_continuity for why this must not block.
-    _preflight_token_continuity(config)
+    _ensure_service_tokens(config, expose_network, env_path)
 
     # Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
     # VA-backed Bluesky stack (additive; no-op unless both bluesky and
     # virtual_accelerator are deployed) -- see _ensure_bluesky_substrate_env.
-    _ensure_bluesky_substrate_env(config)
+    _ensure_bluesky_substrate_env(config, env_path)
 
     # Provision the bluesky scan stack's 0MQ key material before compose mounts
     # it: the RE manager's control-socket keypair into .env, and the document
@@ -1757,8 +1629,17 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # Neither is gated on the connector -- see
     # _ensure_bluesky_document_plane_certs for why a browse-only deploy still
     # gets its certificates.
-    _ensure_bluesky_control_plane_keys(config)
-    _ensure_bluesky_document_plane_certs(config)
+    _ensure_bluesky_control_plane_keys(config, env_path)
+    _ensure_bluesky_document_plane_certs(config, env_path)
+
+    # Advisory, and last of the .env preflights so it reads the file every
+    # provisioner above has finished writing: a shell export beats --env-file
+    # for compose's document interpolation, so an export that disagrees with the
+    # store silently starts the stack on a value its volumes never adopted.
+    # Names the variables, never the values -- see _preflight_env_shadowing.
+    # Before the image build below, so the operator sees it in seconds rather
+    # than after the minutes a build takes.
+    _preflight_env_shadowing(compose_files, repo_root)
 
     # Set up environment for containers
     env = os.environ.copy()
@@ -1776,17 +1657,17 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # by deploy_up_web_terminals' own re-render, and compose recreates on the
     # definition change.
     if web_terminals_enabled:
-        preflight_web_terminals(config, env)
+        preflight_web_terminals(config)
 
     # Build the <project>:local image the dispatch worker references. The worker
     # has no compose build block (that would race the event-dispatcher on the
     # shared tag), so this is the only thing that produces its image. No-op
     # unless the worker is deployed on the local project image. Run before
     # `compose up` (which, non-detached, os.execvpe-replaces this process).
-    _build_project_image(config, dev_mode, env)
+    _build_project_image(config, dev_mode, env, build_context)
 
     if web_terminals_enabled:
-        deploy_up_web_terminals(config, compose_files, dev_mode, env, _env_file_args())
+        deploy_up_web_terminals(config, compose_files, dev_mode, env, _env_file_args(repo_root))
         log_endpoint_summary(config, compose_files)
         return
 
@@ -1796,10 +1677,12 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # "services" project whose up/down cross-adopts sibling stacks.
     run_env = runtime_env(config, env)
 
-    base_cmd = with_plain_progress(get_runtime_command(config))
-    for compose_file in compose_files:
-        base_cmd.extend(("-f", compose_file))
-    base_cmd.extend(_env_file_args())
+    base_cmd = compose_base_cmd(
+        with_plain_progress(get_runtime_command(config)),
+        compose_files,
+        repo_root,
+        _env_file_args(repo_root),
+    )
 
     # Self-heal before reconciling: an aborted prior deploy can leave this
     # project's containers wedged in created/exited state, and Docker Desktop
@@ -1815,7 +1698,7 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     subprocess.run(rm_cmd, env=run_env)
 
     if dev_mode:
-        # `osprey deploy up --dev` re-bakes the local osprey checkout into a fresh
+        # `osprey up --dev` re-bakes the local osprey checkout into a fresh
         # wheel on every run, but compose reuses the cached image tag (e.g.
         # <project>-dispatch:local) unless it is rebuilt — so a dev deploy must build.
         # Build in its OWN step, then `up --no-build`: a single `up --build` can
@@ -1850,26 +1733,490 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
         os.execvpe(cmd[0], cmd, run_env)
 
 
+class NoBuildError(RuntimeError):
+    """Raised when a deployment repo has nothing built to start.
+
+    Distinct from a generic failure because the caller's remedy is fixed and
+    singular — run ``osprey build`` — and because it is the one refusal on this
+    path that ``--as-built`` does not answer.
+    """
+
+
+def as_built_config_path(repo_root: Path | str) -> Path:
+    """The rendered config that describes what this repo runs.
+
+    ``<repo>/build/config.yml``: one place, derived from the zone layout rather
+    than searched for, so a stray nested render can never answer for the repo.
+
+    The one answer to "what did the build decide?", so it is what the verbs that
+    ACT on the deployment start from and what the verbs that merely REPORT on it
+    read — a status that consulted a different file than ``up`` started from
+    would describe a deployment nobody is running.
+    """
+    return Path(repo_root) / BUILD_DIRNAME / "config.yml"
+
+
+def as_built_compose_files(config: dict, repo_root: Path | str) -> list[str]:
+    """The compose files a build left in ``build/``, in ``-f`` order.
+
+    Read, never rendered: this is the whole difference between ``osprey up`` and
+    the legacy ``deploy up``. The locations come from the rendered config's own
+    ``build_dir`` — resolved against the repo root, which is both the compose
+    project directory and the root that config's ``project_root`` names — so
+    nothing here hardcodes a layout that the render could disagree with.
+
+    The repo root is handed to the lookup as its explicit ``base`` because
+    ``find_existing_compose_files`` resolves ``build_dir`` and each service's
+    template directory relatively: every repo-scoped verb must be correct from
+    any directory inside the repo, not only from its root. (This used to move
+    the working directory instead, which answered the same question by
+    borrowing global process state to do it.)
+
+    The paths come back RELATIVE to the repo root, which is what
+    :func:`~osprey.deployment.compose_generator.compose_base_cmd` resolves for
+    each ``-f`` it builds. A caller that OPENS these files itself has no such
+    anchor and must join them onto the repo root first — resolving them against
+    the working directory finds nothing, and finding nothing looks exactly like
+    a deployment that declares nothing.
+    """
+    from osprey.deployment.compose_generator import find_existing_compose_files
+
+    services = [str(service) for service in (config.get("deployed_services") or [])]
+    return find_existing_compose_files(config, services, base=repo_root)
+
+
+def _published_on_all_interfaces(compose_files: list[str]) -> list[str]:
+    """Services in these compose files that publish a port on a wildcard address.
+
+    Read out of the rendered files rather than out of the config, because the
+    rendered files are what compose will act on. A build decided each binding
+    when it rendered ``deployment.bind_address`` into every ``ports:`` entry, so
+    at start time this is a fact to be discovered, not a setting to be applied.
+    """
+    from osprey.deployment.host_ports import _WILDCARD_HOSTS
+
+    return sorted(
+        {
+            binding.service
+            for binding in parse_host_port_bindings(compose_files)
+            if binding.host_ip in _WILDCARD_HOSTS
+        }
+    )
+
+
+def _reconcile_exposure(config: dict, compose_files: list[str]) -> bool:
+    """Whether this start is reachable off-host, read off what was rendered.
+
+    Exposure is a property of the build. The bind address is baked into every
+    ``ports:`` entry the build wrote, and nothing is re-rendered on a start — so
+    the only honest answer is the one the rendered files already give, and there
+    is no flag that could change it. Making a deployment reachable is
+    ``osprey set deployment.bind_address=0.0.0.0`` followed by a build.
+
+    The answer feeds the empty-token refusal in :func:`_ensure_service_tokens`,
+    which is why it is computed here rather than inferred there: an exposed
+    deployment gets the fail-closed token rules on the strength of what it
+    publishes, not on the strength of anything the operator typed.
+
+    Two independent ways to be reachable, and both count. A services binding on
+    a wildcard address is the obvious one. The other is the web-terminal stack:
+    every service in it runs ``network_mode: host`` and its nginx "binds every
+    interface, unrestricted" (``docker-compose.web.yml.j2``), so a web deploy is
+    off-host reachable with no published port anywhere in ``compose_files`` —
+    which is exactly the case a wildcard-binding check alone would call private.
+
+    Args:
+        config: The rendered config, read for whether the web stack is part of
+            this deployment.
+        compose_files: The services stack's rendered compose files.
+
+    Returns:
+        Whether this deployment is reachable off-host, for the token guard.
+    """
+    wildcard_services = _published_on_all_interfaces(compose_files)
+    host_networked = _web_terminals_enabled(config)
+    reasons = []
+    if wildcard_services:
+        reasons.append(f"{', '.join(wildcard_services)} publish on 0.0.0.0")
+    if host_networked:
+        reasons.append("the web-terminal stack runs on the host network")
+
+    if reasons:
+        logger.warning(
+            "This deployment is reachable from the network (%s). Starting it under "
+            "the fail-closed service-token rules that reachability calls for.",
+            "; ".join(reasons),
+        )
+
+    return bool(reasons)
+
+
+def up_as_built(
+    repo_root: Path | str,
+    *,
+    detached: bool = False,
+    dev_mode: bool = False,
+) -> None:
+    """Start a deployment repo from ``build/`` exactly as it was built.
+
+    The three-zone start path. It reads ``build/config.yml`` and the compose
+    files beside it and starts them, re-rendering nothing from ``profile.yml``,
+    so the services that come up are the ones the last ``osprey build``
+    produced and the ones ``osprey status`` will report. The caller has already
+    settled whether starting this build is allowed — that is the drift gate in
+    the CLI, not a decision this function repeats.
+
+    The web-terminal stack is the documented exception, and it is exactly one
+    thing wide. :func:`deploy_up_web_terminals` writes ``docker-compose.web.yml``
+    with its nginx config and landing page into ``build/`` on every start.
+    Those three artifacts follow the *roster* — a user added or removed since
+    the build has to take effect at the next start, which is what makes the
+    roster verbs usable without a rebuild — so they are derived here rather than
+    at build time.
+
+    Nothing else on this path reads ``profile.yml`` or writes into ``build/``.
+    Persona projects in particular are rendered by ``osprey build``, one per
+    delta in ``personas/``, and a start only checks they are there
+    (:func:`verify_persona_renders`) and refuses when they are not: a start that
+    rendered them would put a fresh persona beside a deployment built from an
+    older profile. The services stack is untouched by any of it.
+
+    Everything after the inputs are resolved is :func:`_start_stack`. What is
+    specific to a deployment repo:
+
+    * the single root ``.env`` is the secret store every provisioner writes, and
+      minted secrets are NOT copied anywhere else (there is nowhere else);
+    * the image build context is ``<repo>/build``, where the build wrote the
+      ``Dockerfile`` — not the repo root, which holds only source;
+    * exposure is read off the rendered bindings (see :func:`_reconcile_exposure`).
+
+    Args:
+        repo_root: The deployment repo — the directory holding ``profile.yml``.
+        detached: Run in detached mode.
+        dev_mode: Stage the local osprey checkout into the images.
+
+    Raises:
+        NoBuildError: When ``build/`` holds no rendered config to start.
+        RuntimeError: From the preflights, including the ``--dev`` one.
+    """
+    repo_root = Path(repo_root)
+    config, compose_files, exposed = _resolve_as_built_inputs(repo_root, dev_mode=dev_mode)
+    _start_as_built(repo_root, config, compose_files, exposed, detached=detached, dev_mode=dev_mode)
+
+
+def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, list[str], bool]:
+    """Read what a start would run, and refuse before anything is touched.
+
+    Every decision a start makes from the filesystem alone: whether there is a
+    build, whether ``--dev`` can be honored, what compose files the build left,
+    and whether this deployment is reachable off-host
+    (:func:`_reconcile_exposure`). Nothing here starts, stops or writes
+    anything, which is what lets :func:`restart_deployment` call it *first* —
+    a restart that is going to be refused must be refused while the stack it
+    would have stopped is still running.
+
+    Args:
+        repo_root: The deployment repo.
+        dev_mode: Whether the local osprey checkout is to be staged.
+
+    Returns:
+        The rendered config, its compose files in ``-f`` order, and whether the
+        deployment is reachable off-host.
+
+    Raises:
+        NoBuildError: When ``build/`` holds no rendered config, or none of the
+            services it declares was rendered.
+        RuntimeError: From the ``--dev`` preflight.
+    """
+    config_path = as_built_config_path(repo_root)
+    if not config_path.is_file():
+        raise NoBuildError(
+            f"No build found at {config_path.parent}. Run `osprey build` to render it."
+        )
+
+    if dev_mode:
+        # The same fail-before-any-work check the rendering path gets from
+        # prepare_compose_files. Nothing re-renders here, so it has to be made
+        # explicitly — and it must stay first: a --dev deploy that cannot stage
+        # a wheel comes up successfully running the released code instead.
+        from osprey.deployment.wheel_build import preflight_dev_mode
+
+        preflight_dev_mode()
+
+    config = load_project_config(str(config_path), wrap_errors=True)
+    compose_files = as_built_compose_files(config, repo_root)
+
+    if not compose_files and config.get("deployed_services"):
+        raise NoBuildError(
+            f"{config_path} declares services ({', '.join(str(s) for s in config['deployed_services'])}) "
+            f"but no compose files were rendered for them under {repo_root / BUILD_DIRNAME}. "
+            "Run `osprey build` to re-render build/."
+        )
+
+    return config, compose_files, _reconcile_exposure(config, compose_files)
+
+
+def _start_as_built(
+    repo_root: Path,
+    config: dict,
+    compose_files: list[str],
+    exposed: bool,
+    *,
+    detached: bool,
+    dev_mode: bool,
+) -> None:
+    """Start already-resolved as-built inputs, with a deployment repo's rules.
+
+    The second half of :func:`up_as_built`, split out because
+    :func:`restart_deployment` runs a ``down`` between the two halves and must
+    reach this one without re-reading (and re-warning about) the build. What
+    makes it repo-specific rather than generic is the two arguments it pins on
+    :func:`_start_stack`: the repo's single ``.env``, and the build directory as
+    the image build context.
+    """
+    _start_stack(
+        config,
+        compose_files,
+        repo_root,
+        detached=detached,
+        dev_mode=dev_mode,
+        expose_network=exposed,
+        # Explicit, never the cwd-relative default: the token mint writes real
+        # secrets, and every compose invocation on this path reads
+        # `<repo>/.env` with --env-file. A mint that landed anywhere else would
+        # leave the stack starting with its fail-closed tokens unset — secure
+        # looking, and silent.
+        env_path=repo_root / COMPOSE_ENV_FILENAME,
+        build_context=container_image_context(repo_root, resolve_project_name(config)),
+    )
+
+
+def _repo_label_filter(repo_root: Path) -> str:
+    """The runtime ``--filter`` selecting only this checkout's resources.
+
+    ``label=com.osprey.repo-id=<identity>``, derived through
+    :func:`~osprey.deployment.compose_generator.repo_identity` — the single
+    spelling of that identity, shared with the render that baked it in.
+    """
+    return f"label={REPO_ID_LABEL}={repo_identity(repo_root)}"
+
+
+def _down_by_label(config: dict | None, repo_root: Path) -> None:
+    """Stop this repo's containers by label, when ``build/`` cannot say which.
+
+    The recovery path for a deployment whose ``build/`` was wiped (or never
+    re-rendered) while its stack was running. Without it those containers are
+    unreachable by any OSPREY verb: ``compose down`` needs the compose files
+    that declared them, and they are exactly what is missing.
+
+    What it removes and what it leaves:
+
+    * containers labelled for THIS checkout only — stopped, then removed, so a
+      published host port is released the way a ``compose down`` releases it;
+    * volumes are kept, exactly as a ``compose down`` keeps them. Destroying
+      state stays ``osprey reset``'s job;
+    * the compose network is left in place. Nothing labels a network with the
+      repo identity, so it cannot be selected here; the next ``osprey up``
+      reuses it.
+
+    Honest limit, and it is the reason this function says so out loud: labels
+    are applied at container CREATE time. A stack started before OSPREY labelled
+    its containers carries no ``com.osprey.repo-id`` at all and is invisible
+    here — it stays running, and nothing about that is inferable from a silent
+    "done".
+
+    Args:
+        config: The rendered config when there is one, for runtime selection
+            only. ``None`` when ``build/`` holds no config at all, which is the
+            case this path most exists for.
+        repo_root: The deployment repo whose containers are to be stopped.
+
+    Raises:
+        RuntimeError: When the runtime cannot list, stop or remove them.
+    """
+    # get_runtime_command answers with a COMPOSE argv (["docker", "compose"]);
+    # the label sweep is plain-runtime work, so it takes the binary off the
+    # front rather than resolving a runtime a second way.
+    runtime = get_runtime_command(config)[0]
+    label_filter = _repo_label_filter(repo_root)
+
+    listing = subprocess.run(
+        [runtime, "ps", "-aq", "--filter", label_filter],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if listing.returncode != 0:
+        raise RuntimeError(
+            f"Could not list this deployment's containers: `{runtime} ps` exited "
+            f"{listing.returncode}. {(listing.stderr or '').strip()}"
+        )
+
+    container_ids = listing.stdout.split()
+    if not container_ids:
+        logger.key_info(
+            "Nothing to stop. There are no compose files in %s to run a `down` from, and "
+            "no container is labelled %s for this repo. Containers get that label when "
+            "they are CREATED, so a stack started before this repo's containers were "
+            "labelled is not visible here and may still be running — `osprey build` "
+            "restores build/, after which `osprey down` works normally.",
+            repo_root / BUILD_DIRNAME,
+            label_filter.removeprefix("label="),
+        )
+        return
+
+    logger.key_info(
+        "No compose files in %s — stopping the %d container(s) labelled %s instead. "
+        "Volumes are kept, as they are by a compose `down`; the compose network is not "
+        "labelled and stays.",
+        repo_root / BUILD_DIRNAME,
+        len(container_ids),
+        label_filter.removeprefix("label="),
+    )
+
+    # stop, then rm: the same two steps, in the same order, that `compose down`
+    # performs — so containers get their shutdown grace period rather than the
+    # SIGKILL a bare `rm -f` would deliver.
+    for verb in ("stop", "rm"):
+        cmd = [runtime, verb, *container_ids]
+        logger.debug(f"Running command:\n    {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"`{runtime} {verb}` failed (exit {result.returncode}) — this "
+                f"deployment's containers may still be running. "
+                f"{(result.stderr or '').strip()}"
+            )
+
+
+def down_deployment(repo_root: Path | str) -> None:
+    """Stop a deployment repo's stack, keeping every volume.
+
+    The three-zone stop path, and the mirror of :func:`up_as_built`: it acts on
+    what a build left in ``build/`` and renders nothing. Where the legacy
+    :func:`deploy_down` re-rendered the compose files when it could not find
+    them, this refuses to render at stop time — the compose files that declared
+    the running containers are a fact about the past, and re-deriving them from
+    a since-edited profile can only produce a ``down`` aimed at a stack that was
+    never started. :func:`_down_by_label` covers that case instead.
+
+    Order matters, and it is web-stack-first. A web-terminal deployment runs two
+    compose invocations against one project, so the services ``down`` does not
+    carry ``docker-compose.web.yml`` in its ``-f`` list and would leave the web
+    containers running — holding the host-global container names
+    (``<prefix>-nginx``, ``<prefix>-web-<user>``) that the next web deploy on
+    this host, from any project, then collides with.
+
+    Volumes are never removed, on either path. Per-user terminal state, the
+    databases, the artifact store: all of it survives a ``down`` and is
+    ``osprey reset``'s to destroy, deliberately and with a confirmation.
+
+    Unlike the legacy path this does not ``execvpe``-replace the process: the
+    label fallback runs after the compose invocation on the same call, and
+    :func:`restart_deployment` needs to still be here afterwards to start the
+    stack again.
+
+    Args:
+        repo_root: The deployment repo — the directory holding ``profile.yml``.
+
+    Raises:
+        RuntimeError: When the compose ``down``, or the label sweep standing in
+            for it, fails.
+    """
+    repo_root = Path(repo_root)
+    config_path = as_built_config_path(repo_root)
+    config = (
+        load_project_config(str(config_path), wrap_errors=True) if config_path.is_file() else None
+    )
+    compose_files = as_built_compose_files(config, repo_root) if config else []
+
+    if config and _web_terminals_enabled(config):
+        deploy_down_web_terminals(config, os.environ.copy(), _env_file_args(repo_root))
+
+    if not compose_files:
+        _down_by_label(config, repo_root)
+        return
+
+    cmd = compose_base_cmd(
+        with_plain_progress(get_runtime_command(config)),
+        compose_files,
+        repo_root,
+        _env_file_args(repo_root),
+    )
+    cmd.append("down")
+
+    logger.debug(f"Running command:\n    {' '.join(cmd)}")
+    result = subprocess.run(cmd, env=runtime_env(config, os.environ.copy()), check=False)
+    if getattr(result, "returncode", 0):
+        raise RuntimeError(
+            f"`compose down` failed (exit {result.returncode}) — this deployment's "
+            "containers may still be running. The output above is the runtime's own."
+        )
+
+
+def restart_deployment(
+    repo_root: Path | str,
+    *,
+    detached: bool = False,
+    dev_mode: bool = False,
+) -> None:
+    """Stop this deployment and start it again from ``build/``.
+
+    ``down`` then ``up``, not ``compose restart``. The difference is the whole
+    point of the change: ``compose restart`` restarts each container against the
+    definition it was CREATED with, so a rebuilt image, an edited compose file
+    or a newly minted token reaches nothing until something recreates the
+    container. This recreates them, which is what an operator who typed
+    ``restart`` after a build is asking for.
+
+    It starts ``build/`` as built, and re-renders nothing from ``profile.yml``,
+    exactly like :func:`up_as_built` — including the one documented exception:
+    a web-terminal deployment re-renders that stack's compose file, nginx
+    config and landing page at every start, because those three follow the user
+    roster rather than the build. The drift gate lives in the CLI, ahead of this
+    call.
+
+    The order inside is deliberate. Everything the start would refuse is read
+    and settled BEFORE the ``down``, so a restart that cannot start does not
+    stop the running stack on its way to saying so.
+
+    Service tokens are re-minted on the way back up, into the repo's own
+    ``.env`` — the same file every compose invocation is pointed at — because
+    the start half is :func:`_start_as_built` unchanged.
+
+    Args:
+        repo_root: The deployment repo.
+        detached: Run in detached mode.
+        dev_mode: Stage the local osprey checkout into the images.
+
+    Raises:
+        NoBuildError: When ``build/`` holds nothing to start. Nothing is stopped.
+        RuntimeError: From the preflights or from the stop itself.
+    """
+    repo_root = Path(repo_root)
+    config, compose_files, exposed = _resolve_as_built_inputs(repo_root, dev_mode=dev_mode)
+    down_deployment(repo_root)
+    _start_as_built(repo_root, config, compose_files, exposed, detached=detached, dev_mode=dev_mode)
+
+
 def deploy_down(config_path, dev_mode=False):
     """Stop services using container runtime (Docker or Podman).
 
     When ``modules.web_terminals.enabled`` is set, the web-terminal stack is
     torn down first via its own compose invocation
-    (:func:`osprey.deployment.web_terminals.provision.deploy_down_web_terminals`)
-    — the services ``-f`` list below can never carry
-    ``docker-compose.web.yml`` (its relative paths are project-root-relative,
-    the services files' resolve against ``build/services/``), and the
-    services ``down`` execvpe-replaces this process, so the web ``down``
-    must happen before it.
+    (:func:`osprey.deployment.web_terminals.provision.deploy_down_web_terminals`):
+    the two stacks are separate invocations of one pinned base, and the
+    services ``down`` execvpe-replaces this process, so the web ``down`` must
+    happen before it.
 
     :param config_path: Path to the configuration file
     :type config_path: str
     """
     config = load_project_config(config_path, wrap_errors=True)
+    repo_root = resolve_repo_root(config, config_path)
 
     if _web_terminals_enabled(config):
-        env_file_args = ["--env-file", ".env"] if Path(".env").exists() else []
-        deploy_down_web_terminals(config, os.environ.copy(), env_file_args)
+        deploy_down_web_terminals(config, os.environ.copy(), _env_file_args(repo_root))
 
     deployed_services = config.get("deployed_services", [])
     deployed_service_names = (
@@ -1879,7 +2226,9 @@ def deploy_down(config_path, dev_mode=False):
     # Try to use existing compose files (suppress warnings for status check)
     from osprey.deployment.compose_generator import find_existing_compose_files
 
-    compose_files = find_existing_compose_files(config, deployed_service_names, quiet=True)
+    compose_files = find_existing_compose_files(
+        config, deployed_service_names, quiet=True, base=repo_root
+    )
 
     # If no existing compose files found, rebuild them
     if not compose_files:
@@ -1890,15 +2239,9 @@ def deploy_down(config_path, dev_mode=False):
         for f in compose_files:
             logger.info(f"  - {f}")
 
-    cmd = with_plain_progress(get_runtime_command(config))
-    for compose_file in compose_files:
-        cmd.extend(("-f", compose_file))
-
-    # Only add --env-file if .env exists
-    env_file = Path(".env")
-    if env_file.exists():
-        cmd.extend(["--env-file", ".env"])
-
+    cmd = compose_base_cmd(
+        with_plain_progress(get_runtime_command(config)), compose_files, repo_root
+    )
     cmd.append("down")
 
     logger.debug(f"Running command:\n    {' '.join(cmd)}")
@@ -1927,7 +2270,16 @@ def deploy_restart(config_path, detached=False, expose_network=False):
 
     # Honor the same fail-closed/expose guard as deploy_up when re-rendering with
     # a (possibly newly exposed) bind address.
-    _ensure_service_tokens(config, expose_network)
+    #
+    # ANCHORED, deliberately: this mints REAL SECRETS, and without an explicit
+    # env_path it falls back to a cwd-relative `.env`. Run from anywhere but the
+    # repo root that wrote tokens into a stray file — where the operator would
+    # never find them and the next deploy would mint different ones — and the
+    # containers pinned to the originals would not come back up. The anchor is
+    # the only thing changed here; the surrounding legacy restart path is left
+    # structurally as-is on purpose (task 4.1 rewrites this region against
+    # main's archiver staging, and a restructure now would collide with it).
+    _ensure_service_tokens(config, expose_network, resolve_repo_root(config, config_path) / ".env")
 
     # Same reason the token mint above runs on this path: the bluesky compose
     # template expands the manager's private key with a `:?` guard, so an unset
@@ -1936,13 +2288,17 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     # be the thing that breaks it. The document-plane certificates are NOT
     # provisioned here -- they are bind-mount sources, and `compose restart`
     # reuses each container's existing config rather than re-resolving mounts,
-    # so generating them would change nothing until the next `deploy up`.
-    _ensure_bluesky_control_plane_keys(config)
+    # so generating them would change nothing until the next `osprey up`.
+    # Anchored for the same reason as the token mint above — this mints a
+    # keypair, and a cwd-relative `.env` would strand it.
+    _ensure_bluesky_control_plane_keys(config, resolve_repo_root(config, config_path) / ".env")
 
-    cmd = with_plain_progress(get_runtime_command(config))
-    for compose_file in compose_files:
-        cmd.extend(("-f", compose_file))
-    cmd.extend(["--env-file", ".env", "restart"])
+    cmd = compose_base_cmd(
+        with_plain_progress(get_runtime_command(config)),
+        compose_files,
+        resolve_repo_root(config, config_path),
+    )
+    cmd.append("restart")
 
     logger.debug(f"Running command:\n    {' '.join(cmd)}")
     subprocess.run(cmd, env=runtime_env(config, os.environ.copy()))

@@ -46,10 +46,6 @@ def _warnings(findings: list[Finding]) -> list[Finding]:
     return [f for f in findings if f.severity == "warn"]
 
 
-def _infos(findings: list[Finding]) -> list[Finding]:
-    return [f for f in findings if f.severity == "info"]
-
-
 def test_lint_clean_config_reports_no_error_findings() -> None:
     """A well-formed, non-colliding config must produce zero error findings."""
     # Arrange
@@ -973,7 +969,7 @@ def test_lint_local_mode_missing_project_path_is_an_error() -> None:
 
 def test_lint_local_mode_project_path_not_a_directory_is_an_error(tmp_path) -> None:
     """A `project_path` that doesn't exist (or isn't a directory) can't be built
-    when the entry has no build_profile to auto-render it from."""
+    when the entry names no build_profile for `osprey build` to render it from."""
     # Arrange (basename matches `project` so the name invariant passes and we
     # exercise the existence check itself, not the name-mismatch check)
     missing_path = tmp_path / "als-assistant"
@@ -1120,15 +1116,20 @@ def test_lint_local_mode_unreferenced_persona_project_path_is_not_checked(tmp_pa
     assert _errors(findings) == []
 
 
-# --- auto-render demotion + project-path name invariant ----------------------
+# --- not-rendered-yet demotion + project-path name invariant -----------------
 
 
-def test_lint_local_mode_missing_project_path_with_build_profile_is_auto_renderable(
+def test_lint_local_mode_missing_project_path_with_build_profile_is_a_warning(
     tmp_path,
 ) -> None:
     """A referenced persona whose project_path does not exist yet but carries a
-    usable build_profile is only an informational finding — deploy up will
-    render it before building, so it must not block a deploy."""
+    usable build_profile is a WARNING, not an error and not a mere note.
+
+    Not an error, because nothing is misconfigured — this is the ordinary state
+    of a persona added since the last build, and `osprey build` clears it. Not
+    informational, because `osprey up` refuses to start until the render is
+    there, so the message has to say both halves: what renders it, and that a
+    start will not run meanwhile."""
     # Arrange (project_path basename matches `project`; directory not created)
     missing_path = tmp_path / "als-assistant"
     config = _persona_config(
@@ -1149,17 +1150,28 @@ def test_lint_local_mode_missing_project_path_with_build_profile_is_auto_rendera
 
     # Assert
     assert _errors(findings) == []
-    infos = _infos(findings)
-    assert any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in infos)
-    # The hard "not a directory" error must not fire alongside the info note.
+    not_rendered = [
+        f
+        for f in _warnings(findings)
+        if f.code == "web_terminals.persona_project_path_not_rendered_yet"
+    ]
+    assert not_rendered, findings
+    # The message must name the command that renders it AND the refusal that
+    # stands until then. A "osprey up will render it" promise here is the exact
+    # thing that outlived the behaviour it described.
+    message = not_rendered[0].message
+    assert "osprey build" in message
+    assert "REFUSES" in message
+    assert "osprey up will render" not in message
+    # The hard "not a directory" error must not fire alongside the warning.
     assert not any(f.code == "web_terminals.persona_project_path_not_dir" for f in findings)
 
 
 def test_lint_local_mode_missing_project_path_without_build_profile_stays_an_error(
     tmp_path,
 ) -> None:
-    """Without a build_profile there is nothing to auto-render from, so a
-    non-existent project_path remains the pre-existing hard error."""
+    """Without a build_profile there is no delta for `osprey build` to render
+    from, so a non-existent project_path remains the pre-existing hard error."""
     # Arrange
     missing_path = tmp_path / "als-assistant"
     config = _persona_config(
@@ -1177,13 +1189,16 @@ def test_lint_local_mode_missing_project_path_without_build_profile_stays_an_err
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.persona_project_path_not_dir" for f in errors)
-    assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+    assert not any(
+        f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings
+    )
 
 
 def test_lint_local_mode_partial_render_missing_dockerfile_stays_an_error(tmp_path) -> None:
     """A build_profile does NOT rescue a directory that already exists but is
-    incomplete — auto-render never overwrites an existing directory, so a
-    missing Dockerfile inside it is still a hard error (partial render)."""
+    incomplete. The warning is for a render that has not happened yet; a
+    directory that is there but missing its Dockerfile is a partial render, and
+    that stays a hard error."""
     # Arrange
     project_dir = tmp_path / "als-assistant"
     project_dir.mkdir()
@@ -1207,7 +1222,9 @@ def test_lint_local_mode_partial_render_missing_dockerfile_stays_an_error(tmp_pa
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.persona_missing_dockerfile" for f in errors)
-    assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+    assert not any(
+        f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings
+    )
 
 
 def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_path) -> None:
@@ -1236,7 +1253,9 @@ def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_pa
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.persona_missing_config_yml" for f in errors)
-    assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+    assert not any(
+        f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings
+    )
 
 
 def _local_mode_build_profile_config(tmp_path, build_profile: str) -> dict:
@@ -1271,10 +1290,10 @@ def _local_mode_build_profile_config(tmp_path, build_profile: str) -> dict:
 def test_lint_local_mode_build_profile_that_deploy_rejects_is_an_error(
     tmp_path, build_profile
 ) -> None:
-    """`osprey deploy up` never runs lint, so a value lint blesses and deploy
+    """`osprey up` never runs lint, so a value lint blesses and deploy
     then refuses is a gate that promised the problem away. Both sides share one
     predicate, so every shape rejected at deploy time is an ERROR here — and the
-    entry is never also reported as "auto-renderable", which it is not."""
+    entry is never also reported as merely awaiting a render, which it is not."""
     # Act
     findings = lint_web_terminals(_local_mode_build_profile_config(tmp_path, build_profile))
 
@@ -1283,7 +1302,9 @@ def test_lint_local_mode_build_profile_that_deploy_rejects_is_an_error(
     bad = [f for f in errors if f.code == "web_terminals.persona_build_profile_not_a_delta"]
     assert bad, f"{build_profile!r} must be an error"
     assert any("personas/assistant.yml" in f.message for f in bad)  # names the fix
-    assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+    assert not any(
+        f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings
+    )
 
 
 def test_lint_local_mode_build_profile_shape_is_checked_even_when_rendered(tmp_path) -> None:
@@ -1305,7 +1326,7 @@ def test_lint_local_mode_build_profile_shape_is_checked_even_when_rendered(tmp_p
 
 
 def test_lint_local_mode_delta_valued_build_profile_is_accepted(tmp_path) -> None:
-    """The one accepted shape -- what `osprey profile new` emits -- draws no
+    """The one accepted shape -- what `osprey init` emits -- draws no
     shape finding at all. Lint cannot check the file exists (it holds a config,
     not the deployed project), and must not pretend otherwise."""
     # Act
@@ -1315,7 +1336,7 @@ def test_lint_local_mode_delta_valued_build_profile_is_accepted(tmp_path) -> Non
 
     # Assert
     assert not any(f.code == "web_terminals.persona_build_profile_not_a_delta" for f in findings)
-    assert any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+    assert any(f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings)
 
 
 def test_lint_registry_mode_keeps_its_own_build_profile_vocabulary(tmp_path) -> None:
@@ -1345,9 +1366,9 @@ def test_lint_registry_mode_keeps_its_own_build_profile_vocabulary(tmp_path) -> 
 
 
 def test_lint_local_mode_project_path_basename_not_matching_project_is_an_error(tmp_path) -> None:
-    """The auto-render invariant: project_path's basename must equal the catalog
-    `project`, since auto-render derives its output dir from `project`. A
-    disagreement is an error even with a build_profile present."""
+    """The render-location invariant: project_path's basename must equal the
+    catalog `project`, since that basename is where `osprey build` puts the
+    render. A disagreement is an error even with a build_profile present."""
     # Arrange (basename "wrong-name" != project "als-assistant"; dir absent)
     project_path = tmp_path / "wrong-name"
     config = _persona_config(
@@ -1371,8 +1392,10 @@ def test_lint_local_mode_project_path_basename_not_matching_project_is_an_error(
     mismatch = [f for f in errors if f.code == "web_terminals.persona_project_path_name_mismatch"]
     assert mismatch
     assert any("wrong-name" in f.message and "als-assistant" in f.message for f in mismatch)
-    # The name-mismatch supersedes the auto-renderable demotion.
-    assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+    # The name-mismatch supersedes the awaiting-a-render demotion.
+    assert not any(
+        f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings
+    )
 
 
 def test_lint_local_mode_name_invariant_fires_for_an_otherwise_wellformed_dir(tmp_path) -> None:
@@ -1639,7 +1662,7 @@ def test_lint_per_container_stdio_topology_reports_no_error() -> None:
 def test_lint_users_with_absent_facility_prefix_is_an_error() -> None:
     """Web container names are `<facility.prefix>-nginx`/`<...>-web-<user>`, so a
     configured roster with no facility section at all renders leading-dash names
-    like `-nginx`, which Docker rejects only at `deploy up`. Catch it at lint."""
+    like `-nginx`, which Docker rejects only at `osprey up`. Catch it at lint."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config.pop("facility", None)  # no facility section -> empty effective prefix
@@ -2403,7 +2426,7 @@ def test_lint_profile_config_accepts_a_well_formed_config_block() -> None:
 
 def test_lint_profile_config_skips_the_checks_a_profile_cannot_answer() -> None:
     """`project_path` points at a directory the build has not rendered yet, and
-    `build_profile` still holds the preset name `profile new` will rewrite. The
+    `build_profile` still holds the preset name `osprey init` will rewrite. The
     deploy-time pass reports that; the profile-time pass must not."""
     # Arrange
     config = _profile_config()
@@ -2535,7 +2558,7 @@ LINT_ENTRY_POINTS = (
 
 def test_the_engine_is_not_wired_into_build_profile_validate() -> None:
     """`BuildProfile.validate()` also runs during profile RESOLUTION, which
-    `osprey profile new` goes through — running the engine there pre-empts that
+    `osprey init` goes through — running the engine there pre-empts that
     command's own persona validator, which reports every unusable catalog entry
     at once. The engine belongs to the commands; this pins that it stayed there.
     """

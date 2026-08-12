@@ -1,6 +1,6 @@
 """Layer-split invariants for the four service Dockerfiles.
 
-`osprey deploy up` builds each managed service (event_dispatcher,
+`osprey up` builds each managed service (event_dispatcher,
 virtual_accelerator, bluesky, bluesky_panels) from a template Dockerfile shipped
 under ``osprey/templates/services/<name>/``. This module pins the shared layer
 contract those recipes follow so a fast per-project dev rebuild only re-runs the

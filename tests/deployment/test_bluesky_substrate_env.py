@@ -1,6 +1,6 @@
 """Deploy-time provisioning for the bluesky scan stack.
 
-Covers the three things ``osprey deploy up`` has to put in place before
+Covers the three things ``osprey up`` has to put in place before
 ``compose up`` mounts them, all in ``container_lifecycle``:
 
 * ``_ensure_bluesky_substrate_env`` — the EPICS-substrate device env, and the
@@ -95,8 +95,14 @@ class TestSubstrateMockHonesty:
 
         assert "browse-only" in caplog.text
         # The one-line flip that turns a browse-only deployment into an
-        # executing one — same command the bridge's capability surface carries.
-        assert "osprey config set-control-system virtual_accelerator" in caplog.text
+        # executing one. Asserted against the bridge's own constant rather than
+        # a literal: the deploy path spells the command out (it cannot import
+        # the bridge, whose module needs bluesky_queueserver_api), so the two
+        # spellings can only drift apart silently. Pinning them here is what
+        # makes a rename of either one fail rather than diverge.
+        from osprey.services.bluesky_bridge.queue_backend import FLIP_COMMAND
+
+        assert FLIP_COMMAND in caplog.text
 
     def test_mock_log_never_promises_a_demo(self, env_path, caplog):
         """A browse-only deployment must not be told a demo will run for it.
@@ -598,7 +604,7 @@ class TestDocumentPlaneCerts:
 class TestComposeTemplateContract:
     """What the compose template consumes is what this module must provide.
 
-    A rename on either side is a hard ``deploy up`` abort rather than a soft
+    A rename on either side is a hard ``osprey up`` abort rather than a soft
     failure — the template guards both halves with ``:?`` — so the two names
     are pinned here against the template's own text.
     """
@@ -650,8 +656,8 @@ class TestComposeTemplateContract:
         """The bind sources are the directories this module writes."""
         text = self._template_text()
 
-        assert "../../data/bluesky_curve/bridge:/app/curve:ro" in text
-        assert "../../data/bluesky_curve/queueserver:/app/curve:ro" in text
+        assert "./data/bluesky_curve/bridge:/app/curve:ro" in text
+        assert "./data/bluesky_curve/queueserver:/app/curve:ro" in text
 
 
 class TestGeneratedProjectGitignore:
@@ -718,18 +724,40 @@ class TestDeployWiring:
     """Provisioning runs on the deploy paths that need it, before compose."""
 
     def test_deploy_up_calls_both_provisioners(self):
+        """Both provisioners run before the image build, on every start path.
+
+        Read off ``_start_stack`` rather than ``deploy_up``: the deploy sequence
+        moved there when ``deploy_up`` (render, then start) and ``up_as_built``
+        (start what a build already rendered) were made to share one. The
+        property being pinned is the ORDER of that sequence, so it belongs to
+        the function that has one — and the last assertion keeps every start
+        verb answerable to it.
+
+        The repo verbs reach it one hop away, through ``_start_as_built``: the
+        start half was split out of ``up_as_built`` so ``restart_deployment``
+        could run a ``down`` between the read and the start. A verb that grew a
+        third way to start would fail here, which is the point.
+        """
         import inspect
 
         from osprey.deployment import container_lifecycle
 
-        source = inspect.getsource(container_lifecycle.deploy_up)
-        assert "_ensure_bluesky_control_plane_keys(config)" in source
-        assert "_ensure_bluesky_document_plane_certs(config)" in source
+        source = inspect.getsource(container_lifecycle._start_stack)
+        assert "_ensure_bluesky_control_plane_keys(config" in source
+        assert "_ensure_bluesky_document_plane_certs(config" in source
         # Key material has to exist before compose mounts it: a bind source
         # that does not exist is created root-owned by the runtime.
-        assert source.index("_ensure_bluesky_document_plane_certs(config)") < source.index(
-            "_build_project_image(config, dev_mode, env)"
+        assert source.index("_ensure_bluesky_document_plane_certs(config") < source.index(
+            "_build_project_image(config, dev_mode, env"
         )
+        assert "_start_stack(" in inspect.getsource(container_lifecycle._start_as_built)
+        for verb in (
+            container_lifecycle.deploy_up,
+            container_lifecycle.up_as_built,
+            container_lifecycle.restart_deployment,
+        ):
+            body = inspect.getsource(verb)
+            assert "_start_stack(" in body or "_start_as_built(" in body
 
     def test_deploy_restart_mints_the_control_plane_pair(self):
         """The template's `:?` guard aborts a restart on an unset private key.
@@ -743,10 +771,13 @@ class TestDeployWiring:
         from osprey.deployment import container_lifecycle
 
         source = inspect.getsource(container_lifecycle.deploy_restart)
-        assert "_ensure_bluesky_control_plane_keys(config)" in source
-        assert source.index("_ensure_bluesky_control_plane_keys(config)") < source.index(
-            '"restart"'
-        )
+        # Matched on the call NAME, not on a full argument list: the call is
+        # anchored on the repo root's `.env` (it mints a keypair, and a
+        # cwd-relative default would strand it), and pinning the exact argument
+        # text would make this test fail on the anchoring rather than on the
+        # property it is here to protect — that the mint happens before restart.
+        assert "_ensure_bluesky_control_plane_keys(" in source
+        assert source.index("_ensure_bluesky_control_plane_keys(") < source.index('"restart"')
 
     def test_deploy_restart_does_not_generate_certificates(self):
         """`compose restart` reuses existing container config; mounts are not re-resolved."""
@@ -761,8 +792,9 @@ class TestDeployWiring:
 def test_default_env_path_is_cwd_relative(tmp_path, monkeypatch):
     """Both new functions follow ``_ensure_service_tokens``' CWD convention.
 
-    ``osprey deploy`` chdirs into the project directory first, so a default
-    ``Path(".env")`` resolves against it.
+    A caller that passes no ``env_path`` gets a default ``Path(".env")``, which
+    resolves against whatever directory the process is in — which is why every
+    live path passes the repo's own ``.env`` explicitly instead.
     """
     monkeypatch.delenv("BLUESKY_QSERVER_ZMQ_PRIVATE_KEY", raising=False)
     monkeypatch.delenv("BLUESKY_QSERVER_ZMQ_PUBLIC_KEY", raising=False)
@@ -787,7 +819,7 @@ def test_default_env_path_is_cwd_relative(tmp_path, monkeypatch):
 # 40 byte z85 encoded string" -- intermittently, since ~62% of keys contain a
 # `$` and it only corrupts when the next character starts an identifier.
 #
-# Not hypothetical: a real `osprey deploy up` wrote `...CRx[$D(IbLK...` and the
+# Not hypothetical: a real `osprey up` wrote `...CRx[$D(IbLK...` and the
 # bridge received `...CRx[(IbLK...`, failing every route that touches the
 # manager. Found by tests/e2e/test_bluesky_queue_e2e.py. NOTHING at this layer
 # could have seen it before, because every test here reads the file back with

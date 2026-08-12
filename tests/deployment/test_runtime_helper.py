@@ -54,7 +54,7 @@ def test_runtime_env_pins_default_project_name_for_falsy_config() -> None:
 # exactly why provision.py forbids that flag on both paths --
 # ignore_orphans=True silences it at the source.
 #
-# The single-stack paths are the mirror image: plain `deploy up` reconciles
+# The single-stack paths are the mirror image: plain `osprey up` reconciles
 # with `up --remove-orphans`, `clean` with `down --remove-orphans`, and docker
 # compose HARD-ERRORS on the combination ("cannot combine
 # COMPOSE_IGNORE_ORPHANS and --remove-orphans"). A default-on env var breaks

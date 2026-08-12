@@ -616,7 +616,7 @@ def test_an_invalid_existing_secret_raises_without_echoing_the_value(
 
 
 # =============================================================================
-# set_auth_password: rotation (osprey deploy passwd)
+# set_auth_password: rotation (osprey users passwd)
 # =============================================================================
 
 

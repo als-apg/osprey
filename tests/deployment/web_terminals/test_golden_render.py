@@ -44,6 +44,22 @@ _GOLDEN_DIR = Path(__file__).parent / "golden"
 
 # The auth/tls block is deliberately absent: it is off by default, and the
 # goldens cover the shape a facility gets without opting into it.
+#: Stands in for the one rendered value that cannot be committed: the
+#: `com.osprey.repo-id` label is a hash of the deployment repo's RESOLVED path,
+#: so it differs per checkout, and a literal in the golden would fail on every
+#: machine but the one that generated it. Substituted at comparison time, the
+#: same trick the exemplar fixture uses for the osprey version — byte-equality
+#: still covers every other byte, including the label's presence and placement.
+_REPO_ID_SENTINEL = "@REPO_ID@"
+
+
+def _rendered_repo_id() -> str:
+    """The identity `render_web_terminals` will bake for ``EXAMPLE_CONFIG``."""
+    from osprey.deployment.compose_generator import repo_identity, resolve_repo_root
+
+    return repo_identity(resolve_repo_root(EXAMPLE_CONFIG))
+
+
 EXAMPLE_CONFIG: dict = {
     "facility": {
         "name": "Demo Light Source",
@@ -83,7 +99,8 @@ EXAMPLE_CONFIG: dict = {
 
 
 def _read_golden(name: str) -> str:
-    return (_GOLDEN_DIR / name).read_text()
+    """The committed baseline, with its one per-checkout sentinel resolved."""
+    return (_GOLDEN_DIR / name).read_text().replace(_REPO_ID_SENTINEL, _rendered_repo_id())
 
 
 def test_golden_fixtures_exist() -> None:

@@ -1,6 +1,6 @@
 """Post-deploy endpoint summary.
 
-Every ``osprey deploy up`` ends by saying what is reachable where, derived
+Every ``osprey up`` ends by saying what is reachable where, derived
 from the published host ports in the rendered compose files (the same source
 :mod:`osprey.deployment.host_ports` preflights) — so the summary needs no
 per-facility knowledge. A web-terminal line is always included: a project
@@ -29,10 +29,16 @@ _HTTP_SERVICES = {
 
 
 def format_endpoint_summary(config: dict, compose_files: list[str]) -> str:
-    """Render the endpoint summary for a deploy of ``config``.
+    """Render where a deployment's services are reachable, as its render declares it.
+
+    The single derivation of "what answers where", so the summary a deploy
+    prints when it finishes and the one a report prints later cannot describe
+    the same deployment differently. It says where a service *would* answer —
+    the published ports are read out of the rendered compose files, not probed.
 
     :param config: Loaded configuration dictionary
-    :param compose_files: Rendered compose file paths for this deploy
+    :param compose_files: Rendered compose file paths, spelled absolutely or
+        resolvable from the working directory — they are opened here
     :return: Multi-line summary text
     """
     lines = [f"Service endpoints ({resolve_project_name(config)}):"]

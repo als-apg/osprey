@@ -77,12 +77,18 @@ def test_compose_constants_carry_expected_values():
     assert container_manager.SERVICES_DIR == "services"
 
 
-def test_deploy_cmd_imports_resolve_through_facade():
-    """Every name the deploy CLI pulls from container_manager resolves — a
-    lightweight guard that the facade covers the CLI's actual import list."""
-    from osprey.cli import deploy_cmd  # noqa: F401  (import side effect is the assertion)
+def test_every_re_exported_name_resolves():
+    """The facade must not name anything its submodules no longer define.
 
-    # deploy_cmd imports lazily; assert the facade exposes the lifecycle verbs
-    # it dispatches to regardless of import timing.
+    A re-export list is the one kind of import error a normal test run can miss:
+    ``from x import y`` at module scope fails loudly, but a name dropped from
+    ``RE_EXPORTS`` while the submodule still has it — or kept after the submodule
+    lost it — is silent until something reaches for it.
+
+    The facade has no importer in ``src/`` any more: it existed for the ``osprey
+    deploy`` group, and the lifecycle verbs now import from
+    ``container_lifecycle`` directly. Retiring it is Task 3.2's call; until then
+    it must at least be internally consistent.
+    """
     for _origin, name in ALL_NAMES:
         assert hasattr(container_manager, name)

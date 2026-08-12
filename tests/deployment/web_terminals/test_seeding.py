@@ -3,9 +3,10 @@
 The container runtime is entirely mocked: ``seeding.subprocess.run`` is patched to
 record every emitted argv (and its stdin ``input``) instead of touching a real
 docker/podman daemon, and ``seeding.get_runtime_command``/``seeding.runtime_env``
-are pinned to fixed values. The ``docker/web-terminal-context/`` overlay tree is
-built under ``tmp_path``. No real container is ever created, execed into, or
-removed by these tests.
+are pinned to fixed values. The overlay tree is built under ``tmp_path`` in the
+zone a real deployment keeps it in, ``build/docker/web-terminal-context/`` (see
+``_context_root``). No real container is ever created, execed into, or removed
+by these tests.
 """
 
 from __future__ import annotations
@@ -120,8 +121,20 @@ def fake_runtime(monkeypatch):
     return calls, inputs, ready
 
 
+def _context_root(tmp_path):
+    """Where a built deployment repo keeps the overlay tree seeding reads.
+
+    Inside the OUTPUT zone, not at the repo root: the tree is build output —
+    ``base.md`` is installed by the framework template and each roster user's
+    directory is copied in below it by the profile's ``web-terminal-context``
+    convention, both into ``build/``. ``tmp_path`` stands in for the repo root
+    (every test chdirs into it).
+    """
+    return tmp_path / "build" / "docker" / "web-terminal-context"
+
+
 def _write_base_md(tmp_path, content="# base context\n"):
-    context_dir = tmp_path / "docker" / "web-terminal-context"
+    context_dir = _context_root(tmp_path)
     context_dir.mkdir(parents=True, exist_ok=True)
     (context_dir / "base.md").write_text(content, encoding="utf-8")
     return context_dir
@@ -153,7 +166,7 @@ def test_claude_md_exec_content_and_target(tmp_path, monkeypatch, fake_runtime):
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path, "BASE\n")
-    overlay = tmp_path / "docker" / "web-terminal-context" / "alice"
+    overlay = _context_root(tmp_path) / "alice"
     overlay.mkdir(parents=True)
     (overlay / "extra.md").write_text("EXTRA\n", encoding="utf-8")
 
@@ -211,7 +224,7 @@ def test_missing_extra_md_seeds_base_only(tmp_path, monkeypatch, fake_runtime):
 
 
 def _write_extra_md(tmp_path, user, content):
-    overlay = tmp_path / "docker" / "web-terminal-context" / user
+    overlay = _context_root(tmp_path) / user
     overlay.mkdir(parents=True, exist_ok=True)
     (overlay / "extra.md").write_text(content, encoding="utf-8")
 
@@ -344,7 +357,7 @@ def test_skills_reconcile_carries_names_and_target_and_sentinel_phases(
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path)
-    skills_dir = tmp_path / "docker" / "web-terminal-context" / "alice" / "skills" / "myskill"
+    skills_dir = _context_root(tmp_path) / "alice" / "skills" / "myskill"
     skills_dir.mkdir(parents=True)
     (skills_dir / "SKILL.md").write_text("hello", encoding="utf-8")
 
@@ -749,3 +762,52 @@ def test_seed_owner_query_garbage_fails_that_user_only(tmp_path, monkeypatch, fa
         seeding.seed_user_containers(_config(["alice", "bob"]))
 
     assert _claude_md_calls(calls) == []  # chown never attempted with garbage
+
+
+# =============================================================================
+# where the overlay tree is read from
+# =============================================================================
+
+
+def test_overlay_at_the_repo_root_is_not_read(tmp_path, monkeypatch, fake_runtime):
+    """A tree at ``<repo>/docker/web-terminal-context`` is not consulted.
+
+    That path is what a cwd-relative join produces, and in a deployment repo it
+    is not where the build puts the overlay — ``build/`` is. A ``base.md``
+    sitting there must not satisfy the requirement, or the seed would run off
+    whatever predated the build.
+    """
+    _calls, _inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    stale = tmp_path / "docker" / "web-terminal-context"
+    stale.mkdir(parents=True)
+    (stale / "base.md").write_text("STALE BASE\n", encoding="utf-8")
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+
+    with pytest.raises(RuntimeError, match="base.md not found"):
+        seeding.seed_user_containers(_config(["alice"]))
+
+
+def test_overlay_is_found_from_the_config_not_the_working_directory(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """``osprey users seed`` hands over a config path; the overlay follows it.
+
+    Running from anywhere else must still read the repo that config belongs to,
+    the same way the compose invocation pins ``--project-directory``.
+    """
+    calls, inputs, ready = fake_runtime
+    repo = tmp_path / "repo"
+    _write_base_md(repo, "REPO BASE\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+
+    config_path = repo / "build" / "config.yml"
+    config_path.write_text(yaml.safe_dump(_config(["alice"])), encoding="utf-8")
+    seeding.seed_web_terminals(str(config_path))
+
+    md_calls = _claude_md_calls(calls)
+    assert len(md_calls) == 1
+    assert inputs[calls.index(md_calls[0])] == b"REPO BASE\n"

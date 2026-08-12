@@ -2,7 +2,7 @@
 
 Mirrors ``test_bluesky_token_mint.py``'s coverage for the ``postgresql``
 deployed-service entry in ``_SERVICE_TOKEN_VARS`` (container_lifecycle.py):
-``osprey deploy up`` mints a strong ``ARIEL_DB_PASSWORD`` into the project
+``osprey up`` mints a strong ``ARIEL_DB_PASSWORD`` into the project
 ``.env``, which the postgresql compose template reads as POSTGRES_PASSWORD and
 the ariel DSN (``ariel.database.uri``) references as
 ``${ARIEL_DB_PASSWORD:-ariel}`` — a single source of truth replacing the old

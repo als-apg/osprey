@@ -1,9 +1,9 @@
 """Host-side provisioning of multi-user web-terminal deployments.
 
-Extracts the web-terminal-only provisioning logic ``osprey deploy up`` runs
+Extracts the web-terminal-only provisioning logic ``osprey up`` runs
 before and around the compose invocation for a ``modules.web_terminals``
-deploy: per-persona local image builds (rendering any missing persona project
-on demand), ``.env.production`` generation for local-mode deploys, ``.env.auth``
+deploy: per-persona local image builds (over the persona projects ``osprey
+build`` rendered), ``.env.production`` generation for local-mode deploys, ``.env.auth``
 credential provisioning and its fail-closed gate when authentication is on,
 rootless-podman ``loginctl`` linger, the advisory post-up ``verify.sh`` smoke
 check, and the dual-compose (backend-services + web stack) orchestration itself.
@@ -24,7 +24,9 @@ import yaml
 
 from osprey.deployment.compose_generator import (
     _stage_dev_wheel_for_context,
+    compose_base_cmd,
     resolve_project_name,
+    resolve_repo_root,
 )
 from osprey.deployment.runtime_helper import (
     get_container_image_id,
@@ -33,7 +35,10 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
     with_plain_progress,
 )
-from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
+from osprey.deployment.web_terminals.artifacts import (
+    web_compose_file,
+    write_web_terminal_artifacts,
+)
 from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     AuthCredentialsResult,
@@ -44,8 +49,8 @@ from osprey.deployment.web_terminals.auth_credentials import (
 )
 from osprey.deployment.web_terminals.env_production import ensure_env_production
 from osprey.deployment.web_terminals.persona_images import (
-    auto_render_missing_personas,
     build_persona_images,
+    verify_persona_renders,
 )
 from osprey.deployment.web_terminals.personas import (
     effective_image_source,
@@ -65,7 +70,7 @@ from osprey.utils.logger import get_logger
 logger = get_logger("deployment.lifecycle")
 
 
-def preflight_web_terminals(config: dict, env: dict[str, str]) -> None:
+def preflight_web_terminals(config: dict) -> None:
     """Fail-fast web-terminal preflight, run BEFORE any image build.
 
     ``deploy_up`` invokes this ahead of its (minutes-long) project-image
@@ -75,11 +80,11 @@ def preflight_web_terminals(config: dict, env: dict[str, str]) -> None:
     deployment with no ``auth.image`` (:func:`_require_auth_sidecar_image`) and
     an auth credential that could not be established
     (:func:`_provision_auth_secrets`) — surface in seconds. Local mode first
-    renders any missing persona project (the credential sweep reads each
-    rendered persona's ``config.yml``), from the persona deltas in this
-    deployment's own profile — exactly as the main provisioning path does,
-    which is why ``project_root`` is passed to both: it is where the manifest
-    naming that profile lives.
+    checks that every referenced persona has a rendered project (the credential
+    sweep reads each rendered persona's ``config.yml``), exactly as the main
+    provisioning path does, which is why the repo root is passed to both: the
+    renders it looks for are the ones ``osprey build`` wrote into that repo's
+    ``build/``.
 
     Auth provisioning runs LAST, and in both image-source modes: the sidecar's
     credentials are needed whatever the images come from, but minting them for
@@ -87,11 +92,11 @@ def preflight_web_terminals(config: dict, env: dict[str, str]) -> None:
     (and print) passwords for a stack that never comes up.
 
     Every step is idempotent, so :func:`deploy_up_web_terminals` re-running
-    the same sequence later is a cheap no-op: rendered personas are
-    user-owned and skipped, and an existing ``.env.production`` is returned
-    as-is. Auth provisioning is idempotent in the same sense — an established
-    hash or secret is never rewritten. Assumes the project-root cwd every
-    other step of ``osprey deploy up`` already relies on.
+    the same sequence later is a cheap no-op: the persona check reads and
+    writes nothing, and an existing ``.env.production`` is returned as-is. Auth
+    provisioning is idempotent in the same sense — an established hash or secret
+    is never rewritten. Assumes the project-root cwd every
+    other step of ``osprey up`` already relies on.
 
     Nothing is returned: whatever this preflight (or an operator's hand-edit)
     did to ``.env.auth`` is picked up by the deploy's own re-render, which
@@ -100,23 +105,23 @@ def preflight_web_terminals(config: dict, env: dict[str, str]) -> None:
     — compose itself then recreates the sidecar on the definition change, so
     no authorship signal needs to survive from here to the ``up``.
     """
-    project_root = os.getcwd()
+    repo_root = str(resolve_repo_root(config))
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     if effective_image_source(web_terminals) == "local":
         facility_prefix = (config.get("facility") or {}).get("prefix") or ""
         registry_cfg = config.get("registry") or {}
         resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
-        auto_render_missing_personas(config, resolved_users, env, project_root=Path(project_root))
-    ensure_env_production(config, project_root)
+        verify_persona_renders(config, resolved_users, repo_root=Path(repo_root))
+    ensure_env_production(config, repo_root)
     # BEFORE the mint, deliberately: a registry-mode deploy that forgot
     # auth.image is already doomed, and minting here first would write (and
     # print, once) a password for a stack that never comes up. Moving this call
     # below _provision_auth_secrets silently loses that property.
     _require_auth_sidecar_image(web_terminals)
-    _provision_auth_secrets(web_terminals, project_root)
+    _provision_auth_secrets(web_terminals, repo_root)
 
 
-def _provision_auth_secrets(web_terminals: dict, project_root: str) -> None:
+def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
     """Establish every auth credential this deployment needs, then gate on it.
 
     A no-op when ``modules.web_terminals.auth.method`` is ``none`` (the
@@ -135,6 +140,8 @@ def _provision_auth_secrets(web_terminals: dict, project_root: str) -> None:
        secret, and the sidecar's compose service declares ``env_file:
        .env.auth`` — ``compose up`` hard-fails when that file does not exist,
        so this call is also what brings the file into being on a fresh root.
+       A password the mint has to invent is shown once — but only to a terminal;
+       see :func:`_mint_echo` for where it goes otherwise and why.
     2. **Gate** — :func:`_raise_if_auth_provisioning_incomplete`, as a
        post-mint invariant. Deliberately after the mint, never instead of it:
        the question is not "was a credential configured?" but "does one exist
@@ -143,7 +150,7 @@ def _provision_auth_secrets(web_terminals: dict, project_root: str) -> None:
     Nothing wraps the mint in ``try``/``except``: ``ensure_auth_credentials``
     raises (writing nothing) on a roster it cannot key — a charset violation,
     or two usernames colliding onto one credential variable — and that raise IS
-    the deploy abort. ``osprey deploy`` never runs lint, so swallowing it would
+    the deploy abort. ``osprey up`` never runs lint, so swallowing it would
     silently deploy a stack where one operator's password opens another's
     terminal.
 
@@ -160,7 +167,7 @@ def _provision_auth_secrets(web_terminals: dict, project_root: str) -> None:
     without an authorship signal.
 
     :param web_terminals: The already-unwrapped ``modules.web_terminals`` dict.
-    :param project_root: Directory holding ``.env``, ``.env.auth`` and
+    :param repo_root: Directory holding ``.env``, ``.env.auth`` and
         ``.gitignore``.
     :raises RuntimeError: If a credential could not be established (see the
         gate), or if the roster cannot be keyed (charset violation or two
@@ -171,13 +178,14 @@ def _provision_auth_secrets(web_terminals: dict, project_root: str) -> None:
     if auth_method == "none":
         return
 
-    _warn_if_env_auth_not_gitignored(Path(project_root))
+    _warn_if_env_auth_not_gitignored(Path(repo_root))
 
     credentials = None
     if auth_method == "password":
         usernames = [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
-        credentials = ensure_auth_credentials(usernames, project_root)
-    session_secrets = ensure_auth_session_secrets(project_root)
+        credentials = ensure_auth_credentials(usernames, repo_root, echo=_mint_echo())
+        _report_unshown_mints(credentials)
+    session_secrets = ensure_auth_session_secrets(repo_root)
     _raise_if_auth_provisioning_incomplete(auth_method, credentials, session_secrets)
     # After the mint rather than before it, uniquely on this path: on a fresh
     # root .env.auth does not exist until ensure_auth_session_secrets creates
@@ -185,7 +193,69 @@ def _provision_auth_secrets(web_terminals: dict, project_root: str) -> None:
     # idempotent and appends only `$`-free values — a refusal leaves the file
     # exactly as a re-run would rebuild it, unlike the credential-removing
     # verbs (see the function's own docstring for why they scan up front).
-    raise_if_env_auth_would_be_interpolated(project_root)
+    raise_if_env_auth_would_be_interpolated(repo_root)
+
+
+def _stdout_is_a_terminal() -> bool:
+    """Whether stdout is a terminal a person is watching right now.
+
+    Its own function because it is the whole basis of the decision below, and
+    because a test needs one seam to move rather than a captured stream to fake.
+    """
+    import sys
+
+    try:
+        return bool(sys.stdout.isatty())
+    except (AttributeError, ValueError):
+        # A closed or exotic stream. "Not a terminal" is the safe reading: it
+        # withholds a secret rather than printing one somewhere unknown.
+        return False
+
+
+def _mint_echo():
+    """The sink :func:`ensure_auth_credentials` shows a minted password through.
+
+    A freshly minted web-terminal password exists in cleartext exactly once, in
+    whatever this writes to. On a terminal that is a person reading it, which is
+    the whole design: the plaintext is never stored, only its hash.
+
+    When stdout is NOT a terminal it is a file, a pipe, or — the case this
+    exists for — a CI job log that is retained and readable by everyone with
+    access to the project. So there the sink drops the line on the floor, and
+    :func:`_report_unshown_mints` says so afterwards. Nothing is echoed on a
+    best-effort basis: a password either goes to a live terminal or nowhere.
+    """
+    if _stdout_is_a_terminal():
+        return print
+    return lambda _line: None
+
+
+def _report_unshown_mints(credentials: AuthCredentialsResult) -> None:
+    """Say that passwords were minted but deliberately not shown.
+
+    Deliberately does NOT tell the operator to go read them out of
+    ``.env.auth``: that file holds password *hashes*, and the plaintext this
+    deploy generated is unrecoverable from the moment it is not printed. The two
+    remedies named are the two that exist — rotate to a password of the
+    operator's choosing, or supply one up front and re-deploy, which the
+    credential path prefers over minting.
+
+    No-op when nothing was minted, and never reached on a terminal, where the
+    passwords were shown once as before.
+    """
+    if not credentials.minted or _stdout_is_a_terminal():
+        return
+    users = ", ".join(sorted(credentials.minted))
+    logger.warning(
+        "Minted a login password for web-terminal user(s) %s and did NOT print it: stdout "
+        "is not a terminal here, and this output can be retained (a CI job log is readable "
+        "by everyone with access to the project). The plaintext is gone — only the hash is "
+        "stored in %s. Set a password you choose with `osprey users passwd <user>`, or put "
+        "OSPREY_AUTH_PW_<USER> in .env before the first deploy and it will be hashed in "
+        "instead of a random one being minted.",
+        users,
+        credentials.env_auth_path,
+    )
 
 
 def _raise_if_auth_provisioning_incomplete(
@@ -234,7 +304,7 @@ def _raise_if_auth_provisioning_incomplete(
     )
 
 
-def _warn_if_env_auth_not_gitignored(project_root: Path) -> None:
+def _warn_if_env_auth_not_gitignored(repo_root: Path) -> None:
     """Warn — never block — when ``.gitignore`` does not cover ``.env.auth``.
 
     Projects scaffolded before authentication existed have a ``.gitignore``
@@ -256,7 +326,7 @@ def _warn_if_env_auth_not_gitignored(project_root: Path) -> None:
     ordinarily a directory nobody commits from, and a deploy is not the place
     to press an operator into starting a gitignore they never had.
     """
-    gitignore_path = project_root / ".gitignore"
+    gitignore_path = repo_root / ".gitignore"
     if not gitignore_path.is_file():
         return
     try:
@@ -366,12 +436,12 @@ def _require_auth_sidecar_image(web_terminals: dict) -> None:
         "the auth sidecar's image locally, so it must name a published one — "
         "building it and pushing it is the facility CI's job, like .env.production. "
         "Either set modules.web_terminals.auth.image, or set "
-        "modules.web_terminals.image_source: local to have `osprey deploy up` build "
+        "modules.web_terminals.image_source: local to have `osprey up` build "
         "the sidecar image on this host."
     )
 
 
-def _materialize_auth_build_context(project_root: Path, dev_mode: bool) -> Path:
+def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> Path:
     """Write the bundled sidecar Dockerfile into this project's build tree.
 
     The sidecar has no rendered project of its own (unlike a persona) and no
@@ -382,7 +452,7 @@ def _materialize_auth_build_context(project_root: Path, dev_mode: bool) -> Path:
 
     :returns: The build-context directory.
     """
-    context_dir = project_root / AUTH_BUILD_CONTEXT
+    context_dir = repo_root / AUTH_BUILD_CONTEXT
     context_dir.mkdir(parents=True, exist_ok=True)
     template_dir = files("osprey").joinpath(_AUTH_TEMPLATE_PACKAGE_PATH)
     for name in _AUTH_CONTEXT_FILES:
@@ -437,8 +507,7 @@ def build_auth_sidecar_image(config: dict, dev_mode: bool, env: dict[str, str]) 
         )
         return
 
-    project_root = Path(os.getcwd())
-    context_dir = _materialize_auth_build_context(project_root, dev_mode)
+    context_dir = _materialize_auth_build_context(resolve_repo_root(config), dev_mode)
 
     from osprey import __version__ as osprey_version
 
@@ -469,39 +538,57 @@ def build_auth_sidecar_image(config: dict, dev_mode: bool, env: dict[str, str]) 
     subprocess.run(cmd, env=env, check=True)
 
 
-def web_stack_compose_cmd(config: dict, env_file_args: list[str] | None = None) -> list[str]:
-    """The web stack's ``<runtime> compose -f docker-compose.web.yml [...]`` base argv.
+def web_stack_compose_cmd(
+    config: dict,
+    env_file_args: list[str] | None = None,
+    *,
+    repo_root: Path | str | None = None,
+) -> list[str]:
+    """The web stack's pinned ``<runtime> compose ... -f build/docker-compose.web.yml`` argv.
 
     One builder for every invocation against the web compose project — the
     deploy path's ``pull``/``up``/recreate, ``deploy_down_web_terminals``, and
-    the lifecycle verbs' nginx reload and sidecar recreate — so no caller can
-    fork the argv and drift from it (the project directory the web file's
-    relative paths resolve against is decided by this ``-f`` list; see
-    :func:`deploy_up_web_terminals`'s WHY TWO INVOCATIONS note).
+    the roster verbs' nginx reload and sidecar recreate — so no caller can fork
+    the argv and drift from it. It carries the same pinned base as the services
+    stack (:func:`~osprey.deployment.compose_generator.compose_base_cmd`): the
+    repo root as project directory, the rendered compose file addressed under
+    ``build/``, and the repo-root ``.env``.
 
-    :param env_file_args: The ``["--env-file", ".env"]`` (or ``[]``) fragment
-        the caller already resolved. ``None`` resolves it here through
-        ``container_lifecycle._env_file_args``, for the lifecycle verbs that are
+    That pin is what makes the file's own relative paths correct. The rendered
+    compose file lives in ``build/`` while the secrets it names (``.env.auth``,
+    ``.env.production``) live at the repo root, and compose resolves both
+    against the project directory rather than against the file's own location —
+    so pinning the root is what lets one rendered file reference both zones.
+
+    :param env_file_args: The ``--env-file`` fragment the caller already
+        resolved. ``None`` resolves it here through
+        ``container_lifecycle._env_file_args``, for the roster verbs that are
         entered straight from the CLI and never had one to thread down — so the
         rule (and its "no .env" warning) keeps a single definition.
+    :param repo_root: The deployment repo. Defaults to the one resolved from
+        ``config``.
     """
+    root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
     if env_file_args is None:
         # Function-local import: container_lifecycle imports this module at its
         # top level, so importing it back at module scope would be a cycle
         # (same reason persona_images imports _resolve_pip_spec locally).
         from osprey.deployment.container_lifecycle import _env_file_args
 
-        env_file_args = _env_file_args()
-    cmd = with_plain_progress(get_runtime_command(config))
-    cmd.extend(("-f", "docker-compose.web.yml"))
-    cmd.extend(env_file_args)
-    return cmd
+        env_file_args = _env_file_args(root)
+    return compose_base_cmd(
+        with_plain_progress(get_runtime_command(config)),
+        [web_compose_file(root)],
+        root,
+        env_file_args,
+    )
 
 
 def force_recreate_auth_sidecar(
     config: dict,
     env_file_args: list[str] | None = None,
     *,
+    repo_root: Path | str | None = None,
     env: dict[str, str] | None = None,
 ) -> None:
     """Recreate the auth sidecar container so it re-reads ``.env.auth``.
@@ -521,14 +608,14 @@ def force_recreate_auth_sidecar(
 
     1. the lifecycle verbs (``decommission_user``/``prune_users``), which purge
        a departed user's entries and must kill that user's sessions at once;
-    2. ``osprey deploy passwd <user>``, so a rotated password takes effect
+    2. ``osprey users passwd <user>``, so a rotated password takes effect
        immediately rather than at the next full deploy.
 
     Re-renders the artifacts (via :func:`write_web_terminal_artifacts`) before
     the recreate, so the container it creates carries the digest label of the
     exact ``.env.auth`` it bakes. Without this, every caller above recreates
     from a compose file rendered BEFORE its file mutation, leaving label !=
-    sha256(baked env): the next ``deploy up`` re-renders the current digest,
+    sha256(baked env): the next ``osprey up`` re-renders the current digest,
     sees a definition change, and spuriously bounces an already-current sidecar
     — and, worse, a byte-exact revert of ``.env.auth`` to the pre-mutation
     content would render a digest MATCHING the stale label, so podman-compose
@@ -542,9 +629,16 @@ def force_recreate_auth_sidecar(
     Scoped to the single ``auth`` service: recreating the whole stack would
     bounce every live terminal for a change none of them can see.
 
-    A no-op (with a warning) when no ``docker-compose.web.yml`` has been
-    rendered at the project root — there is no stack to recreate, and failing
-    here would turn "nothing was deployed yet" into a deploy error.
+    A no-op (with a warning) when the repo has no rendered
+    ``build/docker-compose.web.yml`` — there is no stack to recreate, and
+    failing here would turn "nothing was deployed yet" into a deploy error.
+    One repo answers that probe, the pre-recreate re-render, and the compose
+    argv: all three are taken from the ``repo_root`` resolved once at the top
+    of this function, so the probe can only ever address the file the recreate
+    runs against. Split, they diverge quietly — a probe made against the
+    working directory answered "no" for a repo whose stack was rendered and
+    running, so ``osprey users passwd`` warned, recreated nothing, and reported
+    a rotation that was never put in force.
 
     :param config: Raw deploy config (selects the runtime and the pinned
         compose project).
@@ -553,30 +647,44 @@ def force_recreate_auth_sidecar(
         it; ``None`` lets :func:`web_stack_compose_cmd` resolve it, which is what
         the lifecycle verbs (``passwd``, ``decommission``, ``prune``) pass since
         they are entered straight from the CLI.
+    :param repo_root: The deployment repo this recreate acts on — the one whose
+        ``build/`` is probed and re-rendered and whose root compose pins as the
+        project directory. Passed by every caller that already resolved a repo
+        from its ``config_path`` (the roster verbs in
+        :mod:`~osprey.deployment.web_terminals.lifecycle`), which is what lets
+        them run from any working directory. ``None`` falls back to
+        :func:`~osprey.deployment.compose_generator.resolve_repo_root` on
+        ``config`` alone, whose last resort is the working directory — correct
+        only for a caller standing in the repo.
     :param env: Base environment for the subprocess; defaults to this process's
         own. Pinned with ``COMPOSE_PROJECT_NAME`` here either way, so the
         recreate addresses the same compose project the stack was brought up in.
     """
-    if not Path("docker-compose.web.yml").exists():
+    root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
+    compose_file = web_compose_file(root)
+    if not compose_file.exists():
         logger.warning(
-            "No docker-compose.web.yml at the project root — skipping the auth "
-            "sidecar recreate. Any %s change takes effect at the next "
-            "`osprey deploy up`.",
+            "No rendered web stack at %s — skipping the auth sidecar recreate. "
+            "Any %s change takes effect at the next `osprey up`.",
+            compose_file,
             AUTH_ENV_FILENAME,
         )
         return
     # Restore the label invariant before recreating: the compose file on disk
     # was rendered BEFORE this caller's .env.auth mutation, so its digest label
     # describes the file's previous content. See the docstring for both
-    # consequences; best-effort per the same docstring.
+    # consequences; best-effort per the same docstring. Handed the same `root`
+    # the probe and the argv use — a re-render into a different repo's build/
+    # would leave the file this recreate actually reads carrying the stale
+    # label it exists to refresh.
     try:
-        write_web_terminal_artifacts(config)
+        write_web_terminal_artifacts(config, root)
     except (ValueError, OSError) as exc:
         logger.warning(
             "Could not re-render the web-terminal artifacts before the auth sidecar "
             "recreate (%s). Recreating against the existing docker-compose.web.yml — "
             "the recreated container still bakes the current %s, but its digest label "
-            "lags until the next `osprey deploy up` re-renders (costing one extra "
+            "lags until the next `osprey up` re-renders (costing one extra "
             "sidecar recreate there).",
             exc,
             AUTH_ENV_FILENAME,
@@ -590,7 +698,7 @@ def force_recreate_auth_sidecar(
     # those verbs exist to close. The scan runs ahead of each mutation instead;
     # see auth_credentials.raise_if_env_auth_would_be_interpolated.
     _force_recreate_services(
-        web_stack_compose_cmd(config, env_file_args),
+        web_stack_compose_cmd(config, env_file_args, repo_root=root),
         runtime_env(config, env if env is not None else dict(os.environ), ignore_orphans=True),
         [AUTH_SERVICE_NAME],
     )
@@ -661,31 +769,24 @@ def deploy_up_web_terminals(
       sub-invocation below already avoids for a service with no published
       upstream tag.
 
-    WHY TWO INVOCATIONS, NOT ONE ``-f a -f b -f docker-compose.web.yml``:
-    compose resolves every *relative* path in *every* merged ``-f`` file
-    (bind-mount sources, ``build:`` contexts, ``env_file:``) against the
-    directory of the FIRST ``-f`` file — the "compose project directory" —
-    never against the file's own directory. ``compose_files`` are written
-    under ``build/services/`` and their own templates already lean on that
-    rule (see the comment atop ``event_dispatcher/docker-compose.yml.j2``);
-    ``docker-compose.web.yml`` is written to the project ROOT by
-    :func:`write_web_terminal_artifacts` and its relative paths
-    (``env_file: .env.production``, ``./nginx/nginx.conf``, ``./nginx/
-    landing.html``) are project-root-relative. Merging both behind one
-    ``-f`` list makes compose resolve the web file's paths against
-    ``build/services/`` instead — real deploys failed immediately with
-    ``env file .../build/services/.env.production not found``.
+    WHY TWO INVOCATIONS, NOT ONE ``-f a -f b -f build/docker-compose.web.yml``:
+    no longer about path resolution. Compose resolves every *relative* path in
+    every merged ``-f`` file (bind-mount sources, ``build:`` contexts,
+    ``env_file:``) against ONE directory, and both invocations below now pin
+    that directory to the same repo root
+    (:func:`~osprey.deployment.compose_generator.compose_base_cmd`), with every
+    template spelled against it. Two files, one base — which is what makes the
+    web file's ``env_file: .env.auth`` (repo root) and its ``./build/nginx/…``
+    mounts (render zone) both resolve correctly from a single pin.
 
-    A single merged invocation with ``--project-directory <project_root>``
-    was considered and rejected: pinning the project directory to the root
-    fixes the web file but breaks EVERY service template's own relative
-    paths the same way in the other direction (verified with a real
-    ``compose ... --project-directory . config``: ``event-dispatcher``'s
-    ``build.context`` resolved to ``<root>/event_dispatcher`` instead of the
-    real ``build/services/event_dispatcher``). Two invocations sidestep the
-    conflict entirely — each compose file gets the project directory (its
-    own) it was actually written to resolve against — and cost nothing
-    functionally: the web stack runs every service under
+    What keeps them apart is the command SEQUENCE, not the paths: the web stack
+    runs ``pull`` before ``up`` in registry mode, which the services stack must
+    never do (a service with only a ``build:`` block has no upstream tag, and
+    ``compose pull`` hard-fails on it), while ``dev_mode`` gives the services
+    stack a ``build`` step the web stack has no use for. Merging the two behind
+    one ``-f`` list would mean re-expressing that split as per-service argument
+    lists; it is possible under the pinned base, and deliberately not done here.
+    Splitting costs nothing functionally: the web stack runs every service under
     ``network_mode: host`` (see ``docker-compose.web.yml.j2``), so it never
     needed to join ``osprey-network`` from the services file anyway.
 
@@ -749,13 +850,12 @@ def deploy_up_web_terminals(
         one place and this module needs no import back into
         ``container_lifecycle``.
     """
-    write_web_terminal_artifacts(config)
+    # The deployment repo: the compose project directory both invocations below
+    # are pinned to, the root the artifacts are rendered under (into build/),
+    # and the anchor for every secret file this path reads.
+    repo_root = resolve_repo_root(config)
 
-    # project_root mirrors every other cwd-relative assumption already baked
-    # into this function (write_web_terminal_artifacts's own dest_dir="."
-    # default, _env_file_args' Path(".env")): `osprey deploy up` is always
-    # invoked from the project root.
-    project_root = os.getcwd()
+    write_web_terminal_artifacts(config, repo_root)
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     local_mode = effective_image_source(web_terminals) == "local"
@@ -764,31 +864,33 @@ def deploy_up_web_terminals(
         # strict=True: an unresolvable persona reference is a misconfiguration
         # that must surface HERE -- before compose ever runs -- not as an
         # opaque unbuilt-tag failure at `compose up` (see docstring's MODE
-        # BRANCH section). `osprey deploy up` never runs lint, so this strict
+        # BRANCH section). `osprey up` never runs lint, so this strict
         # resolve is the only preflight standing between a broken persona
         # catalog and that opaque failure.
         facility_prefix = (config.get("facility") or {}).get("prefix") or ""
         registry_cfg = config.get("registry") or {}
         resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
-        # Render any referenced persona whose project isn't on disk yet, so the
-        # image build below always finds a complete context -- the `osprey build`
-        # + `osprey deploy up` demo promise, no manual per-persona builds.
-        auto_render_missing_personas(config, resolved_users, env, project_root=Path(project_root))
-        # ensure_env_production AFTER auto-render (its claude_code credential
-        # sweep reads each rendered persona's config.yml -- on a first deploy
-        # those exist only once auto-render has run) but still BEFORE any
-        # compose invocation: a missing/ungeneratable .env.production would
-        # otherwise surface as an opaque compose "env file not found" failure
-        # only once `up` runs.
-        ensure_env_production(config, project_root)
+        # Every referenced persona must already have the project `osprey build`
+        # rendered for it, so the image build below always finds a complete
+        # context. This renders nothing: a gap is a stale or partial build, and
+        # the refusal names the rebuild that fixes it.
+        verify_persona_renders(config, resolved_users, repo_root=repo_root)
+        # ensure_env_production AFTER that check because the check REFUSES: its
+        # claude_code credential sweep reads each rendered persona's config.yml,
+        # so a deploy missing one has to be stopped before the sweep meets a
+        # directory that is not there. Still BEFORE any compose invocation: a
+        # missing/ungeneratable .env.production would otherwise surface as an
+        # opaque compose "env file not found" failure only once `up` runs.
+        ensure_env_production(config, repo_root)
         build_persona_images(config, resolved_users, dev_mode, env)
         # The sidecar's own local-only tag, produced by the same rule and at the
         # same point as the persona images: nothing else builds it, and the web
         # stack's `up` below would otherwise die on a tag that does not exist.
         build_auth_sidecar_image(config, dev_mode, env)
     else:
-        # Registry mode has no auto-render; the same before-compose rule holds.
-        ensure_env_production(config, project_root)
+        # Registry mode pulls prebuilt images and has no render to check; the
+        # same before-compose rule holds.
+        ensure_env_production(config, repo_root)
 
     run_env = runtime_env(config, env, ignore_orphans=True)
 
@@ -796,10 +898,12 @@ def deploy_up_web_terminals(
     # Skipped when no real service is deployed -- see docstring for why
     # `up` on the network-only top-level file alone would fail outright.
     if config.get("deployed_services"):
-        services_base = with_plain_progress(get_runtime_command(config))
-        for compose_file in compose_files:
-            services_base.extend(("-f", compose_file))
-        services_base.extend(env_file_args)
+        services_base = compose_base_cmd(
+            with_plain_progress(get_runtime_command(config)),
+            compose_files,
+            repo_root,
+            env_file_args,
+        )
         # Stale-container preflight (see deploy_up): clear this stack's own
         # wedged created/exited containers — a created container from an
         # aborted deploy holds its published host ports on Docker Desktop and
@@ -828,8 +932,8 @@ def deploy_up_web_terminals(
         logger.debug(f"Running command:\n    {' '.join(services_cmd)}")
         subprocess.run(services_cmd, env=run_env, check=True)
 
-    # ---- web-terminal stack (own compose project directory: project root) --
-    web_cmd = web_stack_compose_cmd(config, env_file_args)
+    # ---- web-terminal stack (same pinned project directory: the repo root) --
+    web_cmd = web_stack_compose_cmd(config, env_file_args, repo_root=repo_root)
 
     # Same stale-container preflight as the services stack above (and same
     # no-`--remove-orphans` constraint — see that comment).
@@ -881,7 +985,7 @@ def deploy_up_web_terminals(
     # -----------------------------------------------------------------------
     enable_linger(config, run_env)
     seed_user_containers(config, env=run_env)
-    run_verify_script(project_root, run_env)
+    run_verify_script(str(repo_root), run_env)
     warn_if_web_stack_unreachable(config, web_cmd=web_cmd, run_env=run_env)
 
 
@@ -931,11 +1035,12 @@ def _reconcile_web_stack_recreates(
         # services exist and what image / container name each carries -- reading
         # it here keeps this reconcile free of any per-service name
         # reconstruction and covers nginx and every per-user terminal uniformly.
+        compose_file = web_compose_file(resolve_repo_root(config))
         try:
-            compose_doc = yaml.safe_load(Path("docker-compose.web.yml").read_text(encoding="utf-8"))
+            compose_doc = yaml.safe_load(compose_file.read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError) as exc:
             logger.warning(
-                "image-drift reconcile skipped: could not read docker-compose.web.yml: %s", exc
+                "image-drift reconcile skipped: could not read %s: %s", compose_file, exc
             )
             compose_doc = None
 
@@ -968,22 +1073,20 @@ def deploy_down_web_terminals(
     """Tear down the web-terminal stack — the mirror of
     :func:`deploy_up_web_terminals`'s second compose invocation.
 
-    ``deploy_down``'s services invocation can never carry
-    ``docker-compose.web.yml`` in its ``-f`` list (the web file's relative
-    paths are project-root-relative while the services files resolve against
-    ``build/services/`` — see the WHY TWO INVOCATIONS note on
-    :func:`deploy_up_web_terminals`), so the web stack needs this dedicated
-    ``down``. Without it the web containers outlive every
-    ``osprey deploy down`` — and because their ``container_name``s are fixed
+    ``deploy_down``'s services invocation does not carry the web compose file
+    in its ``-f`` list (the two stacks stay separate invocations — see the WHY
+    TWO INVOCATIONS note on :func:`deploy_up_web_terminals`), so the web stack
+    needs this dedicated ``down``. Without it the web containers outlive every
+    ``osprey down`` — and because their ``container_name``s are fixed
     host-global identifiers (``<prefix>-web-<user>``, ``<prefix>-nginx``),
     the NEXT web-terminals deploy on the host, from any project, dies at
     ``up`` with a container-name Conflict instead of reconciling.
 
-    A no-op when no rendered ``docker-compose.web.yml`` exists at the project
-    root (nothing was ever deployed from here, or the render predates web
-    terminals). Volumes are deliberately kept, mirroring the services
+    A no-op when the repo has no rendered ``build/docker-compose.web.yml``
+    (nothing was ever deployed from here, or ``build/`` was wiped).
+    Volumes are deliberately kept, mirroring the services
     ``down`` (no ``--volumes``): per-user claude-config/agent-data volumes
-    are the durable user state ``osprey deploy decommission`` manages.
+    are the durable user state ``osprey users remove`` manages.
 
     Best-effort: a failing web ``down`` is logged loudly but never raises —
     the caller's services ``down`` (which execvpe-replaces the process) must
@@ -996,9 +1099,10 @@ def deploy_down_web_terminals(
     :param env_file_args: ``["--env-file", ".env"]`` (or ``[]``) argv
         fragment, resolved by the caller.
     """
-    if not Path("docker-compose.web.yml").exists():
+    root = resolve_repo_root(config)
+    if not web_compose_file(root).exists():
         return
-    down_cmd = web_stack_compose_cmd(config, env_file_args)
+    down_cmd = web_stack_compose_cmd(config, env_file_args, repo_root=root)
     down_cmd.append("down")
     logger.debug(f"Running command:\n    {' '.join(down_cmd)}")
     result = subprocess.run(

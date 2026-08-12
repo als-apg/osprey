@@ -1,7 +1,7 @@
-"""Templates and render contexts for ``osprey deploy scaffold``.
+"""Templates and render contexts for ``osprey scaffold ci``.
 
-The scaffolding verb emits two files into a facility repo — a CI pipeline and a
-post-deploy health check — and both are Jinja templates under
+The scaffolding verb emits two files into a deployment repo — a CI pipeline and
+a post-deploy health check — and both are Jinja templates under
 ``osprey/templates/deploy/``. This module owns three things the verb needs and
 nothing else: which template a platform selects, what context each template
 expects, and how to turn a profile into that context.
@@ -29,6 +29,9 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 import osprey
 
 from .build_profile_deploy import DeployConfig
+from .build_profile_emit import effective_web_terminals
+from .build_profile_resolve import PROFILE_FILENAME
+from .profile_conventions import BUILD_OUTPUT_DIR, STATE_DIR
 
 #: Directory holding the shipped deploy templates.
 TEMPLATE_DIR: Path = Path(osprey.__file__).parent / "templates" / "deploy"
@@ -52,15 +55,29 @@ VERIFY_MARKER: str = "deploy/verify"
 #: than profile-named: it authenticates the pipeline to the host and is never
 #: part of the deployment's own environment, so the profile has no business
 #: declaring it under ``env.required``.
-DEPLOY_SSH_KEY_VAR: str = "OSPREY_DEPLOY_SSH_KEY"
+DEPLOY_SSH_KEY_VAR: str = "DEPLOY_SSH_KEY"
 
-#: Where the profile is checked out inside the facility repo, and therefore the
-#: path every emitted file refers to it by.
-PROFILE_PATH: str = "profile/profile.yml"
+#: Repo-relative paths the emitted files refer to each other and the repo by.
+#: The deployment repo IS the profile root, so every one of these is a bare
+#: repo-root path — there is no ``profile/`` prefix and no ``build/<name>/``
+#: sibling to key off, which is what lets the pipeline and a laptop run the
+#: same commands with no flags.
+#: ``VERIFY_PATH`` is the single spelling of the health check's destination —
+#: the engine derives its output path from it, and ``test_scaffold_ci`` asks
+#: every reader (engine, rendered pipeline, init, post-up hook) about the file
+#: that was actually written, so the spellings cannot drift apart in silence.
+PROFILE_PATH: str = PROFILE_FILENAME
+BUILD_DIR: str = BUILD_OUTPUT_DIR
+STATE_DIR_PATH: str = STATE_DIR
+VERIFY_PATH: str = "scripts/verify.sh"
+
+#: What ``osprey users env-production --output`` writes on the deploy host,
+#: at the repo root where compose reads it.
+ENV_PRODUCTION_NAME: str = ".env.production"
 
 #: Probes run on the deploy host itself, so every target is loopback regardless
 #: of how the outside world reaches the service.
-PROBE_HOST: str = "127.0.0.1"
+PROBE_HOST: str = "localhost"
 
 
 @dataclass(frozen=True)
@@ -119,8 +136,6 @@ class CIContext:
     Attributes:
         facility_name: The profile's ``name:`` — the pipeline's title.
         osprey_version: Installed framework version, for the provenance header.
-        project_name: Facility repo directory name; every path keys off it.
-        build_dir: Where ``osprey build`` lands, ``build/<project_name>``.
         requirement: pip requirement pinning the floor the profile declares.
         registry_url: Full image-name prefix, or ``None`` when no registry is
             configured and none is needed.
@@ -131,12 +146,16 @@ class CIContext:
         deploy_path: The checkout's absolute path on that host.
         service_images: Profile-owned services that get an image-build job.
         external_projects: Other projects' images this deployment also pulls.
+        runs_verify_on_up: Whether ``osprey up`` runs the health check itself.
+            True only with the web tier enabled — the post-up hook that runs
+            ``scripts/verify.sh`` sits on the deploy's web-terminal branch, so
+            a backend-only deployment gets no health report unless one is run.
+            The pipeline says which of the two it is, and ships no verify job
+            either way.
     """
 
     facility_name: str
     osprey_version: str
-    project_name: str
-    build_dir: str
     requirement: str
     registry_url: str | None
     registry_host: str | None
@@ -146,6 +165,7 @@ class CIContext:
     deploy_path: str
     service_images: list[str] = field(default_factory=list)
     external_projects: list[dict[str, str]] = field(default_factory=list)
+    runs_verify_on_up: bool = False
 
     @property
     def has_images_stage(self) -> bool:
@@ -161,16 +181,30 @@ class VerifyContext:
         facility_name: The profile's ``name:`` — the script's title.
         osprey_version: Installed framework version, for the provenance header.
         groups: Probe groups, in the order they run.
+        runs_verify_on_up: Whether ``osprey up`` runs this script itself — see
+            :attr:`CIContext.runs_verify_on_up`. The header tells the operator
+            which it is, so nobody assumes a health report that never runs.
     """
 
     facility_name: str
     osprey_version: str
     groups: list[ProbeGroup] = field(default_factory=list)
+    runs_verify_on_up: bool = False
 
     @property
     def usage_group(self) -> str:
         """The group the usage comment shows as an example argument."""
         return self.groups[0].id if self.groups else ""
+
+    @property
+    def has_tcp_probe(self) -> bool:
+        """Whether any group needs the TCP helper.
+
+        The helper shells out to ``python3``, which is one more thing that has
+        to exist on the deploy host. A script with no TCP probe must not carry
+        it: an operator reading the check would take the dependency as real.
+        """
+        return any(probe.kind == "tcp" for group in self.groups for probe in group.probes)
 
 
 def render(template_name: str, context: CIContext | VerifyContext) -> str:
@@ -194,6 +228,10 @@ def render(template_name: str, context: CIContext | VerifyContext) -> str:
         ctx=context,
         ssh_key_var=DEPLOY_SSH_KEY_VAR,
         profile_path=PROFILE_PATH,
+        build_dir=BUILD_DIR,
+        state_dir=STATE_DIR_PATH,
+        verify_path=VERIFY_PATH,
+        env_production_name=ENV_PRODUCTION_NAME,
     )
 
 
@@ -201,7 +239,7 @@ def build_ci_context(
     profile: dict[str, Any],
     deploy: DeployConfig,
     profile_dir: Path,
-    project_name: str,
+    repo_name: str,
     osprey_version: str | None = None,
 ) -> CIContext:
     """Derive the CI pipeline's context from a profile.
@@ -209,9 +247,13 @@ def build_ci_context(
     Args:
         profile: The resolved raw profile dict.
         deploy: The parsed ``deploy:`` block.
-        profile_dir: Directory holding ``profile.yml``, used to find which
-            declared services carry a Dockerfile.
-        project_name: The facility repo's directory name.
+        profile_dir: The deployment repo's root — the directory holding
+            ``profile.yml``, and where ``services/`` is looked for.
+        repo_name: The deployment repo's directory name, which is the
+            deployment's name. Used only as the pipeline title's fallback for a
+            profile that names itself nothing; no emitted path keys off it, so
+            two checkouts of one deployment at two paths render the same
+            pipeline.
         osprey_version: Version for the provenance header; defaults to the
             installed framework's.
 
@@ -220,10 +262,8 @@ def build_ci_context(
     """
     registry_url = deploy.registry.url if deploy.registry else None
     return CIContext(
-        facility_name=str(profile.get("name", project_name)),
+        facility_name=str(profile.get("name", repo_name)),
         osprey_version=osprey_version or osprey.__version__,
-        project_name=project_name,
-        build_dir=f"build/{project_name}",
         requirement=_pip_requirement(profile.get("requires_osprey_version")),
         registry_url=registry_url,
         registry_host=registry_url.split("/", 1)[0] if registry_url else None,
@@ -241,6 +281,7 @@ def build_ci_context(
             }
             for project in deploy.external_projects
         ],
+        runs_verify_on_up=_web_terminals(profile) is not None,
     )
 
 
@@ -276,13 +317,20 @@ def build_verify_context(
         groups.append(
             ProbeGroup(
                 id="web",
-                divider="Web terminal tier",
-                heading="Web terminals",
-                comment=(
-                    "One container per roster user behind nginx. A user whose terminal is down is",
-                    "a person who cannot work, so each is named rather than summarized.",
-                ),
+                divider="Web tier",
+                heading="Web terminal",
                 probes=web_probes,
+            )
+        )
+
+    dispatch_probes = _dispatch_probes(profile)
+    if dispatch_probes:
+        groups.append(
+            ProbeGroup(
+                id="dispatch",
+                divider="Event dispatch",
+                heading="Event dispatch",
+                probes=dispatch_probes,
             )
         )
 
@@ -290,6 +338,7 @@ def build_verify_context(
         facility_name=str(profile.get("name", "OSPREY")),
         osprey_version=osprey_version or osprey.__version__,
         groups=groups,
+        runs_verify_on_up=_web_terminals(profile) is not None,
     )
 
 
@@ -414,39 +463,85 @@ def _mcp_tools_on_port(profile: dict[str, Any], port: int) -> str:
     return ""
 
 
+def _web_terminals(profile: dict[str, Any]) -> dict[str, Any] | None:
+    """The profile's ``modules.web_terminals`` block, or ``None`` when disabled.
+
+    One reader for the enabled-gate, because two emitted facts depend on it:
+    the web probe group, and whether ``osprey up`` runs the health check by
+    itself. The runtime gate is
+    :func:`osprey.deployment.container_lifecycle._web_terminals_enabled`,
+    which reads the folded subtree off the BUILT config.
+
+    Resolved through :func:`effective_web_terminals` rather than by reading
+    ``modules.web_terminals`` directly, because a ``config:`` block is a flat
+    bag of dotted keys and the bundled persona presets inherit their parent's
+    whole subtree (``enabled: true`` and all) while switching the module off
+    with a separate, deeper ``modules.web_terminals.enabled: false``. Reading
+    the subtree key alone answers "enabled" for a profile the build treats as
+    disabled — which would emit probes for terminals that never start, and
+    promise a health run that never happens.
+    """
+    web = effective_web_terminals(_config_block(profile))
+    if not web.get("enabled"):
+        return None
+    return web
+
+
 def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     """Probe the nginx landing page and one terminal per roster user."""
-    web = _dotted(_config_block(profile), "modules.web_terminals")
-    if not isinstance(web, dict) or not web.get("enabled"):
+    web = _web_terminals(profile)
+    if web is None:
         return ()
 
     probes = [
         Probe(
             kind="http",
-            label=f"nginx: landing page on {_as_port(web.get('nginx_port'), 9080)}",
+            label="landing page",
             port=_as_port(web.get("nginx_port"), 9080),
         )
     ]
 
     base = _as_port(web.get("web_base_port"), 9091)
-    default_persona = str(web.get("default_persona", ""))
     users = web.get("users")
     for position, entry in enumerate(users if isinstance(users, list) else []):
         if isinstance(entry, str):
-            name, index, persona = entry, position, default_persona
+            name, index = entry, position
         elif isinstance(entry, dict):
             name = str(entry.get("name", ""))
             index = _as_port(entry.get("index"), position)
-            persona = str(entry.get("persona") or default_persona)
         else:
             continue
         if not name:
             continue
-        port = base + index
-        suffix = f" ({persona})" if persona else ""
-        probes.append(Probe(kind="http", label=f"{name}{suffix} on {port}", port=port))
+        probes.append(Probe(kind="http", label=f"terminal ({name})", port=base + index))
 
     return tuple(sorted(probes, key=lambda probe: probe.port))
+
+
+def _dispatch_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
+    """Probe the event dispatcher, for a profile that deploys one.
+
+    The port is the one thing here that has two spellings. ``dispatch:`` is
+    where a facility sets it, and the build copies that value into
+    ``config.services.event_dispatcher.port``, which is what the compose file
+    publishes. A facility that overrode the config key directly wins, because
+    that is the value the container actually binds.
+    """
+    if not isinstance(profile.get("dispatch"), dict):
+        return ()
+
+    configured = _dotted(_config_block(profile), "services.event_dispatcher.port")
+    if configured is None:
+        configured = profile["dispatch"].get("dispatcher_port")
+
+    return (
+        Probe(
+            kind="http",
+            label="dispatcher health",
+            port=_as_port(configured, 8020),
+            path="/health",
+        ),
+    )
 
 
 def _config_block(profile: dict[str, Any]) -> dict[str, Any]:
