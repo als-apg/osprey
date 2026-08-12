@@ -6,7 +6,10 @@
  *      untrusted tool results) must pass through DOMPurify before any HTML
  *      reaches the DOM, and must degrade to inert text when the vendored libs
  *      are absent.
- *   2. `createChatRenderer` -- the view-model: user/agent entries, streamed
+ *   2. The tool vocabulary -- name normalisation and the tool-name-to-phrase
+ *      table behind the activity line, including the raw-name fallback that
+ *      keeps an unmapped tool visible.
+ *   3. `createChatRenderer` -- the view-model: user/agent entries, streamed
  *      text accumulation, the activity-line state machine, first-turn
  *      session_reset suppression, and error rendering.
  *
@@ -35,6 +38,10 @@ import {
   createChatRenderer,
   buildUserEntry,
   buildAgentEntry,
+  normaliseToolName,
+  toolPhrase,
+  activityLabel,
+  TOOL_PHRASES,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-render.js';
 
 /** A markdown parser stub that passes text through as-is (raw HTML included, as marked does). */
@@ -245,6 +252,81 @@ describe('DOM builders', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tool vocabulary
+// ---------------------------------------------------------------------------
+
+describe('tool vocabulary', () => {
+  test('normaliseToolName folds both spellings of a name onto one key', () => {
+    // What the SDK sends, and what operator_session._format_tool_name makes of it.
+    expect(normaliseToolName('mcp__osprey__channel_write')).toBe('channel_write');
+    expect(normaliseToolName('Channel Write')).toBe('channel_write');
+    // Built-ins arrive unprefixed.
+    expect(normaliseToolName('Read')).toBe('read');
+    // Only the mcp prefix is stripped -- the rest of the name survives.
+    expect(normaliseToolName('mcp__osprey__phoebus_drive')).toBe('phoebus_drive');
+  });
+
+  test('the raw name maps even when the display name is unhelpful', () => {
+    expect(
+      activityLabel({
+        type: 'tool_use',
+        tool_name: 'Channel Write',
+        tool_name_raw: 'mcp__osprey__channel_write',
+      })
+    ).toBe('Writing control channels…');
+  });
+
+  test('a frame carrying only the display name still maps', () => {
+    expect(activityLabel({ type: 'tool_use', tool_name: 'Execute File' })).toBe(
+      'Running Python…'
+    );
+  });
+
+  test.each([
+    ['mcp__osprey__channel_write', 'Writing control channels…'],
+    ['mcp__osprey__execute', 'Running Python…'],
+    ['mcp__osprey__hide_panel', 'Closing a panel…'],
+    ['mcp__osprey__show_panel', 'Opening a panel…'],
+    ['mcp__osprey__switch_panel', 'Switching panels…'],
+    ['mcp__osprey__arrange_workspace', 'Arranging the workspace…'],
+    ['mcp__osprey__register_panel', 'Adding a panel…'],
+    ['mcp__osprey__queue_start', 'Starting the scan queue…'],
+    ['mcp__osprey__queue_stop', 'Stopping the scan queue…'],
+    ['mcp__osprey__phoebus_drive', 'Operating a Phoebus display…'],
+    ['mcp__osprey__entry_publish', 'Publishing a logbook entry…'],
+    ['mcp__osprey__lattice_set_baseline', 'Setting the lattice baseline…'],
+    ['Bash', 'Running a shell command…'],
+  ])('%s reads as "%s"', (raw, expected) => {
+    expect(activityLabel({ type: 'tool_use', tool_name_raw: raw })).toBe(expected);
+  });
+
+  test('an unmapped tool has no phrase and keeps its raw name', () => {
+    const event = /** @type {const} */ ({
+      type: 'tool_use',
+      tool_name: 'Queue Reorder',
+      tool_name_raw: 'mcp__osprey__queue_reorder',
+    });
+    expect(toolPhrase(event)).toBeNull();
+    expect(activityLabel(event)).toBe('Using Queue Reorder…');
+  });
+
+  test('a nameless tool_use falls back to a generic label', () => {
+    expect(activityLabel({ type: 'tool_use' })).toBe('Using tool…');
+  });
+
+  test('every phrase is a lower-case fragment with no punctuation of its own', () => {
+    // The table's contract: activityLabel capitalises and appends the ellipsis,
+    // so a row must not carry either. (Proper nouns like "Python" are fine
+    // mid-phrase -- only the first character is constrained.)
+    for (const [name, phrase] of Object.entries(TOOL_PHRASES)) {
+      expect(phrase, name).toBe(phrase.trim());
+      expect(phrase[0], name).toBe(phrase[0].toLowerCase());
+      expect(phrase, name).not.toMatch(/[.…]$/);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // createChatRenderer -- view-model
 // ---------------------------------------------------------------------------
 
@@ -301,10 +383,18 @@ describe('createChatRenderer', () => {
       expect(qs(line, '.op-processing-label').textContent).toBe('Thinking…');
     });
 
-    test('tool_use shows "Using <tool_name>…"', () => {
+    test('tool_use shows the tool\'s operator phrase', () => {
       const r = createChatRenderer(container);
       r.handleEvent({ type: 'tool_use', tool_name: 'Channel Read' });
-      expect(qs(container, '.op-processing-label').textContent).toBe('Using Channel Read…');
+      expect(qs(container, '.op-processing-label').textContent).toBe(
+        'Reading control channels…'
+      );
+    });
+
+    test('an unmapped tool_use falls back to "Using <tool_name>…"', () => {
+      const r = createChatRenderer(container);
+      r.handleEvent({ type: 'tool_use', tool_name: 'Queue Reorder' });
+      expect(qs(container, '.op-processing-label').textContent).toBe('Using Queue Reorder…');
     });
 
     test('tool_use without a tool_name falls back to a generic label', () => {
@@ -413,6 +503,18 @@ describe('createChatRenderer', () => {
     // after reset, a session_reset is again a first-turn (suppressed)
     r.handleEvent({ type: 'session_reset' });
     expect(container.querySelector('.op-system')).toBeNull();
+  });
+
+  test('a hostile tool name reaches the activity line as text, never markup', () => {
+    // An unmapped name is echoed verbatim, so it is the one place agent-supplied
+    // text enters the activity line. buildActivityLine writes textContent only.
+    const r = createChatRenderer(container);
+    const hostile = '<img src=x onerror="steal()"><script>evil()</script>';
+    r.handleEvent({ type: 'tool_use', tool_name: hostile });
+    const label = qs(container, '.op-processing-label');
+    expect(label.querySelector('img')).toBeNull();
+    expect(label.querySelector('script')).toBeNull();
+    expect(label.textContent).toBe(`Using ${hostile}…`);
   });
 
   test('hostile model text routed via a text event stays inert in the DOM', () => {

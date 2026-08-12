@@ -60,12 +60,14 @@ import {
   setServiceRedock,
 } from './dock-workspace.js';
 import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
+import { flashElement } from '/design-system/js/highlight.js';
 
 /**
  * One tracked service panel: its cached iframe (created/owned by panel-manager),
  * the id of the empty dockview placeholder it follows, the tab title, whether it
- * is currently meant to be on screen (false once closed/hidden), and the last
- * synced size (to throttle resize re-dispatch to real size changes).
+ * is currently meant to be on screen (false once closed/hidden), the last synced
+ * size (to throttle resize re-dispatch to real size changes), and its lazily
+ * created agent-glow overlay (see glowPanel).
  * @typedef {object} ManagedPanel
  * @property {HTMLIFrameElement} iframe
  * @property {string} placeholderId
@@ -73,6 +75,7 @@ import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
  * @property {boolean} visible
  * @property {number} [lastW]
  * @property {number} [lastH]
+ * @property {HTMLElement} [glowEl]
  */
 
 const OVERLAY_CLASS = 'dock-iframe-overlay';
@@ -653,4 +656,81 @@ export function concealPanel(panelId) {
   if (!entry) return;
   entry.visible = false;
   entry.iframe.style.display = 'none';
+}
+
+// ---- Agent attribution glow ------------------------------------------------
+
+/** Class of the per-panel glow element; styled in css/terminal.css. */
+const GLOW_CLASS = 'tile-glow';
+
+/**
+ * The glow element for a managed panel, created on first use and reused after.
+ * It is a sibling of the overlay iframes rather than anything inside them: the
+ * iframes are separate documents this stylesheet cannot reach, and an
+ * `.agent-flash` on the iframe element itself would clip the embedded app to
+ * the flash's border-radius. The element is transparent and pointer-inert at
+ * rest, so a spent glow can simply stay parked in the overlay.
+ * @param {ManagedPanel} entry
+ * @returns {HTMLElement}
+ */
+function ensureGlowEl(entry) {
+  if (entry.glowEl?.isConnected) return entry.glowEl;
+  const el = document.createElement('div');
+  el.className = GLOW_CLASS;
+  /** @type {HTMLElement} */ (overlayEl).appendChild(el);
+  entry.glowEl = el;
+  return el;
+}
+
+/**
+ * Flash the agent-activity glow over a panel's TILE BODY — the visual companion
+ * to the rail entry's flash, so an agent action reads on the panel it actually
+ * touched and not only on a ~20px rail tab.
+ *
+ * No-ops unless the panel is genuinely on screen: it must be managed, visible,
+ * hold a live placeholder, and be the ACTIVE tab in that placeholder's group.
+ * Anything else has no rectangle to glow, and glowing the tile a hidden panel
+ * sits behind would attribute the action to the wrong panel.
+ *
+ * The rectangle is read inside a requestAnimationFrame: a glow commonly follows
+ * the activation that created the tile, and dockview's geometry only lands once
+ * the layout settles — reading synchronously would measure a zero-sized (or
+ * stale) group.
+ *
+ * FALLBACK (no dockview): there are no tiles, so the single mounted host
+ * (#panel-content) is the panel body and takes the flash directly.
+ * @param {string} panelId
+ */
+export function glowPanel(panelId) {
+  const api = ensureDock();
+  if (!api || !overlayEl) {
+    if (fallbackHostEl) flashElement(fallbackHostEl);
+    return;
+  }
+  if (!managed.has(panelId)) return;
+  requestAnimationFrame(() => flashTileGlow(panelId));
+}
+
+/**
+ * Deferred half of glowPanel: re-resolve the panel (the tile may have moved,
+ * closed, or lost focus during the frame), copy its group content rectangle
+ * onto the glow element with applyGeometry's math, and fire the flash.
+ * @param {string} panelId
+ */
+function flashTileGlow(panelId) {
+  const dockApi = getDockApi();
+  const entry = managed.get(panelId);
+  if (!dockApi || !overlayEl || !entry?.visible) return;
+  const panel = dockApi.getPanel(entry.placeholderId);
+  const group = panel?.group;
+  const content = group?.element?.querySelector('.dv-content-container');
+  if (!panel || !content || group.activePanel !== panel) return;
+  const base = overlayEl.getBoundingClientRect();
+  const r = content.getBoundingClientRect();
+  const el = ensureGlowEl(entry);
+  el.style.left = Math.round(r.left - base.left) + 'px';
+  el.style.top = Math.round(r.top - base.top) + 'px';
+  el.style.width = Math.round(r.width) + 'px';
+  el.style.height = Math.round(r.height) + 'px';
+  flashElement(el);
 }
