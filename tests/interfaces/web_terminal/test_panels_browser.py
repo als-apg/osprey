@@ -317,6 +317,20 @@ def _service_tab(page: Page, label: str):
     return page.locator(".dv-tab").filter(has=strip)
 
 
+def _focus_service_tab(page: Page, label: str) -> None:
+    """Focus a service tile by clicking its tab TITLE — never the whole tab.
+
+    A panel may contribute controls into its own tile header (artifacts renders
+    a search box and filter chips through tile-header-contrib.js), which widens
+    the tab far past its title. Playwright clicks an element's CENTRE, so a
+    click on the tab as a whole lands inside a contributed control — for
+    artifacts, squarely in the search input — which is not a focus gesture and
+    leaves the tile untouched. The title is the region that always means
+    "focus this tile", whatever a panel contributes beside it.
+    """
+    _service_tab(page, label).locator(".tile-tab-title").click()
+
+
 def _terminal_tab(page: Page):
     """The terminal tile's header bar — the tab that adopted .terminal-header."""
     return page.locator(".dv-tab").filter(has=page.locator(".terminal-header"))
@@ -698,7 +712,7 @@ def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
 
         posts = _track_panel_posts(page)
         # Human focus: click the artifacts dock tab (currently inactive).
-        _service_tab(page, "WORKSPACE").click()
+        _focus_service_tab(page, "WORKSPACE")
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
         # Let any (wrongly-)looping echo settle before counting.
         page.wait_for_timeout(600)
@@ -810,7 +824,7 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
         expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
         # Focus the artifacts tile so data-viz's own tile is NOT the active one.
-        _service_tab(page, "WORKSPACE").click()
+        _focus_service_tab(page, "WORKSPACE")
         expect(
             page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
         ).to_have_count(1, timeout=5_000)
@@ -836,9 +850,12 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
 # DataTransfer. dragstart runs panel-rail's real handler (payload + shields);
 # dragover/drop land on dockview's group drop target, which fires
 # onUnhandledDragOver (accepted by rail-drag.js) and then onDidDrop. The drop
-# only registers once a dragover has been PROCESSED (dockview settles its
-# overlay state asynchronously), hence the repeated dragover with settles
-# between — a single dragover followed immediately by drop is silently ignored.
+# only registers once a dragover has been PROCESSED — dockview settles its
+# overlay state asynchronously and needs more than one dragover to resolve a
+# target — so the sequence polls for dockview's own drop-target overlay rather
+# than sleeping a fixed budget. A drop dispatched before that overlay exists is
+# silently ignored, which is a no-op the assertions can only report as a
+# missing tab, so the wait is asserted here where it can name itself.
 _RAIL_DRAG_DROP_JS = """async (panelId) => {
     const entry = document.querySelector(
         `button.panel-rail-button[data-panel-id="${panelId}"]`);
@@ -858,12 +875,20 @@ _RAIL_DRAG_DROP_JS = """async (panelId) => {
     const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
                    clientX: x, clientY: y };
     const target = document.elementFromPoint(x, y) ?? content;
-    const settle = () => new Promise((res) => setTimeout(res, 100));
+    // dockview paints .dv-drop-target-selection once it has resolved the drop
+    // position; the '-bottom' modifier is the edge split this drag intends, so
+    // waiting on it also proves the geometry resolved the way the test claims.
+    const overlay = () => document.querySelector(
+        '.dv-drop-target-selection.dv-drop-target-bottom');
     target.dispatchEvent(new DragEvent('dragenter', opts));
-    target.dispatchEvent(new DragEvent('dragover', opts));
-    await settle();
-    target.dispatchEvent(new DragEvent('dragover', opts));
-    await settle();
+    const deadline = performance.now() + 5000;
+    while (!overlay() && performance.now() < deadline) {
+        target.dispatchEvent(new DragEvent('dragover', opts));
+        await new Promise((res) => setTimeout(res, 50));
+    }
+    if (!overlay()) {
+        throw new Error('dockview never resolved a bottom-edge drop target');
+    }
     target.dispatchEvent(new DragEvent('drop', opts));
     entry.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
 }"""
@@ -927,7 +952,7 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         # re-activate an existing placeholder.
         expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
-        _service_tab(page, "WORKSPACE").click()
+        _focus_service_tab(page, "WORKSPACE")
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
         # Let the WORKSPACE-click's own focus POST fully drain before tracking —
         # fetch() dispatches on a later tick, so it can otherwise land after the

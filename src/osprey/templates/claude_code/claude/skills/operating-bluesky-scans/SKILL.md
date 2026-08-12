@@ -136,12 +136,37 @@ control. It runs **the queue as it stands — every pending item, in order**,
 not just the one you added. Read `queue_list()` first and be sure the whole
 queue is what should run.
 
+`queue_start` has **two success shapes**, decided by where this deployment
+keeps the launch token, and you must recognize both:
+
+- **`{"started": true, ...}`** — this MCP server holds the token (typical for
+  a host-run dev session). The start went to the bridge directly, behind your
+  approval prompt, and the queue is now draining.
+- **`{"started": false, "start_request": {...}, "message": ...}`** — this
+  server holds **no** token, which in a deployed control room is the intended
+  posture, not a misconfiguration: the token lives with the operator's
+  BLUESKY queue panel, and no environment variable, config edit, or retry
+  from your side can obtain it. Your call filed a **start request** that is
+  now showing in the human's queue panel, beside the very queue it would
+  drain, with a *Confirm start* control only the panel can honour. Tell the
+  operator their confirmation is waiting in the queue panel, then watch
+  `queue_status`/`queue_list` for the start. Calling `queue_start` again
+  replaces the pending request (it does not stack); the human can also
+  dismiss it, which starts nothing.
+
+Never respond to the second shape by hunting for the token, editing
+configuration, or entering a setup mode — the tokenless environment is the
+deployment working as designed, and the human's panel click is the missing
+step, not a missing setting.
+
 **`queue_list()`** is the read surface for all of this, and is the same view
 the human's queue panel shows. It returns `{status, items, running_item}`:
 `status` carries `available`, `manager_state`, `items_in_queue`,
-`queue_stop_pending` and `queue_autostart_enabled`; `items` are the pending
-items in execution order with their `item_uid`, plan `name` and `kwargs`; and
-`running_item` is the item under way (`null` when idle).
+`queue_stop_pending`, `queue_autostart_enabled` and `start_request` (the
+pending panel start request, or `null` — non-null means the operator has not
+confirmed or dismissed it yet); `items` are the pending items in execution
+order with their `item_uid`, plan `name` and `kwargs`; and `running_item` is
+the item under way (`null` when idle).
 
 ---
 
@@ -181,8 +206,11 @@ the layer doing the work here.)
 The bridge alone knows the queue server's live state, under a lock, so it is
 what decides whether a particular call was armed:
 
-- **`queue_start`** is always armed: it needs the launch token, and it is
-  approval-gated so a human sees the start.
+- **`queue_start`** is always armed: starting needs the launch token, and it
+  is approval-gated so a human sees the start. When this server holds a token
+  the start goes to the bridge directly; when it holds none, the same call
+  files a panel start request instead (see Step 2) — the token requirement is
+  never waived, it is answered by the human's confirm click.
 - **`queue_add`** is armed only *sometimes*. Adding to an idle queue moves
   nothing; adding to a queue that is already draining (`manager_state` of
   `executing_queue`, `starting_queue`, `executing_task` or `paused`, or
@@ -203,13 +231,23 @@ whole detail object comes through as `details`. Nothing is reworded, so branch
 on the code and relay the bridge's sentence to the operator as written.
 
 - **`launch_token_required`** — this operation is armed and the token was
-  missing or rejected. For a `queue_add`, `details.manager_state` names the
-  state that made it armed, and the suggestions say whether the deployment has
-  no token or this server withheld one because writes are disabled. Neither is
-  agent-recoverable: an operator must enable writes or configure the token.
+  missing or rejected. You will see it from `queue_add` onto an
+  already-draining queue, from `queue_stop(cancel=True)`, or from the bridge
+  rejecting a mismatched token — never from a tokenless `queue_start`, which
+  files a panel start request instead. Not agent-recoverable, and NOT a
+  configuration task for you: in deployed control rooms the token lives with
+  the operator's queue panel by design, so hand the action to the human —
+  the panel performs these operations with its own token. Never edit
+  config.yml, `.env`, or settings to obtain a token. For a `queue_add`,
+  `details.manager_state` names the state that made it armed, and the
+  suggestions say whether this server withheld the token because writes are
+  disabled (then enabling writes, an operator action, is what unblocks it).
   If `details.item_left_behind` is true, an item could not be withdrawn and is
   sitting in an armed queue — `details.item_uid` names it, and a human must
   deal with it. Say so.
+- **`queue_empty`** — a tokenless `queue_start` found nothing queued, so there
+  was nothing a confirmation could run and no request was filed. Stage the
+  plan with `set_draft` and add it with `queue_add` first.
 - **`stale_draft_revision`** — the draft changed or was cleared since you
   pinned it. Re-read it with `get_draft` (or re-stage the full configuration
   with `set_draft`), then add the **current** revision.

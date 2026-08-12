@@ -22,6 +22,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- A tokenless `queue_start` now files a **start request** the operator confirms
+  in the BLUESKY queue panel, instead of dead-ending in a refusal. Deployed
+  web terminals never hold the scan launch token by design; the agent stages
+  and queues, the request appears in the queue panel beside the queue it would
+  drain, and the human's *Confirm start* click — the panel's own token-gated
+  start — is what arms it. Dismissing the request is always available and
+  starts nothing. Skill and error-message guidance across the scan stack now
+  explains this posture so agents hand the start to the human instead of
+  chasing the token in configuration.
+
 - An archiver read that comes back empty now says why: the response carries a
   coverage verdict — the window predates or postdates the archive, the channel
   was never recorded, or the window holds a genuine gap — with the archive's
@@ -165,6 +175,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Deployed agents can no longer reconfigure their own harness: the Claude Code
+  CLI's bundled harness-configuration skills (`update-config`,
+  `keybindings-help`, `fewer-permission-prompts`) are switched off in every
+  rendered project, and the `setup-mode` skill (which can patch config.yml)
+  left the operator preset's default roster — it stays in the artifact catalog
+  for admin profiles to opt into. Rebuilt control-assistant projects will
+  report preset staleness once; that is the intended signal.
 - **Log out** moved into the web terminal's display menu, alongside
   **Settings** — the two now sit side by side under a line naming the signed-in
   user. The separate user chip in the header is gone, leaving search and the

@@ -84,27 +84,34 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # signal. The archive work and the panel merge landed either side of this
     # merge, so as above the digests carry both at once. Both extends children
     # inherit it, so all three moved.
+    # Re-pinned again when setup-mode left the operator skills roster: it can
+    # patch config.yml/.mcp.json (setup_patch), which is admin work, so
+    # operator-tier terminals no longer render it. NOT behavior-neutral — a
+    # rebuilt project loses a skill directory — so the staleness advisory
+    # firing on already-deployed projects is the correct signal. The skill
+    # stays in the artifact catalog for admin profiles to opt into. Both
+    # extends children inherit the roster, so all three digests moved.
     # Re-pinned again when the persona tiers were redesigned: the roster now
     # maps alice→readwrite and bob→readonly (each with a `display_name` tab
     # title), the base pins `web.theme: light`, both personas pin `web.ui_mode`
-    # (expert/simple), and the EVENTS/BLUESKY panel declarations moved from the
-    # base's `config:` into the readwrite persona so the readonly build is
-    # genuinely panel-free (a persona delta cannot subtract inherited config
-    # keys, and `enabled: false` is inert for URL panels). The `events`/
-    # `bluesky` `web_panels` entries moved with their URL overrides — a panel
-    # id and its URL declaration travel together, which is the invariant
-    # tests/integration/test_preset_static.py holds every preset to. NOT
-    # behavior-neutral — a rebuilt readonly project loses two tabs, gains the
-    # simple surface, and the roster swaps which port is write-armed — so the
-    # staleness advisory firing on already-deployed projects is the correct
-    # signal. The base and both children changed directly, so all three
-    # digests moved.
-    "control-assistant": "sha256:5107fb647bb9ed03965e429adcc88d6bfb4c5b16de8c1b7a67ee49ebfa29a5e6",
+    # (expert/simple), and the EVENTS/BLUESKY panel declarations — `config:`
+    # overrides AND `web_panels` entries — moved from the base into the
+    # readwrite persona so the readonly build is genuinely panel-free (a
+    # persona delta cannot subtract inherited config keys, `enabled: false` is
+    # inert for URL panels, and a panel id and its URL declaration travel
+    # together, the invariant tests/integration/test_preset_static.py holds
+    # every preset to). NOT behavior-neutral — a rebuilt readonly project
+    # loses two tabs, gains the simple surface, and the roster swaps which
+    # port is write-armed. The setup-mode removal and this redesign landed
+    # either side of the same merge, so the digests below carry both at once:
+    # re-pinning against either change alone would leave the other
+    # unaccounted for.
+    "control-assistant": "sha256:5cb998206e2108ca5efa6dadf765ffa401f8c2b7b3b2e35f4a3a23bb1c4b51ba",
     "control-assistant-readonly": (
-        "sha256:881068127a3b7f61d99cadd6c412871d94c605c170ad957197fd8c9a45a60fbc"
+        "sha256:c30526626c8cb4fef2d984e52ecb8897e089832ea584e3edf9d6df4189018682"
     ),
     "control-assistant-readwrite": (
-        "sha256:000fd7dcfe1870b9035836ca55cc16268056aa0e551eca94b5e11098f5faafaf"
+        "sha256:6ef38e2fe5ef3eaa5d7e4981801b7e1cdb4f75d6e1af2bb2a75d9139b8cf9189"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

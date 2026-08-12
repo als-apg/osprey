@@ -32,6 +32,14 @@ a failure mode. It is also deliberately not capability-gated: a deployment that
 somehow has a plan running is a deployment that must be able to stop it,
 whatever its capability record says.
 
+``POST /queue/start-request`` / ``DELETE /queue/start-request`` — the bridge's
+one concession to callers WITHOUT the token (deployed web terminals, where the
+token lives with the operator panels sidecar and never enters the agent's
+environment): filing publishes a "please start" record on the queue summary
+for a token holder to confirm in the queue panel. Both routes are ungated and
+declare no token header — a request arms nothing, and the only confirmation
+path is the existing token-gated ``POST /queue/start``.
+
 The gate is race-free by construction, twice over. First, ``_arming_lock``
 serializes the enqueue critical section {status-check + add + re-check} and
 the start critical section {idle-check + interruption-gate + session-gate +
@@ -69,11 +77,12 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any, NoReturn
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import document_plane, draft, runs
 from .queue_backend import (
@@ -145,6 +154,15 @@ _poller_task: asyncio.Task[None] | None = None
 _change_event = asyncio.Event()
 _last_summary: dict[str, Any] | None = None
 
+# The one OTHER bridge-local record this module holds: the pending start
+# request an untokened caller (the agent, in deployments where the launch
+# token lives with the operator panel and never enters the agent's
+# environment) has filed for a token holder to confirm. Not queue state — the
+# manager knows nothing of it — and deliberately ephemeral: losing it on a
+# restart loses a UI affordance, never a safety property, because the ONLY
+# thing that ever starts the queue remains the token-gated POST /queue/start.
+_start_request: dict[str, Any] | None = None
+
 
 def _get_backend() -> QueueBackend:
     """The process's single `QueueBackend`, via `app.py`'s shared accessor.
@@ -165,9 +183,10 @@ def _clear() -> None:
     it, and the next test may run on a fresh loop. The backend singleton
     lives in `app.py` (`set_queue_backend(None)` resets it) — not here.
     """
-    global _last_summary, _arming_lock, _change_event
+    global _last_summary, _arming_lock, _change_event, _start_request
     _stop_poller()
     _last_summary = None
+    _start_request = None
     _subscribers.clear()
     _arming_lock = asyncio.Lock()
     _change_event = asyncio.Event()
@@ -573,18 +592,30 @@ async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args:
 
 
 def _status_summary(status: dict[str, Any]) -> dict[str, Any]:
-    """The bounded, diffable projection of a manager status document."""
+    """The bounded, diffable projection of a manager status document.
+
+    ``start_request`` is the one summary entry that is bridge-local rather
+    than read from the status document; carrying it here is what makes a
+    filed or dismissed request reach SSE subscribers through the same
+    summary-diff the manager-side keys use.
+    """
     summary: dict[str, Any] = {"available": True}
     for key in _SUMMARY_KEYS:
         summary[key] = status.get(key)
+    summary["start_request"] = _start_request
     return summary
 
 
 def _unavailable_summary(reason: str) -> dict[str, Any]:
-    """The summary published when the manager (or backend) cannot be read."""
+    """The summary published when the manager (or backend) cannot be read.
+
+    A pending start request survives a manager outage — it is bridge-local
+    state, and the confirm path re-answers for itself when the human clicks.
+    """
     summary: dict[str, Any] = {"available": False, "reason": reason}
     for key in _SUMMARY_KEYS:
         summary[key] = None
+    summary["start_request"] = _start_request
     return summary
 
 
@@ -751,6 +782,17 @@ class QueueStopRequest(BaseModel):
     """Body for `POST /queue/stop`. ``cancel: true`` withdraws a pending stop."""
 
     cancel: bool = False
+
+
+class StartRequestBody(BaseModel):
+    """Body for `POST /queue/start-request` (optional in its entirety).
+
+    ``requested_by`` is a display label for the confirm affordance ("the
+    agent requests…"), never an identity the bridge trusts for anything —
+    the request arms nothing regardless of who filed it.
+    """
+
+    requested_by: str = Field(default="agent", min_length=1, max_length=80)
 
 
 # ---------------------------------------------------------------------------
@@ -1043,8 +1085,102 @@ async def start_queue(x_launch_token: str = Header(default="")) -> dict[str, Any
             result = await backend.start()
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
+    # An armed start consumes any pending start request — whether it WAS the
+    # confirmation (a token holder answering the agent) or simply overtook it,
+    # the queue is now doing the thing the request asked for.
+    global _start_request
+    _start_request = None
     _notify_change()
     return {"started": True, "msg": str(result.get("msg") or "")}
+
+
+@router.post("/queue/start-request")
+async def request_queue_start(body: StartRequestBody | None = None) -> dict[str, Any]:
+    """File a request for a launch-token holder to start the queue. Ungated.
+
+    The deployed posture this exists for: the launch token is minted into the
+    operator panels sidecar and never into the agent's environment, so the
+    agent can compose, stage, and enqueue — but only a human, in the queue
+    panel, can arm. This route is how the agent hands the human that decision
+    without acquiring any arming capability itself: filing publishes a record
+    on the queue summary (and its SSE stream), where the panel renders it as a
+    confirm affordance next to the very queue items it would drain. The
+    confirmation is the EXISTING token-gated ``POST /queue/start`` — this
+    route adds no second way to start anything, and like ``POST /queue/abort``
+    it declares no token header at all, so no later edit can quietly promote
+    it into one.
+
+    Refusals mirror the checks a real start would fail, so the requester
+    hears them immediately instead of parking a request no click could ever
+    honour: a deployment that cannot execute refuses with its capability
+    record (same as enqueue), an already-moving queue refuses
+    ``manager_not_idle`` (the drain is already happening), and an empty queue
+    refuses ``queue_empty`` (there is nothing to confirm). The authoritative
+    versions of these checks still run inside the confirm's arming lock —
+    these are a courtesy, not the gate.
+
+    One request at a time: refiling replaces the pending record (fresh
+    ``request_id``), and a successful armed start or an explicit
+    ``DELETE /queue/start-request`` clears it.
+    """
+    backend = _get_backend()
+    try:
+        capability = await backend.capability()
+    except QueueBackendError as exc:
+        raise _http_error(exc) from exc
+    if not capability.can_execute:
+        raise _http_error(ExecutionUnavailableError(capability))
+
+    try:
+        status = await backend.status(reload=True)
+        queue_state = await backend.items()
+    except QueueBackendError as exc:
+        raise _http_error(exc) from exc
+
+    running_item = queue_state.get("running_item")
+    if _requires_arming(status):
+        _refuse_manager_not_idle(running_item if isinstance(running_item, dict) else {})
+
+    items_in_queue = int(status.get("items_in_queue") or 0)
+    if items_in_queue == 0:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "queue_empty",
+                "detail": (
+                    "the queue holds no items, so there is nothing a start could run — "
+                    "stage a draft and enqueue it (POST /queue/items) before requesting "
+                    "a start."
+                ),
+            },
+        )
+
+    record = {
+        "request_id": uuid.uuid4().hex[:12],
+        "requested_by": (body or StartRequestBody()).requested_by,
+        "requested_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "items_in_queue": items_in_queue,
+    }
+    global _start_request
+    _start_request = record
+    _notify_change()
+    return {"start_request": record}
+
+
+@router.delete("/queue/start-request")
+async def dismiss_queue_start_request() -> dict[str, Any]:
+    """Withdraw the pending start request. Ungated and idempotent.
+
+    Declining to start is the safe direction — like the plain stop, it must
+    never have a failure mode, so no token, no capability check, and a dismiss
+    with nothing pending is a 200 ``{"dismissed": false}``, not an error.
+    """
+    global _start_request
+    dismissed = _start_request is not None
+    _start_request = None
+    if dismissed:
+        _notify_change()
+    return {"dismissed": dismissed}
 
 
 @router.post("/queue/stop")
