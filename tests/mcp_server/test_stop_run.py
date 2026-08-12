@@ -71,7 +71,7 @@ def _locked_down(tmp_path, monkeypatch) -> None:
 
 async def test_stop_run_aborts_the_running_plan():
     with patch(f"{_MOD}._http_post_json", return_value=(200, _ABORT_OK)) as post:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             result = await _fn()()
 
     assert post.call_args.args[0] == "/queue/abort"
@@ -92,7 +92,7 @@ async def test_stop_run_budgets_above_the_bridges_composed_abort():
     actually in flight, and told to retry into a race.
     """
     with patch(f"{_MOD}._http_post_json", return_value=(200, _ABORT_OK)) as post:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             await _fn()()
 
     assert post.call_args.kwargs["timeout"] == stop._ABORT_TIMEOUT
@@ -118,7 +118,7 @@ async def test_stop_run_is_ungated_with_writes_off_and_no_token(tmp_path, monkey
     _locked_down(tmp_path, monkeypatch)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, _ABORT_OK)) as post:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             result = await _fn()()
 
     assert extract_response_dict(result)["aborted"] is True
@@ -143,7 +143,7 @@ async def test_stop_run_does_not_read_the_writes_kill_switch(tmp_path, monkeypat
 
     with patch("osprey.mcp_server.bluesky.tools.queue._writes_enabled") as writes:
         with patch(f"{_MOD}._http_post_json", return_value=(200, _ABORT_OK)):
-            with patch(f"{_MOD}.notify_agent_activity"):
+            with patch(f"{_MOD}.notify_agent_activity_async"):
                 await _fn()()
 
     assert writes.call_count == 0

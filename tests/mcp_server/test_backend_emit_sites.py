@@ -1,18 +1,20 @@
 """Agent-activity emit sites for backend-direct tools.
 
 Verifies that the mutating backend tools report agent activity via
-``notify_agent_activity`` — and, just as important, that refusal paths emit
-NOTHING and that tool results are unchanged when the web terminal is down.
+``notify_agent_activity_async`` — and, just as important, that refusal paths
+emit NOTHING and that tool results are unchanged when the web terminal is down.
 
 Layout: one ``# ── <tool family> ──`` section per tool family, each owning its
 own helpers and fixtures, followed by a trailing cross-cutting "terminal down"
 section. New emit sites append a new section immediately BEFORE that trailing
 section; shared helpers stay generic and live at module top.
 
-Patch seam: each tool module imports ``notify_agent_activity`` directly, so
-the mock must target the caller's namespace (e.g.
-``osprey.mcp_server.control_system.tools.channel_write.notify_agent_activity``),
-not ``osprey.mcp_server.http``.
+Patch seam: each tool module imports ``notify_agent_activity_async`` directly,
+so the mock must target the caller's namespace (e.g.
+``osprey.mcp_server.control_system.tools.channel_write.notify_agent_activity_async``),
+not ``osprey.mcp_server.http``. The helper owns the thread-hop off the event
+loop; that property is pinned once in ``test_notify_agent_activity.py``, not
+per tool.
 """
 
 import contextlib
@@ -114,7 +116,7 @@ async def test_channel_write_limits_violation_no_emit(tmp_path, monkeypatch):
             "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
             return_value=mock_validator,
         ),
-        patch(f"{_CW_MOD}.notify_agent_activity") as notify,
+        patch(f"{_CW_MOD}.notify_agent_activity_async") as notify,
     ):
         fn = _get_channel_write()
         with assert_raises_error(error_type="limits_violation"):
@@ -146,7 +148,7 @@ async def test_channel_write_partial_success_emits_executed_only(tmp_path, monke
     mock_connector.write_multiple_channels.return_value = results
 
     conn_patch, validator_patch = _channel_write_patches(mock_connector)
-    with conn_patch, validator_patch, patch(f"{_CW_MOD}.notify_agent_activity") as notify:
+    with conn_patch, validator_patch, patch(f"{_CW_MOD}.notify_agent_activity_async") as notify:
         fn = _get_channel_write()
         result = await fn(
             operations=[
@@ -199,7 +201,7 @@ async def test_channel_write_all_blocked_no_emit(tmp_path, monkeypatch):
     mock_connector.write_multiple_channels.return_value = results
 
     conn_patch, validator_patch = _channel_write_patches(mock_connector)
-    with conn_patch, validator_patch, patch(f"{_CW_MOD}.notify_agent_activity") as notify:
+    with conn_patch, validator_patch, patch(f"{_CW_MOD}.notify_agent_activity_async") as notify:
         fn = _get_channel_write()
         with assert_raises_error(error_type="write_refused"):
             await fn(
@@ -225,7 +227,7 @@ async def test_channel_write_full_success_single_emit(tmp_path, monkeypatch):
     mock_connector.write_channel.return_value = write_result
 
     conn_patch, validator_patch = _channel_write_patches(mock_connector)
-    with conn_patch, validator_patch, patch(f"{_CW_MOD}.notify_agent_activity") as notify:
+    with conn_patch, validator_patch, patch(f"{_CW_MOD}.notify_agent_activity_async") as notify:
         fn = _get_channel_write()
         result = await fn(operations=[{"channel": "SR01:HCM1:SP", "value": 42.0}])
 
@@ -264,7 +266,7 @@ async def test_queue_add_success_emits_run_id(_bluesky_context):
     body = {"run_id": "abc123", "revision": 7, "item": {"item_uid": "u1"}}
     with (
         patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, body)),
-        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
         result = await _get_queue_tool("queue_add")(draft_revision=7)
 
@@ -281,7 +283,7 @@ async def test_queue_add_failure_no_emit(_bluesky_context):
             f"{_QUEUE_MOD}._http_post_json",
             return_value=(500, {"detail": "enqueue failed: boom"}),
         ),
-        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="bluesky_bridge_error"):
             await _get_queue_tool("queue_add")(draft_revision=7)
@@ -292,7 +294,7 @@ async def test_queue_add_failure_no_emit(_bluesky_context):
 async def test_queue_start_success_emits(_bluesky_context):
     with (
         patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})),
-        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
         await _get_queue_tool("queue_start")()
 
@@ -310,7 +312,7 @@ async def test_queue_start_client_side_refusal_no_emit(_bluesky_context, monkeyp
 
     with (
         patch(f"{_QUEUE_MOD}._http_post_json") as post,
-        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="writes_disabled"):
             await _get_queue_tool("queue_start")()
@@ -334,7 +336,7 @@ async def test_queue_start_tokenless_emits_the_start_request(_bluesky_context, m
     body = {"start_request": {"request_id": "r1", "requested_by": "agent"}}
     with (
         patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, body)) as post,
-        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
         await _get_queue_tool("queue_start")()
 
@@ -365,7 +367,7 @@ async def test_artifact_focus_emits_artifact(tmp_path, monkeypatch):
     # errors, and this test is about the notify seam, not the gallery.
     with (
         patch(f"{_FOCUS_MOD}._post_json_with_response", return_value=(200, {"status": "ok"})),
-        patch(f"{_FOCUS_MOD}.notify_agent_activity") as notify,
+        patch(f"{_FOCUS_MOD}.notify_agent_activity_async") as notify,
     ):
         result = await get_tool_fn(artifact_focus)(artifact_id=artifact_id)
 
@@ -381,7 +383,7 @@ async def test_artifact_focus_not_found_no_emit(tmp_path, monkeypatch):
 
     from osprey.mcp_server.workspace.tools.focus_tools import artifact_focus
 
-    with patch(f"{_FOCUS_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_FOCUS_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="not_found"):
             await get_tool_fn(artifact_focus)(artifact_id="nonexistent-id")
 
@@ -434,7 +436,7 @@ async def test_ariel_entry_create_direct_emits_panel(_ariel_context):
 
     with (
         _patch_ariel_service(mock_service),
-        patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity") as notify,
+        patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity_async") as notify,
     ):
         result = await _get_ariel_tool("entry", "entry_create")(
             subject="Beam lost", details="Injector trip at 03:12", draft=False
@@ -460,7 +462,7 @@ async def test_ariel_entry_create_direct_does_not_steal_focus(_ariel_context):
 
     with (
         _patch_ariel_service(mock_service),
-        patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity"),
+        patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity_async"),
         patch("osprey.mcp_server.http.notify_panel_focus") as focus,
     ):
         await _get_ariel_tool("entry", "entry_create")(
@@ -488,7 +490,7 @@ async def test_ariel_entry_create_emits_before_attachment_failure(_ariel_context
             "osprey.services.ariel_search.attachments.process_attachments_for_entry",
             new=AsyncMock(side_effect=RuntimeError("attachment store offline")),
         ),
-        patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity") as notify,
+        patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="internal_error"):
             await _get_ariel_tool("entry", "entry_create")(
@@ -504,7 +506,7 @@ async def test_ariel_entry_create_emits_before_attachment_failure(_ariel_context
 
 async def test_ariel_entry_create_validation_refusal_no_emit(_ariel_context):
     """Argument validation refuses before any write, so nothing is emitted."""
-    with patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="validation_error"):
             await _get_ariel_tool("entry", "entry_create")(
                 subject="   ", details="Injector trip at 03:12", draft=False
@@ -520,7 +522,7 @@ async def test_ariel_entry_create_upsert_failure_no_emit(_ariel_context):
 
     with (
         _patch_ariel_service(mock_service),
-        patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity") as notify,
+        patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="internal_error"):
             await _get_ariel_tool("entry", "entry_create")(
@@ -544,7 +546,7 @@ async def test_ariel_entry_publish_success_emits_facility_id(_ariel_context):
 
     with (
         _patch_ariel_service(mock_service),
-        patch(f"{_ARIEL_PUBLISH_MOD}.notify_agent_activity") as notify,
+        patch(f"{_ARIEL_PUBLISH_MOD}.notify_agent_activity_async") as notify,
     ):
         result = await _get_ariel_tool("publish", "entry_publish")(
             entry_id="e1", logbook="Operations"
@@ -560,7 +562,7 @@ async def test_ariel_entry_publish_success_emits_facility_id(_ariel_context):
 
 async def test_ariel_entry_publish_validation_refusal_no_emit(_ariel_context):
     """An empty entry_id is refused before the service is touched."""
-    with patch(f"{_ARIEL_PUBLISH_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_ARIEL_PUBLISH_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="validation_error"):
             await _get_ariel_tool("publish", "entry_publish")(entry_id="")
 
@@ -574,7 +576,7 @@ async def test_ariel_entry_publish_not_found_no_emit(_ariel_context):
 
     with (
         _patch_ariel_service(mock_service),
-        patch(f"{_ARIEL_PUBLISH_MOD}.notify_agent_activity") as notify,
+        patch(f"{_ARIEL_PUBLISH_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="not_found"):
             await _get_ariel_tool("publish", "entry_publish")(entry_id="e99")
@@ -593,7 +595,7 @@ async def test_ariel_entry_publish_auth_required_no_emit(_ariel_context):
 
     with (
         _patch_ariel_service(mock_service),
-        patch(f"{_ARIEL_PUBLISH_MOD}.notify_agent_activity") as notify,
+        patch(f"{_ARIEL_PUBLISH_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="auth_required"):
             await _get_ariel_tool("publish", "entry_publish")(entry_id="e1")
@@ -610,7 +612,7 @@ async def test_ariel_entry_publish_not_supported_no_emit(_ariel_context):
 
     with (
         _patch_ariel_service(mock_service),
-        patch(f"{_ARIEL_PUBLISH_MOD}.notify_agent_activity") as notify,
+        patch(f"{_ARIEL_PUBLISH_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="not_supported"):
             await _get_ariel_tool("publish", "entry_publish")(entry_id="e1")
@@ -653,7 +655,7 @@ async def test_phoebus_drive_click_fired_emits(_phoebus_active_display_allowed):
     """A click that fired a control wrote to the machine — emit once, kind channel."""
     with (
         _phoebus_bridge(200, {"fired": True, "detail": "fired via ButtonBase.fire()"}),
-        patch(f"{_PHOEBUS_MOD}.notify_agent_activity") as notify,
+        patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         result = await _get_phoebus_drive()(widget="SetButton", verb="click")
 
@@ -665,7 +667,7 @@ async def test_phoebus_drive_synthetic_type_fired_emits():
     """A synthetic type that fired echoes the normalized verb and the display ref."""
     with (
         _phoebus_bridge(200, {"fired": True, "detail": "committed 42"}),
-        patch(f"{_PHOEBUS_MOD}.notify_agent_activity") as notify,
+        patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         await _get_phoebus_drive()(widget="Setpoint", verb="TYPE", value="42", display="handle:d-3")
 
@@ -676,7 +678,7 @@ async def test_phoebus_drive_synthetic_200_not_fired_no_emit(_phoebus_active_dis
     """Bridge contract: a synthetic 200 with fired=false resolved no control — no write."""
     with (
         _phoebus_bridge(200, {"fired": False, "detail": "no interactive control resolved"}),
-        patch(f"{_PHOEBUS_MOD}.notify_agent_activity") as notify,
+        patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         result = await _get_phoebus_drive()(widget="Readback", verb="type", value="42")
 
@@ -696,7 +698,7 @@ async def test_phoebus_drive_semantic_type_not_fired_emits(
     """
     with (
         _phoebus_bridge(200, {"fired": False, "detail": "wrote PV SR:CORR:SP"}),
-        patch(f"{_PHOEBUS_MOD}.notify_agent_activity") as notify,
+        patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         await _get_phoebus_drive()(widget="Setpoint", verb=verb, value="1.5", mode=mode)
 
@@ -707,7 +709,7 @@ async def test_phoebus_drive_semantic_click_bypass_no_emit(_phoebus_active_displ
     """Semantic mode bypasses click entirely — nothing was driven, so emit nothing."""
     with (
         _phoebus_bridge(200, {"fired": False, "detail": "semantic mode bypasses click"}),
-        patch(f"{_PHOEBUS_MOD}.notify_agent_activity") as notify,
+        patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         await _get_phoebus_drive()(widget="SetButton", verb="click", mode="semantic")
 
@@ -726,7 +728,7 @@ async def test_phoebus_drive_validation_refusal_no_emit(kwargs, _phoebus_active_
     """Argument validation refuses before the bridge is contacted — emit nothing."""
     with (
         patch(f"{_PHOEBUS_MOD}._http_post_drive") as post,
-        patch(f"{_PHOEBUS_MOD}.notify_agent_activity") as notify,
+        patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="validation_error"):
             await _get_phoebus_drive()(**kwargs)
@@ -741,7 +743,7 @@ async def test_phoebus_drive_handle_required_refusal_no_emit(monkeypatch):
 
     with (
         patch(f"{_PHOEBUS_MOD}._http_post_drive") as post,
-        patch(f"{_PHOEBUS_MOD}.notify_agent_activity") as notify,
+        patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="phoebus_handle_required"):
             await _get_phoebus_drive()(widget="SetButton", verb="click")
@@ -754,7 +756,7 @@ async def test_phoebus_drive_bridge_rejected_no_emit(_phoebus_active_display_all
     """A non-200 from the bridge means no widget was driven — emit nothing."""
     with (
         _phoebus_bridge(400, {"error": "Unknown widget '0'", "status": 400}),
-        patch(f"{_PHOEBUS_MOD}.notify_agent_activity") as notify,
+        patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="phoebus_rejected"):
             await _get_phoebus_drive()(widget="0", verb="click")
@@ -768,30 +770,12 @@ async def test_phoebus_drive_unreachable_no_emit(_phoebus_active_display_allowed
 
     with (
         patch(f"{_PHOEBUS_MOD}._http_post_drive", side_effect=urllib.error.URLError("refused")),
-        patch(f"{_PHOEBUS_MOD}.notify_agent_activity") as notify,
+        patch(f"{_PHOEBUS_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="phoebus_unreachable"):
             await _get_phoebus_drive()(widget="SetButton", verb="click")
 
     notify.assert_not_called()
-
-
-async def test_phoebus_drive_emit_runs_off_the_event_loop(_phoebus_active_display_allowed):
-    """The blocking notify must be thread-wrapped, never awaited inline."""
-    import threading
-
-    seen: list[int] = []
-
-    with (
-        _phoebus_bridge(200, {"fired": True, "detail": "ok"}),
-        patch(
-            f"{_PHOEBUS_MOD}.notify_agent_activity",
-            side_effect=lambda *a, **k: seen.append(threading.get_ident()),
-        ),
-    ):
-        await _get_phoebus_drive()(widget="SetButton", verb="click")
-
-    assert seen and seen[0] != threading.get_ident()
 
 
 # ── python executor: execute / execute_file ─────────────────────────────────
@@ -898,7 +882,7 @@ def _execute_env(mod, tmp_path, *, exec_result=None, has_writes=True, writes_ena
             return_value=ExecutionControlConfig(control_system_writes_enabled=writes_enabled),
         ),
         patch("osprey.mcp_server.python_executor.executor.execute_code", exec_code),
-        patch(f"{mod}.notify_agent_activity") as notify,
+        patch(f"{mod}.notify_agent_activity_async") as notify,
     ):
         yield notify, exec_code
 
@@ -1032,22 +1016,6 @@ async def test_execute_deployment_writes_disabled_no_emit(tool_name, tmp_path, m
     notify.assert_not_called()
 
 
-@pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_emit_runs_off_the_event_loop(tool_name, tmp_path, monkeypatch):
-    """The blocking notify must be thread-wrapped, never awaited inline."""
-    import threading
-
-    monkeypatch.chdir(tmp_path)
-    mod, call = _execute_tool_call(tool_name, tmp_path)
-    seen: list[int] = []
-
-    with _execute_env(mod, tmp_path) as (notify, _):
-        notify.side_effect = lambda *a, **k: seen.append(threading.get_ident())
-        await call(execution_mode="readwrite")
-
-    assert seen and seen[0] != threading.get_ident()
-
-
 # ── lattice dashboard mutators ──────────────────────────────────────────────
 #
 # The six mutators share one refusal shape: every failure arrives as an
@@ -1127,7 +1095,7 @@ async def test_lattice_mutator_emits(tool_name, kwargs, detail):
     """Each acknowledged mutation reports once against the 'lattice' panel."""
     with (
         _lattice_request(),
-        patch(f"{_LATTICE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_LATTICE_MOD}.notify_agent_activity_async") as notify,
     ):
         result = await _get_lattice_tool(tool_name)(**kwargs)
 
@@ -1140,7 +1108,7 @@ async def test_lattice_mutator_unreachable_dashboard_no_emit(tool_name, kwargs):
     """A dashboard that never answered changed nothing — emit nothing."""
     with (
         _lattice_request(side_effect=_lattice_unreachable()),
-        patch(f"{_LATTICE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_LATTICE_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="service_unavailable"):
             await _get_lattice_tool(tool_name)(**kwargs)
@@ -1153,7 +1121,7 @@ async def test_lattice_mutator_rejected_request_no_emit(tool_name, kwargs):
     """A non-2xx answer means the dashboard refused the change — emit nothing."""
     with (
         _lattice_request(side_effect=_lattice_http_error()),
-        patch(f"{_LATTICE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_LATTICE_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="lattice_error"):
             await _get_lattice_tool(tool_name)(**kwargs)
@@ -1166,29 +1134,11 @@ async def test_lattice_read_only_tool_never_emits(tool_name, kwargs):
     """Reading state or a figure mutates nothing, so it stays out of the feed."""
     with (
         _lattice_request(return_value={"status": "ok"}),
-        patch(f"{_LATTICE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_LATTICE_MOD}.notify_agent_activity_async") as notify,
     ):
         await _get_lattice_tool(tool_name)(**kwargs)
 
     notify.assert_not_called()
-
-
-async def test_lattice_emit_runs_off_the_event_loop():
-    """The blocking notify must be thread-wrapped, never awaited inline."""
-    import threading
-
-    seen: list[int] = []
-
-    with (
-        _lattice_request(),
-        patch(
-            f"{_LATTICE_MOD}.notify_agent_activity",
-            side_effect=lambda *a, **k: seen.append(threading.get_ident()),
-        ),
-    ):
-        await _get_lattice_tool("lattice_set_param")(family="QF", value=1.25)
-
-    assert seen and seen[0] != threading.get_ident()
 
 
 # ── setup_patch / manage_window ─────────────────────────────────────────────
@@ -1262,7 +1212,7 @@ def _backend_unavailable():
 
 async def test_setup_patch_emits_config_activity(setup_project):
     """A landed patch reports the file and key path under the 'config' kind."""
-    with patch(f"{_SETUP_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         result = await _get_setup_patch()(
             file="config.yml", key_path="agent_data.base_dir", value="./_agent_data"
         )
@@ -1275,7 +1225,7 @@ async def test_setup_patch_emits_config_activity(setup_project):
 
 async def test_setup_patch_emits_for_json_target(setup_project):
     """The `.mcp.json` branch reports too — it is the same mutation."""
-    with patch(f"{_SETUP_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         await _get_setup_patch()(
             file=".mcp.json", key_path="mcpServers.demo.env.API_KEY", value=_NEW_SENTINEL
         )
@@ -1289,7 +1239,7 @@ async def test_setup_patch_detail_never_carries_the_patched_values(setup_project
     """Hard security bound: neither the old nor the new value may reach the feed."""
     import json
 
-    with patch(f"{_SETUP_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         await _get_setup_patch()(
             file=".mcp.json", key_path="mcpServers.demo.env.API_KEY", value=_NEW_SENTINEL
         )
@@ -1308,7 +1258,7 @@ async def test_setup_patch_detail_never_carries_the_patched_values(setup_project
 
 async def test_setup_patch_marks_control_system_keys_as_safety_config(setup_project):
     """A safety-relevant key path is distinguishable at a glance in the feed."""
-    with patch(f"{_SETUP_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         await _get_setup_patch()(
             file="config.yml", key_path="control_system.writes_enabled", value="true"
         )
@@ -1327,7 +1277,7 @@ async def test_setup_patch_safety_prefix_is_exact_case(setup_project):
     lowercase one carries the marker and a differently-cased path — which names
     a different key, and gets no hot/cold note either — does not.
     """
-    with patch(f"{_SETUP_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         await _get_setup_patch()(
             file="config.yml", key_path="Control_System.writes_enabled", value="true"
         )
@@ -1339,7 +1289,7 @@ async def test_setup_patch_safety_prefix_is_exact_case(setup_project):
 
 async def test_setup_patch_unpatchable_file_no_emit(setup_project):
     """A file outside the whitelist was never opened — emit nothing."""
-    with patch(f"{_SETUP_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="validation_error"):
             await _get_setup_patch()(file="settings.json", key_path="permissions.deny", value="[]")
 
@@ -1349,7 +1299,7 @@ async def test_setup_patch_unpatchable_file_no_emit(setup_project):
 @pytest.mark.parametrize("key_path", ["", "../../etc/passwd", "/abs/path", "has space"])
 async def test_setup_patch_invalid_key_path_no_emit(setup_project, key_path):
     """A rejected key path changed nothing — emit nothing."""
-    with patch(f"{_SETUP_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="validation_error"):
             await _get_setup_patch()(file="config.yml", key_path=key_path, value="1")
 
@@ -1360,7 +1310,7 @@ async def test_setup_patch_missing_file_no_emit(setup_project):
     """Nothing to patch means nothing to report."""
     (setup_project / ".mcp.json").unlink()
 
-    with patch(f"{_SETUP_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="not_found"):
             await _get_setup_patch()(file=".mcp.json", key_path="mcpServers.x", value="1")
 
@@ -1371,26 +1321,11 @@ async def test_setup_patch_unparseable_file_no_emit(setup_project):
     """A file that could not be read back was never rewritten — emit nothing."""
     (setup_project / ".mcp.json").write_text("{ this is not json")
 
-    with patch(f"{_SETUP_MOD}.notify_agent_activity") as notify:
+    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="internal_error"):
             await _get_setup_patch()(file=".mcp.json", key_path="mcpServers.x", value="1")
 
     notify.assert_not_called()
-
-
-async def test_setup_patch_emit_runs_off_the_event_loop(setup_project):
-    """The blocking notify must be thread-wrapped, never awaited inline."""
-    import threading
-
-    seen: list[int] = []
-
-    with patch(
-        f"{_SETUP_MOD}.notify_agent_activity",
-        side_effect=lambda *a, **k: seen.append(threading.get_ident()),
-    ):
-        await _get_setup_patch()(file="config.yml", key_path="control_system.type", value="mock")
-
-    assert seen and seen[0] != threading.get_ident()
 
 
 @pytest.mark.parametrize("action,kwargs", _MANAGE_WINDOW_ACTIONS)
@@ -1398,7 +1333,7 @@ async def test_manage_window_emits_ui_activity(action, kwargs):
     """Each completed window action reports once under the 'ui' kind."""
     with (
         _screen_backend(),
-        patch(f"{_SCREEN_MOD}.notify_agent_activity") as notify,
+        patch(f"{_SCREEN_MOD}.notify_agent_activity_async") as notify,
     ):
         result = await _get_manage_window()(app="Phoebus", action=action, **kwargs)
 
@@ -1410,7 +1345,7 @@ async def test_manage_window_detail_preserves_app_name_case():
     """Nothing normalises `app`, so the feed shows the name the operator sees."""
     with (
         _screen_backend(),
-        patch(f"{_SCREEN_MOD}.notify_agent_activity") as notify,
+        patch(f"{_SCREEN_MOD}.notify_agent_activity_async") as notify,
     ):
         await _get_manage_window()(app="google Chrome", action="bring_to_front")
 
@@ -1422,7 +1357,7 @@ async def test_manage_window_unknown_action_no_emit(action):
     """Action matching is exact-case; every unmatched spelling is refused, not reported."""
     with (
         _screen_backend(),
-        patch(f"{_SCREEN_MOD}.notify_agent_activity") as notify,
+        patch(f"{_SCREEN_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="validation_error"):
             await _get_manage_window()(app="Phoebus", action=action, x=1, y=2)
@@ -1443,7 +1378,7 @@ async def test_manage_window_incomplete_parameters_no_emit(action, kwargs):
     """A refusal before the backend call moved no window — emit nothing."""
     with (
         _screen_backend(),
-        patch(f"{_SCREEN_MOD}.notify_agent_activity") as notify,
+        patch(f"{_SCREEN_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="validation_error"):
             await _get_manage_window()(app="Phoebus", action=action, **kwargs)
@@ -1456,7 +1391,7 @@ async def test_manage_window_backend_failure_no_emit(action, kwargs):
     """A backend that could not act leaves the window alone — emit nothing."""
     with (
         _screen_backend(side_effect=_backend_unavailable()),
-        patch(f"{_SCREEN_MOD}.notify_agent_activity") as notify,
+        patch(f"{_SCREEN_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="platform_error"):
             await _get_manage_window()(app="Phoebus", action=action, **kwargs)
@@ -1468,30 +1403,12 @@ async def test_manage_window_unknown_app_no_emit():
     """A window the backend cannot find was never touched — emit nothing."""
     with (
         _screen_backend(side_effect=ValueError("no window for app 'Nope'")),
-        patch(f"{_SCREEN_MOD}.notify_agent_activity") as notify,
+        patch(f"{_SCREEN_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="validation_error"):
             await _get_manage_window()(app="Nope", action="bring_to_front")
 
     notify.assert_not_called()
-
-
-async def test_manage_window_emit_runs_off_the_event_loop():
-    """The blocking notify must be thread-wrapped, never awaited inline."""
-    import threading
-
-    seen: list[int] = []
-
-    with (
-        _screen_backend(),
-        patch(
-            f"{_SCREEN_MOD}.notify_agent_activity",
-            side_effect=lambda *a, **k: seen.append(threading.get_ident()),
-        ),
-    ):
-        await _get_manage_window()(app="Phoebus", action="bring_to_front")
-
-    assert seen and seen[0] != threading.get_ident()
 
 
 # ── terminal down: real helper against a dead port ──────────────────────────

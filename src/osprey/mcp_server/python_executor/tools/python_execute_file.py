@@ -1,14 +1,11 @@
 """MCP tool: execute_file — run an existing Python file with safety checks."""
 
-import functools
 import json
 import logging
 from pathlib import Path
 
-import anyio
-
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import notify_agent_activity
+from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
 from osprey.mcp_server.python_executor.tools._execution_gates import (
     enforce_deployment_writes_gate,
@@ -175,13 +172,8 @@ async def execute_file(
         and execution_mode != "readonly"
         and exec_result.execution_time_seconds is not None
     ):
-        await anyio.to_thread.run_sync(
-            functools.partial(
-                notify_agent_activity,
-                "execute_file",
-                "channel",
-                detail="ran a script with control-system writes",
-            )
+        await notify_agent_activity_async(
+            "execute_file", "channel", detail="ran a script with control-system writes"
         )
 
     # Build response using original code (not augmented) for metadata/notebook
