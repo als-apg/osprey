@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
+from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
 
@@ -336,6 +337,33 @@ def _known_panel_ids(request: Request) -> set[str]:
 _TERMINAL_PANEL_ID = "terminal"
 
 
+def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> None:
+    """Record an agent-origin panel command in the agent-activity history ring.
+
+    Panel commands reach the browser as their own SSE frames (``panel_focus``,
+    ``panel_visibility``, ...), never through ``POST /api/agent-activity``, so
+    without this they are invisible to a client that reads
+    ``GET /api/agent-activity/recent`` after connecting late.  The row goes in
+    through that route's own ``record_activity``, so a consumer feeds it
+    through the handler it already uses for the SSE ``agent_activity`` stream.
+
+    ``tool`` is synthetic: the panel routes carry no tool name of their own, so
+    the caller supplies the MCP verb the action corresponds to (``switch_panel``,
+    ``show_panel``, ``hide_panel``, ``arrange_workspace``, ``register_panel``)
+    and the frontend words the entry from it.
+
+    Nothing is broadcast — this is history only.  Callers must invoke it for
+    agent-origin requests exactly once per action, and never for human ones: a
+    human's own gestures are not the agent's activity.
+
+    Args:
+        request: Incoming FastAPI request carrying ``app.state``.
+        tool: Synthetic tool name naming the action.
+        panel: The panel id the action targeted.
+    """
+    record_activity(request, tool, {"kind": "panel", "panel": panel})
+
+
 class PanelFocusRequest(BaseModel):
     panel: str
     url: str | None = None
@@ -377,6 +405,11 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
 
     A panel already in the rail — which is the only kind a human can click —
     changes nothing and emits no visibility frame.
+
+    An agent switch is also mirrored into the activity history ring as one
+    ``switch_panel`` row. When the switch additionally adds rail membership,
+    only the focus is mirrored: the pair of frames is one agent action, and
+    history counts actions, not frames.
 
     Args:
         body: ``panel`` (panel id), optional ``url`` to load, and optional
@@ -420,6 +453,7 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
         event: dict = {"type": "panel_focus", "panel": body.panel, "source": body.source}
         if body.url:
             event["url"] = _prefix_path(body.url)
+        _mirror_agent_panel_activity(request, "switch_panel", body.panel)
         request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "active_panel": body.panel}
 
@@ -433,6 +467,10 @@ class PanelVisibilityRequest(BaseModel):
 @router.post("/api/panel-visibility")
 async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     """Show or hide a panel and broadcast the change via SSE.
+
+    An agent-origin change is also mirrored into the activity history ring, as
+    a ``show_panel`` or ``hide_panel`` row depending on the flag, so a client
+    reading the history can word it the way it words the live frame.
 
     Args:
         body: ``panel`` (panel id) and ``visible`` (desired visibility).
@@ -456,6 +494,10 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     event: dict = {"type": "panel_visibility", "panel": body.panel, "visible": body.visible}
     if body.source:
         event["source"] = body.source
+    if body.source == "agent":
+        _mirror_agent_panel_activity(
+            request, "show_panel" if body.visible else "hide_panel", body.panel
+        )
     request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "panel": body.panel, "visible": body.visible}
 
@@ -584,6 +626,9 @@ async def arrange_panels(body: PanelArrangeRequest, request: Request):
     broadcast still carries ``focus`` only when one was requested, leaving the
     client's fallback rule in charge of what is actually focused on screen.
 
+    An agent arrangement is mirrored into the activity history ring as a single
+    ``arrange_workspace`` row targeting the recorded focus panel.
+
     Args:
         body: ``tiles`` (explicit ids, left-to-right) **or** ``preset`` (a
             configured layout name), an optional ``focus`` target that must be
@@ -642,6 +687,11 @@ async def arrange_panels(body: PanelArrangeRequest, request: Request):
         event["prune_rail"] = True
     if body.source:
         event["source"] = body.source
+    if body.source == "agent":
+        # One row for the whole arrangement, targeting the panel focus lands on
+        # — the same id recorded as ``active_panel`` above, so the history entry
+        # names the tile the operator's eye is sent to.
+        _mirror_agent_panel_activity(request, "arrange_workspace", body.focus or tiles[0])
     request.app.state.broadcaster.broadcast(event)
     return {
         "status": "ok",
@@ -894,6 +944,9 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     If a custom panel with the same ``id`` already exists it is replaced
     atomically (remove-then-append) so the proxy always returns the first match.
 
+    An agent-origin registration is mirrored into the activity history ring as
+    a ``register_panel`` row.
+
     Args:
         body: Panel registration fields: ``id``, ``label``, ``url`` (raw),
             ``path`` (default ``"/"``), ``health_endpoint`` (optional).
@@ -970,6 +1023,8 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     }
     if body.source:
         event["source"] = body.source
+    if body.source == "agent":
+        _mirror_agent_panel_activity(request, "register_panel", body.id)
     request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "id": body.id, "label": body.label, "url": browser_url}
 

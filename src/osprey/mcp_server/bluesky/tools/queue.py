@@ -723,4 +723,16 @@ async def queue_stop(cancel: bool = False) -> str:
             status,
             fallback_hints=["Check queue_list for whether a stop is already pending."],
         )
+
+    # The two directions are opposite operations, so they must not share a
+    # label: rendering a withdrawal as "stop" would tell the operator the queue
+    # is halting when it has just been released to keep draining.
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            notify_agent_activity,
+            "queue_stop",
+            "run",
+            detail="stop-withdrawn" if cancel else "stop",
+        )
+    )
     return json.dumps(body)

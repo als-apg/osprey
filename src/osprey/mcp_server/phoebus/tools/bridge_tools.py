@@ -49,6 +49,7 @@ Panel name registry
 """
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -64,7 +65,12 @@ import anyio
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import _post_json_with_response, notify_panel_focus, phoebus_bridge_url
+from osprey.mcp_server.http import (
+    _post_json_with_response,
+    notify_agent_activity,
+    notify_panel_focus,
+    phoebus_bridge_url,
+)
 from osprey.mcp_server.phoebus.server import mcp
 from osprey.utils.workspace import (
     agent_data_base_dir,
@@ -663,6 +669,26 @@ async def phoebus_drive(
             _bridge_error_message(body, status),
             ["Check the widget reference and that verb/mode are valid."],
         )
+
+    # Agent-activity highlight, emitted only when the drive actually reached a
+    # control. A synthetic 200 with fired=false means the bridge resolved no
+    # interactive control, so nothing was written — that stays silent. Semantic
+    # ``type`` is the exception: it writes the widget's PV through the runtime
+    # and so reports fired=false even though the value landed. Every refusal
+    # (validation, handle enforcement, unreachable bridge, non-200) returns
+    # above, so those emit nothing. notify_agent_activity never raises; the
+    # blocking call runs off the event loop.
+    fired = bool(body.get("fired"))
+    if fired or (verb_l == "type" and mode_l == "semantic"):
+        await anyio.to_thread.run_sync(
+            functools.partial(
+                notify_agent_activity,
+                "phoebus_drive",
+                "channel",
+                detail=f"{verb_l} {widget} on {display}",
+            )
+        )
+
     return json.dumps(
         {
             "status": "success",

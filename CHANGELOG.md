@@ -160,6 +160,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   `config: {control_system.type: ...}`, so a connector can be chosen from the
   command line with `--set connector=epics`. Giving both spellings on one
   command line is an error rather than a silent last-one-wins.
+- You can see what the agent did to your workspace. A tile the agent focuses
+  or rearranges glows briefly, and its rail tab flashes with it, so a layout
+  that changes under you is never unattributed — your own clicks stay quiet.
+  An activity strip names each action in plain words ("agent opened
+  WORKSPACE"), and its history popover holds the recent ones for when you
+  looked away. Panels that changed while you were elsewhere keep a badge
+  across a reload until you visit them. Every agent tool that changes
+  something — queue and plan authoring, logbook entries, Phoebus drives,
+  python execution, lattice and window management — reports itself there.
 
 ### Changed
 

@@ -41,7 +41,7 @@
 }
 
 .activity-strip-subject {
-  color: var(--accent);
+  color: var(--color-accent);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -83,4 +83,80 @@
 .status-activity-floating:empty {
   opacity: 0;
   pointer-events: none;
+}
+
+/* ---- History popover ----
+ *
+ * The strip is its own trigger: clicking it expands the recent-activity list.
+ * Cursor and focus ring are the only affordances — no added box, so the live
+ * line's layout is untouched. */
+.activity-strip-trigger {
+  cursor: pointer;
+}
+
+.activity-strip-trigger:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Body-level and fixed — the hub's strip lives in the footer status bar,
+ * which is one row tall and overflow:hidden, so an in-place popover would be
+ * clipped away. Coordinates come from JS (placeHistory()); everything here is
+ * appearance only. Not scoped under the status bar: it is a child of <body>. */
+.activity-history-popover {
+  position: fixed;
+  z-index: var(--z-dropdown);
+  min-width: 240px;
+  max-width: min(90vw, 420px);
+  max-height: min(50vh, 320px);
+  overflow-y: auto;
+  padding: var(--space-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.activity-history-popover:focus {
+  outline: none;
+}
+
+.activity-history-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: 3px var(--space-2);
+  white-space: nowrap;
+}
+
+.activity-history-verb {
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+}
+
+/* The agent-supplied half: it gets the remaining width and truncates, so a
+   long channel list can never widen the popover past its max. */
+.activity-history-subject {
+  color: var(--color-accent);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-history-time {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: var(--space-2);
+}
+
+.activity-history-message {
+  padding: var(--space-2);
+  color: var(--text-muted);
+  text-align: center;
 }

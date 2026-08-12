@@ -51,8 +51,26 @@
   pointer-events: none;
 }
 
+/* Reduced motion: still a flash, just a still one.
+
+   `animation: none` cannot go here — it never fires `animationend`, so
+   flashElement's cleanup listener never runs and `.agent-flash` stays on the
+   element forever. Instead the same keyframes name is re-declared as a
+   constant ring and stepped through: nothing moves, the element holds a
+   static attribution ring, and the animation still ends and self-cleans.
+   The name must stay `agent-flash-glow` — flashElement ignores animationend
+   for any other name, which would strand the class just as `none` did. */
 @media (prefers-reduced-motion: reduce) {
+  @keyframes agent-flash-glow {
+    0%,
+    100% {
+      box-shadow: 0 0 0 3px var(--accent-tint-25);
+    }
+  }
+
   .agent-flash {
-    animation: none;
+    /* Held longer than the 900ms decay: a static ring has no motion to catch
+       the eye, so it needs the extra dwell to register. */
+    animation: agent-flash-glow 1200ms steps(1, end); /* hygiene-allow-scale: reduced-motion hold */
   }
 }

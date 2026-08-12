@@ -17,6 +17,12 @@ import pytest
 
 from osprey.mcp_server import http
 
+# These tests drive the posters themselves, so they opt out of the conftest
+# stub that blocks notify_* POSTs from leaving the process. Nothing here can
+# reach a live web terminal: every socket-level call targets a dead port or a
+# patched ``urlopen``.
+pytestmark = pytest.mark.real_http_posters
+
 
 @pytest.fixture
 def patch_config():

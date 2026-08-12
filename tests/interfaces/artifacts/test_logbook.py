@@ -7,7 +7,8 @@ Covers:
   - Successful compose with artifact (mocked LLM)
   - Submit creates draft JSON in workspace/drafts/
   - Submit response includes ARIEL URL with draft_id
-  - Submit calls notify_panel_focus
+  - Submit stays silent on the web-terminal channel — see
+    test_logbook_no_agent_attribution.py
   - Prompt assembly: all Purpose × Detail combinations
   - Compose with steering fields (purpose/detail_level/nudge)
   - Compose with custom_prompt
@@ -211,10 +212,7 @@ class TestLogbookSubmit:
     @pytest.mark.unit
     def test_submit_creates_draft(self, app_client, tmp_path):
         """Draft JSON written to workspace/drafts/."""
-        with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
-            patch(f"{_MODULE}.notify_panel_focus"),
-        ):
+        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={
@@ -243,10 +241,7 @@ class TestLogbookSubmit:
     @pytest.mark.unit
     def test_submit_returns_ariel_url(self, app_client, tmp_path):
         """Response includes ARIEL URL with draft_id."""
-        with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
-            patch(f"{_MODULE}.notify_panel_focus"),
-        ):
+        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={"subject": "Test", "details": "Details."},
@@ -268,10 +263,7 @@ class TestLogbookSubmit:
         origin-relative to load through the proxy.
         """
         monkeypatch.delenv("ARIEL_WEB_URL", raising=False)
-        with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
-            patch(f"{_MODULE}.notify_panel_focus"),
-        ):
+        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={"subject": "Test", "details": "Details."},
@@ -283,30 +275,9 @@ class TestLogbookSubmit:
         assert url.startswith("/panel/ariel")
 
     @pytest.mark.unit
-    def test_submit_calls_panel_focus(self, app_client, tmp_path):
-        """Mock notify_panel_focus, verify called."""
-        with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
-            patch(f"{_MODULE}.notify_panel_focus") as mock_focus,
-        ):
-            resp = app_client.post(
-                "/api/logbook/submit",
-                json={"subject": "Test", "details": "Details."},
-            )
-
-        assert resp.status_code == 200
-        mock_focus.assert_called_once()
-        call_args = mock_focus.call_args
-        assert call_args[0][0] == "ariel"
-        assert "/#create?draft=" in call_args[1]["url"]
-
-    @pytest.mark.unit
     def test_submit_creates_metadata_json_attachment(self, app_client, tmp_path):
         """Submit creates a metadata.json file and includes it in attachment_paths."""
-        with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
-            patch(f"{_MODULE}.notify_panel_focus"),
-        ):
+        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={

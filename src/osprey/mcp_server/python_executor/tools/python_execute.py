@@ -1,9 +1,13 @@
 """MCP tool: execute — run user-provided Python code with safety checks."""
 
+import functools
 import json
 import logging
 
+import anyio
+
 from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import notify_agent_activity
 from osprey.mcp_server.python_executor.server import mcp
 from osprey.mcp_server.python_executor.tools._package_inventory import with_live_packages
 
@@ -124,6 +128,33 @@ async def execute(
         execution_mode=execution_mode,
         description=description,
     )
+
+    # Report the write to the Web Terminal once the script has actually been
+    # handed to the subprocess: writes it performed are already on the machine
+    # and a mid-run error does not undo them, so a failed run still reports.
+    #
+    # `execution_time_seconds` is the launch discriminator — only the subprocess
+    # path sets it, on both its completed and its timed-out return, while every
+    # "never launched" outcome comes back from execute_code's setup handler with
+    # it still None. Every pre-execution gate above returns before this point.
+    #
+    # The mode test is the complement of the readonly gate, not equality with
+    # "readwrite": any mode string that got past that gate let the writes run,
+    # so it has to be visible. Emitting before build_execution_response keeps
+    # the report independent of artifact/notebook persistence failures.
+    if (
+        patterns.get("has_writes")
+        and execution_mode != "readonly"
+        and exec_result.execution_time_seconds is not None
+    ):
+        await anyio.to_thread.run_sync(
+            functools.partial(
+                notify_agent_activity,
+                "execute",
+                "channel",
+                detail="ran a script with control-system writes",
+            )
+        )
 
     from osprey.mcp_server.python_executor.tools._response_builder import build_execution_response
 

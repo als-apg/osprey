@@ -1170,6 +1170,26 @@ html[data-rail-position="top"] .rail-hint {
   pointer-events: none;
 }
 
+/* Agent attribution glow for a whole tile body. dock-iframe.js sizes one of
+   these to the affected panel's group rectangle and fires the design system's
+   `.agent-flash` on it (highlight.css supplies every colour, accent tokens
+   only, so it reads in all four themes). It is a separate overlay element
+   rather than the panel iframe because the iframe is another document the
+   flash cannot reach into, and flashing the iframe element itself would clip
+   the embedded app to the flash's border-radius.
+
+   At rest the element is fully transparent — the flash animates background and
+   box-shadow back to transparent and removes its own class — so a spent glow
+   costs nothing parked in the overlay. `z-index` lifts it above the overlay's
+   iframes, which are positioned but unlayered and would otherwise paint over
+   any glow created before them; `pointer-events` re-states the overlay's own
+   inertness so the layer stays click-through even if it is ever re-parented. */
+.dock-iframe-overlay .tile-glow {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
 /* ---- Terminal panel ---- */
 
 .terminal-panel {

@@ -141,6 +141,57 @@ def _reset_singletons(monkeypatch):
     _cfg._config_cache.update(saved_cache)
 
 
+@pytest.fixture(autouse=True)
+def _unregister_artifact_activity():
+    """Disarm the artifact-activity listener around every test in this directory.
+
+    ``initialize_workspace_singletons()`` subscribes the listener to the
+    ArtifactStore *class*, so any test that calls it leaves every later test in
+    the same worker emitting real ``/api/agent-activity`` POSTs at whatever is
+    listening on the web-terminal port. Unregistering on both sides keeps that
+    process-global arming inside the test that asked for it.
+    """
+    from osprey.mcp_server.artifact_activity import unregister_artifact_activity_listeners
+
+    unregister_artifact_activity_listeners()
+    yield
+    unregister_artifact_activity_listeners()
+
+
+@pytest.fixture(autouse=True)
+def _block_web_terminal_posts(request, monkeypatch):
+    """Keep the notify_* helpers' HTTP POSTs inside the test process.
+
+    Every ``notify_*`` helper in :mod:`osprey.mcp_server.http` opens a real
+    socket to the resolved web-terminal port. On CI nothing is listening and the
+    connection is merely refused, but on a developer box a live web terminal is
+    — and then the unit suite drives the operator's actual UI, glowing tiles and
+    filling the activity strip. Both posters are stubbed here to the outcome
+    they already produce when the terminal is down: ``post_json`` swallows and
+    returns ``None``; ``_post_json_with_response`` raises ``URLError`` so
+    ``notify_panel_register`` / ``notify_panel_arrange`` take their existing
+    unreachable branch. Patching only ``post_json`` would miss those two.
+
+    Patched in the ``http`` module's own namespace, which is where the helpers
+    resolve them from, so it holds however a tool module imported the helper.
+    Tests that assert on emits patch ``notify_agent_activity`` at their own call
+    site — above this seam — and are unaffected. ``test_http.py`` exercises the
+    posters themselves and opts out with the ``real_http_posters`` marker.
+    """
+    if request.node.get_closest_marker("real_http_posters"):
+        return
+
+    import urllib.error
+
+    from osprey.mcp_server import http as _http
+
+    def _unreachable(url, payload, *, timeout=3):
+        raise urllib.error.URLError("web terminal POSTs are blocked in unit tests")
+
+    monkeypatch.setattr(_http, "post_json", lambda *args, **kwargs: None)
+    monkeypatch.setattr(_http, "_post_json_with_response", _unreachable)
+
+
 @pytest.fixture
 def init_registry(tmp_path, monkeypatch):
     """Initialize the MCP registry after chdir and config setup.
