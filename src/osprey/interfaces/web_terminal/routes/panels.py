@@ -351,7 +351,15 @@ async def get_panel_focus(request: Request):
 
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
-    """Set the active panel and broadcast a focus event via SSE.
+    """Set the active panel; broadcast a focus event only for agent switches.
+
+    Attribution decides the frame's fate. An ``source: "agent"`` switch is a
+    command every client must apply, so it broadcasts. A source-less POST is a
+    human gesture REPORT (panel-commands.js's ``setPanelFocus``): the server
+    mirrors ``active_panel`` for the agent's gaze and broadcasts nothing —
+    one operator's tab switches never move another client's workspace, and
+    the gesturing client applies its own focus locally rather than riding an
+    echo.
 
     ``body.url`` (e.g. from an agent-invoked ``switch_panel`` MCP call) is
     run through ``_prefix_path()`` before broadcast so a root-absolute path
@@ -408,12 +416,11 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
             visibility_event["source"] = body.source
         request.app.state.broadcaster.broadcast(visibility_event)
 
-    event: dict = {"type": "panel_focus", "panel": body.panel}
-    if body.url:
-        event["url"] = _prefix_path(body.url)
-    if body.source:
-        event["source"] = body.source
-    request.app.state.broadcaster.broadcast(event)
+    if body.source == "agent":
+        event: dict = {"type": "panel_focus", "panel": body.panel, "source": body.source}
+        if body.url:
+            event["url"] = _prefix_path(body.url)
+        request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "active_panel": body.panel}
 
 

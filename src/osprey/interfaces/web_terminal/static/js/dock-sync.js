@@ -366,15 +366,34 @@ export function withEchoSuppressed(fn) {
 /**
  * Handle a dockview active-panel change. Skips while an echo window is open
  * (a server-applied focus) and for the native terminal/workspace panels; a
- * genuine human dock-tab focus of a service panel POSTs setPanelFocus, whose
- * SSE echo then drives the rail + iframe through panel-manager (agent ≡ human).
+ * genuine human dock-tab focus of a service panel applies locally through the
+ * registered focus handler (rail accent, active-tab state — panel-manager's
+ * activateTab) and POSTs setPanelFocus as a REPORT: the server mirrors the
+ * active panel for the agent's gaze and broadcasts nothing for human gestures,
+ * so the local apply cannot ride an SSE echo.
  */
 function onActivePanelChange() {
   if (suppressDepth > 0) return;
   const api = getDockApi();
   if (!api) return;
   const id = serviceIdOf(api.activePanel?.id);
-  if (id) setPanelFocus(id);
+  if (!id) return;
+  tileFocusHandler?.(id);
+  setPanelFocus(id);
+}
+
+/**
+ * Handler a human dock-tab focus is routed to, registered by panel-manager
+ * (which owns the rail accent and active-tab state the focus must update).
+ * Called with the focused panel's service id; must NOT POST — this module
+ * owns the report.
+ * @type {((serviceId: string) => void) | null}
+ */
+let tileFocusHandler = null;
+
+/** @param {((serviceId: string) => void) | null} fn */
+export function setTileFocusHandler(fn) {
+  tileFocusHandler = fn;
 }
 
 /**

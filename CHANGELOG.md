@@ -347,6 +347,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- One operator's tab switches no longer rearrange every other window of the
+  same workspace: a human panel focus is now mirrored to the server silently
+  (the agent can still read where the operator is looking) instead of being
+  broadcast back, whose delayed echo could evict tiles the operator had open —
+  in the gesturing window and in every other one. Closing a tile no longer
+  reports its side-effect focus change either.
 - Web terminal panels no longer freeze permanently — rendering but ignoring
   every click — when a drag from the panel rail loses its end event (for
   example the dragged entry was removed mid-drag by the agent or another

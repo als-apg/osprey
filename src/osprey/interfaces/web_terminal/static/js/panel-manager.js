@@ -35,7 +35,7 @@ import { createPanelIframe } from './panel-iframe-factory.js';
 import {
   PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL, DEFAULT_PANEL_FALLBACK,
 } from './panel-catalog.js';
-import { initDockSync, withEchoSuppressed, setTileCloseHandler } from './dock-sync.js';
+import { initDockSync, withEchoSuppressed, setTileCloseHandler, setTileFocusHandler } from './dock-sync.js';
 import { initRailDrag, railDragStart, railDragEnd } from './rail-drag.js';
 import { startHealthPolling as startPolling } from './panel-health.js';
 import { openTerminalPanel, closeTerminalPanel } from './dock-workspace.js';
@@ -301,6 +301,12 @@ export async function initPanelManager(panelId) {
   // active state here, never POST.
   setTileCloseHandler(vacatePanel);
 
+  // A human focusing a dock tab applies locally through activateTab (rail
+  // accent, active-tab state, iframe reveal). dock-sync owns the mirror POST,
+  // and the server does not echo human focus back, so this registration is the
+  // only thing that keeps the gesturing client's own rail in step.
+  setTileFocusHandler(activateTab);
+
   // Hand the adapter a live reference to the visible set (it prunes restored
   // placeholders of server-closed panels), then finalize the registry — the
   // adapter may now prune any restored placeholder whose service no longer
@@ -407,18 +413,19 @@ export async function initPanelManager(panelId) {
         const data = /** @type {PanelSSEEvent} */ (raw);
 
         if (data.type === 'panel_focus' && data.panel) {
-          // A switch — agent or human — honor unconditionally. It also ends the
-          // simple-UX chat-only suppression, even when the activation still
-          // refuses (unhealthy panel): the intent to surface the workspace is
-          // clear, so the next health settle may fill the slot.
+          // A broadcast switch also ends the simple-UX chat-only suppression,
+          // even when the activation still refuses (unhealthy panel): the
+          // intent to surface the workspace is clear, so the next health
+          // settle may fill the slot.
           workspaceSuppressed = false;
           if (data.url) navigatePanel(data.panel, data.url);
           // An AGENT switch is polite: focus the panel's own tile, or open one
           // beside the operator's — never take a tile away (applyAgentSwitch).
-          // Every other frame is the echo of a human gesture (rail click, dock
-          // tab focus) whose takeover semantics are the operator's own choice,
-          // so it keeps the plain activation. The glow runs after the switch so
-          // a just-added entry can flash.
+          // Human focus is never broadcast (the server mirrors it silently and
+          // the gesturing client applies it locally), so an unattributed frame
+          // can only come from an out-of-contract caller; it keeps the plain
+          // activation. The glow runs after the switch so a just-added entry
+          // can flash.
           if (data.source === 'agent') {
             applyAgentSwitch(data.panel);
             flashAgentGlow(data.panel);
