@@ -26,7 +26,7 @@ import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import {
   initDockIframeAdapter, focusPanel, hidePanel, concealPanel,
-  setKnownServicePanels, setServerVisiblePanels,
+  setKnownServicePanels, setServerVisiblePanels, glowPanel,
 } from './dock-iframe.js';
 import {
   initPanelPlacement, openPanelBeside, dropPanelAt, applyAgentSwitch, applyArrange,
@@ -96,7 +96,8 @@ import {
  * @typedef {object} AgentActivityEvent
  * @property {'agent_activity'} type
  * @property {string} tool
- * @property {{ kind: 'panel' | 'channel' | 'run' | 'artifact', panel?: string, detail?: string }} target
+ * @property {{ kind: 'panel' | 'channel' | 'run' | 'artifact' | 'config' | 'ui',
+ *   panel?: string, detail?: string }} target
  * @property {number} [ts]
  *
  * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelRegisterEvent | PanelArrangeEvent
@@ -208,7 +209,11 @@ export async function initPanelManager(panelId) {
     getActive: () => activeTabId,
     clearActive: clearActivePanel,
     renderEmpty: renderEmptyState,
-    glow: flashAgentGlow,
+    // An arranged tile is attributed on both surfaces: its rail entry flashes,
+    // and the tile body itself glows. Only the arrange path passes through
+    // here, which is the one placement verb an agent drives — the rail ⊞ and
+    // drag-and-drop are human gestures and never glow.
+    glow: (id) => { flashAgentGlow(id); glowPanel(id); },
     openTerminal: openTerminalPanel,
   });
 
@@ -407,7 +412,9 @@ export async function initPanelManager(panelId) {
     // without a resync a client that missed one frame never converges again.
     // The hook fires on every open, including the first; the extra boot-time
     // fetch is a no-op delta.
-    onOpen: () => { void resyncPanelState(); },
+    // Badges are restored from the history ring after the membership delta, so
+    // an entry the resync just re-added can carry one (restoreAgentBadges).
+    onOpen: () => { void resyncPanelState().then(restoreAgentBadges); },
     onMessage: (raw) => {
       try {
         const data = /** @type {PanelSSEEvent} */ (raw);
@@ -425,10 +432,12 @@ export async function initPanelManager(panelId) {
           // the gesturing client applies it locally), so an unattributed frame
           // can only come from an out-of-contract caller; it keeps the plain
           // activation. The glow runs after the switch so a just-added entry
-          // can flash.
+          // can flash, and the tile glow after the placement so it measures the
+          // tile the switch actually surfaced.
           if (data.source === 'agent') {
             applyAgentSwitch(data.panel);
             flashAgentGlow(data.panel);
+            glowPanel(data.panel);
           } else {
             activateTab(data.panel);
           }
@@ -459,7 +468,13 @@ export async function initPanelManager(panelId) {
           // setEntryAttention; everything the rail cannot anchor falls through
           // to the activity-strip seam (no-op until a handler registers).
           const t = data.target;
-          if (t.kind !== 'panel' || !t.panel || !setEntryAttention(railEl, t.panel, true)) onAgentActivity(data);
+          if (t.kind === 'panel' && t.panel && setEntryAttention(railEl, t.panel, true, data.ts)) {
+            // Remember the badge's server ts so clearing it can acknowledge
+            // exactly this event and the reload restore can skip it.
+            noteBadgeTs(t.panel, data.ts);
+          } else {
+            onAgentActivity(data);
+          }
         }
 
       } catch (err) {
@@ -478,7 +493,8 @@ export async function initPanelManager(panelId) {
  * ends up exactly where a connected one would be.
  *
  * Order matters and is pinned by the test suite: membership + rail entry
- * first (the agent glow runs after the add so a just-added entry can flash);
+ * first (the agent glow runs after the add so a just-added entry can flash,
+ * and an agent-origin change reports itself on the activity strip);
  * then the simple-UX chat-only reveal (showing a panel while the workspace is
  * suppressed brings the workspace up ON that panel — {auto: true} keeps the
  * health guard); then, on a hide, the dock tile drop (one panel per tile — a
@@ -497,7 +513,14 @@ function applyPanelVisibility(panel, visible, source) {
     visiblePanels.delete(panel);
     removeEntry(railEl, panel);
   }
-  if (source === 'agent') flashAgentGlow(panel);
+  // A show can glow its just-added rail entry; a hide has no entry left to
+  // glow, so the strip is the only surface that can report it. Both synthesize
+  // an activity frame — deliberately straight to the seam, past the
+  // agent_activity branch's rail-anchor routing, so the two halves of the
+  // agent's visibility vocabulary read the same way on the strip.
+  if (visible && source === 'agent') flashAgentGlow(panel);
+  if (source === 'agent') onAgentActivity({ type: 'agent_activity', ts: Date.now(),
+    tool: visible ? 'show_panel' : 'hide_panel', target: { kind: 'panel', panel } });
 
   if (visible && workspaceSuppressed) {
     workspaceSuppressed = false;
@@ -553,6 +576,85 @@ async function resyncPanelState() {
  * @param {string} panelId
  */
 function flashAgentGlow(panelId) { const entry = getEntry(railEl, panelId); if (entry) flashElement(entry); }
+
+// ---- Agent-attention badges across reloads ----
+//
+// A badge must outlive the page: the server's history ring is re-read on every
+// SSE open (restoreAgentBadges) and any panel activity the operator has not
+// seen re-badges its entry. "Seen" is an ACKNOWLEDGMENT — the server ts of the
+// newest badge the operator cleared by surfacing that panel, kept per panel in
+// localStorage under `agent-ack:<panelId>`.
+//
+// Only SERVER timestamps are ever stored or compared here. The ring's `ts` is
+// the web-terminal process's clock; a browser clock skewed ahead of it would
+// permanently suppress real badges, and one skewed behind would resurrect
+// cleared ones on every reconnect. So a badge whose frame carried no ts leaves
+// the stored ack untouched rather than substituting Date.now().
+
+/** Newest badge-causing server ts seen this page lifetime, per panel.
+ *  @type {Map<string, number>} */
+const badgeTs = new Map();
+
+const ACK_KEY_PREFIX = 'agent-ack:';
+
+/**
+ * Record a badge's server ts, keeping the newest. The history ring replays a
+ * panel's older events alongside its newest, so this must not walk backwards.
+ * @param {string} panelId
+ * @param {number} [ts]
+ */
+function noteBadgeTs(panelId, ts) {
+  if (typeof ts !== 'number') return;
+  const prev = badgeTs.get(panelId);
+  if (prev === undefined || ts > prev) badgeTs.set(panelId, ts);
+}
+
+/**
+ * The acknowledged server ts for a panel. A panel that was never acknowledged
+ * (and a storage read that is denied or corrupt) has seen nothing, so it reads
+ * as -Infinity: an unknown ack RESTORES a badge, it never suppresses one.
+ * @param {string} panelId
+ * @returns {number}
+ */
+function ackedTs(panelId) {
+  let raw = null;
+  try { raw = localStorage.getItem(ACK_KEY_PREFIX + panelId); } catch { return -Infinity; }
+  const ts = raw === null ? NaN : Number(raw);
+  return Number.isFinite(ts) ? ts : -Infinity;
+}
+
+/**
+ * Clear a panel's badge and acknowledge it up to that badge's own server ts,
+ * so a reload does not bring it back. With no ts on record the badge is still
+ * cleared but the stored ack is left exactly as it was (see the section note).
+ * @param {string} panelId
+ */
+function clearBadge(panelId) {
+  setEntryAttention(railEl, panelId, false);
+  const ts = badgeTs.get(panelId);
+  if (ts === undefined) return;
+  try { localStorage.setItem(ACK_KEY_PREFIX + panelId, String(ts)); } catch { /* storage denied */ }
+}
+
+/**
+ * Re-badge rail entries for panel activity this operator has not acknowledged.
+ * Runs after the membership resync on every SSE open — including the first, so
+ * a reload restores badges — which is also why it runs after it: an entry that
+ * the resync delta just added can then carry a badge.
+ *
+ * Only 'panel'-kind rows with a ts can badge anything; the strip owns the rest
+ * and history there is its own concern (the seam is not replayed).
+ */
+async function restoreAgentBadges() {
+  let body = null;
+  try { body = await fetchJSON('/api/agent-activity/recent'); } catch { return; }
+  for (const ev of (body?.events || [])) {
+    const target = ev?.target;
+    if (target?.kind !== 'panel' || !target.panel || typeof ev.ts !== 'number') continue;
+    if (ev.ts <= ackedTs(target.panel)) continue;
+    if (setEntryAttention(railEl, target.panel, true, ev.ts)) noteBadgeTs(target.panel, ev.ts);
+  }
+}
 
 /**
  * Interaction closures handed to every rail render/append call. Routing
@@ -610,8 +712,9 @@ function railOptions() {
 }
 
 /** The catalog label for a panel id (falls back to the id itself).
+ *  Exported for the activity strip, which words panel actions with labels.
  *  @param {string} id @returns {string} */
-function labelOf(id) {
+export function labelOf(id) {
   return PANELS.find((p) => p.id === id)?.label ?? id;
 }
 
@@ -911,10 +1014,11 @@ export function activateTab(panelId, { userInitiated = false, auto = false } = {
   if (auto && !visiblePanels.has(panelId)) return;
 
   // Past the guards the panel actually surfaces (rail click, agent focus,
-  // palette, dock — any source): its agent-attention badge is served, clear it.
+  // palette, dock — any source): its agent-attention badge is served, so clear
+  // it AND acknowledge it, or the next reload would restore it from history.
   // The guarded returns above deliberately keep the badge on panels that
   // refused to surface.
-  setEntryAttention(railEl, panelId, false);
+  clearBadge(panelId);
 
   // Any surfaced panel means the workspace is open — the simple-UX chat-only
   // suppression (if still armed) is over for this page lifetime.
@@ -1013,6 +1117,15 @@ function navigatePanel(panelId, url) {
   // verbatim (never strip/re-add window.__OSPREY_PREFIX__ — see its docstring).
   state.iframe.src = buildEmbedSrc(url);
   state.pendingUrl = null;
+}
+
+/** Human-local twin of the panel_focus SSE path: navigate a panel to `url`
+ *  and plain-activate it. No agent glow, no server broadcast.
+ *  @param {string} panelId
+ *  @param {string} url */
+export function navigateAndActivatePanel(panelId, url) {
+  if (url) navigatePanel(panelId, url);
+  activateTab(panelId);
 }
 
 // ---- Iframe Management ----

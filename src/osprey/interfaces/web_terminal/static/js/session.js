@@ -5,7 +5,7 @@
  * osprey-session-change receiver (the receiver-rejects-foreign-origin
  * contract is pinned by test_contract_params.py), the four-view nav, the
  * shared api/toast helpers the view renderers (session-views.js) depend
- * on, and the periodic refresh loop.
+ * on, the periodic refresh loop, and the activity strip's SSE feed.
  *
  * @module session
  */
@@ -14,9 +14,11 @@ import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-theme-switcher.js';
 import { renderAgents, renderToolLog, renderArtifacts, renderConversation } from './session-views.js';
-import { withPrefix } from './api.js';
+import { withPrefix, createEventSource } from './api.js';
+import { bootActivityStrip } from './activity-strip.js';
 
 /** @typedef {'agents'|'toollog'|'artifacts'|'conversation'} ViewName */
+/** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
 /**
  * @typedef {{
  *   agents: unknown,
@@ -142,6 +144,43 @@ window.addEventListener('message', (e) => {
     refreshActive();
   }
 });
+
+// ---- Activity strip ----
+
+/**
+ * Feed the activity strip from the web terminal's SSE stream.
+ *
+ * The strip module self-registers on panel-manager's activity seam, but no
+ * panel-manager runs on this page, so nothing would ever drive it here — this
+ * is the session page's own subscription to the same `/api/files/events`
+ * stream the terminal reads. Only `agent_activity` frames are forwarded; file
+ * and panel frames on the shared stream belong to the terminal. A frame that
+ * failed to parse arrives as the raw string (createEventSource's fallback) and
+ * is ignored, as is one without a `target` — the same guard panel-manager's
+ * dispatch applies.
+ *
+ * Prefixing, backoff and reconnection are createEventSource's job; the
+ * factory is injectable so tests can drive it without a network.
+ *
+ * @param {{handleActivity: (frame: AgentActivityEvent) => void}} strip
+ * @param {typeof createEventSource} [eventSourceFactory]
+ * @returns {{stop: () => void}}
+ */
+export function wireActivityStrip(strip, eventSourceFactory = createEventSource) {
+  return eventSourceFactory('/api/files/events', {
+    onMessage: (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (data.type !== 'agent_activity' || !data.target) return;
+      strip.handleActivity(data);
+    },
+  });
+}
+
+// The strip module boots itself on this page's mount too; bootActivityStrip
+// is idempotent, so this reaches that same instance rather than binding a
+// second strip to the shared mount.
+const activityStrip = bootActivityStrip();
+if (activityStrip) wireActivityStrip(activityStrip);
 
 refreshActive();
 

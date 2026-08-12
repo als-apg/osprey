@@ -57,7 +57,7 @@ import { TERMINAL_RAIL_ID } from './panel-catalog.js';
  * @property {() => string | null} getActive - the locally surfaced panel id
  * @property {() => void} clearActive - drop the local active accent/stamp
  * @property {(message: string) => void} renderEmpty - paint the strand-proof empty pane
- * @property {(id: string) => void} glow - transient agent glow on a rail entry
+ * @property {(id: string) => void} glow - transient agent glow on a panel's rail entry and its tile
  * @property {() => void} openTerminal - reopen the native terminal tile
  */
 

@@ -54,6 +54,19 @@ export default [
     },
   },
 
+  // (4c) max-lines ratchet on panel-manager.js alone. It sits right at the 450
+  // cap above while three in-flight tasks (wire-glow-call-sites,
+  // strip-verbs-and-labels, badge-ack-restore) all land agent-visibility code
+  // in it. Splitting the module mid-flight would be more destabilizing than the
+  // raised ceiling; the split is earmarked for the polish pass, and this block
+  // goes away with it. Scoped to the one file so nothing else drifts upward.
+  {
+    files: ['src/osprey/interfaces/web_terminal/static/js/panel-manager.js'],
+    rules: {
+      'max-lines': ['error', { max: 550, skipComments: true, skipBlankLines: true }],
+    },
+  },
+
   // (5) Root config files: node globals.
   {
     files: ['vitest.config.js', 'eslint.config.js'],

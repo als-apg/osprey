@@ -59,6 +59,27 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   onDragGesture: () => [],
 }));
 
+// dock-iframe.js keeps its REAL placement engine — only the tile-glow entry
+// point is spied on. What the glow looks like (an overlay rectangle measured a
+// frame later) is dock-glow.test.mjs's and the browser suite's contract; what
+// this file pins is WHICH call sites fire it, which a spy states directly and a
+// class assertion on a happy-dom-unlaid-out overlay could not.
+//
+// Registered per import (see freshImport) rather than through a hoisted
+// vi.mock: the mock registry survives vi.resetModules(), so a hoisted factory
+// would hand every later test the FIRST test's dock-iframe instance — an
+// adapter still holding a removed overlay and a stale managed set. Re-running
+// the factory after each reset keeps the adapter as fresh as the rest of the
+// graph, which is the isolation every suite in this file depends on.
+const DOCK_IFRAME_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js';
+const { glowPanelSpy } = vi.hoisted(() => ({ glowPanelSpy: vi.fn() }));
+
+/** @param {() => Promise<unknown>} importOriginal */
+async function dockIframeWithGlowSpy(importOriginal) {
+  const actual = /** @type {Record<string, unknown>} */ (await importOriginal());
+  return { ...actual, glowPanel: glowPanelSpy };
+}
+
 /** The adapter's live-follow observer; geometry itself is browser-suite turf. */
 class FakeResizeObserver {
   observe() {}
@@ -113,6 +134,7 @@ function stubEventSource() {
 /** @returns {Promise<typeof import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js')>} */
 async function freshImport() {
   vi.resetModules();
+  vi.doMock(DOCK_IFRAME_PATH, dockIframeWithGlowSpy);
   return import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js');
 }
 
@@ -724,14 +746,52 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
 
   test('a panel_visibility hide REMOVES the entry and returns it to the catalog', async () => {
     const { emit, mod } = await bootMembership();
+    const strip = vi.fn();
+    mod.setActivityStripHandler(strip);
 
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
 
+    // Removal stays synchronous with the frame — the entry is gone by the time
+    // the emit returns, and an UNTAGGED (human-origin) change stays off the
+    // activity strip, which only ever reports the agent.
     expect(entry('artifacts')).toBeNull();
     expect(mod.getHiddenPanels().map((p) => p.id)).toContain('artifacts');
     // Re-show rebuilds the entry.
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: true });
     expect(entry('artifacts')).not.toBeNull();
+    expect(strip).not.toHaveBeenCalled();
+  });
+
+  test("an agent hide reports itself on the strip; the entry is still removed", async () => {
+    const { emit, mod } = await bootMembership();
+    const strip = vi.fn();
+    mod.setActivityStripHandler(strip);
+
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: false, source: 'agent' });
+
+    expect(entry('artifacts')).toBeNull(); // the rail glow had nothing to land on
+    expect(strip).toHaveBeenCalledTimes(1);
+    expect(strip.mock.calls[0][0]).toMatchObject({
+      type: 'agent_activity',
+      tool: 'hide_panel',
+      target: { kind: 'panel', panel: 'artifacts' },
+    });
+  });
+
+  test('an agent show keeps the rail glow AND reports itself on the strip', async () => {
+    const { emit, mod } = await bootMembership();
+    const strip = vi.fn();
+    mod.setActivityStripHandler(strip);
+
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, source: 'agent' });
+
+    expect(entry('ariel')?.classList.contains('agent-flash')).toBe(true);
+    expect(strip).toHaveBeenCalledTimes(1);
+    expect(strip.mock.calls[0][0]).toMatchObject({
+      type: 'agent_activity',
+      tool: 'show_panel',
+      target: { kind: 'panel', panel: 'ariel' },
+    });
   });
 
   test('the SESSION (terminal) entry is always present and enabled', async () => {
@@ -1464,5 +1524,255 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
       (b) => b.getAttribute('data-panel-id'),
     );
     expect(after).toEqual(before);
+  });
+});
+
+describe('tile-body glow — fired only where a tile visibly changed', () => {
+  /** @param {string} id */
+  const entry = (id) => document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`);
+  /** The panel ids handed to glowPanel, in call order. */
+  const glowed = () => glowPanelSpy.mock.calls.map((/** @type {any[]} */ c) => c[0]);
+  const THREE = ['artifacts', 'ariel', 'channel-finder'];
+
+  test("an agent panel_focus glows the switched panel's tile", async () => {
+    const { emit } = await bootWorkspace();
+
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+
+    expect(glowed()).toEqual(['ariel']);
+  });
+
+  test('a human (untagged) panel_focus glows nothing — the operator did it', async () => {
+    const { emit } = await bootWorkspace();
+
+    emit({ type: 'panel_focus', panel: 'ariel' });
+
+    expect(glowPanelSpy).not.toHaveBeenCalled();
+  });
+
+  test('an agent panel_arrange glows every arranged tile', async () => {
+    const { emit } = await bootWorkspace({ panels: THREE });
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'], source: 'agent' });
+
+    expect(glowed().sort()).toEqual(['ariel', 'channel-finder']);
+    // A panel the arrangement did not list keeps its tile out of the story.
+    expect(glowed()).not.toContain('artifacts');
+  });
+
+  test('an untagged panel_arrange (human Layouts click) glows nothing', async () => {
+    const { emit } = await bootWorkspace({ panels: THREE });
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'] });
+
+    expect(glowPanelSpy).not.toHaveBeenCalled();
+  });
+
+  test('an agent SHOW glows the rail entry only — no tile exists to attribute to', async () => {
+    const { emit } = await bootWorkspace({ visible: ['artifacts'] });
+
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, source: 'agent' });
+
+    expect(entry('ariel')?.classList.contains('agent-flash')).toBe(true);
+    expect(glowPanelSpy).not.toHaveBeenCalled();
+  });
+
+  test("an agent HIDE glows nothing — the tile is on its way out", async () => {
+    const { emit, mod } = await bootWorkspace();
+    const strip = vi.fn();
+    mod.setActivityStripHandler(strip);
+
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: false, source: 'agent' });
+
+    expect(strip).toHaveBeenCalledTimes(1); // the agent branch DID run
+    expect(glowPanelSpy).not.toHaveBeenCalled();
+  });
+
+  test('an agent panel_register glows the new rail entry only — it opens no tile', async () => {
+    const { emit } = await bootWorkspace();
+
+    emit({
+      type: 'panel_register', id: 'scan', label: 'SCAN', url: '/panel/scan',
+      healthEndpoint: null, path: '/', source: 'agent',
+    });
+
+    expect(entry('scan')?.classList.contains('agent-flash')).toBe(true);
+    expect(glowPanelSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('agent-attention badges survive a reload — acknowledged by server ts', () => {
+  const ACK = 'agent-ack:';
+
+  // The ack store is real localStorage and outlives a module reset, so every
+  // case starts from a page that has acknowledged nothing.
+  beforeEach(() => localStorage.clear());
+  afterEach(() => localStorage.clear());
+
+  /**
+   * Boot with a healthy 'artifacts' panel, an unhealthy-but-present 'ariel'
+   * entry, and a MUTABLE history ring behind /api/agent-activity/recent. Both
+   * SSE seams are exposed: `emit` for frames, and `open` for the hook that
+   * re-reads the ring (a reload's first open and every reconnect run it).
+   * @param {{events?: any[]}} [opts]
+   */
+  async function bootAck({ events = [] } = {}) {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    const ring = { events };
+    const reads = { recent: 0 };
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({ enabled: ['artifacts', 'ariel'], custom: [], default: null, visible: ['artifacts', 'ariel'], active: null, labels: {} });
+      }
+      if (url === '/api/artifact-server') return jsonOk({ url: '/panel/artifacts', available: true });
+      if (url === '/api/agent-activity/recent') {
+        reads.recent += 1;
+        return jsonOk({ events: [...ring.events] });
+      }
+      return jsonOk({ status: 'ok' });  // ariel: no url ⇒ entry present, disabled
+    }));
+
+    /** @type {{ onmessage?: ((e: {data: string}) => void) | null, onopen?: (() => void) | null }[]} */
+    const sources = [];
+    class FakeEventSource {
+      constructor() {
+        /** @type {((e: {data: string}) => void) | null} */
+        this.onmessage = null;
+        /** @type {(() => void) | null} */
+        this.onopen = null;
+        sources.push(this);
+      }
+      close() {}
+    }
+    vi.stubGlobal('EventSource', FakeEventSource);
+
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+    const artifacts = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
+    await vi.waitFor(() => expect(artifacts.classList.contains('disabled')).toBe(false));
+    return {
+      mod, ring, artifacts,
+      /** @param {object} frame */
+      emit: (frame) => { for (const s of sources) s.onmessage?.({ data: JSON.stringify(frame) }); },
+      open: () => { for (const s of sources) s.onopen?.(); },
+      // Wait until the open() hook has actually READ the ring, then flush the
+      // handler that consumes it. A "no badge appeared" assertion is only
+      // evidence once the restore has genuinely run.
+      settle: async () => {
+        await vi.waitFor(() => expect(reads.recent).toBeGreaterThan(0));
+        await new Promise((r) => setTimeout(r, 0));
+      },
+    };
+  }
+
+  /** @param {string} id */
+  const badged = (id) =>
+    !!document.querySelector(`[data-panel-id="${id}"]`)?.classList.contains('agent-attention');
+
+  test("surfacing a badged panel persists that badge's SERVER ts as the ack", async () => {
+    const { emit } = await bootAck();
+
+    emit({ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 1000.5 });
+    expect(badged('artifacts')).toBe(true);
+
+    emit({ type: 'panel_focus', panel: 'artifacts' });
+
+    expect(badged('artifacts')).toBe(false);
+    expect(localStorage.getItem(`${ACK}artifacts`)).toBe('1000.5');
+  });
+
+  test('no ack ⇒ an unseen ring event restores the badge on SSE open', async () => {
+    const { open } = await bootAck({
+      events: [{ type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 1000 }],
+    });
+    expect(badged('ariel')).toBe(false);
+
+    open();
+
+    await vi.waitFor(() => expect(badged('ariel')).toBe(true));
+  });
+
+  test('a ring event at or before the ack does NOT resurrect the badge', async () => {
+    localStorage.setItem(`${ACK}ariel`, '1000');
+    const { open, settle } = await bootAck({
+      events: [
+        { type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 1000 },
+        { type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 999 },
+      ],
+    });
+
+    open();
+    await settle();
+
+    expect(badged('ariel')).toBe(false);
+  });
+
+  test('a ring event after the ack restores the badge', async () => {
+    localStorage.setItem(`${ACK}ariel`, '1000');
+    const { open } = await bootAck({
+      events: [{ type: 'agent_activity', tool: 'search_logbook', target: { kind: 'panel', panel: 'ariel' }, ts: 1000.5 }],
+    });
+
+    open();
+
+    await vi.waitFor(() => expect(badged('ariel')).toBe(true));
+  });
+
+  test('non-panel-kind ring rows never badge the rail', async () => {
+    const { open, settle } = await bootAck({
+      events: [
+        { type: 'agent_activity', tool: 'read_channel', target: { kind: 'channel', detail: 'SR01C:BPM1:X' }, ts: 2000 },
+        { type: 'agent_activity', tool: 'run_scan', target: { kind: 'run', detail: 'orm-3' }, ts: 1999 },
+        // A panel-kind row with no rail entry has nothing to badge either.
+        { type: 'agent_activity', tool: 'switch_panel', target: { kind: 'panel', panel: 'no-such-panel' }, ts: 1998 },
+      ],
+    });
+
+    open();
+    await settle();
+
+    expect(document.querySelector('.agent-attention')).toBeNull();
+  });
+
+  test('the newest of several rows for one panel becomes the ack', async () => {
+    const { open, emit } = await bootAck({
+      events: [  // newest first, as the endpoint serves them
+        { type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 30 },
+        { type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 10 },
+      ],
+    });
+
+    open();
+    await vi.waitFor(() => expect(badged('artifacts')).toBe(true));
+    emit({ type: 'panel_focus', panel: 'artifacts' });
+
+    expect(localStorage.getItem(`${ACK}artifacts`)).toBe('30');
+  });
+
+  test('a clear with no badge ts on record leaves the stored ack untouched', async () => {
+    localStorage.setItem(`${ACK}artifacts`, '1000');
+    const { emit } = await bootAck();  // boot surfaces artifacts — an unbadged clear
+
+    emit({ type: 'panel_focus', panel: 'artifacts' });
+
+    expect(localStorage.getItem(`${ACK}artifacts`)).toBe('1000');
+  });
+
+  test('the ack is the server ts even when the browser clock is far ahead', async () => {
+    // A client clock written as an ack would be ~2e12 here and would swallow
+    // every future server ts — badges would never come back after one clear.
+    vi.spyOn(Date, 'now').mockReturnValue(2_000_000_000_000);
+    const { emit, ring, open } = await bootAck();
+
+    emit({ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 5 });
+    emit({ type: 'panel_focus', panel: 'artifacts' });
+    expect(localStorage.getItem(`${ACK}artifacts`)).toBe('5');
+
+    // Reconnect with a newer server event: still strictly greater than the ack.
+    ring.events = [{ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 6 }];
+    open();
+
+    await vi.waitFor(() => expect(badged('artifacts')).toBe(true));
   });
 });
