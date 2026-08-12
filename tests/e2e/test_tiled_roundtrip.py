@@ -71,6 +71,8 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
+from tests.e2e import _queue_drive
+from tests.e2e._deploy_diagnostics import queue_stack_logs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -262,10 +264,27 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
                 f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
+        # The VA first, so that a soft-IOC that never came up is NAMED rather
+        # than reported as the bridge failing to answer. Compose already orders
+        # the bridge and the RE manager behind this same healthcheck
+        # (`depends_on: virtual-accelerator: service_healthy`), so on the happy
+        # path this returns on its first poll -- it is a diagnostic, not the
+        # thing that makes the ordering true.
+        _wait_for_container_health(VA_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(QUEUESERVER_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(TILED_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+        # Every container is healthy here and the stack STILL may not accept a
+        # plan: the bridge opens the RE worker environment off the readiness
+        # path, and `POST /queue/items` validates against the worker namespace
+        # that open builds. See `_queue_drive.wait_for_worker_environment`.
+        try:
+            _queue_drive.wait_for_worker_environment(BRIDGE_URL)
+        except AssertionError as exc:
+            pytest.fail(
+                f"{exc}\n{queue_stack_logs(resolve_project_name({'project_name': PROJECT_NAME}))}"
+            )
 
         # Device names come from the .env `osprey deploy up` itself wrote
         # (_ensure_bluesky_substrate_env derives them from the built project's

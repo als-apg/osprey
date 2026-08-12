@@ -85,6 +85,21 @@ BRIDGE_PORT = 18102
 # too (e.g. ``f"{project_name}-bluesky-bridge"``).
 
 
+def project_prefix(project_name: str) -> str:
+    """The ``<project>`` prefix compose gives every container and locally-built
+    image of a deploy, resolved exactly as the templates resolve it.
+
+    Container names (``<project>-bluesky-bridge``) and image tags
+    (``<project>-va:local``) are both built from it, so anything that must name
+    a deployed container -- a health probe, a log dump -- derives it here
+    rather than hardcoding a host-global name that is wrong for any other
+    project.
+    """
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    return str(resolve_project_name({"project_name": project_name}))
+
+
 def _service_image(project_name: str, service: str) -> str:
     """Derive a locally-built ``<project>-<service>:local`` image tag the way
     the service compose templates do.
@@ -95,9 +110,7 @@ def _service_image(project_name: str, service: str) -> str:
     caller that force-rebuilds via ``docker rmi -f`` must target that SAME
     project-prefixed tag, never a host-global name.
     """
-    from osprey.deployment.compose_generator import resolve_project_name
-
-    return f"{resolve_project_name({'project_name': project_name})}-{service}:local"
+    return f"{project_prefix(project_name)}-{service}:local"
 
 
 def bridge_image(project_name: str) -> str:

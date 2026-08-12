@@ -347,6 +347,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- A scan-stack deployment no longer intermittently refuses every scan with
+  "not in the list of allowed plans". The bridge opens the Run Engine worker
+  once at startup, and abandoned it whenever it won the boot race against the
+  queue server — leaving the list of runnable plans empty until someone started
+  the queue by hand. It now waits for the queue server to answer first.
 - One operator's tab switches no longer rearrange every other window of the
   same workspace: a human panel focus is now mirrored to the server silently
   (the agent can still read where the operator is looking) instead of being
