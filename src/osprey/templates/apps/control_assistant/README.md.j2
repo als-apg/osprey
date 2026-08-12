@@ -43,8 +43,9 @@ This application demonstrates production-validated patterns for building AI assi
 - **`virtual_accelerator`** — a containerized PyAT soft-IOC serving real EPICS
   Channel Access with live storage-ring physics (corrector setpoints move BPM
   readbacks). **Requires the VA service** — add `virtual_accelerator` to
-  `deployed_services` in `config.yml`, run `osprey deploy up`, then
-  `osprey config set-control-system virtual_accelerator`. See the
+  `deployed_services` in `profile.yml`, run
+  `osprey set connector=virtual_accelerator`, then `osprey build` and
+  `osprey up`. See the
   "Use the Virtual Accelerator" how-to guide for scenarios, limits, and the
   archiver live-vs-history note.
 - **`epics`** — production EPICS via the facility gateway.
@@ -369,38 +370,41 @@ uv pip install pyepics
 pip install pyepics
 ```
 
-**Step 2:** Use interactive menu to switch to production mode:
+**Step 2:** Switch the connector to production mode:
 
 ```bash
-uv run osprey  # Launch interactive menu
+osprey set connector=epics
 ```
 
-Navigate: **Your Project** → `config` → `set-control-system`
-- Select: **EPICS - Production mode**
-- Confirm archiver switch: **Yes - Use EPICS Archiver Appliance**
-
-**Step 3:** Configure EPICS gateway for your facility:
-
-Navigate: **Your Project** → `config` → `set-epics-gateway`
-- Select your facility: **APS** / **ALS** / **Custom**
-
-Supported facilities:
-- **APS** (Argonne): `pvgatemain1.aps4.anl.gov:5064`
-- **ALS** (Berkeley): `cagw-alsdmz.als.lbl.gov:5064` (read), `5084` (write)
-- **Custom**: Interactive prompts for your gateway
-
-**Step 4:** Test your connection:
+**Step 3:** Configure the EPICS gateway for your facility:
 
 ```bash
-uv run osprey chat
+osprey set epics_gateway=als
+```
+
+Supported facilities:
+- **`aps`** (Argonne): `pvgatemain1.aps4.anl.gov:5064`
+- **`als`** (Berkeley): `cagw-alsdmz.als.lbl.gov:5064` (read), `5084` (write)
+- **Anything else**: set the gateway keys yourself, e.g.
+  `osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org`
+
+Both commands write `profile.yml`, the deployment's source. Nothing changes in
+a running stack until you render and restart it.
+
+**Step 4:** Rebuild, restart, and test your connection:
+
+```bash
+osprey build && osprey up -d
+osprey chat
 # Try: "What is the current beam current?"
 ```
 
 **That's it!** Your capabilities work unchanged - `ConnectorFactory` automatically uses the configured connector.
 
-#### Manual Configuration (Alternative)
+#### What Those Commands Write
 
-You can also edit `config.yml` directly:
+`osprey set` edits `profile.yml`, and the next `osprey build` renders it into
+`build/config.yml` as:
 
 ```yaml
 control_system:
@@ -411,11 +415,14 @@ control_system:
         read_only:
           address: cagw.your-facility.edu
           port: 5064
+```
 
-archiver:
-  type: epics_archiver  # Changed from 'mock_archiver'
-  epics_archiver:
-    url: https://archiver.your-facility.edu:8443
+The archiver is a separate choice and is not implied by the connector. Set it
+the same way:
+
+```bash
+osprey set config.archiver.type=epics_archiver
+osprey set config.archiver.epics_archiver.url=https://archiver.your-facility.edu:8443
 ```
 
 ### Why This Works
@@ -582,7 +589,7 @@ deployed_services:
 2. Deploy:
 
 ```bash
-uv run osprey deploy up
+osprey build && osprey up -d
 ```
 
 3. Point your MCP client at the server (e.g. a Claude Code project's `.mcp.json`):

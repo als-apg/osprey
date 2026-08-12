@@ -121,7 +121,7 @@ system:
 # ============================================================
 # PostgreSQL backs ARIEL logbook search; OpenObserve is the local telemetry
 # store. Declare a service here and add its name to `deployed_services:` to
-# launch it with `osprey deploy up`.
+# launch it with `osprey up`.
 
 {% if deploy_services | default(true) %}
 services:
@@ -130,7 +130,7 @@ services:
     database_name: ariel
     username: ariel
     # No password key: the Postgres password lives in the project .env as
-    # ARIEL_DB_PASSWORD (minted by `osprey deploy up`), read by both the
+    # ARIEL_DB_PASSWORD (minted by `osprey up`), read by both the
     # container and the agent's ARIEL DSN — which is derived from the keys in
     # this block rather than written out, so this is the single source of
     # truth for both. Mirrors the openobserve credentials convention.
@@ -139,7 +139,7 @@ services:
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
   # logs/metrics store (see the `telemetry:` block under `claude_code:` below
   # and docs/how-to/monitor-agent.rst). Deployed by default: the agent emits its
-  # telemetry here, so `osprey deploy up` + `osprey web` gives you a working,
+  # telemetry here, so `osprey up` + `osprey web` gives you a working,
   # queryable observability store out of the box. Bound to localhost.
   openobserve:
     path: ./services/openobserve
@@ -147,7 +147,7 @@ services:
     retention_days: 14  # Growth bound: drop data older than N days (min 3). A
                         # named volume has no size cap, so age is the size knob.
 
-# Services to deploy with `osprey deploy up`
+# Services to deploy with `osprey up`
 deployed_services:
   - postgresql
   - openobserve
@@ -201,7 +201,7 @@ ariel:
   # renaming the database stays a one-place edit. Password reads
   # ARIEL_DB_PASSWORD from the project .env — the SAME value the postgresql
   # compose service reads as POSTGRES_PASSWORD (single source of truth).
-  # `osprey deploy up` mints a strong value into .env; the fallback password
+  # `osprey up` mints a strong value into .env; the fallback password
   # `ariel` keeps the service launchable before the first deploy. An existing
   # Postgres data volume keeps the password it was initialized with — see the
   # postgresql compose template.
@@ -284,13 +284,18 @@ logbook:
 # ============================================================
 # AGENT DATA & ARTIFACT GALLERY
 # ============================================================
+# Resolved relative to `project_root` above — the deployment repo's root, not
+# this file's directory. It belongs under var/, the durable STATE zone: build/
+# is wiped and re-rendered by every build, and the repo's .gitignore keeps var/
+# out of git. A path outside var/ would land the agent's memory in the tracked
+# source zone and dirty `git status` on first run.
 
 agent_data:
-  base_dir: "./_agent_data"
+  base_dir: "var/agent_data"
 
 # Subdirectory names within the agent data directory above. A subdirectory key
 # absent from this block falls back to the key's own name, so without it the
-# registry export lands in `_agent_data/registry_exports_dir/`.
+# registry export lands in `<agent_data.base_dir>/registry_exports_dir/`.
 file_paths:
   api_calls_dir: api_calls
   registry_exports_dir: registry_exports
@@ -359,7 +364,7 @@ claude_code:
     # OpenObserve auth + org routing. user/password read the OpenObserve root
     # credentials from the project .env — the SAME values the openobserve service
     # reads — so container and agent auth stay in sync (single source of truth).
-    # `osprey deploy up` mints a strong ZO_ROOT_USER_PASSWORD into .env; the
+    # `osprey up` mints a strong ZO_ROOT_USER_PASSWORD into .env; the
     # ${VAR:-default} fallbacks keep the agent launchable before the first deploy.
     openobserve:
       user: ${ZO_ROOT_USER_EMAIL:-root@example.com}

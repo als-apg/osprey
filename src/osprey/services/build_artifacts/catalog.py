@@ -1,6 +1,6 @@
 """Build Artifact Catalog — declarative catalog of all Claude Code build artifacts.
 
-Each build artifact produced by ``osprey build`` / ``osprey claude regen``
+Each build artifact produced by ``osprey build``
 is cataloged here with a canonical name, template path, output path, and
 metadata.  The catalog enables:
 
@@ -32,7 +32,7 @@ class BuildArtifact:
             verbatim into the project (service compose templates), rather
             than a single rendered file.  Directory artifacts are never
             Jinja-rendered at build time — their ``.j2`` files are rendered
-            later, by ``osprey deploy up``.
+            later, by ``osprey up``.
     """
 
     canonical_name: str
@@ -325,7 +325,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
         # ── Service compose templates ────────────────────────────────
         # Directory artifacts: copied verbatim from templates/services/ into
         # <project>/services/<name>/ by `osprey build` (and `osprey init`),
-        # then Jinja-rendered by `osprey deploy up`.  Build refreshes them
+        # then Jinja-rendered by `osprey up`.  Build refreshes them
         # from the framework unless claimed via `osprey scaffold claim`.
         BuildArtifact(
             canonical_name="services/postgresql",

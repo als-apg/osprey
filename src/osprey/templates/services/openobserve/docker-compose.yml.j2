@@ -30,6 +30,7 @@ services:
     container_name: {{ osprey_labels.project_name }}-openobserve
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
@@ -59,6 +60,8 @@ services:
 
 volumes:
   openobserve_data:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 
 networks:
   osprey-network:

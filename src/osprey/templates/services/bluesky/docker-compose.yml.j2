@@ -1,20 +1,21 @@
 # The bluesky-bridge service owns the Bluesky RunEngine + ophyd-async devices
 # behind a FastAPI HTTP boundary (see src/osprey/services/bluesky_bridge/).
-# `osprey deploy up` builds its image locally on first run; subsequent runs
+# `osprey up` builds its image locally on first run; subsequent runs
 # reuse the local tag. To use a prebuilt/published image instead, set
 # OSPREY_BLUESKY_BRIDGE_IMAGE (e.g. OSPREY_BLUESKY_BRIDGE_IMAGE=my-registry/osprey-bluesky-bridge:dev).
-# Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
+# Use `osprey up --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 
 services:
   bluesky-bridge:
     image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default(osprey_labels.project_name ~ '-bluesky-bridge:local') }}}
     build:
-      # With multiple `-f` compose files, ALL relative paths (build contexts and
-      # bind mounts alike) resolve against the FIRST file's dir — the compose
-      # project directory, build/services/ — not this file's own subdir. So the
-      # context is ./bluesky, matching the volume-path convention below.
-      context: ./bluesky
+      # EVERY relative path here resolves against the pinned compose project
+      # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd) — never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env). Same convention in the volumes below.
+      context: ./build/services/bluesky
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
@@ -48,6 +49,7 @@ services:
       ]
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
@@ -56,7 +58,7 @@ services:
     environment:
       # No :-default — an unset token must stay EMPTY so the bridge's
       # POST /runs/{id}/launch route fails closed (HTTP 503) rather than
-      # booting with a guessable secret. `osprey deploy up` auto-generates a
+      # booting with a guessable secret. `osprey up` auto-generates a
       # strong random token into the project .env when unset (see
       # container_lifecycle.py's per-service token-mint map).
       BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
@@ -89,7 +91,7 @@ services:
       # passthrough turns a missing mint into a silently PLAINTEXT control
       # socket — with the queueserver dual-homed on osprey-network, that
       # hands plan execution to anything on that network and bypasses the
-      # bridge's launch-token gate. Failing `deploy up` loudly is the only
+      # bridge's launch-token gate. Failing `osprey up` loudly is the only
       # safe reading of "no key".
       #
       # PLAINTEXT IS NOT A SUPPORTED MODE. An operator who wants control over
@@ -97,10 +99,10 @@ services:
       # (existing values always win over the mint); there is deliberately no
       # way to switch encryption off. Minted as a matched pair by
       # `_ensure_bluesky_control_plane_keys` in
-      # deployment/container_lifecycle.py, which runs on both the `deploy up`
-      # and `deploy restart` paths before compose expands anything here.
+      # deployment/container_lifecycle.py, which runs on both the `osprey up`
+      # and `osprey restart` paths before compose expands anything here.
       QSERVER_ZMQ_CONTROL_ADDRESS: "tcp://queueserver:60615"
-      QSERVER_ZMQ_PUBLIC_KEY: ${BLUESKY_QSERVER_ZMQ_PUBLIC_KEY:?minted by `osprey deploy up`; deploy through it rather than running compose directly}
+      QSERVER_ZMQ_PUBLIC_KEY: ${BLUESKY_QSERVER_ZMQ_PUBLIC_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}
       # ── document plane (bridge owns the binding element) ─────────────────
       # The bridge runs `bluesky.callbacks.zmq.Proxy` at lifespan start and
       # binds BOTH of its sockets, so both addresses are bind specs here:
@@ -128,7 +130,7 @@ services:
       # project .env, and are one contract with
       # `_ensure_bluesky_document_plane_certs` in
       # deployment/container_lifecycle.py, which writes the certificates on
-      # every `osprey deploy up` (idempotently, and regardless of connector
+      # every `osprey up` (idempotently, and regardless of connector
       # type — a browse-only deploy still gets them so a later flip to the VA
       # needs no extra step). Change either side and the bridge refuses to
       # start.
@@ -187,24 +189,24 @@ services:
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
 {% endif %}
     volumes:
-      # Bind-mount source is relative to the compose project directory
-      # (build/services/), not this file's own subdir — hence the bluesky/
-      # prefix (mirrors dispatch_worker's config.yml:ro mount convention).
+      # Bind-mount source is relative to the pinned compose project directory —
+      # the repo root — hence the build/services/bluesky/ prefix on this render
+      # output (mirrors dispatch_worker's config.yml:ro mount convention).
       # Always present, unlike the VA/tiled blocks above: the bridge needs
       # config.yml to resolve control_system settings regardless of which
       # optional services are co-deployed.
-      - ./bluesky/config.yml:/app/project/config.yml:ro
+      - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
       # Document-plane CURVE certificates (see the env block above). This side
       # holds the proxy's secret certificate plus a `clients/` directory of the
       # publisher public keys it will accept — and never the publisher's
       # secret, which lives only in the queueserver's own mount.
-      - ../../data/bluesky_curve/bridge:/app/curve:ro
+      - ./data/bluesky_curve/bridge:/app/curve:ro
 {% if services.bluesky.plan_dir %}
       # Facility plan directory: operator-supplied host path via
       # services.bluesky.plan_dir in config.yml, mounted read-only — the
       # bridge only discovers/execs plans from here, never writes into it.
       # An absolute host path passes through unchanged; a relative one
-      # resolves against the compose project directory (build/services/),
+      # resolves against the compose project directory (the repo root),
       # same rule as every other bind source in this file. The container
       # target is fixed (matches BLUESKY_PLAN_DIRS above) so plan_loader.py
       # never needs to know the host-side location.
@@ -220,9 +222,9 @@ services:
       # guard expect (limits_validator.py, app.py's
       # _assert_limits_readable_if_writable) — the mounted config.yml lives
       # there, not at the host build's project_root. Source path mirrors the
-      # Virtual Accelerator's data mount convention (../../ reaches the
-      # project root's data/ dir from build/services/).
-      - ../../data/channel_limits.json:/app/project/data/channel_limits.json:ro
+      # Virtual Accelerator's data mount convention: the repo's own data/ tree,
+      # named relative to the pinned project directory.
+      - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
 {% endif %}
     networks:
       # Dual-homed: osprey-network for the panels sidecar and Tiled,
@@ -318,6 +320,7 @@ services:
         --update-existing-plans-devices NEVER
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
@@ -350,8 +353,8 @@ services:
       # `_ensure_bluesky_control_plane_keys` in
       # deployment/container_lifecycle.py; see the bridge's copy of this block
       # for why plaintext is not an available fallback.
-      QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER: ${BLUESKY_QSERVER_ZMQ_PRIVATE_KEY:?minted by `osprey deploy up`; deploy through it rather than running compose directly}
-      QSERVER_ZMQ_PUBLIC_KEY: ${BLUESKY_QSERVER_ZMQ_PUBLIC_KEY:?minted by `osprey deploy up`; deploy through it rather than running compose directly}
+      QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER: ${BLUESKY_QSERVER_ZMQ_PRIVATE_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}
+      QSERVER_ZMQ_PUBLIC_KEY: ${BLUESKY_QSERVER_ZMQ_PUBLIC_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}
       # ── document plane (publisher side) ──────────────────────────────────
       # Connect form of the bridge's in-side bind: the startup module's
       # `bluesky.callbacks.zmq` Publisher pushes run documents at the Proxy
@@ -405,19 +408,19 @@ services:
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
 {% endif %}
     volumes:
-      - ./bluesky/config.yml:/app/project/config.yml:ro
+      - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
       # Plan/device permissions for the RE Manager. Without this file the
       # manager knows only a `root` group and rejects every request the bridge
       # makes as "Unknown user group: 'primary'" — see the file's own header
       # for what it does and does not protect. Shipped in the service template
       # (not generated), so the bind source always exists.
-      - ./bluesky/user_group_permissions.yaml:/app/qserver/user_group_permissions.yaml:ro
-      # Document-plane CURVE certificates, generated by `osprey deploy up`.
+      - ./build/services/bluesky/user_group_permissions.yaml:/app/qserver/user_group_permissions.yaml:ro
+      # Document-plane CURVE certificates, generated by `osprey up`.
       # Split per container by directory rather than by file so each side can
       # only read the secret it is supposed to hold: this one carries the
       # publisher's secret certificate and the bridge proxy's PUBLIC one, and
-      # never the proxy's secret. Same ../../data/ convention as the limits DB.
-      - ../../data/bluesky_curve/queueserver:/app/curve:ro
+      # never the proxy's secret. Same ./data/ convention as the limits DB.
+      - ./data/bluesky_curve/queueserver:/app/curve:ro
 {% if services.bluesky.plan_dir %}
       - {{ services.bluesky.plan_dir }}:/app/project/plans:ro
 {% endif %}
@@ -428,7 +431,7 @@ services:
       # Same /app/project root as config.yml so a relative
       # control_system.limits_checking.database_path resolves identically on
       # both sides.
-      - ../../data/channel_limits.json:/app/project/data/channel_limits.json:ro
+      - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
 {% endif %}
     networks:
       # Necessarily dual-homed: bluesky-internal for the bridge and Redis,
@@ -459,6 +462,8 @@ services:
     image: ${OSPREY_BLUESKY_REDIS_IMAGE:-{{ services.bluesky.redis_image | default('redis:7.4-alpine') }}}
     container_name: {{ osprey_labels.project_name }}-bluesky-redis
     restart: unless-stopped
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
     # Append-only persistence: a queue that survives a bridge restart but not
     # a Redis restart would be a half-kept promise.
     command: ["redis-server", "--appendonly", "yes"]
@@ -497,6 +502,8 @@ services:
     # needs no network alias.
     container_name: {{ osprey_labels.project_name }}-bluesky-tiled
     restart: unless-stopped
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
     # `serve catalog` aborts without a catalog DB argument and defaults to
     # 127.0.0.1 (unreachable from the bridge container) without --host. The
     # duckdb:// writable target is required alongside the filesystem one:
@@ -529,7 +536,7 @@ services:
     # shlex-style, so an unset-or-empty value contributes NO argument at all —
     # not an empty one. `--api-key` then silently swallows the next token
     # (`-w`) as its operand and a writable target vanishes, with the resulting
-    # error pointing at `-w`, never at the empty key. `:?` aborts `deploy up`
+    # error pointing at `-w`, never at the empty key. `:?` aborts `osprey up`
     # with an explicit message instead. The quotes are belt-and-braces: if the
     # `:?` is ever relaxed, an empty value becomes an explicit empty argument
     # rather than a vanished one.
@@ -564,6 +571,10 @@ networks:
 
 volumes:
   bluesky_queueserver_redis:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 {% if services.bluesky.tiled_enabled | default(false) %}
   bluesky_tiled_catalog:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 {% endif %}

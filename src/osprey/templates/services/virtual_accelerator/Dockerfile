@@ -15,7 +15,7 @@
 #     rebuilds when the staged manifest changes. The extra is what carries the
 #     serving stack (`lume-pva-apg[ca,pva]`, PyAT) — deliberately, so this
 #     file cannot pin a serving dependency that pyproject.toml disagrees with.
-#   * wheel layer — when `osprey deploy up --dev` stages a locally-built wheel
+#   * wheel layer — when `osprey up --dev` stages a locally-built wheel
 #     into the build context, this later layer overlays it (so unreleased code
 #     is included). The first wheel install carries the `[virtual-accelerator]`
 #     extra so a dev wheel that adds or bumps a dep inside the extra picks it up
@@ -42,7 +42,7 @@
 # reading the guard below; on aarch64 the result is not a slower VA, it is a VA
 # with no Channel Access server.
 #
-# This image is built locally by `osprey deploy up`; override with
+# This image is built locally by `osprey up`; override with
 # OSPREY_VA_IMAGE to use a prebuilt/published image.
 
 FROM --platform=linux/amd64 python:3.11-slim
@@ -116,7 +116,7 @@ RUN [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is requi
     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
 
 # ── wheel layer ──────────────────────────────────────────────────────────────
-# Overlay a locally-built wheel when `osprey deploy up --dev` stages one into
+# Overlay a locally-built wheel when `osprey up --dev` stages one into
 # the build context. `.dockerignore` is a guaranteed sibling of the COPY, so
 # the glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The first wheel install carries the `[virtual-accelerator]` extra so a

@@ -13,6 +13,7 @@ services:
     container_name: {{ osprey_labels.project_name }}-ariel-postgres
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
@@ -21,7 +22,7 @@ services:
     environment:
       POSTGRES_DB: {{ services.postgresql.database_name | default('ariel') }}
       POSTGRES_USER: {{ services.postgresql.username | default('ariel') }}
-      # Sourced from the project .env: `osprey deploy up` mints a strong
+      # Sourced from the project .env: `osprey up` mints a strong
       # ARIEL_DB_PASSWORD when unset, and the agent's DSN — derived from this
       # `services.postgresql` block by `resolve_ariel_dsn` unless an explicit
       # `ariel.database.uri` overrides it — reads the SAME env var, so the
@@ -61,6 +62,8 @@ volumes:
   # silently: the volume mounts fine, but postgres fails to start (or starts
   # against an unwritable directory) with no error surfaced here.
   ariel_postgres_data:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 
 networks:
   osprey-network:

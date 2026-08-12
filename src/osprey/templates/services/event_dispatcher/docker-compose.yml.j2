@@ -1,21 +1,23 @@
 # The event-dispatcher runs a locally-built image (see ./Dockerfile).
-# `osprey deploy up` builds it on first run; subsequent runs reuse the local
+# `osprey up` builds it on first run; subsequent runs reuse the local
 # tag, which is project-prefixed ({{ osprey_labels.project_name }}-dispatch:local)
 # so two OSPREY projects on one host never race to tag one shared image.
 # To use a prebuilt/published image instead, set OSPREY_DISPATCH_IMAGE
 # (e.g. OSPREY_DISPATCH_IMAGE=my-registry/osprey-dispatch:dev).
-# Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
+# Use `osprey up --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 
 services:
   event-dispatcher:
     image: ${OSPREY_DISPATCH_IMAGE:-{{ services.event_dispatcher.image | default(osprey_labels.project_name ~ '-dispatch:local') }}}
     build:
-      # With multiple `-f` compose files, ALL relative paths (build contexts and
-      # bind mounts alike) resolve against the FIRST file's dir — the compose
-      # project directory, build/services/ — not this file's own subdir. So the
-      # context is ./event_dispatcher, matching the volume-path convention below.
-      context: ./event_dispatcher
+      # EVERY relative path in this file — build contexts and bind-mount sources
+      # alike — resolves against the pinned compose project directory, which is
+      # the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd), never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env). Same convention in the volumes below.
+      context: ./build/services/event_dispatcher
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
@@ -32,6 +34,7 @@ services:
     command: ["python", "-m", "osprey.dispatch"]
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
@@ -45,7 +48,7 @@ services:
       FASTMCP_HOST: 0.0.0.0
       FASTMCP_PORT: "{{ services.event_dispatcher.port | default(8020) }}"
       # No :-default — an unset token must stay EMPTY so the server fails closed
-      # (HTTP 503) rather than booting with a guessable secret. `osprey deploy up`
+      # (HTTP 503) rather than booting with a guessable secret. `osprey up`
       # auto-generates strong random tokens into the project .env when unset.
       EVENT_DISPATCHER_TOKEN: ${EVENT_DISPATCHER_TOKEN}
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
@@ -83,8 +86,8 @@ services:
     # (build/services/), which is the first -f file's location — not this
     # service's subdir — so they must be prefixed with event_dispatcher/.
     volumes:
-      - ./event_dispatcher/triggers.yml:/app/triggers.yml:ro
-      - ./event_dispatcher/config.yml:/app/config.yml:ro
+      - ./build/services/event_dispatcher/triggers.yml:/app/triggers.yml:ro
+      - ./build/services/event_dispatcher/config.yml:/app/config.yml:ro
     networks:
       - osprey-network
     healthcheck:

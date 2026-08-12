@@ -8,7 +8,6 @@ catalog-aware generation/validation logic that stays in this module.
 
 import json
 import logging
-import os
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,43 +39,20 @@ _MANIFEST_CATEGORY_PREFIX = {
     "output_styles": "output-styles/",
 }
 
-# Known framework-managed files for checksum collection during regen.
-REGEN_TRACKED_FILES = [
-    "CLAUDE.md",
-    ".mcp.json",
-    ".claude/settings.json",
-    ".claude/statusline.py",
-    ".claude/rules/safety.md",
-    ".claude/rules/error-handling.md",
-    ".claude/rules/artifacts.md",
-    ".claude/rules/workflows.md",
-    ".claude/rules/facility.md",
-    ".claude/hooks/osprey_writes_check.py",
-    ".claude/hooks/osprey_limits.py",
-    ".claude/hooks/osprey_approval.py",
-    ".claude/hooks/osprey_error_guidance.py",
-    ".claude/hooks/osprey_notebook_update.py",
-    ".claude/hooks/osprey_cf_feedback_capture.py",
-    ".claude/hooks/osprey_hook_log.py",
-    ".claude/hooks/hook_config.json",
-    ".claude/hooks/osprey_memory_guard.py",
-    ".claude/hooks/osprey_focus_validate.py",
-    ".claude/hooks/osprey_config_drift.py",
-    ".claude/hooks/osprey_panels_context.py",
-    ".claude/rules/python-execution.md",
-    ".claude/rules/control-system-safety.md",
-    ".claude/rules/test-ioc-safety.md",
-    ".claude/skills/diagnose/SKILL.md",
-    ".claude/skills/session-report/SKILL.md",
-    ".claude/skills/session-report/reference.md",
-    ".claude/skills/setup-mode/SKILL.md",
-    ".claude/skills/demo-gallery/SKILL.md",
-    ".claude/skills/demo-ui/SKILL.md",
-    ".claude/skills/writing-bluesky-plans/SKILL.md",
-    ".claude/skills/operating-bluesky-scans/SKILL.md",
-    ".claude/rules/timezone.md",
-    ".claude/output-styles/control-operator.md",
-]
+#: Framework-managed output paths tracked for checksum collection during regen,
+#: for the case where neither a project manifest nor a template manifest names a
+#: selection.
+#:
+#: DERIVED from the artifact catalog, not hand-listed. It used to be a literal
+#: list, and it had silently fallen three artifacts behind the catalog it was
+#: mirroring — which matters because an artifact missing here is an artifact
+#: whose drift is never detected. `resolve_manifest_outputs` above reads the
+#: same `output_path` from the same catalog, so the fallback and the selected
+#: path now cannot disagree about what an artifact is called.
+REGEN_TRACKED_FILES = sorted(
+    {"CLAUDE.md", ".mcp.json", ".claude/settings.json", ".claude/statusline.py"}
+    | {artifact.output_path for artifact in BuildArtifactCatalog.default().all_artifacts()}
+)
 
 
 def framework_template_hash(
@@ -365,19 +341,18 @@ def extract_build_args(
     """Extract build invocation arguments for manifest storage.
 
     Captures both the user-facing options (provider/model/etc.) and the
-    invocation source (preset vs. positional profile path) so that
-    ``build_reproducible_command`` can render the matching CLI form.
+    invocation source (preset vs. positional profile path), as a record of what
+    this build resolved. Nothing renders a command line from it any more — the
+    manifest's ``reproducible_command`` is the constant
+    :data:`REPO_REPRODUCIBLE_COMMAND`, because the repo is the invocation.
 
     Exactly one of ``preset_name`` and ``profile_path`` must be set.
 
-    ``profile_path`` stays the string the user typed — it is what
-    ``reproducible_command`` shows them. ``profile_path_abs`` is recorded
-    separately, from ``context``, and on *every* build: it names the profile
-    directory the project was actually built from (for a ``--preset`` build,
-    the one that invocation materialized), which is what the deploy side
-    follows to write minted secrets back to their source. A relative CLI string
-    re-resolves against whatever directory the deploy runs from, so it is the
-    absolute form readers follow.
+    ``profile_path`` stays the string the user typed. ``profile_path_abs`` is
+    recorded separately, from ``context``, and on *every* build: it names the
+    profile the project was actually built from, which is what every later
+    reader follows. A relative CLI string re-resolves against whatever directory
+    the reader runs from, so it is the absolute form they follow.
 
     Args:
         project_name: Name of the project.
@@ -419,38 +394,18 @@ def extract_build_args(
     return build_args
 
 
-def build_reproducible_command(build_args: dict[str, Any]) -> str:
-    """Render a reproducible ``osprey build`` command from build args.
-
-    Branches on ``build_args["source"]``:
-      * ``"preset"``  -> ``osprey build NAME --preset PRESET``
-      * ``"profile"`` -> ``osprey build NAME PROFILE_PATH``
-
-    No ``--set`` is replayed. Provider, model and channel-finder paradigm are
-    recorded above as the values this build *resolved*, and the profile the
-    command names already carries them — a build overriding one writes it into
-    that profile rather than layering it at build time. Replaying them would
-    put stale copies on a command line that re-reads the source of truth
-    anyway.
-
-    Args:
-        build_args: Output of :func:`extract_build_args`.
-
-    Returns:
-        CLI command string that recreates the project.
-    """
-    parts = ["osprey", "build", build_args["project_name"]]
-
-    source = build_args.get("source", "preset")
-    if source == "preset" and build_args.get("preset"):
-        parts.extend(["--preset", build_args["preset"]])
-    elif source == "profile" and build_args.get("profile_path"):
-        parts.append(build_args["profile_path"])
-    elif build_args.get("data_bundle"):
-        # Defensive fallback: legacy manifests without source/preset/profile_path.
-        parts.extend(["--preset", build_args["data_bundle"].replace("_", "-")])
-
-    return " ".join(parts)
+#: What a manifest's ``reproducible_command`` says. A constant, because the
+#: command is one: the repo IS the invocation, so there is no project name to
+#: pass, no profile path to name and no output directory to choose.
+#:
+#: This replaced a generator that assembled the string from ``build_args`` —
+#: ``osprey build NAME --preset PRESET`` or ``osprey build NAME PROFILE_PATH``.
+#: Both forms are gone with the legacy command surface, so every string it could
+#: produce named an invocation that no longer parses. The one caller that
+#: mattered already overwrote its output with this constant afterwards, which
+#: made the generator invisible rather than harmless: a manifest written by any
+#: other path still carried the retired spelling.
+REPO_REPRODUCIBLE_COMMAND = "osprey build"
 
 
 def calculate_file_checksums(project_dir: Path) -> dict[str, str]:
@@ -461,11 +416,18 @@ def calculate_file_checksums(project_dir: Path) -> dict[str, str]:
     its source. ``data/`` is included: it is build-owned (machine models,
     channel databases, benchmark query sets all come from the profile or the
     preset), so a runtime writer landing there would show up here as
-    unexplained drift. Runtime state belongs under ``_agent_data/``.
+    unexplained drift. Runtime state belongs in the repo's ``var/`` zone, which
+    is a SIBLING of the rendered project rather than a directory inside it — so
+    the three-zone layout keeps runtime writers out of this walk by construction
+    and needs no exclusion of its own.
 
     Excluded:
     - ``.env`` (secrets, never rendered deterministically)
-    - ``_agent_data/`` (runtime state — the one directory runtime writers own)
+    - ``_agent_data/`` — the runtime-state directory the retired flat layout put
+      INSIDE the project. Nothing creates it now, so the entry is vestigial; it
+      is kept because the cost of an exclusion that never matches is nothing,
+      while dropping it would silently start checksumming a directory left
+      behind by an older release and report the result as project drift.
     - ``__pycache__/`` and ``.pyc`` files
     - ``.git/``
     - the manifest itself
@@ -605,7 +567,6 @@ def generate_manifest(
         data_bundle=template_name,
         context=context,
     )
-    reproducible_command = build_reproducible_command(build_args)
     file_checksums = calculate_file_checksums(project_dir)
     # The release lineage, not the running version — staleness compares this field
     # by string equality, so a development build must not read as drift.
@@ -624,8 +585,8 @@ def generate_manifest(
         "data_bundle": template_name,
         "claude_code_only": True,
     }
-    # Stamp a content hash of what this project was rendered from, so `osprey
-    # deploy` can detect a project whose render predates its source — the
+    # Stamp a content hash of what this project was rendered from, so `osprey up`
+    # can detect a project whose render predates its source — the
     # osprey_version alone can't, since a --dev checkout keeps one version
     # string across commits.
     #
@@ -659,7 +620,7 @@ def generate_manifest(
     if preset_hash:
         creation_block["preset_hash"] = preset_hash
 
-    # Preserve the CLAUDE.md template choice so `osprey claude regen` can
+    # Preserve the CLAUDE.md template choice so a later `osprey build` can
     # re-render against the same persona (e.g. CLAUDE.ariel.md.j2 for the
     # ARIEL standalone preset). Default is the control-system persona.
     claude_md_template = context.get("claude_md_template")
@@ -670,7 +631,7 @@ def generate_manifest(
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "creation": creation_block,
         "build_args": build_args,
-        "reproducible_command": reproducible_command,
+        "reproducible_command": REPO_REPRODUCIBLE_COMMAND,
         "file_checksums": file_checksums,
     }
 
@@ -684,12 +645,6 @@ def generate_manifest(
         json.dump(manifest_data, f, indent=2, sort_keys=False)
 
     return manifest_data
-
-
-#: Manifest key recording whether the last deploy persisted the service secrets
-#: it minted into the profile that owns them. Absent means "never asked": a
-#: project built before the key existed, or one no deploy has touched yet.
-SECRETS_SYNCED_KEY = "secrets_synced_to_profile"
 
 
 def load_project_manifest(project_dir: Path) -> dict[str, Any] | None:
@@ -733,52 +688,3 @@ def manifest_profile_path(project_dir: Path) -> Path | None:
     if not isinstance(profile_path, str) or not profile_path:
         return None
     return Path(profile_path)
-
-
-def read_secrets_synced_to_profile(project_dir: Path) -> bool | None:
-    """Whether the last deploy synced this project's secrets to its profile.
-
-    ``None`` when the manifest does not say — a project built before the flag
-    existed, or one that has never been deployed. Callers must treat that as
-    "unknown", never as "not synced": an unanswerable question must not read as
-    a problem.
-
-    :param project_dir: Project root (the directory holding the manifest).
-    """
-    manifest = load_project_manifest(project_dir)
-    value = (manifest or {}).get(SECRETS_SYNCED_KEY)
-    return value if isinstance(value, bool) else None
-
-
-def write_secrets_synced_to_profile(project_dir: Path, synced: bool) -> bool:
-    """Record whether a deploy persisted its minted secrets to the profile.
-
-    Rewrites the manifest in place (temp file + ``os.replace``, so a concurrent
-    reader never sees a half-written manifest). The flag is stamped at deploy
-    time, long after the build wrote the file, and the value can flip back to
-    ``True`` when a later deploy reaches a profile an earlier one could not.
-
-    :param project_dir: Project root (the directory holding the manifest).
-    :param synced: ``True`` when the profile now carries the secrets.
-    :returns: ``False`` when there is no readable manifest to stamp — deploying
-        a project without one is legal, and losing the flag is not worth
-        failing a deploy over.
-    """
-    project_dir = Path(project_dir)
-    manifest = load_project_manifest(project_dir)
-    if manifest is None:
-        return False
-    if manifest.get(SECRETS_SYNCED_KEY) is synced:
-        return True
-    manifest[SECRETS_SYNCED_KEY] = synced
-
-    manifest_path = project_dir / MANIFEST_FILENAME
-    fd, tmp_name = tempfile.mkstemp(dir=project_dir, prefix=MANIFEST_FILENAME, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(manifest, handle, indent=2, sort_keys=False)
-        os.replace(tmp_name, manifest_path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
-    return True

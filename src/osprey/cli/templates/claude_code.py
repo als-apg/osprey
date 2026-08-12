@@ -6,7 +6,6 @@ import os
 import shutil
 import sys
 import warnings
-from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -64,6 +63,37 @@ def apply_textbooks_root(ctx: dict, project_dir: Path) -> None:
     )
 
 
+def apply_agent_data_root(ctx: dict, project_dir: Path) -> None:
+    """Fill in ``agent_data_root`` from the project's config when unset.
+
+    Several artifacts interpolate the agent-data root: settings.json grants the
+    agent Read access to its own outputs through it, and the CLAUDE.md prose
+    tells the agent where large results land. Both must name the directory
+    ``agent_data.base_dir`` actually resolves to.
+
+    A caller that already holds the config sets the key itself and this is a
+    no-op. The initial project creation does not, and an unset Jinja variable
+    renders as an empty string rather than raising — so the gap showed up as
+    prose pointing at ``/`` and a permission rule matching nothing. Resolving
+    it at the one funnel both render paths pass through is what keeps a first
+    build and every later re-render agreeing.
+
+    Args:
+        ctx: Template context, mutated in place.
+        project_dir: The project directory whose ``config.yml`` is read when
+            the caller supplied no value.
+    """
+    from osprey.utils.workspace import agent_data_base_dir
+
+    if ctx.get("agent_data_root"):
+        return
+    config_file = project_dir / "config.yml"
+    config = None
+    if config_file.is_file():
+        config = yaml.safe_load(config_file.read_text()) or {}
+    ctx["agent_data_root"] = agent_data_base_dir(config)
+
+
 def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[str, object] | None:
     """Hierarchy info to embed at render time, or ``None`` if there is none.
 
@@ -78,6 +108,12 @@ def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[s
     the hierarchy through here, so the two cannot embed different levels for the
     same database.
 
+    The warning it emits names the database and repeats why the loader turned
+    it down — which for a malformed document is that loader's own account of
+    what the file should have looked like — and never a stack trace. The build
+    carries on and exits 0, and a traceback under a successful build is an
+    alarm that teaches its operator to scroll past the next one.
+
     Args:
         channel_finder: The resolved ``channel_finder`` config block. The caller
             has already established that its pipeline mode is hierarchical.
@@ -90,26 +126,39 @@ def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[s
             .get("database", {})
             .get("path", "")
         )
-        if not db_path:
-            return None
-
-        from osprey.services.channel_finder.databases.hierarchical import (
-            HierarchicalChannelDatabase,
-        )
-
-        db = HierarchicalChannelDatabase(str((project_dir / db_path).resolve()))
-        return {
-            "hierarchy_levels": db.hierarchy_levels,
-            "hierarchy_config": db.hierarchy_config,
-            "naming_pattern": db.naming_pattern,
-        }
-    except Exception:
-        logger.warning("Could not load hierarchy info for template rendering", exc_info=True)
+    except AttributeError:
         return None
+    if not db_path:
+        return None
+
+    from osprey.services.channel_finder.databases.hierarchical import (
+        HierarchicalChannelDatabase,
+    )
+
+    database = (project_dir / db_path).resolve()
+    try:
+        db = HierarchicalChannelDatabase(str(database))
+    except Exception as exc:
+        logger.warning(
+            "Channel database %s did not load (%s: %s) — rendering without its hierarchy, "
+            "so the agent will read the levels through hierarchy_info() instead.",
+            database,
+            type(exc).__name__,
+            exc,
+        )
+        return None
+    return {
+        "hierarchy_levels": db.hierarchy_levels,
+        "hierarchy_config": db.hierarchy_config,
+        "naming_pattern": db.naming_pattern,
+    }
 
 
 def _derive_runtime_interpreter(
-    project_dir: Path, project_root_override: Path | str | None = None
+    project_dir: Path,
+    project_root_override: Path | str | None = None,
+    *,
+    runtime_venv_dir: Path | str | None = None,
 ) -> str:
     """Pick the interpreter OSPREY-runtime processes launch with.
 
@@ -130,24 +179,86 @@ def _derive_runtime_interpreter(
     rendering this is running OSPREY, so ``osprey`` is importable there by
     definition.
 
-    ``project_root_override`` means the artifact is being rendered *for*
-    somewhere else, typically a container's ``/app/<project>``. The host's
+    The venv is not always beside the tree being written. A repo's build renders
+    into a staging directory and swaps that tree into ``build/`` by rename, while
+    the venv is created directly at ``build/.venv`` — its final path, because a
+    virtual environment records its own absolute location in every console-script
+    shebang — and joins the staged tree only as part of the swap. A caller
+    rendering somewhere other than where the result will run passes
+    *runtime_venv_dir* to name the venv's real home.
+
+    ``project_root_override`` alone means the artifact is being rendered *for*
+    another machine, typically a container's ``/app/<project>``. A local
     ``.venv`` is then neither the interpreter that will exist at run time nor
     probeable from here, so the generating interpreter is the only honest answer.
+    It is a weaker signal than *runtime_venv_dir*: an override may equally be a
+    local path one level up from the render, which is why a caller that knows
+    where the venv lives says so and is believed.
 
     Args:
         project_dir: Project directory on the filesystem being rendered from.
         project_root_override: Runtime project root when it differs from
             *project_dir*, e.g. a container mount point.
+        runtime_venv_dir: Directory holding the ``.venv`` the rendered artifacts
+            will launch from, when that is not *project_dir*. Passing it asserts
+            the render is for this machine.
 
     Returns:
         str: Absolute path to the interpreter runtime processes launch with.
     """
-    if project_root_override is None:
-        venv_python = Path(project_dir) / ".venv" / "bin" / "python"
+    if runtime_venv_dir is not None or project_root_override is None:
+        probe_dir = Path(runtime_venv_dir if runtime_venv_dir is not None else project_dir)
+        venv_python = probe_dir / ".venv" / "bin" / "python"
         if venv_python.is_file():
             return str(venv_python)
     return sys.executable
+
+
+def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
+    """The template-context keys read straight out of a project's ``config.yml``.
+
+    Two paths render the Claude Code artifacts — the build's
+    :func:`build_claude_code_context` and the first render inside
+    :meth:`osprey.cli.templates.manager.TemplateManager.create_project` — and
+    the Jinja environment is not strict, so a path that omits one of these keys
+    does not fail: the template renders the undefined value as nothing. That is
+    how ``hook_config.json`` came out of the create_project path with an EMPTY
+    write-tool list — a kill-switch safety file that looks complete and covers
+    no tool at all. One spelling here, consumed by both, so the two cannot fork.
+
+    Args:
+        config: Parsed ``config.yml`` mapping (``{}`` when the bundle renders
+            none — every value below then falls back to its own empty default).
+        project_dir: Root of the project being rendered; declared hooks are
+            resolved against the files it ships.
+    """
+    from osprey.utils.workspace import agent_data_base_dir
+
+    control_system = config.get("control_system", {}) or {}
+    declared_hooks = _build_declared_hook_rules(config, project_dir)
+    return {
+        # User-owned files: regen skips these, users edit in-place
+        "user_owned": (config.get("scaffold", {}) or {}).get("user_owned", []),
+        # Declared wiring for the custom hooks the profile ships
+        # (claude_code.hooks). Additive only — settings.json.j2 appends these
+        # after the framework's own entries, which it renders unconditionally.
+        "declared_hooks": declared_hooks,
+        "declared_extra_events": [
+            event
+            for event in CLAUDE_CODE_HOOK_EVENTS
+            if event in declared_hooks and event not in FRAMEWORK_WIRED_EVENTS
+        ],
+        # The agent-data root the rendered artifacts must agree with.
+        # settings.json grants the agent Read access to its own artifacts
+        # through it, so a literal in that template would silently stop covering
+        # the directory the moment a project relocated `agent_data.base_dir` —
+        # and the agent would be refused the files it had just written.
+        "agent_data_root": agent_data_base_dir(config),
+        # Write tools blocked by the writes kill switch (for hook_config.json)
+        "control_system_write_tools": control_system.get("write_tools", []),
+        # Control system type for protocol-aware safety rules
+        "control_system_type": control_system.get("type", "mock"),
+    }
 
 
 def build_claude_code_context(
@@ -156,6 +267,8 @@ def build_claude_code_context(
     project_dir: Path,
     config: dict,
     project_root_override: Path | str | None = None,
+    runtime_venv_dir: Path | str | None = None,
+    runtime_interpreter: str | None = None,
 ) -> dict:
     """Build template context for Claude Code artifact rendering.
 
@@ -168,6 +281,18 @@ def build_claude_code_context(
         jinja_env: Jinja2 environment for template rendering
         project_dir: Root directory of the project
         config: Parsed config.yml dictionary
+        project_root_override: Runtime project root when it differs from
+            *project_dir*
+        runtime_venv_dir: Directory holding the ``.venv`` the rendered artifacts
+            will launch from, when that is not *project_dir* — see
+            :func:`_derive_runtime_interpreter`
+        runtime_interpreter: The interpreter the rendered artifacts must launch
+            with, when the caller KNOWS it and this filesystem cannot be asked.
+            The one such caller is a render destined for a container image: the
+            interpreter that will exist at run time is the image's, which is not
+            on this machine to probe. Overrides
+            :func:`_derive_runtime_interpreter` outright rather than seeding it,
+            because a path that is not here cannot be verified here.
 
     Returns:
         Template context dict suitable for Claude Code templates
@@ -213,7 +338,19 @@ def build_claude_code_context(
         # the split and does not come through here: it re-resolves per call at
         # run time (resolve_agent_interpreter), where this value is frozen into
         # a generated artifact at render time.
-        "current_python_env": _derive_runtime_interpreter(project_dir, project_root_override),
+        #
+        # KNOWN LIMIT (pre-existing, unchanged by the three-zone work): a
+        # profile that names its own interpreter under ``python_env:`` does not
+        # reach here, so once a project venv exists the derivation wins and the
+        # profile's choice has no effect on the rendered artifacts. The explicit
+        # ``runtime_interpreter`` argument is the only override this honors, and
+        # only its callers set it. Documented rather than repaired here because
+        # the fix is a decision about which of the two is authoritative, not a
+        # local correction.
+        "current_python_env": runtime_interpreter
+        or _derive_runtime_interpreter(
+            project_dir, project_root_override, runtime_venv_dir=runtime_venv_dir
+        ),
         "template_name": template_name,
         "data_bundle": data_bundle,
         "claude_md_template": claude_md_template,
@@ -282,18 +419,9 @@ def build_claude_code_context(
                         _srv["name"],
                     )
 
-    # User-owned files: regen skips these, users edit in-place
-    ctx["user_owned"] = config.get("scaffold", {}).get("user_owned", [])
-
-    # Declared wiring for the custom hooks the profile ships (claude_code.hooks).
-    # Additive only — settings.json.j2 appends these after the framework's own
-    # entries, which it renders unconditionally.
-    ctx["declared_hooks"] = _build_declared_hook_rules(config, project_dir)
-    ctx["declared_extra_events"] = [
-        event
-        for event in CLAUDE_CODE_HOOK_EVENTS
-        if event in ctx["declared_hooks"] and event not in FRAMEWORK_WIRED_EVENTS
-    ]
+    # Everything the templates read straight out of config.yml, in the one
+    # spelling the create_project render path shares (see config_derived_context).
+    ctx.update(config_derived_context(config, project_dir))
 
     apply_textbooks_root(ctx, project_dir)
 
@@ -312,12 +440,6 @@ def build_claude_code_context(
         warnings.warn(str(exc), stacklevel=2)
         model_spec = None
     ctx["claude_code_model_spec"] = model_spec
-
-    # Write tools blocked by the writes kill switch (for hook_config.json)
-    ctx["control_system_write_tools"] = config.get("control_system", {}).get("write_tools", [])
-
-    # Control system type for protocol-aware safety rules
-    ctx["control_system_type"] = config.get("control_system", {}).get("type", "mock")
 
     # Kill-switch hard-block: when control-system writes are disabled, render
     # pure-write tools into permissions.deny so Claude Code's permissions layer
@@ -635,9 +757,9 @@ def _build_declared_hook_rules(config: dict, project_dir: Path) -> dict[str, lis
     is the declaration that does — a config key, so it resolves through the same
     pipeline as ``claude_code.servers`` and ``claude_code.permissions``: persona
     deltas can override it and the resolved profile is the single source. It is
-    read back from the built project's ``config.yml``, which is why a
-    ``--force`` rebuild and a ``claude regen`` both re-derive the wiring instead
-    of finding it frozen in the project.
+    read back from the built project's ``config.yml``, which is why every
+    ``osprey build`` re-derives the wiring instead of finding it frozen in the
+    render.
 
     The wiring is strictly additive. Nothing here can remove or alter a
     framework entry: the template appends these rules to arrays it has already
@@ -884,6 +1006,10 @@ def create_claude_code_integration(
         )
         return
 
+    # Both render paths funnel through here, so this is where the agent-data
+    # root is guaranteed present regardless of which one called.
+    apply_agent_data_root(ctx, project_dir)
+
     # Build framework hook rules from selected hooks' frontmatter
     fw_pre, fw_post = _build_framework_hook_rules(ctx.get("selected_hooks", []))
     ctx["framework_pre_hooks"] = fw_pre
@@ -1082,11 +1208,15 @@ def regenerate_claude_code(
     project_dir: Path,
     dry_run: bool = False,
     project_root_override: Path | str | None = None,
+    runtime_venv_dir: Path | str | None = None,
+    runtime_interpreter: str | None = None,
 ) -> dict:
     """Regenerate Claude Code artifacts from current config.yml.
 
     Reads config.yml, reconstructs the template context, and re-renders
-    all Claude Code .j2 templates. Backs up existing files before overwriting.
+    all Claude Code .j2 templates, overwriting what is there. The snapshot of
+    the outgoing artifacts is taken by the caller that owns the durable zone
+    (:func:`osprey.cli.build_cmd._backup_outgoing_claude_artifacts`), not here.
 
     Args:
         template_root: Path to osprey's bundled templates directory
@@ -1096,9 +1226,16 @@ def regenerate_claude_code(
         project_root_override: If set, use this path as ``project_root`` in
             the rendered context instead of ``project_dir``.  ``project_dir``
             is still used for all file I/O (reading config, writing output).
+        runtime_venv_dir: Directory holding the ``.venv`` the regenerated
+            artifacts will launch from, when the render is written somewhere
+            other than where it will run — see ``_derive_runtime_interpreter``.
+        runtime_interpreter: The interpreter the regenerated artifacts must
+            launch with, for a render destined for a machine whose filesystem
+            cannot be probed from here — see :func:`build_claude_code_context`.
 
     Returns:
-        Dict with 'changed', 'unchanged', and 'backup_dir' keys
+        Dict with 'changed' and 'unchanged' keys (plus 'drift_warnings' and the
+        active/disabled summary on a non-dry run)
 
     Raises:
         FileNotFoundError: If config.yml doesn't exist in project_dir
@@ -1120,6 +1257,8 @@ def regenerate_claude_code(
         project_dir,
         config,
         project_root_override=project_root_override,
+        runtime_venv_dir=runtime_venv_dir,
+        runtime_interpreter=runtime_interpreter,
     )
 
     # Resolve allowed_outputs from .osprey-manifest.json artifact list.
@@ -1220,19 +1359,17 @@ def regenerate_claude_code(
                     changed.append(rel)
 
             summary = compute_regen_summary(ctx)
-            return {"changed": changed, "unchanged": unchanged, "backup_dir": None, **summary}
+            return {"changed": changed, "unchanged": unchanged, **summary}
 
-    # Create backup
-    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    backup_dir = project_dir / "_agent_data" / "backup" / f"claude-code-{timestamp}"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-
-    for rel_path in claude_code_files:
-        src = project_dir / rel_path
-        if src.exists():
-            dst = backup_dir / rel_path
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+    # No backup is taken here. This used to snapshot the artifacts it is about
+    # to overwrite into `<project>/_agent_data/backup/claude-code-<stamp>/` —
+    # inside the very tree it regenerates, under the retired agent-data
+    # spelling, so the next build discarded the snapshot along with the rest of
+    # `build/`. The surviving snapshot is
+    # `osprey.cli.build_cmd._backup_outgoing_claude_artifacts`, which writes the
+    # same artifacts to the repo's own `var/agent_data/backup/` before the
+    # atomic swap: the durable zone, which is the only place a snapshot taken to
+    # protect against an overwrite can usefully live.
 
     # Regenerate
     create_claude_code_integration(template_root, jinja_env, project_dir, ctx, allowed_outputs)
@@ -1270,7 +1407,6 @@ def regenerate_claude_code(
     return {
         "changed": changed,
         "unchanged": unchanged,
-        "backup_dir": str(backup_dir),
         "drift_warnings": drift_warnings,
         **summary,
     }

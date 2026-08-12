@@ -9,7 +9,6 @@ flat locations (``data/channel_databases/<paradigm>.json`` and
 """
 
 import logging
-import os
 import shutil
 from pathlib import Path
 
@@ -33,7 +32,7 @@ def provider_api_key_entries() -> list[dict[str, str]]:
     """Provider API-key env vars for env-file templates, in registry order.
 
     Derived from :data:`osprey.models.provider_registry.PROVIDER_API_KEYS`
-    (the single source of truth for the provider list) so that ``env.j2`` /
+    (the single source of truth for the provider list) so that
     ``env.example.j2`` cannot drift from the real provider set. Key-less
     providers (ollama, vllm, ds4, asksage) are excluded — they have no API-key
     env var to scaffold.
@@ -65,7 +64,7 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
 
 
 def service_token_var_entries() -> list[dict[str, str]]:
-    """Every variable ``osprey deploy up`` mints, for env-file templates.
+    """Every variable ``osprey up`` mints, for env-file templates.
 
     Derived from :data:`osprey.deployment.container_lifecycle._SERVICE_TOKEN_VARS`
     — the map the deploy path actually mints from — so the documented set
@@ -93,77 +92,39 @@ def service_token_var_entries() -> list[dict[str, str]]:
     ]
 
 
-# The build no longer harvests anything from ``os.environ`` for the project
-# ``.env``. The profile is the sole source (see :func:`_derive_env_from_profile`
-# and :func:`osprey.utils.dotenv.derive_project_env`), because an ambient value
-# makes a build non-reproducible in a way that is invisible in its output: the
-# same profile on two machines yields different ``.env`` contents, and for a
-# provider key the difference is a secret that reaches the project — and every
-# container started from it — without ever being recorded in the profile that
-# is meant to account for it. (Not the image layers: ``.dockerignore`` excludes
-# ``.env*`` from the build context and no template Dockerfile copies one in.
-# Containers receive it at runtime.) Absence of an undeclared key is the
-# correct outcome.
-#
-# The opposite direction is unaffected and deliberate: ``inject_provider_env``
-# loads the project ``.env`` *into* the environment at runtime, which is what
-# feeds ``.mcp.json``. Profile -> environment is fine; environment -> rendered
-# file is the leak this closes.
-
-
-def _derive_env_from_profile(
-    jinja_env, project_dir: Path, ctx: dict, profile_env_text: str, existing_env_text: str
-) -> None:
-    """Write the project ``.env``, derived from the profile that owns it.
-
-    The render supplies the file's shape and the values the build computes; the
-    profile ``.env`` supplies the facility's secrets, which is what makes one
-    survive a rebuild; the project ``.env`` as it was contributes only what a
-    runtime writer put there (minted service tokens, volume-pinned passwords,
-    an applied scenario's physics vars). See
-    :func:`osprey.utils.dotenv.derive_project_env` for the per-key rules.
-
-    A caller with no profile passes empty text for both and gets the plain
-    render.
-    """
-    from osprey.utils.dotenv import derive_project_env
-
-    env_path = project_dir / ".env"
-    rendered = jinja_env.get_template("project/env.j2").render(**ctx)
-    content = derive_project_env(profile_env_text, rendered, existing_env_text, mode="build")
-    env_path.write_text(content, encoding="utf-8")
-    # Owner read/write only: the file carries secrets.
-    os.chmod(env_path, 0o600)
-
-
 def create_project_structure(
     template_root: Path,
     jinja_env,
     project_dir: Path,
     data_bundle: str,
     ctx: dict,
-    profile_env_text: str = "",
-    existing_env_text: str = "",
 ):
-    """Create base project files (config, README, pyproject.toml, etc.).
+    """Create base project files (config, README, Dockerfile, etc.).
+
+    No ``.env`` is written. The render used to derive one from the owning
+    profile, because a rendered project was a place a stack actually ran from.
+    It is not: the render is ``build/``, and the deployment's one secret store
+    is the ``.env`` at the repo root — the only file compose is pointed at
+    (``--project-directory <repo>`` + ``--env-file <repo>/.env``), the file
+    ``osprey up`` mints service tokens into, and the file a ``rm -rf build/`` is
+    documented not to touch. A second copy inside the render would be a second
+    thing to keep in step, and one that a build could silently rewrite.
+
+    ``.env.example`` is still rendered here: it carries no values, documents
+    what the repo's ``.env`` may hold, and is safe to commit.
 
     Args:
         template_root: Path to osprey's bundled templates directory
         jinja_env: Jinja2 environment for template rendering
-        project_dir: Root directory of the project
+        project_dir: Root directory of the rendered project
         data_bundle: Name of the data bundle (apps/ subdirectory) to use
         ctx: Template context variables
-        profile_env_text: The owning profile's ``.env``, which the project's own
-            is derived from. Empty for a caller that has no profile.
-        existing_env_text: The project ``.env`` as it was before this build,
-            read before anything overwrote it. Only its runtime-written keys
-            survive the derivation.
     """
     project_template_dir = template_root / "project"
     app_template_dir = template_root / "apps" / data_bundle
 
     # Expose claude_code.cli_version to Dockerfile.j2's CLAUDE_CLI_VERSION ARG
-    # default, so the same version pin that `osprey claude chat`/`osprey web`
+    # default, so the same version pin that `osprey chat`/`osprey web`
     # honor at runtime (osprey.utils.claude_launcher) also pins the image's
     # build-time CLI install. Callers may pre-populate ctx["claude_code_cli_version"]
     # (flat) or ctx["claude_code"]["cli_version"] (nested, mirroring config.yml's
@@ -205,15 +166,6 @@ def create_project_structure(
         elif default_template.exists():
             # Use default project template
             render_template(jinja_env, f"project/{template_file}", ctx, project_dir / output_file)
-
-    # Write the project .env. Unconditional: the file carries build-derived
-    # keys (the virtual-accelerator manifest pointers) that the project needs
-    # whether or not a provider key happened to be exported, and a project
-    # without a .env has nowhere for `osprey deploy up` to mint its service
-    # tokens.
-    env_template = project_template_dir / "env.j2"
-    if env_template.exists():
-        _derive_env_from_profile(jinja_env, project_dir, ctx, profile_env_text, existing_env_text)
 
     # Copy static files
     for src_name, dst_name in static_files:
@@ -526,51 +478,3 @@ def prune_csv_build_artifacts(project_dir: Path, channel_finder_mode: str) -> No
         f"  [success]✓[/success] Removed [path]{raw_dir}[/path] "
         f"(no CSV build path for {channel_finder_mode!r} paradigm)"
     )
-
-
-def create_agent_data_structure(template_root: Path, project_dir: Path, ctx: dict):
-    """Create _agent_data directory structure for the project.
-
-    This creates the agent data directory and all standard subdirectories
-    based on osprey's default configuration. This ensures that container
-    deployments won't fail due to missing mount points.
-
-    Args:
-        template_root: Path to osprey's bundled templates directory
-        project_dir: Root directory of the project
-        ctx: Template context variables (used for conditional directory creation)
-    """
-    # Create main _agent_data directory
-    agent_data_dir = project_dir / "_agent_data"
-    agent_data_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create standard subdirectories
-    subdirs = [
-        "api_calls",
-    ]
-
-    for subdir in subdirs:
-        subdir_path = agent_data_dir / subdir
-        subdir_path.mkdir(parents=True, exist_ok=True)
-
-    console.print(
-        f"  [success]✓[/success] Created agent data structure at [path]{agent_data_dir}[/path]"
-    )
-
-    # Create a README to explain the directory structure
-    readme_content = """# Agent Data Directory
-
-This directory contains runtime data for the Claude Code project:
-
-- `api_calls/`: Raw LLM API inputs/outputs (when API logging enabled)
-"""
-
-    readme_content += """
-This directory is excluded from git (see .gitignore) but is required for
-proper framework operation, especially when using containerized services.
-"""
-
-    readme_path = agent_data_dir / "README.md"
-    # Use UTF-8 encoding explicitly to support Unicode characters on Windows
-    with open(readme_path, "w", encoding="utf-8") as f:
-        f.write(readme_content)

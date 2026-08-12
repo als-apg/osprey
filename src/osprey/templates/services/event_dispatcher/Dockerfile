@@ -10,11 +10,11 @@
 #     from PyPI in one RUN, plus any local dependency delta staged as
 #     osprey-local-requirements.txt on dev builds. Its build cache is shared
 #     across projects and only rebuilds when the staged manifest changes.
-#   * wheel layer — when `osprey deploy up --dev` stages a locally-built wheel
+#   * wheel layer — when `osprey up --dev` stages a locally-built wheel
 #     into the build context, this later layer overlays it (so unreleased code
 #     is included). With no wheel staged it is a no-op and the image is complete
 #     after the deps layer.
-# This image is built locally by `osprey deploy up`; override with
+# This image is built locally by `osprey up`; override with
 # OSPREY_DISPATCH_IMAGE / OSPREY_WORKER_IMAGE to use a prebuilt/published image.
 
 FROM python:3.11-slim
@@ -80,7 +80,7 @@ RUN [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is requi
     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
 
 # ── wheel layer ──────────────────────────────────────────────────────────────
-# Overlay a locally-built wheel when `osprey deploy up --dev` stages one into
+# Overlay a locally-built wheel when `osprey up --dev` stages one into
 # the build context. `.dockerignore` is a guaranteed sibling of the COPY, so
 # the glob always matches at least one file; `*.wh[l]` optionally pulls in the
 # wheel. The wheel is installed plain (no extra — the deps layer already primed

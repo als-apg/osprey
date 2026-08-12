@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1
-# Reference container image for {{ project_name }} — generated once by `osprey build`.
-# This file is yours: edit it freely or delete it. `osprey claude regen` never
-# touches it. To get a fresh copy, rebuild the project with `osprey build`.
+# Reference container image for {{ project_name }} — rendered by `osprey build`.
 #
-# Build (from this project directory):   docker build -t {{ project_name }} .
-# Run (secrets at runtime — .env is excluded from the image):
+# `osprey up` builds this for you. To build it by hand, do it from the container
+# repo the build renders for exactly this purpose, one directory above the render
+# this file sits in:
+#   cd build/.image/{{ project_name }} && docker build -t {{ project_name }} -f build/Dockerfile .
+# Run (secrets at runtime — no .env ever enters the image):
 #   docker run --rm -p 8087:8087 --env-file .env {{ project_name }}
 #
 # Build args:
@@ -13,7 +14,7 @@
 #                       unreleased build). The deps layer primes this spec with
 #                       its dependencies, plus any local dependency delta staged
 #                       as osprey-local-requirements.txt on dev builds. If
-#                       `osprey deploy up --dev` stages a local *.whl in the
+#                       `osprey up --dev` stages a local *.whl in the
 #                       build context, a later wheel layer force-reinstalls
 #                       osprey itself from that wheel on top of the primed deps.
 #   OSPREY_DEV          "1" relaxes the deps layer: if the pinned OSPREY_PIP_SPEC
@@ -59,7 +60,7 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"
 # accelerator-toolbox); it is purged in the same RUN so it never bloats the
 # final image (mirrors the dispatch image). The pinned OSPREY_PIP_SPEC is primed
 # here with its dependencies, plus any local dependency delta staged as
-# osprey-local-requirements.txt by `osprey deploy up --dev` — installed after
+# osprey-local-requirements.txt by `osprey up --dev` — installed after
 # the primer, while the toolchain is still available. The `.dockerignore` COPY
 # sibling keeps the glob matching when no manifest is staged, so the deps cache
 # only busts when the manifest content changes. When OSPREY_DEV=1 and the pinned
@@ -91,7 +92,7 @@ RUN export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
 
-# Dev wheel drop (wheel layer). `osprey deploy up --dev` stages a locally-built
+# Dev wheel drop (wheel layer). `osprey up --dev` stages a locally-built
 # wheel in the build context; when present, reinstall osprey from it (deps
 # first, then a --no-deps --force-reinstall so the local build wins over the
 # primed copy) and `pip check` the result. With no wheel staged this RUN is a
@@ -111,14 +112,25 @@ RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
 RUN if [ "$OSPREY_OFFLINE" = "1" ]; then osprey vendor fetch; fi
 ENV OSPREY_OFFLINE=${OSPREY_OFFLINE}
 
-# Project (build context = project root; .dockerignore excludes
-# .venv/.env/.git/_agent_data)
+# The deployment, verbatim. The build context is a deployment REPO — profile.yml
+# and the source zone beside it, the render below in build/ — so this one COPY
+# reproduces the repo layout inside the image, and nothing here has to know
+# which directory is which. That is what makes `{project_root}/build/config.yml`
+# (registry/mcp.py, and every server's OSPREY_CONFIG) as true in a container as
+# it is on a host, and it is what lets `osprey web` below resolve the deployment
+# it serves by walking up to profile.yml, exactly as every verb does on a host.
+#
+# `osprey build` renders that context specifically for the container, against
+# this /app path rather than the building host's — see
+# build_cmd._render_container_project. Building from the host's own build/
+# instead would produce an image whose every recorded path points at the machine
+# that built it.
 COPY . /app/{{ project_name }}/
-RUN mkdir -p /app/{{ project_name }}/_agent_data/api_calls
-
-# Rewrite the recorded project_root for the container layout and re-render the
-# Claude Code artifacts (.mcp.json, CLAUDE.md, .claude/) against it
-RUN osprey claude regen --project /app/{{ project_name }} --runtime-root /app/{{ project_name }}
+# Must name the same directory as config.yml's `agent_data.base_dir`, and must
+# run BEFORE the chown below: the agent-data volume mounts here, and a
+# directory the image never created is created root-owned at first start, which
+# the non-root user below then cannot write to.
+RUN mkdir -p /app/{{ project_name }}/var/agent_data/api_calls
 
 # Non-root user: Claude Code refuses bypassPermissions mode as root.
 RUN useradd --create-home --shell /bin/bash osprey \
@@ -127,4 +139,6 @@ USER osprey
 ENV HOME=/home/osprey
 WORKDIR /app/{{ project_name }}
 EXPOSE 8087
-CMD ["osprey", "web", "--host", "0.0.0.0", "--port", "8087", "--project", "/app/{{ project_name }}"]
+# No location flag: `osprey web` discovers its deployment by walking up from the
+# working directory, and WORKDIR above is already that directory.
+CMD ["osprey", "web", "--host", "0.0.0.0", "--port", "8087"]

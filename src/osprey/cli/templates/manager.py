@@ -20,6 +20,7 @@ from osprey.errors import BuildProfileError
 from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
+from osprey.utils.workspace import repo_root_for_config
 
 
 class TemplateManager:
@@ -128,8 +129,6 @@ class TemplateManager:
         artifacts: dict[str, list[str]] | None = None,
         tier: int | None = None,
         data_root: Path | None = None,
-        profile_env_text: str = "",
-        existing_env_text: str = "",
     ) -> Path:
         """Create complete project from template.
 
@@ -157,11 +156,6 @@ class TemplateManager:
                 ``apps/<data_bundle>/data/``, already resolved by
                 ``BuildProfile.resolved_data_root``. A full replacement copied
                 verbatim (no Jinja rendering); ``None`` keeps the bundle tree.
-            profile_env_text: The owning profile's ``.env``. The project's own
-                ``.env`` is derived from it, which is what makes a facility
-                secret survive a rebuild. Empty for a caller with no profile.
-            existing_env_text: The project ``.env`` as it was before this build.
-                Only its runtime-written keys survive the derivation.
 
         Returns:
             Path to created project directory
@@ -239,12 +233,12 @@ class TemplateManager:
             # from this so it can't drift from the real registry. sorted() for
             # deterministic rendered output.
             "builtin_panels": sorted(BUILTIN_PANELS),
-            # No `env` key: the build reads nothing from `os.environ` for the
-            # rendered project. The profile `.env` is the sole source, applied
-            # by osprey.utils.dotenv.derive_project_env after the render.
+            # No `env` key: the render reads nothing from `os.environ`, and
+            # writes no `.env` at all — the deployment's one secret store is the
+            # repo-root `.env`, outside this tree.
             # Provider API-key env vars, derived from the provider registry
             # (single source of truth in osprey.models.provider_registry) so
-            # env.j2 / env.example.j2 can't drift from the real provider list.
+            # env.example.j2 can't drift from the real provider list.
             # Ordered list of {"provider", "var"} dicts; key-less providers
             # (ollama, vllm, …) are excluded.
             "provider_api_keys": scaffolding.provider_api_key_entries(),
@@ -301,8 +295,6 @@ class TemplateManager:
             project_dir,
             data_bundle,
             ctx,
-            profile_env_text=profile_env_text,
-            existing_env_text=existing_env_text,
         )
 
         # 5. Copy services: bundle-level services/ dir takes priority, then
@@ -335,7 +327,7 @@ class TemplateManager:
         # 6. Copy data files from template (no src/ package), or from the
         # profile's own data tree when one was resolved. Either way this lands
         # before step 6b's tier materialization and the hierarchy probe in
-        # step 8, both of which read the project's flat data/ paths.
+        # step 7, both of which read the project's flat data/ paths.
         scaffolding.copy_template_data(
             self.template_root,
             project_dir,
@@ -394,14 +386,12 @@ class TemplateManager:
             scaffolding.materialize_tier_artifacts(project_dir, effective_tier, channel_finder_mode)
             scaffolding.prune_csv_build_artifacts(project_dir, channel_finder_mode)
 
-        # 7. Create _agent_data directory structure
-        scaffolding.create_agent_data_structure(self.template_root, project_dir, ctx)
-
-        # 8. Create Claude Code integration files
+        # 7. Create Claude Code integration files
         # Load rendered config.yml so conditional sections (confluence, etc.)
         # are available to Claude Code templates (mcp.json.j2, CLAUDE.md.j2).
         config_file = project_dir / "config.yml"
         cc_cfg = {}
+        rendered_config: dict = {}
         ctx.setdefault("facility_permissions", {})
         if config_file.exists():
             with open(config_file) as f:
@@ -444,6 +434,16 @@ class TemplateManager:
         # agent/CLAUDE.md prompts rendered below.
         ctx.setdefault("facility_name", project_name)
 
+        # Everything the Claude Code templates read out of config.yml, through
+        # the same helper the build's own render path uses. Without it this path
+        # left `control_system_write_tools` (and the declared-hook wiring)
+        # undefined, and the non-strict Jinja environment rendered that as
+        # nothing: a hook_config.json whose write-kill-switch list was empty,
+        # with no error to say so. setdefault, so an explicit caller-supplied
+        # value still wins.
+        for key, value in claude_code.config_derived_context(rendered_config, project_dir).items():
+            ctx.setdefault(key, value)
+
         claude_code.apply_textbooks_root(ctx, project_dir)
 
         # Resolve servers and agents via the data-driven registry.
@@ -477,33 +477,94 @@ class TemplateManager:
         project_dir: Path,
         dry_run: bool = False,
         project_root_override: Path | str | None = None,
+        runtime_venv_dir: Path | str | None = None,
+        runtime_interpreter: str | None = None,
     ) -> dict:
         """Regenerate Claude Code artifacts from current config.yml.
 
         Args:
-            project_dir: Root directory of the project
+            project_dir: Directory holding the ``config.yml`` and ``.claude/``
+                being regenerated — the *render* (``<repo>/build``), not the
+                repo root.
             dry_run: If True, report what would change without writing files
-            project_root_override: If set, use this path as ``project_root``
-                in the rendered context instead of ``project_dir``.
+            project_root_override: The repo root the regenerated artifacts must
+                name. Defaults to the repo *of the config being read*, resolved
+                through :func:`osprey.utils.workspace.repo_root_for_config` —
+                see the note below. Pass it explicitly only to render for a
+                root other than the one this render sits in.
+            runtime_venv_dir: Directory holding the ``.venv`` the regenerated
+                artifacts will launch from, when the render is written somewhere
+                other than where it will run. Defaults to *project_dir* whenever
+                the repo root is derived — the render is then both, and the note
+                below says why the two have to be stated together.
+            runtime_interpreter: The interpreter the regenerated artifacts must
+                launch with, for a render destined for a machine this one cannot
+                probe — a container image. Overrides the filesystem-derived
+                answer; see :func:`osprey.cli.templates.claude_code.build_claude_code_context`.
 
         Returns:
-            Dict with 'changed', 'unchanged', and 'backup_dir' keys
+            Dict with 'changed' and 'unchanged' keys
+
+        Note:
+            The directory holding ``config.yml`` is not the project root. A
+            rendered deployment lives one level down, at ``<repo>/build``, so
+            taking the render for the root makes the registry's
+            ``{project_root}/build/config.yml`` resolve to
+            ``<repo>/build/build/config.yml`` — a file that does not exist —
+            and every MCP server and hook that reads ``CONFIG_FILE`` fails on
+            it. The default is derived through the same helper the *runtime*
+            resolves a repo root with, so what a regen writes and what a
+            running deployment computes cannot disagree.
+
+            One rule covers both repo shapes, because they are the same shape:
+            ``<repo>/build`` on a host and ``/app/<name>/build`` in a container
+            (a container is a deployment repo in its own right). For a flat
+            directory that holds its own ``config.yml`` the helper returns that
+            directory, which is what this argument fell back to before.
+
+            It follows that regen re-renders a deployment *where it lives*. It
+            is deliberately not a relocation tool: rendering for a root other
+            than the one on disk is a build concern, and those callers
+            (``osprey build``, the container render, ``osprey status``) say so
+            by passing the override.
+
+            That is also why deriving the root states the venv's home in the
+            same breath. Naming a ``project_root`` at all tells
+            ``_derive_runtime_interpreter`` the render is destined for a machine
+            this one cannot probe, so it stops looking for the project's own
+            ``.venv`` — correct for a container render, wrong here, where the
+            venv is ``<render>/.venv`` and is exactly what every MCP server must
+            launch. The two answer different questions (*where the repo is*
+            versus *what starts the processes*), so a caller that knows one
+            still has to say the other.
         """
+        if project_root_override is None:
+            project_root_override = repo_root_for_config(
+                Path(project_dir).absolute() / "config.yml"
+            )
+            if runtime_venv_dir is None:
+                runtime_venv_dir = project_dir
         return claude_code.regenerate_claude_code(
             self.template_root,
             self.jinja_env,
             project_dir,
             dry_run,
             project_root_override=project_root_override,
+            runtime_venv_dir=runtime_venv_dir,
+            runtime_interpreter=runtime_interpreter,
         )
 
     def regen_if_drift(self, project_dir: Path) -> list[str]:
         """Regenerate Claude Code artifacts only if they have drifted from config.
 
         Runs a dry-run first and performs a real regeneration only when something
-        would actually change. This keeps no-op launches free (no backup-dir spam
-        under ``_agent_data/backup/``) while ensuring a stale ``settings.json`` /
-        ``.mcp.json`` is brought back in sync after a ``config.yml`` edit.
+        would actually change, so a launch that has nothing to do rewrites
+        nothing: no artifact is re-emitted, and — the part that is visible to the
+        operator — ``settings.json``'s mtime is not disturbed on a no-op. That
+        mtime is the SessionStart drift hook's signal (see the stamp below), so
+        touching it needlessly is not merely wasted work, it is noise in the one
+        channel that reports real drift. Meanwhile a stale ``settings.json`` /
+        ``.mcp.json`` is still brought back in sync after a ``config.yml`` edit.
 
         Args:
             project_dir: Root directory of the project (contains ``config.yml``
@@ -516,10 +577,11 @@ class TemplateManager:
             Exceptions from the underlying regeneration propagate to the caller,
             which decides whether to fail open (web) or surface the error (CLI).
         """
-        # Resolve symlinks so the rendered project_root matches what `osprey build`
-        # baked in (build resolves the path). Without this, a project built under a
-        # symlinked path (e.g. /tmp → /private/tmp on macOS, or a container bind
-        # mount) reports a phantom .mcp.json diff and churns a backup on first regen.
+        # Resolve symlinks so the rendered project_root — which regenerate_claude_code
+        # derives from this very path — matches what `osprey build` baked in (build
+        # resolves the path). Without this, a project built under a symlinked path
+        # (e.g. /tmp → /private/tmp on macOS, or a container bind mount) reports a
+        # phantom .mcp.json diff and re-renders on first regen.
         project_dir = Path(project_dir).resolve()
         settings_path = project_dir / ".claude" / "settings.json"
         if not settings_path.exists():
@@ -529,7 +591,7 @@ class TemplateManager:
             # Verified in sync — stamp settings.json so the SessionStart drift
             # hook's mtime signal clears. Without this, a config.yml edit that
             # changes no artifact (a comment, a runtime-read field) would warn
-            # at every session start until a full `osprey claude regen`.
+            # at every session start until the next full `osprey build`.
             config_path = project_dir / "config.yml"
             try:
                 if config_path.stat().st_mtime > settings_path.stat().st_mtime:

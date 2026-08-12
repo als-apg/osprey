@@ -1,5 +1,5 @@
 # The dispatch-worker runs the full PROJECT image (<project>:local) that
-# `osprey deploy up` builds from the project root — the same image the web
+# `osprey up` builds from the project root — the same image the web
 # terminal runs, baking the facility overlays and data/ into /app/<project>.
 # It overrides only `command:` to launch the dispatch-worker MCP server instead
 # of the web UI. OSPREY_WORKER_IMAGE overrides with a prebuilt/published image.
@@ -14,12 +14,12 @@ services:
 {% for i in range(1, wc + 1) %}
   dispatch-worker-{{ i }}:
     {#- The template-level fallback mirrors _worker_image_target's Python
-        fallback (<project>:local — the PROJECT image `osprey deploy up`
+        fallback (<project>:local — the PROJECT image `osprey up`
         builds), for renders where _inject_project_metadata's setdefault
         didn't fire (e.g. a null `dispatch_worker:` config key). #}
     image: ${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image | default(osprey_labels.project_name ~ ':local') }}}
     # NO build: block here on purpose. The project image (<project>:local) is
-    # built once by `osprey deploy up` (deployment/container_lifecycle.py) from
+    # built once by `osprey up` (deployment/container_lifecycle.py) from
     # the project root before `docker compose up` runs; the worker just
     # references that prebuilt tag. Declaring a second `build:` for it would race
     # the sole builder to tag the same image. `depends_on` keeps the worker
@@ -36,6 +36,7 @@ services:
     command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
@@ -43,13 +44,14 @@ services:
     # Provider auth: the worker's startup hook (inject_provider_env) resolves
     # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
     # the process environment. `env_file:` is read by the compose CLI on the
-    # HOST (as the file's owner), so it works even though the project .env is
+    # HOST (as the file's owner), so it works even though the repo's .env is
     # deliberately 0600 and the worker itself runs as non-root `osprey` and
-    # cannot open it. Path is relative to the compose project directory
-    # (build/services/, same resolution rule as `volumes:` bind sources) — see
-    # the `../../.env` volume path elsewhere in this repo for the same prefix.
+    # cannot open it. The path is relative to the pinned compose project
+    # directory, which is the deployment REPO ROOT — so this is the deployment's
+    # one .env, the same file `--env-file` points compose at, and NOT a copy
+    # inside the disposable render.
     env_file:
-      - ../../.env
+      - ./.env
 {% endif %}
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
@@ -64,7 +66,15 @@ services:
       # subprocess resolve config from the mounted project (via env inheritance),
       # independent of CWD. It points at the STAGED config.yml bind-mounted below
       # (the deploy-time config), not the copy baked into the image.
-      CONFIG_FILE: /app/{{ osprey_labels.project_name }}/config.yml
+      #
+      # Under the project directory, in build/ — the same three-zone shape the
+      # repo has, because this worker runs the PROJECT image and its .mcp.json is
+      # rendered as `{project_root}/build/config.yml` (registry/mcp.py, with
+      # project_root = this /app/<project> root). A flat config.yml here would be
+      # a path the agent's own MCP servers never read. The standalone service
+      # images are the opposite case and stay flat: nothing inside them renders
+      # anything against a project root.
+      CONFIG_FILE: /app/{{ osprey_labels.project_name }}/build/config.yml
       TZ: {{ system.timezone }}
       # OpenObserve telemetry (opt-in): the worker and its CLI subprocess run on
       # this bridge network, so the store is reachable by its compose service
@@ -72,20 +82,28 @@ services:
       # the container runtime — is what makes emit work under docker AND podman.
       # Inert unless claude_code.telemetry is enabled with backend: openobserve.
       OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
-    # Bind-mount source is relative to the compose project directory
-    # (build/services/), not this service's subdir — hence the dispatch_worker/ prefix.
+    # Bind-mount sources are relative to the pinned compose project directory,
+    # which is the deployment REPO ROOT — hence the build/services/ prefix on
+    # the render output below.
     volumes:
       # The staged runtime config overlays the config.yml baked into the image,
       # so the worker reads the deploy-time config.
-      - ./dispatch_worker/config.yml:/app/{{ osprey_labels.project_name }}/config.yml:ro
-      # The image creates /app/<project>/_agent_data (and its subdirs) and
+      - ./build/services/dispatch_worker/config.yml:/app/{{ osprey_labels.project_name }}/build/config.yml:ro
+      # The image creates the agent-data directory (and its subdirs) and
       # `chown -R osprey:osprey /app/<project>` before switching to USER osprey,
       # so a fresh named volume initialized from that path inherits osprey
       # ownership — the non-root worker can write it without any user: override.
+      # The mount target is rendered whole by compose_generator from the SAME
+      # `agent_data.base_dir` the mounted config.yml declares, so the volume
+      # cannot end up mounted anywhere but where the worker writes. It arrives
+      # already joined onto /app/<project> — the join is done there because an
+      # ABSOLUTE base_dir names the same path inside the container and must not
+      # be re-anchored under the project directory, which a template-level
+      # concatenation here could not tell apart from a relative one.
 {% if mode == 'shared' %}
-      - dispatch_workspace:/app/{{ osprey_labels.project_name }}/_agent_data
+      - dispatch_workspace:{{ osprey_container_agent_data_dir }}
 {% else %}
-      - dispatch_workspace_{{ i }}:/app/{{ osprey_labels.project_name }}/_agent_data
+      - dispatch_workspace_{{ i }}:{{ osprey_container_agent_data_dir }}
 {% endif %}
     networks:
       - osprey-network
@@ -102,9 +120,13 @@ services:
 volumes:
 {% if mode == 'shared' %}
   dispatch_workspace:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 {% else %}
 {% for i in range(1, wc + 1) %}
   dispatch_workspace_{{ i }}:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 {% endfor %}
 {% endif %}
 

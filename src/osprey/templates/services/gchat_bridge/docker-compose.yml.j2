@@ -2,10 +2,10 @@
 # and dispatches mentions of the Chat app through the osprey.dispatch pair (see
 # src/osprey/bridges/google_chat/). It is a subscriber, not a server: it opens
 # no listening socket, so it publishes no ports and declares no healthcheck.
-# `osprey deploy up` builds its image locally on first run; subsequent runs
+# `osprey up` builds its image locally on first run; subsequent runs
 # reuse the local tag. To use a prebuilt/published image instead, set
 # OSPREY_GCHAT_BRIDGE_IMAGE (e.g. OSPREY_GCHAT_BRIDGE_IMAGE=my-registry/osprey-gchat-bridge:dev).
-# Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
+# Use `osprey up --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 {#- The worker's own wall-clock cap, read from the SAME config key the
     dispatch_worker template renders it from, so a facility that raises the cap
@@ -24,11 +24,12 @@ services:
   gchat-bridge:
     image: ${OSPREY_GCHAT_BRIDGE_IMAGE:-{{ services.gchat_bridge.image | default(osprey_labels.project_name ~ '-gchat-bridge:local') }}}
     build:
-      # With multiple `-f` compose files, ALL relative paths (build contexts and
-      # bind mounts alike) resolve against the FIRST file's dir — the compose
-      # project directory, build/services/ — not this file's own subdir. So the
-      # context is ./gchat_bridge, matching the volume-path convention below.
-      context: ./gchat_bridge
+      # EVERY relative path here resolves against the pinned compose project
+      # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd) — never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env).
+      context: ./build/services/gchat_bridge
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
@@ -55,6 +56,7 @@ services:
     command: ["python", "-m", "osprey.bridges.google_chat"]
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
@@ -62,7 +64,7 @@ services:
     # provider keys the dispatch worker needs (CBORG/OpenAI/...), and this
     # service — the one component that talks to Google's Chat and Pub/Sub APIs —
     # never calls an LLM. Everything it does read arrives by interpolation into
-    # the block below, resolved from that same .env because `deploy up` runs
+    # the block below, resolved from that same .env because `osprey up` runs
     # compose with `--env-file .env`; an env-file mount is outranked by
     # `environment:` in compose anyway, so it only ever widened what the
     # container could see.
@@ -99,7 +101,7 @@ services:
       # ── Dispatch pipeline ───────────────────────────────────────────────
       # No :-default (see the event_dispatcher compose): an unset token must
       # stay EMPTY so the bridge fails closed at boot rather than dispatching
-      # with a guessable secret. `osprey deploy up` auto-generates strong random
+      # with a guessable secret. `osprey up` auto-generates strong random
       # tokens into the project .env when unset.
       EVENT_DISPATCHER_TOKEN: ${EVENT_DISPATCHER_TOKEN}
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
@@ -213,13 +215,15 @@ services:
       # offsets to persist: ingestion is a Pub/Sub subscription, and the
       # subscription's own ack state is what survives a restart.) Named (not a
       # bind mount) so it is namespaced per compose project and survives
-      # `deploy down`.
+      # `osprey down`.
       - gchat_bridge_data:/data
     networks:
       - osprey-network
 
 volumes:
   gchat_bridge_data:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 
 networks:
   osprey-network:
