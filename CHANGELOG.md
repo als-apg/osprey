@@ -166,6 +166,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Deployed agents can no longer reconfigure their own harness: the Claude Code
+  CLI's bundled harness-configuration skills (`update-config`,
+  `keybindings-help`, `fewer-permission-prompts`) are switched off in every
+  rendered project, and the `setup-mode` skill (which can patch config.yml)
+  left the operator preset's default roster — it stays in the artifact catalog
+  for admin profiles to opt into. Rebuilt control-assistant projects will
+  report preset staleness once; that is the intended signal.
 - **Log out** moved into the web terminal's display menu, alongside
   **Settings** — the two now sit side by side under a line naming the signed-in
   user. The separate user chip in the header is gone, leaving search and the

@@ -68,7 +68,10 @@ rules:
 
 skills:
   - diagnose        # Run a structured fault-diagnosis workflow
-  - setup-mode      # Toggle between interactive and automated operating modes
+  # setup-mode (config diagnostics + setup_patch) is deliberately NOT part of
+  # the operator tier: it can patch config.yml/.mcp.json, which is admin work.
+  # Add it to an admin-facing profile's skills list to opt in — it remains in
+  # the artifact catalog.
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
   - demo-ui         # Run a scripted demo of the agent driving the web workspace
