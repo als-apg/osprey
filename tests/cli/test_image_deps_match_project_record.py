@@ -93,16 +93,16 @@ def build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
             "run",
             lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, "", ""),
         )
-        out = tmp_path / "out"
-        out.mkdir(exist_ok=True)
-        profile = out / "profile.yml"
+        repo = tmp_path / "proj"
+        repo.mkdir(exist_ok=True)
+        profile = repo / "profile.yml"
         profile.write_text(profile_yaml, encoding="utf-8")
-        args = ["build", "proj", str(profile), "--skip-lifecycle", "-o", str(out)]
+        args = ["build", "--repo", str(repo), "--skip-lifecycle"]
         if skip_deps:
             args.append("--skip-deps")
         result = CliRunner().invoke(cli, args)
         assert result.exit_code == 0, result.output
-        return out / "proj"
+        return repo / "build"
 
     return run
 

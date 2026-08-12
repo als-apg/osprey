@@ -145,7 +145,7 @@ def test_preset_mode_rejects_data_from_set_pair(fake_presets: Path, tmp_path: Pa
 
     message = str(excinfo.value)
     assert "'data' is not supported with --preset" in message
-    assert "osprey profile new" in message
+    assert "osprey init" in message
     assert "--preset base" in message
 
 

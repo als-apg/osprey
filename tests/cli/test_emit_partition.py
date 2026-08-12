@@ -31,7 +31,7 @@ _FIELDS = frozenset(f.name for f in dataclasses.fields(BuildProfile))
 
 
 def _emit(preset: str, overrides: tuple[Path, ...] = ()) -> str:
-    return emit_standalone_profile_yaml(preset, overrides, (), "Emitted", "profile.yml")
+    return emit_standalone_profile_yaml(preset, overrides, (), "Emitted")
 
 
 def _yaml_key(field: str) -> str:
@@ -187,7 +187,7 @@ def test_no_key_is_both_active_and_commented(preset: str) -> None:
 
 
 def test_data_emits_active_when_the_resolved_profile_carries_it(tmp_path: Path) -> None:
-    """Forward-compat for `profile new` (3.4), which materializes a data tree and
+    """Forward-compat for `osprey init` (3.4), which materializes a data tree and
     injects `data` into the resolved dict: the COMMENTED contract is
     active-when-carried, so nothing here may assume `data` renders commented."""
     override = tmp_path / "o.yml"

@@ -1,11 +1,19 @@
-"""``data/`` is build-owned: the manifest checksums it, ``--force`` clears it.
+"""``data/`` is build-owned: the manifest checksums it, a rebuild clears it.
 
-Everything under a project's ``data/`` tree (machine models, channel databases,
-benchmark query sets) is rendered by the build from the profile or preset, so it
-belongs in the manifest's checksum set — a difference there is real drift, not
-user state. The one directory runtime writers own is ``_agent_data/``, and that
-stays excluded. The config-validation warning covers the remaining way the two
-can be confused: a runtime-write path deliberately pointed back into ``data/``.
+Everything under a rendered ``data/`` tree (machine models, channel databases,
+benchmark query sets) comes from the profile or preset, so it belongs in the
+manifest's checksum set — a difference there is real drift, not user state.
+
+Runtime state is not in the checksum set because it is not in the render at
+all: it lives in the repo's state zone (``var/agent_data``, the value of
+:data:`osprey.utils.config.RUNTIME_STATE_DIR`), a sibling of ``build/`` that a
+rebuild never walks. :func:`calculate_file_checksums` additionally filters the
+name ``_agent_data`` — the older in-project spelling — which is what the
+fixture below plants and the exclusion tests exercise; it is a name filter in
+the checksummer, not a claim about where runtime writers put things today.
+
+The config-validation warning covers the way the two can still be confused: a
+runtime-write path deliberately pointed back into ``data/``.
 """
 
 from pathlib import Path
@@ -13,9 +21,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.cli.build_persistence import _clear_rendered_project_dir
 from osprey.cli.templates.manifest import calculate_file_checksums
 from osprey.utils.config import (
+    RUNTIME_STATE_DIR,
     RUNTIME_WRITE_PATH_KEYS,
     ConfigBuilder,
     find_runtime_write_paths_under_data,
@@ -74,20 +82,6 @@ class TestChecksumScope:
         (project / "_agent_data" / "simulation" / "active_scenarios").write_text("burst\n")
 
         assert calculate_file_checksums(project) == before
-
-
-class TestForceClearAgreesWithChecksums:
-    """``--force`` must preserve exactly the trees the checksummer skips."""
-
-    def test_data_is_cleared_and_runtime_state_preserved(self, tmp_path):
-        project = _project(tmp_path)
-
-        preserved = _clear_rendered_project_dir(project)
-
-        assert sorted(preserved) == [".env", ".git", "_agent_data"]
-        assert not (project / "data").exists()
-        assert (project / "_agent_data" / "simulation" / "active_scenarios").exists()
-        assert (project / ".env").exists()
 
 
 class TestRuntimeWritePathValidation:
@@ -149,7 +143,9 @@ class TestRuntimeWritePathValidation:
             ConfigBuilder(str(project / "config.yml"), load_env=False)
 
         assert "simulation.state_dir" in caplog.text
-        assert "_agent_data" in caplog.text
+        # The advisory names the durable state zone to point at — pinned through
+        # the constant it renders, so the message and the default cannot drift.
+        assert RUNTIME_STATE_DIR in caplog.text
 
     def test_config_load_is_quiet_when_clean(self, tmp_path, caplog):
         project = tmp_path / "proj"

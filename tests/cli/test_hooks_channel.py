@@ -412,12 +412,12 @@ def test_declared_wiring_survives_a_force_rebuild_and_a_regen(tmp_path: Path):
     project = _build(tmp_path, "hook-regen-wiring", profile, declarations=declarations)
     assert any("facility_guard.py" in c for c in _hook_commands(_settings(project)))
 
-    # `osprey build --force`: the project directory is re-rendered from scratch,
+    # `osprey build`: the project directory is re-rendered from scratch,
     # so the wiring has to come back from the profile, not from what survived.
     _build(tmp_path, "hook-regen-wiring", profile, declarations=declarations, rebuild=True)
     assert any("facility_guard.py" in c for c in _hook_commands(_settings(project)))
 
-    # `osprey claude regen`: same again, from config.yml alone.
+    # `osprey build`: same again, from config.yml alone.
     TemplateManager().regenerate_claude_code(project)
     assert any("facility_guard.py" in c for c in _hook_commands(_settings(project)))
 

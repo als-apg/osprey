@@ -20,7 +20,7 @@ from osprey.errors import BuildProfileError
 
 
 def _emit(preset: str, overrides: tuple[Path, ...] = ()) -> str:
-    return emit_standalone_profile_yaml(preset, overrides, (), "Emitted", "profile.yml")
+    return emit_standalone_profile_yaml(preset, overrides, (), "Emitted")
 
 
 def _prefix_pairs(config: dict) -> list[tuple[str, str]]:

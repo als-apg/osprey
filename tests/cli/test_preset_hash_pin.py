@@ -32,7 +32,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     #
     # Re-pinned again when control-assistant's control_system.type default
     # flipped from "mock" to "virtual_accelerator" (mock is now the documented
-    # fallback via `osprey config set-control-system mock`) — both extends
+    # fallback via `osprey set connector=mock`) — both extends
     # children inherit the new default, so all three digests moved.
     #
     # Re-pinned again when the RESULTS panel became BLUESKY: the preset's
@@ -46,12 +46,20 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Re-pinned again when control-assistant gained the test-ioc-safety rule
     # selection (renders only for EPICS-family control systems). Both extends
     # children inherit it, so all three digests moved.
-    "control-assistant": "sha256:9b354d59dfb523bd6a3591de7155c0d2c91c82710aac2db98127b8f8d0db78b2",
+    #
+    # Re-pinned again for the lifecycle redesign. The preset's diff is almost
+    # entirely comment text — which this hash cannot see, because
+    # `_hash_resolved_profile` hashes resolved canonical JSON and says so. The
+    # one CONTENT change is the two persona `project_path` values, which moved
+    # from the retired sibling layout (`../control-assistant-<persona>`) into
+    # the render zone (`build/control-assistant-<persona>`). Both extends
+    # children inherit it, so all three digests moved.
+    "control-assistant": "sha256:645526195bf195431794e55e26aedb80a5ce6320e59931ac8a31b6bc786ad63f",
     "control-assistant-readonly": (
-        "sha256:f85d545d3c9f61693dd7a48861b2ae46443c2e6e90447560391db1cc79311ac4"
+        "sha256:097d786bfaa8a57199959f76192f0b12676b216714203f227fdd7aa9a5f6bc2c"
     ),
     "control-assistant-readwrite": (
-        "sha256:c4b63c8a00876924117edafc80d3e785ca2e3c01375d8908390b78bef3788110"
+        "sha256:b8bd051c74142cf20224333609c9fb56012e5fb7f15fef3bcbac80eaa349df13"
     ),
     "hello-world": "sha256:e1666b0b1a1d1232bc3aa9c32ccf11e3555a217162fda292f4240396ef19ec8a",
 }

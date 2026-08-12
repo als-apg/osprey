@@ -1,461 +1,143 @@
-"""Configuration management commands (osprey config)."""
+"""The ``osprey config`` verb — read a deployment's configuration.
 
-import sys
+Three views of the same subject, one flag apart, because "the configuration" is
+three different files depending on what is being asked. The default view is the
+SOURCE: ``profile.yml``, what the facility wrote and what git tracks — printed
+verbatim, comments and all, since the comments are half of why an operator
+opens it. ``--rendered`` is the OUTPUT view, ``build/config.yml`` as the last
+build produced it, which is what a running container actually reads and the
+place to look when the deployment behaves unlike the source suggests.
+``--defaults`` is neither: the framework's own template, the answer to "what
+keys exist at all", and the one view that needs no deployment repo.
+
+The verb only reads. Writes go through ``osprey set``, which edits the source
+and leaves the render to ``osprey build`` — a config the CLI mutates in place
+is a config the next build silently discards.
+"""
+
 from pathlib import Path
 
 import click
-import yaml
 from jinja2 import Template
 from rich.syntax import Syntax
 
 from osprey.cli.styles import Styles, console
-from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
+
+from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
+
+#: Values the framework template is rendered with for the ``--defaults`` view.
+#: Placeholders, deliberately: the view answers "what keys exist and what do
+#: they default to", so a name in it must read as an example rather than as
+#: something the operator's deployment is called.
+_DEFAULTS_EXAMPLE_CONTEXT = {
+    "project_name": "example_project",
+    "package_name": "example_project",
+    "project_root": "/path/to/example_project",
+    "hostname": "localhost",
+    "default_provider": "anthropic",
+    "default_model": "haiku",
+}
 
 
-def _regen_claude_artifacts(project_dir: Path) -> None:
-    """Re-render Claude Code artifacts after a config.yml edit, if they drifted.
+def _render_framework_defaults() -> str:
+    """The framework's configuration template, rendered with example values.
 
-    Safety-critical config fields (control-system type → safety rules, the
-    writes_enabled kill-switch → permissions.deny) are baked into the rendered
-    ``.claude/`` artifacts at build time, so editing config.yml alone leaves them
-    stale. Regenerating here keeps ``osprey config set-*`` consistent with
-    ``osprey build`` / ``osprey claude regen``. Best-effort: a regen failure must
-    not fail the config command (the write already succeeded).
+    Returned as text rather than parsed data so the template's comments survive
+    — they are what turns a wall of keys into documentation of the options.
     """
-    try:
-        from osprey.cli.templates.manager import TemplateManager
-
-        changed = TemplateManager().regen_if_drift(project_dir)
-        if changed:
-            console.print(
-                f"   ✓ Regenerated {len(changed)} Claude Code artifact(s)", style=Styles.DIM
-            )
-    except Exception:  # noqa: BLE001 — config write already succeeded; do not fail the command
-        console.print(
-            "   ⚠ Could not regenerate Claude Code artifacts — run `osprey claude regen`",
-            style=Styles.DIM,
+    template_path = Path(__file__).parent.parent / "templates" / "project" / "config.yml.j2"
+    if not template_path.is_file():
+        raise click.ClickException(
+            f"Could not locate the framework configuration template at {template_path}. "
+            "This points at a broken installation, not at anything in your deployment."
         )
+    return Template(template_path.read_text(encoding="utf-8")).render(**_DEFAULTS_EXAMPLE_CONTEXT)
 
 
-@click.group(name="config", invoke_without_command=True)
+def _emit(text: str, *, label: str, source: Path | None) -> None:
+    """Print configuration *text*, highlighted for a human, raw for a pipe.
+
+    ``osprey config > deployment.yml`` has to produce the file it showed, so
+    when stdout is not a terminal the content goes out unchanged and unadorned
+    — no header, no rewrapping, no highlight escapes. The header and the syntax
+    colouring are for the interactive reader, who needs to know which of the
+    three views they are looking at and where it lives on disk.
+    """
+    if not console.is_terminal:
+        click.echo(text)
+        return
+
+    console.print(f"\n[bold]{label}[/bold]", soft_wrap=True)
+    if source is not None:
+        console.print(f"{source}\n", style=Styles.DIM, soft_wrap=True)
+    console.print(Syntax(text, "yaml", theme="monokai", line_numbers=False, word_wrap=True))
+
+
+@click.command(name="config")
 @click.option(
-    "--project",
-    "-p",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
+    "--rendered",
+    is_flag=True,
+    help="Show the built config.yml the deployment actually runs on.",
 )
-@click.pass_context
-def config(ctx, project):
-    """Manage project configuration.
+@click.option(
+    "--defaults",
+    is_flag=True,
+    help="Show the framework's default template. Needs no deployment repo.",
+)
+@repo_option
+def config(rendered: bool, defaults: bool, repo: Path | None):
+    """Show the deployment configuration.
 
-    Configuration commands for viewing, exporting, and modifying project settings.
-    All commands work with the project's config.yml file.
-
-    If no subcommand is provided, launches interactive configuration menu.
-
-    Note: Most subcommands require a project directory. Only 'export' works without a project.
+    With no flag, prints the source profile.yml — the tracked, hand-edited
+    manifest — exactly as it is on disk, comments included. Output is piped
+    through unchanged when stdout is not a terminal.
 
     Examples:
 
     \b
-      # Launch interactive config menu (requires project)
+      # The source manifest for the repo you are standing in
       osprey config
-
-      # Display current configuration (requires project)
-      osprey config show
-
-      # Export framework defaults (works anywhere)
-      osprey config export -o defaults.yml
-
-      # Switch to EPICS control system (requires project)
-      osprey config set-control-system epics
-
-      # Configure EPICS gateway (requires project)
-      osprey config set-epics-gateway --facility als
-    """
-    if ctx.invoked_subcommand is None:
-        # No subcommand provided - launch interactive menu
-        # This requires a project directory
-        try:
-            from .interactive_menu import handle_config_action
-            from .project_utils import resolve_config_path, resolve_project_path
-
-            # Check if we're in a project directory
-            try:
-                project_path = resolve_project_path(project)
-                config_path_str = resolve_config_path(project)
-                config_path = Path(config_path_str)
-
-                if not config_path.exists():
-                    console.print(
-                        "❌ No Osprey project found in current directory", style=Styles.ERROR
-                    )
-                    console.print(f"   Looking for: {config_path}", style=Styles.DIM)
-                    console.print(
-                        "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
-                        style=Styles.DIM,
-                    )
-                    console.print("   Or run from a project directory", style=Styles.DIM)
-                    sys.exit(1)
-
-            except Exception:
-                console.print("❌ No Osprey project found", style=Styles.ERROR)
-                console.print(
-                    "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
-                    style=Styles.DIM,
-                )
-                console.print(
-                    "   Or run from a project directory containing config.yml", style=Styles.DIM
-                )
-                sys.exit(1)
-
-            handle_config_action(project_path)
-
-        except KeyboardInterrupt:
-            console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
-            sys.exit(0)
-        except SystemExit:
-            raise  # Re-raise sys.exit() calls
-        except Exception as e:
-            console.print(f"❌ Failed to launch config menu: {e}", style=Styles.ERROR)
-            import os
-
-            if os.environ.get("DEBUG"):
-                import traceback
-
-                console.print(traceback.format_exc(), style=Styles.DIM)
-            sys.exit(1)
-
-
-@config.command(name="show")
-@click.option(
-    "--project",
-    "-p",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
-)
-@click.option(
-    "--format",
-    type=click.Choice(["yaml", "json"]),
-    default="yaml",
-    help="Output format (default: yaml)",
-)
-def show(project: str, format: str):
-    """Display current project configuration.
-
-    Shows the active configuration for the current project with syntax highlighting.
-    Useful for debugging and understanding current settings.
-
-    Requires: Must be run from a project directory containing config.yml
-
-    Examples:
-
     \b
-      # Show current project's config
-      osprey config show
-
-      # Show specific project's config
-      osprey config show --project ~/my-agent
-
-      # Export as JSON
-      osprey config show --format json
-    """
-    try:
-        from .project_utils import resolve_config_path
-
-        try:
-            config_path_str = resolve_config_path(project)
-            config_path = Path(config_path_str)
-        except Exception:
-            console.print("❌ No Osprey project found", style=Styles.ERROR)
-            console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
-                style=Styles.DIM,
-            )
-            console.print(
-                "   Or run from a project directory containing config.yml", style=Styles.DIM
-            )
-            raise click.Abort() from None
-
-        if not config_path.exists():
-            console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
-            console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
-                style=Styles.DIM,
-            )
-            raise click.Abort()
-
-        with open(config_path) as f:
-            config_data = yaml.safe_load(f)
-
-        if format == "yaml":
-            output_str = yaml.dump(
-                config_data, default_flow_style=False, sort_keys=False, allow_unicode=True
-            )
-        else:  # json
-            import json
-
-            output_str = json.dumps(config_data, indent=2, ensure_ascii=False)
-
-        console.print(f"\n[bold]Configuration:[/bold] {config_path}\n")
-        syntax = Syntax(output_str, format, theme="monokai", line_numbers=False, word_wrap=True)
-        console.print(syntax)
-
-    except KeyboardInterrupt:
-        console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
-        raise click.Abort() from None
-    except Exception as e:
-        console.print(f"❌ Failed to show configuration: {e}", style=Styles.ERROR)
-        raise click.Abort() from None
-
-
-@config.command(name="export")
-@click.option("--output", "-o", type=click.Path(), help="Output file (default: print to console)")
-@click.option(
-    "--format",
-    type=click.Choice(["yaml", "json"]),
-    default="yaml",
-    help="Output format (default: yaml)",
-)
-def export(output: str, format: str):
-    """Export framework default configuration template.
-
-    Displays the Osprey framework's default configuration template that is used
-    when creating new projects with 'osprey build'. This is useful for:
-
+      # What the last build produced, which is what containers read
+      osprey config --rendered
     \b
-      - Understanding available configuration options
-      - Seeing default values for models, services, etc.
-      - Debugging configuration issues
-      - Creating custom configurations
-
-    Examples:
-
-    \b
-      # Display to console with syntax highlighting
-      osprey config export
-
-      # Save to file
-      osprey config export -o defaults.yml
-
-      # Export as JSON
-      osprey config export --format json -o defaults.json
+      # Every key the framework understands, with its default
+      osprey config --defaults > defaults.yml
     """
-    try:
-        # Load osprey's configuration template
-        template_path = Path(__file__).parent.parent / "templates" / "project" / "config.yml.j2"
-
-        if not template_path.exists():
-            console.print("❌ Could not locate Osprey configuration template.", style=Styles.ERROR)
-            console.print(f"   Expected at: {template_path}", style=Styles.DIM)
-            raise click.Abort()
-
-        # Read and render the template with example values
-        with open(template_path) as f:
-            template_content = f.read()
-
-        template = Template(template_content)
-        rendered_config = template.render(
-            project_name="example_project",
-            package_name="example_project",
-            project_root="/path/to/example_project",
-            hostname="localhost",
-            default_provider="anthropic",
-            default_model="haiku",
+    if rendered and defaults:
+        raise click.UsageError(
+            "--rendered and --defaults show different files. Pass at most one: "
+            "--rendered is this deployment's build output, --defaults is the framework template."
         )
 
-        # Parse the rendered config as YAML
-        config_data = yaml.safe_load(rendered_config)
+    if defaults:
+        # Deliberately before any repo discovery: the framework template is a
+        # property of the installation, so this view works from anywhere.
+        _emit(_render_framework_defaults(), label="Framework default configuration", source=None)
+        return
 
-        if format == "yaml":
-            output_str = yaml.dump(
-                config_data, default_flow_style=False, sort_keys=False, allow_unicode=True
+    repo_root = find_repo_root(repo)
+
+    if rendered:
+        from .profile_conventions import BUILD_OUTPUT_DIR
+
+        rendered_path = repo_root / BUILD_OUTPUT_DIR / "config.yml"
+        if not rendered_path.is_file():
+            raise click.ClickException(
+                f"No rendered configuration at {rendered_path}.\n\n"
+                "The build output is disposable and this repo has not been built yet "
+                "(or was reset). Run 'osprey build' to render it."
             )
-        else:  # json
-            import json
+        _emit(
+            rendered_path.read_text(encoding="utf-8"),
+            label="Rendered configuration (as built)",
+            source=rendered_path,
+        )
+        return
 
-            output_str = json.dumps(config_data, indent=2, ensure_ascii=False)
-
-        if output:
-            output_path = Path(output)
-            # Use UTF-8 encoding explicitly to support Unicode characters on Windows
-            output_path.write_text(output_str, encoding="utf-8")
-            console.print(f"✅ Configuration exported to: [bold]{output_path}[/bold]")
-        else:
-            # Print to console with syntax highlighting
-            console.print("\n[bold]Osprey Framework Default Configuration:[/bold]\n")
-            syntax = Syntax(output_str, format, theme="monokai", line_numbers=False, word_wrap=True)
-            console.print(syntax)
-            console.print("\n[dim]💡 Tip: Save to file with --output flag[/dim]")
-
-    except KeyboardInterrupt:
-        console.print("\n⚠️  Operation cancelled", style=Styles.WARNING)
-        raise click.Abort() from None
-    except Exception as e:
-        console.print(f"❌ Failed to export configuration: {e}", style=Styles.ERROR)
-        import os
-
-        if os.environ.get("DEBUG"):
-            import traceback
-
-            console.print(traceback.format_exc(), style=Styles.DIM)
-        raise click.Abort() from None
-
-
-@config.command(name="set-control-system")
-@click.argument(
-    "system_type",
-    type=click.Choice(CLI_CONTROL_SYSTEM_TYPES, case_sensitive=False),
-)
-@click.option(
-    "--project",
-    "-p",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
-)
-def set_control_system(system_type: str, project: str):
-    """Switch control system connector type.
-
-    Changes the control_system.type setting in config.yml. This determines which
-    connector is used at runtime for control system operations.
-
-    Note: Pattern detection is control-system-agnostic (same for all types).
-    This setting only affects which connector is loaded at runtime.
-
-    Requires: Must be run from a project directory containing config.yml
-
-    Examples:
-
-    \b
-      # Switch to mock mode (development)
-      osprey config set-control-system mock
-
-      # Switch to EPICS (production)
-      osprey config set-control-system epics
-
-      # Switch to the Virtual Accelerator soft-IOC
-      osprey config set-control-system virtual_accelerator
-    """
-    try:
-        from osprey.utils.config_writer import set_control_system_type
-
-        from .project_utils import resolve_config_path
-
-        try:
-            config_path_str = resolve_config_path(project)
-            config_path = Path(config_path_str)
-        except Exception:
-            console.print("❌ No Osprey project found", style=Styles.ERROR)
-            console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
-                style=Styles.DIM,
-            )
-            console.print(
-                "   Or run from a project directory containing config.yml", style=Styles.DIM
-            )
-            raise click.Abort() from None
-
-        if not config_path.exists():
-            console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
-            console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
-                style=Styles.DIM,
-            )
-            raise click.Abort() from None
-
-        new_content, preview = set_control_system_type(config_path, system_type.lower())
-        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
-        config_path.write_text(new_content, encoding="utf-8")
-
-        console.print(f"✅ Control system type updated to: [bold]{system_type}[/bold]")
-        console.print(f"   Configuration: {config_path}", style=Styles.DIM)
-        _regen_claude_artifacts(config_path.parent)
-
-    except Exception as e:
-        console.print(f"❌ Failed to update control system: {e}", style=Styles.ERROR)
-        raise click.Abort() from None
-
-
-@config.command(name="set-epics-gateway")
-@click.option(
-    "--facility",
-    type=click.Choice(["als", "aps", "custom"], case_sensitive=False),
-    help="Facility preset (als, aps, or custom for manual entry)",
-)
-@click.option("--address", help="Gateway address (for custom facility)")
-@click.option("--port", type=int, help="Gateway port (for custom facility)")
-@click.option(
-    "--project",
-    "-p",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
-)
-def set_epics_gateway(facility: str, address: str, port: int, project: str):
-    """Configure EPICS gateway settings.
-
-    Sets the EPICS gateway address and port in config.yml. Can use facility presets
-    (ALS, APS) or specify custom gateway settings.
-
-    Requires: Must be run from a project directory containing config.yml
-
-    Examples:
-
-    \b
-      # Use ALS gateway preset
-      osprey config set-epics-gateway --facility als
-
-      # Use APS gateway preset
-      osprey config set-epics-gateway --facility aps
-
-      # Set custom gateway
-      osprey config set-epics-gateway --facility custom \\
-          --address gateway.example.com --port 5064
-    """
-    try:
-        from osprey.utils.config_writer import set_epics_gateway_config
-
-        from .project_utils import resolve_config_path
-
-        try:
-            config_path_str = resolve_config_path(project)
-            config_path = Path(config_path_str)
-        except Exception:
-            console.print("❌ No Osprey project found", style=Styles.ERROR)
-            console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
-                style=Styles.DIM,
-            )
-            console.print(
-                "   Or run from a project directory containing config.yml", style=Styles.DIM
-            )
-            raise click.Abort() from None
-
-        if not config_path.exists():
-            console.print(f"❌ Configuration file not found: {config_path}", style=Styles.ERROR)
-            console.print(
-                "\n💡 Create a new project with: [bold cyan]osprey build my-project --preset hello-world[/bold cyan]",
-                style=Styles.DIM,
-            )
-            raise click.Abort() from None
-
-        if facility == "custom" and (not address or not port):
-            console.print("❌ Custom facility requires --address and --port", style=Styles.ERROR)
-            raise click.Abort() from None
-
-        # Update configuration
-        custom_config = None
-        if facility == "custom":
-            custom_config = {
-                "read_only": {"address": address, "port": port, "use_name_server": False}
-            }
-        new_content, preview = set_epics_gateway_config(config_path, facility, custom_config)
-        # Use UTF-8 encoding explicitly to support Unicode characters on Windows
-        config_path.write_text(new_content, encoding="utf-8")
-
-        console.print("✅ EPICS gateway updated")
-        console.print(f"   Configuration: {config_path}", style=Styles.DIM)
-        _regen_claude_artifacts(config_path.parent)
-
-    except Exception as e:
-        console.print(f"❌ Failed to update EPICS gateway: {e}", style=Styles.ERROR)
-        raise click.Abort() from None
+    profile_path = repo_root / PROFILE_FILENAME
+    _emit(
+        profile_path.read_text(encoding="utf-8"),
+        label="Source profile",
+        source=profile_path,
+    )

@@ -23,7 +23,7 @@ from typing import Any, Literal
 class ProfileProvenance:
     """What a materialized profile was emitted from (``provenance:``).
 
-    Written by ``osprey profile new`` and never by hand. It is the
+    Written by ``osprey init`` and never by hand. It is the
     MACHINE-READABLE record of the profile's source — the emitted header says
     the same thing in prose, for people — and it is what a later build compares
     against the installed preset to notice that the preset has moved on since
@@ -160,7 +160,7 @@ class EnvironmentConfig:
 
 @dataclass
 class ServiceDef:
-    """Definition of a container service for ``osprey deploy``."""
+    """Definition of a container service for ``osprey up``."""
 
     template: str  # Path to template dir (relative to profile dir)
     config: dict[str, Any] = field(default_factory=dict)

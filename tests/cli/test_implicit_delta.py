@@ -60,7 +60,7 @@ def _write(path: Path, text: str) -> Path:
 
 @pytest.fixture
 def host(tmp_path: Path) -> Path:
-    """A materialized profile root with a data tree, as ``profile new`` emits."""
+    """A materialized profile root with a data tree, as ``osprey init`` emits."""
     root = tmp_path / "facility"
     _write(root / "data" / "channels.json", '{"channels": []}\n')
     _write(root / "profile.yml", _HOST)

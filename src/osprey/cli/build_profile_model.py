@@ -157,7 +157,7 @@ class BuildProfile:
     nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
     gchat_bridge: GChatBridgeProfileConfig | None = None
     provenance: ProfileProvenance | None = None
-    """What ``osprey profile new`` materialized this profile from (``provenance:``).
+    """What ``osprey init`` materialized this profile from (``provenance:``).
 
     ``None`` for a bundled preset and for a hand-written profile, neither of
     which was materialized from anything. Carried through resolution unchanged:

@@ -703,7 +703,7 @@ def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
     agent .md referencing a tool that is not in any framework MCP server's
     permissions.allow.
     """
-    profile_dir = tmp_path / "profile"
+    profile_dir = tmp_path / "broken-deployment"
     profile_dir.mkdir()
     agents_dir = profile_dir / "agents"
     agents_dir.mkdir()
@@ -722,7 +722,7 @@ def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
         encoding="utf-8",
     )
 
-    profile_yaml = profile_dir / "broken.yml"
+    profile_yaml = profile_dir / "profile.yml"
     profile_yaml.write_text(
         yaml.dump(
             {
@@ -740,15 +740,7 @@ def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         result = runner.invoke(
             build,
-            [
-                "broken-build",
-                str(profile_yaml),
-                "--output-dir",
-                str(tmp_path / "out"),
-                "--skip-deps",
-                "--skip-lifecycle",
-                "--force",
-            ],
+            ["--repo", str(profile_dir), "--skip-deps", "--skip-lifecycle"],
             catch_exceptions=False,
         )
 

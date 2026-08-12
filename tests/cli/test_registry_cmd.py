@@ -3,7 +3,6 @@
 This test module verifies the registry display functions.
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,7 +11,6 @@ from osprey.cli.registry_cmd import (
     _display_providers_table,
     _display_services_table,
     display_registry_contents,
-    handle_registry_action,
 )
 
 
@@ -141,77 +139,3 @@ class TestDisplayProvidersTable:
 
         # Should not raise exception
         _display_providers_table(mock_registry, providers, verbose=False)
-
-
-class TestHandleRegistryAction:
-    """Test handle_registry_action function."""
-
-    def test_displays_registry_in_current_directory(self, mock_registry):
-        """Test displaying registry in current directory."""
-        with patch("osprey.cli.registry_cmd.display_registry_contents") as mock_display:
-            with patch("builtins.input"):  # Mock the "Press ENTER" input
-                mock_display.return_value = True
-
-                handle_registry_action(project_path=None, verbose=False)
-
-                # Should call display_registry_contents
-                assert mock_display.called
-
-    def test_changes_to_project_directory(self, tmp_path, mock_registry):
-        """Test changing to project directory before displaying."""
-        project_dir = tmp_path / "test-project"
-        project_dir.mkdir()
-
-        with patch("osprey.cli.registry_cmd.display_registry_contents") as mock_display:
-            with patch("builtins.input"):
-                mock_display.return_value = True
-
-                handle_registry_action(project_path=project_dir, verbose=False)
-
-                # Should call display
-                assert mock_display.called
-
-    def test_handles_directory_change_error(self, mock_registry):
-        """Test handling error when changing directory."""
-        bad_path = Path("/nonexistent/directory")
-
-        with patch("builtins.input"):
-            # Should not raise exception
-            handle_registry_action(project_path=bad_path, verbose=False)
-
-    def test_restores_original_directory(self, tmp_path, mock_registry):
-        """Test that original directory is restored after display."""
-        project_dir = tmp_path / "test-project"
-        project_dir.mkdir()
-
-        original_cwd = Path.cwd()
-
-        with patch("osprey.cli.registry_cmd.display_registry_contents") as mock_display:
-            with patch("builtins.input"):
-                mock_display.return_value = True
-
-                handle_registry_action(project_path=project_dir, verbose=False)
-
-                # Should be back in original directory
-                assert Path.cwd() == original_cwd
-
-    def test_handles_display_exception(self, mock_registry):
-        """Test handling exception during display."""
-        with patch("osprey.cli.registry_cmd.display_registry_contents") as mock_display:
-            with patch("builtins.input"):
-                mock_display.side_effect = Exception("Test error")
-
-                # Should not raise exception
-                handle_registry_action(project_path=None, verbose=False)
-
-    def test_verbose_mode_passed_to_display(self, mock_registry):
-        """Test that verbose flag is passed to display function."""
-        with patch("osprey.cli.registry_cmd.display_registry_contents") as mock_display:
-            with patch("builtins.input"):
-                mock_display.return_value = True
-
-                handle_registry_action(project_path=None, verbose=True)
-
-                # Should call with verbose=True
-                call_kwargs = mock_display.call_args[1]
-                assert call_kwargs["verbose"] is True

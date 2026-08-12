@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli import build_profile_presets
@@ -135,29 +136,24 @@ def test_extends_preset_chain_via_intermediate_file(tmp_path: Path) -> None:
     assert resolved.data_bundle == "hello_world"
 
 
-def test_build_from_profile_extending_preset_succeeds(runner: CliRunner, tmp_path: Path) -> None:
-    """End-to-end: build from a profile whose ``extends:`` references a preset by name."""
-    profile = tmp_path / "p.yml"
-    profile.write_text("extends: hello-world\nname: ExtTest\n")
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            str(profile),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    project_dir = tmp_path / "smoke"
-    assert (project_dir / "config.yml").exists()
-    # Manifest records this as a profile-sourced build, not preset.
-    import json
+def test_build_from_a_repo_whose_profile_extends_a_preset_by_name(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """End-to-end: a deployment repo's ``profile.yml`` with ``extends: hello-world``
+    (a bare preset name) builds through the real render pipeline, not just
+    through ``resolve_build_profile`` in isolation — so a mistake in how the
+    build wires preset resolution into the zero-argument render would show up
+    here even if the resolver itself still behaved correctly on its own."""
+    repo = tmp_path / "ext-repo"
+    repo.mkdir()
+    (repo / "profile.yml").write_text("extends: hello-world\nname: ExtTest\n", encoding="utf-8")
 
-    manifest = json.loads((project_dir / ".osprey-manifest.json").read_text())
-    assert manifest["build_args"]["source"] == "profile"
+    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+
+    assert result.exit_code == 0, result.output
+    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    # The preset's own provider flowed through the extends chain into the render.
+    assert config["claude_code"]["provider"] == "anthropic"
 
 
 def test_presets_dir_returns_directory_with_known_presets() -> None:

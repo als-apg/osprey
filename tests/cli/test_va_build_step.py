@@ -1,10 +1,19 @@
 """End-to-end wiring of the build's virtual-accelerator manifest step.
 
 ``tests/va/test_build_time_manifest.py`` covers the generator itself; this
-module covers the two things only a real ``osprey build`` can show: that the
-generated files land where the container's existing bind mount will find them,
-and that the ``.env`` keys pointing at them appear (and disappear) together
-with the files.
+module covers the things only a real ``osprey build`` can show: that the
+generated files land in the directory the container's bind mount actually
+resolves to, that the ``.env`` keys pointing at them appear (and stay away)
+together with the files, and that neither of those two facts can drift from the
+other without a test failing.
+
+The whole chain is one property, and it has three links: the manifest is
+written into ``build/data/simulation/``, the VA compose service mounts THAT
+directory at ``/data/simulation``, and the repo-root ``.env`` — the only file
+``--env-file`` gives compose — carries the ``VA_CHANNELS_FILE`` pointer at it.
+Break any one and the container either serves the framework's bundled channel
+namespace while the operator believes they are driving their own facility's, or
+refuses to boot: the entrypoint's manifest load raises on an absent file.
 """
 
 from __future__ import annotations
@@ -31,14 +40,24 @@ def _bundle_data_dir() -> Path:
     return Path(osprey.__file__).parent / "templates" / "apps" / "control_assistant" / "data"
 
 
-def _write_profile(profile_dir: Path) -> Path:
+def _write_profile(repo_dir: Path, *, deploy_va: bool = False) -> Path:
     """A profile sourcing its own copy of the bundled control-assistant tree.
 
     ``hierarchical`` resolves to tier 3, the tier whose three paradigm
     databases agree — the shape the generator can actually build from.
+
+    Written directly at the deployment repo's root, exactly where
+    ``osprey build`` looks for it — this suite exercises the build step in
+    isolation and has no need for ``osprey init``'s preset machinery.
+
+    ``deploy_va`` adds the ``virtual_accelerator:`` block, which is what makes
+    the build render the service's compose file. Off by default: every test
+    here but the mount one is about the files and the ``.env`` keys, both of
+    which the build produces whether or not the IOC is deployed, and rendering
+    a service costs each of them a template copy.
     """
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(_bundle_data_dir(), profile_dir / "data")
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(_bundle_data_dir(), repo_dir / "data")
 
     profile = {
         "name": "VA Build Step Test",
@@ -48,39 +67,46 @@ def _write_profile(profile_dir: Path) -> Path:
         "model": "haiku",
         "channel_finder_mode": "hierarchical",
     }
-    path = profile_dir / "profile.yml"
+    if deploy_va:
+        profile["virtual_accelerator"] = {"port": 5064}
+    path = repo_dir / "profile.yml"
     path.write_text(yaml.dump(profile, default_flow_style=False))
     return path
 
 
-def _invoke_build(profile_path: Path, output_dir: Path, project_name: str):
+def _invoke_build(repo_dir: Path):
     from click.testing import CliRunner
 
     from osprey.cli.main import cli
 
-    output_dir.mkdir(parents=True, exist_ok=True)
     return CliRunner().invoke(
         cli,
-        [
-            "build",
-            project_name,
-            str(profile_path),
-            "--output-dir",
-            str(output_dir),
-            "--skip-deps",
-            "--skip-lifecycle",
-        ],
+        ["build", "--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
     )
 
 
-def _build(profile_path: Path, output_dir: Path, project_name: str = "va-proj") -> Path:
-    result = _invoke_build(profile_path, output_dir, project_name)
+def _build(repo_dir: Path) -> Path:
+    result = _invoke_build(repo_dir)
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n"
         f"--- output ---\n{result.output}\n"
         f"--- exception ---\n{result.exception}"
     )
-    return output_dir / project_name
+    return repo_dir / "build"
+
+
+def _repo_env(repo_dir: Path) -> dict[str, str]:
+    """The deployment's one secret store, or ``{}`` when it has none yet.
+
+    The repo-root ``.env`` — the file the pinned compose invocation passes as
+    ``--env-file``, and therefore the only place a ``${VA_CHANNELS_FILE}`` in a
+    compose template can be substituted from. A repo that has never been
+    deployed and holds no provider key does not have one at all, which is not
+    the same fact as holding one without the VA keys; both answers read the
+    same here on purpose, because both mean "the container gets nothing".
+    """
+    env_path = repo_dir / ".env"
+    return parse_dotenv_file(env_path) if env_path.is_file() else {}
 
 
 @pytest.fixture(autouse=True)
@@ -91,39 +117,114 @@ def detected_provider_key(monkeypatch):
 
 class TestGeneratedFromProfileData:
     def test_manifest_and_limits_land_in_the_mounted_directory(self, tmp_path):
-        profile_path = _write_profile(tmp_path / "profile")
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
 
-        project_dir = _build(profile_path, tmp_path / "out")
+        project_dir = _build(repo_dir)
 
-        # data/simulation/ is the directory the VA compose file already
-        # bind-mounts, so neither file needs a compose change to be reachable.
+        # Both land in the render's own data/simulation/, which is the
+        # directory the VA compose file mounts — pinned as its own property by
+        # test_the_compose_mount_resolves_to_the_directory_written below, so
+        # this test can be about the files alone.
         simulation = project_dir / "data" / "simulation"
         assert (simulation / MANIFEST_FILENAME).is_file()
         assert (simulation / LIMITS_FILENAME).is_file()
 
     def test_manifest_loads_through_the_container_reader(self, tmp_path):
-        profile_path = _write_profile(tmp_path / "profile")
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
 
-        project_dir = _build(profile_path, tmp_path / "out")
+        project_dir = _build(repo_dir)
 
         channels = load_manifest_file(project_dir / "data" / "simulation" / MANIFEST_FILENAME)
         assert channels, "generated manifest served no channels"
 
     def test_env_points_the_container_at_the_generated_manifest(self, tmp_path):
-        profile_path = _write_profile(tmp_path / "profile")
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
 
-        project_dir = _build(profile_path, tmp_path / "out")
+        _build(repo_dir)
 
-        env = parse_dotenv_file(project_dir / ".env")
+        # The repo root, not the render: the render's own `.env` was retired
+        # with the one-repo secret store, and compose is pinned to
+        # `--env-file <repo>/.env`.
+        env = _repo_env(repo_dir)
         assert env["VA_CHANNELS_FILE"] == MANIFEST_FILENAME
         # Without this the entrypoint defaults a file-backed source to
         # lattice "none" and the PyAT physics bridge is never built.
         assert env["VA_LATTICE"] == "builtin"
 
+    def test_the_compose_mount_resolves_to_the_directory_written(self, tmp_path):
+        """The pointer and the mount have to name one directory.
+
+        ``VA_CHANNELS_FILE`` is a name resolved against the container's data
+        dir, so the value the test above pins is only meaningful if the mount
+        behind ``/data/simulation`` is the directory the manifest was written
+        into. Compose resolves a relative bind source against the pinned
+        project directory — the repo root — so the two are the same directory
+        only when the mount is spelled against ``build/``.
+        """
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir, deploy_va=True)
+
+        project_dir = _build(repo_dir)
+
+        compose = (
+            project_dir / "services" / "virtual_accelerator" / "docker-compose.yml"
+        ).read_text()
+        mount = next(line.strip() for line in compose.splitlines() if ":/data/simulation:" in line)
+        source = mount.removeprefix("- ").split(":/data/simulation:")[0]
+        assert (repo_dir / source).resolve() == (project_dir / "data" / "simulation").resolve(), (
+            f"the VA data mount resolves to {(repo_dir / source).resolve()}, which is not "
+            f"where the build wrote the manifest"
+        )
+
+    def test_a_value_already_on_file_is_never_replaced(self, tmp_path, caplog):
+        """The build reports a conflict; it does not resolve one.
+
+        The repo ``.env`` is the deployment's whole secret store, hand-edited
+        and written back to by ``osprey up``. A build appending to it must
+        behave like every other writer of that file — append-only, existing
+        value wins — or a rebuild would silently repoint a running IOC at a
+        different channel set than the one it booted with.
+        """
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
+        (repo_dir / ".env").write_text("VA_CHANNELS_FILE=my-own-manifest.json\n")
+
+        with caplog.at_level(logging.WARNING):
+            _build(repo_dir)
+
+        env = _repo_env(repo_dir)
+        assert env["VA_CHANNELS_FILE"] == "my-own-manifest.json"
+        # The key the build DID own and the file did not still lands.
+        assert env["VA_LATTICE"] == "builtin"
+        assert "VA_CHANNELS_FILE" in caplog.text
+
+    def test_rebuilding_neither_duplicates_nor_rewrites(self, tmp_path):
+        """A second build over its own output is a no-op on the store."""
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
+
+        _build(repo_dir)
+        first = (repo_dir / ".env").read_text()
+        _build(repo_dir)
+
+        assert (repo_dir / ".env").read_text() == first
+
+    def test_the_store_is_written_with_secret_permissions(self, tmp_path):
+        """It is the file holding the facility's provider keys."""
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
+
+        _build(repo_dir)
+
+        assert (repo_dir / ".env").stat().st_mode & 0o777 == 0o600
+
     def test_facility_data_edit_reaches_the_served_channel_set(self, tmp_path):
-        profile_dir = tmp_path / "profile"
-        profile_path = _write_profile(profile_dir)
-        machine_json = profile_dir / "data" / "simulation" / "machine.json"
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
+        machine_json = repo_dir / "data" / "simulation" / "machine.json"
         machine = json.loads(machine_json.read_text())
         machine["channels"]["SR:VAC:GAUGE:SR99:PRESSURE:RB"] = {
             "value": 1e-9,
@@ -132,15 +233,16 @@ class TestGeneratedFromProfileData:
         }
         machine_json.write_text(json.dumps(machine, indent=2))
 
-        project_dir = _build(profile_path, tmp_path / "out")
+        project_dir = _build(repo_dir)
 
         channels = load_manifest_file(project_dir / "data" / "simulation" / MANIFEST_FILENAME)
         assert "SR:VAC:GAUGE:SR99:PRESSURE:RB" in {c["address"] for c in channels}
 
     def test_limits_copy_matches_the_project_limits(self, tmp_path):
-        profile_path = _write_profile(tmp_path / "profile")
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
 
-        project_dir = _build(profile_path, tmp_path / "out")
+        project_dir = _build(repo_dir)
 
         # The entrypoint reads drive limits from beside the manifest; they
         # must be the same limits the project ships, or the accelerator
@@ -154,25 +256,47 @@ class TestSkippedWithoutParadigmDatabases:
     """A tree that can't back a manifest wires nothing at all."""
 
     def test_neither_files_nor_env_keys_appear(self, tmp_path):
-        profile_dir = tmp_path / "profile"
-        profile_path = _write_profile(profile_dir)
-        shutil.rmtree(profile_dir / "data" / "channel_databases" / "tiers")
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
+        shutil.rmtree(repo_dir / "data" / "channel_databases" / "tiers")
 
-        project_dir = _build(profile_path, tmp_path / "out")
+        project_dir = _build(repo_dir)
 
-        env = parse_dotenv_file(project_dir / ".env")
+        env = _repo_env(repo_dir)
         assert "VA_CHANNELS_FILE" not in env
         assert "VA_LATTICE" not in env
         assert not (project_dir / "data" / "simulation" / MANIFEST_FILENAME).exists()
 
+    def test_a_pointer_left_over_from_a_working_build_is_reported(self, tmp_path, caplog):
+        """The one case the append-only rule cannot fix by itself.
+
+        A repo that built a manifest once and then lost the databases behind it
+        keeps the pointer — the build does not own the operator's copy of that
+        file and will not edit a value out of it. What it must not do is stay
+        quiet: the pointer now names a file the mounted directory no longer
+        holds, and the entrypoint raises on an absent manifest rather than
+        falling back, so the next `osprey up` gets a container that will not
+        boot. Naming it is the whole remedy the operator needs.
+        """
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
+        (repo_dir / ".env").write_text(f"VA_CHANNELS_FILE={MANIFEST_FILENAME}\n")
+        shutil.rmtree(repo_dir / "data" / "channel_databases" / "tiers")
+
+        with caplog.at_level(logging.WARNING):
+            _build(repo_dir)
+
+        assert "VA_CHANNELS_FILE" in caplog.text
+        assert _repo_env(repo_dir)["VA_CHANNELS_FILE"] == MANIFEST_FILENAME
+
     def test_the_build_still_succeeds(self, tmp_path):
-        profile_dir = tmp_path / "profile"
-        profile_path = _write_profile(profile_dir)
-        (profile_dir / "data" / LIMITS_FILENAME).unlink()
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
+        (repo_dir / "data" / LIMITS_FILENAME).unlink()
 
         # Profile data is user-owned: a tree the generator can't use is not a
         # build failure, it just leaves the container's package fallback.
-        project_dir = _build(profile_path, tmp_path / "out")
+        project_dir = _build(repo_dir)
         assert (project_dir / "config.yml").is_file()
 
 
@@ -186,13 +310,13 @@ class TestCorruptFacilityDataFailsTheBuild:
     """
 
     def test_error_names_the_offending_file(self, tmp_path, caplog):
-        profile_dir = tmp_path / "profile"
-        profile_path = _write_profile(profile_dir)
-        corrupt = profile_dir / "data" / "channel_databases" / "tiers" / "tier3" / "in_context.json"
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir)
+        corrupt = repo_dir / "data" / "channel_databases" / "tiers" / "tier3" / "in_context.json"
         corrupt.write_text('{"channels": [ truncated')
 
         with caplog.at_level(logging.ERROR):
-            result = _invoke_build(profile_path, tmp_path / "out", "va-proj")
+            result = _invoke_build(repo_dir)
 
         assert result.exit_code != 0
         # The operator gets the path to go fix, not a bare KeyError from

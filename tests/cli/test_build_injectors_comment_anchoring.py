@@ -21,7 +21,7 @@ services:
     path: ./services/openobserve
     port: 5080          # Host port
 
-# Services to deploy with `osprey deploy up`
+# Services to deploy with `osprey up`
 deployed_services:
   - postgresql
   - openobserve

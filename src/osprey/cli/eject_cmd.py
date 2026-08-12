@@ -63,7 +63,7 @@ def _get_module_source_path(module_path: str) -> Path | None:
 
 @click.group()
 def eject():
-    """Copy framework components to local project for customization.
+    """Copy framework components out for customization.
 
     This command copies native framework services to your local project
     directory so you can modify them.

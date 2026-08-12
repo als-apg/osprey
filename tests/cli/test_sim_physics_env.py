@@ -7,7 +7,7 @@ the FR1/FR2 contract has to hold:
   ``validate_composition``, physics-device collisions raised by the pure compute
   step) runs *before* the first ``.env`` write, and so does the purge prompt --
   a rejected set or an aborted prompt leaves the project byte-identical;
-* the "run ``osprey deploy up``" notice fires exactly when the ``.env``'s
+* the "run ``osprey up``" notice fires exactly when the ``.env``'s
   physics block actually changed, in either direction, and only when a virtual
   accelerator is deployed to consume it.
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -29,6 +30,13 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
+from tests.cli._lifecycle_build import stub_build
+from tests.fixtures.lifecycle_repo import build_exemplar_repo
+
+#: The redeploy notice's own wording. Asserted through a constant so the
+#: presence and absence checks below cannot drift apart, and so a verb rename
+#: is one edit rather than a dozen.
+_NOTICE = "reads this only at container boot"
 
 # Two physics scenarios on disjoint devices, one physics-free scenario to clear
 # back to, one same-device pair (physics collision) and one same-channel pair
@@ -48,20 +56,44 @@ _SCENARIOS = {
 _CHANNELS = {"T:BPM1:X": {"value": 0.0, "units": "mm", "noise": 0.0}}
 
 
+def _stage_deployment(tmp_path: Path, config: dict, *, with_model: bool = True) -> Path:
+    """Materialize a three-zone deployment repo whose render carries *config*.
+
+    ``sim apply`` discovers a repo and then reads two different zones: the
+    render (``build/config.yml``) for what to do, and the repo root for the
+    ``data/simulation/`` model it names and the single ``.env`` it writes. A
+    flat directory cannot express that split, so the exemplar is what these
+    tests stage — with its shipped simulation tree replaced, because this file
+    needs its own scenarios.
+
+    The replacement is a ``rmtree`` rather than an overwrite on purpose: the
+    exemplar ships ``data/simulation/scenarios/`` as bundle directories, and
+    ``parse_machine`` prefers a ``scenarios/`` directory over a machine file's
+    inline ``scenarios`` key. Leaving it in place would silently ignore every
+    scenario declared here.
+    """
+    repo = build_exemplar_repo(tmp_path / "als-exemplar")
+
+    sim_dir = repo / "data" / "simulation"
+    shutil.rmtree(sim_dir, ignore_errors=True)
+    if with_model:
+        sim_dir.mkdir(parents=True)
+        (sim_dir / "machine.json").write_text(
+            json.dumps({"channels": _CHANNELS, "scenarios": _SCENARIOS})
+        )
+
+    stub_build(repo, config=yaml.safe_dump(config))
+    return repo
+
+
 def _make_project(tmp_path: Path, *, va_deployed: bool = True, ariel: bool = False) -> Path:
-    """Stage a sim-backed project rooted at ``tmp_path`` and return its path.
+    """Stage a sim-backed deployment and return its repo root.
 
     ``va_deployed`` controls the notice's gate (``deployed_services``
     membership, not ``control_system.type`` -- the reference preset's default
     shape is mock-type *with* the VA deployed). ``ariel`` adds the config key
     that turns on the purge-confirmation prompt.
     """
-    sim_dir = tmp_path / "data" / "simulation"
-    sim_dir.mkdir(parents=True, exist_ok=True)
-    (sim_dir / "machine.json").write_text(
-        json.dumps({"channels": _CHANNELS, "scenarios": _SCENARIOS})
-    )
-
     deployed = ["postgresql"] + (["virtual_accelerator"] if va_deployed else [])
     config: dict = {
         "control_system": {
@@ -71,13 +103,17 @@ def _make_project(tmp_path: Path, *, va_deployed: bool = True, ariel: bool = Fal
     }
     if ariel:
         config["ariel"] = {"database": {"host": "localhost"}}
-    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
-    return tmp_path
+    return _stage_deployment(tmp_path, config)
 
 
 def _apply(project: Path, monkeypatch, *args: str, **kwargs):
-    """Invoke ``sim apply`` with the project as the working directory."""
-    monkeypatch.chdir(project)
+    """Invoke ``sim apply`` from a subdirectory of *project*.
+
+    Deliberately not from the repo root: the walk-up rule is what makes this
+    work from anywhere inside a deployment, and running from the root would let
+    a regression to "cwd is the project" pass here unnoticed.
+    """
+    monkeypatch.chdir(project / "personas")
     return CliRunner().invoke(sim_group, ["apply", *args], **kwargs)
 
 
@@ -124,14 +160,17 @@ class TestRenderAndNotice:
         assert result.exit_code == 0, result.output
         assert _env_lines(project) == ["VA_CORR_GAIN=HCM01=1.15"]
 
-    def test_notice_names_deploy_up_and_warns_that_restart_is_not_enough(
+    def test_notice_names_osprey_up_and_warns_that_restart_is_not_enough(
         self, tmp_path, monkeypatch
     ):
         project = _make_project(tmp_path)
 
         result = _apply(project, monkeypatch, "corr-fault", "--no-seed")
 
-        assert "osprey deploy up" in result.output
+        assert _NOTICE in result.output
+        # The remedy verb itself, spelled out once: the notice is useless if it
+        # names a command that no longer exists.
+        assert "osprey up" in result.output
         # A plain restart reuses the old environment -- the user has to be told
         # that specifically, or they will "restart" and see the old physics.
         assert "docker restart" in result.output
@@ -143,7 +182,7 @@ class TestRenderAndNotice:
         result = _apply(project, monkeypatch, "corr-fault", "--no-seed")
 
         assert result.exit_code == 0, result.output
-        assert "deploy up" not in result.output
+        assert _NOTICE not in result.output
         assert _env_lines(project) == ["VA_CORR_GAIN=HCM01=1.15"]
 
     def test_clearing_a_fault_emits_the_notice(self, tmp_path, monkeypatch):
@@ -155,7 +194,7 @@ class TestRenderAndNotice:
         result = _apply(project, monkeypatch, "no-fault", "--no-seed")
 
         assert result.exit_code == 0, result.output
-        assert "osprey deploy up" in result.output
+        assert _NOTICE in result.output
         assert _env_lines(project) == []
 
     def test_switching_faults_emits_the_notice(self, tmp_path, monkeypatch):
@@ -164,7 +203,7 @@ class TestRenderAndNotice:
 
         result = _apply(project, monkeypatch, "bpm-fault", "--no-seed")
 
-        assert "osprey deploy up" in result.output
+        assert _NOTICE in result.output
         assert _env_lines(project) == ["VA_BPM_ERRORS=BPM17:polarity_x=-1.0,polarity_y=-1.0"]
 
     def test_notice_is_silent_when_no_va_is_deployed(self, tmp_path, monkeypatch):
@@ -175,7 +214,7 @@ class TestRenderAndNotice:
         result = _apply(project, monkeypatch, "corr-fault", "--no-seed")
 
         assert result.exit_code == 0, result.output
-        assert "deploy up" not in result.output
+        assert _NOTICE not in result.output
         assert _env_lines(project) == ["VA_CORR_GAIN=HCM01=1.15"]
 
     def test_no_physics_apply_on_an_unnormalized_env_stays_silent(self, tmp_path, monkeypatch):
@@ -189,7 +228,7 @@ class TestRenderAndNotice:
         result = _apply(project, monkeypatch, "no-fault", "--no-seed")
 
         assert result.exit_code == 0, result.output
-        assert "deploy up" not in result.output
+        assert _NOTICE not in result.output
         assert "Cleared" not in result.output
         assert (project / ".env").read_text() == "A=1\n"  # normalized anyway
 
@@ -204,7 +243,7 @@ class TestRenderAndNotice:
             result = _apply(project, monkeypatch, "corr-fault", "--no-seed")
 
         assert result.exit_code != 0
-        assert "osprey deploy up" in result.output
+        assert _NOTICE in result.output
         assert _env_lines(project) == ["VA_CORR_GAIN=HCM01=1.15"]
 
 
@@ -303,16 +342,16 @@ class TestPromptAbort:
 
 
 class TestNonSimulationProject:
-    """A project with no simulation file keeps its original error path."""
+    """A deployment with no simulation file keeps its original error path."""
 
     def test_non_sim_project_errors_without_writing(self, tmp_path, monkeypatch):
-        (tmp_path / "config.yml").write_text(yaml.safe_dump({"control_system": {}}))
+        project = _stage_deployment(tmp_path, {"control_system": {}}, with_model=False)
 
-        result = _apply(tmp_path, monkeypatch, "nominal", "--no-seed")
+        result = _apply(project, monkeypatch, "nominal", "--no-seed")
 
         assert result.exit_code != 0
         assert "simulation-backed" in result.output
-        assert not (tmp_path / ".env").is_file()
+        assert not (project / ".env").is_file()
 
 
 @pytest.mark.parametrize("names", [("corr-fault",), ("bpm-fault",), ("no-fault",)])
@@ -325,5 +364,5 @@ def test_apply_is_idempotent_on_repeat(tmp_path, monkeypatch, names):
     result = _apply(project, monkeypatch, *names, "--no-seed")
 
     assert result.exit_code == 0, result.output
-    assert "deploy up" not in result.output
+    assert _NOTICE not in result.output
     assert ((project / ".env").read_text() if (project / ".env").is_file() else None) == first

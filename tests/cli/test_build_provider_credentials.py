@@ -24,19 +24,25 @@ from osprey.cli.build_environment import (
 
 
 @pytest.fixture
-def project(tmp_path):
-    """An empty built-project directory."""
+def repo(tmp_path):
+    """An empty deployment repo — the directory whose ``.env`` holds the keys."""
     p = tmp_path / "my-control-assistant"
     p.mkdir()
     return p
 
 
 @pytest.fixture
-def profile_dir(tmp_path):
-    """An empty build-profile directory, sibling to the built project."""
-    p = tmp_path / "my-control-assistant-profile"
+def project(repo):
+    """The repo's build zone, which is what a build hands the detector."""
+    p = repo / "build"
     p.mkdir()
     return p
+
+
+@pytest.fixture
+def profile_dir(repo):
+    """The repo root, under the parameter name the detector still uses."""
+    return repo
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +65,7 @@ def _status_for(statuses: list[CredentialStatus], provider: str) -> CredentialSt
 
 
 class TestDetectProviderCredentials:
-    """Detection covers every source the built project can authenticate from."""
+    """Detection covers every source the built deployment can authenticate from."""
 
     def test_key_in_project_env_is_found(self, project, profile_dir):
         (project / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
@@ -69,7 +75,7 @@ class TestDetectProviderCredentials:
         cborg = _status_for(statuses, "cborg")
         assert cborg.found is True
         assert cborg.var == "CBORG_API_KEY"
-        assert cborg.source == "project .env"
+        assert cborg.source == "build/.env"
 
     def test_key_in_shell_environment_is_found(self, project, profile_dir, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-xxx")
@@ -81,14 +87,14 @@ class TestDetectProviderCredentials:
         assert anthropic.source == "shell environment"
 
     def test_key_in_profile_env_is_found(self, project, profile_dir):
-        """The profile ``.env`` is the durable record the project derives from."""
+        """The repo's ``.env`` is the deployment's one secret store."""
         (profile_dir / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
 
         statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
         cborg = _status_for(statuses, "cborg")
         assert cborg.found is True
-        assert cborg.source == "profile .env"
+        assert cborg.source == "repo .env"
 
     def test_project_env_wins_over_profile_env(self, project, profile_dir):
         (profile_dir / ".env").write_text("CBORG_API_KEY=from-profile\n", encoding="utf-8")
@@ -96,7 +102,7 @@ class TestDetectProviderCredentials:
 
         statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
-        assert _status_for(statuses, "cborg").source == "project .env"
+        assert _status_for(statuses, "cborg").source == "build/.env"
 
     def test_profile_env_wins_over_the_shell(self, project, profile_dir, monkeypatch):
         monkeypatch.setenv("CBORG_API_KEY", "from-shell")
@@ -104,13 +110,13 @@ class TestDetectProviderCredentials:
 
         statuses = detect_provider_credentials(project, profile_dir=profile_dir)
 
-        assert _status_for(statuses, "cborg").source == "profile .env"
+        assert _status_for(statuses, "cborg").source == "repo .env"
 
     def test_working_directory_dotenv_is_not_a_source(self, project, tmp_path, monkeypatch):
         """An ambient ``.env`` beside the build's cwd is not a credential source.
 
-        It is host state the built project never carries, so reporting it as
-        found described the machine rather than the project.
+        It is host state the deployment never carries, so reporting it as
+        found described the machine rather than the deployment.
         """
         monkeypatch.chdir(tmp_path)
         (tmp_path / ".env").write_text("CBORG_API_KEY=from-cwd\n", encoding="utf-8")
@@ -125,7 +131,7 @@ class TestDetectProviderCredentials:
 
         statuses = detect_provider_credentials(project)
 
-        assert _status_for(statuses, "cborg").source == "project .env"
+        assert _status_for(statuses, "cborg").source == "build/.env"
 
     def test_missing_key_is_reported_not_found(self, project, profile_dir):
         statuses = detect_provider_credentials(project, profile_dir=profile_dir)
@@ -171,7 +177,7 @@ class TestReportProviderCredentials:
         text = caplog.text
         assert "cborg" in text
         assert "CBORG_API_KEY" in text
-        assert "project .env" in text
+        assert "build/.env" in text
 
     def test_secret_value_is_never_logged(self, project, profile_dir, caplog):
         (project / ".env").write_text("CBORG_API_KEY=super-secret-value\n", encoding="utf-8")
@@ -188,7 +194,7 @@ class TestReportProviderCredentials:
             report_provider_credentials(project, "cborg", profile_dir=profile_dir)
 
         assert "profile-secret" not in caplog.text
-        assert "profile .env" in caplog.text
+        assert "repo .env" in caplog.text
 
     def test_other_found_keys_are_listed(self, project, profile_dir, monkeypatch, caplog):
         (project / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
@@ -219,26 +225,19 @@ class TestReportProviderCredentials:
     def test_missing_selected_provider_names_the_profile_env_path(
         self, project, profile_dir, caplog
     ):
-        """The remedy must point at the profile, which owns the secret.
+        """The remedy must point at the profile's ``.env``, which owns the secret.
 
-        Pointing at the project ``.env`` would name the one place the key is
-        guaranteed not to survive: the next build derives the project ``.env``
-        from the profile, and a project-only key matches none of the categories
-        that derivation keeps. This is the only message an operator sees when a
-        key is missing, so naming the wrong file loses their secret silently.
+        Pointing at the render's directory would name the one place the key is
+        guaranteed not to survive: the render is ``build/``, wiped and re-made
+        whole by every build, and it holds no ``.env`` for a key to be written
+        into at all. This is the only message an operator sees when a key is
+        missing, so naming the wrong file loses their secret silently.
         """
         with caplog.at_level(logging.INFO):
             report_provider_credentials(project, "anthropic", profile_dir=profile_dir)
 
         assert str(profile_dir / ".env") in caplog.text
         assert str(project / ".env") not in caplog.text
-
-    def test_missing_selected_provider_falls_back_to_the_project_env_path(self, project, caplog):
-        """With no profile there is nothing else to name (legacy preset build)."""
-        with caplog.at_level(logging.INFO):
-            report_provider_credentials(project, "anthropic", profile_dir=None)
-
-        assert str(project / ".env") in caplog.text
 
     def test_missing_selected_provider_key_does_not_abort(self, project, profile_dir):
         """A missing key is a warning: the project is still worth building."""

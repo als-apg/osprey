@@ -222,7 +222,13 @@ class TestBuildDatabaseOutputAnchoring:
         assert result.exit_code == 0
         printed = _squashed(result.output)
         assert "stale" in printed
-        assert "--force" in printed
+        # The command that clears the staleness is a bare `osprey build`.
+        # It used to be `build --force`; the flag is retired, so a message
+        # naming it would hand the operator a command line that no longer
+        # parses. Both halves asserted, because the fragment is exactly
+        # what went stale here.
+        assert "ospreybuild" in printed
+        assert "--force" not in printed
 
     def test_no_profile_falls_back_to_the_project_data_tree(self, runner, tmp_path):
         """A preset-built project has no profile to own the database."""
@@ -443,7 +449,13 @@ class TestBuildDatabaseOutputAnchoring:
         assert result.exit_code == 0
         printed = _squashed(result.output)
         assert "stale" in printed
-        assert "--force" in printed
+        # The command that clears the staleness is a bare `osprey build`.
+        # It used to be `build --force`; the flag is retired, so a message
+        # naming it would hand the operator a command line that no longer
+        # parses. Both halves asserted, because the fragment is exactly
+        # what went stale here.
+        assert "ospreybuild" in printed
+        assert "--force" not in printed
 
 
 # ============================================================================

@@ -1,12 +1,14 @@
-"""Tests that the env-file templates derive providers from the registry.
+"""Tests that ``.env.example`` derives its providers from the registry.
 
-``project/env.j2`` and ``project/env.example.j2`` iterate the
-``provider_api_keys`` context entry (built from
-``osprey.models.provider_registry.PROVIDER_API_KEYS``) instead of
+``project/env.example.j2`` iterates the ``provider_api_keys`` context entry
+(built from ``osprey.models.provider_registry.PROVIDER_API_KEYS``) instead of
 hand-listing providers, so a provider added to the registry automatically
-appears in scaffolded env files — and a detected key's real value is always
-written (the old hand-list dropped ALS_APG_API_KEY and discarded the
-detected ARGO_API_KEY value).
+appears in the emitted example.
+
+Its former sibling ``project/env.j2`` is gone. The render writes no ``.env`` at
+all now — the deployment's one secret store is the repo-root ``.env``, written
+by ``osprey init``'s shell harvest and ``osprey up``'s token mint, neither of
+which renders a template.
 """
 
 from __future__ import annotations
@@ -49,35 +51,6 @@ class TestProviderApiKeyEntries:
         providers = {e["provider"] for e in provider_api_key_entries()}
         assert "ollama" not in providers
         assert "vllm" not in providers
-
-
-class TestEnvJ2:
-    """``env.j2`` renders no provider key at all — the profile supplies them.
-
-    The template has no path from an environment value to a rendered line, so
-    it cannot leak one whatever a caller puts in the context. The profile's own
-    keys are applied *after* the render by
-    :func:`osprey.utils.dotenv.derive_project_env`; the end-to-end pin for that
-    lives in ``tests/cli/test_detect_env_vars.py``.
-    """
-
-    def test_no_provider_key_is_rendered_from_the_context(self):
-        rendered = _render(
-            "project/env.j2",
-            _base_ctx({"ALS_APG_API_KEY": "als-secret", "ARGO_API_KEY": "argo-secret"}),
-        )
-        assert "als-secret" not in rendered
-        assert "argo-secret" not in rendered
-        for entry in provider_api_key_entries():
-            assert f"{entry['var']}=" not in rendered
-
-    def test_path_vars_are_commented_build_computed_hints(self):
-        """Never uncommented from an ambient value — a live line means the
-        profile declared it, and the derivation carries it in."""
-        rendered = _render("project/env.j2", _base_ctx({"PROJECT_ROOT": "/from/shell"}))
-        assert "/from/shell" not in rendered
-        assert "#PROJECT_ROOT=/tmp/test-project" in rendered
-        assert "#LOCAL_PYTHON_VENV=/usr/bin/python3" in rendered
 
 
 class TestEnvExampleJ2:

@@ -1,15 +1,16 @@
-"""Persona-profile emission: the trigger predicate and what ``profile new`` writes.
+"""Persona-profile emission: the trigger predicate and what ``osprey init`` writes.
 
 A profile that stands up the multi-user web-terminal stack owns its personas
-too (D7a): ``osprey profile new`` emits a sibling ``personas/<name>.yml`` per
-catalog entry and rewrites the catalog's ``build_profile`` values to name those
-files instead of bundled preset names.
+too (D7a): ``osprey init`` emits a ``personas/<name>.yml`` per catalog entry
+beside the repo's ``profile.yml``, and rewrites the catalog's ``build_profile``,
+``project`` and ``project_path`` values to name those files and this repo's own
+build zone instead of bundled preset names.
 
 Each emitted file is a pure DELTA (FR-10) — the persona preset's own layer and
-nothing else, with no ``extends:``. Sitting in ``personas/`` beside the host
-``profile.yml`` IS the inheritance: the build merges the delta over that
-profile and anchors every profile-relative path at the host's directory. So the
-whole stack shares ONE facility data tree, one trigger config, and one set of
+nothing else, with no ``extends:``. Sitting in ``personas/`` beside the repo's
+``profile.yml`` IS the inheritance: a persona render merges the delta over that
+profile and anchors every profile-relative path at the repo root. So the whole
+stack shares ONE facility data tree, one trigger config, and one set of
 convention dirs, and none of them is restated in a persona file.
 
 Whether a profile triggers that emission is decided by
@@ -36,7 +37,7 @@ from osprey.cli.build_profile_emit import (
     emits_persona_profiles,
     persona_catalog,
 )
-from osprey.cli.profile_cmd import profile
+from osprey.cli.init_cmd import init
 
 # The bundled preset(s) that stand up the multi-user stack themselves.
 TRIGGER_PRESETS = ("control-assistant",)
@@ -55,13 +56,13 @@ def runner() -> CliRunner:
 
 
 def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
-    """Create a facility repo whose profile directory is *target*.
+    """Materialize a deployment repo at *target*.
 
-    ``osprey profile new`` is given the repo root — *target*'s parent — and
-    writes the profile into ``<repo>/profile/``. Tests name the profile
-    directory because the persona siblings sit beside it.
+    The repo root IS the source zone, so ``personas/`` sits directly beside the
+    ``profile.yml`` the deltas merge over. ``--no-git`` throughout: nothing here
+    reads the history.
     """
-    return runner.invoke(profile, ["new", str(target.parent), "--preset", preset, *extra])
+    return runner.invoke(init, [str(target), "--preset", preset, "--no-git", *extra])
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +157,7 @@ def test_non_triggering_shapes(config: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# What `profile new` writes for a triggering preset
+# What `osprey init` writes for a triggering preset
 # ---------------------------------------------------------------------------
 
 
@@ -168,7 +169,7 @@ def _catalog_of(profile_path: Path) -> dict:
 @pytest.mark.parametrize("preset", TRIGGER_PRESETS)
 def test_sibling_persona_profiles_are_emitted(runner: CliRunner, tmp_path: Path, preset: str):
     """One ``personas/<name>.yml`` per catalog entry, and nothing else in there."""
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
     resolved, _dir = resolve_build_profile(None, preset)
     expected = set(persona_catalog(resolved.config))
 
@@ -185,7 +186,7 @@ def test_no_persona_restates_the_shared_data_tree(runner: CliRunner, tmp_path: P
     carries ``data: data``; a persona delta names no tree at all, because the
     merge anchors it at the host's directory. A ``data:`` here would be a second
     copy of the same decision, free to drift from the host's."""
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     assert _new(runner, target, preset).exit_code == 0
 
@@ -202,7 +203,7 @@ def test_catalog_is_rewritten_to_point_at_the_sibling_profiles(
 ):
     """The whole point: the emitted stack names FILES the facility owns, not
     bundled preset names that would ignore its data tree."""
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     assert _new(runner, target, preset).exit_code == 0
 
@@ -227,7 +228,7 @@ def test_persona_profiles_are_deltas_and_keep_their_posture(
     There is no ``extends:``: living in ``personas/`` beside the host profile is
     what makes the file a delta, and a written ``extends:`` there is rejected at
     build time."""
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     assert _new(runner, target, preset).exit_code == 0
 
@@ -251,7 +252,7 @@ def test_host_profile_edits_are_not_shadowed_by_any_persona(
     files. That holds because no persona file carries a competing value, which
     is what this pins; that the merge then applies the host's value is pinned by
     the implicit-delta resolver's own tests."""
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
     assert _new(runner, target, preset).exit_code == 0
 
     host_file = target / "profile.yml"
@@ -271,7 +272,7 @@ def test_host_profile_edits_are_not_shadowed_by_any_persona(
 def test_non_trigger_presets_emit_no_personas_directory(
     runner: CliRunner, tmp_path: Path, preset: str
 ):
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     assert _new(runner, target, preset).exit_code == 0
 
@@ -285,21 +286,17 @@ def test_emitted_host_profile_builds_end_to_end(runner: CliRunner, tmp_path: Pat
     resolver's job, and its own tests cover that half."""
     from osprey.cli.build_cmd import build
 
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
     assert _new(runner, target, "control-assistant").exit_code == 0
 
     # Edit the ONE facility data tree the whole stack reads.
     edited = target / "data" / "facility-marker.txt"
     edited.write_text("mark\n", encoding="utf-8")
 
-    out = tmp_path / "out"
-    host = runner.invoke(
-        build,
-        ["host", str(target / "profile.yml"), "--skip-deps", "--skip-lifecycle", "-o", str(out)],
-    )
+    host = runner.invoke(build, ["--repo", str(target), "--skip-deps", "--skip-lifecycle"])
     assert host.exit_code == 0, host.output
 
-    assert (out / "host" / "data" / "facility-marker.txt").read_bytes() == b"mark\n"
+    assert (target / "build" / "data" / "facility-marker.txt").read_bytes() == b"mark\n"
     for persona_file in sorted((target / "personas").iterdir()):
         assert "data" not in yaml.safe_load(persona_file.read_text()), persona_file.name
 
@@ -313,7 +310,7 @@ def test_emitted_host_profile_builds_end_to_end(runner: CliRunner, tmp_path: Pat
 def test_baked_model_selection_reaches_every_persona_by_inheritance(
     runner: CliRunner, tmp_path: Path, preset: str
 ) -> None:
-    """A provider/model chosen at ``profile new`` time retints the WHOLE stack:
+    """A provider/model chosen at ``osprey init`` time retints the WHOLE stack:
     baked once into the host profile and inherited by every persona through the
     implicit merge. Nothing is copied into the persona files — the host is the
     single place the choice lives, which is what makes one edit enough.
@@ -322,7 +319,7 @@ def test_baked_model_selection_reaches_every_persona_by_inheritance(
     shares one data tree, so a persona materializing a different
     channel-database tier than its host was an inconsistency, not a feature.
     """
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     result = _new(
         runner,
@@ -362,7 +359,7 @@ def test_baked_override_file_model_selection_is_inherited_too(
     and nowhere else."""
     override = tmp_path / "o.yml"
     override.write_text("provider: cborg\nmodel: opus\n", encoding="utf-8")
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     assert _new(runner, target, "control-assistant", "-O", str(override)).exit_code == 0
 
@@ -378,7 +375,7 @@ def test_persona_preset_outside_the_host_chain_is_rejected(
 ) -> None:
     """A catalog entry whose preset does not extend the host's preset is not a
     delta over this profile: its own base would be silently dropped. There is no
-    approximation to fall back to, so ``profile new`` refuses and says what to
+    approximation to fall back to, so ``osprey init`` refuses and says what to
     do instead.
 
     No bundled preset shares control-assistant's app template from outside its
@@ -407,7 +404,7 @@ def test_persona_preset_outside_the_host_chain_is_rejected(
     monkeypatch.setattr(
         build_profile_presets, "_preset_extends_chain_reaches", out_of_chain_for_readonly
     )
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     result = _new(runner, target, "control-assistant")
 
@@ -442,7 +439,7 @@ def test_persona_rendering_a_different_app_template_is_rejected(
 ) -> None:
     """One shared ``../data`` tree cannot serve two app templates. Caught before
     anything is written, and every affected persona is named at once."""
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     result = _new(runner, target, "control-assistant", "--set", "app_template=hello_world")
 
@@ -462,7 +459,7 @@ def test_persona_name_that_is_not_a_plain_file_name_is_rejected(
         tmp_path,
         {bad_name: {"project": "x", "project_path": "../x", "build_profile": "control-assistant"}},
     )
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     result = _new(runner, target, "control-assistant", "-O", str(override))
 
@@ -484,7 +481,7 @@ def test_persona_build_profile_that_does_not_resolve_is_rejected(
             }
         },
     )
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     result = _new(runner, target, "control-assistant", "-O", str(override))
 
@@ -496,7 +493,7 @@ def test_persona_build_profile_that_does_not_resolve_is_rejected(
 
 def test_persona_with_no_build_profile_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
     override = _persona_override(tmp_path, {"bare": {"project": "b", "project_path": "../b"}})
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     result = _new(runner, target, "control-assistant", "-O", str(override))
 
@@ -516,7 +513,7 @@ def test_every_unusable_persona_is_reported_in_one_error(runner: CliRunner, tmp_
             "ghost": {"project": "g", "project_path": "../g", "build_profile": "no-such-preset"},
         },
     )
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
 
     result = _new(runner, target, "control-assistant", "-O", str(override))
 
@@ -529,53 +526,48 @@ def test_every_unusable_persona_is_reported_in_one_error(runner: CliRunner, tmp_
 
 
 @pytest.mark.parametrize("preset", TRIGGER_PRESETS)
-def test_deploy_auto_render_reaches_the_emitted_sibling_profiles(
+def test_the_build_renders_every_catalog_entry_the_emitter_wrote(
     runner: CliRunner, tmp_path: Path, preset: str, monkeypatch
 ) -> None:
-    """The seam between the two halves of this feature: what the emitter writes
-    into the catalog is what ``osprey deploy up``'s auto-render resolves and
-    hands to ``osprey build``.
+    """The seam between the two halves of this feature: every persona the
+    emitter puts in the catalog is one the build renders at the path that entry
+    names, and the start path agrees.
 
-    Driven from the REAL rendered project — its config.yml carries the rewritten
-    catalog and its manifest carries the ``profile_path_abs`` the relative
-    ``personas/<name>.yml`` values are anchored on — so nothing here is
-    hand-assembled around the code under test.
+    Both ends are real — a real `osprey init` writes the catalog and the deltas,
+    a real `osprey build` renders them — because the defect this guards against
+    lives between them: a catalog value and a render location derived
+    separately would agree in a unit test of either one and disagree on disk.
     """
     from osprey.cli.build_cmd import build
     from osprey.deployment.web_terminals import persona_images
     from osprey.deployment.web_terminals.personas import resolve_personas
     from osprey.utils.config import ConfigBuilder
 
-    target = tmp_path / "my-facility" / "profile"
+    target = tmp_path / "my-facility"
     assert _new(runner, target, preset).exit_code == 0
-    out = tmp_path / "out"
-    result = runner.invoke(
-        build,
-        ["host", str(target / "profile.yml"), "--skip-deps", "--skip-lifecycle", "-o", str(out)],
-    )
+    result = runner.invoke(build, ["--repo", str(target), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
 
-    project_root = out / "host"
-    config = ConfigBuilder(str(project_root / "config.yml")).raw_config
+    config = ConfigBuilder(str(target / "build" / "config.yml")).raw_config
     web_terminals = config["modules"]["web_terminals"]
+    catalog = web_terminals["personas"]
+    expected = set(persona_catalog(resolve_build_profile(None, preset)[0].config))
+    assert set(catalog) == expected
+
+    for name in expected:
+        # The delta the emitter wrote, and the render the build made from it.
+        assert (target / "personas" / f"{name}.yml").is_file()
+        rendered = target / "build" / f"{target.name}-{name}"
+        assert rendered.is_dir(), f"{name} was never rendered"
+        # The catalog value is repo-relative and resolves to exactly that.
+        assert (target / catalog[name]["project_path"]).resolve() == rendered.resolve()
+        assert catalog[name]["build_profile"] == f"personas/{name}.yml"
+
+    # And the start path, which reads the catalog rather than the deltas, finds
+    # every one of them. `up` chdirs into the repo before provisioning.
+    monkeypatch.chdir(target)
     users = resolve_personas(web_terminals, config.get("registry", {}), "test", strict=False)
-    # Persona project_paths are `../<project>` siblings of the deployed project;
-    # from this tmp cwd none exist, so every persona needs an auto-render.
-    monkeypatch.chdir(project_root)
-    calls: list[list[str]] = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
-
-    persona_images.auto_render_missing_personas(config, users, {}, project_root=project_root)
-
-    rendered_from = {call[call.index("build") + 2] for call in calls}
-    expected = {
-        str((target / "personas" / f"{name}.yml").resolve())
-        for name in persona_catalog(resolve_build_profile(None, preset)[0].config)
-    }
-    assert rendered_from == expected
-    assert all(Path(path).is_file() for path in rendered_from)
-    # Positional, never --preset: these are files, not bundled preset names.
-    assert not any("--preset" in call for call in calls)
+    persona_images.verify_persona_renders(config, users, repo_root=target)
 
 
 # ---------------------------------------------------------------------------
@@ -622,7 +614,7 @@ def test_benchmark_results_in_a_source_checkout_are_not_materialized(
     exhaust = results / "run-from-a-test.json"
     exhaust.write_text("{}", encoding="utf-8")
     try:
-        target = tmp_path / "my-facility" / "profile"
+        target = tmp_path / "my-facility"
         assert _new(runner, target, "control-assistant").exit_code == 0
 
         assert not (target / "data" / "benchmarks" / "results").exists()

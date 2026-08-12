@@ -6,7 +6,7 @@ of the settings inside it: no ``explicit_overrides`` marker, and no ``--set``
 replayed onto the rebuild command.
 """
 
-from osprey.cli.templates.manifest import build_reproducible_command, extract_build_args
+from osprey.cli.templates.manifest import extract_build_args
 
 
 def _args(context, *, preset_name="control-assistant", profile_path=None):
@@ -73,20 +73,3 @@ def test_profile_path_abs_recorded_for_a_positional_build():
     assert args["source"] == "profile"
     assert args["profile_path"] == "prof/profile.yml"
     assert args["profile_path_abs"] == "/abs/prof/profile.yml"
-
-
-def test_reproducible_command_replays_no_set_pairs():
-    """The command names the source and stops there.
-
-    Provider and model live in the profile the command re-reads, so replaying
-    them would only pin a stale copy on the command line.
-    """
-    args = _args({"default_provider": "als-apg", "default_model": "anthropic/claude-opus"})
-    assert build_reproducible_command(args) == "osprey build proj --preset control-assistant"
-
-
-def test_reproducible_command_positional_form():
-    args = _args(
-        {"default_provider": "anthropic"}, preset_name=None, profile_path="prof/profile.yml"
-    )
-    assert build_reproducible_command(args) == "osprey build proj prof/profile.yml"

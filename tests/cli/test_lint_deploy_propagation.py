@@ -168,7 +168,7 @@ def test_a_malformed_config_block_is_refused_by_name_not_by_traceback(
 
     validated = runner.invoke(profile_group, ["validate", str(path)])
     with caplog.at_level("ERROR"):
-        built = _build(runner, path, tmp_path / "out")
+        built = _build(runner, path)
 
     assert validated.exit_code == 2, validated.output
     assert "config must be a mapping" in validated.output
@@ -233,17 +233,16 @@ def _write_profile(
     return path
 
 
-def _build(runner: CliRunner, profile_path: Path, out: Path):
+def _build(runner: CliRunner, profile_path: Path):
+    """Build the deployment repo *profile_path* sits at the root of.
+
+    ``profile.yml`` must already be at the repo root — every caller here
+    writes it there directly, with no ``osprey init`` in between, so this
+    just points ``osprey build --repo`` at that directory.
+    """
     return runner.invoke(
         build,
-        [
-            "demo",
-            str(profile_path),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(out),
-        ],
+        ["--repo", str(profile_path.parent), "--skip-deps", "--skip-lifecycle"],
     )
 
 
@@ -255,7 +254,7 @@ def test_a_profile_the_deploy_block_rescues_both_validates_and_builds(
     path = _write_profile(tmp_path / "profile", deploy=dict(DEPLOY_BLOCK), config=_config())
 
     validated = runner.invoke(profile_group, ["validate", str(path)])
-    built = _build(runner, path, tmp_path / "out")
+    built = _build(runner, path)
 
     assert validated.exit_code == 0, validated.output
     assert built.exit_code == 0, built.output
@@ -271,7 +270,7 @@ def test_a_profile_neither_can_rescue_is_refused_by_both_with_one_message(
 
     validated = runner.invoke(profile_group, ["validate", str(path)])
     with caplog.at_level("ERROR"):
-        built = _build(runner, path, tmp_path / "out")
+        built = _build(runner, path)
 
     assert validated.exit_code == 2, validated.output
     assert built.exit_code != 0, built.output

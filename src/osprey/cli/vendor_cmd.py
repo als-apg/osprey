@@ -8,10 +8,9 @@ def vendor():
     """Manage locally bundled vendor assets (JS/CSS/fonts).
 
     By default OSPREY interfaces load third-party libraries directly from CDN,
-    so no setup is required. These commands populate ``static/vendor/`` dirs
-    for firewalled deployments — set ``OSPREY_OFFLINE=1`` (or
-    ``offline: true`` in ``config.yml``) to switch the interfaces over to the
-    local bundles.
+    so no setup is required. These commands populate static/vendor/ dirs
+    for firewalled deployments — set OSPREY_OFFLINE=1 (or 'offline: true' in
+    config.yml) to switch the interfaces over to the local bundles.
     """
 
 
@@ -30,8 +29,8 @@ def vendor():
 def fetch(quiet: bool, insecure: bool) -> None:
     """Download all vendor assets declared in the manifest.
 
-    Run this once on firewalled deployments before starting ``osprey web``
-    with ``OSPREY_OFFLINE=1``. In default CDN mode this command is optional.
+    Run this once on firewalled deployments before starting 'osprey web'
+    with OSPREY_OFFLINE=1. In default CDN mode this command is optional.
     """
     from osprey.interfaces.vendor import fetch_all
 

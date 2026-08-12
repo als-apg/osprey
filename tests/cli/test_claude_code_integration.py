@@ -12,9 +12,22 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
+from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
+from osprey.utils.workspace import RENDERED_CONFIG_RELPATH, agent_data_base_dir
 
-_BUILD_FLAGS = ["--preset", "hello-world", "--skip-deps", "--skip-lifecycle"]
+
+def _init_and_build(runner: CliRunner, repo_dir):
+    """Materialize the hello-world preset into *repo_dir* and build it.
+
+    Returns the two invoke results (init, build); ``repo_dir / "build"`` is
+    where the rendered project lands once both succeed.
+    """
+    init_result = runner.invoke(init, [str(repo_dir), "--preset", "hello-world", "--no-git"])
+    build_result = runner.invoke(
+        build, ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"]
+    )
+    return init_result, build_result
 
 
 class TestClaudeCodeIntegrationDefault:
@@ -85,7 +98,10 @@ class TestClaudeCodeFileContents:
         cs = data["mcpServers"]["controls"]
         assert cs["command"] == sys.executable
         assert cs["args"] == ["-m", "osprey.mcp_server.control_system"]
-        expected_config = f"{project_dir}/config.yml"
+        # The runtime env contract is unchanged — the server still receives
+        # OSPREY_CONFIG — but the config it names is a build output now, so the
+        # value points into the render zone rather than at the repo root.
+        expected_config = f"{project_dir}/{RENDERED_CONFIG_RELPATH}"
         assert cs["env"]["OSPREY_CONFIG"] == expected_config
 
         # Workspace server
@@ -156,6 +172,26 @@ class TestClaudeCodeFileContents:
         scoped_reads = [entry for entry in allow if entry.startswith("Read(")]
         assert len(scoped_reads) > 0
 
+    def test_rendered_artifacts_name_the_configured_agent_data_root(self, project_dir):
+        """The initial render interpolates the agent-data root, not an empty string.
+
+        ``agent_data_root`` reaches these templates through the render funnel
+        rather than through each caller, because an unset Jinja variable renders
+        as ``""`` instead of raising: the prose degraded to a bare ``/`` and the
+        Read rule to a glob matching nothing, both of which look plausible in a
+        diff. Asserted against the project's own ``config.yml`` so relocating
+        ``agent_data.base_dir`` keeps this honest.
+        """
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        root = agent_data_base_dir(config)
+        assert root, "the fixture project must configure an agent-data root"
+
+        assert f"`{root}/`" in (project_dir / "CLAUDE.md").read_text()
+
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        assert f"Read({root}/**)" in allow
+
     def test_settings_json_hooks_are_structurally_valid(self, project_dir):
         """Every hook entry in PreToolUse/PostToolUse has a 'hooks' array."""
         settings_path = project_dir / ".claude" / "settings.json"
@@ -211,7 +247,9 @@ class TestClaudeCodeFileContents:
         """safety.md has no paths restriction (loads at startup, not conditionally)."""
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
         assert "paths:" not in content
-        assert "_agent_data" in content
+        # The rule points at the agent-data root by its config key rather than
+        # by a literal path, so moving base_dir does not silently stale it.
+        assert "agent_data.base_dir" in content
 
     def test_safety_rules_md_has_confinement(self, project_dir):
         """safety.md includes MCP-only confinement and channel write safety."""
@@ -243,10 +281,15 @@ class TestClaudeCodeAcrossTemplates:
 
 
 class TestClaudeCodeGitignore:
-    """Test that project gitignore includes _agent_data/."""
+    """Test that project gitignore excludes the STATE zone."""
 
     def test_gitignore_includes_osprey_workspace(self, tmp_path):
-        """Project .gitignore includes _agent_data/."""
+        """Project .gitignore excludes var/, the zone agent_data.base_dir lives in.
+
+        The agent's memory, sessions and audit log are host-local and must never
+        be committed; config.yml points ``agent_data.base_dir`` at
+        ``var/agent_data``, so ignoring the zone root covers it.
+        """
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="gitignore-test",
@@ -256,7 +299,7 @@ class TestClaudeCodeGitignore:
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
-        assert "_agent_data/" in gitignore
+        assert "var/" in gitignore
 
 
 class TestClaudeCodeCLI:
@@ -265,10 +308,7 @@ class TestClaudeCodeCLI:
     def test_build_logs_claude_code_creation(self, tmp_path):
         """osprey build logs that it created Claude Code integration files."""
         runner = CliRunner()
-        result = runner.invoke(
-            build,
-            ["cc-project", *_BUILD_FLAGS, "--output-dir", str(tmp_path)],
-        )
+        _, result = _init_and_build(runner, tmp_path / "cc-project")
 
         assert result.exit_code == 0, result.output
         assert "Claude Code integration file" in result.output
@@ -276,13 +316,11 @@ class TestClaudeCodeCLI:
     def test_build_always_creates_claude_code_files(self, tmp_path):
         """osprey build always generates Claude Code integration files."""
         runner = CliRunner()
-        result = runner.invoke(
-            build,
-            ["cc-full-project", *_BUILD_FLAGS, "--output-dir", str(tmp_path)],
-        )
+        repo_dir = tmp_path / "cc-full-project"
+        _, result = _init_and_build(runner, repo_dir)
 
         assert result.exit_code == 0, result.output
-        project_dir = tmp_path / "cc-full-project"
+        project_dir = repo_dir / "build"
         assert (project_dir / ".mcp.json").exists()
         assert (project_dir / "CLAUDE.md").exists()
         assert (project_dir / ".claude" / "settings.json").exists()
@@ -292,27 +330,28 @@ class TestClaudeCodeManifest:
     """Test that manifest tracks settings."""
 
     def test_manifest_reproducible_command(self, tmp_path):
-        """Manifest reproducible_command uses the current ``osprey build`` form."""
-        runner = CliRunner()
-        runner.invoke(
-            build,
-            ["manifest-default", *_BUILD_FLAGS, "--output-dir", str(tmp_path)],
-        )
+        """A repo build's manifest names the zero-argument ``osprey build``.
 
-        manifest_path = tmp_path / "manifest-default" / ".osprey-manifest.json"
+        A three-zone repo IS the invocation — the deployment's name, profile
+        and destination all come from the repo itself — so there is nothing
+        left to spell out; reproducing the build is exactly ``osprey build``
+        run from the repo (or with ``--repo`` pointed at it).
+        """
+        runner = CliRunner()
+        repo_dir = tmp_path / "manifest-default"
+        _init_and_build(runner, repo_dir)
+
+        manifest_path = repo_dir / "build" / ".osprey-manifest.json"
         manifest = json.loads(manifest_path.read_text())
-        assert manifest["reproducible_command"].startswith("osprey build ")
-        assert "--preset" in manifest["reproducible_command"]
+        assert manifest["reproducible_command"] == "osprey build"
 
     def test_claude_code_files_in_manifest_checksums(self, tmp_path):
         """Claude Code files appear in manifest checksums."""
         runner = CliRunner()
-        runner.invoke(
-            build,
-            ["checksum-test", *_BUILD_FLAGS, "--output-dir", str(tmp_path)],
-        )
+        repo_dir = tmp_path / "checksum-test"
+        _init_and_build(runner, repo_dir)
 
-        manifest_path = tmp_path / "checksum-test" / ".osprey-manifest.json"
+        manifest_path = repo_dir / "build" / ".osprey-manifest.json"
         manifest = json.loads(manifest_path.read_text())
         checksums = manifest["file_checksums"]
 
@@ -1265,6 +1304,60 @@ class TestDataVisualizerInteractiveDefault:
         # The default-bias guidance must be present in the rendered agent prompt.
         assert "Default" in content
         assert "prefer `create_interactive_plot`" in content
+
+
+class TestRenderContextDoesNotFork:
+    """Both render paths supply every config-derived key the templates read.
+
+    The bug this guards: ``create_project`` assembled its own context and never
+    set ``control_system_write_tools``, while the build's
+    ``build_claude_code_context`` did. The Jinja environment is not strict, so
+    the omission rendered as nothing rather than raising — ``hook_config.json``,
+    the writes kill switch's own file, came out of that path with every
+    config-declared write tool missing and nothing to say so.
+
+    What it actually guards, stated precisely: ``create_project`` applies the
+    helper by LOOPING its items (manager.py's setdefault loop), so a key added
+    to the helper is wired through automatically — this cannot catch a
+    forgotten key, because there is nothing to forget. What it catches is that
+    loop going away: someone replacing it with a handful of named assignments,
+    or dropping the call, puts the context back on two divergent paths, and
+    that is the shape the original defect had.
+    """
+
+    def test_create_project_supplies_every_config_derived_key(self, tmp_path, monkeypatch):
+        from osprey.cli.templates import claude_code
+        from osprey.cli.templates.manager import TemplateManager
+
+        captured: dict = {}
+        real_integration = claude_code.create_claude_code_integration
+
+        def _capture(template_root, jinja_env, project_dir, ctx, allowed_outputs=None):
+            captured.update(ctx)
+            return real_integration(template_root, jinja_env, project_dir, ctx, allowed_outputs)
+
+        monkeypatch.setattr(claude_code, "create_claude_code_integration", _capture)
+
+        TemplateManager().create_project(
+            project_name="ctx-parity",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+        expected = claude_code.config_derived_context({}, tmp_path)
+        assert expected, "the helper must declare at least one key for this guard to mean anything"
+        assert not set(expected) - set(captured)
+
+    def test_declared_write_tools_reach_the_context(self, tmp_path):
+        from osprey.cli.templates import claude_code
+
+        derived = claude_code.config_derived_context(
+            {"control_system": {"type": "epics", "write_tools": ["mcp__facility__set_current"]}},
+            tmp_path,
+        )
+        assert derived["control_system_write_tools"] == ["mcp__facility__set_current"]
+        assert derived["control_system_type"] == "epics"
 
 
 if __name__ == "__main__":

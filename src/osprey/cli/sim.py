@@ -1,8 +1,21 @@
 """Simulation scenario CLI commands.
 
 Thin CLI wrappers over the simulation engine and
-:func:`osprey.simulation.apply.apply_scenarios`. Run from within a built
-project (the project root is the current working directory).
+:func:`osprey.simulation.apply.apply_scenarios`.
+
+These commands find their deployment the way every repo-scoped verb does —
+walk up from the working directory to the nearest ``profile.yml``, or start
+from ``--repo`` — so they work from any subdirectory of the repo rather than
+only from its root. Three directories come out of that one decision and they
+are genuinely different files:
+
+- the render (``build/``) holds ``config.yml`` and the build-owned
+  ``data/simulation/`` model the engine loads;
+- the repo root anchors ``var/agent_data/simulation/``, where the mutable
+  active-scenario state lives, because a scenario switch has to survive
+  ``osprey build`` wiping the render;
+- the repo root also holds the single ``.env`` a scenario's ``physics`` block
+  is rendered into, for the virtual accelerator to read at its next boot.
 """
 
 from __future__ import annotations
@@ -15,6 +28,8 @@ import click
 
 from osprey.utils.config import load_config
 from osprey.utils.logger import get_logger
+
+from .repo_resolver import find_repo_root, repo_option
 
 logger = get_logger("sim")
 
@@ -44,24 +59,44 @@ def _parse_now(now_iso: str) -> datetime:
 # ---------------------------------------------------------------------------
 
 
-def _load_project_engine():
-    """Return (project_dir, config, engine) for the project in the CWD.
+def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
+    """Return ``(repo_root, config)`` for the deployment being acted on.
 
-    Exits with a clear message if the project is not simulation-backed.
+    The repo root is what every path here anchors on, because it is what
+    ``project_root`` means in the rendered config — the value the mock
+    connectors resolve their own model and state against at runtime. Anchoring
+    the CLI anywhere else would let ``sim apply`` write an active-scenario file
+    that the running connectors never read.
+
+    Exits with a clear message when the repo carries no render, the one state
+    these commands cannot work in: ``config.yml`` is what names the simulation
+    model, the state directory, and the ARIEL logbook.
+
+    Raises:
+        RepoNotFoundError: When no ``profile.yml`` encloses the search start.
+    """
+    from osprey.utils.workspace import BUILD_DIR_NAME, rendered_config_path
+
+    repo_root = find_repo_root(repo)
+    config_path = rendered_config_path(repo_root)
+    if not config_path.is_file():
+        click.echo(f"Error: no build found at {repo_root / BUILD_DIR_NAME}.", err=True)
+        click.echo("Run 'osprey build' first — the scenarios live in the render.", err=True)
+        raise SystemExit(1)
+    return repo_root, load_config(str(config_path))
+
+
+def _load_project_engine(repo: Path | None):
+    """Return ``(repo_root, config, engine)`` for the resolved deployment.
+
+    Exits with a clear message if the deployment is not simulation-backed.
     """
     from osprey.connectors.types import MOCK
     from osprey.simulation.apply import resolve_simulation_file
     from osprey.simulation.engine import SimulationEngine, resolve_state_dir
 
-    project_dir = Path.cwd()
-    config_path = project_dir / "config.yml"
-    if not config_path.is_file():
-        click.echo(f"Error: no config.yml in {project_dir}.", err=True)
-        click.echo("Run this from a built project's root directory.", err=True)
-        raise SystemExit(1)
-
-    config = load_config(str(config_path))
-    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, project_dir)
+    repo_root, config = _resolve_deployment(repo)
+    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, repo_root)
     if machine_path is None:
         if active_type == MOCK:
             click.echo("Error: no mock 'simulation_file' configured in config.yml.", err=True)
@@ -74,9 +109,9 @@ def _load_project_engine():
         click.echo("This project does not use the simulation engine.", err=True)
         raise SystemExit(1)
     engine = SimulationEngine.from_file(
-        machine_path, state_dir=resolve_state_dir(config, project_dir)
+        machine_path, state_dir=resolve_state_dir(config, repo_root)
     )
-    return project_dir, config, engine
+    return repo_root, config, engine
 
 
 def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
@@ -99,7 +134,7 @@ def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
     else:
         click.echo("! Cleared the previous scenario's physics fault from .env.")
     click.echo("  The virtual accelerator reads this only at container boot — run")
-    click.echo("  'osprey deploy up' to recreate it. A plain 'docker restart' keeps")
+    click.echo("  'osprey up' to recreate it. A plain 'docker restart' keeps")
     click.echo("  the old environment.")
 
 
@@ -124,9 +159,10 @@ def sim_group() -> None:
 
 
 @sim_group.command("list")
-def list_command() -> None:
-    """List available scenarios (active set marked with ``*``)."""
-    _, _, engine = _load_project_engine()
+@repo_option
+def list_command(repo: Path | None) -> None:
+    """List available scenarios (the active set is marked with *)."""
+    *_, engine = _load_project_engine(repo)
     active = set(engine.active_scenarios())
     for name, description in engine.list_scenarios().items():
         has_log = len(engine.scenario_logbook(name)) > 0
@@ -137,9 +173,10 @@ def list_command() -> None:
 
 
 @sim_group.command("status")
-def status_command() -> None:
+@repo_option
+def status_command(repo: Path | None) -> None:
     """Show the currently active scenario set."""
-    _, _, engine = _load_project_engine()
+    *_, engine = _load_project_engine(repo)
     active = engine.active_scenarios()
     click.echo("Active scenarios: " + ", ".join(active))
     logbook = engine.active_logbook()
@@ -147,6 +184,7 @@ def status_command() -> None:
 
 
 @sim_group.command("apply")
+@repo_option
 @click.argument("names", nargs=-1, required=True)
 @click.option("--no-seed", is_flag=True, help="Change telemetry only; do not touch the logbook DB.")
 @click.option("--yes", "-y", is_flag=True, help="Skip the purge confirmation prompt.")
@@ -163,12 +201,15 @@ def status_command() -> None:
         "Falls back to the OSPREY_SIM_NOW environment variable."
     ),
 )
-def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str | None) -> None:
-    """Compose and activate scenarios NAMES, seeding their logbook (unless --no-seed).
+def apply_command(
+    repo: Path | None, names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str | None
+) -> None:
+    """Compose and activate scenarios NAMES.
 
-    Active scenarios must touch disjoint channel sets. Seeding purges and
-    reseeds the ARIEL logbook so the narrative matches the active telemetry.
-    A scenario's ``physics`` block is rendered into the project ``.env`` for the
+    Their logbook is seeded too unless --no-seed is given. Active scenarios
+    must touch disjoint channel sets. Seeding purges and reseeds the ARIEL
+    logbook so the narrative matches the active telemetry.
+    A scenario's physics block is rendered into the deployment's .env for the
     virtual accelerator to pick up at its next container boot.
     """
     from osprey.simulation.apply import (
@@ -180,8 +221,7 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str
     from osprey.simulation.engine import resolve_active_scenarios
 
     now = _parse_now(now_iso) if now_iso else None
-    project_dir = Path.cwd()
-    config = load_config(str(project_dir / "config.yml"))
+    repo_root, config = _resolve_deployment(repo)
     ariel_config = config.get("ariel")
 
     # Validate pure, write last: every check that can reject the requested set
@@ -190,13 +230,13 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str
     # A project with no simulation file has neither an engine to validate nor
     # physics to render -- apply_scenarios below raises the canonical
     # "not simulation-backed" error for it, which the handler turns into exit 1.
-    machine_path, *_ = resolve_simulation_file(config, project_dir)
+    machine_path, *_ = resolve_simulation_file(config, repo_root)
     physics: dict[str, str] | None = None
     if machine_path is not None:
         from osprey.simulation.engine import SimulationEngine, resolve_state_dir
 
         engine = SimulationEngine.from_file(
-            machine_path, state_dir=resolve_state_dir(config, project_dir)
+            machine_path, state_dir=resolve_state_dir(config, repo_root)
         )
         # validate_composition RETURNS its problems (unknown names, channel
         # collisions) rather than raising; an empty list is the only "OK".
@@ -205,7 +245,7 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str
             click.echo("Error: cannot activate scenarios: " + "; ".join(problems), err=True)
             raise SystemExit(1)
         try:
-            physics = compute_scenario_physics_env(project_dir, list(names))
+            physics = compute_scenario_physics_env(repo_root, list(names))
         except ValueError as exc:
             click.echo(f"Error: {exc}", err=True)
             raise SystemExit(1) from None
@@ -228,11 +268,11 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str
     # Past the last abort point: write the physics vars, then say so immediately.
     # Emitting the notice here rather than after apply_scenarios means a failed
     # logbook seed can never swallow it.
-    if physics is not None and write_scenario_physics_env(project_dir, physics):
+    if physics is not None and write_scenario_physics_env(repo_root, physics):
         _echo_physics_notice(config, physics)
 
     try:
-        result = apply_scenarios(project_dir, list(names), seed_logbook=not no_seed, now=now)
+        result = apply_scenarios(repo_root, list(names), seed_logbook=not no_seed, now=now)
     except ValueError as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(1) from None
@@ -240,7 +280,7 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str
         msg = str(exc)
         if "connect" in msg.lower():
             click.echo("Error: cannot connect to the ARIEL database.", err=True)
-            click.echo("Start it with 'osprey deploy up', or pass --no-seed.", err=True)
+            click.echo("Start it with 'osprey up', or pass --no-seed.", err=True)
             raise SystemExit(1) from None
         raise
 

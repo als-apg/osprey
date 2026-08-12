@@ -45,12 +45,20 @@ class LazyGroup(click.Group):
         """Lazily import and return the command when it's invoked."""
         # Map command names to their module paths
         commands = {
+            "init": "osprey.cli.init_cmd",  # Create the deployment repo
             "build": "osprey.cli.build_cmd",
+            "up": "osprey.cli.deploy_cmd",  # Start the deployment from build/
+            "down": "osprey.cli.deploy_cmd",  # Stop it, keeping volumes
+            "restart": "osprey.cli.deploy_cmd",  # Stop and start, recreating
+            "status": "osprey.cli.deploy_cmd",  # Read-only report on the deployment
+            "logs": "osprey.cli.deploy_cmd",  # Compose logs for the deployment
+            "reset": "osprey.cli.reset_cmd",  # Factory reset (destructive)
             "profile": "osprey.cli.profile_cmd",  # Build-profile authoring
-            "deploy": "osprey.cli.deploy_cmd",
             "config": "osprey.cli.config_cmd",
+            "set": "osprey.cli.set_cmd",  # Profile write-back
+            "validate": "osprey.cli.validate_cmd",
+            "chat": "osprey.cli.chat_cmd",  # Agent session against build/
             "health": "osprey.cli.health_cmd",
-            "claude": "osprey.cli.claude_cmd",
             "eject": "osprey.cli.eject_cmd",
             "channel-finder": "osprey.cli.channel_finder_cmd",
             "ariel": "osprey.cli.ariel",  # ARIEL search service
@@ -64,6 +72,7 @@ class LazyGroup(click.Group):
             "vendor": "osprey.cli.vendor_cmd",  # Vendor asset management
             "knowledge": "osprey.cli.knowledge_cmd",  # OKF facility knowledge
             "query": "osprey.cli.query_cmd",  # Headless agent query
+            "users": "osprey.cli.users_cmd",  # Web-terminal roster
         }
 
         if cmd_name not in commands:
@@ -73,9 +82,7 @@ class LazyGroup(click.Group):
 
         mod = importlib.import_module(commands[cmd_name])
 
-        if cmd_name == "config":
-            cmd_func = mod.config
-        elif cmd_name == "channel-finder":
+        if cmd_name == "channel-finder":
             cmd_func = mod.channel_finder
         elif cmd_name == "ariel":
             cmd_func = mod.ariel_group
@@ -91,6 +98,14 @@ class LazyGroup(click.Group):
             cmd_func = mod.scaffold
         elif cmd_name == "profile":
             cmd_func = mod.profile
+        elif cmd_name in ("up", "down", "restart", "status", "logs"):
+            # Every lifecycle verb in deploy_cmd is defined as `<name>_verb`,
+            # so it is resolved by that name rather than by the bare one. The
+            # suffix is what kept them apart from the legacy `deploy` group's
+            # same-named subcommands while both existed; it stays because the
+            # module has no bare `up`/`down`/`restart`/`status`/`logs` to fall
+            # back to, and the generic getattr below would raise AttributeError.
+            cmd_func = getattr(mod, f"{cmd_name}_verb")
         else:
             cmd_func = getattr(mod, cmd_name)
 
@@ -99,13 +114,21 @@ class LazyGroup(click.Group):
     def list_commands(self, ctx):
         """Return list of available commands (for --help)."""
         return [
+            "init",
             "build",
+            "up",
+            "down",
+            "restart",
+            "status",
+            "logs",
+            "reset",
             "profile",
+            "set",
+            "validate",
+            "chat",
             "config",
-            "deploy",
             "health",
             "channel-finder",
-            "claude",
             "eject",
             "ariel",
             "sim",
@@ -118,6 +141,7 @@ class LazyGroup(click.Group):
             "vendor",
             "knowledge",
             "query",
+            "users",
         ]
 
 
@@ -133,25 +157,32 @@ class LazyGroup(click.Group):
 def cli(ctx, verbose):
     """Osprey Framework CLI - Capability-Based Agentic Framework.
 
-    A unified command-line interface for creating, deploying, and interacting
-    with intelligent agents built on the Osprey Framework.
+    A deployment is a git repo: profile.yml at its root is the source, build/ is
+    what a build renders from it, var/ is durable state. Every verb below finds
+    that repo by walking up from where you are standing, so none of them needs
+    to be told where it is.
 
     Use 'osprey COMMAND --help' for more information on a specific command.
 
     Examples:
 
     \b
-      osprey                          Launch interactive menu
-      osprey build my-project --preset hello-world
-                                      Create new project from a bundled preset
-      osprey config                   Manage configuration (show, export, set)
-      osprey deploy up                Start services
-      osprey -v deploy up             Same, with every command echoed
-      osprey claude regen             Regenerate Claude Code artifacts
-      osprey web                      Launch web terminal
-      osprey theme-lab                Build and preview themes in the browser
-      osprey health                   Check system health
-      osprey channel-finder           Interactive channel search
+      osprey init my-agent --preset control-assistant
+                                       Create a deployment repo from a preset
+      osprey set connector=epics       Edit profile.yml
+      osprey validate                  Check profile.yml without building
+      osprey build                     Render build/ from profile.yml
+      osprey up -d                     Start it, in the background
+      osprey -v up -d                  Same, with every command echoed
+      osprey status                    What is running, and is it current
+      osprey logs -f                   Follow the container logs
+      osprey chat                      Talk to this deployment's agent
+      osprey restart                   Stop and start it again, as built
+      osprey down                      Stop it, keeping all data
+      osprey users remove alice        Retire one web-terminal user
+      osprey reset                     Factory reset (asks first)
+      osprey web                       Launch web terminal
+      osprey health                    Check system health
     """
     import logging
 
@@ -179,9 +210,12 @@ def cli(ctx, verbose):
     initialize_theme_from_config()
 
     if ctx.invoked_subcommand is None:
-        from .interactive_menu import launch_tui
-
-        launch_tui()
+        # The bare command lists what there is to run. It used to launch an
+        # interactive menu, which existed because the legacy verbs took
+        # arguments nobody could remember (`--project`, `--config`, `--preset`);
+        # the surface it wrapped is gone and every verb it offered is now
+        # zero-argument, so the help IS the menu.
+        click.echo(ctx.get_help())
 
 
 def main():

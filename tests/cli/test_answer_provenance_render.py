@@ -23,6 +23,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
+from osprey.cli.init_cmd import init
 
 # Facility-specific *source identifiers* that must never leak into the shared,
 # facility-agnostic core prompts (SC7). ``concept_id`` / ``texkey`` are literal
@@ -37,22 +38,18 @@ _FACILITY_ID_PATTERNS = (
 
 
 def _build_preset(preset: str, dest: Path) -> Path:
-    """Render a preset through the real build pipeline; return the project dir."""
+    """Render a preset through the real init + build pipeline; return build/."""
     runner = CliRunner()
+    repo_dir = dest / "smoke"
+    init_result = runner.invoke(init, [str(repo_dir), "--preset", preset, "--no-git"])
+    assert init_result.exit_code == 0, init_result.output
+
     result = runner.invoke(
         build,
-        [
-            "smoke",
-            "--preset",
-            preset,
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(dest),
-        ],
+        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
     )
     assert result.exit_code == 0, result.output
-    return dest / "smoke"
+    return repo_dir / "build"
 
 
 def _markdown_section(text: str, heading: str) -> str:

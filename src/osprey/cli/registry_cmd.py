@@ -1,7 +1,5 @@
 """Registry display for the Osprey CLI (osprey registry)."""
 
-from pathlib import Path
-
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -120,45 +118,3 @@ def _display_providers_table(registry, providers: list, verbose: bool):
 
     console.print(table)
     console.print()
-
-
-def handle_registry_action(project_path: Path | None = None, verbose: bool = False):
-    """Handle registry display action from interactive menu.
-
-    Args:
-        project_path: Optional project directory path (defaults to current directory)
-        verbose: Whether to show verbose output
-    """
-    import os
-
-    # Save and optionally change directory
-    original_dir = None
-    if project_path:
-        original_dir = Path.cwd()
-
-        try:
-            os.chdir(project_path)
-        except (OSError, PermissionError) as e:
-            console.print(f"\n{Messages.error(f'Cannot change to project directory: {e}')}")
-            input("\nPress ENTER to continue...")
-            return
-
-    try:
-        # Display registry contents
-        display_registry_contents(verbose=verbose)
-
-    except Exception as e:
-        console.print(f"\n{Messages.error(str(e))}")
-        if verbose:
-            import traceback
-
-            traceback.print_exc()
-    finally:
-        # Restore original directory
-        if original_dir:
-            try:
-                os.chdir(original_dir)
-            except (OSError, PermissionError) as e:
-                console.print(f"\n{Messages.warning(f'Could not restore directory: {e}')}")
-
-    input("\nPress ENTER to continue...")

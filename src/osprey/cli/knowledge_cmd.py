@@ -57,12 +57,12 @@ def regen_index(bundle: Path | None) -> None:
     """Regenerate index.md files throughout an OKF bundle.
 
     BUNDLE is the path to the root directory of an OKF bundle.
-    When omitted, ``facility_knowledge.bundle_path`` from the OSPREY
+    When omitted, facility_knowledge.bundle_path from the OSPREY
     config is used.
 
     Processes directories deepest-first so child descriptions propagate
-    to parent indexes.  The bundle-root ``index.md`` receives an
-    ``okf_version`` frontmatter block (OKF §11); all others have none
+    to parent indexes.  The bundle-root index.md receives an
+    okf_version frontmatter block (OKF §11); all others have none
     (OKF §6).  Running the command a second time produces bit-identical
     output (idempotent).
     """
@@ -87,16 +87,15 @@ def validate(bundle: Path | None) -> None:
     """Validate all OKF documents in a bundle.
 
     BUNDLE is the path to the root directory of an OKF bundle.
-    When omitted, ``facility_knowledge.bundle_path`` from the OSPREY
+    When omitted, facility_knowledge.bundle_path from the OSPREY
     config is used.
 
-    Every ``*.md`` file is checked:
+    Every *.md file is checked:
 
-    * ``index.md`` files are validated against OKF §6/§11 via
-      ``validate_index``.
-    * All other ``.md`` files are parsed and their frontmatter is
-      validated at the ``"authoring"`` level (requires ``type``,
-      ``title``, and ``description``).
+    \b
+      - index.md files are validated against OKF §6/§11.
+      - All other .md files are parsed and their frontmatter is validated
+        at the 'authoring' level (requires type, title and description).
 
     All files are checked even if earlier failures are found.  A
     per-file report is printed and the command exits non-zero if any
@@ -151,8 +150,8 @@ def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
     TTL is the path to a Turtle RDF file produced by NARAD or als-ontology.
 
     BUNDLE is the path to the root directory of an OKF bundle.  One stub
-    ``.md`` file is written per device node in the TTL, placed at
-    ``<bundle>/<local-iri-name>.md``.
+    .md file is written per device node in the TTL, placed at
+    <bundle>/<local-iri-name>.md.
 
     Idempotency rules (applied per stub):
 
@@ -162,7 +161,7 @@ def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
     - File present, diff body, no --force → skip and report "differs, use --force".
     - File present, diff body, --force   → overwrite and report "overwritten".
 
-    The ``knowledge`` extra (rdflib) is required.  A clean error is printed
+    The 'knowledge' extra (rdflib) is required.  A clean error is printed
     when it is absent — no traceback.
     """
     try:
