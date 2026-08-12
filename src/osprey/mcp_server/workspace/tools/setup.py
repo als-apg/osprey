@@ -4,15 +4,18 @@ Diagnostic tools for inspecting and modifying OSPREY agent configuration.
 Used by the /setup-mode skill to help operators troubleshoot setup issues.
 """
 
+import functools
 import json
 import logging
 import os
 import re
 from pathlib import Path
 
+import anyio
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import notify_agent_activity
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.workspace import load_osprey_config, resolve_config_path
 
@@ -31,6 +34,9 @@ _HOT_CHANGE_PATHS = {
         "control_system.limits_checking.allow_unlisted_channels",
     },
 }
+
+# Key paths reported to the activity feed with a safety marker
+_SAFETY_KEY_PREFIX = "control_system."
 
 # Cold keys whose generic "restart the MCP server" note would understate what is
 # actually required. `writes_enabled` is enforced at three layers and only the
@@ -201,6 +207,49 @@ def _classify_change(file: str, key_path: str) -> str:
     return "cold — requires MCP server restart (`osprey claude restart` or new session)"
 
 
+def _activity_detail(file: str, key_path: str) -> str:
+    """Describe a patch for the activity feed — file and key only, never values.
+
+    Config values are secrets: ``.mcp.json`` carries API keys and tokens, and
+    the activity ring is persistent and served over HTTP, so neither the old
+    nor the new value may appear here. ``control_system.*`` paths get a marker
+    so a safety-relevant change is distinguishable at a glance; the prefix
+    match is exact-case, like the hot/cold lookups in :func:`_classify_change`.
+
+    Args:
+        file: Target file name, already validated against ``_PATCHABLE_FILES``.
+        key_path: Dot-notation path that was patched.
+
+    Returns:
+        Feed detail string naming the file and key path.
+    """
+    label = f"{file}: {key_path}"
+    if key_path.startswith(_SAFETY_KEY_PREFIX):
+        return f"safety config — {label}"
+    return label
+
+
+async def _notify_patch(file: str, key_path: str) -> None:
+    """Report an applied patch to the Web Terminal activity feed.
+
+    Call only once the file has been rewritten — every refusal in
+    :func:`setup_patch` raises out of ``make_error`` before reaching the call
+    site, so nothing is reported for a patch that did not land.
+
+    Args:
+        file: Target file name.
+        key_path: Dot-notation path that was patched.
+    """
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            notify_agent_activity,
+            "setup_patch",
+            "config",
+            detail=_activity_detail(file, key_path),
+        )
+    )
+
+
 def _set_nested(data: dict, keys: list[str], value) -> None:
     """Set a value in a nested dict using a list of keys."""
     for key in keys[:-1]:
@@ -297,6 +346,8 @@ async def setup_patch(file: str, key_path: str, value: str) -> str:
 
             with open(file_path, "w", encoding="utf-8") as f:
                 ryaml.dump(data, f)
+
+        await _notify_patch(file, key_path)
 
         note = _classify_change(file, key_path)
 

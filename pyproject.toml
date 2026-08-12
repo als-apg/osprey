@@ -497,6 +497,7 @@ markers = [
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
     "dockerbuild: E2E tests that run a real docker build (skipped when docker is unavailable)",
     "real_workspace_watcher: Web-terminal app test that needs a live filesystem observer — opts out of the conftest stub that keeps broadcaster assertions deterministic",
+    "real_http_posters: MCP-server test of the HTTP posters themselves — opts out of the conftest stub that keeps notify_* POSTs from reaching a live web terminal",
 ]
 
 # Ruff configuration for modern Python linting

@@ -19,6 +19,11 @@ from osprey.mcp_server.http import notify_agent_activity
 
 _MODULE = "osprey.mcp_server.http"
 
+# The helper's own contract test: it must really POST, so it opts out of the
+# conftest stub that blocks notify_* POSTs. Every case here redirects
+# ``web_terminal_url`` at a capture server or a dead port of its own.
+pytestmark = pytest.mark.real_http_posters
+
 
 def _free_port() -> int:
     """Reserve a localhost port and release it (nothing will be listening)."""

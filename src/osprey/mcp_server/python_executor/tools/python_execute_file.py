@@ -1,10 +1,14 @@
 """MCP tool: execute_file — run an existing Python file with safety checks."""
 
+import functools
 import json
 import logging
 from pathlib import Path
 
+import anyio
+
 from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import notify_agent_activity
 from osprey.mcp_server.python_executor.server import mcp
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute_file")
@@ -151,6 +155,24 @@ async def execute_file(
         execution_mode=execution_mode,
         description=description,
     )
+
+    # Same emit contract as the ``execute`` tool — see the comment there for why
+    # `execution_time_seconds` is the launch discriminator and why the mode test
+    # is the complement of the readonly gate rather than equality with
+    # "readwrite".
+    if (
+        patterns.get("has_writes")
+        and execution_mode != "readonly"
+        and exec_result.execution_time_seconds is not None
+    ):
+        await anyio.to_thread.run_sync(
+            functools.partial(
+                notify_agent_activity,
+                "execute_file",
+                "channel",
+                detail="ran a script with control-system writes",
+            )
+        )
 
     # Build response using original code (not augmented) for metadata/notebook
     from osprey.mcp_server.python_executor.tools._response_builder import build_execution_response

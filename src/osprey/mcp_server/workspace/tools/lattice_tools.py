@@ -13,14 +13,17 @@ Ten tools wrapping the lattice dashboard HTTP surface:
   - ``lattice_update_settings``: Deep-merge new settings (partial update).
 """
 
+import functools
 import json
 import logging
 import os
 
+import anyio
 import httpx
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import notify_agent_activity
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.workspace import load_osprey_config
 
@@ -59,6 +62,28 @@ async def _dashboard_request(
         return resp.json()
 
 
+async def _notify_lattice(tool: str, detail: str) -> None:
+    """Report a lattice-dashboard mutation to the Web Terminal activity feed.
+
+    Call only after the dashboard has acknowledged the change — every refusal
+    path in this module raises out of ``make_error`` before reaching a call
+    site, so nothing is reported for a mutation that did not happen.
+
+    Args:
+        tool: Name of the lattice tool that mutated the dashboard.
+        detail: Short human-readable description of what changed.
+    """
+    await anyio.to_thread.run_sync(
+        functools.partial(
+            notify_agent_activity,
+            tool,
+            "panel",
+            panel="lattice",
+            detail=detail,
+        )
+    )
+
+
 @mcp.tool()
 async def lattice_init(lattice_path: str) -> str:
     """Load a lattice file into the dashboard.
@@ -82,6 +107,7 @@ async def lattice_init(lattice_path: str) -> str:
             json_body={"lattice_path": lattice_path},
             timeout=60.0,
         )
+        await _notify_lattice("lattice_init", lattice_path)
         return json.dumps(
             {
                 "status": "ok",
@@ -155,6 +181,7 @@ async def lattice_set_param(family: str, value: float) -> str:
             "/api/state/param",
             json_body={"family": family, "value": value},
         )
+        await _notify_lattice("lattice_set_param", f"{family} = {value}")
         return json.dumps(
             {
                 "status": "ok",
@@ -204,6 +231,7 @@ async def lattice_refresh(figure: str | None = None) -> str:
             result = await _dashboard_request("POST", "/api/verify")
         else:
             result = await _dashboard_request("POST", f"/api/refresh/{figure}")
+        await _notify_lattice("lattice_refresh", f"recomputing {figure or 'fast figures'}")
         return json.dumps(result, default=str)
     except httpx.ConnectError:
         return make_error(
@@ -230,6 +258,7 @@ async def lattice_set_baseline() -> str:
     """
     try:
         result = await _dashboard_request("POST", "/api/baseline")
+        await _notify_lattice("lattice_set_baseline", "baseline set")
         return json.dumps(
             {
                 "status": "ok",
@@ -375,6 +404,8 @@ async def lattice_update_settings(settings: dict) -> str:
     """
     try:
         result = await _dashboard_request("PUT", "/api/settings", json_body={"settings": settings})
+        groups = ", ".join(sorted(str(key) for key in settings)) or "no groups"
+        await _notify_lattice("lattice_update_settings", f"settings: {groups}")
         return json.dumps(result, default=str)
     except httpx.HTTPStatusError as exc:
         return make_error(
@@ -406,6 +437,7 @@ async def lattice_clear_baseline() -> str:
     """
     try:
         result = await _dashboard_request("DELETE", "/api/baseline")
+        await _notify_lattice("lattice_clear_baseline", "baseline cleared")
         return json.dumps(result, default=str)
     except httpx.ConnectError:
         return make_error(
