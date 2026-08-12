@@ -25,12 +25,6 @@ Compatibility is documented in release notes, not encoded in the version string.
   command a deploy runs. Normal runs no longer echo those commands, so a
   deploy reads as a report — ending in the endpoint summary — rather than a
   transcript.
-- `osprey profile try` runs the whole lifecycle as one command: settle the
-  profile (materialized on the first run, reused — with `--set`/`-O` written
-  into it — on every later one), build the project (re-rendered in place on a
-  rerun), and `deploy up`, ending in the endpoint summary. One command with
-  each phase printed in sequence, instead of three commands chained across
-  three directories. `--dev` and `-d` pass through to the deploy.
 - Profiles carry artifacts into a build through **convention directories** —
   `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
   `web-terminal-context/`, `mcp_servers/`, `services/`, and `project/` for
@@ -53,31 +47,25 @@ Compatibility is documented in release notes, not encoded in the version string.
   can hand a shadowed artifact back to the framework. A bare name used where
   the profile also ships a file for it is warned about, with the qualified
   spelling that would take effect.
-- `osprey profile new --force` replaces an existing profile directory, making
-  the materialize-and-build one-liner rerunnable. It only replaces a directory
-  that is a materialized profile (or empty), and deletes nothing until the new
-  profile has fully rendered — a failed run leaves the old directory intact.
-- The emitted `profile.yml` header now opens with a lifecycle diagram:
-  profile (edit) → build → project (regenerable) → deploy → running containers.
-- `osprey profile new` writes a **facility repository** rather than a bare
-  profile directory: a git repository holding the profile under `profile/`, an
-  empty `build/`, a `ci-extra.yml` for the facility's own CI jobs, and a
-  `.gitignore`. A profile nested this way renders into the repository's
-  `build/<PROJECT_NAME>/`, from whichever directory `osprey build` is run — no
-  `--output-dir` needed.
+- `osprey init --force` re-materializes an existing repo's source zone from the
+  preset — `profile.yml`, `data/`, `personas/`, `triggers.yml`,
+  `web-terminal-context/`, `.env.example` — losing any edit to them. It never
+  touches `.env`, `.git`, `var/`, `build/`, `.gitignore`, `README.md`,
+  `ci-extra.yml`, `.gitlab-ci.yml` or `scripts/verify.sh`.
+- The emitted `profile.yml` header now opens with a map of the repo's four
+  zones — source, secrets, build output, durable state — and the
+  edit → `osprey build` → `osprey up` loop that connects them.
 - A profile can carry a `deploy:` block: CI platform, deploy host, and the
   container registry when the host pulls its images. Credentials are named
   there, never written there.
-- `osprey deploy scaffold` emits the facility repository's CI pipeline and
-  post-deploy health check from that block. Re-running is safe — a file whose
-  content already matches is left untouched, and a file the scaffolder did not
-  write is reported rather than overwritten unless `--force` is given.
-- `osprey deploy render-env-production` renders `.env.production`, the env file
-  each per-user web-terminal container runs with, from the deploy config and one
+- `osprey scaffold ci` emits the repo's CI pipeline and post-deploy health
+  check from that block. Re-running is safe — a file whose content already
+  matches is left untouched, and a file the scaffolder did not write is
+  reported rather than overwritten unless `--force` is given. `ci-extra.yml`
+  is never touched; the pipeline includes it.
+- `osprey users env-production` renders `.env.production`, the env file each
+  per-user web-terminal container runs with, from the deploy config and one
   secrets file. `--output` writes it at mode `0600` instead of to stdout.
-- New skill `osprey-deploy-ops` — the operate-time runbook: emitting the
-  deployment files, bringing the stack up on the host, and triaging a service
-  that is down.
 - `archiver_read` gained `bin_size=0` for full resolution — every real
   archived sample in the requested range, with no per-bin decimation. Only
   valid with `processing="raw"` (an aggregate has no bin to aggregate
@@ -110,33 +98,32 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
-- **The profile is the source of truth for a built project.** Every
-  `osprey build` reads a profile directory; there is no build straight out of a
-  bundled preset. `--preset NAME` materializes `<PROJECT_NAME>-profile/` beside
-  the project on the *first* build and builds from it, and every later build
-  reuses that directory as it stands — so an edit made there is what the next
-  build renders. `--set`, `-O` and `--tier` are written into the profile before
-  the build reads it, and rolled back if the build fails. Naming a *different*
-  preset for a project that already has a profile is refused rather than
-  silently building the old one.
-- `osprey deploy` is a group of verbs, each declaring the options it actually
-  takes. `-d/--detached`, `--dev` and `--expose` were global before and were
-  accepted-then-ignored by verbs that have no use for them; passing one to such
-  a verb is now a parse error.
-- `osprey scaffold claim` moves an artifact into the matching convention
-  directory of the profile the project was built from, instead of marking it
+- **A deployment is a git repo, and every lifecycle verb is top-level.**
+  `osprey init` creates the repo, `osprey set` edits its `profile.yml`,
+  `osprey validate` checks that profile without building, and `osprey build`
+  renders `build/` from it. `osprey up`, `down`, `restart`, `status`, `logs`
+  and `reset` operate the deployment; `osprey chat` talks to it; `osprey users`
+  manages the web-terminal roster; `osprey scaffold ci` emits the CI pipeline.
+  Each verb finds the repo by walking up from the working directory, so none of
+  them is given a project or config path — `--repo` overrides the starting
+  point. Running `osprey` with no arguments prints the command list.
+- Web-terminal archives written by `osprey users remove --archive` now land in
+  `<repo>/var/web_terminal_archives`, not `<project>/web_terminal_archives`.
+  Archives written before this release are left where they are; move them
+  yourself if you want them all in one place.
+- `osprey scaffold claim` moves an artifact out of the build zone and into the
+  matching convention directory of the repo's source zone, instead of marking it
   user-owned where it sits. The next build copies it back and registers it, so
   ownership is derived from what the build actually copied — there is no list
   to maintain, and an artifact a persona excludes is not owned, letting the
-  framework's version render in its place. A project with no resolvable profile
-  cannot be claimed into.
+  framework's version render in its place.
 - The profile's `.env` is where a project's secrets live. `osprey build`
   derives the project's `.env` from it and from nothing else, and a later build
   never re-reads your shell. A shell export reaches a profile only once, at
   materialization, and only for providers the profile actually references —
   keys exported for other providers are named in the summary rather than copied
-  in. `osprey deploy up` writes the credentials it mints back into the
-  profile's `.env`, append-only, so a rebuild comes up on the same secrets
+  in. `osprey up` writes the credentials it mints back into the profile's
+  `.env`, append-only, so a rebuild comes up on the same secrets
   instead of minting a second set the running containers do not trust.
 - The web terminal's System Settings drawer explains itself. Each tab opens
   with a standing one-line subtitle, and the category help tooltips now
@@ -158,12 +145,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   becomes a runaway backstop (100 turns), and a turn stays eligible for replay
   for 180 days instead of 90. Long-lived direct-message threads no longer drop
   older turns while sitting far under their size budget.
-- `osprey profile new` now writes persona profiles as small deltas
-  (`extends: ../profile.yml`) instead of full standalone copies: edit the host
-  profile once and every persona inherits the change, while each persona file
-  keeps its own capability posture (e.g. `control_system.writes_enabled:
-  false`) pinned explicitly. Model-selection choices baked at materialization
-  time — and `tier` — now reach personas through inheritance.
+- `osprey init` now writes persona profiles as small deltas under `personas/`
+  instead of full standalone copies. A file there merges over the repo's
+  `profile.yml` implicitly, so edit the host profile once and every persona
+  inherits the change, while each persona file keeps its own capability posture
+  (e.g. `control_system.writes_enabled: false`) pinned explicitly.
+  Model-selection choices baked at materialization time — and `tier` — now
+  reach personas through inheritance.
 - The shipped web-terminal rosters spell out `name`/`index`/`persona` on every
   user entry instead of bare-string shorthand for the first user. Behavior is
   unchanged; already-deployed projects will see a one-time profile-staleness
@@ -227,14 +215,14 @@ Compatibility is documented in release notes, not encoded in the version string.
   already deploys and run end to end out of the box. `mock` remains the
   fallback for environments with no containers to depend on, where scans are
   browse-only — plans compose and validate, but the queue will not hold them.
-  Switch with `osprey config set-control-system mock`.
+  Switch with `osprey set connector=mock`.
 - The Bluesky **RESULTS** panel is now **BLUESKY**, and holds the scan queue as
   well as the selected run's results. The sidecar serves the same bundle at
   `/results/` for one more release so existing bookmarks and panel entries keep
   resolving; move your own `web.panels.results.*` entries to
   `web.panels.bluesky.*` before then. The preset rename changes its resolved
   content, so an already-deployed project reports staleness on its next
-  `osprey deploy up`. That is the correct signal rather than noise — the tab a
+  `osprey up`. That is the correct signal rather than noise — the tab a
   user sees is renamed — and rebuilding picks it up.
 - Unknown keys in a build profile's `bluesky:` block now fail the build, naming
   the valid keys (`excluded_plans`, `plan_dir`, `port`, `tiled_enabled`,
@@ -243,13 +231,36 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Removed
 
-- The `osprey-build-deploy` skill. `osprey-deploy-ops` replaces it, and what
-  that skill used to scaffold by hand is now `osprey deploy scaffold`.
-- `facility-config.yml`. The `modules.web_terminals` stanza lives in the
-  project's own `config.yml`, emitted from the profile's `config:` block, and
-  the deployment files come from the profile's `deploy:` block. Passing
-  `--config` to `osprey scaffold web-terminals` is now an error naming both
-  replacements; use `--project` instead.
+- The `osprey deploy` and `osprey claude` command groups, the `osprey config`
+  subcommands, `osprey profile new` and `profile try`, several `osprey build`
+  options, and the interactive menu that bare `osprey` used to launch. What to
+  run instead:
+
+  | Removed | Use instead |
+  | --- | --- |
+  | `osprey deploy up` / `down` / `restart` / `status` / `build` | `osprey up` / `down` / `restart` / `status` / `build` |
+  | `osprey deploy clean` / `rebuild` / `nuke` | `osprey reset`, or `osprey up --build` to re-render and start |
+  | `osprey deploy decommission` / `prune` / `seed` / `passwd` / `render-env-production` | `osprey users remove` / `prune` / `seed` / `passwd` / `env-production` |
+  | `osprey deploy scaffold` | `osprey scaffold ci` |
+  | `osprey claude regen` | `osprey build` |
+  | `osprey claude status` / `chat` | `osprey status` / `osprey chat` |
+  | `osprey config show` / `export` | `osprey config --rendered` / `--defaults` |
+  | `osprey config set-control-system TYPE` | `osprey set connector=TYPE` |
+  | `osprey config set-epics-gateway --facility NAME` | `osprey set epics_gateway=NAME` |
+  | `osprey build --tier N` / `--set K=V` | `osprey set tier=N` / `osprey set K=V` |
+  | `osprey build PROJECT --preset P` | `osprey init PROJECT --preset P`, then `osprey build` |
+  | `osprey profile new DIR --preset P` | `osprey init DIR --preset P` |
+  | `osprey profile try` | `osprey init --preset P --up` |
+
+  `osprey profile presets` and `osprey profile validate` are unchanged.
+- The `osprey-build-deploy` skill. What it used to scaffold by hand — the CI
+  pipeline, the deployment files, the post-deploy health check — is now
+  `osprey scaffold ci` and the deploy verbs themselves.
+- `facility-config.yml`. The `modules.web_terminals` stanza lives in the repo's
+  built `config.yml`, emitted from the profile's `config:` block, and the
+  deployment files come from the profile's `deploy:` block. Passing `--config`
+  to `osprey scaffold web-terminals` is now an error naming both replacements;
+  use `--repo`, or run from inside the repo.
 - The `overlay:` profile key and the `overlays/` seed directory. Put a file in
   the convention directory that matches what it is; there is nothing left to
   declare.
@@ -284,16 +295,38 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `osprey health` now answers from either stance. It looks for the config where
+  a build writes it (`build/config.yml`) and reads credentials from the repo's
+  `.env`, so running it at the repo root no longer reports the config missing,
+  and pointing it at the render no longer runs the provider canaries and the
+  environment scan with no credentials loaded.
+- Container detection now recognizes Podman's `/run/.containerenv`, not only
+  Docker's `/.dockerenv`. Inside a Podman deployment the derived MCP health
+  probes were aimed at host URLs.
+- `osprey set` now says so when a key is not one the profile recognizes. The
+  key is still written, but the profile schema is closed, so the next
+  `osprey build` refuses the whole profile — which used to be the first hint,
+  reported against `profile.yml` rather than against the command that made the
+  edit. Keys addressing the rendered config (`config.…`) are unaffected.
+- A dispatch worker whose `agent_data.base_dir` is an absolute path now mounts
+  its workspace volume where the worker actually writes. The mount target was
+  re-anchored under the project directory, so the volume landed on a path
+  nothing used while the records went to the container's writable layer and
+  were lost on every recreate.
+- Several messages and rendered comments still named commands the redesign
+  removed — among them the refusal `osprey up` raises when `.env.production`
+  is missing, which pointed at `osprey deploy render-env-production` instead of
+  `osprey users env-production`.
 - Lattice dashboard summary stats (energy, tunes, chromaticity) no longer
   freeze at load time — they recompute with the fast figures after a magnet
   change. Also removed dead panel chrome the audit surfaced: ARIEL's unwired
   "Connected" indicator and the System Health panel's no-op manual refresh
   and misleading fetch-time timestamp.
-- On Docker Desktop (macOS/Windows), `osprey deploy up` now repairs a web
-  stack that is fully healthy yet unreachable from the browser. Docker
+- On Docker Desktop (macOS/Windows), `osprey up` now repairs a web stack that
+  is fully healthy yet unreachable from the browser. Docker
   Desktop forwards a host-network port only if it watched the container open
   it, so a container that restarted while Docker Desktop itself was starting
-  stays invisible from the host — and re-running `deploy up` could never fix
+  stays invisible from the host — and re-running `osprey up` could never fix
   it, because nothing in the container's definition changed. The post-deploy
   reachability probe now restarts the web stack once and re-checks before
   pointing at the host-networking setting.
@@ -312,25 +345,23 @@ Compatibility is documented in release notes, not encoded in the version string.
 - A secret containing `$` no longer reaches a container truncated. Compose
   substitutes `$` sequences inside env-file values, so `secret$abc` arrived as
   `secret` and `P@$$w0rd` as `P@$w0rd` — while the file on disk still read
-  correctly, leaving a login that refused for no visible reason. `osprey
-  deploy` now refuses such a stack and names the offending variables (never
-  their values). All three files a deploy reads secrets from are checked —
+  correctly, leaving a login that refused for no visible reason. `osprey up`
+  now refuses such a stack and names the offending variables (never their
+  values). All three files a deploy reads secrets from are checked —
   `.env`, `.env.production` and `.env.auth` — including ones OSPREY did not
   write itself, so a CI-built `.env.production` and a hand-added OIDC client
-  secret are covered. `deploy passwd` checks before storing a new password.
+  secret are covered. `osprey users passwd` checks before storing a new
+  password.
 - The OIDC section of the multi-user guide named `.env` as the file to put
   client credentials in. It is `.env.auth` — credentials placed as documented
-  never reached the login service. The deploy skill's config-schema and
-  web-terminals references said the same thing and are corrected too.
+  never reached the login service.
 - Editing `.env.auth` by hand (the documented way to add OIDC client
-  credentials) now takes effect on the next `osprey deploy up`. On podman the
+  credentials) now takes effect on the next `osprey up`. On podman the
   login service previously kept running with the old file's contents —
   healthy-looking but rejecting every login — until it was recreated manually.
 - Lint now refuses a roster `oidc_subject` containing `$`. The subject travels
   through the rendered compose file, where `$` sequences are rewritten, so
   that user could never log in and nothing said why.
-- The deploy skill's CI template no longer lets the shell expand — or execute
-  backticks in — the ARIEL DSN and timezone it writes into `.env.production`.
 - The settings drawer's `CLAUDE.md` section now has a help tooltip. Its help
   text was filed under a category name no gallery ever displays, so the button
   silently never rendered — on the one artifact that matters most.
