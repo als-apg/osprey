@@ -13,12 +13,14 @@ This module provides the low-level storage layer used by both.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import mimetypes
 import os
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +29,35 @@ from typing import Any
 from osprey.stores.base_store import BaseStore, _sanitize_for_json
 
 logger = logging.getLogger("osprey.stores.artifact_store")
+
+#: Who is performing the current store mutation. The store itself cannot tell
+#: an agent tool call from a gallery click or a retention sweep — the frames a
+#: listener emits from these events are *agent* activity, so non-agent callers
+#: declare themselves via :func:`artifact_mutation_actor` and listeners read
+#: :func:`current_artifact_mutation_actor` at event time. Defaults to "agent"
+#: because every MCP-tool path mutates the store on the agent's behalf.
+_MUTATION_ACTOR: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "artifact_mutation_actor", default="agent"
+)
+
+
+@contextmanager
+def artifact_mutation_actor(actor: str) -> Iterator[None]:
+    """Attribute store mutations in this scope to *actor* ("human", "system").
+
+    Listener callbacks fire synchronously inside the mutation call, so the
+    scope only needs to cover the ``save_*``/``delete_*`` call itself.
+    """
+    token = _MUTATION_ACTOR.set(actor)
+    try:
+        yield
+    finally:
+        _MUTATION_ACTOR.reset(token)
+
+
+def current_artifact_mutation_actor() -> str:
+    """Return the actor of the mutation currently firing listeners."""
+    return _MUTATION_ACTOR.get()
 
 
 def register_artifact_listener(fn: Callable[[ArtifactEntry], None]) -> None:

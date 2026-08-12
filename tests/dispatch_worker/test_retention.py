@@ -218,6 +218,34 @@ def test_artifact_of_in_flight_run_survives(tmp_path):
     assert store.get_entry(art) is not None
 
 
+def test_artifact_sweep_deletes_run_under_the_system_actor(tmp_path):
+    """Retention deletes are maintenance: the store-level activity listener
+    must be able to tell them apart from agent deletes."""
+    from osprey.stores.artifact_store import (
+        current_artifact_mutation_actor,
+        register_artifact_delete_listener,
+        unregister_artifact_delete_listener,
+    )
+
+    store = ArtifactStore(workspace_root=tmp_path)
+    old = _save_artifact(store, "old")
+    _set_artifact_age_days(store, old, 100)
+
+    actors = []
+
+    def record_actor(_entry):
+        actors.append(current_artifact_mutation_actor())
+
+    register_artifact_delete_listener(record_actor)
+    try:
+        deleted = retention.sweep_artifacts(store, retention_days=5, now=_NOW)
+    finally:
+        unregister_artifact_delete_listener(record_actor)
+
+    assert deleted == 1
+    assert actors == ["system"]
+
+
 def test_artifact_sweep_disabled(tmp_path):
     store = ArtifactStore(workspace_root=tmp_path)
     art = _save_artifact(store, "old")

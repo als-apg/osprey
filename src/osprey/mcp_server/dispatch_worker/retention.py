@@ -154,16 +154,21 @@ def sweep_artifacts(
     cutoff = now - retention_days * _SECONDS_PER_DAY
     deleted = 0
 
+    from osprey.stores.artifact_store import artifact_mutation_actor
+
     # Snapshot the entry ids first: delete_entry mutates the index under a lock,
     # so iterate over a stable list rather than the live entry collection.
-    for entry in list(store.list_entries()):
-        if entry.run_id and entry.run_id in in_flight:
-            continue
-        ts = _parse_iso_timestamp(entry.timestamp)
-        if ts is None or ts >= cutoff:
-            continue
-        if store.delete_entry(entry.id):
-            deleted += 1
+    # These deletes are maintenance, not agent actions — tag them so store
+    # listeners don't report them as agent activity.
+    with artifact_mutation_actor("system"):
+        for entry in list(store.list_entries()):
+            if entry.run_id and entry.run_id in in_flight:
+                continue
+            ts = _parse_iso_timestamp(entry.timestamp)
+            if ts is None or ts >= cutoff:
+                continue
+            if store.delete_entry(entry.id):
+                deleted += 1
 
     return deleted
 
