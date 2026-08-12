@@ -90,9 +90,11 @@ web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
   - okf             # KNOWLEDGE tab — browse the facility knowledge bundle
-  - events          # EVENTS dashboard tab (event dispatcher)
-  - bluesky         # Plan authoring, the scan queue, and the run's live results
   - system-health   # SYSTEM tab — framework health dashboard (sidecar-backed)
+  # events + bluesky (the write-oriented panels) are declared by the readwrite
+  # persona, beside the web.panels.<id>.url overrides that give them meaning —
+  # a panel id and its URL declaration travel together (see the note in
+  # config: below).
 
 # ── Bluesky stack (turn-key, VA-backed) ─────────────────────────────────────────
 # The tutorial ships the FULL Bluesky-mediated Bluesky stack out of the box:

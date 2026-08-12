@@ -22,6 +22,13 @@ extends: control-assistant
 # blocks inherited from the base are all gated on this flag and skip cleanly.
 deploy_services: false
 
+# The write-oriented panels, listed beside their web.panels.<id>.url overrides
+# below (a panel id and its URL declaration travel together). Persona lists
+# UNION over the base, so these are added to the inherited builtin set.
+web_panels:
+  - events          # EVENTS dashboard tab (event dispatcher)
+  - bluesky         # Plan authoring, the scan queue, and the run's live results
+
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY: each entry is a literal `key.path` written into config.yml
 # after the template renders. Nested YAML under `config:` would deep-merge into

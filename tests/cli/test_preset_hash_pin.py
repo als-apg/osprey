@@ -90,17 +90,21 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # (expert/simple), and the EVENTS/BLUESKY panel declarations moved from the
     # base's `config:` into the readwrite persona so the readonly build is
     # genuinely panel-free (a persona delta cannot subtract inherited config
-    # keys, and `enabled: false` is inert for URL panels). NOT behavior-neutral
-    # — a rebuilt readonly project loses two tabs, gains the simple surface,
-    # and the roster swaps which port is write-armed — so the staleness
-    # advisory firing on already-deployed projects is the correct signal. The
-    # base and both children changed directly, so all three digests moved.
-    "control-assistant": "sha256:4d6b59a05c9b03d880d9d056d4513244fe6ce34b8f649dafc6f47cb514a8f5a2",
+    # keys, and `enabled: false` is inert for URL panels). The `events`/
+    # `bluesky` `web_panels` entries moved with their URL overrides — a panel
+    # id and its URL declaration travel together, which is the invariant
+    # tests/integration/test_preset_static.py holds every preset to. NOT
+    # behavior-neutral — a rebuilt readonly project loses two tabs, gains the
+    # simple surface, and the roster swaps which port is write-armed — so the
+    # staleness advisory firing on already-deployed projects is the correct
+    # signal. The base and both children changed directly, so all three
+    # digests moved.
+    "control-assistant": "sha256:5107fb647bb9ed03965e429adcc88d6bfb4c5b16de8c1b7a67ee49ebfa29a5e6",
     "control-assistant-readonly": (
-        "sha256:05cfccc0fdeac6d857dd26826b43e856bb785724d5ab1d11a3413310d80af470"
+        "sha256:881068127a3b7f61d99cadd6c412871d94c605c170ad957197fd8c9a45a60fbc"
     ),
     "control-assistant-readwrite": (
-        "sha256:11dfe6be09673c2ed1a02e5ac0e2b271d0d49109692c0ff3c97343ea13310b5e"
+        "sha256:000fd7dcfe1870b9035836ca55cc16268056aa0e551eca94b5e11098f5faafaf"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

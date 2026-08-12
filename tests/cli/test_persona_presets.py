@@ -370,10 +370,13 @@ class TestControlAssistantPersonas:
         # With the tier-contract keys removed, the personas are identical.
         assert ro_cfg == rw_cfg
 
-    def test_personas_share_every_artifact_list(self) -> None:
-        """No tier is defined by artifact removal — both inherit the tutorial's
-        full artifact set verbatim, scan skills and panels included (the
-        boundary is enforcement, not absence)."""
+    def test_personas_share_every_artifact_list_except_panels(self) -> None:
+        """No tier is defined by *tool* removal — skills, rules, hooks, agents
+        and output styles are inherited verbatim by both personas (the write
+        boundary is enforcement, not a stripped-down agent). Panels are the one
+        deliberate exception: the readwrite persona adds the write-oriented
+        EVENTS/BLUESKY tabs beside their URL declarations, and the readonly
+        persona is built without them."""
         readonly = resolve_preset("control-assistant-readonly")
         readwrite = resolve_preset("control-assistant-readwrite")
         base = resolve_preset("control-assistant")
@@ -383,7 +386,8 @@ class TestControlAssistantPersonas:
             assert persona.hooks == base.hooks
             assert persona.agents == base.agents
             assert persona.output_styles == base.output_styles
-            assert persona.web_panels == base.web_panels
+        assert readonly.web_panels == base.web_panels
+        assert set(readwrite.web_panels) == set(base.web_panels) | {"events", "bluesky"}
 
     def test_safety_chain_hooks_are_shipped(self) -> None:
         """The write-capable tier is supervised, not unguarded: the hooks that
