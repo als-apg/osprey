@@ -84,12 +84,19 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # signal. The archive work and the panel merge landed either side of this
     # merge, so as above the digests carry both at once. Both extends children
     # inherit it, so all three moved.
-    "control-assistant": "sha256:edf098ea7affaa4ddec708eee5dba46cb5799738c9914526eaf475582e3c0326",
+    # Re-pinned again when setup-mode left the operator skills roster: it can
+    # patch config.yml/.mcp.json (setup_patch), which is admin work, so
+    # operator-tier terminals no longer render it. NOT behavior-neutral — a
+    # rebuilt project loses a skill directory — so the staleness advisory
+    # firing on already-deployed projects is the correct signal. The skill
+    # stays in the artifact catalog for admin profiles to opt into. Both
+    # extends children inherit the roster, so all three digests moved.
+    "control-assistant": "sha256:208c2c6883299235e4a1d9837b125874e57bc6b4231b453f5b67ec89ed3bb8ec",
     "control-assistant-readonly": (
-        "sha256:4cb215e59d6b99ae530c60d6305e97ca8eb459aa4f9d5049f2e329d6e87911ae"
+        "sha256:bf865694846898965b402a805f2312095e3abadbce7a922659b28c800284fe0b"
     ),
     "control-assistant-readwrite": (
-        "sha256:90be07f5620df02e44c40b1b75b8b2ce12a738f06dc816a5a8c0febfa631ec08"
+        "sha256:0d4701ab4c056722f465e1601becf2ad0f6a8c88b131be469659b9ffaa976f40"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

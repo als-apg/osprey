@@ -164,7 +164,11 @@ never a substitute for `bps.sleep` inside a plan's own control flow.
    `queue_start()` begins draining it. Both consult the validation record:
    the plan's content hash is re-checked at enqueue **and** again at queue
    start, `queue_start` requires `control_system.writes_enabled` plus the
-   launch token, and a human sees an approval prompt. A refusal whose
+   launch token, and a human sees an approval prompt. In deployments where
+   this server holds no launch token (the deployed-terminal norm — the token
+   lives with the operator's queue panel), `queue_start` instead files a
+   start request the human confirms in that panel; see
+   `operating-bluesky-scans` for the two success shapes. A refusal whose
    `detail.code` starts with `session_plan_` (`session_plan_unvalidated`,
    `session_plan_not_in_namespace`) means exactly one thing: re-validate the
    plan and try again. Use `get_run(run_id)` / `get_run_data(run_id, ...)` to
