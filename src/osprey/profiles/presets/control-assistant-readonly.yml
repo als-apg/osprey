@@ -27,10 +27,18 @@ deploy_services: false
 # after the template renders. Nested YAML under `config:` would deep-merge into
 # and clobber the base's rendered config subtree, so keep every override flat.
 config:
-  # The single axis this persona differs on. The tutorial base arms writes for
-  # its own single-user agent, so this tier boundary MUST be pinned explicitly
-  # here — it is what makes the read-only terminal read-only.
+  # The tier boundary. The tutorial base arms writes for its own single-user
+  # agent, so this MUST be pinned explicitly here — it is what makes the
+  # read-only terminal read-only.
   control_system.writes_enabled: false
+  # Pared-down operator layout: chat only, workspace hidden until the agent
+  # puts something in it. Pinned on both sides of the tier boundary (readwrite
+  # pins `expert`), same rationale as writes_enabled.
+  #
+  # This persona also has no EVENTS/BLUESKY panels — not by any key here, but
+  # because their declarations live in the readwrite persona delta and never
+  # reach this build (see the note in the base's config: block).
+  web.ui_mode: simple
   # Attached persona: the hosting project owns the web-terminal tier (nginx,
   # landing, per-user containers). Without this override the inherited roster
   # would make a persona-dir deploy try to host a second web tier on the same

@@ -202,21 +202,20 @@ config:
   # to the project name when unset. Sits in the same `facility:` block as
   # `facility.prefix` below.
   # facility.name: My Facility
-  # EVENTS panel — surfaces the event-dispatcher dashboard as an in-terminal tab.
-  # URL defaults to the host-run dispatcher (127.0.0.1:8020); override
-  # EVENT_DISPATCHER_URL for containerized/remote web terminals.
-  web.panels.events.label: EVENTS
-  web.panels.events.url: "${EVENT_DISPATCHER_URL:-http://localhost:8020}"
-  web.panels.events.path: /dashboard
-  web.panels.events.health_endpoint: /health
-  # SCAN panel — the operator UI for the mediated Bluesky stack, served by the
-  # bluesky-panels sidecar. One panel with three tabs: plan authoring, the scan
-  # queue, and the selected run's live results.
-  # URL defaults to the host-published sidecar port; override BLUESKY_PANELS_URL for
-  # a containerized/remote web terminal (same pattern as the EVENTS panel above).
-  web.panels.bluesky.label: BLUESKY
-  web.panels.bluesky.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
-  web.panels.bluesky.path: /bluesky/
+  # Default web theme for every terminal: the `main` family pinned to light
+  # mode (`light` is main's concrete light id — other families spell theirs
+  # `desy-light` etc.). A default, not a lock: the in-browser display menu,
+  # ?theme= and localStorage override it per browser.
+  web.theme: light
+  # EVENTS + BLUESKY panel declarations live in the readwrite persona delta,
+  # NOT here. Deliberate: a persona delta can only ADD config keys (`config:`
+  # is not excludable), so anything declared here reaches every persona — and
+  # the read-only persona must be built without these two write-oriented
+  # panels. Declaring them only in the readwrite delta is the one mechanism
+  # that makes them genuinely absent from the readonly build (`enabled: false`
+  # is inert for URL panels — only builtin ids honor it). The base project
+  # still gets both panels: the dispatch and bluesky-panels injectors fill in
+  # defaults when the profile doesn't declare them.
   # ── Multi-user web-terminal stack (built-in) ───────────────────────────────
   # The tutorial ships natively multi-user: `osprey deploy up` stands up nginx,
   # the landing page, and one web-terminal container per roster user, alongside
@@ -276,12 +275,17 @@ config:
       # another user's ports; `persona` names a catalog entry below. A bare
       # string (`- alice`) is also accepted: it takes its list position as
       # index and falls back to `default_persona`.
+      # `display_name` becomes the browser window/tab title (OSPREY_WEB_APP_NAME)
+      # — with both terminals on the same light theme it is the visible marker
+      # of which one is write-armed.
       - name: alice
         index: 0
-        persona: readonly
+        persona: readwrite
+        display_name: "Control Room (Alice)"
       - name: bob
         index: 1
-        persona: readwrite
+        persona: readonly
+        display_name: "Read-Only View (Bob)"
     personas:
       readonly:
         project: control-assistant-readonly

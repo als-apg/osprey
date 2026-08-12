@@ -84,12 +84,23 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # signal. The archive work and the panel merge landed either side of this
     # merge, so as above the digests carry both at once. Both extends children
     # inherit it, so all three moved.
-    "control-assistant": "sha256:edf098ea7affaa4ddec708eee5dba46cb5799738c9914526eaf475582e3c0326",
+    # Re-pinned again when the persona tiers were redesigned: the roster now
+    # maps alice→readwrite and bob→readonly (each with a `display_name` tab
+    # title), the base pins `web.theme: light`, both personas pin `web.ui_mode`
+    # (expert/simple), and the EVENTS/BLUESKY panel declarations moved from the
+    # base's `config:` into the readwrite persona so the readonly build is
+    # genuinely panel-free (a persona delta cannot subtract inherited config
+    # keys, and `enabled: false` is inert for URL panels). NOT behavior-neutral
+    # — a rebuilt readonly project loses two tabs, gains the simple surface,
+    # and the roster swaps which port is write-armed — so the staleness
+    # advisory firing on already-deployed projects is the correct signal. The
+    # base and both children changed directly, so all three digests moved.
+    "control-assistant": "sha256:4d6b59a05c9b03d880d9d056d4513244fe6ce34b8f649dafc6f47cb514a8f5a2",
     "control-assistant-readonly": (
-        "sha256:4cb215e59d6b99ae530c60d6305e97ca8eb459aa4f9d5049f2e329d6e87911ae"
+        "sha256:05cfccc0fdeac6d857dd26826b43e856bb785724d5ab1d11a3413310d80af470"
     ),
     "control-assistant-readwrite": (
-        "sha256:90be07f5620df02e44c40b1b75b8b2ce12a738f06dc816a5a8c0febfa631ec08"
+        "sha256:11dfe6be09673c2ed1a02e5ac0e2b271d0d49109692c0ff3c97343ea13310b5e"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

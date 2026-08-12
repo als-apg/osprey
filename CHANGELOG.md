@@ -11,6 +11,15 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Changed
+
+- The control-assistant tutorial's two-user roster now ships alice as the
+  write-capable operator and bob as the read-only viewer. The tiers differ
+  visibly, not just in enforcement: the write-armed terminal keeps the full
+  expert workspace with the EVENTS and BLUESKY panels, the read-only one gets
+  a chat-first simple layout without them, both default to the light theme,
+  and each browser tab is titled after its role.
+
 ### Added
 
 - An archiver read that comes back empty now says why: the response carries a
