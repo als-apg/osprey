@@ -82,7 +82,8 @@ from typing import Any
 
 import pytest
 
-from tests.e2e import _orm_stack
+from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e._deploy_diagnostics import queue_stack_logs
 
 # Distinct from every sibling e2e module's pinned bridge port (_orm_stack.py's
 # 18102, test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
@@ -455,6 +456,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         _wait_for_health(f"{BLUESKY_PANELS_URL}/health", HEALTH_TIMEOUT_SEC)
+        # HTTP readiness is not enqueue readiness -- the worker namespace an
+        # enqueue validates against exists only once the RE worker environment
+        # is open, and the bridge opens that off the readiness path. See
+        # `_queue_drive.wait_for_worker_environment`.
+        try:
+            _queue_drive.wait_for_worker_environment(BRIDGE_URL)
+        except AssertionError as exc:
+            pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
 
         plan_name, plan_args = _discover_writes_plan(correctors, bpms, limits)
 

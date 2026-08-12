@@ -100,7 +100,7 @@ from osprey.agent_runner import SDKWorkflowResult, ToolTrace
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.queue_backend import is_queue_active
 from tests.e2e import _orm_stack, _queue_drive
-from tests.e2e._deploy_diagnostics import dead_container_logs
+from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -1264,6 +1264,16 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
             _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
+        # HTTP readiness is not enqueue readiness -- the worker namespace an
+        # enqueue validates against exists only once the RE worker environment
+        # is open, and the bridge opens that off the readiness path. Without
+        # this gate the agent's first scan tool call can be refused for a
+        # reason that has nothing to do with the agent. See
+        # `_queue_drive.wait_for_worker_environment`.
+        try:
+            _queue_drive.wait_for_worker_environment(BRIDGE_URL)
+        except AssertionError as exc:
+            pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
 
         # AFTER `deploy up`, never before: the deploy path re-renders the Claude
         # Code artifacts and would discard an earlier edit to settings.json.
