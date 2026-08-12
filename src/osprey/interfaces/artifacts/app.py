@@ -524,6 +524,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     from osprey.stores.artifact_store import (
         ArtifactEntry,
         ArtifactStore,
+        artifact_mutation_actor,
         register_artifact_delete_listener,
         register_artifact_listener,
         unregister_artifact_delete_listener,
@@ -876,7 +877,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     @app.delete("/api/artifacts/{artifact_id}")
     async def delete_artifact(artifact_id: str):
-        deleted = store.delete_entry(artifact_id)
+        # This delete is a person clicking in the gallery, not the agent —
+        # tag it so store listeners don't report it as agent activity.
+        with artifact_mutation_actor("human"):
+            deleted = store.delete_entry(artifact_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         return {"status": "ok", "artifact_id": artifact_id}

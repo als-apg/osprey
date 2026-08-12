@@ -277,6 +277,10 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
 
     mock_exec = _mock_execute_code(success=True, stdout="done\n")
 
+    # The deployment-level writes gate is independent of execution_mode; this
+    # test asserts the readwrite path, so the gate must be allow-through.
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
     with (
         patch(
             "osprey.mcp_server.python_executor.executor._resolve_project_root",
@@ -289,6 +293,10 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
                 "has_reads": False,
                 "detected_patterns": {"writes": ["caput"], "reads": []},
             },
+        ),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
         ),
         patch(
             "osprey.mcp_server.python_executor.executor.execute_code",
@@ -305,6 +313,104 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
     mock_exec.assert_called_once()
     data = extract_response_dict(result)
     assert data["summary"]["status"] == "Success"
+
+
+@pytest.mark.unit
+async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypatch):
+    """The deployment kill switch refuses readwrite runs when writes are disabled.
+
+    ``execute_file`` used to carry no deployment-level gate at all: a script
+    full of write patterns ran under execution_mode="readwrite" even with
+    control_system.writes_enabled=false in the project config.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    script = tmp_path / "writer.py"
+    script.write_text("epics.caput('PV', 1)\n")
+
+    mock_exec = _mock_execute_code()
+
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
+    with (
+        patch(
+            "osprey.mcp_server.python_executor.executor._resolve_project_root",
+            return_value=tmp_path,
+        ),
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={
+                "has_writes": True,
+                "has_reads": False,
+                "detected_patterns": {"writes": ["caput"], "reads": []},
+            },
+        ),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=False),
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
+    ):
+        fn = _get_python_execute_file()
+        with assert_raises_error(error_type="safety_error") as ctx:
+            await fn(
+                file_path=str(script),
+                description="kill switch test",
+                execution_mode="readwrite",
+            )
+
+    mock_exec.assert_not_called()
+    assert "writes_enabled" in ctx["envelope"]["error_message"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["ReadWrite", "READWRITE", "write", "read_write"])
+async def test_execute_file_rejects_unknown_execution_mode(tmp_path, monkeypatch, mode):
+    """Modes outside {readonly, readwrite} are rejected before any gate runs."""
+    monkeypatch.chdir(tmp_path)
+
+    script = tmp_path / "writer.py"
+    script.write_text("epics.caput('PV', 1)\n")
+
+    mock_exec = _mock_execute_code()
+
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
+    with (
+        patch(
+            "osprey.mcp_server.python_executor.executor._resolve_project_root",
+            return_value=tmp_path,
+        ),
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={
+                "has_writes": True,
+                "has_reads": False,
+                "detected_patterns": {"writes": ["caput"], "reads": []},
+            },
+        ),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=False),
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
+    ):
+        fn = _get_python_execute_file()
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await fn(
+                file_path=str(script),
+                description="unknown mode bypass",
+                execution_mode=mode,
+            )
+
+    mock_exec.assert_not_called()
+    assert "execution_mode" in ctx["envelope"]["error_message"]
 
 
 @pytest.mark.unit

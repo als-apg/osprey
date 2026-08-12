@@ -5,17 +5,15 @@ specific work is delegated to a :class:`ScreenCaptureBackend` (macOS or Linux).
 The tool functions below are thin validation + delegation layers.
 """
 
-import functools
 import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-import anyio
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import notify_agent_activity
+from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.workspace.server import mcp
 from osprey.mcp_server.workspace.tools.screen_capture_backends import (
     BackendUnavailableError,
@@ -281,14 +279,7 @@ async def manage_window(
 
         # Only once the backend moved the window: a refused or failed action
         # raises out of make_error above and reports nothing.
-        await anyio.to_thread.run_sync(
-            functools.partial(
-                notify_agent_activity,
-                "manage_window",
-                "ui",
-                detail=f"{action} {app}",
-            )
-        )
+        await notify_agent_activity_async("manage_window", "ui", detail=f"{action} {app}")
 
         return json.dumps(
             {

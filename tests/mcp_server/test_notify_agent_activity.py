@@ -116,6 +116,30 @@ class TestPayloadShape:
         assert "detail" not in body["target"]
 
 
+class TestAsyncWrapper:
+    async def test_posts_off_the_event_loop_with_args_passed_through(self):
+        """The async helper is the one thread-hop for every coroutine emit site.
+
+        Tools await it instead of hand-rolling
+        ``anyio.to_thread.run_sync(functools.partial(...))``; the blocking POST
+        must run on a worker thread with all arguments forwarded unchanged.
+        """
+        from osprey.mcp_server.http import notify_agent_activity_async
+
+        calls: list[tuple[int, str, str, str | None, str | None]] = []
+
+        def record(tool, kind, panel=None, detail=None):
+            calls.append((threading.get_ident(), tool, kind, panel, detail))
+
+        with patch(f"{_MODULE}.notify_agent_activity", side_effect=record):
+            await notify_agent_activity_async(
+                "channel_write", "channel", panel="controls", detail="SR:HC1:SP"
+            )
+
+        assert [c[1:] for c in calls] == [("channel_write", "channel", "controls", "SR:HC1:SP")]
+        assert calls[0][0] != threading.get_ident()
+
+
 class TestTimeout:
     def test_hanging_socket_returns_quickly_without_raising(self):
         # Socket that accepts connections but never responds.

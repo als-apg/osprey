@@ -41,7 +41,7 @@ from osprey.mcp_server.bluesky.server_context import _http_post_json
 # abort answers to the same bridge vocabulary, and a second copy here would be
 # a second thing to keep in step.
 from osprey.mcp_server.bluesky.tools.queue import _relay_refusal
-from osprey.mcp_server.http import notify_agent_activity
+from osprey.mcp_server.http import notify_agent_activity_async
 
 # The abort is the one bridge call whose server-side work is a COMPOSITION of
 # manager calls, so ``server_context._TIMEOUT`` (15s, sized for single-call
@@ -124,7 +124,5 @@ async def stop_run() -> str:
             ],
         )
 
-    await anyio.to_thread.run_sync(
-        functools.partial(notify_agent_activity, "stop_run", "run", detail="abort")
-    )
+    await notify_agent_activity_async("stop_run", "run", detail="abort")
     return json.dumps(body)

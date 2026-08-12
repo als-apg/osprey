@@ -71,7 +71,6 @@ prose, for the agent reading them.
 
 from __future__ import annotations
 
-import functools
 import json
 from typing import NoReturn
 
@@ -86,7 +85,7 @@ from osprey.mcp_server.bluesky.server_context import (
     get_server_context,
 )
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import notify_agent_activity
+from osprey.mcp_server.http import notify_agent_activity_async
 
 # Remediation guidance per bridge refusal code, kept in one table so every
 # tool answers the same code with the same next step. Codes absent here get
@@ -502,13 +501,8 @@ async def queue_add(draft_revision: int) -> str:
         )
 
     run_id = body.get("run_id") if isinstance(body, dict) else None
-    await anyio.to_thread.run_sync(
-        functools.partial(
-            notify_agent_activity,
-            "queue_add",
-            "run",
-            detail=str(run_id) if run_id is not None else None,
-        )
+    await notify_agent_activity_async(
+        "queue_add", "run", detail=str(run_id) if run_id is not None else None
     )
     return json.dumps(body)
 
@@ -610,9 +604,7 @@ async def queue_start() -> str:
             fallback_hints=["Check queue_list for the queue's current state."],
         )
 
-    await anyio.to_thread.run_sync(
-        functools.partial(notify_agent_activity, "queue_start", "run", detail="queue")
-    )
+    await notify_agent_activity_async("queue_start", "run", detail="queue")
     return json.dumps(body)
 
 
@@ -637,9 +629,7 @@ async def _request_panel_start() -> str:
         )
 
     record = body.get("start_request") if isinstance(body, dict) else None
-    await anyio.to_thread.run_sync(
-        functools.partial(notify_agent_activity, "queue_start", "run", detail="start-request")
-    )
+    await notify_agent_activity_async("queue_start", "run", detail="start-request")
     return json.dumps(
         {
             "started": False,
@@ -727,12 +717,7 @@ async def queue_stop(cancel: bool = False) -> str:
     # The two directions are opposite operations, so they must not share a
     # label: rendering a withdrawal as "stop" would tell the operator the queue
     # is halting when it has just been released to keep draining.
-    await anyio.to_thread.run_sync(
-        functools.partial(
-            notify_agent_activity,
-            "queue_stop",
-            "run",
-            detail="stop-withdrawn" if cancel else "stop",
-        )
+    await notify_agent_activity_async(
+        "queue_stop", "run", detail="stop-withdrawn" if cancel else "stop"
     )
     return json.dumps(body)

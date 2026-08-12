@@ -8,7 +8,13 @@ module is the single subscriber that turns those store events into
 ``/api/agent-activity`` frames, so artifact visibility does not have to be
 re-implemented in every tool that writes one.
 
-Two properties shape the implementation:
+Three properties shape the implementation:
+
+**Only agent mutations emit.** The store fires the same listeners for a human
+deleting from the gallery UI and for the dispatch worker's retention sweep;
+those callers tag themselves via
+:func:`osprey.stores.artifact_store.artifact_mutation_actor` and their events
+are dropped here — the frames are *agent* activity.
 
 **The caller is never blocked.** ``notify_agent_activity`` performs a blocking
 HTTP POST, and ``ArtifactStore.delete_all`` fires the delete listener once per
@@ -41,6 +47,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from osprey.mcp_server.http import notify_agent_activity
+from osprey.stores.artifact_store import current_artifact_mutation_actor
 
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactEntry
@@ -102,6 +109,13 @@ def _drain_pending() -> None:
 
 
 def _enqueue(tool: str, entry: ArtifactEntry) -> None:
+    # Frames are *agent* activity. A gallery click or a retention sweep fires
+    # the same store listener; those callers tag themselves via
+    # artifact_mutation_actor and must not be reported as agent actions. The
+    # actor is only valid here, on the mutating caller's own context — the
+    # worker thread that POSTs later would always see the default.
+    if current_artifact_mutation_actor() != "agent":
+        return
     if _is_bookkeeping(entry):
         return
     try:

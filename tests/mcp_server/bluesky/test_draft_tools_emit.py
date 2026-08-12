@@ -251,7 +251,7 @@ async def test_queue_stop_plain_stop_emits_detail_stop(tmp_path, monkeypatch):
     _queue_stop_posture(tmp_path, monkeypatch, writes=False, token=None)
     with (
         patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, _STOP_RESP)),
-        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
         result = await _queue_stop_fn()()
 
@@ -265,7 +265,7 @@ async def test_queue_stop_withdrawal_emits_detail_stop_withdrawn(tmp_path, monke
     _queue_stop_posture(tmp_path, monkeypatch, writes=True, token=_QUEUE_STOP_TOKEN)
     with (
         patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, _WITHDRAWN_RESP)),
-        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
         result = await _queue_stop_fn()(cancel=True)
 
@@ -280,7 +280,7 @@ async def test_queue_stop_withdrawal_refused_for_writes_disabled_does_not_emit(
     _queue_stop_posture(tmp_path, monkeypatch, writes=False, token=_QUEUE_STOP_TOKEN)
     with (
         patch(f"{_QUEUE_MOD}._http_post_json") as post,
-        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="writes_disabled"):
             await _queue_stop_fn()(cancel=True)
@@ -293,7 +293,7 @@ async def test_queue_stop_withdrawal_refused_without_a_token_does_not_emit(tmp_p
     _queue_stop_posture(tmp_path, monkeypatch, writes=True, token=None)
     with (
         patch(f"{_QUEUE_MOD}._http_post_json") as post,
-        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="launch_token_required"):
             await _queue_stop_fn()(cancel=True)
@@ -308,7 +308,7 @@ async def test_queue_stop_bridge_refusal_does_not_emit(tmp_path, monkeypatch):
     body = {"detail": {"code": "queue_request_rejected", "detail": "no stop is pending"}}
     with (
         patch(f"{_QUEUE_MOD}._http_post_json", return_value=(409, body)),
-        patch(f"{_QUEUE_MOD}.notify_agent_activity") as notify,
+        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
         with assert_raises_error(error_type="queue_request_rejected"):
             await _queue_stop_fn()()

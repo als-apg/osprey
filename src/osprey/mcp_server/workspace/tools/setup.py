@@ -4,18 +4,16 @@ Diagnostic tools for inspecting and modifying OSPREY agent configuration.
 Used by the /setup-mode skill to help operators troubleshoot setup issues.
 """
 
-import functools
 import json
 import logging
 import os
 import re
 from pathlib import Path
 
-import anyio
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import notify_agent_activity
+from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.workspace import (
     agent_data_base_dir,
@@ -251,13 +249,8 @@ async def _notify_patch(file: str, key_path: str) -> None:
         file: Target file name.
         key_path: Dot-notation path that was patched.
     """
-    await anyio.to_thread.run_sync(
-        functools.partial(
-            notify_agent_activity,
-            "setup_patch",
-            "config",
-            detail=_activity_detail(file, key_path),
-        )
+    await notify_agent_activity_async(
+        "setup_patch", "config", detail=_activity_detail(file, key_path)
     )
 
 

@@ -235,7 +235,7 @@ async def test_queue_add_posts_the_pinned_revision_with_the_token_when_armed(tmp
     _armed(tmp_path, monkeypatch)
     body = {"run_id": "abc123", "revision": 7, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             result = await _add_fn()(draft_revision=7)
 
     assert m.call_args.args[0] == "/queue/items"
@@ -255,7 +255,7 @@ async def test_queue_add_withholds_the_token_when_writes_are_disabled(tmp_path, 
     """
     _configure(tmp_path, monkeypatch, writes=False, token=_TOKEN)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             await _add_fn()(draft_revision=3)
 
     assert m.call_args.kwargs["headers"] is None
@@ -265,7 +265,7 @@ async def test_queue_add_missing_config_fails_closed_and_withholds_the_token(tmp
     """No config.yml at all is not "writes enabled" by omission."""
     _configure(tmp_path, monkeypatch, writes=None, token=_TOKEN)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             await _add_fn()(draft_revision=3)
 
     assert m.call_args.kwargs["headers"] is None
@@ -275,7 +275,7 @@ async def test_queue_add_without_a_configured_token_still_composes(tmp_path, mon
     """An unarmed deployment may still build a queue; only starting it is gated."""
     _configure(tmp_path, monkeypatch, writes=True, token=None)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             await _add_fn()(draft_revision=3)
 
     m.assert_called_once()
@@ -444,13 +444,13 @@ async def test_queue_add_emits_agent_activity_only_after_a_confirmed_enqueue(tmp
     with patch(
         f"{_MOD}._http_post_json", return_value=(409, _refusal("stale_draft_revision", "no"))
     ):
-        with patch(f"{_MOD}.notify_agent_activity") as notify:
+        with patch(f"{_MOD}.notify_agent_activity_async") as notify:
             with assert_raises_error(error_type="stale_draft_revision"):
                 await _add_fn()(draft_revision=7)
     notify.assert_not_called()
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "abc123"})):
-        with patch(f"{_MOD}.notify_agent_activity") as notify:
+        with patch(f"{_MOD}.notify_agent_activity_async") as notify:
             await _add_fn()(draft_revision=7)
     assert notify.call_args.kwargs["detail"] == "abc123"
 
@@ -507,7 +507,7 @@ async def test_queue_start_without_a_token_files_a_panel_start_request(tmp_path,
         "items_in_queue": 2,
     }
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"start_request": record})) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             result = await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start-request"
@@ -570,7 +570,7 @@ async def test_queue_start_armed_posts_with_the_token(tmp_path, monkeypatch):
     """Contrast case: proves the refusals above are gated, not vacuous."""
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             result = await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start"

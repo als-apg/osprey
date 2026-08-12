@@ -6,7 +6,6 @@ PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
   attachment limits, logbook name conventions
 """
 
-import functools
 import json
 import logging
 import os
@@ -14,12 +13,11 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-import anyio
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.ariel.server import build_entry_url, make_error, mcp, serialize_entry
 from osprey.mcp_server.ariel.server_context import get_ariel_context
-from osprey.mcp_server.http import notify_agent_activity
+from osprey.mcp_server.http import notify_agent_activity_async
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.entry")
 
@@ -382,17 +380,9 @@ async def entry_create(
         # entry is persisted and before attachments are processed — an
         # attachment failure must not lose the signal for an entry that already
         # exists. Passive on purpose: unlike the draft branch above, a direct
-        # write does not steal focus. notify_agent_activity never raises; the
+        # write does not steal focus. notify_agent_activity_async never raises; the
         # blocking call runs off the event loop.
-        await anyio.to_thread.run_sync(
-            functools.partial(
-                notify_agent_activity,
-                "entry_create",
-                "panel",
-                panel="ariel",
-                detail=entry_id,
-            )
-        )
+        await notify_agent_activity_async("entry_create", "panel", panel="ariel", detail=entry_id)
 
         # Process attachments if provided
         attachment_count = 0
