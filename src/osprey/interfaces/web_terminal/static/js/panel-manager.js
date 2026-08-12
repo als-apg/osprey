@@ -38,13 +38,15 @@ import {
 import { initDockSync, withEchoSuppressed, setTileCloseHandler, setTileFocusHandler } from './dock-sync.js';
 import { initRailDrag, railDragStart, railDragEnd } from './rail-drag.js';
 import { startHealthPolling as startPolling } from './panel-health.js';
+import { updateStatusBar } from './panel-status-bar.js';
 import { openTerminalPanel, closeTerminalPanel } from './dock-workspace.js';
 import { initRailThemeCoupling } from './rail-position.js';
-import { flashElement } from '/design-system/js/highlight.js';
 import {
-  createRail, addEntry, removeEntry, getEntry, setActive,
-  setEntryEnabled, setEntryAttention,
+  createRail, addEntry, removeEntry, setActive, setEntryEnabled,
 } from './panel-rail.js';
+import {
+  initAgentAttention, flashAgentGlow, clearBadge, badgePanelActivity, restoreAgentBadges,
+} from './panel-agent-attention.js';
 
 // ---- Types ----
 
@@ -180,6 +182,7 @@ export async function initPanelManager(panelId) {
   railEl = /** @type {HTMLElement} */ (document.getElementById('panel-rail'));
   contentEl = /** @type {HTMLElement} */ (containerEl.querySelector('#panel-content') || containerEl.querySelector('.panel-content'));
   if (!railEl || !contentEl) return;
+  initAgentAttention(railEl);
 
   // Hand the iframe adapter its fallback mount host. When the dockview shell is
   // up, panel iframes live in the adapter's overlay layer instead (dockview
@@ -465,14 +468,10 @@ export async function initPanelManager(panelId) {
 
         } else if (data.type === 'agent_activity' && data.target) {
           // kind 'panel' with a live rail entry → persistent badge + glow via
-          // setEntryAttention; everything the rail cannot anchor falls through
+          // badgePanelActivity; everything the rail cannot anchor falls through
           // to the activity-strip seam (no-op until a handler registers).
           const t = data.target;
-          if (t.kind === 'panel' && t.panel && setEntryAttention(railEl, t.panel, true, data.ts)) {
-            // Remember the badge's server ts so clearing it can acknowledge
-            // exactly this event and the reload restore can skip it.
-            noteBadgeTs(t.panel, data.ts);
-          } else {
+          if (!(t.kind === 'panel' && t.panel && badgePanelActivity(t.panel, data.ts))) {
             onAgentActivity(data);
           }
         }
@@ -568,93 +567,6 @@ async function resyncPanelState() {
 }
 
 // ---- Rail Rendering ----
-
-/**
- * Transient agent glow on a rail entry — flash only, never the persistent
- * badge (that is agent_activity's job via setEntryAttention). No-op for ids
- * without an entry.
- * @param {string} panelId
- */
-function flashAgentGlow(panelId) { const entry = getEntry(railEl, panelId); if (entry) flashElement(entry); }
-
-// ---- Agent-attention badges across reloads ----
-//
-// A badge must outlive the page: the server's history ring is re-read on every
-// SSE open (restoreAgentBadges) and any panel activity the operator has not
-// seen re-badges its entry. "Seen" is an ACKNOWLEDGMENT — the server ts of the
-// newest badge the operator cleared by surfacing that panel, kept per panel in
-// localStorage under `agent-ack:<panelId>`.
-//
-// Only SERVER timestamps are ever stored or compared here. The ring's `ts` is
-// the web-terminal process's clock; a browser clock skewed ahead of it would
-// permanently suppress real badges, and one skewed behind would resurrect
-// cleared ones on every reconnect. So a badge whose frame carried no ts leaves
-// the stored ack untouched rather than substituting Date.now().
-
-/** Newest badge-causing server ts seen this page lifetime, per panel.
- *  @type {Map<string, number>} */
-const badgeTs = new Map();
-
-const ACK_KEY_PREFIX = 'agent-ack:';
-
-/**
- * Record a badge's server ts, keeping the newest. The history ring replays a
- * panel's older events alongside its newest, so this must not walk backwards.
- * @param {string} panelId
- * @param {number} [ts]
- */
-function noteBadgeTs(panelId, ts) {
-  if (typeof ts !== 'number') return;
-  const prev = badgeTs.get(panelId);
-  if (prev === undefined || ts > prev) badgeTs.set(panelId, ts);
-}
-
-/**
- * The acknowledged server ts for a panel. A panel that was never acknowledged
- * (and a storage read that is denied or corrupt) has seen nothing, so it reads
- * as -Infinity: an unknown ack RESTORES a badge, it never suppresses one.
- * @param {string} panelId
- * @returns {number}
- */
-function ackedTs(panelId) {
-  let raw = null;
-  try { raw = localStorage.getItem(ACK_KEY_PREFIX + panelId); } catch { return -Infinity; }
-  const ts = raw === null ? NaN : Number(raw);
-  return Number.isFinite(ts) ? ts : -Infinity;
-}
-
-/**
- * Clear a panel's badge and acknowledge it up to that badge's own server ts,
- * so a reload does not bring it back. With no ts on record the badge is still
- * cleared but the stored ack is left exactly as it was (see the section note).
- * @param {string} panelId
- */
-function clearBadge(panelId) {
-  setEntryAttention(railEl, panelId, false);
-  const ts = badgeTs.get(panelId);
-  if (ts === undefined) return;
-  try { localStorage.setItem(ACK_KEY_PREFIX + panelId, String(ts)); } catch { /* storage denied */ }
-}
-
-/**
- * Re-badge rail entries for panel activity this operator has not acknowledged.
- * Runs after the membership resync on every SSE open — including the first, so
- * a reload restores badges — which is also why it runs after it: an entry that
- * the resync delta just added can then carry a badge.
- *
- * Only 'panel'-kind rows with a ts can badge anything; the strip owns the rest
- * and history there is its own concern (the seam is not replayed).
- */
-async function restoreAgentBadges() {
-  let body = null;
-  try { body = await fetchJSON('/api/agent-activity/recent'); } catch { return; }
-  for (const ev of (body?.events || [])) {
-    const target = ev?.target;
-    if (target?.kind !== 'panel' || !target.panel || typeof ev.ts !== 'number') continue;
-    if (ev.ts <= ackedTs(target.panel)) continue;
-    if (setEntryAttention(railEl, target.panel, true, ev.ts)) noteBadgeTs(target.panel, ev.ts);
-  }
-}
 
 /**
  * Interaction closures handed to every rail render/append call. Routing
@@ -927,7 +839,7 @@ function ensureActivePanel() {
  * @param {boolean} wasHealthy
  */
 function onHealthSettled(panel, wasHealthy) {
-  updateStatusBar(panel);
+  updateStatusBar(panel, panelState[panel.id]);
   if (panelState[panel.id].healthy && !wasHealthy) {
     setEntryEnabled(railEl, panel.id, true);
     ensureActivePanel();
@@ -950,23 +862,6 @@ function startHealthPolling(panel) {
 function assumeHealthy(panel) {
   panelState[panel.id].healthy = true;
   setEntryEnabled(railEl, panel.id, true);
-}
-
-/** @param {Panel} panel */
-function updateStatusBar(panel) {
-  if (!panel.statusBarId) return;
-
-  const statusItem = document.getElementById(panel.statusBarId);
-  if (!statusItem) return;
-
-  const state = panelState[panel.id];
-  if (state.url) {
-    statusItem.style.display = '';
-    const dot = statusItem.querySelector('.status-dot');
-    if (dot) {
-      dot.className = 'status-dot' + (state.healthy ? ' live' : ' error');
-    }
-  }
 }
 
 /**
