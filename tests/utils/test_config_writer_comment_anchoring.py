@@ -44,10 +44,10 @@ services:
     path: ./services/openobserve
     port: 5080          # Host port
 
-# Services to deploy with `osprey deploy up`
+# Services to deploy with `osprey up`
 deployed_services:
-- postgresql
-- openobserve
+  - postgresql
+  - openobserve
 
 # ============================================================
 # SAFETY CONTROLS
@@ -55,9 +55,11 @@ deployed_services:
 approval:
   enabled: true
 """
-# NOTE: list items sit at column 0 (ruamel's dump style) so that full-text
-# comparisons are stable across round-trips — re-indentation is round-trip
-# behavior, not something these helpers control.
+# NOTE: list items are indented under their key, which is what the shared
+# writer emits (`_yaml.indent(sequence=4, offset=2)`) and how every config this
+# framework generates is written. Matching it here keeps the full-text
+# comparison below about the helpers under test rather than about
+# re-indentation, which is round-trip behavior they do not control.
 
 
 def _write_sample(tmp_path):

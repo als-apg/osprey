@@ -12,8 +12,41 @@ from typing import Any
 
 logger = logging.getLogger("osprey.utils.workspace")
 
+#: Zone directory names inside a deployment repo. ``build/`` is the render zone,
+#: re-created wholesale by every ``osprey build``; ``var/`` is the durable state
+#: zone that survives it. Spelled here, in ``utils/``, because the runtime layers
+#: resolve paths against them and must not import ``cli``.
+BUILD_DIR_NAME = "build"
+STATE_DIR_NAME = "var"
+
+#: Where the build stages the container-destined copy of a project, under the
+#: render zone. Each is a deployment REPO — ``profile.yml`` and the source zone
+#: at its root, its own render below in ``build/`` — rendered against the
+#: ``/app/<project>`` path a container sees rather than the building host's, and
+#: it is what an image is built from. Spelled here beside the zone names because
+#: the build writes it and the deploy layer builds from it, and the two must not
+#: disagree about where it is.
+IMAGE_DIR_NAME = ".image"
+
+#: The rendered config, relative to the repo root. It is an *output*: the source
+#: of truth is ``profile.yml`` at the repo root, and this file is what a build
+#: derives from it. Every producer and consumer of that path spells it through
+#: this constant so the two cannot drift.
+RENDERED_CONFIG_RELPATH = f"{BUILD_DIR_NAME}/config.yml"
+
 #: Agent-data root used when a config declares no ``agent_data.base_dir``.
-DEFAULT_AGENT_DATA_BASE_DIR = "./_agent_data"
+#: Under ``var/`` rather than beside the render: memory, sessions, and artifacts
+#: have to survive ``rm -rf build/``, which is the one guarantee the build zone
+#: does not offer.
+DEFAULT_AGENT_DATA_BASE_DIR = f"{STATE_DIR_NAME}/agent_data"
+
+#: The two directories that make up the state zone, created empty and otherwise
+#: the agent's to write. Both ``osprey init`` and ``osprey build`` guarantee they
+#: exist — a fresh clone carries no git-ignored directory, so whichever command
+#: runs first has to make them, and a repo that was reset must end up looking
+#: like one that was freshly cloned. Spelled once for exactly that reason: two
+#: commands agreeing by coincidence is how a reset and a clone start to differ.
+STATE_ZONE_DIRS: tuple[str, ...] = (DEFAULT_AGENT_DATA_BASE_DIR, f"{STATE_DIR_NAME}/audit")
 
 #: Subdirectory of the agent-data root holding the simulation's mutable
 #: ``active_scenarios`` state file.
@@ -67,14 +100,35 @@ def anchored_path(value: str, project_root: Path) -> Path:
     return path if path.is_absolute() else Path(project_root) / path
 
 
+def rendered_config_path(repo_root: Path | str) -> Path:
+    """Path to the rendered ``config.yml`` of the repo rooted at *repo_root*.
+
+    The one place the ``build/config.yml`` spelling is assembled, so that a
+    caller holding a repo root never has to know which zone the render lands in.
+    """
+    return Path(repo_root) / RENDERED_CONFIG_RELPATH
+
+
+def container_image_context(repo_root: Path | str, project_name: str) -> Path:
+    """The directory an image for *project_name* is built from.
+
+    The build writes it (``build_cmd._render_container_project``) and the deploy
+    layer builds from it, so the path is assembled here rather than spelled at
+    both ends. It is a deployment repo in its own right: the ``Dockerfile`` a
+    build uses lives at :data:`RENDERED_CONFIG_RELPATH`'s sibling inside it, not
+    at its root, because the root is the repo and the render is one level down.
+    """
+    return Path(repo_root) / BUILD_DIR_NAME / IMAGE_DIR_NAME / project_name
+
+
 def agent_data_base_dir(config: Mapping[str, Any] | None) -> str:
     """Read the agent-data root out of an already-loaded config mapping.
 
     ``agent_data.base_dir`` is the only key that names this directory. Callers
-    holding a config dict (and their own anchor for relative paths — the health
-    checks and the compose generator anchor on ``project_root``) read it through
-    here; callers with no config in hand use :func:`resolve_agent_data_root`,
-    which anchors on the config file's own directory.
+    holding a config dict read it through here and anchor the result themselves
+    (the health checks and the compose generator anchor on ``project_root``);
+    callers with no config in hand use :func:`resolve_agent_data_root`, which
+    loads the config and anchors on the same ``project_root``.
 
     Args:
         config: Loaded ``config.yml`` mapping, or ``None``.
@@ -124,15 +178,38 @@ def resolve_simulation_state_dir(config: Mapping[str, Any] | None, project_root:
 
 
 def resolve_config_path() -> Path:
-    """Resolve the path to config.yml.
+    """Resolve the path to the rendered ``config.yml``.
 
     Resolution order:
-      1. ``OSPREY_CONFIG`` environment variable (with shell variable expansion)
-      2. ``./config.yml`` relative to the current working directory
+      1. ``OSPREY_CONFIG`` environment variable (with shell variable expansion) —
+         what every deployed process actually gets, set by the CLI on the host
+         and by the compose templates in every container.
+      2. ``build/config.yml`` under the current working directory — standing in
+         a repo root with a render in it.
+      3. ``config.yml`` under the current working directory — a container
+         project directory, whose root *is* the render, and the path reported
+         when nothing exists at all.
+
+    ``CONFIG_FILE`` is deliberately NOT read here, even though
+    :func:`osprey.agent_runner.artifact_resolve.deployed_config_path` reads it
+    ahead of ``OSPREY_CONFIG``. That helper answers for one deployed process
+    whose compose service sets the variable; this one answers for the framework
+    everywhere, and ``CONFIG_FILE`` is a name generic enough that honoring it
+    globally would let an unrelated export redirect every OSPREY process on the
+    host. Where both apply — inside the dispatch worker — they agree by
+    construction rather than by precedence: the compose sets ``CONFIG_FILE`` to
+    ``/app/<project>/build/config.yml``, and the image's ``WORKDIR`` is
+    ``/app/<project>``, so step 2 above finds that same file.
     """
     import os
 
-    return Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml"))))
+    configured = os.environ.get("OSPREY_CONFIG")
+    if configured:
+        return Path(os.path.expandvars(configured))
+
+    cwd = Path.cwd()
+    rendered = rendered_config_path(cwd)
+    return rendered if rendered.is_file() else cwd / "config.yml"
 
 
 def load_osprey_config() -> dict:
@@ -167,22 +244,131 @@ def reset_config_cache() -> None:
     config_module._config_cache.clear()
 
 
+def repo_root_for_config(config_path: Path | str) -> Path:
+    """The repo root that a config file at *config_path* belongs to.
+
+    The rendered config lives at ``<repo>/build/config.yml``, so the repo is
+    two levels up — except in a container, whose project directory *is* the
+    render and holds ``config.yml`` at its root. One helper for both, so the
+    "is this the build zone?" question is asked in exactly one place.
+
+    Known non-goal: a legacy FLAT project whose own directory is literally
+    named ``build`` is read as a render, and its parent is returned. Accepted
+    — every runtime path derives the root through this helper, so a regen or a
+    status check agreeing with the runtime beats a special case that would make
+    the two disagree.
+    """
+    parent = Path(config_path).parent
+    return parent.parent if parent.name == BUILD_DIR_NAME else parent
+
+
+def deployment_env_path(config_path: Path | str) -> Path:
+    """The ``.env`` that belongs to the deployment whose config is *config_path*.
+
+    There is one ``.env`` per deployment and it sits at the repo ROOT, beside
+    ``profile.yml`` — never in the render, which every ``osprey build``
+    re-creates from scratch. So the config's own directory is the wrong answer
+    on a host, where the config is ``<repo>/build/config.yml``, and the right
+    one in a container, whose project directory *is* the render.
+
+    Both are covered the way :func:`osprey.mcp_env.load_dotenv_from_project`
+    covers them: prefer the repo root, fall back to the config's directory when
+    nothing is there. The fallback is what keeps the container case working
+    without a second rule.
+
+    Spelled here rather than at each caller because the callers that ask this
+    have to agree exactly — a reader that watches one file for changes and a
+    signature that stats another produces a cache which never invalidates, and
+    reports nothing at all while doing it.
+    """
+    root_env = repo_root_for_config(config_path) / ".env"
+    if root_env.is_file():
+        return root_env
+    return Path(config_path).parent / ".env"
+
+
+def repo_root_for_agent_data(
+    agent_data_root: Path | str, base_dir: str = DEFAULT_AGENT_DATA_BASE_DIR
+) -> Path:
+    """The repo root an agent-data root sits under.
+
+    Stores hand agent code *relative* file pointers, and agent code runs with
+    its working directory at the repo root (see the python executor's
+    ``_resolve_project_root``), so the two have to be anchored at the same
+    place. Taking the agent-data root's parent was that anchor only while the
+    directory sat exactly one level down; ``var/agent_data`` is two, and a
+    pointer anchored one level short resolves to nothing from the agent's cwd.
+
+    So: strip the configured base directory off the tail when it is there, and
+    fall back to the parent when it is not — which is what a project that
+    relocated its data root to a single-segment directory still wants.
+
+    An ABSOLUTE ``base_dir`` is the case the tail rule cannot serve, and the
+    guard below is what keeps it from being an exception instead of an answer.
+    Such a root is not under any repo (``anchored_path`` returns it verbatim),
+    so no repo-relative pointer to it exists; its parts also begin with the
+    filesystem root, which makes ``tail`` match the whole of ``root.parts`` and
+    ``parents[len(tail) - 1]`` index past the end. Requiring a strictly longer
+    root sends that case to the parent fallback — the answer this helper gave
+    before it learned about ``base_dir`` at all.
+
+    Be precise about what that fallback does, because the obvious guess is
+    wrong: the parent is still an ANCESTOR of everything under the root, so a
+    caller's ``relative_to`` SUCCEEDS against it and yields a wrong-but-plausible
+    pointer (``agent/artifacts/x.json`` for a root of ``/data/agent``). It does
+    not raise, and no defensive bare-filename branch fires. That is the
+    committed baseline's behavior, preserved deliberately — the alternative
+    would be inventing an answer for a layout that has none.
+
+    Args:
+        agent_data_root: Resolved agent-data root, e.g. ``<repo>/var/agent_data``.
+        base_dir: The ``agent_data.base_dir`` that produced it.
+    """
+    root = Path(agent_data_root)
+    tail = Path(base_dir).parts
+    if tail and len(root.parts) > len(tail) and root.parts[-len(tail) :] == tail:
+        return root.parents[len(tail) - 1]
+    return root.parent
+
+
+def resolve_project_root(config: Mapping[str, Any] | None = None) -> Path:
+    """Resolve the repo root that relative configured paths anchor against.
+
+    ``project_root`` names the deployment repo — the directory holding
+    ``profile.yml`` — and not the directory holding ``config.yml``: the render
+    lives one level down, in ``build/``, so anchoring on the config file's own
+    parent would put every relative path inside the disposable zone.
+
+    Resolution order:
+      1. The config's own ``project_root`` key. Authoritative, and the only
+         answer that is right inside a container, where the repo was built at
+         one path and runs at another.
+      2. The repo the resolved config path sits in — its parent, or that
+         parent's parent when the config is in the ``build/`` zone.
+      3. The current working directory, when there is no config at all.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None`` to consult only the
+            config *path* (callers that have not loaded one).
+    """
+    configured = dotted_config_str(config, "project_root")
+    if configured:
+        return Path(configured).expanduser()
+
+    config_path = resolve_config_path()
+    return repo_root_for_config(config_path) if config_path.exists() else Path.cwd()
+
+
 def resolve_agent_data_root() -> Path:
     """Resolve the agent data root directory from config.
 
-    Uses ``agent_data.base_dir`` from config.yml, resolved relative to the
-    config file's parent directory (the project root).  Falls back to
-    ``./_agent_data`` relative to cwd if no config is found.
+    Uses ``agent_data.base_dir`` from config.yml, anchored on the repo root that
+    :func:`resolve_project_root` resolves. Falls back to
+    :data:`DEFAULT_AGENT_DATA_BASE_DIR` relative to that root when the config
+    declares no base directory.
     """
-    base_dir = agent_data_base_dir(load_osprey_config())
-
-    config_path = resolve_config_path()
-    if config_path.exists():
-        project_root = config_path.parent
-    else:
-        project_root = Path.cwd()
-
-    resolved = (project_root / base_dir).resolve()
+    config = load_osprey_config()
+    resolved = anchored_path(agent_data_base_dir(config), resolve_project_root(config)).resolve()
 
     import os
 
@@ -202,10 +388,8 @@ def resolve_shared_data_root() -> Path:
     session isolation is handled at the index level via entry metadata
     (e.g. ``ArtifactEntry.session_id``).
     """
-    base_dir = agent_data_base_dir(load_osprey_config())
-    config_path = resolve_config_path()
-    project_root = config_path.parent if config_path.exists() else Path.cwd()
-    resolved = (project_root / base_dir).resolve()
+    config = load_osprey_config()
+    resolved = anchored_path(agent_data_base_dir(config), resolve_project_root(config)).resolve()
     logger.debug("Shared data root resolved to %s", resolved)
     return resolved
 

@@ -8,7 +8,7 @@ files reference arbitrary ``${VAR}`` names that Claude Code expands at MCP
 server launch. Narrowing the parser to "known" keys would silently break those
 references, so the full-passthrough contract is tested explicitly here.
 
-``merge_env_preserving_existing`` is the write side of ``osprey build --force``
+``merge_env_preserving_existing`` is the write side of ``osprey build``
 and template ``.env`` shipping: rendered structure, existing values win — with
 one exception, ``BUILD_DERIVED_KEYS``, which the build owns outright.
 """

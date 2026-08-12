@@ -30,9 +30,11 @@ import yaml
 # Safe at module level despite this module's no-osprey-imports rule below:
 # ``workspace`` imports nothing from osprey itself, so there is no cycle.
 from osprey.utils.workspace import (
+    DEFAULT_AGENT_DATA_BASE_DIR,
     SIMULATION_STATE_DIR_CONFIG_KEY,
     anchored_path,
     dotted_config_str,
+    repo_root_for_config,
 )
 
 if TYPE_CHECKING:
@@ -152,15 +154,16 @@ _container_method_warned = False
 #: profile/preset and checksummed into the manifest.
 BUILD_OWNED_DATA_DIR = "data"
 
-#: Directory runtime state belongs in — excluded from the manifest checksums and
-#: preserved across ``osprey build --force``.
-RUNTIME_STATE_DIR = "_agent_data"
+#: Directory runtime state belongs in — the durable ``var/`` zone, outside the
+#: render entirely, so it survives every rebuild of ``build/``. Named in the
+#: advisory that fires when a runtime writer is pointed at build-owned ``data/``.
+RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
 
 #: Config keys whose value names a path something writes to *at run time*.
 #: These must stay out of ``data/``: that tree is build-owned and checksummed by
 #: :func:`osprey.cli.templates.manifest.calculate_file_checksums`, so a runtime
 #: write landing there reads as project drift and is erased by the next
-#: ``osprey build --force``.
+#: ``osprey build``.
 RUNTIME_WRITE_PATH_KEYS = (
     SIMULATION_STATE_DIR_CONFIG_KEY,
     "services.channel_finder.pipelines.hierarchical.feedback.store_path",
@@ -423,12 +426,12 @@ class ConfigBuilder:
         """Warn when a runtime writer is pointed at the build-owned ``data/`` tree.
 
         Advisory only: the misconfiguration still works until the next
-        ``osprey build --force`` wipes ``data/`` and takes the runtime state
+        ``osprey build`` wipes ``data/`` and takes the runtime state
         with it, so this warns rather than raising.
         """
         configured_root = self.raw_config.get("project_root")
         project_root = (
-            Path(configured_root) if configured_root else self.config_path.parent
+            Path(configured_root) if configured_root else repo_root_for_config(self.config_path)
         ).expanduser()
 
         for key, value in find_runtime_write_paths_under_data(self.raw_config, project_root):
@@ -436,7 +439,7 @@ class ConfigBuilder:
                 "Runtime-write path '%s' = %r resolves inside the build-owned "
                 "'%s/' tree (%s). That directory is re-rendered and checksummed on "
                 "every build, so runtime writes there show up as project drift and "
-                "are erased by 'osprey build --force'. Point it at '%s/' instead.",
+                "are erased by the next 'osprey build'. Point it at '%s/' instead.",
                 key,
                 value,
                 BUILD_OWNED_DATA_DIR,
