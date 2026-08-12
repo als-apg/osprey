@@ -162,6 +162,9 @@ BUILD_TIMEOUT_SEC = 600
 DEPLOY_UP_TIMEOUT_SEC = 2400
 HEALTH_TIMEOUT_SEC = 420.0
 CONTAINER_HEALTH_TIMEOUT_SEC = 240.0
+# Opening the RE worker environment connects every substrate device over
+# Channel Access, which takes tens of seconds on a cold stack.
+WORKER_ENV_TIMEOUT_SEC = 300.0
 # One queued plan's wall-clock budget, and the whole-queue drain budget.
 RUN_TIMEOUT_SEC = 420.0
 DRAIN_TIMEOUT_SEC = 900.0
@@ -512,6 +515,37 @@ def _wait_for_manager_state(wanted: tuple[str, ...], timeout: float) -> str:
     raise AssertionError(f"manager never reached {wanted} within {timeout:.0f}s (last: {last!r})")
 
 
+def _wait_for_worker_environment(timeout: float) -> dict[str, Any]:
+    """Block until the manager reports an OPEN worker environment.
+
+    Container health is not enqueue readiness. The bridge opens the RE worker
+    environment in a background task deliberately excluded from readiness, and
+    `POST /queue/items` validates against `plans_allowed` -- which the manager
+    downloads from the worker only at that open. Enqueueing before it lands is
+    refused 409 "not in the list of allowed plans", which reads like a
+    permissions problem and is not one (the shipped permissions allow
+    `[":.*"]`; the list was empty because the namespace was).
+
+    `manager_state` is the wrong field to wait on -- it reads `idle` both
+    before the environment has ever opened and after it is up.
+
+    Spelled here rather than imported from `_queue_drive` for this module's
+    standing reason: the acceptance instrument for the queue surface must not
+    be written in terms of a helper that assumes that surface works.
+    """
+    deadline = time.monotonic() + timeout
+    last: Any = None
+    while time.monotonic() < deadline:
+        last = _queue_snapshot()["status"]
+        if last.get("worker_environment_exists"):
+            return dict(last)
+        time.sleep(2.0)
+    raise AssertionError(
+        f"the RE worker environment never opened within {timeout:.0f}s -- the queue "
+        f"cannot accept plans until it does (last manager status: {last!r})"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fixture: one build, one deploy, for every stage
 # ---------------------------------------------------------------------------
@@ -683,6 +717,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         _wait_for_health(f"{PANELS_URL}/health", HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(QUEUESERVER_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(TILED_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+        _wait_for_worker_environment(WORKER_ENV_TIMEOUT_SEC)
 
         _drain_leftover_queue_items()
 

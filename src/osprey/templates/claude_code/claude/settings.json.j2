@@ -28,6 +28,18 @@
   },
   "_PROMPT_PROVIDER_NOTE": "Permissions policy: allow/deny/ask lists. Framework defaults merged with facility overrides from claude_code.permissions config.",
   "enableAllProjectMcpServers": true,
+{#- Claude Code ships harness-configuration skills with the CLI itself, so they
+    are present in every deployed terminal uninvited. An OSPREY operator agent
+    must never reconfigure its own harness (settings.json permissions, env
+    vars, hooks, keybindings) — that is admin work done through the profile and
+    regen, not live edits — so the harness-config family is switched off
+    entirely: hidden from the model, hidden from the / menu, and invoking one
+    by name returns an error instead of running. -#}
+  "skillOverrides": {
+    "update-config": "off",
+    "keybindings-help": "off",
+    "fewer-permission-prompts": "off"
+  },
   "permissions": {
     "allow": [
 {#- Build allow list from server registry -#}

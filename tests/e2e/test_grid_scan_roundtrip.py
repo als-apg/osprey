@@ -59,6 +59,7 @@ from typing import Any
 import pytest
 
 from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e._deploy_diagnostics import queue_stack_logs
 
 pytestmark = [
     pytest.mark.e2e,
@@ -178,6 +179,14 @@ def deployed_grid_scan_stack(
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        # HTTP readiness is not enqueue readiness -- the worker namespace the
+        # enqueue validates against exists only once the RE worker environment
+        # is open, and the bridge opens that off the readiness path. See
+        # `_queue_drive.wait_for_worker_environment`.
+        try:
+            _queue_drive.wait_for_worker_environment(BRIDGE_URL)
+        except AssertionError as exc:
+            pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
         yield DeployedGridScanStack(
             repo=repo,
             corrector_name=next(iter(correctors)),

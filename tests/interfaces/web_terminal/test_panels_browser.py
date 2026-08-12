@@ -317,6 +317,20 @@ def _service_tab(page: Page, label: str):
     return page.locator(".dv-tab").filter(has=strip)
 
 
+def _focus_service_tab(page: Page, label: str) -> None:
+    """Focus a service tile by clicking its tab TITLE — never the whole tab.
+
+    A panel may contribute controls into its own tile header (artifacts renders
+    a search box and filter chips through tile-header-contrib.js), which widens
+    the tab far past its title. Playwright clicks an element's CENTRE, so a
+    click on the tab as a whole lands inside a contributed control — for
+    artifacts, squarely in the search input — which is not a focus gesture and
+    leaves the tile untouched. The title is the region that always means
+    "focus this tile", whatever a panel contributes beside it.
+    """
+    _service_tab(page, label).locator(".tile-tab-title").click()
+
+
 def _terminal_tab(page: Page):
     """The terminal tile's header bar — the tab that adopted .terminal-header."""
     return page.locator(".dv-tab").filter(has=page.locator(".terminal-header"))
@@ -724,7 +738,7 @@ def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
 
         posts = _track_panel_posts(page)
         # Human focus: click the artifacts dock tab (currently inactive).
-        _service_tab(page, "WORKSPACE").click()
+        _focus_service_tab(page, "WORKSPACE")
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
         # Let any (wrongly-)looping echo settle before counting.
         page.wait_for_timeout(600)
@@ -836,7 +850,7 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
         expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
         # Focus the artifacts tile so data-viz's own tile is NOT the active one.
-        _service_tab(page, "WORKSPACE").click()
+        _focus_service_tab(page, "WORKSPACE")
         expect(
             page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
         ).to_have_count(1, timeout=5_000)
@@ -862,14 +876,18 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
 # DataTransfer. dragstart runs panel-rail's real handler (payload + shields);
 # dragover/drop land on dockview's group drop target, which fires
 # onUnhandledDragOver (accepted by rail-drag.js) and then onDidDrop. The drop
-# only registers once a dragover has been PROCESSED (dockview settles its
-# overlay state asynchronously), and how long that takes is load-dependent —
-# so the gesture is RETRIED until the dock actually happened rather than
-# guessing a settle duration. The landing signal is the tile bar dock-tab.js
-# stamps for the placeholder (`.tile-tab[data-panel-id="iframe:<id>"]`), the
-# same DOM the caller's tab assertions read; the caller still owns WHERE the
-# tile landed, so a drop that settles in the wrong place fails there as a real
-# regression rather than being retried away.
+# only registers once a dragover has been PROCESSED — dockview settles its
+# overlay state asynchronously and needs more than one dragover to resolve a
+# target — so each attempt polls for dockview's own drop-target overlay before
+# dropping rather than sleeping a fixed budget: a drop dispatched before that
+# overlay exists is silently ignored, a no-op the assertions can only report
+# as a missing tab. How long the whole gesture takes is load-dependent, so it
+# is also RETRIED until the dock actually happened. The landing signal is the
+# tile bar dock-tab.js stamps for the placeholder
+# (`.tile-tab[data-panel-id="iframe:<id>"]`), the same DOM the caller's tab
+# assertions read; the caller still owns WHERE the tile landed, so a drop that
+# settles in the wrong place fails there as a real regression rather than
+# being retried away.
 _RAIL_DRAG_DROP_JS = """async (panelId) => {
     const entry = document.querySelector(
         `button.panel-rail-button[data-panel-id="${panelId}"]`);
@@ -889,32 +907,43 @@ _RAIL_DRAG_DROP_JS = """async (panelId) => {
     const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
                    clientX: x, clientY: y };
     const target = document.elementFromPoint(x, y) ?? content;
-    // 20 attempts x 2 x 80ms ≈ 3.2s of headroom — an unloaded machine settles
-    // on the first attempt (160ms, faster than the old fixed pair of 100ms
-    // waits), while a loaded one gets an order of magnitude more slack than a
-    // single hardcoded wait could give it.
+    // dockview paints .dv-drop-target-selection once it has resolved the drop
+    // position; the '-bottom' modifier is the edge split this drag intends, so
+    // gating each drop on it proves the geometry resolved the way the test
+    // claims. 20 attempts with a 500ms overlay budget each — an unloaded
+    // machine lands on the first attempt in ~150ms, a loaded one gets an order
+    // of magnitude more slack than any single hardcoded wait could give it.
     const ATTEMPTS = 20;
+    const OVERLAY_BUDGET_MS = 500;
     const SETTLE_MS = 80;
-    const settle = () => new Promise((res) => setTimeout(res, SETTLE_MS));
+    const overlay = () => document.querySelector(
+        '.dv-drop-target-selection.dv-drop-target-bottom');
     const landed = () => !!document.querySelector(
         `.dv-groupview .dv-tab .tile-tab[data-panel-id="iframe:${panelId}"]`);
     let tries = 0;
     while (tries < ATTEMPTS && !landed()) {
         tries += 1;
         // dockview clears its drop target on drop, so each attempt re-arms it
-        // with a fresh dragenter before the dragover it has to process.
+        // with a fresh dragenter, then holds the dragover until dockview has
+        // painted the bottom-edge overlay before dispatching the drop.
         target.dispatchEvent(new DragEvent('dragenter', opts));
-        target.dispatchEvent(new DragEvent('dragover', opts));
-        await settle();
+        const deadline = performance.now() + OVERLAY_BUDGET_MS;
+        while (!overlay() && performance.now() < deadline) {
+            target.dispatchEvent(new DragEvent('dragover', opts));
+            await new Promise((res) => setTimeout(res, 50));
+        }
+        if (!overlay()) {
+            continue;  // never resolved this attempt; re-arm and try again
+        }
         target.dispatchEvent(new DragEvent('drop', opts));
-        await settle();
+        await new Promise((res) => setTimeout(res, SETTLE_MS));
     }
     entry.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
     if (!landed()) {
         throw new Error(
             `RailDropNeverSettled: no tile appeared for 'iframe:${panelId}' after ` +
-            `${tries} dragover+drop attempts (${SETTLE_MS}ms settle each) — the ` +
-            `rail drop was never accepted by dockview.`);
+            `${tries} overlay-gated drop attempts — the rail drop was never ` +
+            `accepted by dockview.`);
     }
     return tries;
 }"""
@@ -978,7 +1007,7 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         # re-activate an existing placeholder.
         expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
-        _service_tab(page, "WORKSPACE").click()
+        _focus_service_tab(page, "WORKSPACE")
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
         # Let the WORKSPACE-click's own focus POST fully drain before tracking —
         # fetch() dispatches on a later tick, so it can otherwise land after the
@@ -986,8 +1015,12 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         page.wait_for_timeout(800)
 
         posts = _track_panel_posts(page)
-        # Server-driven focus back to the already-docked data-viz.
-        r = requests.post(f"{base_url}/api/panel-focus", json={"panel": "data-viz"})
+        # Server-driven focus back to the already-docked data-viz. The source
+        # tag is what makes the server broadcast at all — a source-less human
+        # report is mirrored without a frame.
+        r = requests.post(
+            f"{base_url}/api/panel-focus", json={"panel": "data-viz", "source": "agent"}
+        )
         assert r.status_code == 200
 
         # It is applied — data-viz's tile takes the active focus (artifacts keeps

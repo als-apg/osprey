@@ -635,6 +635,29 @@ def test_bluesky_wires_va_ca_env_and_ordering_only_when_va_co_deployed() -> None
     assert "virtual-accelerator" not in without_va
 
 
+@pytest.mark.parametrize("va_deployed", [True, False])
+def test_bluesky_bridge_waits_for_the_queueserver_to_answer(va_deployed: bool) -> None:
+    """The bridge must start only after ``qserver ping`` answers — with or
+    without the VA co-deployed.
+
+    Not cosmetic ordering. The bridge opens the RE worker environment once at
+    startup (``app.py``'s ``_open_environment_at_startup``), and
+    ``ensure_environment`` gives that up WITHOUT retrying when ``capability()``
+    reports ``manager_unreachable`` — it re-runs only on an armed
+    ``POST /queue/start``. Since ``POST /queue/items`` validates against
+    ``plans_allowed``, which the manager downloads from the worker at
+    environment open, a bridge that wins the boot race against the manager
+    refuses every enqueue with "not in the list of allowed plans" and no start
+    ever gets the chance to self-heal it. Only container ordering closes that,
+    so it is asserted here rather than left to whichever process imports its
+    dependency stack faster.
+    """
+    bridge = yaml.safe_load(_render_bluesky_template(va_deployed=va_deployed))["services"][
+        "bluesky-bridge"
+    ]
+    assert bridge["depends_on"]["queueserver"] == {"condition": "service_healthy"}
+
+
 def test_bluesky_va_ca_port_defaults_when_va_config_block_absent() -> None:
     """VA in ``deployed_services`` but no ``services.virtual_accelerator`` config
     block must still render the default CA port (5064), never raise.

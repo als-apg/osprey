@@ -519,7 +519,9 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     logger.info("  ✓ Injected Bluesky scan bridge (port %d)", bluesky.port)
     logger.info(
         "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
-        "the `bluesky` MCP server's queue tools read it automatically."
+        "a host-run agent's queue tools read it automatically. Deployed web "
+        "terminals never receive it — their agents file a start request the "
+        "operator confirms in the BLUESKY queue panel."
     )
     logger.info(
         "    Images:     `osprey up` builds the bluesky-bridge image locally "

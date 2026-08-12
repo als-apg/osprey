@@ -24,6 +24,7 @@
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
+import { withEchoSuppressed } from './dock-sync.js';
 
 /** defaultTabComponent name registered on the dockview instance. */
 export const OSPREY_TAB_COMPONENT = 'osprey-tile-tab';
@@ -168,7 +169,11 @@ class TileTab {
     close.addEventListener('click', (e) => {
       if (e.defaultPrevented) return;
       e.preventDefault();
-      this._api?.close?.();
+      // The removal makes dockview auto-activate a surviving tile; that is a
+      // side effect of the close, not a human focus gesture, so it must not
+      // reach the focus reporter — the same suppression retireTile applies to
+      // its own removal.
+      withEchoSuppressed(() => this._api?.close?.());
     });
     actions.appendChild(close);
     root.appendChild(actions);

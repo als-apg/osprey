@@ -144,7 +144,10 @@ class TestRegistryAgreement:
 
         assert _VOLUME_INITIALIZED_VARS.get("MONGO_ROOT_PASSWORD") == "mongodb"
         declared = _declared_top_level_volumes(_mongodb_template_text())
-        assert declared, "no top-level volumes: block found in the mongodb template"
+        assert "archiver_mongodb_data" in declared, (
+            "the volume the store initializes /data/db on must be a declared "
+            "named volume, or the fresh-mint warning guards nothing"
+        )
 
     def test_the_port_remedy_names_the_knob_the_profile_block_emits(self):
         """The generic fallback would be ``services.mongodb.port``, which is wrong."""

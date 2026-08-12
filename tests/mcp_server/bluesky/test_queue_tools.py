@@ -489,15 +489,55 @@ async def test_queue_start_missing_config_fails_closed(tmp_path, monkeypatch):
     mock_post.assert_not_called()
 
 
-async def test_queue_start_without_a_token_refuses_client_side(tmp_path, monkeypatch):
-    """Writes-enabled alone is not sufficient — and the local refusal uses the wire code."""
+async def test_queue_start_without_a_token_files_a_panel_start_request(tmp_path, monkeypatch):
+    """The tokenless deployment posture: queue_start hands the decision to the human.
+
+    In a deployed web terminal the launch token lives with the operator panels
+    sidecar and never enters the agent's environment — so a tokenless
+    queue_start must not dead-end in a refusal that reads like a config bug.
+    It files ``POST /queue/start-request`` (no token header: the route arms
+    nothing), and the result tells the agent exactly what happens next: the
+    operator confirms in the queue panel. ``/queue/start`` is never called.
+    """
     _configure(tmp_path, monkeypatch, writes=True, token=None)
-    with patch(f"{_MOD}._http_post_json") as mock_post:
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+    record = {
+        "request_id": "abc123",
+        "requested_by": "agent",
+        "requested_at": "2026-08-12T20:00:00+00:00",
+        "items_in_queue": 2,
+    }
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"start_request": record})) as m:
+        with patch(f"{_MOD}.notify_agent_activity"):
+            result = await _start_fn()()
+
+    assert m.call_args.args[0] == "/queue/start-request"
+    assert m.call_args.kwargs["headers"] is None
+    body = extract_response_dict(result)
+    assert body["started"] is False
+    assert body["start_request"] == record
+    assert "queue panel" in body["message"]
+
+
+async def test_a_tokenless_start_request_relays_bridge_refusals(tmp_path, monkeypatch):
+    """An empty queue refuses the request with the bridge's own code, so the
+    agent hears "enqueue first", not a token problem."""
+    _configure(tmp_path, monkeypatch, writes=True, token=None)
+    body = _refusal("queue_empty", "the queue holds no items")
+    with patch(f"{_MOD}._http_post_json", return_value=(409, body)):
+        with assert_raises_error(error_type="queue_empty") as ctx:
             await _start_fn()()
 
+    assert ctx["envelope"]["details"]["code"] == "queue_empty"
+
+
+async def test_a_tokenless_start_still_respects_the_kill_switch(tmp_path, monkeypatch):
+    """Writes disabled refuses BEFORE any start request is filed: a request the
+    panel shows as confirmable must never exist on a writes-off deployment."""
+    _configure(tmp_path, monkeypatch, writes=False, token=None)
+    with patch(f"{_MOD}._http_post_json") as mock_post:
+        with assert_raises_error(error_type="writes_disabled"):
+            await _start_fn()()
     mock_post.assert_not_called()
-    assert ctx["envelope"]["details"]["code"] == "launch_token_required"
 
 
 @pytest.mark.parametrize(

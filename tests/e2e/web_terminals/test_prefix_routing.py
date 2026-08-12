@@ -409,7 +409,10 @@ class TestPanelProxyAndFocusUnderPrefix:
 
     def test_panel_focus_relative_url_gets_prefixed(self, alice_client):
         app, client = alice_client
-        resp = client.post("/api/panel-focus", json={"panel": "my-dash", "url": "/panel/my-dash"})
+        resp = client.post(
+            "/api/panel-focus",
+            json={"panel": "my-dash", "url": "/panel/my-dash", "source": "agent"},
+        )
         assert resp.status_code == 200
         event = app.state.broadcaster.broadcast.call_args[0][0]
         assert event["url"] == f"{_PREFIX}/panel/my-dash"
@@ -420,7 +423,7 @@ class TestPanelProxyAndFocusUnderPrefix:
         app, client = alice_client
         resp = client.post(
             "/api/panel-focus",
-            json={"panel": "my-dash", "url": "https://grafana.lan:3000/d/abc"},
+            json={"panel": "my-dash", "url": "https://grafana.lan:3000/d/abc", "source": "agent"},
         )
         assert resp.status_code == 200
         event = app.state.broadcaster.broadcast.call_args[0][0]

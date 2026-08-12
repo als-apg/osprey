@@ -204,7 +204,10 @@ rules:
 
 skills:
   - diagnose        # Run a structured fault-diagnosis workflow
-  - setup-mode      # Toggle between interactive and automated operating modes
+  # setup-mode (config diagnostics + setup_patch) is deliberately NOT part of
+  # the operator tier: it can patch config.yml/.mcp.json, which is admin work.
+  # Add it to an admin-facing profile's skills list to opt in — it remains in
+  # the artifact catalog.
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
   - demo-ui         # Run a scripted demo of the agent driving the web workspace
@@ -226,9 +229,11 @@ web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
   - okf             # KNOWLEDGE tab — browse the facility knowledge bundle
-  - events          # EVENTS dashboard tab (event dispatcher)
-  - bluesky         # Plan authoring, the scan queue, and the run's live results
   - system-health   # SYSTEM tab — framework health dashboard (sidecar-backed)
+  # events + bluesky (the write-oriented panels) are declared by the readwrite
+  # persona, beside the web.panels.<id>.url overrides that give them meaning —
+  # a panel id and its URL declaration travel together (see the note in
+  # config: below).
 
 # ── Bluesky stack (turn-key, VA-backed) ─────────────────────────────────────────
 # The preset ships the FULL Bluesky-mediated scan stack out of the box: a
@@ -341,21 +346,20 @@ config:
   # to the deployment name when unset. Sits in the same `facility:` block as
   # `facility.prefix` below.
   # facility.name: My Facility
-  # EVENTS panel — surfaces the event-dispatcher dashboard as an in-terminal tab.
-  # URL defaults to the host-run dispatcher (127.0.0.1:8020); override
-  # EVENT_DISPATCHER_URL for containerized/remote web terminals.
-  web.panels.events.label: EVENTS
-  web.panels.events.url: "${EVENT_DISPATCHER_URL:-http://localhost:8020}"
-  web.panels.events.path: /dashboard
-  web.panels.events.health_endpoint: /health
-  # SCAN panel — the operator UI for the mediated Bluesky stack, served by the
-  # bluesky-panels sidecar. One panel with three tabs: plan authoring, the scan
-  # queue, and the selected run's live results.
-  # URL defaults to the host-published sidecar port; override BLUESKY_PANELS_URL for
-  # a containerized/remote web terminal (same pattern as the EVENTS panel above).
-  web.panels.bluesky.label: BLUESKY
-  web.panels.bluesky.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
-  web.panels.bluesky.path: /bluesky/
+  # Default web theme for every terminal: the `main` family pinned to light
+  # mode (`light` is main's concrete light id — other families spell theirs
+  # `desy-light` etc.). A default, not a lock: the in-browser display menu,
+  # ?theme= and localStorage override it per browser.
+  web.theme: light
+  # EVENTS + BLUESKY panel declarations live in the readwrite persona delta,
+  # NOT here. Deliberate: a persona delta can only ADD config keys (`config:`
+  # is not excludable), so anything declared here reaches every persona — and
+  # the read-only persona must be built without these two write-oriented
+  # panels. Declaring them only in the readwrite delta is the one mechanism
+  # that makes them genuinely absent from the readonly build (`enabled: false`
+  # is inert for URL panels — only builtin ids honor it). A full deployment
+  # render still gets both panels: the dispatch and bluesky-panels injectors
+  # fill in defaults when the profile doesn't declare them.
   # ── Multi-user web-terminal stack (built-in) ───────────────────────────────
   # This deployment is natively multi-user: `osprey up` stands up nginx, the
   # landing page, and one web-terminal container per roster user, alongside the
@@ -415,12 +419,17 @@ config:
       # another user's ports; `persona` names a catalog entry below. A bare
       # string (`- alice`) is also accepted: it takes its list position as
       # index and falls back to `default_persona`.
+      # `display_name` becomes the browser window/tab title (OSPREY_WEB_APP_NAME)
+      # — with both terminals on the same light theme it is the visible marker
+      # of which one is write-armed.
       - name: alice
         index: 0
-        persona: readonly
+        persona: readwrite
+        display_name: "Control Room (Alice)"
       - name: bob
         index: 1
-        persona: readwrite
+        persona: readonly
+        display_name: "Read-Only View (Bob)"
     personas:
       # A persona render is build output like everything else under build/.
       # `osprey build` renders one project per delta in `personas/`, and it
@@ -631,12 +640,21 @@ deploy_services: false
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona differs on, pinned explicitly: this key IS the
-  # tier boundary, so it must not drift if the base's default ever changes.
+  # The single axis this persona hard-pins: this key IS the tier boundary, so
+  # it must not drift if the base's default ever changes — it is what makes
+  # the read-only terminal read-only.
   control_system.writes_enabled: false
+  # Pared-down operator layout: chat only, workspace hidden until the agent
+  # puts something in it. Pinned on both sides of the tier boundary (readwrite
+  # pins `expert`), same rationale as writes_enabled.
+  #
+  # This persona also has no EVENTS/BLUESKY panels — not by any key here, but
+  # because their declarations live in the readwrite persona delta and never
+  # reach this build (see the note in the base's config: block).
+  web.ui_mode: simple
   # The hosting deployment owns the web-terminal tier (nginx, landing,
-  # per-user containers). Without this override the inherited roster would make
-  # this render try to host a second web tier on the same host ports.
+  # per-user containers). Without this override the inherited roster would
+  # make this render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
 """
 
@@ -660,15 +678,44 @@ name: Als Exemplar (readwrite)
 # connects to the shared web tier the hosting deployment runs on the same host.
 deploy_services: false
 
+# The write-oriented panels, listed beside their web.panels.<id>.url overrides
+# below (a panel id and its URL declaration travel together). Persona lists
+# UNION over the base, so these are added to the inherited builtin set.
+web_panels:
+  - events          # EVENTS dashboard tab (event dispatcher)
+  - bluesky         # Plan authoring, the scan queue, and the run's live results
+
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona differs on, pinned explicitly: this key IS the
-  # tier boundary, so it must not drift if the base's default ever changes.
+  # The single axis this persona hard-pins: this key IS the tier boundary, so
+  # it must not drift silently if the base's default ever changes.
   control_system.writes_enabled: true
-  # The hosting deployment owns the web-terminal tier — see the readonly
-  # persona for why this must be pinned off here.
+  # Full split-pane terminal + workspace layout for the write-armed operator.
+  # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
+  # than left to the server default, for the same reason writes_enabled is.
+  web.ui_mode: expert
+  # The hosting deployment owns the web-terminal tier (nginx, landing,
+  # per-user containers). Without this override the inherited roster would
+  # make this render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
+  # EVENTS + BLUESKY: the write-oriented panels, declared HERE and not in the
+  # base so the readonly persona is built without them (a persona can only add
+  # config keys, never subtract inherited ones — see the note in the base's
+  # config: block).
+  # EVENTS — the event-dispatcher dashboard as an in-terminal tab. URL defaults
+  # to the host-run dispatcher; override EVENT_DISPATCHER_URL for
+  # containerized/remote web terminals.
+  web.panels.events.label: EVENTS
+  web.panels.events.url: "${EVENT_DISPATCHER_URL:-http://localhost:8020}"
+  web.panels.events.path: /dashboard
+  web.panels.events.health_endpoint: /health
+  # BLUESKY — operator UI for the mediated Bluesky stack, served by the
+  # bluesky-panels sidecar. Override BLUESKY_PANELS_URL for containerized/
+  # remote web terminals (same pattern as EVENTS above).
+  web.panels.bluesky.label: BLUESKY
+  web.panels.bluesky.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
+  web.panels.bluesky.path: /bluesky/
 """
 
 

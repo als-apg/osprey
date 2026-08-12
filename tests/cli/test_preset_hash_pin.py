@@ -94,12 +94,25 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # every archive/panel change above at once — the redesign and the archiver
     # work landed either side of one merge. Both extends children inherit it,
     # so all three moved.
-    "control-assistant": "sha256:d653c998ca202842528c6e42167cd4fd01d1b36075999c69db49c629d5ed9f70",
+    # Re-pinned again when the persona tiers were redesigned and setup-mode
+    # left the operator skills roster (it can patch config.yml/.mcp.json —
+    # admin work — and stays in the artifact catalog for admin profiles to opt
+    # into). The roster now maps alice→readwrite and bob→readonly (each with a
+    # `display_name` tab title), the base pins `web.theme: light`, both
+    # personas pin `web.ui_mode` (expert/simple), and the EVENTS/BLUESKY panel
+    # declarations — `config:` overrides AND `web_panels` entries — moved from
+    # the base into the readwrite persona so the readonly build is genuinely
+    # panel-free. NOT behavior-neutral: a rebuilt project loses a skill
+    # directory, a rebuilt readonly project loses two tabs and gains the
+    # simple surface, and the roster swaps which port is write-armed. The
+    # lifecycle redesign and this tier redesign landed either side of the same
+    # merge, so the digests below carry both at once.
+    "control-assistant": "sha256:6926cb0ac876d78035618a7fd2102b3bd7c32e409a4e89a1949ab84bc25ce172",
     "control-assistant-readonly": (
-        "sha256:f08a5191f756f300b5614d7e09fe66303f2c1784f4f33edf240a35c91ef1c97a"
+        "sha256:d4f91684bc48b28f51997a32c997d08cb56a108b4acdd9a0a09863472660415a"
     ),
     "control-assistant-readwrite": (
-        "sha256:7e7444ec6b122db975583fe67cf2bed1a6c3e129254747ea868794fd3dbd19f2"
+        "sha256:be5b976fef2e50caffbc3c34bb1c6123582b3960cdc85d6d657be48cb6ace2dc"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

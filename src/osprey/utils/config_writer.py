@@ -587,6 +587,10 @@ def set_control_system_type(
 ) -> tuple[str, str]:
     """Update control system and optionally archiver type in config.yml.
 
+    Retained as the config-side write path; the live CLI writes through the
+    profile (``osprey set`` + ``osprey build``), so this is currently
+    test-only.
+
     Uses comment-preserving YAML update via update_yaml_file().
 
     Args:

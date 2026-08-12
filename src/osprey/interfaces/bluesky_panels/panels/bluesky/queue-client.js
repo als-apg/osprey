@@ -18,6 +18,9 @@
  *   items_in_queue, items_in_history, running_item_uid, plan_queue_uid,
  *   plan_history_uid, queue_stop_pending, queue_autostart_enabled, ...}`, or
  *   `{available: false, reason}` when the manager could not be read at all.
+ *   Either shape may carry `start_request` — the bridge-local record of a
+ *   tokenless caller (the agent) asking a token holder (this panel) to start
+ *   the queue; see `startRequest` / `describeStartRequest`.
  * - `items` are the manager's own item documents (`item_uid`, `name`,
  *   `kwargs`, `meta.osprey_run_id`); the running item may carry `progress`.
  *
@@ -236,6 +239,65 @@ export function queueControls(state) {
       };
 
   return { start, stop };
+}
+
+// The confirm control on a pending start request. This button IS the arming
+// action — the sidecar attaches the launch token the agent never holds — so
+// its label says what confirming does, not who asked.
+export const CONFIRM_START_LABEL = 'Confirm start — queue drains toward hardware';
+export const DISMISS_START_REQUEST_LABEL = 'Dismiss request';
+
+/**
+ * The pending start request riding the status summary, or null.
+ *
+ * The record is bridge-local state (`queue.py`'s `_start_request`): an agent
+ * without the launch token filed it, and the ONLY thing that honours it is a
+ * human clicking the token-holding confirm — this accessor never decides
+ * anything, it only says whether there is something to render.
+ *
+ * @param {QueueState} state
+ * @returns {Record<string, any>|null}
+ */
+export function startRequest(state) {
+  const record = state.status && state.status.start_request;
+  return record && typeof record === 'object' ? /** @type {Record<string, any>} */ (record) : null;
+}
+
+/**
+ * The pending start request's operator-facing sentence.
+ *
+ * Names who asked, how much would run, and when — the three things an
+ * operator weighs before confirming. The item count is the count AT FILING
+ * time; the queue list right next to this card is the live truth, which is
+ * why the sentence points at it rather than restating it.
+ *
+ * @param {Record<string, any>} record
+ * @returns {string}
+ */
+export function describeStartRequest(record) {
+  const by = typeof record.requested_by === 'string' && record.requested_by ? record.requested_by : 'agent';
+  const count = Number.isInteger(record.items_in_queue)
+    ? `${record.items_in_queue} item${record.items_in_queue === 1 ? '' : 's'} at the time`
+    : 'the queued items';
+  const at = formatRequestedAt(record.requested_at);
+  return (
+    `The ${by} asks to start the queue (${count}${at ? `, requested ${at}` : ''}). ` +
+    'Confirming runs the queue exactly as listed below.'
+  );
+}
+
+/**
+ * `requested_at` as a short local time, or null when unparseable — the
+ * sentence simply omits what it cannot state truthfully.
+ *
+ * @param {unknown} iso
+ * @returns {string|null}
+ */
+function formatRequestedAt(iso) {
+  if (typeof iso !== 'string' || !iso) return null;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 /**

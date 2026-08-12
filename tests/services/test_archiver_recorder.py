@@ -587,9 +587,10 @@ def test_the_template_mounts_the_live_project_not_a_staged_config_copy() -> None
         "rewritten only by `osprey build`, so the enablement poll would re-read "
         "a stale copy and the documented no-rebuild flip would never arrive"
     )
-    assert "./archiver_recorder/config.yml:/app/project/config.yml" not in template, (
-        "the staged-copy mount is back; see the mount comment for why this "
-        "service deviates from the convention the bluesky bridge follows"
+    assert ":/app/project/config.yml" not in template, (
+        "a single-file config.yml mount is the staged-copy pattern returning; "
+        "see the mount comment for why this service deviates from the "
+        "convention the bluesky bridge follows"
     )
     assert "CONFIG_FILE: /app/project/build/config.yml" in template, (
         "CONFIG_FILE must keep naming the path the repo mount now makes live, "

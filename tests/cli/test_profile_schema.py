@@ -12,7 +12,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 
 from osprey.cli import build_profile as bp
 from osprey.cli import build_profile_model
@@ -191,16 +190,22 @@ def test_servicedef_osprey_prefix_skips_filesystem_check(tmp_path: Path) -> None
         missing.validate(tmp_path)
 
 
-def test_control_assistant_preset_ships_events_panel() -> None:
-    """The shipped control-assistant preset exposes the event-dispatcher
-    dashboard as a custom ``events`` web panel, backed by a URL override so
-    ``BuildProfile.validate`` accepts it (custom panels require
-    ``web.panels.<id>.url``). Guards the wiring against regressions."""
+def test_control_assistant_readwrite_persona_ships_events_panel() -> None:
+    """The control-assistant family exposes the event-dispatcher dashboard as
+    a custom ``events`` web panel on its write-capable tier: the readwrite
+    persona declares the panel id beside the URL override that makes
+    ``BuildProfile.validate`` accept it (custom panels require
+    ``web.panels.<id>.url``), while the base and readonly presets carry
+    neither. Guards the wiring — id and URL travel together — against
+    regressions."""
     presets_dir = bp._presets_dir()
-    raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
-    profile = _parse_profile(raw)
+    profile, _dir = bp.resolve_build_profile(None, preset="control-assistant-readwrite")
 
     profile.validate(presets_dir)  # raises BuildProfileError on any issue
 
     assert "events" in profile.web_panels
     assert profile.config["web.panels.events.url"]
+
+    base, _dir = bp.resolve_build_profile(None, preset="control-assistant")
+    assert "events" not in base.web_panels
+    assert "web.panels.events.url" not in base.config

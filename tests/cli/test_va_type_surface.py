@@ -1,9 +1,12 @@
 """The ``virtual_accelerator`` control-system type, at the config writer.
 
-``set_control_system_type`` is the one function that writes the type, shared by
-every path that sets it. The CLI surface above it is pinned where those verbs
-live: ``osprey set connector=virtual_accelerator`` in tests/cli/test_set_verb.py,
-and the shorthand's validation in tests/cli/test_connector_shorthand.py.
+``set_control_system_type`` is the config-side writer for the type. The live
+CLI path writes through the profile instead (``osprey set connector=…`` +
+``osprey build``), so this writer is currently exercised only by tests — it is
+retained as the config-side write path. The CLI surface is pinned where those
+verbs live: ``osprey set connector=virtual_accelerator`` in
+tests/cli/test_set_verb.py, and the shorthand's validation in
+tests/cli/test_connector_shorthand.py.
 """
 
 from osprey.utils.config_writer import get_control_system_type, set_control_system_type

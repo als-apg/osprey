@@ -90,7 +90,9 @@ def test_delta_keeps_the_preset_comments() -> None:
         profile_filename="my-profile/personas/readonly.yml",
     )
 
-    assert "this key IS the tier boundary" in _unwrapped_comments(text)
+    unwrapped = _unwrapped_comments(text)
+    assert "this key IS the tier boundary" in unwrapped
+    assert "Pared-down operator layout" in unwrapped
 
 
 def _unwrapped_comments(text: str, *, header_only: bool = False) -> str:

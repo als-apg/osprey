@@ -128,6 +128,24 @@ class TestClaudeCodeFileContents:
         assert "PreToolUse" in data["hooks"]
         assert "PostToolUse" in data["hooks"]
 
+    def test_settings_json_switches_off_harness_config_skills(self, project_dir):
+        """The CLI's own harness-configuration skills are off in every render.
+
+        Claude Code bundles skills like update-config (edits settings.json
+        permissions/env/hooks) with the CLI itself, so they ride into every
+        deployed terminal uninvited. An operator agent must never reconfigure
+        its own harness — that is admin work done through the profile and
+        regen — so the whole family is `"off"`: hidden from the model AND the
+        / menu, and invocation by name errors instead of running.
+        """
+        settings_path = project_dir / ".claude" / "settings.json"
+        data = json.loads(settings_path.read_text())
+
+        overrides = data["skillOverrides"]
+        assert overrides["update-config"] == "off"
+        assert overrides["keybindings-help"] == "off"
+        assert overrides["fewer-permission-prompts"] == "off"
+
     def test_settings_json_denies_filesystem_tools(self, project_dir):
         """Built-in filesystem/shell tools are denied; Task delegated to ask.
 

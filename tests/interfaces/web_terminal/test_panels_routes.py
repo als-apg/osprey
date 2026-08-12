@@ -240,10 +240,15 @@ def test_focus_on_non_member_broadcasts_visibility_before_focus():
     """Ordering is load-bearing: clients add the rail entry, then focus it."""
     app = _make_focus_app(visible=["ariel"])
     with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana"})
+        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
     frames = _frames(app)
     assert [f["type"] for f in frames] == ["panel_visibility", "panel_focus"]
-    assert frames[0] == {"type": "panel_visibility", "panel": "grafana", "visible": True}
+    assert frames[0] == {
+        "type": "panel_visibility",
+        "panel": "grafana",
+        "visible": True,
+        "source": "agent",
+    }
 
 
 def test_focus_visibility_frame_carries_the_source_tag():
@@ -255,11 +260,11 @@ def test_focus_visibility_frame_carries_the_source_tag():
 
 
 def test_focus_on_member_emits_only_a_focus_frame():
-    """A human rail click is unchanged — no spurious visibility traffic."""
+    """An agent switch to a member panel: focus frame only, no visibility traffic."""
     app = _make_focus_app(visible=["ariel", "grafana"])
     with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana"})
-    assert _frames(app) == [{"type": "panel_focus", "panel": "grafana"}]
+        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
+    assert _frames(app) == [{"type": "panel_focus", "panel": "grafana", "source": "agent"}]
 
 
 def test_focus_on_member_leaves_rail_order_untouched():
@@ -274,7 +279,9 @@ def test_focus_without_explicit_membership_treats_enabled_as_the_rail():
     app = _make_focus_app(visible=None)
     with TestClient(app) as client:
         client.post("/api/panel-focus", json={"panel": "ariel"})
-    assert _frames(app) == [{"type": "panel_focus", "panel": "ariel"}]
+    # A member focus adds no membership, and a human focus broadcasts nothing.
+    assert _frames(app) == []
+    assert not hasattr(app.state, "visible_panels")
 
 
 def test_focus_without_explicit_membership_still_adds_a_custom_non_member():
@@ -282,7 +289,9 @@ def test_focus_without_explicit_membership_still_adds_a_custom_non_member():
     app = _make_focus_app(visible=None)
     with TestClient(app) as client:
         client.post("/api/panel-focus", json={"panel": "grafana"})
-    assert [f["type"] for f in _frames(app)] == ["panel_visibility", "panel_focus"]
+    # Membership is shared state, so the visibility frame broadcasts even for a
+    # human gesture; the focus itself stays a local matter.
+    assert [f["type"] for f in _frames(app)] == ["panel_visibility"]
     assert "grafana" in app.state.visible_panels
 
 
@@ -299,7 +308,34 @@ def test_focus_with_url_keeps_the_url_on_the_focus_frame_only():
     """The visibility frame is membership-only; the url rides the focus frame."""
     app = _make_focus_app(visible=["ariel"])
     with TestClient(app) as client:
-        client.post("/api/panel-focus", json={"panel": "grafana", "url": "/x"})
+        client.post("/api/panel-focus", json={"panel": "grafana", "url": "/x", "source": "agent"})
     visibility, focus = _frames(app)
     assert "url" not in visibility
     assert focus["url"].endswith("/x")
+
+
+# ---- Human focus is a report, not a command ---- #
+#
+# panel-commands.js states the contract: a user-initiated tab switch is
+# REPORTED "so the server mirrors the active panel (and does not echo a focus
+# event back)". Only agent-attributed focus is a command that must reach every
+# client. These tests pin the split.
+
+
+def test_human_focus_mirrors_active_panel_without_broadcast():
+    """A source-less (human) focus updates the mirror and broadcasts nothing."""
+    app = _make_focus_app(visible=["ariel", "grafana"])
+    with TestClient(app) as client:
+        resp = client.post("/api/panel-focus", json={"panel": "grafana"})
+        body = client.get("/api/panel-focus").json()
+    assert resp.status_code == 200
+    assert body["active_panel"] == "grafana"
+    app.state.broadcaster.broadcast.assert_not_called()
+
+
+def test_agent_focus_broadcasts_a_focus_frame():
+    """An agent switch is a command: every client applies the focus frame."""
+    app = _make_focus_app(visible=["ariel", "grafana"])
+    with TestClient(app) as client:
+        client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})
+    assert _frames(app) == [{"type": "panel_focus", "panel": "grafana", "source": "agent"}]

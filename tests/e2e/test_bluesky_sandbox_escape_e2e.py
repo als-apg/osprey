@@ -91,7 +91,8 @@ from typing import Any
 
 import pytest
 
-from tests.e2e import _orm_stack
+from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e._deploy_diagnostics import queue_stack_logs
 
 pytestmark = [
     pytest.mark.e2e,
@@ -104,6 +105,11 @@ pytestmark = [
 # 18099, test_tiled_roundtrip.py's 18101, test_bluesky_catalog_e2e.py's 18103).
 BRIDGE_PORT = 18105
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
+
+#: Compose project this suite deploys under. Container names follow
+#: ``<project>-<service>``, so anything naming a deployed container derives it
+#: from here rather than repeating the literal.
+PROJECT_NAME = "sandbox-escape"
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 DEPLOY_UP_TIMEOUT_SEC = 1200  # amd64-emulated VA image build is slow (minutes)
@@ -456,7 +462,7 @@ def deployed_sandbox_stack(
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
-        "sandbox-escape", output_dir=base, bridge_port=BRIDGE_PORT, timeout=BUILD_TIMEOUT_SEC
+        PROJECT_NAME, output_dir=base, bridge_port=BRIDGE_PORT, timeout=BUILD_TIMEOUT_SEC
     )
 
     limits = _channel_limits(repo)
@@ -500,6 +506,14 @@ def deployed_sandbox_stack(
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        # HTTP readiness is not enqueue readiness -- the worker namespace an
+        # enqueue validates against exists only once the RE worker environment
+        # is open, and the bridge opens that off the readiness path. See
+        # `_queue_drive.wait_for_worker_environment`.
+        try:
+            _queue_drive.wait_for_worker_environment(BRIDGE_URL)
+        except AssertionError as exc:
+            pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
         yield DeployedSandboxStack(
             repo=repo,
             escape_target_sp=escape_sp,

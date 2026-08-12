@@ -23,13 +23,33 @@ services:
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
-{% if 'virtual_accelerator' in deployed_services %}
-    # Only when the Virtual Accelerator is co-deployed: order the
-    # bridge's startup after the VA's CA-readiness healthcheck, so the
-    # substrate devices' ophyd-async connect doesn't race the
-    # IOC's iocInit. A bridge-only deploy (no VA in deployed_services) must
-    # NOT get this — compose errors on depends_on naming an undefined service.
+    # Ordering, not convenience: the bridge opens the RE worker environment
+    # ONCE at startup and does not keep trying. `app.py`'s
+    # `_open_environment_at_startup` calls `ensure_environment`, which asks
+    # `capability()` first and returns False WITHOUT entering its retry loop
+    # when the manager is not answering yet (`manager_unreachable`); only an
+    # armed `POST /queue/start` runs it again. But `POST /queue/items`
+    # validates against `plans_allowed`, and the manager only downloads that
+    # list from the worker when the environment opens — so a bridge that boots
+    # faster than the manager refuses every enqueue with "not in the list of
+    # allowed plans", long before any start could self-heal it. Waiting for
+    # `qserver ping` to answer removes that race rather than betting on the
+    # manager's import of the bluesky/ophyd stack finishing first.
+    #
+    # Unconditional, because `queueserver` is rendered by THIS template and so
+    # is always defined. Not in tension with the rule that a Tiled outage must
+    # never block the bridge (FR4): Tiled is the read path's durable store,
+    # while the manager is the execution plane the bridge is a facade over —
+    # the same reason the VA is depended on below.
     depends_on:
+      queueserver:
+        condition: service_healthy
+{% if 'virtual_accelerator' in deployed_services %}
+      # Only when the Virtual Accelerator is co-deployed: order the
+      # bridge's startup after the VA's CA-readiness healthcheck, so the
+      # substrate devices' ophyd-async connect doesn't race the
+      # IOC's iocInit. A bridge-only deploy (no VA in deployed_services) must
+      # NOT get this — compose errors on depends_on naming an undefined service.
       virtual-accelerator:
         condition: service_healthy
 {% endif %}

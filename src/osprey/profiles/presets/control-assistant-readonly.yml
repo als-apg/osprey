@@ -24,10 +24,19 @@ deploy_services: false
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona differs on, pinned explicitly: this key IS the
-  # tier boundary, so it must not drift if the base's default ever changes.
+  # The single axis this persona hard-pins: this key IS the tier boundary, so
+  # it must not drift if the base's default ever changes — it is what makes
+  # the read-only terminal read-only.
   control_system.writes_enabled: false
+  # Pared-down operator layout: chat only, workspace hidden until the agent
+  # puts something in it. Pinned on both sides of the tier boundary (readwrite
+  # pins `expert`), same rationale as writes_enabled.
+  #
+  # This persona also has no EVENTS/BLUESKY panels — not by any key here, but
+  # because their declarations live in the readwrite persona delta and never
+  # reach this build (see the note in the base's config: block).
+  web.ui_mode: simple
   # The hosting deployment owns the web-terminal tier (nginx, landing,
-  # per-user containers). Without this override the inherited roster would make
-  # this render try to host a second web tier on the same host ports.
+  # per-user containers). Without this override the inherited roster would
+  # make this render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false

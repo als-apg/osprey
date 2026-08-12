@@ -11,7 +11,26 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Changed
+
+- The control-assistant preset's two-user roster now ships alice as the
+  write-capable operator and bob as the read-only viewer. The tiers differ
+  visibly, not just in enforcement: the write-armed terminal keeps the full
+  expert workspace with the EVENTS and BLUESKY panels, the read-only one gets
+  a chat-first simple layout without them, both default to the light theme,
+  and each browser tab is titled after its role.
+
 ### Added
+
+- A tokenless `queue_start` now files a **start request** the operator confirms
+  in the BLUESKY queue panel, instead of dead-ending in a refusal. Deployed
+  web terminals never hold the scan launch token by design; the agent stages
+  and queues, the request appears in the queue panel beside the queue it would
+  drain, and the human's *Confirm start* click — the panel's own token-gated
+  start — is what arms it. Dismissing the request is always available and
+  starts nothing. Skill and error-message guidance across the scan stack now
+  explains this posture so agents hand the start to the human instead of
+  chasing the token in configuration.
 
 - An archiver read that comes back empty now says why: the response carries a
   coverage verdict — the window predates or postdates the archive, the channel
@@ -153,6 +172,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   Each verb finds the repo by walking up from the working directory, so none of
   them is given a project or config path — `--repo` overrides the starting
   point. Running `osprey` with no arguments prints the command list.
+- Deployed agents can no longer reconfigure their own harness: the Claude Code
+  CLI's bundled harness-configuration skills (`update-config`,
+  `keybindings-help`, `fewer-permission-prompts`) are switched off in every
+  rendered project, and the `setup-mode` skill (which can patch config.yml)
+  left the operator preset's default roster — it stays in the artifact catalog
+  for admin profiles to opt into. Rebuilt control-assistant projects will
+  report preset staleness once; that is the intended signal.
 - **Log out** moved into the web terminal's display menu, alongside
   **Settings** — the two now sit side by side under a line naming the signed-in
   user. The separate user chip in the header is gone, leaving search and the
@@ -380,6 +406,17 @@ Compatibility is documented in release notes, not encoded in the version string.
   removed — among them the refusal `osprey up` raises when `.env.production`
   is missing, which pointed at `osprey deploy render-env-production` instead of
   `osprey users env-production`.
+- A scan-stack deployment no longer intermittently refuses every scan with
+  "not in the list of allowed plans". The bridge opens the Run Engine worker
+  once at startup, and abandoned it whenever it won the boot race against the
+  queue server — leaving the list of runnable plans empty until someone started
+  the queue by hand. It now waits for the queue server to answer first.
+- One operator's tab switches no longer rearrange every other window of the
+  same workspace: a human panel focus is now mirrored to the server silently
+  (the agent can still read where the operator is looking) instead of being
+  broadcast back, whose delayed echo could evict tiles the operator had open —
+  in the gesturing window and in every other one. Closing a tile no longer
+  reports its side-effect focus change either.
 - Web terminal panels no longer freeze permanently — rendering but ignoring
   every click — when a drag from the panel rail loses its end event (for
   example the dragged entry was removed mid-drag by the agent or another

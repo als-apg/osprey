@@ -197,10 +197,16 @@ def _build_env_production_subset(
     :mod:`osprey.deployment.container_lifecycle`, minted per deploy under
     those fixed names). Neither kind is anything a web terminal presents to
     anyone: the containers that need a service token read the deploy ``.env``
-    the main compose file hands them, and nothing in a web terminal reads one
-    at all. This is the security spec for this function: a var absent from the
-    enumerated list above can never appear in the returned dict, regardless of
-    what the input ``.env`` contains.
+    the main compose file hands them. The one web-terminal consumer that
+    WOULD read a service token if present — the bluesky MCP server's
+    ``${BLUESKY_LAUNCH_TOKEN:-}`` — is tokenless here on purpose: an agent
+    container must never hold a write-arming bearer credential (any Bash or
+    Python it runs could read it and arm the queue with no approval), so its
+    ``queue_start`` files a panel start request and the operator's panels
+    sidecar, which does receive the token, answers it. This is the security
+    spec for this function: a var absent from the enumerated list above can
+    never appear in the returned dict, regardless of what the input ``.env``
+    contains.
 
     :param config: Raw deploy config (facility fields merged in — see
         ``modules.web_terminals.image_source`` in :func:`ensure_env_production`).

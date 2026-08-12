@@ -110,7 +110,8 @@ class TestRuntimeWriters:
         # the password `osprey up` mints -- correctly, since a rewrite it
         # cannot perform would leave the archive contradicting the scenario.
         # What is under test here is where the ACTIVATION writes: the state file
-        # belongs in `_agent_data/`, never in the build-owned `data/` tree.
+        # belongs under `var/agent_data/`, never in the build-owned `data/`
+        # tree.
         apply_scenarios(built_project, ["vacuum-burst"], seed_logbook=False, seed_archive=False)
 
         # Resolved from the config rather than spelled out, because where the

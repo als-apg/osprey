@@ -71,7 +71,7 @@ import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e import _orm_stack, _queue_drive
-from tests.e2e._deploy_diagnostics import dead_container_logs
+from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_SCRIPT = REPO_ROOT / "scripts" / "va" / "sweep_check.py"
@@ -394,6 +394,16 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n--- containers that are not running ---\n{_dead_container_logs()}")
+        # HTTP readiness is not enqueue readiness -- the worker namespace the
+        # enqueue validates against exists only once the RE worker environment
+        # is open, and the bridge opens that off the readiness path. See
+        # `_queue_drive.wait_for_worker_environment`. Its own diagnostic is the
+        # two RUNNING containers that own the environment, which
+        # `_dead_container_logs` skips by design.
+        try:
+            _queue_drive.wait_for_worker_environment(BRIDGE_URL)
+        except AssertionError as exc:
+            pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
         yield DeployedStack(repo=repo, pairs=pairs, limits=limits)
     finally:
         down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
