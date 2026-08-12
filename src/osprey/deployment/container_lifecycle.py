@@ -1415,7 +1415,10 @@ def _preflight_env_shadowing(
     :param repo_root: The deployment repo root; both the compose project
         directory and the home of the ``.env`` compose is pointed at.
     :param environ: The process environment to compare against. ``None`` reads
-        the live one.
+        the live one, overlaid with the shell values the CLI's entry-time
+        ``.env`` load replaced (:func:`~osprey.utils.config.dotenv_shell_overrides`)
+        — the comparison is against what the operator's shell actually
+        exported, which the in-process override would otherwise have erased.
     :return: The shadowed variable names, sorted. Empty when there is no
         divergence, no ``.env``, or nothing interpolated.
     """
@@ -1430,7 +1433,12 @@ def _preflight_env_shadowing(
     if not pinned:
         return []
 
-    process_env = os.environ if environ is None else environ
+    if environ is None:
+        from osprey.utils.config import dotenv_shell_overrides
+
+        process_env: Mapping[str, str] = {**os.environ, **dotenv_shell_overrides()}
+    else:
+        process_env = environ
 
     referenced: set[str] = set()
     for compose_file in compose_files:
@@ -2200,8 +2208,16 @@ def _start_stack(
     # than after the minutes a build takes.
     _preflight_env_shadowing(compose_files, repo_root)
 
-    # Set up environment for containers
-    env = os.environ.copy()
+    # Set up environment for containers. The shell values the CLI's entry-time
+    # `.env` load replaced are restored on top: compose documents the OPPOSITE
+    # precedence (a shell export beats --env-file), and the warning above just
+    # told the operator the exported value is the one compose will substitute —
+    # handing compose the overridden copy would make that a lie and silently
+    # start the stack on the store's value instead. Variables `.env` added that
+    # the shell never set are untouched (their process value IS the file's).
+    from osprey.utils.config import dotenv_shell_overrides
+
+    env = {**os.environ, **dotenv_shell_overrides()}
     if dev_mode:
         env["DEV_MODE"] = "true"
         logger.key_info("Development mode: DEV_MODE environment variable set for containers")

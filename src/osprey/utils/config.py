@@ -290,6 +290,27 @@ def resolve_execution_method(
     )
 
 
+#: Shell values :func:`load_project_dotenv`'s ``override=True`` replaced, keyed
+#: by variable name. The entry-time passthrough makes ``.env`` win inside the
+#: osprey *process*; compose's own precedence is the opposite (a shell export
+#: beats ``--env-file``), so the deploy path needs the shell as it really was —
+#: both to warn about a divergent export and to hand compose an environment
+#: that honors it. Empty when nothing differing was overridden.
+_dotenv_shell_overrides: dict[str, str] = {}
+
+
+def dotenv_shell_overrides() -> dict[str, str]:
+    """The shell's own values for variables the ``.env`` entry-load overrode.
+
+    Only variables whose exported value *differed* from the file's are
+    recorded: a key the shell never set, or set to the same value, was not
+    shadowed. Overlaying this onto ``os.environ`` reconstructs the environment
+    the operator's shell actually provided, which is what compose interpolation
+    is documented against.
+    """
+    return dict(_dotenv_shell_overrides)
+
+
 def load_project_dotenv() -> None:
     """Load ``./.env`` into ``os.environ``, overriding existing values.
 
@@ -300,6 +321,11 @@ def load_project_dotenv() -> None:
     a stale shell export. Every key in the file is passed through, not a
     declared subset — narrowing it would drop Channel Access addressing with no
     error.
+
+    What the override replaces is not discarded: the shell's own differing
+    values are recorded (:func:`dotenv_shell_overrides`) so the deploy path can
+    still see — and warn about — an export that disagrees with the store, and
+    hand compose an environment with the shell's precedence intact.
 
     ``override=True`` and the breadth of the copy are exactly why this must be
     called deliberately. Call it from process entry points only; never at
@@ -318,6 +344,21 @@ def load_project_dotenv() -> None:
         if not dotenv_path.exists():
             logger.debug(f"No .env file found at {dotenv_path}")
             return
+        from osprey.utils.dotenv import parse_dotenv_file
+
+        # Accumulate, never clear: this runs more than once per process, and
+        # after the first load os.environ already matches the file — a later
+        # call sees no difference and must not erase the genuine shell values
+        # the first one recorded. First-seen wins; only the pre-load value is
+        # the shell's own.
+        pinned = parse_dotenv_file(dotenv_path)
+        for name, value in pinned.items():
+            if (
+                name in os.environ
+                and os.environ[name] != value
+                and name not in _dotenv_shell_overrides
+            ):
+                _dotenv_shell_overrides[name] = os.environ[name]
         load_dotenv(dotenv_path, override=True)
         logger.debug(f"Loaded .env file from {dotenv_path}")
     except OSError as e:

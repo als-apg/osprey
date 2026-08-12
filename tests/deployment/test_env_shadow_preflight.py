@@ -144,6 +144,34 @@ def test_a_divergent_export_is_reported_by_name(tmp_path, caplog):
     assert "ARIEL_DB_PASSWORD" in caplog.text
 
 
+def test_the_entry_time_dotenv_override_does_not_hide_the_divergence(tmp_path, caplog, monkeypatch):
+    """The default comparison sees the shell as it was BEFORE the CLI's ``.env`` load.
+
+    ``load_project_dotenv()`` (``override=True``, at CLI entry) replaces a
+    divergent export with the pinned value inside the osprey process — so
+    comparing against the live ``os.environ`` would find agreement and never
+    warn, exactly when the operator most needs to hear otherwise. The recorded
+    shell overrides are what keep the comparison honest.
+    """
+    import osprey.utils.config as config
+
+    repo = _repo(
+        tmp_path,
+        f"ARIEL_DB_PASSWORD={_PINNED}\n",
+        "environment:\n  POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD:-ariel}\n",
+    )
+    # The post-entry-load state: the process env holds the pinned value, and
+    # the shell's own differing value survives only in the recorded overrides.
+    monkeypatch.setenv("ARIEL_DB_PASSWORD", _PINNED)
+    monkeypatch.setattr(config, "_dotenv_shell_overrides", {"ARIEL_DB_PASSWORD": _EXPORTED})
+
+    with caplog.at_level(logging.WARNING):
+        shadowed = _preflight_env_shadowing(_files(), repo)
+
+    assert shadowed == ["ARIEL_DB_PASSWORD"]
+    assert "ARIEL_DB_PASSWORD" in caplog.text
+
+
 def test_neither_value_ever_reaches_the_warning(tmp_path, caplog):
     """The variable is the actionable fact; both values are secrets.
 
