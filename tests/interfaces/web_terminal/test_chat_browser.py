@@ -6,7 +6,8 @@ markdown/sanitiser globals and the SSE transport against a live event stream:
 
   1. a streamed prompt renders as sanitised markdown in the chat card;
   2. a second prompt in the same page-load reaches the same session (continuity);
-  3. the activity line ("Using <tool>…") shows during a tool_use and clears on text;
+  3. the activity line (the tool's operator phrase) shows during a tool_use and
+     clears on text;
   4. Stop mid-stream re-enables the input and the next prompt runs cleanly;
   5. the Expert/Simple toggle swaps the chat card ↔ xterm live, no reload;
   6. hostile model markdown renders inert in the live DOM (no script executes);
@@ -116,7 +117,7 @@ class _FakeSDKClient:
 
       ("text", md)      one text block (markdown) → a ``text`` event
       ("thinking",)     one thinking block        → drives the activity line
-      ("tool_use", nm)  one tool_use block        → activity line "Using <nm>…"
+      ("tool_use", nm)  one tool_use block        → activity line phrase for <nm>
       ("system", sub)   a system message
       ("gate",)         block until POST /__test__/release
       ("hang",)         block until the reader is cancelled (Stop tests)
@@ -380,7 +381,7 @@ def test_multi_turn_reaches_same_session(tmp_path, chromium_browser):
 
 
 def test_activity_line_shows_tool_then_clears_on_text(tmp_path, chromium_browser):
-    """ "Using Bash…" is visible while the turn is held, and clears once text lands."""
+    """Bash's phrase is visible while the turn is held, and clears once text lands."""
     with _live_chat_server(tmp_path) as (base_url, _app):
         _PLANS["run a tool"] = [
             ("tool_use", "Bash"),
@@ -393,7 +394,9 @@ def test_activity_line_shows_tool_then_clears_on_text(tmp_path, chromium_browser
 
         activity = page.locator(f"{_OP} .op-processing")
         expect(activity).to_be_visible(timeout=10_000)
-        expect(activity).to_contain_text("Using Bash")
+        # chat-render maps tool names to operator phrases; Bash is a mapped name,
+        # so the line reads as a sentence rather than echoing the raw tool.
+        expect(activity).to_contain_text("Running a shell command")
 
         # Release the held turn: text arrives, the activity line clears.
         requests.post(f"{base_url}/__test__/release")
