@@ -1026,7 +1026,9 @@ _HETERO_ENV_CONTENT = (
 
 
 def _write_persona_project(root: Path, project_name: str, container_project_dir: str) -> Path:
-    """A minimal local-mode persona project: just a ``Dockerfile`` + ``config.yml``.
+    """A minimal local-mode persona project: ``Dockerfile`` + ``config.yml``,
+    in both copies a real build produces (the flat render and its
+    ``.image/<name>`` sibling).
 
     Mirrors ``Dockerfile.web_terminal_stub``'s shape (a throwaway alpine
     stand-in that stays running and satisfies what seeding.py's container-side
@@ -1046,17 +1048,26 @@ def _write_persona_project(root: Path, project_name: str, container_project_dir:
     made would be root-owned, and the container-side reconcile runs non-root.
     """
     root.mkdir(parents=True)
-    (root / "config.yml").write_text(f"project_name: {project_name}\n", encoding="utf-8")
-    (root / "Dockerfile").write_text(
+    config_text = f"project_name: {project_name}\n"
+    dockerfile_text = (
         "FROM alpine:3.20\n"
         "RUN adduser -D dispatch \\\n"
         "    && mkdir -p /data/claude-config \\\n"
         f"    && mkdir -p {container_project_dir}/var/agent_data \\\n"
         f"    && mkdir -p {container_project_dir}/.claude/skills \\\n"
         f"    && chown -R dispatch:dispatch /data/claude-config {container_project_dir}\n"
-        'CMD ["tail", "-f", "/dev/null"]\n',
-        encoding="utf-8",
+        'CMD ["tail", "-f", "/dev/null"]\n'
     )
+    (root / "config.yml").write_text(config_text, encoding="utf-8")
+    (root / "Dockerfile").write_text(dockerfile_text, encoding="utf-8")
+    # The container copy the persona image is actually built from: `docker build
+    # -f <context>/build/Dockerfile <context>` with the context at the
+    # `.image/<name>` sibling (`_persona_image_context`). The stub's recipe
+    # holds no host paths, so the container copy IS the host copy.
+    image_build = root.parent / ".image" / root.name / "build"
+    image_build.mkdir(parents=True)
+    (image_build / "config.yml").write_text(config_text, encoding="utf-8")
+    (image_build / "Dockerfile").write_text(dockerfile_text, encoding="utf-8")
     return root
 
 
