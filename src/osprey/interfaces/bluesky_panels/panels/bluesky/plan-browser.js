@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * The plan panel's left pane: a dense, file-browser-style plan selector.
+ * The Plans view's left pane: a dense, file-browser-style plan selector.
  *
  * Plans arrive from the bridge as a flat list carrying a provenance tier. This
  * module turns that list into the sidebar tree — grouped under collapsible

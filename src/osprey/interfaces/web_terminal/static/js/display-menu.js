@@ -3,11 +3,13 @@
  *
  * One quiet faders button in the header collapses every display preference
  * behind a popover card: Appearance (light/dark within the active theme family), View
- * (Expert/Simple), Theme (the family pills), and — last — the System Settings
- * row that opens the settings drawer. It replaces the hub header's
- * always-visible segmented mode toggle + `<osprey-theme-switcher>` pair and the
- * standalone settings gear beside them; standalone fleet pages (session.html,
- * the panels) keep the shared switcher component; this menu is hub chrome only.
+ * (Expert/Simple), Theme (the family pills), and — last — a session footer
+ * naming the signed-in user above the Settings / Log out pair. It replaces the
+ * hub header's always-visible segmented mode toggle + `<osprey-theme-switcher>`
+ * pair, the standalone settings gear beside them, and the identity chip that
+ * used to carry logout in a popover of its own; standalone fleet pages
+ * (session.html, the panels) keep the shared switcher component; this menu is
+ * hub chrome only.
  *
  * Division of labour:
  *   - This module owns the popover (open/close, outside-click, Escape) and
@@ -24,12 +26,18 @@
  *     card renders identically in both modes, so the card an operator is
  *     looking at survives the flip and they can compare the two shells (or go
  *     straight back) without re-opening the menu.
- *   - The SYSTEM SETTINGS row is not this module's to open: it keeps the
+ *   - The SETTINGS button is not this module's to open: it keeps the
  *     `[data-drawer-trigger="settings-drawer"]` contract, so settings.js's
  *     first-time warning gate stays the sole open path and app.js still
  *     mirrors the drawer's open state onto it as `.active`. This is the ONE
  *     row that closes the card, because opening the drawer moves the operator
  *     to a different surface entirely.
+ *   - LOG OUT is likewise app.js's, by `#logout-btn` + `data-landing-url`
+ *     (palette-boot.js's "Log out" command also finds it by id). Deliberately
+ *     NOT closed by this module: every path out of that handler navigates
+ *     away, and closing the card first would hide the button's own aria-busy
+ *     state while the POST is still in flight — from the operator and from
+ *     assistive tech — at exactly the moment it matters.
  *
  * The popover grammar (open renders nothing lazily except the family pills'
  * one-time build; capture-phase outside-click + Escape close; aria-expanded

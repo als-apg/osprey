@@ -117,6 +117,33 @@ function wire() {
   setTimeout(wire, 150);
 }
 
+// The gesture's natural terminators, mirroring dock-workspace.js's
+// onDragGesture. HTML5 delivers dragend only to the drag's SOURCE element —
+// a rail entry removed mid-drag (SSE hide_panel, arrange prune, another
+// client) can never fire it, and native drags suppress mouseup/pointerup
+// until the pointer is released. Relying on the entry's own dragend alone
+// therefore left the shields up FOREVER on a lost gesture: every panel
+// iframe stayed pointer-events:none — rendering, but inert. These document
+// listeners are the failsafe: capture-phase, self-disarming, armed per drag.
+const DRAG_TERMINATORS = ['dragend', 'drop', 'mouseup', 'pointerup'];
+
+/** The armed failsafe's listener, or null while no drag is in flight.
+ *  @type {(() => void) | null} */
+let failsafeLower = null;
+
+function armFailsafe() {
+  if (failsafeLower) return;
+  const lower = () => railDragEnd();
+  failsafeLower = lower;
+  for (const type of DRAG_TERMINATORS) document.addEventListener(type, lower, true);
+}
+
+function disarmFailsafe() {
+  if (!failsafeLower) return;
+  for (const type of DRAG_TERMINATORS) document.removeEventListener(type, failsafeLower, true);
+  failsafeLower = null;
+}
+
 /**
  * Begin a rail drag: stamp the payload and raise the iframe shields. Returns
  * false — cancelling the drag (panel-rail preventDefaults) — in simple mode
@@ -135,11 +162,14 @@ export function railDragStart(id, dataTransfer) {
     dataTransfer.effectAllowed = 'move';
   }
   shield(true);
+  armFailsafe();
   return true;
 }
 
-/** End a rail drag (drop, cancel, or escape): lower the iframe shields. */
+/** End a rail drag (drop, cancel, escape, or failsafe): lower the iframe
+ *  shields and disarm the document-level terminators. Idempotent. */
 export function railDragEnd() {
+  disarmFailsafe();
   shield(false);
 }
 

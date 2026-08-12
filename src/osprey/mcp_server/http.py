@@ -126,6 +126,50 @@ def _post_json_with_response(url: str, payload: dict, *, timeout: int = 3) -> tu
         return exc.code, body
 
 
+def fetch_panels(timeout: int = 3) -> dict | None:
+    """Read the Web Terminal's panel inventory from ``GET /api/panels``.
+
+    The read counterpart of the ``notify_*`` helpers, and the one place MCP
+    tools go for live panel state: rail membership (``visible``), the active
+    panel, the configured presets, and the layout-report fields ``open_tiles``,
+    ``open_tiles_age_s`` and ``open_tiles_dock`` that say what is actually on
+    screen and how stale that knowledge is.
+
+    The three layout-report fields carry three distinct states, and a caller
+    must not collapse them: all-``null`` means no client has ever reported;
+    ``open_tiles: null`` with a numeric age and ``open_tiles_dock: false``
+    means a client is watching but runs without the dock shell and cannot
+    report tile order; a list (including ``[]``, a genuinely empty workspace)
+    with ``open_tiles_dock: true`` is a real occupancy report.
+
+    .. warning::
+        This performs a **blocking** HTTP call (bounded by ``timeout``).
+        Async tools MUST call it via ``await anyio.to_thread.run_sync(...)``
+        rather than inline, which would stall the event loop.
+
+    Args:
+        timeout: Socket timeout in seconds.
+
+    Returns:
+        The parsed JSON payload, or ``None`` when the web terminal is
+        unreachable (CLI-only mode) or answered with something other than a
+        JSON object — callers decide how to surface that.  Read individual
+        keys with ``.get()``; servers predating the layout-report feature omit
+        the three fields entirely.
+    """
+    import json as _json
+    import urllib.request
+
+    base = web_terminal_url()
+    try:
+        with urllib.request.urlopen(f"{base}/api/panels", timeout=timeout) as resp:
+            data = _json.loads(resp.read())
+    except Exception as exc:
+        logger.warning("panel fetch failed (web terminal unreachable): %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def notify_panel_visibility(panel: str, visible: bool) -> None:
     """Fire-and-forget POST to show or hide a panel in the Web Terminal.
 
@@ -195,6 +239,69 @@ def notify_panel_register(
         return {"ok": True, "status": 200, "data": body}
     detail = body.get("detail", "") if isinstance(body, dict) else str(body)
     return {"ok": False, "status": status, "detail": detail}
+
+
+def notify_panel_arrange(
+    tiles: list[str] | None = None,
+    preset: str | None = None,
+    focus: str | None = None,
+) -> dict:
+    """Request a workspace tile arrangement and return the server's verdict.
+
+    Like :func:`notify_panel_register`, and unlike the fire-and-forget
+    ``notify_*`` helpers, this captures the real HTTP response: the arrange
+    route validates the tile ids, the preset name and the focus target
+    server-side, so a rejection carries a detail string the calling tool must
+    show the agent rather than swallow.  ``source: "agent"`` is always sent so
+    the UI can flash the agent glow on the affected rail entries.
+
+    Exactly one of ``tiles`` and ``preset`` is expected.  Supplying both or
+    neither is left to the route to reject, so the agent sees one authoritative
+    validation message instead of two divergent ones.
+
+    Args:
+        tiles: Panel ids to leave open, in left-to-right order.
+        preset: Name of a configured layout (``web.presets``) to apply instead
+            of an explicit tile list.
+        focus: Optional panel to focus; the route requires it to be one of the
+            resulting tiles.  Omitted from the body when ``None``.
+
+    Returns:
+        A dict with the following keys:
+
+        * ``ok`` (bool) — ``True`` on HTTP 200, ``False`` otherwise.
+        * ``status`` (int | None) — HTTP status code, or ``None`` when the web
+          terminal was unreachable.
+        * ``data`` (dict) — Parsed response body on success (``ok=True`` only):
+          the applied ``tiles``, ``focus``, ``preset`` and ``prune_rail``.
+        * ``detail`` (str) — Rejection text (``ok=False`` only): the server's
+          ``"detail"``, or ``"Web Terminal is not running."`` when unreachable.
+          Always text — FastAPI's own body-validation 422s carry a list of
+          error dicts, which is stringified here.
+    """
+    base = web_terminal_url()
+    payload: dict = {"source": "agent"}
+    if tiles is not None:
+        payload["tiles"] = tiles
+    if preset is not None:
+        payload["preset"] = preset
+    if focus is not None:
+        payload["focus"] = focus
+
+    try:
+        status, body = _post_json_with_response(f"{base}/api/panel-arrange", payload, timeout=5)
+    except Exception as exc:
+        logger.warning("panel arrange POST failed (web terminal unreachable): %s", exc)
+        return {"ok": False, "status": None, "detail": "Web Terminal is not running."}
+
+    if status == 200:
+        return {"ok": True, "status": 200, "data": body}
+    detail = body.get("detail", "") if isinstance(body, dict) else body
+    return {
+        "ok": False,
+        "status": status,
+        "detail": detail if isinstance(detail, str) else str(detail),
+    }
 
 
 def notify_panel_focus(panel_id: str, url: str | None = None) -> None:

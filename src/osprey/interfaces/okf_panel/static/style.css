@@ -622,3 +622,10 @@ body {
 /* Embedded in the web-terminal hub: the hub owns theming — the sidebar's
  * theme switcher is standalone-only. */
 body.embedded osprey-theme-switcher { display: none; }
+
+/* Embedded in Expert: the sidebar's search box is contributed to the host tile
+ * bar instead (app.js publishHeaderContribution), so the in-body one goes.
+ * Simple is excluded because the hub collapses the tile bar there — no bar, so
+ * no reason to take the body control away (Simple drops the whole sidebar on
+ * its own terms above). */
+:root:not([data-ui-mode="simple"]) body.embedded #search-box { display: none; }

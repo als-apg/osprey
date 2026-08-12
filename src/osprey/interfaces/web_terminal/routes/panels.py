@@ -8,6 +8,7 @@ import ipaddress
 import logging
 import os
 import socket
+import time
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -189,6 +190,9 @@ async def get_panels(request: Request):
             "ui_mode":  str,            # resolved web.ui_mode ("expert" | "simple")
             "project_key": str,         # stable 16-hex per-project key (layout persistence)
             "workspace_has_artifacts": bool,  # any non-hidden file under the agent workspace
+            "open_tiles": [...]|None,   # last-reported service tiles, reading order
+            "open_tiles_age_s": float|None,   # seconds since that report (None = never)
+            "open_tiles_dock": bool|None,     # reporting client had a dock shell (None = never)
         }
 
     ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
@@ -234,6 +238,29 @@ async def get_panels(request: Request):
     first paint is chat-only (empty workspace) or includes the WORKSPACE
     panel; recomputed per request so a reload after the first artifact lands
     sees ``true``.
+
+    ``open_tiles`` is what a browser last reported through
+    ``POST /api/panel-layout``: the service tiles actually on screen, in spatial
+    reading order. It is distinct from ``visible`` — that is launcher-rail
+    membership, this is occupancy. ``open_tiles_age_s`` is the seconds elapsed
+    since the occupancy last *changed* (a deduped repeat report does not reset
+    it) and ``open_tiles_dock`` is whether the reporting client had a dock
+    shell.
+
+    Read together, the three fields carry three distinct states, and a
+    consumer must not collapse them:
+
+    - **Never reported** — all three ``null``. No client has ever checked in;
+      nothing is known about the screen. Not the same as an empty workspace.
+    - **Unknown occupancy** — ``open_tiles: null`` with a numeric
+      ``open_tiles_age_s`` and ``open_tiles_dock: false``. A client is watching
+      but runs without the dock shell, so it cannot report tile order.
+    - **Known occupancy** — ``open_tiles`` is a list (possibly ``[]``, meaning
+      the operator genuinely closed every service tile) with a numeric age and
+      ``open_tiles_dock: true``.
+
+    So ``[]`` always means known-empty and ``null`` always means unknown; the
+    age tells the two flavours of unknown apart.
     """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
@@ -261,6 +288,14 @@ async def get_panels(request: Request):
     rail_position_configured = getattr(request.app.state, "web_rail_position_configured", False)
     project_key = _project_key(getattr(request.app.state, "project_cwd", None))
     has_artifacts = _workspace_has_artifacts(getattr(request.app.state, "workspace_dir", None))
+    # Tile occupancy as last reported by a browser, with its freshness. The
+    # timestamp is never exposed raw: an age is what a consumer can reason
+    # about without knowing the server's clock. ``None`` survives untouched —
+    # it is the "unknown occupancy" state, distinct from a known-empty list.
+    open_tiles = getattr(request.app.state, "open_tiles", None)
+    open_tiles_ts = getattr(request.app.state, "open_tiles_ts", None)
+    open_tiles_age = None if open_tiles_ts is None else time.time() - open_tiles_ts
+    open_tiles_dock = getattr(request.app.state, "open_tiles_dock", None)
     return {
         "enabled": enabled,
         "custom": custom,
@@ -276,6 +311,9 @@ async def get_panels(request: Request):
         "family_rail_defaults": dict(FAMILY_RAIL_DEFAULTS),
         "project_key": project_key,
         "workspace_has_artifacts": has_artifacts,
+        "open_tiles": open_tiles,
+        "open_tiles_age_s": open_tiles_age,
+        "open_tiles_dock": open_tiles_dock,
     }
 
 
@@ -288,6 +326,14 @@ def _known_panel_ids(request: Request) -> set[str]:
     known: set[str] = set(getattr(request.app.state, "enabled_panels", set()))
     known |= {p["id"] for p in getattr(request.app.state, "custom_panels", [])}
     return known
+
+
+#: Dock id of the native terminal/chat tile (``PANEL_TERMINAL`` in
+#: ``dock-workspace.js``). It carries no server-side panel state and is never a
+#: service tile, so every layout verb refuses it explicitly rather than relying
+#: on it being absent from :func:`_known_panel_ids` — a custom panel squatting
+#: the id must not become a way to move or close the operator's terminal.
+_TERMINAL_PANEL_ID = "terminal"
 
 
 class PanelFocusRequest(BaseModel):
@@ -311,10 +357,57 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
     run through ``_prefix_path()`` before broadcast so a root-absolute path
     lands inside the user's own mount; an already-absolute URL is left
     untouched.
+
+    Focusing a panel that is **not** in the launcher rail also adds it there,
+    emitting a ``panel_visibility`` frame *before* the focus frame. An agent's
+    ``switch_panel`` may name a panel the operator has hidden; without the
+    membership update the rail entry would exist only on the client that
+    happened to apply the focus, so ``list_panels`` would keep reporting the
+    panel invisible, a reload would drop both the entry and the agent-opened
+    tile, and a late-connecting client would never see it at all. Ordering is
+    deliberate: clients add the rail entry, then apply focus to it.
+
+    A panel already in the rail — which is the only kind a human can click —
+    changes nothing and emits no visibility frame.
+
+    Args:
+        body: ``panel`` (panel id), optional ``url`` to load, and optional
+            ``source`` attribution.
+        request: Incoming FastAPI request carrying ``app.state``.
+
+    Returns:
+        ``{"status": "ok", "active_panel": <id>}``
+
+    Raises:
+        HTTPException: 422 when ``panel`` is not a known enabled or custom id.
     """
     if body.panel not in _known_panel_ids(request):
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
+
+    # Membership, resolved the same way ``get_panels`` resolves ``visible`` —
+    # an unset list means "the enabled built-ins are the rail", so a panel the
+    # read route calls visible is never treated here as a non-member.
+    stored_visible = getattr(request.app.state, "visible_panels", None)
+    if stored_visible is None:
+        visible_panels = list(getattr(request.app.state, "enabled_panels", set()))
+    else:
+        visible_panels = list(stored_visible)
+    adds_membership = body.panel not in visible_panels
+    if adds_membership:
+        visible_panels.append(body.panel)
+        request.app.state.visible_panels = visible_panels
+
     request.app.state.active_panel = body.panel
+    if adds_membership:
+        visibility_event: dict = {
+            "type": "panel_visibility",
+            "panel": body.panel,
+            "visible": True,
+        }
+        if body.source:
+            visibility_event["source"] = body.source
+        request.app.state.broadcaster.broadcast(visibility_event)
+
     event: dict = {"type": "panel_focus", "panel": body.panel}
     if body.url:
         event["url"] = _prefix_path(body.url)
@@ -358,6 +451,287 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
         event["source"] = body.source
     request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "panel": body.panel, "visible": body.visible}
+
+
+class PanelArrangeRequest(BaseModel):
+    tiles: list[str] | None = None
+    preset: str | None = None
+    focus: str | None = None
+    source: Literal["agent"] | None = None
+
+
+def _resolve_preset_tiles(request: Request, name: str, known: set[str]) -> list[str]:
+    """Resolve a preset name to its member panel ids, fail-safe filtered.
+
+    Mirrors ``computePresetDiff`` in ``panel-presets.js``: members are filtered
+    to the known ids (and the terminal id is dropped) so a typo'd or disabled
+    member in config is skipped rather than breaking the whole layout. Config
+    order is preserved — it is the left-to-right tile order clients apply.
+
+    Args:
+        request: Incoming request carrying ``app.state.panel_presets``.
+        name: The requested preset name.
+        known: Valid panel ids from :func:`_known_panel_ids`.
+
+    Returns:
+        The preset's surviving member ids, in config order.
+
+    Raises:
+        HTTPException: 422 when no preset carries ``name``, or when none of its
+            members survives filtering (applying it would strand an empty
+            workspace).
+    """
+    presets: list[dict] = list(getattr(request.app.state, "panel_presets", []))
+    match = next((p for p in presets if p.get("name") == name), None)
+    if match is None:
+        available = [p.get("name") for p in presets]
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown preset: {name!r}. Available presets: {available}",
+        )
+    members = [pid for pid in match.get("panels", []) if pid in known and pid != _TERMINAL_PANEL_ID]
+    if not members:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"Preset {name!r} has no known members. Valid panel ids: {sorted(known)}"),
+        )
+    return members
+
+
+def _resolve_requested_tiles(tiles: list[str], known: set[str]) -> list[str]:
+    """Validate an explicitly requested tile list, preserving its order.
+
+    Explicit tiles are validated strictly — unlike preset members, which are
+    config-authored and filtered fail-safe. An agent that names a panel that
+    does not exist gets told so rather than silently receiving a different
+    workspace than it asked for, matching the focus and visibility routes.
+
+    Args:
+        tiles: Requested panel ids, in the left-to-right order to apply.
+        known: Valid panel ids from :func:`_known_panel_ids`.
+
+    Returns:
+        ``tiles`` with duplicates collapsed (first occurrence wins).
+
+    Raises:
+        HTTPException: 422 when ``tiles`` is empty, names the terminal tile, or
+            names any id outside ``known``.
+    """
+    if not tiles:
+        raise HTTPException(
+            status_code=422,
+            detail="tiles must not be empty — an arrangement must leave at least one tile open",
+        )
+    if _TERMINAL_PANEL_ID in tiles:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"The terminal tile ({_TERMINAL_PANEL_ID!r}) is not a service panel "
+                "and cannot be arranged"
+            ),
+        )
+    unknown = [pid for pid in tiles if pid not in known]
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown panel ids: {unknown}. Valid panel ids: {sorted(known)}",
+        )
+    deduped: list[str] = []
+    for pid in tiles:
+        if pid not in deduped:
+            deduped.append(pid)
+    return deduped
+
+
+@router.post("/api/panel-arrange")
+async def arrange_panels(body: PanelArrangeRequest, request: Request):
+    """Request a whole-workspace tile arrangement and broadcast it via SSE.
+
+    Declarative end state: exactly the resolved tiles are open, left to right,
+    in the order given. Clients apply it as a deterministic rebuild of the
+    service-tile region; the terminal tile is never touched.
+
+    Exactly one of ``tiles`` and ``preset`` must be supplied. ``preset`` names
+    an entry of ``web.presets`` (``app.state.panel_presets``); its members are
+    resolved here so the human "Layouts" click and an agent preset call are one
+    server operation. A preset additionally sets ``prune_rail`` on the
+    broadcast, preserving today's membership-exclusive preset semantics
+    (non-members leave the launcher rail); a ``tiles`` request never removes
+    rail membership, it only adds any listed non-member.
+
+    Focus caveat: the server records the *requested* focus in
+    ``app.state.active_panel`` and passes it through the broadcast unchanged.
+    Panel health is only observable in the browser, so clients apply the
+    healthy-fallback rule (requested panel if healthy, else the first healthy
+    listed tile, else no focus change). A read-back of ``active`` therefore
+    reports what was asked for, which may differ from what a client could
+    actually focus.
+
+    With no ``focus`` given — every human "Layouts" click, and any agent
+    arrangement that does not name one — the first resolved tile is recorded
+    instead. An arrangement always lands focus somewhere, and ``tiles[0]`` is
+    what the client's healthy-fallback rule picks in the common case. Leaving
+    ``active_panel`` untouched would strand it on a panel the arrangement just
+    closed, so a preset click could leave ``active`` naming a panel that the
+    very same ``GET /api/panels`` response omits from ``visible``. The
+    broadcast still carries ``focus`` only when one was requested, leaving the
+    client's fallback rule in charge of what is actually focused on screen.
+
+    Args:
+        body: ``tiles`` (explicit ids, left-to-right) **or** ``preset`` (a
+            configured layout name), an optional ``focus`` target that must be
+            one of the resolved tiles, and an optional ``source`` attribution.
+        request: Incoming FastAPI request carrying ``app.state``.
+
+    Returns:
+        ``{"status": "ok", "tiles": [...], "focus": <id|None>,
+        "preset": <name|None>, "prune_rail": <bool>}``
+
+    Raises:
+        HTTPException: 422 when neither or both of ``tiles``/``preset`` are
+            given, when ``tiles`` is empty, when any requested id is unknown or
+            is the terminal tile, when the preset name is unknown or resolves
+            to no known member, or when ``focus`` is not one of the resolved
+            tiles.
+    """
+    if (body.tiles is None) == (body.preset is None):
+        raise HTTPException(
+            status_code=422,
+            detail="Provide exactly one of 'tiles' or 'preset'",
+        )
+
+    known = _known_panel_ids(request)
+    if body.preset is not None:
+        tiles = _resolve_preset_tiles(request, body.preset, known)
+        prune_rail = True
+    else:
+        tiles = _resolve_requested_tiles(body.tiles or [], known)
+        prune_rail = False
+
+    if body.focus is not None and body.focus not in tiles:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Focus target {body.focus!r} is not among the arranged tiles: {tiles}",
+        )
+
+    # Rail membership. A tiles request is additive (a panel the operator can
+    # still reach from the rail keeps its entry); a preset prunes to its
+    # members, keeping the existing rail order for the ones that survive.
+    visible_panels: list[str] = list(getattr(request.app.state, "visible_panels", []))
+    if prune_rail:
+        visible_panels = [pid for pid in visible_panels if pid in tiles]
+    visible_panels += [pid for pid in tiles if pid not in visible_panels]
+    request.app.state.visible_panels = visible_panels
+
+    # An arrangement always lands focus somewhere, so the recorded active panel
+    # must move with it. Leaving it alone would let ``active`` name a panel the
+    # same response no longer lists as visible — the state consumers read.
+    request.app.state.active_panel = body.focus or tiles[0]
+
+    event: dict = {"type": "panel_arrange", "tiles": tiles}
+    if body.focus is not None:
+        event["focus"] = body.focus
+    if prune_rail:
+        event["prune_rail"] = True
+    if body.source:
+        event["source"] = body.source
+    request.app.state.broadcaster.broadcast(event)
+    return {
+        "status": "ok",
+        "tiles": tiles,
+        "focus": body.focus,
+        "preset": body.preset,
+        "prune_rail": prune_rail,
+    }
+
+
+class PanelLayoutRequest(BaseModel):
+    tiles: list[str]
+    dock: bool
+
+
+@router.post("/api/panel-layout")
+async def report_panel_layout(body: PanelLayoutRequest, request: Request):
+    """Record which service tiles a client currently has on screen.
+
+    This is the reporter's endpoint, not a command: it is how the browser tells
+    the server what the operator's workspace actually looks like, so the agent
+    stops guessing tile occupancy from rail membership. Nothing is broadcast —
+    a human's tile gestures are never pushed to other clients (report-only,
+    last-writer-wins), and reports are agent-facing state only.
+
+    ``tiles`` is the service-tile list in spatial reading order (rows
+    top-then-left); the terminal tile is never part of it. An empty list is a
+    valid report from a dock client — it means the operator closed every
+    service tile.
+
+    ``dock`` is the reporting client's capability flag, and it decides how the
+    report is *recorded*. A client running without the dock shell cannot see
+    tile order, so the ``{"tiles": [], "dock": false}`` it sends is a presence
+    signal, not an observation of an empty workspace. Recording that ``[]``
+    verbatim would let a fallback client clobber a dock client's live list with
+    a confident "nothing is open". So ``dock: false`` stores occupancy as
+    **unknown** (``open_tiles = None``) while still stamping the timestamp and
+    the flag — ``GET /api/panels`` then reports ``open_tiles: null`` with a
+    numeric age, meaning "a client is watching but cannot report tile order".
+    The request wire format is unchanged; the mapping happens here. ``dock:
+    true`` records the list verbatim, exactly as before.
+
+    Content dedupe: a report whose *recorded* occupancy and ``dock`` flag both
+    equal the stored state is a no-op — the stored timestamp is deliberately
+    *not* bumped, so ``open_tiles_age_s`` keeps measuring when the layout last
+    **changed**. This is the server half of the convergence contract: the
+    client also skips posting a report equal to its last acknowledged one, so
+    an applied arrangement settles after at most one extra round-trip instead
+    of looping. Two successive dock-less reports therefore dedupe against each
+    other, since both record the same unknown occupancy.
+
+    Args:
+        body: ``tiles`` (service panel ids in reading order) and ``dock``
+            (whether the reporting client has a dock shell).
+        request: Incoming FastAPI request carrying ``app.state``.
+
+    Returns:
+        ``{"status": "ok", "tiles": [...]|None, "dock": <bool>,
+        "updated": <bool>}`` — ``tiles`` echoes what was *recorded*, so it is
+        ``None`` for a dock-less report, and ``updated`` is ``False`` when the
+        report was deduped.
+
+    Raises:
+        HTTPException: 422 when a reported id is unknown or is the terminal
+            tile.
+    """
+    known = _known_panel_ids(request)
+    if _TERMINAL_PANEL_ID in body.tiles:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"The terminal tile ({_TERMINAL_PANEL_ID!r}) is not a service panel "
+                "and must not be reported"
+            ),
+        )
+    unknown = [pid for pid in body.tiles if pid not in known]
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown panel ids: {unknown}. Valid panel ids: {sorted(known)}",
+        )
+
+    # A dock-less client cannot see tile order, so its report says only "someone
+    # is watching" — the occupancy it carries is recorded as unknown (``None``)
+    # rather than as a confident empty list that consumers would read as
+    # "the operator closed everything".
+    occupancy: list[str] | None = list(body.tiles) if body.dock else None
+
+    stored_tiles = getattr(request.app.state, "open_tiles", None)
+    stored_dock = getattr(request.app.state, "open_tiles_dock", None)
+    if stored_tiles == occupancy and stored_dock == body.dock:
+        return {"status": "ok", "tiles": stored_tiles, "dock": stored_dock, "updated": False}
+
+    request.app.state.open_tiles = occupancy
+    request.app.state.open_tiles_dock = body.dock
+    request.app.state.open_tiles_ts = time.time()
+    return {"status": "ok", "tiles": occupancy, "dock": body.dock, "updated": True}
 
 
 # ---- Runtime panel registration ---- #

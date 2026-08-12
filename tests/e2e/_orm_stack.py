@@ -38,12 +38,18 @@ existing e2e importer is unaffected.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import yaml
 
 if TYPE_CHECKING:
     from click.testing import CliRunner, Result
@@ -109,6 +115,30 @@ def panels_image(project_name: str) -> str:
     return _service_image(project_name, "bluesky-panels")
 
 
+def force_image_rebuild(*images: str) -> None:
+    """Remove locally-built images so a later ``osprey up --dev``
+    rebuilds them from CURRENT source (``osprey up`` does not pass ``--build``
+    to compose, so it would otherwise reuse a stale cached image). Exact-named
+    images only — never a wildcard, never a prune, never a volume operation.
+
+    No-op when ``E2E_REUSE_IMAGES`` is set, for fast local iteration on a warm
+    cache; never set it in CI, where a source change must always rebuild.
+
+    Bounded and non-fatal: a removal that fails or hangs only means a stale
+    image survives, which ``osprey up`` will rebuild over anyway — never worth
+    wedging a fixture before a container is even started.
+    """
+    if os.environ.get("E2E_REUSE_IMAGES"):
+        return
+    for image in images:
+        try:
+            subprocess.run(
+                ["docker", "rmi", "-f", image], capture_output=True, text=True, timeout=120
+            )
+        except subprocess.TimeoutExpired:
+            continue
+
+
 BUILD_TIMEOUT_SEC = 300
 
 # A small, concurrency-friendly corrector/BPM count for the render + the
@@ -116,6 +146,23 @@ BUILD_TIMEOUT_SEC = 300
 # their own errant device/location and don't depend on this count.
 DEFAULT_CORRECTOR_COUNT = 4
 DEFAULT_BPM_COUNT = 4
+
+
+# The archive every VA lane deploys, shrunk to what a lane actually reads.
+#
+# The control-assistant preset declares a `va_archiver:` block sized for a
+# tutorial deployment -- a month of history behind two dense days -- and
+# `osprey up` writes every sample of it into the store before the stack answers.
+# No lane here reads that history; they need the store to exist, the recorder to
+# be recording, and the two-tier boundary to be somewhere a contract can find it.
+# Two days of retention behind a two-hour dense head is about a sixteenth of the
+# samples: seconds of seeding instead of a minute, and a store sized to match.
+#
+# One snippet shared by all four VA lanes (`override_yaml` below, plus the three
+# that write their own override) rather than four hand-copied blocks that drift.
+# Deep-merged onto the preset's block, so `host:` and both cadences keep the
+# values the preset ships -- only the two span knobs move.
+VA_ARCHIVER_CI_KNOBS = "va_archiver:\n  retention_days: 2\n  hot_span_hours: 2\n"
 
 
 def override_yaml() -> str:
@@ -138,6 +185,12 @@ def override_yaml() -> str:
     nested ``modules:`` mapping would wholesale-replace the subtree (see the
     preset's own comment above its ``modules.web_terminals`` block).
 
+    ``VA_ARCHIVER_CI_KNOBS`` shrinks the archive the preset's ``va_archiver:``
+    block declares to a CI-sized one -- see the constant for why. It trails
+    ``dispatch: null`` so it stays outside the ``config:`` block (both are
+    top-level profile keys, and ``test_bluesky_panels_deploy`` splices its port
+    moves in ahead of that line).
+
     Written as flat dotted-string keys under ``config:`` (matching the
     preset's own convention), not a `--set config.control_system.type=...`
     CLI override -- `--set` builds a NESTED dict for every dotted segment,
@@ -149,8 +202,45 @@ def override_yaml() -> str:
         "  control_system.type: virtual_accelerator\n"
         "  claude_code.servers.bluesky.enabled: true\n"
         "  modules.web_terminals.enabled: false\n"
-        "dispatch: null\n"
+        "dispatch: null\n" + VA_ARCHIVER_CI_KNOBS
     )
+
+
+def _deep_merge(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge ``extra`` into ``base``, returning a new dict.
+
+    Nested mappings merge key-by-key; every other value (scalar, list, ``None``)
+    replaces whatever ``base`` held. Neither input is mutated.
+    """
+    merged = dict(base)
+    for key, value in extra.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def merged_override_yaml(extra_config: dict[str, Any]) -> str:
+    """``override_yaml()`` with ``extra_config`` deep-merged into it.
+
+    Reaches the keys ``build_args`` has no ``--set`` hook for -- e.g. the
+    postgres/openobserve/tiled/panels HOST ports a module must move to run
+    concurrently with another deployed stack::
+
+        merged_override_yaml({"config": {"services.postgresql.port_host": 15433}})
+
+    Round-trips through YAML (``safe_load`` -> merge -> ``safe_dump``) rather
+    than returning ``override_yaml()``'s hand-written text, so nothing here
+    guarantees byte-identity with it: an empty ``extra_config`` happens to
+    re-emit the same bytes today, but that is incidental to PyYAML's current
+    formatting, not a promise. Callers that need the exact hand-written bytes
+    should use ``override_yaml()`` directly -- only callers that actually need
+    a merge take this path (see ``init_args``).
+    """
+    base = yaml.safe_load(override_yaml()) or {}
+    return yaml.safe_dump(_deep_merge(base, extra_config), sort_keys=False)
 
 
 def init_args(
@@ -162,29 +252,45 @@ def init_args(
     va_port: int = VA_CA_PORT,
     provider: str | None = None,
     model: str | None = None,
+    extra_config: dict[str, Any] | None = None,
 ) -> list[str]:
     """``osprey init`` CLI args (sans the leading ``init`` token) for FR11's
-    turn-key scan-stack deployment.
+        turn-key scan-stack deployment.
 
-    The stack is materialized in two steps now, because the surface has two:
-    ``osprey init`` writes the deployment repo's source zone from the preset
-    plus these overrides, and a later ``osprey build`` renders ``build/`` from
-    it. This function covers the first step only; both builders below run the
-    second. ``--no-git`` because every caller works in a throwaway directory
-    and none of them reads the history.
+        The stack is materialized in two steps now, because the surface has two:
+        ``osprey init`` writes the deployment repo's source zone from the preset
+        plus these overrides, and a later ``osprey build`` renders ``build/`` from
+        it. This function covers the first step only; both builders below run the
+        second. ``--no-git`` because every caller works in a throwaway directory
+        and none of them reads the history.
 
-    Works both as ``CliRunner().invoke(init, init_args(...))`` (in-process, no
-    Docker -- see ``build_via_cli_runner``) and as
-    ``[osprey_bin, "init", *init_args(...)]`` (subprocess, for a real
-    ``osprey up`` afterward -- see ``build_project_subprocess``).
+        Works both as ``CliRunner().invoke(init, init_args(...))`` (in-process, no
+        Docker -- see ``build_via_cli_runner``) and as
+        ``[osprey_bin, "init", *init_args(...)]`` (subprocess, for a real
+        ``osprey up`` afterward -- see ``build_project_subprocess``).
 
-    ``provider``/``model``, when given, append ``--set provider=<provider>``
-    and/or ``--set model=<model>`` overrides -- e.g. an agentic-discovery
-    caller that must pin an explicit provider rather than let the
-    control-assistant preset's own default apply silently (this project's
-    "no default provider" convention). Left ``None`` by default: nothing is
-    appended and the preset's own provider/model apply unchanged.
+        ``provider``/``model``, when given, append ``--set provider=<provider>``
+        and/or ``--set model=<model>`` overrides -- e.g. an agentic-discovery
+        caller that must pin an explicit provider rather than let the
+        control-assistant preset's own default apply silently (this project's
+        "no default provider" convention). Left ``None`` by default: nothing is
+        appended and the preset's own provider/model apply unchanged, so the
+        default deploy shape is byte-identical to before these params existed.
+
+        ``extra_config``, when given, is deep-merged into ``override_yaml()`` and
+        the result REWRITES ``override_path`` -- the way to reach config keys that
+        have no ``--set`` hook here (postgres/openobserve/tiled/panels host ports).
+        Writing rather than appending another CLI flag keeps a single ``--override``
+        file, which is what ``osprey build`` wants. That rewrite OVERWRITES whatever
+        the caller previously wrote to ``override_path``, so a caller that hand-rolls
+        its own override text (as the bluesky-panels e2e does) must pass its
+        additions here rather than pre-writing them. Empty or ``None`` is a no-op:
+        ``override_path`` is left exactly as the caller wrote it, byte for byte.
+    >>>>>>> origin/main
     """
+    if extra_config:
+        override_path.write_text(merged_override_yaml(extra_config), encoding="utf-8")
+
     args = [
         str(output_dir / project_name),
         "--preset",
@@ -276,6 +382,7 @@ def build_project_subprocess(
     timeout: int = BUILD_TIMEOUT_SEC,
     provider: str | None = None,
     model: str | None = None,
+    extra_config: dict[str, Any] | None = None,
 ) -> Path:
     """Real ``osprey init`` + ``osprey build`` subprocesses for a deployment a
     caller will later ``osprey up`` (that step needs Docker; these don't -- they
@@ -287,9 +394,10 @@ def build_project_subprocess(
     Returns the deployment REPO, not its render: the start verbs are repo-scoped
     and this is what a caller hands to ``osprey up --repo``.
 
-    ``provider``/``model`` thread straight through to ``init_args`` (see its
-    docstring for the override they append). Left ``None`` by default, which
-    preserves the exact default deploy shape.
+    ``provider``/``model``/``extra_config`` thread straight through to
+    ``init_args`` (see its docstring). All ``None`` by default, which preserves
+    the exact default deploy shape -- including a byte-identical override file
+    (an empty ``extra_config`` is likewise a no-op).
     """
     osprey_bin = find_osprey_console_script()
     override_path = output_dir / "override.yml"
@@ -306,6 +414,7 @@ def build_project_subprocess(
             va_port=va_port,
             provider=provider,
             model=model,
+            extra_config=extra_config,
         ),
     ]
     repo = output_dir / project_name
@@ -332,6 +441,50 @@ def build_project_subprocess(
     return repo
 
 
+def channel_limits(project_dir: Path) -> dict[str, Any]:
+    """The BUILT project's own ``data/channel_limits.json`` — the source of
+    every device name the scan e2es use, so no preset channel is ever
+    hardcoded."""
+    return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+
+
+def minted_launch_token(project_dir: Path) -> str:
+    """The ``BLUESKY_LAUNCH_TOKEN`` ``osprey up`` minted into the
+    project ``.env``.
+
+    Callers supply no token of their own: the deploy path mints one for every
+    deployed service that declares it, and the arming action on the queue is
+    gated by exactly that value.
+    """
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    env_path = project_dir / ".env"
+    assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
+    token = parse_dotenv_file(env_path).get("BLUESKY_LAUNCH_TOKEN")
+    assert token, (
+        "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env — `osprey up` "
+        "mints it for every deployed service that declares it"
+    )
+    return token
+
+
+def wait_for_health(url: str, timeout: float) -> None:
+    """Poll ``url`` until it answers HTTP 200, or fail after ``timeout``
+    seconds with the last error seen."""
+    deadline = time.monotonic() + timeout
+    last_err = "(no response yet)"
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=3.0) as resp:  # noqa: S310 - localhost
+                if resp.status == 200:
+                    return
+                last_err = f"HTTP {resp.status}"
+        except (urllib.error.URLError, ConnectionError, OSError) as exc:
+            last_err = str(exc)
+        time.sleep(1.0)
+    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
+
+
 def select_correctors(
     limits: dict[str, Any], count: int | None = DEFAULT_CORRECTOR_COUNT
 ) -> dict[str, tuple[str, str]]:
@@ -348,8 +501,9 @@ def select_correctors(
     corrector set instead of a fixed-size slice -- no assertion is raised in
     that case, regardless of how many pairs are found.
 
-    Returns a dict of synthetic motor name -> ``(sp_address, rb_address)``,
-    ready for ``write_scan_env``'s ``BLUESKY_EPICS_MOTORS`` wiring.
+    Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the motor's
+    device name is its own ``:SP`` address -- ready for ``write_scan_env``'s
+    ``BLUESKY_EPICS_MOTORS`` wiring.
 
     Thin wrapper: delegates to the canonical
     ``osprey.services.bluesky_bridge.substrate_devices.select_correctors``
@@ -372,8 +526,9 @@ def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -
     If ``count`` is ``None``, returns the FULL available pyat-coupled BPM set
     instead of a fixed-size slice -- no assertion is raised in that case.
 
-    Returns a dict of synthetic detector name -> readback address, ready for
-    ``write_scan_env``'s ``BLUESKY_EPICS_DETECTORS`` wiring.
+    Returns a dict of ``read_address -> read_address`` -- the detector's
+    device name is its own read address -- ready for ``write_scan_env``'s
+    ``BLUESKY_EPICS_DETECTORS`` wiring.
 
     Thin wrapper: delegates to the canonical
     ``osprey.services.bluesky_bridge.substrate_devices.select_bpms`` (same

@@ -150,7 +150,7 @@ def test_schema_min_osprey_is_pinned() -> None:
     Stamping the running ``__version__`` instead would let the emitting release
     satisfy its own gate while ignoring the keys it just wrote.
     """
-    assert _PROFILE_SCHEMA_MIN_OSPREY == "2026.8.0"
+    assert _PROFILE_SCHEMA_MIN_OSPREY == "2026.9.0"
 
 
 def test_running_osprey_satisfies_the_schema_floor() -> None:

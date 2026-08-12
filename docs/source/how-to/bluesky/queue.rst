@@ -48,7 +48,7 @@ One queue, three ways to drive it
       small set of tools:
 
       - ``get_draft`` / ``set_draft`` — compose the shared draft you see in
-        the PLAN panel.
+        BLUESKY's Plans view.
       - ``queue_add`` / ``queue_start`` — the two steps. Both ask for your
         approval, and both are switched off entirely while the project's
         control-system writes are disabled.
@@ -226,6 +226,12 @@ quirks worth knowing:
    .. code-block:: bash
 
       osprey config set-control-system virtual_accelerator
+
+   That switch needs a real archive behind it. A project built from the
+   ``control-assistant`` preset has one and the command just works; a project
+   still reading the mock archiver is refused, and told to point
+   ``archiver.type`` at a store its deployment writes first — see
+   :doc:`../use-virtual-accelerator`.
 
 .. seealso::
 

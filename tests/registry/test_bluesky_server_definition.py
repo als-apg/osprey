@@ -72,6 +72,7 @@ def test_bluesky_server_enabled_via_config_override():
 _EXPECTED_ALLOW = [
     "get_run",
     "list_plans",
+    "list_devices",
     "list_runs",
     "get_run_data",
     "get_draft",
@@ -88,7 +89,7 @@ def test_bluesky_permissions_allow():
 
 
 def test_bluesky_surface_has_no_bypass_of_the_panel_visible_draft():
-    """The agent-facing surface is exactly 15 tools and exposes no launch bypass.
+    """The agent-facing surface is exactly 16 tools and exposes no launch bypass.
 
     ``create_run_intent`` (the old intent-composing read tool) and
     ``launch_run`` (the old direct launch) are both gone: every agent execution
@@ -99,7 +100,7 @@ def test_bluesky_surface_has_no_bypass_of_the_panel_visible_draft():
     surface = [*bluesky["permissions_allow"], *bluesky["permissions_ask"]]
     assert "create_run_intent" not in surface
     assert "launch_run" not in surface
-    assert len(surface) == 15
+    assert len(surface) == 16
 
 
 def test_bluesky_permissions_ask():

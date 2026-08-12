@@ -387,6 +387,26 @@ describe('fullscreen mode', () => {
     expect(callbacks.onFullscreenExit).not.toHaveBeenCalled();
   });
 
+  test('clearing the selection while fullscreen exits fullscreen (no stranded chrome-less pane)', () => {
+    // fullscreen-mode hides the header, sidebar and splitter (gallery.css),
+    // so every exit affordance lives inside the preview content. If the
+    // selection clears while fullscreen — Delete from the fullscreen header,
+    // or an agent-side artifact_deleted SSE — the empty placeholder renders
+    // with the body class still set: no sidebar, no header, no Back button.
+    const callbacks = makeCallbacks();
+    const renderer = createPreviewRenderer(callbacks);
+    renderer.enterFullscreen(makeArtifact());
+    expect(renderer.isFullscreen()).toBe(true);
+
+    setSelectedArtifact(null);
+    renderer.renderPreview();
+
+    expect(renderer.isFullscreen()).toBe(false);
+    expect(document.body.classList.contains('fullscreen-mode')).toBe(false);
+    expect(callbacks.onFullscreenExit).toHaveBeenCalledTimes(1);
+    expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
+  });
+
   test('noteNewArtifactArrival/updateNewArtifactBadge track and display the "N new" count', () => {
     const renderer = createPreviewRenderer(makeCallbacks());
     renderer.enterFullscreen(makeArtifact());

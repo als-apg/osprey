@@ -55,6 +55,10 @@
       "reason": "Exercises the dispatch pipeline (webhook -> dispatcher -> worker -> SDK round-trip -> persistence), not model capability — the agent task is hello-world level (one-sentence reply, summarize a payload, save a stub report), so any responding model passes and it measures nothing about the model-under-test. Compounding this, its build fixture is pinned to als-apg/haiku and ignores OSPREY_E2E_FORCE_MODEL; under CBORG cells the als-apg key is shimmed to CBORG, so the worker agent hits the real als-apg endpoint with a wrong credential and hangs to the 300s worker timeout — a fixed ~3-test infra penalty per cell."
     },
     {
+      "path": "tests/e2e/test_archiver_world_e2e.py",
+      "reason": "Full-stack Docker deploy (VA + mongodb store + recorder) asserting seed duration, store size, a setpoint round-trip and document counts; no LLM call anywhere, so it measures nothing about the model-under-test. Also needs Docker, which the bench box lacks."
+    },
+    {
       "path": "tests/e2e/test_bluesky_catalog_e2e.py",
       "reason": "Real-container bluesky-bridge deploy driven via raw HTTP (plan catalog discovery + launch/read); no LLM call anywhere."
     },

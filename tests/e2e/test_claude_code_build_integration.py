@@ -103,25 +103,29 @@ def init_project(
     for rationale. The connector is pinned to ``mock`` for the same reason
     that helper pins it: this harness runs projects without their containers,
     and the preset's ``virtual_accelerator`` default needs the deployed VA to
-    answer Channel Access.
+    answer Channel Access. The archiver is pinned for that same reason and by
+    the same means — the preset reads a MongoDB store this harness never
+    deploys — and the override file, rather than ``--set``, is what the
+    preset's dotted ``archiver.type`` spelling requires.
     """
     runner = CliRunner()
     repo = tmp_path / name
-    init_result = runner.invoke(
-        init,
-        [
-            str(repo),
-            "--preset",
-            template.replace("_", "-"),
-            "--no-git",
-            "--set",
-            f"provider={provider}",
-            "--set",
-            f"model={model}",
-            "--set",
-            "connector=mock",
-        ],
-    )
+    init_args = [
+        str(repo),
+        "--preset",
+        template.replace("_", "-"),
+        "--no-git",
+        "--set",
+        f"provider={provider}",
+        "--set",
+        f"model={model}",
+        "--set",
+        "connector=mock",
+    ]
+    archiver_override = tmp_path / "_archiver-pin.yml"
+    archiver_override.write_text("config:\n  archiver.type: mock_archiver\n", encoding="utf-8")
+    init_args.extend(["-O", str(archiver_override)])
+    init_result = runner.invoke(init, init_args)
     assert init_result.exit_code == 0, f"osprey init failed: {init_result.output}"
     build_result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert build_result.exit_code == 0, f"osprey build failed: {build_result.output}"

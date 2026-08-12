@@ -62,6 +62,17 @@ class TestSelectCorrectors:
         assert ("SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:HCM:01:CURRENT:RB") in pairs
         assert ("SR:MAG:VCM:02:CURRENT:SP", "SR:MAG:VCM:02:CURRENT:RB") in pairs
 
+    def test_device_name_is_the_setpoint_address(self) -> None:
+        """Device name == channel address: an agent that discovered a ``:SP``
+        address via channel-finder can name it directly in a plan, with no
+        synthetic ``corrector_NN`` namespace in between."""
+        correctors = select_correctors(_LIMITS)
+        assert set(correctors) == {
+            "SR:MAG:HCM:01:CURRENT:SP",
+            "SR:MAG:VCM:02:CURRENT:SP",
+        }
+        assert all(name == sp for name, (sp, _rb) in correctors.items())
+
     def test_excludes_sp_without_matching_rb(self) -> None:
         correctors = select_correctors(_LIMITS)
         assert not any(sp == "SR:MAG:HCM:03:CURRENT:SP" for sp, _rb in correctors.values())
@@ -79,7 +90,11 @@ class TestSelectCorrectors:
 
     def test_count_int_returns_exact_slice(self) -> None:
         correctors = select_correctors(_LIMITS, count=1)
-        assert len(correctors) == 1
+        # Address-keyed on the sliced path too, and the slice takes the
+        # lowest-sorting address rather than an arbitrary one.
+        assert correctors == {
+            "SR:MAG:HCM:01:CURRENT:SP": ("SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:HCM:01:CURRENT:RB")
+        }
 
     def test_count_int_raises_when_insufficient(self) -> None:
         with pytest.raises(AssertionError):
@@ -100,6 +115,12 @@ class TestSelectBpms:
         assert "SR:DIAG:BPM:02:POSITION:X" in addresses
         assert "SR:DIAG:BPM:02:POSITION:Y" in addresses
 
+    def test_device_name_is_the_read_address(self) -> None:
+        """Same convention as the correctors: the detector's name is the
+        address it reads, so a discovered BPM address is directly usable."""
+        bpms = select_bpms(_LIMITS)
+        assert all(name == address for name, address in bpms.items())
+
     def test_excludes_non_position_field(self) -> None:
         bpms = select_bpms(_LIMITS)
         assert "SR:DIAG:BPM:03:STATUS:VALID" not in set(bpms.values())
@@ -109,7 +130,11 @@ class TestSelectBpms:
 
     def test_count_int_returns_exact_slice(self) -> None:
         bpms = select_bpms(_LIMITS, count=2)
-        assert len(bpms) == 2
+        # Address-keyed on the sliced path too (see the corrector counterpart).
+        assert bpms == {
+            "SR:DIAG:BPM:01:POSITION:X": "SR:DIAG:BPM:01:POSITION:X",
+            "SR:DIAG:BPM:01:POSITION:Y": "SR:DIAG:BPM:01:POSITION:Y",
+        }
 
     def test_count_int_raises_when_insufficient(self) -> None:
         with pytest.raises(AssertionError):
@@ -118,22 +143,23 @@ class TestSelectBpms:
 
 class TestFormatters:
     def test_format_motors_env(self) -> None:
-        correctors = {"corrector_01": ("SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:HCM:01:CURRENT:RB")}
-        assert (
-            format_motors_env(correctors)
-            == "corrector_01=SR:MAG:HCM:01:CURRENT:SP|SR:MAG:HCM:01:CURRENT:RB"
+        correctors = {
+            "SR:MAG:HCM:01:CURRENT:SP": ("SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:HCM:01:CURRENT:RB")
+        }
+        assert format_motors_env(correctors) == (
+            "SR:MAG:HCM:01:CURRENT:SP=SR:MAG:HCM:01:CURRENT:SP|SR:MAG:HCM:01:CURRENT:RB"
         )
 
     def test_format_detectors_env(self) -> None:
-        bpms = {"bpm_01": "SR:DIAG:BPM:01:POSITION:X"}
-        assert format_detectors_env(bpms) == "bpm_01=SR:DIAG:BPM:01:POSITION:X"
+        bpms = {"SR:DIAG:BPM:01:POSITION:X": "SR:DIAG:BPM:01:POSITION:X"}
+        assert format_detectors_env(bpms) == "SR:DIAG:BPM:01:POSITION:X=SR:DIAG:BPM:01:POSITION:X"
 
     def test_format_motors_env_joins_multiple_with_commas(self) -> None:
         correctors = {
-            "corrector_01": ("SP1", "RB1"),
-            "corrector_02": ("SP2", "RB2"),
+            "SP1": ("SP1", "RB1"),
+            "SP2": ("SP2", "RB2"),
         }
-        assert format_motors_env(correctors) == "corrector_01=SP1|RB1,corrector_02=SP2|RB2"
+        assert format_motors_env(correctors) == "SP1=SP1|RB1,SP2=SP2|RB2"
 
 
 class TestDeriveSubstrateEnv:
@@ -154,6 +180,37 @@ class TestDeriveSubstrateEnv:
             name, _, rest = entry.partition("=")
             assert name
             assert "|" in rest
+
+    def test_colon_named_devices_survive_the_bridge_parser(self, tmp_path) -> None:
+        """The wire format carries colon addresses AS device names unharmed.
+
+        ``name=SP|RB`` splits on the first ``=`` and on ``|``, neither of which
+        is a legal EPICS name character, so an address-named device round-trips
+        with its name intact -- and no name collides, so ``_drop_duplicate_names``
+        keeps every spec.
+        """
+        from osprey.services.bluesky_bridge.devices._specs_from_env import specs_from_env
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "channel_limits.json").write_text(json.dumps(_LIMITS), encoding="utf-8")
+
+        motors, detectors = specs_from_env(derive_substrate_env(tmp_path))
+
+        assert {spec.name for spec in motors} == {
+            "SR:MAG:HCM:01:CURRENT:SP",
+            "SR:MAG:VCM:02:CURRENT:SP",
+        }
+        assert all(spec.name == spec.setpoint_pv for spec in motors)
+        assert all(spec.readback_pv == spec.name[: -len(":SP")] + ":RB" for spec in motors)
+        # Nothing dropped as a duplicate: 4 BPM readbacks in, 4 out.
+        assert {spec.name for spec in detectors} == {
+            "SR:DIAG:BPM:01:POSITION:X",
+            "SR:DIAG:BPM:01:POSITION:Y",
+            "SR:DIAG:BPM:02:POSITION:X",
+            "SR:DIAG:BPM:02:POSITION:Y",
+        }
+        assert all(spec.name == spec.read_pv for spec in detectors)
 
     def test_missing_channel_limits_returns_empty_dict(self, tmp_path) -> None:
         assert derive_substrate_env(tmp_path) == {}

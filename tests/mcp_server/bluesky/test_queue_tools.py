@@ -373,6 +373,30 @@ async def test_queue_add_already_launched_revision_points_at_a_draft_edit(tmp_pa
     assert any("set_draft" in s for s in ctx["envelope"]["suggestions"])
 
 
+async def test_queue_add_unknown_device_points_at_the_device_list(tmp_path, monkeypatch):
+    """The name is wrong, not the revision. Without its own hints this code
+    falls back to "re-read the draft with get_draft", which sends the agent to
+    re-read a draft that says exactly what it said before — so the hints must
+    name list_devices, and the available set must survive to the caller."""
+    _armed(tmp_path, monkeypatch)
+    body = _refusal(
+        "unknown_device",
+        "plan 'grid_scan' referenced device 'COR9', which this worker did not build; "
+        "available devices: ['BPM1', 'COR1']",
+        plan="grid_scan",
+        devices=["COR9"],
+        available_devices=["BPM1", "COR1"],
+    )
+    with patch(f"{_MOD}._http_post_json", return_value=(400, body)):
+        with assert_raises_error(error_type="unknown_device") as ctx:
+            await _add_fn()(draft_revision=7)
+
+    envelope = ctx["envelope"]
+    assert envelope["details"]["available_devices"] == ["BPM1", "COR1"]
+    assert any("list_devices" in s for s in envelope["suggestions"])
+    assert not any("get_draft" in s for s in envelope["suggestions"])
+
+
 @pytest.mark.parametrize("code", ["session_plan_unvalidated", "session_plan_not_in_namespace"])
 async def test_queue_add_session_plan_refusal_names_the_offending_plan(tmp_path, monkeypatch, code):
     _armed(tmp_path, monkeypatch)

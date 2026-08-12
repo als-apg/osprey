@@ -33,6 +33,7 @@ hooks:
   - config-drift      # Warn at session start when config.yml drifted from generated artifacts
   - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
   - panels-context    # Inject the web terminal panel inventory into agent context
+  - workspace-delta   # Report web workspace changes since the agent's last turn
 
 rules:
   - error-handling      # Standard error handling and retry guidance

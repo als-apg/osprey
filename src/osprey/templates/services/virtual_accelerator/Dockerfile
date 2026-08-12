@@ -13,8 +13,11 @@
 #     plus any local dependency delta staged as osprey-local-requirements.txt
 #     on dev builds. Its build cache is shared across projects and only
 #     rebuilds when the staged manifest changes. The extra is what carries the
-#     serving stack (`lume-pva-apg[ca,pva]`, PyAT) — deliberately, so this
-#     file cannot pin a serving dependency that pyproject.toml disagrees with.
+#     serving stack (`lume-pva-apg[ca,pva]`, PyAT) and the archiver recorder's
+#     client-side deps (a CA client, pymongo) — deliberately, so this file
+#     cannot pin a dependency that pyproject.toml disagrees with. The recorder
+#     runs THIS image with a different command (compose template only, no
+#     Dockerfile of its own), which is why its deps ride along here.
 #   * wheel layer — when `osprey up --dev` stages a locally-built wheel
 #     into the build context, this later layer overlays it (so unreleased code
 #     is included). The first wheel install carries the `[virtual-accelerator]`

@@ -28,6 +28,18 @@ on:
         required: false
         type: boolean
         default: false
+      revalidate_secret_lanes:
+        description: >-
+          Run the API-key-dependent lanes (agentic flows, dispatch stacks,
+          Nextcloud/Google Chat bridges) against this ref. Dependabot's own
+          runs are treated as fork runs and receive only the Dependabot
+          secret store, so ALS_APG_API_KEY is empty and those lanes skip on
+          its pull requests. After reading the dependency diff, a maintainer
+          revalidates the branch with:
+          gh workflow run ci.yml --ref <branch> -f revalidate_secret_lanes=true
+        required: false
+        type: boolean
+        default: false
   schedule:
     # Nightly at 07:00 UTC (midnight Pacific) for the always-on jobs
     # (test, lint, docs, ...; no `if:`). Every e2e/benchmark lane is
@@ -472,6 +484,7 @@ jobs:
         uv run pytest tests/interfaces/design_system/test_behavioral.py \
           tests/interfaces/design_system/test_theme_lab.py \
           tests/interfaces/web_terminal/test_panels_browser.py \
+          tests/interfaces/web_terminal/test_panels_collab_browser.py \
           tests/interfaces/web_terminal/test_agent_activity_browser.py \
           tests/interfaces/web_terminal/test_contract_params.py \
           tests/interfaces/web_terminal/test_logout_resume_browser.py \
@@ -592,7 +605,13 @@ jobs:
     # Only run on PRs from same repo (ALS_APG_API_KEY unavailable on forks).
     # Gating (no continue-on-error): a red Tier 3 flow blocks the merge like
     # every other e2e lane — the house rule is full green, no advisory tiers.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     strategy:
       fail-fast: false
       matrix:
@@ -654,6 +673,21 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
+    - name: Put the SDK's bundled Claude CLI on PATH
+      # `claude-agent-sdk` ships a working `claude` binary but installs no
+      # console script, so a fresh runner has none on PATH. The SDK finds its
+      # own bundled copy, but osprey's launcher and health check shell
+      # `claude` off PATH, and every agent test skips when `claude --version`
+      # fails -- a lane that reports green having executed nothing. Exposing
+      # the bundled binary makes the SDK, the product, and the skip guards
+      # agree on one CLI, with no npm install and no SDK/CLI version drift.
+      # Verify before exporting: a missing binary must fail the lane loudly
+      # rather than silently restore the skips this step exists to remove.
+      run: |
+        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
+        "$bundled/claude" --version
+        echo "$bundled" >> "$GITHUB_PATH"
+
     - name: Run Tier 3 agentic test for preset
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
@@ -671,7 +705,13 @@ jobs:
     # Only run on PRs (not pushes) to control API costs, and only for non-fork PRs (secrets unavailable on forks).
     # Also runs on manual workflow_dispatch to enable scoped reruns via the e2e_filter input —
     # unless that dispatch asked for the benchmark lanes instead (run_benchmarks).
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
     # The lane's healthy runtime is ~20-25min (real-LLM SDK/CLI pipelines —
     # every full-stack docker deploy now lives in its own dedicated job, and
     # the channel-finder benchmarks moved to the nightly schedule); a run past
@@ -726,6 +766,16 @@ jobs:
           exit 1
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Put the SDK's bundled Claude CLI on PATH
+      # See the identical step in agentic-per-preset: the SDK bundles a
+      # `claude` binary but installs no console script, so without this the
+      # CLI-gated tests in this lane skip and the lane greens having run only
+      # the tests that need no agent.
+      run: |
+        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
+        "$bundled/claude" --version
+        echo "$bundled" >> "$GITHUB_PATH"
 
     - name: Run E2E tests
       # E2E_FILTER comes from workflow_dispatch `inputs.e2e_filter` and is
@@ -785,10 +835,16 @@ jobs:
           # file's tests on one worker, preserving in-file ordering and
           # module-scoped fixtures — the documented registry-order hazard is
           # about mixing e2e with unit tests, not about file-level
-          # parallelism. The only fixed-port stacks in this lane
-          # (grid-scan/ORM VA on 5064) are GitHub-Actions-skipped anyway.
+          # parallelism. No fixed-port stack (the VA on CA 5064) actually
+          # boots in this lane: every module that binds that port leaves by
+          # --ignore below and runs in its own job — the scan-stack agentic
+          # module and the VA substrate equivalence proof each in one, and
+          # the ORM and grid-scan roundtrips together in orm-roundtrip-e2e,
+          # where they run as sequential steps so the two stacks never
+          # contend for 5064.
           uv run pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile \
             --ignore=tests/e2e/test_preset_agentic.py \
+            --ignore=tests/e2e/test_scan_stack_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
             --ignore=tests/e2e/test_dispatch_overlay_visibility.py \
             --ignore=tests/e2e/test_bluesky_deploy.py \
@@ -798,6 +854,8 @@ jobs:
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
             --ignore=tests/e2e/test_orm_roundtrip.py \
+            --ignore=tests/e2e/test_grid_scan_roundtrip.py \
+            --ignore=tests/e2e/test_archiver_world_e2e.py \
             --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
             --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
             --ignore=tests/e2e/test_bluesky_panels_deploy.py \
@@ -867,6 +925,14 @@ jobs:
           exit 1
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Put the SDK's bundled Claude CLI on PATH
+      # See the identical step in agentic-per-preset: without it the
+      # benchmark module's CLI-gated tests skip and the lane greens empty.
+      run: |
+        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
+        "$bundled/claude" --version
+        echo "$bundled" >> "$GITHUB_PATH"
 
     - name: Run channel-finder MCP benchmarks
       env:
@@ -954,7 +1020,13 @@ jobs:
     # carries the multi-user topology + write-posture proofs (T1-T4 in
     # tests/e2e/test_dispatch_deploy.py). Persona image builds add
     # cold-cache minutes; the two builds share most layers.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
     - name: Checkout repository
@@ -1024,7 +1096,13 @@ jobs:
     # dispatcher/worker image build + deploy was the lane's single biggest
     # time sink (~11min); it follows the same extraction pattern (and job
     # shape) as dispatch-deploy-e2e.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Build + deploy + one real agent turn healthily fits well under 20min
     # (~11min when it ran in-lane, including the web-terminal image builds
     # its fixture has since dropped); past the cap it's wedged, not slow.
@@ -1226,19 +1304,36 @@ jobs:
         uv run pytest tests/e2e/test_va_substrate_equivalence.py -v --tb=short
 
   orm-roundtrip-e2e:
-    name: ORM Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
+    name: ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors va-substrate-equivalence-e2e
-    # gating). This job needs no secrets — the ORM roundtrip drives the
-    # bridge HTTP API directly, no LLM involved. It previously ran inside the
+    # gating). This job needs no secrets — both roundtrips drive the bridge
+    # HTTP API directly, no LLM involved. It previously ran inside the
     # shared e2e-tests lane (its ~7min full VA/bridge/Tiled build + deploy
     # was the lane's second-biggest time sink); same extraction pattern as
     # every other dockerbuild-marked file.
+    #
+    # Two modules, run as two SEQUENTIAL steps rather than one pytest
+    # invocation: both stand up their own VA and bind CA port 5064 by design,
+    # so overlapping them would collide. Sequential steps also keep the two
+    # failures separately attributable in the job log.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Builds the native PyAT/serving-stack VA image from source like
     # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
-    # cold image cache can't red the job.
-    timeout-minutes: 45
+    # cold image cache can't red the job. Raised from 45 when the grid-scan
+    # roundtrip joined. Each module's own internal caps, wire to wire: 300s
+    # build + 1200s deploy + 300s health + its scan + a 300s `osprey down`
+    # in the teardown, and flaky(reruns=1) repeats the SCAN only (the module
+    # fixtures survive a rerun, so no second build/deploy) — 2580s for ORM
+    # (240s scan) and 2340s for grid (120s scan), ~82min if both ran every
+    # timeout to the wire.
+    #
+    # 75 is therefore deliberately NOT that pathological sum: it bounds the
+    # realistic run, where the second module reuses the first's images and
+    # nothing sits at its cap, while still leaving the suite's own named
+    # timeouts — not a bare GHA cancellation — to report a genuine hang.
+    # Tighten once there are observed green timings for the pair.
+    timeout-minutes: 75
 
     steps:
     - name: Checkout repository
@@ -1270,6 +1365,253 @@ jobs:
     - name: Run ORM roundtrip E2E
       run: |
         uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
+
+    - name: Run grid scan roundtrip E2E
+      run: |
+        uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v --tb=short
+
+  bluesky-queue-e2e:
+    name: Bluesky Queue E2E (queueserver + Redis + Tiled + VA, full Docker stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (mirrors orm-roundtrip-e2e gating). This
+    # job needs no secrets — every stage drives the bridge HTTP API and the
+    # osprey CLI directly, no LLM involved.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Sized from the suite's own internal caps rather than a guess: the 2400s
+    # `osprey up` budget is spent TWICE (stage 8 flips the control
+    # system to mock and redeploys the whole stack), plus a 900s whole-queue
+    # drain budget and stage 6's deliberately long 4000-point abort scan. This
+    # lane has never run in GHA before, so the cap is deliberately generous —
+    # tighten it once there are observed green timings to tighten against.
+    timeout-minutes: 75
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run Bluesky queue E2E
+      run: |
+        uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v --tb=short
+
+  scan-agentic-e2e:
+    name: Scan Stack Agentic E2E (agent-driven ORM + grid scans on the deployed queue stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (secrets unavailable on forks). Both live
+    # tests drive a real agent against the deployed stack, so this lane needs
+    # ALS_APG_API_KEY — the same gating as dispatch-overlay-e2e.
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
+    # One pytest invocation covers the whole module: the offline floor/judge
+    # checks plus the two live agent runs, which share a single module-scoped
+    # deploy of the VA/bridge/queue stack.
+    #
+    # Sized from the fixture's own named caps, not from a wall-clock
+    # observation. Before a single test body runs, the module-scoped deploy can
+    # spend 360s force-removing its three images (3 x 120s, bounded and
+    # non-fatal) + BUILD_TIMEOUT_SEC 300 + DEPLOY_UP_TIMEOUT_SEC 2400 +
+    # HEALTH_TIMEOUT_SEC 300 = 3360s, i.e. 56min, with DOWN_TIMEOUT_SEC 300
+    # more in teardown. A 45 cap would therefore be cut short by GHA before the
+    # fixture's own TimeoutExpired handling — which prints what was still
+    # building and the dead containers' logs — ever got to say why.
+    #
+    # 75 matches bluesky-queue-e2e, which carries the same 2400s deploy budget,
+    # and like that lane it is deliberately NOT the pathological sum: it bounds
+    # the realistic run (locally the whole cold cycle, image build included,
+    # took ~33min on an Apple Silicon box and ~7.5min warm; GHA builds
+    # natively) while leaving a genuine hang to be reported by the suite's
+    # named timeouts rather than by a bare GHA cancellation. Tighten once
+    # there are observed green timings on a runner.
+    timeout-minutes: 75
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Same probe as dispatch-overlay-e2e: fail fast if the proxy is
+        # unreachable rather than burning a multi-minute stack build first.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          exit 1
+        fi
+        ALS_APG_PROBE_BASE="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
+        ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/}"; ALS_APG_PROBE_BASE="${ALS_APG_PROBE_BASE%/v1}"
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST "$ALS_APG_PROBE_BASE/v1/messages" \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          head -c 500 /tmp/probe.txt; echo
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Put the SDK's bundled Claude CLI on PATH
+      # See the identical step in agentic-per-preset. This lane's zero-skip
+      # gate below is what first surfaced the missing CLI: pytest passed
+      # while both live tests skipped on `claude --version`.
+      run: |
+        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
+        "$bundled/claude" --version
+        echo "$bundled" >> "$GITHUB_PATH"
+
+    - name: Run scan stack agentic E2E
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        uv run pytest tests/e2e/test_scan_stack_agentic.py -v --tb=short \
+          --junitxml=junit-scan-agentic-e2e.xml
+
+    - name: Fail the lane on any skipped test
+      run: |
+        # Every way this lane can skip is a CI misconfiguration, not a
+        # legitimate environment gap: no container runtime, no SDK, no `claude`
+        # CLI, no provider key. Each turns the job into a green check over a
+        # lane that deployed nothing and measured nothing, and pytest's exit
+        # code cannot express the difference.
+        #
+        # The `claude` CLI case is the live one, not a hypothetical:
+        # claude-agent-sdk (0.2.110) bundles its own CLI and installs no
+        # `claude` console script, so the module's
+        # `is_claude_code_available()` skipif can fire on a runner where the
+        # SDK would in fact work — silently reducing this lane to its offline
+        # floor/judge checks while both agent runs vanish.
+        #
+        # Safe alongside the live tests' `flaky(reruns=2)`: pytest-rerunfailures
+        # does not record rerun attempts as testcases, so an absorbed sampling
+        # flake leaves the skipped count at zero.
+        uv run python - <<'PY'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = "junit-scan-agentic-e2e.xml"
+        total = skipped = 0
+        for suite in ET.parse(report).getroot().iter("testsuite"):
+            total += int(suite.get("tests", 0))
+            skipped += int(suite.get("skipped", 0))
+        print(f"{report}: {total} test(s), {skipped} skipped")
+        failed = False
+        if total == 0:
+            print(f"::error::{report} collected no tests")
+            failed = True
+        if skipped:
+            print(f"::error::{report} reports {skipped} skipped test(s)")
+            failed = True
+        if failed:
+            sys.exit(1)
+        print("✅ every scan-stack agentic test ran; none skipped")
+        PY
+
+  archiver-world-e2e:
+    name: Archiver World E2E (VA + mongodb store + recorder, full Docker stack)
+    runs-on: ubuntu-latest
+    # Same-repo-PR gating, same reason as orm-roundtrip-e2e: this job needs no
+    # secrets — every assertion in the file is mechanical (seed duration, store
+    # size, a setpoint round-trip, a noise-band step, document counts), and the
+    # archiver read goes through the connector directly rather than an agent
+    # turn — but the same-repo restriction is house policy for any extra
+    # Docker-build-and-deploy job, not just secret-gated ones. A secret
+    # appearing here would mean the lane's scope silently grew; that is guarded
+    # by test_archiver_world_job_has_no_llm_secret.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Builds the native PyAT/serving-stack VA image from source (same cost as
+    # orm-roundtrip-e2e) and then seeds a DEFAULT-knob archive: 30-day
+    # retention at two tiers across the full channel manifest. The seed itself
+    # carries a 3-minute budget asserted inside the test; this cap is for the
+    # cold image cache around it.
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    # No ghcr login step, unlike the orm lane it is otherwise modelled on: the
+    # trimmed stack pulls nothing from ghcr. The VA image builds locally from
+    # python:3.11-slim, mongodb is mongo:7 from Docker Hub, and the recorder
+    # reuses the VA image — openobserve is not deployed here at all.
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      # archiver-mongodb: the staged bring-up preflights pymongo before any
+      # image build, so without the extra this lane aborts in seconds with an
+      # install hint rather than running.
+      run: uv sync --extra dev --extra archiver-mongodb
+
+    - name: Run archiver world E2E
+      # -s so the measured budgets this lane owns (seed duration, store size,
+      # write->read latency) reach the log on a GREEN run. Pytest captures
+      # stdout on passing tests, and a budget lane that only shows its numbers
+      # when it fails cannot be read for the trend that precedes a failure.
+      run: |
+        uv run pytest tests/e2e/test_archiver_world_e2e.py -v -s --tb=short
 
   tiled-roundtrip-e2e:
     name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
@@ -1413,7 +1755,13 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (same house policy as every other
     # Docker-stack lane: secrets are unavailable on forks).
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # A job-level `permissions:` block REPLACES the default token scopes rather
     # than extending them, so `contents: read` is restated alongside the
     # `packages: read` this lane actually needs: the Nextcloud Talk fixture is a
@@ -1511,7 +1859,13 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (same house policy as every other
     # container-stack lane: secrets are unavailable on forks).
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
+    # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
+    if: >-
+      (github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]')
+      || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # A job-level `permissions:` block REPLACES the default token scopes rather
     # than extending them, so the one scope this lane needs is stated in full.
     # Unlike nextcloud-talk-bridge-e2e there is no `packages: read` here: the
@@ -1881,7 +2235,7 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    # `deploy up --dev` builds the sidecar image and stages a locally-built
+    # `osprey up --dev` builds the sidecar image and stages a locally-built
     # wheel into its context, so the whole run exercises THIS branch's code
     # rather than a published release.
     - name: Run auth perimeter E2E
@@ -1991,7 +2345,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
     runs-on: ubuntu-latest
     if: always()
 
@@ -2009,6 +2363,18 @@ jobs:
       #     (failure, cancelled) fails it. Corollary: on fork PRs the secret
       #     -gated lanes don't run at all — the gate can't vouch for them
       #     there, same as before.
+      #
+      # Dependabot PRs are a third case that looks like the second: the lanes
+      # skip legitimately (no secrets are issued to them), so the gate passes —
+      # but it says so explicitly in the run summary rather than letting a
+      # green check imply coverage it does not have.
+      #
+      # `github.actor` and `github.head_ref` are routed through `env:` and used
+      # only as quoted shell variables — never interpolated into `run:`, where a
+      # crafted branch name would be a script-injection vector.
+      env:
+        ACTOR: ${{ github.actor }}
+        HEAD_BRANCH: ${{ github.head_ref }}
       run: |
         if [[ "${{ needs.test.result }}" != "success" ]]; then
           echo "❌ Tests failed"
@@ -2069,7 +2435,10 @@ jobs:
         check_pr_lane "Bluesky deploy E2E"           "${{ needs.bluesky-deploy-e2e.result }}"
         check_pr_lane "Bluesky panels deploy E2E"    "${{ needs.bluesky-panels-deploy-e2e.result }}"
         check_pr_lane "VA substrate equivalence E2E" "${{ needs.va-substrate-equivalence-e2e.result }}"
-        check_pr_lane "ORM roundtrip E2E"            "${{ needs.orm-roundtrip-e2e.result }}"
+        check_pr_lane "ORM + Grid roundtrip E2E"     "${{ needs.orm-roundtrip-e2e.result }}"
+        check_pr_lane "Bluesky queue E2E"            "${{ needs.bluesky-queue-e2e.result }}"
+        check_pr_lane "Scan stack agentic E2E"       "${{ needs.scan-agentic-e2e.result }}"
+        check_pr_lane "Archiver world E2E"           "${{ needs.archiver-world-e2e.result }}"
         check_pr_lane "Tiled roundtrip E2E"          "${{ needs.tiled-roundtrip-e2e.result }}"
         check_pr_lane "Bluesky catalog E2E"          "${{ needs.bluesky-catalog-e2e.result }}"
         check_pr_lane "Bluesky sandbox escape E2E"   "${{ needs.bluesky-sandbox-escape-e2e.result }}"
@@ -2081,3 +2450,35 @@ jobs:
         check_pr_lane "Multi-user lifecycle E2E (docker)" "${{ needs.multi-user-deploy-lifecycle-e2e.result }}"
         check_pr_lane "Multi-user lifecycle E2E (podman)" "${{ needs.multi-user-deploy-lifecycle-e2e-podman.result }}"
         echo "✅ All CI checks passed!"
+
+        # A green gate on a Dependabot PR is green-with-a-gap, and the gap is
+        # invisible unless it is named. Dependabot runs get no Actions secrets,
+        # so every API-key lane skipped above rather than ran. Say so where a
+        # reviewer will actually see it — the run summary, not buried in a log.
+        # `-n "$GITHUB_STEP_SUMMARY"` is not defensive noise: `run:` executes
+        # under `bash -e`, so an unset summary path would make `>> ""` fail and
+        # take the whole gate down with it. This block is advisory — it must
+        # never be able to turn a passing gate red.
+        if [ "$ACTOR" = "dependabot[bot]" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          {
+            echo "### ⚠️ Secret-dependent lanes did not run"
+            echo
+            echo "Dependabot pull requests are treated as fork runs and receive only the"
+            echo "Dependabot secret store, so \`ALS_APG_API_KEY\` is unavailable and these"
+            echo "lanes skipped rather than executed:"
+            echo
+            echo "- Tier 3 — Agentic flow (both presets)"
+            echo "- E2E Tests"
+            echo "- Dispatch Deploy E2E / Dispatch Overlay E2E"
+            echo "- Nextcloud Talk Bridge E2E / Google Chat Bridge E2E"
+            echo "- Scan Stack Agentic E2E"
+            echo
+            echo "**This gate cannot vouch for them.** After reviewing the dependency diff,"
+            echo "revalidate the branch as a maintainer (that run does get the secrets):"
+            echo
+            echo '```'
+            echo "gh workflow run ci.yml --ref $HEAD_BRANCH -f revalidate_secret_lanes=true"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "⚠️  Secret-dependent lanes skipped (Dependabot run) — see run summary."
+        fi

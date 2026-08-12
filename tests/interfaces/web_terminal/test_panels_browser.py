@@ -361,6 +361,20 @@ def _track_panel_posts(page: Page) -> list[str]:
     return posts
 
 
+def _command_posts(posts: list[str]) -> list[str]:
+    """The COMMAND POSTs among ``posts``, with occupancy reports filtered out.
+
+    ``/api/panel-layout`` is a report, not a command: the dock-sync occupancy
+    reporter POSTs it whenever tile occupancy changes — including on a purely
+    LOCAL tile close, which is the feature working rather than a leak. The
+    invariant these tests guard is what a gesture *commands* (focus/visibility,
+    the calls that move every client's workspace), so reports are filtered out
+    before the assertion. A report is safe here precisely because the server
+    stores it last-writer-wins and broadcasts nothing.
+    """
+    return [p for p in posts if p != "panel-layout"]
+
+
 def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> None:
     """Open ``panel_id`` as a SECOND tile beside the current one via the rail's ⊞.
 
@@ -715,7 +729,7 @@ def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
         # Let any (wrongly-)looping echo settle before counting.
         page.wait_for_timeout(600)
 
-        assert posts == ["panel-focus"], f"expected one focus POST, got {posts}"
+        assert _command_posts(posts) == ["panel-focus"], f"expected one focus POST, got {posts}"
 
         page.close()
 
@@ -753,7 +767,7 @@ def test_dock_tab_close_is_local_vacate_no_posts(tmp_path, chromium_browser):
         expect(rail_entry).to_be_attached(timeout=5_000)
         expect(rail_entry).not_to_have_class(re.compile(r"\bactive\b"), timeout=5_000)
         page.wait_for_timeout(600)
-        assert posts == [], f"a local tile close must not POST, got {posts}"
+        assert _command_posts(posts) == [], f"a local tile close must not command, got {posts}"
 
         page.close()
 
@@ -793,7 +807,7 @@ def test_service_tile_close_button_is_local_vacate(tmp_path, chromium_browser):
         expect(rail_entry).to_be_attached(timeout=5_000)
         expect(rail_entry).not_to_have_class(re.compile(r"\bactive\b"), timeout=5_000)
         page.wait_for_timeout(600)
-        assert posts == [], f"a tile close must not POST, got {posts}"
+        assert _command_posts(posts) == [], f"a tile close must not command, got {posts}"
 
         # One rail click reopens the panel — close is never a removal.
         rail_entry.click()
@@ -984,7 +998,7 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         ).to_have_count(1, timeout=5_000)
         # ...with zero POSTs echoed back out (the guard suppressed the setActive).
         page.wait_for_timeout(600)
-        assert posts == [], f"server-driven focus POSTed back: {posts}"
+        assert _command_posts(posts) == [], f"server-driven focus POSTed back: {posts}"
 
         page.close()
 
@@ -1954,7 +1968,7 @@ def test_evicted_panel_entry_click_redocks_it(tmp_path, chromium_browser):
         # pre-existing, benign) — evictions never touch server visibility.
         page.wait_for_timeout(600)
         assert "panel-visibility" not in posts, f"eviction must stay local, got {posts}"
-        assert set(posts) == {"panel-focus"}, f"expected only focus POSTs: {posts}"
+        assert set(_command_posts(posts)) == {"panel-focus"}, f"expected only focus POSTs: {posts}"
 
         page.close()
 
@@ -2230,5 +2244,137 @@ def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser)
                     break
                 page.wait_for_timeout(100)
             assert actions == [["view", "create"], ["refresh", None]], actions
+
+            page.close()
+
+
+# A second contributing panel, this one exercising the `search` and `menu`
+# kinds — and, unlike the one above, behaving like a REAL panel: it re-sends
+# its whole contribution every time an action arrives. That is what makes this
+# the only test that can prove the reconcile, because a rebuild-on-replace
+# renderer would drop the caret on the first keystroke.
+_SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
+<html><body><script>
+  window.__actions = [];
+  function contribution() {
+    return {
+      type: 'osprey-header-contribution',
+      version: 1,
+      items: [
+        // Higher priority survives a narrow tile longer: the filter outranks
+        // the overflow menu, whose entries are all reachable another way.
+        { kind: 'search', id: 'filter', placeholder: 'Filter things\\u2026', priority: 3 },
+        { kind: 'menu', id: 'more', priority: 1, items: [
+          { id: 'all', label: 'All sessions', checked: false },
+          { id: 'refresh', label: 'Refresh' },
+        ] },
+      ],
+    };
+  }
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'osprey-header-action') {
+      window.__actions.push([e.data.id, e.data.value ?? null]);
+      // A real panel reacts and re-sends the WHOLE contribution.
+      parent.postMessage(contribution(), window.location.origin);
+    }
+  });
+  parent.postMessage(contribution(), window.location.origin);
+</script></body></html>"""
+
+
+@contextmanager
+def _search_menu_panel_backend():
+    """Serve a page contributing a search box and an overflow menu."""
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(_SEARCH_MENU_PANEL_HTML)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def _poll_actions(page, frame, minimum):
+    """Wait for the panel iframe to have recorded at least `minimum` actions."""
+    actions = None
+    for _ in range(50):
+        actions = frame.locator("body").evaluate("() => window.__actions")
+        if actions and len(actions) >= minimum:
+            return actions
+        page.wait_for_timeout(100)
+    return actions
+
+
+def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, chromium_browser):
+    """Typing in a contributed search box keeps focus; the ⋯ menu round-trips.
+
+    Two things only a real browser can settle. First, the tile bar IS the
+    dockview drag surface, so clicking into a contributed input must focus it
+    rather than start a tab drag (dock-tab.js's INTERACTIVE guard). Second,
+    the panel re-sends its whole contribution on every action — so the caret
+    surviving a full round-trip is what proves the render pass reconciles
+    instead of rebuilding.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _search_menu_panel_backend() as stub_url:
+        custom = {
+            "id": "search-demo",
+            "label": "SEARCHY",
+            "url": stub_url,
+            "healthEndpoint": None,
+            "path": "/",
+        }
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[custom],
+        ) as (base_url, _app):
+            page = _open_page(chromium_browser, base_url)
+            _open_second_tile(page, base_url, "search-demo", "SEARCHY")
+
+            tab = _service_tab(page, "SEARCHY")
+            search = tab.locator(".contrib-search-input")
+            expect(search).to_have_attribute("placeholder", "Filter things…", timeout=10_000)
+
+            # Click into the field (not a drag) and type.
+            search.click()
+            page.keyboard.type("grid")
+
+            frame = page.frame_locator('.dock-iframe-overlay iframe[data-panel-id="search-demo"]')
+            actions = _poll_actions(page, frame, 1)
+            assert actions and actions[0] == ["filter", "grid"], actions
+
+            # The panel answered that action with a fresh whole contribution.
+            # If the bar rebuilt its DOM, both of these would now fail.
+            expect(search).to_have_value("grid")
+            focused = page.evaluate("() => document.activeElement?.className ?? ''")
+            assert "contrib-search-input" in focused, focused
+
+            # Overflow menu: opens body-level, and an entry click round-trips.
+            tab.locator(".contrib-menu-btn").click()
+            popover = page.locator(".contrib-menu-popover")
+            expect(popover).to_be_visible(timeout=5_000)
+            expect(popover.locator(".contrib-menu-item")).to_have_count(2)
+
+            popover.locator(".contrib-menu-item", has_text="Refresh").click()
+            expect(page.locator(".contrib-menu-popover")).to_have_count(0)
+
+            actions = _poll_actions(page, frame, 2)
+            assert actions and actions[-1] == ["more", "refresh"], actions
 
             page.close()

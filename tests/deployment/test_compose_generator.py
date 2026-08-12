@@ -11,10 +11,12 @@ deployed_services. Two failure modes have to stay fixed:
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import pytest
 import yaml
@@ -124,7 +126,12 @@ _WORKER_PROJECT_NAME = "hwt-fixture"
 _ENV_FILE_LINE = "- ./.env"
 
 
-def _render_worker_template(*, env_present: bool, project_name: str = _WORKER_PROJECT_NAME) -> str:
+def _render_worker_template(
+    *,
+    env_present: bool,
+    project_name: str = _WORKER_PROJECT_NAME,
+    deployed_services: list[str] | None = None,
+) -> str:
     """Render the worker compose through the real generator injection.
 
     Feeds a minimal config through ``_inject_project_metadata`` (the production
@@ -146,6 +153,7 @@ def _render_worker_template(*, env_present: bool, project_name: str = _WORKER_PR
             "project_root": f"/r/{project_name}",
             "services": {"dispatch_worker": {}},
             "system": {"timezone": "UTC"},
+            "deployed_services": list(deployed_services or []),
         }
     )
     # ``_inject_project_metadata`` sets osprey_env_present from the deploy CWD;
@@ -1467,6 +1475,335 @@ def test_postgres_password_reads_minted_env_var() -> None:
 
 
 # ---------------------------------------------------------------------------
+# mongodb: the archiver store
+#
+# Same shape as postgres — a pulled upstream image holding a persistent store —
+# and the same three host-global hazards: a bare container_name collides across
+# projects, in-network consumers (the recorder, the dispatch worker's archiver
+# host override) need a name that survives that namespacing, and the credential
+# has exactly one home (the minted MONGO_ROOT_PASSWORD in the project .env).
+# The one thing postgres has no analogue for is the compression knob: block
+# compression is set on the SERVER because the seeder creates the collection
+# implicitly, so the knob has to reach mongod's own argv.
+# ---------------------------------------------------------------------------
+def _render_mongodb_template(project_name: str = "proj-a", **mongodb_config: object) -> str:
+    from importlib import resources
+
+    from jinja2 import Template
+
+    tpl = resources.files("osprey").joinpath("templates/services/mongodb/docker-compose.yml.j2")
+    template = Template(tpl.read_text(encoding="utf-8"))
+    return template.render(
+        services={"mongodb": mongodb_config},
+        deployment={},
+        system={"timezone": "UTC"},
+        osprey_labels={
+            "project_name": project_name,
+            "project_root": f"/r/{project_name}",
+            "deployed_at": "now",
+        },
+        osprey_version="",
+    )
+
+
+def _mongodb_service(project_name: str = "proj-a", **mongodb_config: object) -> dict:
+    return yaml.safe_load(_render_mongodb_template(project_name, **mongodb_config))["services"][
+        "mongodb"
+    ]
+
+
+def test_mongodb_container_name_is_project_namespaced() -> None:
+    """Two projects render distinct, project-scoped mongo container names.
+
+    `container_name` is host-global, so a bare `archiver-mongodb` would make two
+    OSPREY projects deploying the archiver on one host collide and serialize.
+    """
+    name_a = _mongodb_service("proj-a")["container_name"]
+    name_b = _mongodb_service("proj-b")["container_name"]
+
+    assert name_a == "proj-a-archiver-mongodb", name_a
+    assert name_b == "proj-b-archiver-mongodb", name_b
+
+
+def test_mongodb_publishes_a_stable_in_network_alias() -> None:
+    """`archiver-mongodb` stays resolvable in-network after the namespacing.
+
+    The recorder writes to this host from inside the compose network (the
+    host-published port is not reachable there), and the dispatch worker points
+    the agent's archiver at the same name. Both break with "could not resolve
+    host" if the alias goes away.
+    """
+    svc = _mongodb_service()
+    aliases = svc["networks"]["osprey-network"]["aliases"]
+    assert "archiver-mongodb" in aliases, aliases
+
+
+def test_mongodb_image_follows_env_config_default_chain() -> None:
+    """env → config → pinned default, like every other pulled service image.
+
+    A hard pin would force air-gapped/mirrored registries to fork the template.
+    """
+    assert _mongodb_service()["image"] == "${OSPREY_MONGODB_IMAGE:-mongo:7}"
+    assert (
+        _mongodb_service(image="registry.local/mongo:custom")["image"]
+        == "${OSPREY_MONGODB_IMAGE:-registry.local/mongo:custom}"
+    )
+
+
+def test_mongodb_root_password_reads_minted_env_var() -> None:
+    """The root password sources MONGO_ROOT_PASSWORD from .env (minted by
+    `osprey up`), the same single-source convention as postgres's
+    ARIEL_DB_PASSWORD — one value for the container, the seeder, the recorder
+    and the agent connector's `password_env`."""
+    env = _mongodb_service()["environment"]
+    assert env["MONGO_INITDB_ROOT_PASSWORD"] == "${MONGO_ROOT_PASSWORD:-osprey}"
+    assert env["MONGO_INITDB_ROOT_USERNAME"] == "osprey"
+
+
+def test_mongodb_block_compression_is_a_knob_on_mongod_argv() -> None:
+    """Compression reaches mongod's own arguments, defaulting to zstd.
+
+    Setting it server-side is what makes the seeder's implicitly created
+    collection inherit it; a per-collection option would leave a window in
+    which documents land under the default codec.
+    """
+    assert _mongodb_service()["command"] == ["--wiredTigerCollectionBlockCompressor", "zstd"]
+    assert _mongodb_service(compression="snappy")["command"] == [
+        "--wiredTigerCollectionBlockCompressor",
+        "snappy",
+    ]
+
+
+def test_mongodb_port_publish_follows_bind_address_and_port_host() -> None:
+    """The host publish honors `services.mongodb.port_host` and the deploy-wide
+    bind address, defaulting to loopback:27017 — the address the host-side
+    seeder and the agent connector both use."""
+    assert _mongodb_service()["ports"] == ["127.0.0.1:27017:27017"]
+    assert _mongodb_service(port_host=27117)["ports"] == ["127.0.0.1:27117:27017"]
+
+
+def test_mongodb_healthcheck_pings_without_credentials() -> None:
+    """The probe is an unauthenticated `ping`, so the minted password has
+    exactly one spelling in this file. `osprey up` gates the base seed on this
+    healthcheck, so it has to answer on a fresh volume too."""
+    healthcheck = _mongodb_service()["healthcheck"]
+    assert healthcheck["test"] == [
+        "CMD-SHELL",
+        "mongosh --quiet --eval 'db.adminCommand(\"ping\")'",
+    ]
+    assert healthcheck["start_period"] == "15s", (
+        "a fresh volume creates the admin user and preallocates the journal "
+        "before mongod answers; without a grace period those attempts burn the "
+        "retry budget"
+    )
+
+
+def test_mongodb_store_is_a_named_volume() -> None:
+    """Seeded + recorded history persists across `osprey down`: a base seed
+    costs minutes, and a store that resets on restart would be younger than the
+    machine it claims to describe."""
+    rendered = yaml.safe_load(_render_mongodb_template())
+    assert rendered["services"]["mongodb"]["volumes"] == ["archiver_mongodb_data:/data/db"]
+    assert "archiver_mongodb_data" in rendered["volumes"], (
+        "the store volume must be declared (named), never an anonymous mount"
+    )
+
+
+# ---------------------------------------------------------------------------
+# archiver_recorder: the live-sampling half of the archiver
+#
+# A compose-template-only service — it runs the VIRTUAL ACCELERATOR's image
+# with a different command, so it adds no image build to any deploy or CI lane.
+# Three properties carry the design and each has a way of failing quietly:
+#
+# * it must not start before the store answers (a fresh mongo volume makes that
+#   window seconds long),
+# * everything cross-service is gated on ``deployed_services`` membership —
+#   compose errors outright on a ``depends_on`` naming an undefined service,
+#   and the CA/image settings the co-deployed branch derives have to be
+#   supplied by the operator otherwise, or the recorder comes up routed
+#   nowhere and times out looking like a slow machine, and
+# * its Mongo address must be the in-network one: config.yml carries the HOST
+#   view (localhost + the published port_host), which inside the network is
+#   this container's own loopback.
+# ---------------------------------------------------------------------------
+_RECORDER_TEMPLATE = "archiver_recorder/docker-compose.yml.j2"
+
+
+def _render_recorder_template(*, va_co_deployed: bool, project_name: str = "proj-a") -> str:
+    deployed = ["mongodb", "archiver_recorder"]
+    if va_co_deployed:
+        deployed.append("virtual_accelerator")
+    return _render_service_template(_RECORDER_TEMPLATE, project_name, deployed_services=deployed)
+
+
+def _recorder_service(*, va_co_deployed: bool, project_name: str = "proj-a") -> dict:
+    rendered = _render_recorder_template(va_co_deployed=va_co_deployed, project_name=project_name)
+    return yaml.safe_load(rendered)["services"]["archiver-recorder"]
+
+
+@pytest.mark.parametrize("va_co_deployed", [True, False])
+def test_recorder_declares_no_build_context(va_co_deployed: bool) -> None:
+    """The recorder never builds an image.
+
+    It runs the VA's image with a different command, which is what keeps it out
+    of the seven VA-stack CI lanes' build cost — and what stops two services
+    racing to tag one image, the same rule the bluesky queueserver follows.
+    """
+    assert "build" not in _recorder_service(va_co_deployed=va_co_deployed)
+
+
+def test_recorder_reuses_the_va_image_when_co_deployed() -> None:
+    """Co-deployed: the recorder renders byte-identically to the VA's own image
+    reference, so the two can never run different Channel Access stacks."""
+    recorder = _recorder_service(va_co_deployed=True)["image"]
+    va = yaml.safe_load(
+        _render_service_template("virtual_accelerator/docker-compose.yml.j2", "proj-a")
+    )["services"]["virtual-accelerator"]["image"]
+    assert recorder == va == "${OSPREY_VA_IMAGE:-proj-a-va:local}"
+
+
+def test_recorder_requires_an_explicit_image_without_a_co_deployed_va() -> None:
+    """Without the VA, nothing in the deploy builds that tag.
+
+    Compose would fail pulling ``<project>-va:local`` with "pull access denied"
+    and never name the real problem, so the reference is required (``:?``)
+    instead of defaulted.
+    """
+    image = _recorder_service(va_co_deployed=False)["image"]
+    assert image.startswith("${OSPREY_VA_IMAGE:?"), image
+
+
+def test_recorder_command_runs_the_recorder_module() -> None:
+    """The command replaces the VA image's CMD outright (no ENTRYPOINT), so the
+    same image serves the IOC in one container and the recorder in another."""
+    assert _recorder_service(va_co_deployed=True)["command"] == [
+        "python",
+        "-u",
+        "-m",
+        "osprey.services.archiver_recorder",
+    ]
+
+
+@pytest.mark.parametrize("va_co_deployed", [True, False])
+def test_recorder_always_waits_for_a_healthy_store(va_co_deployed: bool) -> None:
+    """The store dependency is unconditional and health-gated.
+
+    "Container started" is not "answering commands": on a fresh volume mongod
+    creates the admin user and preallocates its journal first, and a recorder
+    writing into that window fails its first inserts.
+    """
+    depends = _recorder_service(va_co_deployed=va_co_deployed)["depends_on"]
+    assert depends["mongodb"] == {"condition": "service_healthy"}
+
+
+def test_recorder_wires_va_ordering_and_ca_env_only_when_va_co_deployed() -> None:
+    """Co-deployed: wait on the IOC's health and derive its CA address.
+
+    The address is derived from ``services.virtual_accelerator.port`` (not
+    hardcoded) so an operator moving the VA's port moves both services at once,
+    and ``depends_on`` must be absent when the VA is external — compose errors
+    on a dependency naming an undefined service.
+    """
+    svc = _recorder_service(va_co_deployed=True)
+    assert svc["depends_on"]["virtual-accelerator"] == {"condition": "service_healthy"}
+    assert svc["environment"]["EPICS_CA_NAME_SERVERS"] == "virtual-accelerator:5064"
+    assert svc["environment"]["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
+
+    external = _recorder_service(va_co_deployed=False)
+    assert "virtual-accelerator" not in external["depends_on"]
+
+
+def test_recorder_requires_a_ca_address_when_the_va_is_external() -> None:
+    """An unset bare ``${VAR}`` resolves to "", which would leave the recorder
+    routed nowhere: every read times out, for minutes, looking exactly like a
+    slow machine. ``:?`` makes it a startup abort naming the variable."""
+    env = _recorder_service(va_co_deployed=False)["environment"]
+    assert env["EPICS_CA_NAME_SERVERS"].startswith("${EPICS_CA_NAME_SERVERS:?"), env[
+        "EPICS_CA_NAME_SERVERS"
+    ]
+    assert env["EPICS_CA_AUTO_ADDR_LIST"] == "${EPICS_CA_AUTO_ADDR_LIST:-NO}"
+
+
+def test_recorder_addresses_the_store_in_network_not_on_the_host() -> None:
+    """The archiver host/port overrides point at the store's network alias and
+    its CONTAINER port.
+
+    config.yml carries the HOST view (localhost + the published ``port_host``);
+    used verbatim in-network that is this container's own loopback. The alias
+    (not the compose service key, and never the container_name) is what stays
+    resolvable after the per-project container_name namespacing.
+    """
+    env = _recorder_service(va_co_deployed=True)["environment"]
+    assert env["OSPREY_ARCHIVER_MONGODB_HOST"] == "archiver-mongodb"
+    assert env["OSPREY_ARCHIVER_MONGODB_PORT"] == "27017"
+
+
+def test_recorder_and_store_agree_on_the_mongo_password_fallback() -> None:
+    """Both halves must read the same variable AND fall back to the same value.
+
+    They are two spellings of one credential: if the store defaults the root
+    password and the recorder defaults something else, a deploy that never
+    minted the secret comes up with a store the recorder cannot authenticate
+    against — and the only symptom is an archive that stops growing.
+    """
+    recorder = _recorder_service(va_co_deployed=True)["environment"]["MONGO_ROOT_PASSWORD"]
+    store = _mongodb_service()["environment"]["MONGO_INITDB_ROOT_PASSWORD"]
+    assert recorder == store == "${MONGO_ROOT_PASSWORD:-osprey}"
+
+
+def test_recorder_reads_the_channel_manifest_the_va_serves() -> None:
+    """The channel list is the same build-derived variable the VA reads,
+    resolved against the same mount path.
+
+    It must be the manifest. ``channel_limits.json`` is a *write-safety
+    projection* of that manifest, not a second copy of it: it carries one entry
+    per address (read-only ones included — the DCCT current sits there as
+    ``{"writable": false}``), plus top-level metadata keys ``_comment``,
+    ``_version``, ``_description`` and ``defaults``. So its key set is not a
+    channel list, and reading it as one would hand the recorder four names no
+    IOC serves. The manifest is the single channel source the IOC and the
+    recorder have to share; anything else is a second source free to drift.
+    """
+    svc = _recorder_service(va_co_deployed=True)
+    assert svc["environment"]["VA_CHANNELS_FILE"] == "${VA_CHANNELS_FILE:-}"
+    assert "./build/data/simulation:/data/simulation:ro" in svc["volumes"]
+    assert not any("channel_limits" in mount for mount in svc["volumes"]), svc["volumes"]
+
+
+def test_recorder_reads_config_yml_from_a_read_only_mount() -> None:
+    """CONFIG_FILE points at a mounted file, not baked env: the enablement poll
+    re-reads it, which is what lets the documented ``control_system.type`` flip
+    take effect without a restart. CWD is the image WORKDIR, so without
+    CONFIG_FILE every lookup errors "No config.yml found".
+
+    The mount is the REPO ROOT, deliberately unlike the bluesky bridge's staged
+    copy: a copy is rewritten only by ``osprey build``, so the poll would
+    re-read a stale copy and the flip would silently need a rebuild. It is a
+    directory rather than the single file because a single-file bind pins an
+    inode at container start, and editors that save by rename leave a new one
+    behind — see the template's mount comment.
+    """
+    svc = _recorder_service(va_co_deployed=True)
+    assert svc["environment"]["CONFIG_FILE"] == "/app/project/build/config.yml"
+    assert ".:/app/project:ro" in svc["volumes"]
+    assert not any("archiver_recorder/config.yml" in mount for mount in svc["volumes"]), svc[
+        "volumes"
+    ]
+
+
+def test_recorder_publishes_no_ports_declares_no_healthcheck_and_reads_no_bulk_env() -> None:
+    """It opens no listening socket (nothing to publish, nothing to probe) and
+    calls no LLM (so no bulk ``.env`` passthrough — everything it reads is
+    interpolated explicitly). "Is history still arriving?" is answered by the
+    ``archiver_freshness`` probe against the store, not by a container probe."""
+    svc = _recorder_service(va_co_deployed=True)
+    assert "ports" not in svc
+    assert "healthcheck" not in svc
+    assert "env_file" not in svc
+
+
+# ---------------------------------------------------------------------------
 # sibling system-1 services: per-project container_name (concurrent-deploy safety)
 #
 # Every deployed system-1 service shares postgres's problem: `container_name` is
@@ -1527,6 +1864,9 @@ _SIBLING_SERVICES = [
     ("event_dispatcher/docker-compose.yml.j2", "event-dispatcher", "event-dispatcher", {}),
     ("dispatch_worker/docker-compose.yml.j2", "dispatch-worker-1", "dispatch-worker-1", {}),
     ("bluesky/docker-compose.yml.j2", "bluesky-bridge", "bluesky-bridge", {}),
+    # Reached by nobody in-network (outbound CA reads and Mongo writes only),
+    # so it needs no alias either.
+    ("archiver_recorder/docker-compose.yml.j2", "archiver-recorder", "archiver-recorder", {}),
     (
         "bluesky/docker-compose.yml.j2",
         "tiled",
@@ -3980,3 +4320,61 @@ def test_find_existing_compose_files_answers_from_an_explicit_base(tmp_path, mon
     # The same call without the anchor, from the same foreign directory, is the
     # failure the base exists to prevent.
     assert find_existing_compose_files(config, ["jupyter"], quiet=True) == []
+
+
+# ---------------------------------------------------------------------------
+# The worker reaches the archive it can actually reach
+# ---------------------------------------------------------------------------
+
+_ARCHIVER_HOST_ENV = "OSPREY_ARCHIVER_MONGODB_HOST"
+_ARCHIVER_PORT_ENV = "OSPREY_ARCHIVER_MONGODB_PORT"
+
+
+def test_worker_is_pointed_at_the_store_this_project_deploys() -> None:
+    """The worker's agent reads history like any other, but config.yml's
+    connection block is written for the HOST side. Inside the network that names
+    this container's own loopback, so the deploy hands it the store's alias.
+
+    The alias, never the container name: `container_name` carries the project
+    prefix, and the alias is pinned in the mongodb template precisely so this
+    reference survives being deployed under any project name.
+    """
+    rendered = _render_worker_template(
+        env_present=True, deployed_services=["dispatch_worker", "mongodb"]
+    )
+
+    assert f"{_ARCHIVER_HOST_ENV}: archiver-mongodb" in rendered
+    assert f'{_ARCHIVER_PORT_ENV}: "27017"' in rendered
+    assert f"{_ARCHIVER_HOST_ENV}: {_WORKER_PROJECT_NAME}-archiver-mongodb" not in rendered
+
+
+def test_worker_is_not_pointed_at_a_store_this_project_does_not_deploy() -> None:
+    """These two are a LITERAL address, not a fallback — so a project reading a
+    facility's own MongoDB must not get them. Its configured block is already
+    correct from anywhere, and `archiver-mongodb` would resolve to nothing.
+    """
+    rendered = _render_worker_template(env_present=True, deployed_services=["dispatch_worker"])
+
+    assert _ARCHIVER_HOST_ENV not in rendered
+    assert _ARCHIVER_PORT_ENV not in rendered
+
+
+def test_the_worker_address_is_the_one_the_connector_would_dial() -> None:
+    """The integration-level half, asserted at the address-computation level so
+    it needs no Mongo and no Docker: feed the connector's own override reader
+    exactly what this compose file exports, and it yields the alias and the
+    container port — which is what `archiver_read` inside the worker connects
+    to. The Docker-level proof of the same claim rides the archiver-world e2e.
+    """
+    from osprey.connectors.archiver.mongodb_archiver_connector import address_overrides
+
+    rendered = _render_worker_template(
+        env_present=True, deployed_services=["dispatch_worker", "mongodb"]
+    )
+    exported = dict(
+        re.findall(r"^\s+(OSPREY_ARCHIVER_MONGODB_\w+):\s*\"?([^\"\n]+)\"?$", rendered, re.M)
+    )
+    assert set(exported) == {_ARCHIVER_HOST_ENV, _ARCHIVER_PORT_ENV}, exported
+
+    with mock.patch.dict(os.environ, exported, clear=False):
+        assert address_overrides() == ("archiver-mongodb", 27017)

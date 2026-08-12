@@ -28,6 +28,8 @@ _SERVICE_ARTIFACTS = [
     "services/bluesky",
     "services/bluesky_panels",
     "services/virtual_accelerator",
+    "services/mongodb",
+    "services/archiver_recorder",
 ]
 
 

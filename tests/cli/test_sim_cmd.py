@@ -19,7 +19,9 @@ from click.testing import CliRunner
 from osprey.cli.sim import sim_group
 from tests.cli._lifecycle_build import stub_build
 
-_FAKE_RESULT = SimpleNamespace(active=["nominal"], logbook_seeded=0)
+# ``archiver`` is None here for the same reason ``load_config`` returns {}: this
+# project declares no stored archive, so the rewrite has nothing to report.
+_FAKE_RESULT = SimpleNamespace(active=["nominal"], logbook_seeded=0, archiver=None)
 
 
 @pytest.fixture
@@ -101,3 +103,40 @@ def test_apply_help_shows_now():
     assert result.exit_code == 0
     assert "--now" in result.output
     assert "OSPREY_SIM_NOW" in result.output
+
+
+class TestPerStoreOptOuts:
+    """Each store can be left alone on its own, and ``--no-seed`` covers both.
+
+    Applying a scenario writes to two places — the logbook database and the
+    stored archive — and there are real reasons to skip either one: no database
+    running, or an archive somebody is mid-way through inspecting. The flags are
+    only useful if they actually reach ``apply_scenarios``, which is what these
+    pin.
+    """
+
+    def test_by_default_both_stores_are_seeded(self, deployment):
+        _, apply_mock = _invoke(deployment, ["apply", "nominal", "--yes"])
+        assert apply_mock.call_args.kwargs["seed_logbook"] is True
+        assert apply_mock.call_args.kwargs["seed_archive"] is True
+
+    def test_no_seed_logbook_leaves_the_archive_alone_too(self, deployment):
+        _, apply_mock = _invoke(deployment, ["apply", "nominal", "--yes", "--no-seed-logbook"])
+        assert apply_mock.call_args.kwargs["seed_logbook"] is False
+        assert apply_mock.call_args.kwargs["seed_archive"] is True
+
+    def test_no_seed_archiver_leaves_the_logbook_alone(self, deployment):
+        _, apply_mock = _invoke(deployment, ["apply", "nominal", "--yes", "--no-seed-archiver"])
+        assert apply_mock.call_args.kwargs["seed_logbook"] is True
+        assert apply_mock.call_args.kwargs["seed_archive"] is False
+
+    def test_no_seed_still_means_neither(self, deployment):
+        """The pre-existing flag kept its meaning: telemetry only."""
+        _, apply_mock = _invoke(deployment, ["apply", "nominal", "--yes", "--no-seed"])
+        assert apply_mock.call_args.kwargs["seed_logbook"] is False
+        assert apply_mock.call_args.kwargs["seed_archive"] is False
+
+    def test_the_flags_are_documented(self):
+        result = CliRunner().invoke(sim_group, ["apply", "--help"])
+        assert "--no-seed-logbook" in result.output
+        assert "--no-seed-archiver" in result.output

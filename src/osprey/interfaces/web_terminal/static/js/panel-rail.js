@@ -248,7 +248,16 @@ export function addEntry(railEl, panel, options = {}) {
  * @param {string} panelId
  */
 export function removeEntry(railEl, panelId) {
-  getEntry(railEl, panelId)?.remove();
+  const entry = getEntry(railEl, panelId);
+  if (!entry) return;
+  // A detached drag source can never fire dragend (HTML5 delivers it to the
+  // source element only), so a mid-drag removal would strand the caller's
+  // drag-end cleanup — the iframe pointer shields raised in onDragStart.
+  // End the gesture through the entry's own dragend listener before detaching.
+  if (entry.classList.contains('dragging')) {
+    entry.dispatchEvent(new Event('dragend'));
+  }
+  entry.remove();
 }
 
 // ---- Mutators ----

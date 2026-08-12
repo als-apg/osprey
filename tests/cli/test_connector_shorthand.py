@@ -141,11 +141,20 @@ def test_merge_without_shorthand_is_unchanged() -> None:
 
 
 def test_shorthand_in_an_extends_parent_is_folded(tmp_path: Path) -> None:
-    """A parent's shorthand reaches the child — extends resolution is not an escape."""
+    """A parent's shorthand reaches the child — extends resolution is not an escape.
+
+    The child supplies the archiver because a virtual accelerator may not read
+    the mock one; that the two halves of the pairing can arrive from different
+    layers and still be judged together is the point of checking the *merged*
+    config rather than any single layer's.
+    """
     parent = tmp_path / "parent.yml"
     parent.write_text("name: Parent\nconnector: virtual_accelerator\n", encoding="utf-8")
     child = tmp_path / "child.yml"
-    child.write_text("name: Child\nextends: parent.yml\n", encoding="utf-8")
+    child.write_text(
+        "name: Child\nextends: parent.yml\nconfig:\n  archiver.type: mongodb_archiver\n",
+        encoding="utf-8",
+    )
 
     profile = load_profile(child)
 
@@ -245,9 +254,16 @@ def test_reported_keys_keep_shorthand_order() -> None:
 
 
 def test_preset_resolution_applies_the_shorthand() -> None:
-    """``--set connector=`` retints a bundled preset's control system."""
+    """``--set connector=`` retints a bundled preset's control system.
+
+    Retinting a storeless preset to a virtual accelerator means declaring where
+    that machine's history lives, hence the second pair: the mock archiver is
+    refused for a simulated machine, and hello-world ships with no archive.
+    """
     profile, _profile_dir = resolve_build_profile(
-        None, "hello-world", set_pairs=("connector=virtual_accelerator",)
+        None,
+        "hello-world",
+        set_pairs=("connector=virtual_accelerator", "config.archiver.type=mongodb_archiver"),
     )
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == "virtual_accelerator"

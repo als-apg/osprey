@@ -21,9 +21,9 @@ from osprey.cli.build_profile_merge import _hash_resolved_profile
 
 # preset name -> resolved-content hash, pre-rename.
 PINNED_PRESET_HASHES: dict[str, str] = {
-    "ariel-standalone": "sha256:a401c62979ff477c8294954a39c15076f3b6d981826f2ec01ffbe863ae23e9e5",
+    "ariel-standalone": "sha256:a08bde688f81f7604da07822db5def68d6c0d294688f15ec8720ac5df11a8cee",
     "channel-finder-standalone": (
-        "sha256:03c3d35070730762db3d46ef88beabe3b0e0bf98abd5fff72d81a95d2b6fc918"
+        "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
     ),
     # The web-terminal presets were re-pinned when the shipped roster went
     # from a bare-string first user to fully explicit name/index/persona
@@ -47,21 +47,61 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # selection (renders only for EPICS-family control systems). Both extends
     # children inherit it, so all three digests moved.
     #
-    # Re-pinned again for the lifecycle redesign. The preset's diff is almost
-    # entirely comment text — which this hash cannot see, because
-    # `_hash_resolved_profile` hashes resolved canonical JSON and says so. The
-    # one CONTENT change is the two persona `project_path` values, which moved
-    # from the retired sibling layout (`../control-assistant-<persona>`) into
-    # the render zone (`build/control-assistant-<persona>`). Both extends
-    # children inherit it, so all three digests moved.
-    "control-assistant": "sha256:645526195bf195431794e55e26aedb80a5ce6320e59931ac8a31b6bc786ad63f",
+    # Re-pinned again when every preset that ships panels-context also gained
+    # the workspace-delta hook, which reports web workspace changes between the
+    # agent's turns. All four rosters list it, so every digest moved — a rebuilt
+    # project gains a hook file and a UserPromptSubmit wiring entry, which is
+    # exactly what the staleness advisory should report.
+    #
+    # Re-pinned again when control-assistant gained a stored archive: a
+    # `va_archiver:` block, `archiver.type: mongodb_archiver` in `config:`, and
+    # pymongo in `dependencies`. The block derives eight
+    # `archiver.mongodb_archiver.*` keys into the resolved config, so this is a
+    # key change rather than a comment change and the digest is expected to
+    # move. Both extends children inherit it, so all three moved.
+    # Re-pinned again when control-assistant named its freshness canary:
+    # `va_archiver.freshness_channel`. The block derives a
+    # `health.categories.archiver.checks` entry from it — the check itself plus
+    # a staleness threshold computed from `recorder_cadence_sec` — so this is a
+    # key change, not a comment change, and the digest is expected to move. A
+    # rebuilt project gains a health check it did not have, which is exactly
+    # what the staleness advisory should announce. Both extends children inherit
+    # it, so all three moved.
+    # ...and again when the block stated `recorder_cadence_sec: 10` explicitly
+    # instead of riding the dataclass default. Behavior-neutral — the resolved
+    # value is unchanged — but the resolved CONTENT now carries the key, so the
+    # digest moves. Stated rather than defaulted because the freshness threshold
+    # is derived from it, and the preset's own convention is to document the
+    # shape it deploys rather than hide it in a dataclass.
+    # The archive and the workspace-delta hook landed either side of the same
+    # rebase, so the digests below carry both at once: re-pinning against
+    # either change alone would leave the other unaccounted for.
+    # ...and again when the PLAN panel was folded into BLUESKY as its Plans
+    # tab: the preset's `plan` web_panels entry and its `web.panels.plan.*`
+    # overrides are gone. Like the RESULTS rename above, this is NOT
+    # behavior-neutral — a rebuilt project loses a tab and gains it back inside
+    # another — so staleness firing on already-deployed projects is the correct
+    # signal. The archive work and the panel merge landed either side of this
+    # merge, so as above the digests carry both at once. Both extends children
+    # inherit it, so all three moved.
+    #
+    # Re-pinned again for the lifecycle redesign. Comment rewrites cannot move
+    # this hash (`_hash_resolved_profile` hashes resolved canonical JSON and
+    # says so); the content change is the two persona `project_path` values,
+    # which moved from the retired sibling layout
+    # (`../control-assistant-<persona>`) into the render zone
+    # (`build/control-assistant-<persona>`). The digests below carry that AND
+    # every archive/panel change above at once — the redesign and the archiver
+    # work landed either side of one merge. Both extends children inherit it,
+    # so all three moved.
+    "control-assistant": "sha256:d653c998ca202842528c6e42167cd4fd01d1b36075999c69db49c629d5ed9f70",
     "control-assistant-readonly": (
-        "sha256:097d786bfaa8a57199959f76192f0b12676b216714203f227fdd7aa9a5f6bc2c"
+        "sha256:f08a5191f756f300b5614d7e09fe66303f2c1784f4f33edf240a35c91ef1c97a"
     ),
     "control-assistant-readwrite": (
-        "sha256:b8bd051c74142cf20224333609c9fb56012e5fb7f15fef3bcbac80eaa349df13"
+        "sha256:7e7444ec6b122db975583fe67cf2bed1a6c3e129254747ea868794fd3dbd19f2"
     ),
-    "hello-world": "sha256:e1666b0b1a1d1232bc3aa9c32ccf11e3555a217162fda292f4240396ef19ec8a",
+    "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }
 
 

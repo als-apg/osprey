@@ -254,6 +254,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/hooks/osprey_panels_context.py",
             description="SessionStart hook that injects the web surface (simple/expert) and panel inventory into agent context",
         ),
+        BuildArtifact(
+            canonical_name="hooks/workspace-delta",
+            template_path="claude/hooks/osprey_workspace_delta.py",
+            output_path=".claude/hooks/osprey_workspace_delta.py",
+            description="UserPromptSubmit hook that reports web workspace changes since the agent's last turn",
+        ),
         # ── Skills ──────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="skills/session-report",
@@ -332,6 +338,22 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="postgresql",
             output_path="services/postgresql",
             description="PostgreSQL + pgvector compose template (ARIEL store)",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/archiver_recorder",
+            template_path="archiver_recorder",
+            output_path="services/archiver_recorder",
+            description="Archiver recorder compose template (runs on the VA image)",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/mongodb",
+            template_path="mongodb",
+            output_path="services/mongodb",
+            description="MongoDB compose template (archiver store)",
             template_root="services",
             is_directory=True,
         ),

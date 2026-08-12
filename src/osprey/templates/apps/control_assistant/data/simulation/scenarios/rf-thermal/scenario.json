@@ -1,26 +1,36 @@
 {
   "description": "Recurring cavity-1 thermal excursions: body temperature rises, reflected power spikes, and forward power trips from thermal detuning. Cavity 2 shows one minor excursion for contrast.",
+  "_comment": [
+    "Event positions are anchor-relative (`at_offset`), not window fractions.",
+    "`at_offset` is seconds relative to the scenario-activation anchor T0 (negative = past),",
+    "and for anchored spikes `width` is a Gaussian sigma in SECONDS (not a window fraction).",
+    "The three cavity-01 excursions sit at T0-38h / T0-21h / T0-7h -- inside the operator",
+    "lookback band (-40h..-2h), which is also inside the archiver's dense 48h hot tier, so",
+    "every spike is sampled at the 10 s hot cadence. sigma = 7200 s (2 h) is >= 2x both the",
+    "10 s hot and 60 s tail seed cadences, so the excursions stay resolvable at either.",
+    "Cavity-02's single minor excursion shares the middle anchor (T0-21h) for contrast."
+  ],
   "archiver": [
     {
       "channel": "SR:RF:CAVITY:01:TEMPERATURE:RB",
       "events": [
         {
           "shape": "spike",
-          "at": 0.2,
+          "at_offset": -136800,
           "amplitude": 7.0,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.55,
+          "at_offset": -75600,
           "amplitude": 4.9,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.85,
+          "at_offset": -25200,
           "amplitude": 8.4,
-          "width": 0.024
+          "width": 7200
         }
       ]
     },
@@ -29,21 +39,21 @@
       "events": [
         {
           "shape": "spike",
-          "at": 0.2,
+          "at_offset": -136800,
           "amplitude": 80.0,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.55,
+          "at_offset": -75600,
           "amplitude": 56.0,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.85,
+          "at_offset": -25200,
           "amplitude": 96.0,
-          "width": 0.024
+          "width": 7200
         }
       ]
     },
@@ -52,21 +62,21 @@
       "events": [
         {
           "shape": "spike",
-          "at": 0.2,
+          "at_offset": -136800,
           "amplitude": -440.0,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.55,
+          "at_offset": -75600,
           "amplitude": -308.0,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.85,
+          "at_offset": -25200,
           "amplitude": -528.0,
-          "width": 0.024
+          "width": 7200
         }
       ]
     },
@@ -75,21 +85,21 @@
       "events": [
         {
           "shape": "spike",
-          "at": 0.2,
+          "at_offset": -136800,
           "amplitude": -2.4,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.55,
+          "at_offset": -75600,
           "amplitude": -1.68,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.85,
+          "at_offset": -25200,
           "amplitude": -2.88,
-          "width": 0.024
+          "width": 7200
         }
       ]
     },
@@ -98,21 +108,21 @@
       "events": [
         {
           "shape": "spike",
-          "at": 0.2,
+          "at_offset": -136800,
           "amplitude": -0.001,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.55,
+          "at_offset": -75600,
           "amplitude": -0.0007,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.85,
+          "at_offset": -25200,
           "amplitude": -0.0012,
-          "width": 0.024
+          "width": 7200
         }
       ]
     },
@@ -121,21 +131,21 @@
       "events": [
         {
           "shape": "spike",
-          "at": 0.2,
+          "at_offset": -136800,
           "amplitude": 0.05,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.55,
+          "at_offset": -75600,
           "amplitude": 0.035,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.85,
+          "at_offset": -25200,
           "amplitude": 0.06,
-          "width": 0.024
+          "width": 7200
         }
       ]
     },
@@ -144,21 +154,21 @@
       "events": [
         {
           "shape": "spike",
-          "at": 0.2,
+          "at_offset": -136800,
           "amplitude": -390.0,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.55,
+          "at_offset": -75600,
           "amplitude": -273.0,
-          "width": 0.024
+          "width": 7200
         },
         {
           "shape": "spike",
-          "at": 0.85,
+          "at_offset": -25200,
           "amplitude": -468.0,
-          "width": 0.024
+          "width": 7200
         }
       ]
     },
@@ -167,9 +177,9 @@
       "events": [
         {
           "shape": "spike",
-          "at": 0.55,
+          "at_offset": -75600,
           "amplitude": 1.75,
-          "width": 0.024
+          "width": 7200
         }
       ]
     },
@@ -178,9 +188,9 @@
       "events": [
         {
           "shape": "spike",
-          "at": 0.55,
+          "at_offset": -75600,
           "amplitude": 20.0,
-          "width": 0.024
+          "width": 7200
         }
       ]
     },
@@ -189,9 +199,9 @@
       "events": [
         {
           "shape": "spike",
-          "at": 0.55,
+          "at_offset": -75600,
           "amplitude": -110.0,
-          "width": 0.024
+          "width": 7200
         }
       ]
     }

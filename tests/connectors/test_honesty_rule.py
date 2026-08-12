@@ -1,0 +1,191 @@
+"""The question all three refusal sites ask — asked the way each site's reader reads.
+
+There are two kinds of config, read by different readers, and the guard has to
+resolve a key exactly as the reader it guards resolves it. A build profile's
+``config:`` block reaches the rendered project through the emitter, which honors
+the dotted spelling and a nested mapping alike, so both are live there. A
+rendered ``config.yml`` is read by ``ConfigBuilder`` and ``MCPServerConfig``,
+which walk nested sections only — a top-level ``archiver.type:`` line in that
+file configures nothing.
+
+Getting that backwards is not a cosmetic difference: it is a running VA+mock
+stack. The bypass tests below are the regression, and each one states the live
+value the readers would have resolved.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+
+from osprey.connectors.honesty import (
+    VA_MOCK_ARCHIVER_WHY,
+    pairing_in_profile,
+    pairing_in_rendered_config,
+)
+from osprey.connectors.types import MOCK_ARCHIVER
+
+VA = "virtual_accelerator"
+
+
+def _flat(control_system: str | None = None, archiver: Any = ...) -> dict[str, Any]:
+    """The dotted spelling — canonical in a build profile's ``config:`` block."""
+    config: dict[str, Any] = {}
+    if control_system is not None:
+        config["control_system.type"] = control_system
+    if archiver is not ...:
+        config["archiver.type"] = archiver
+    return config
+
+
+def _nested(control_system: str | None = None, archiver: Any = ...) -> dict[str, Any]:
+    """The nested spelling — the only live one in a rendered ``config.yml``."""
+    config: dict[str, Any] = {}
+    if control_system is not None:
+        config["control_system"] = {"type": control_system, "writes_enabled": False}
+    if archiver is not ...:
+        config["archiver"] = {"type": archiver}
+    return config
+
+
+# ---------------------------------------------------------------------------
+# A build profile's config: block — both spellings are live
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("spell", [_flat, _nested], ids=["flat", "nested"])
+def test_a_profile_pairing_a_va_with_the_mock_is_caught_in_either_spelling(spell: Any) -> None:
+    assert pairing_in_profile(spell(VA, MOCK_ARCHIVER)).is_invented_history
+
+
+@pytest.mark.parametrize("spell", [_flat, _nested], ids=["flat", "nested"])
+def test_a_profile_that_names_no_archiver_has_named_the_mock(spell: Any) -> None:
+    """The emitter writes no archiver.type, and the factory then falls back."""
+    verdict = pairing_in_profile(spell(VA))
+
+    assert verdict.is_invented_history
+    assert "unset" in verdict.archiver_phrase
+
+
+@pytest.mark.parametrize("spell", [_flat, _nested], ids=["flat", "nested"])
+def test_a_profile_with_a_store_is_honest_in_either_spelling(spell: Any) -> None:
+    assert not pairing_in_profile(spell(VA, "mongodb_archiver")).is_invented_history
+
+
+def test_a_profile_that_spells_the_archiver_twice_and_differently_fails_closed() -> None:
+    """Both spellings reach the same rendered leaf, so the profile has stated
+    the archive twice and is free to be wrong once. The build is not the thing
+    that should pick a winner — the same stance va_archiver_errors takes on a
+    duplicated connection key."""
+    verdict = pairing_in_profile(
+        {"control_system.type": VA, "archiver.type": "mongodb_archiver"}
+        | {"archiver": {"type": MOCK_ARCHIVER}}
+    )
+
+    assert verdict.is_invented_history
+    assert "twice" in verdict.archiver_phrase
+
+
+def test_a_blank_archiver_type_in_a_profile_is_the_mock() -> None:
+    """YAML's bare `archiver.type:` is None, and the factory falls back for it
+    exactly as for an absent key."""
+    assert pairing_in_profile(
+        {"control_system.type": VA, "archiver.type": None}
+    ).is_invented_history
+
+
+# ---------------------------------------------------------------------------
+# A rendered config.yml — nested sections only, and the bypasses that proves
+# ---------------------------------------------------------------------------
+
+
+def test_a_rendered_va_with_the_nested_mock_is_caught() -> None:
+    assert pairing_in_rendered_config(_nested(VA, MOCK_ARCHIVER)).is_invented_history
+
+
+def test_a_rendered_va_with_no_archiver_section_is_caught() -> None:
+    assert pairing_in_rendered_config(_nested(VA)).is_invented_history
+
+
+def test_a_rendered_va_with_a_nested_store_is_honest() -> None:
+    assert not pairing_in_rendered_config(_nested(VA, "mongodb_archiver")).is_invented_history
+
+
+def test_a_flat_archiver_line_cannot_excuse_a_nested_mock() -> None:
+    """BYPASS REGRESSION. ConfigBuilder and MCPServerConfig walk nested sections
+    only, so the flat line configures nothing while the nested mock is what the
+    factory builds. Reading the flat key as the archiver would wave through a
+    running VA+mock stack."""
+    config = _nested(VA, MOCK_ARCHIVER) | {"archiver.type": "mongodb_archiver"}
+
+    assert pairing_in_rendered_config(config).is_invented_history
+
+
+def test_a_flat_only_archiver_line_is_not_an_archiver() -> None:
+    """BYPASS REGRESSION. With no `archiver:` section the factory finds no type
+    and falls back to the mock, however real the top-level line looks."""
+    config = _nested(VA) | {"archiver.type": "mongodb_archiver"}
+    verdict = pairing_in_rendered_config(config)
+
+    assert verdict.is_invented_history
+    assert "configures nothing" in verdict.archiver_phrase
+    assert "mongodb_archiver" in verdict.archiver_phrase
+
+
+def test_a_flat_control_system_line_cannot_excuse_a_nested_virtual_accelerator() -> None:
+    """BYPASS REGRESSION, the same hole on the other key: the live control system
+    is the nested one, so a flat 'mock' line does not make this deployment a
+    simulation that claims nothing."""
+    config = _nested(VA, MOCK_ARCHIVER) | {"control_system.type": "mock"}
+
+    assert pairing_in_rendered_config(config).is_invented_history
+
+
+def test_a_flat_only_control_system_is_not_a_virtual_accelerator() -> None:
+    """The mirror of the rule, and not a bypass: with no `control_system:`
+    section the factory falls back to the mock, so this deployment is a mock
+    machine with a mock archive — the honest storeless pairing, whatever the
+    inert line says."""
+    assert not pairing_in_rendered_config(_flat(VA, MOCK_ARCHIVER)).is_invented_history
+
+
+# ---------------------------------------------------------------------------
+# Negative space, shared by both readings
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("judge", [pairing_in_profile, pairing_in_rendered_config])
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_nested("mock", MOCK_ARCHIVER), id="mock-with-mock"),
+        pytest.param(_nested("epics", MOCK_ARCHIVER), id="epics-with-mock"),
+        pytest.param(_nested("epics", "epics_archiver"), id="hardware"),
+        pytest.param({}, id="says-nothing"),
+    ],
+)
+def test_every_other_pairing_is_left_alone(judge: Any, config: dict[str, Any]) -> None:
+    """The rule is about a simulation inventing its own past — not about which
+    store a facility runs, and not a general ban on the mock archiver."""
+    assert not judge(config).is_invented_history
+
+
+@pytest.mark.parametrize("judge", [pairing_in_profile, pairing_in_rendered_config])
+def test_a_config_that_is_not_a_mapping_reads_as_unset(judge: Any) -> None:
+    """A malformed config has its own error elsewhere; this is not the place to
+    compete for it."""
+    assert not judge(None).is_invented_history
+    assert not judge(["control_system.type: virtual_accelerator"]).is_invented_history
+
+
+def test_a_set_type_is_named_as_written() -> None:
+    assert pairing_in_profile({"archiver.type": MOCK_ARCHIVER}).archiver_phrase == repr(
+        MOCK_ARCHIVER
+    )
+
+
+def test_the_shared_explanation_says_what_is_wrong() -> None:
+    """All three sites quote this; it has to carry the reason on its own."""
+    assert "virtual accelerator" in VA_MOCK_ARCHIVER_WHY
+    assert "mock archiver" in VA_MOCK_ARCHIVER_WHY

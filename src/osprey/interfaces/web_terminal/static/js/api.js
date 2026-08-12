@@ -16,6 +16,7 @@
  * @typedef {object} EventSourceHandlers
  * @property {(data: any) => void} [onMessage]
  * @property {() => void} [onError]
+ * @property {() => void} [onOpen]
  */
 
 /** @type {ConnState} */
@@ -214,13 +215,28 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
 
 /**
  * Create an EventSource with reconnection.
+ *
+ * The browser's built-in retry covers only network-level failures on a
+ * still-live source; a non-2xx response or wrong content type (a proxy 502
+ * while the backend restarts, an auth redirect) parks the EventSource in
+ * CLOSED permanently, where the spec forbids any further retry. This wrapper
+ * takes over from there with the same exponential backoff createWebSocket
+ * uses, so the panel event channel survives backend restarts.
+ *
+ * `onOpen` fires on EVERY open — first connect, browser auto-retry, and this
+ * wrapper's own reconnects. SSE has no replay (no event ids are sent), so
+ * anything published while disconnected is gone; the hook is the caller's
+ * seam for re-fetching authoritative state instead.
  * @param {string} url
  * @param {EventSourceHandlers} [handlers]
  */
-export function createEventSource(url, { onMessage, onError } = {}) {
+export function createEventSource(url, { onMessage, onError, onOpen } = {}) {
   /** @type {EventSource|null} */
   let es = null;
   let stopped = false;
+  let attempt = 0;
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let reconnectTimer = null;
 
   function connect() {
     if (stopped || sessionExpired) return;
@@ -230,8 +246,10 @@ export function createEventSource(url, { onMessage, onError } = {}) {
     es = new EventSource(withPrefix(url));
 
     es.onopen = () => {
+      attempt = 0;
       sseState = 'connected';
       notifyStateChange();
+      if (onOpen) onOpen();
     };
 
     es.onmessage = (e) => {
@@ -249,15 +267,32 @@ export function createEventSource(url, { onMessage, onError } = {}) {
       sseState = 'disconnected';
       notifyStateChange();
       if (onError) onError();
-      // EventSource auto-reconnects, but update state
+      // readyState 2 is CLOSED (spec constant): the browser has given up on
+      // this source for good, so reconnection is ours from here. While
+      // CONNECTING/OPEN the built-in retry is still running — never race it.
+      if (es && es.readyState === 2) scheduleReconnect();
       reloadIfSessionExpired(() => {
         if (es) es.close();
       });
     };
   }
 
+  function scheduleReconnect() {
+    if (stopped || sessionExpired || reconnectTimer != null) return;
+    const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+    attempt++;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  }
+
   function stop() {
     stopped = true;
+    if (reconnectTimer != null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     if (es) es.close();
     sseState = 'disconnected';
     notifyStateChange();

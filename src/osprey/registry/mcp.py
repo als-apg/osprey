@@ -244,6 +244,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "lattice_set_baseline",
             "list_panels",
             "switch_panel",
+            "arrange_workspace",
         ],
         permissions_ask=["setup_patch"],
         hooks_pre=[
@@ -317,6 +318,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         permissions_allow=[
             bsky.GET_RUN,
             bsky.LIST_PLANS,
+            bsky.LIST_DEVICES,
             bsky.LIST_RUNS,
             bsky.GET_RUN_DATA,
             # Draft tools never touch hardware — editing the shared

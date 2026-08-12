@@ -25,6 +25,7 @@ SERVER_NAME = "bluesky"
 # Reach no hardware; auto-approved (registry ``permissions_allow``), no hook.
 GET_RUN = "get_run"
 LIST_PLANS = "list_plans"
+LIST_DEVICES = "list_devices"
 LIST_RUNS = "list_runs"
 GET_RUN_DATA = "get_run_data"
 
@@ -67,6 +68,7 @@ STOP_RUN = "stop_run"
 READ_TOOLS: tuple[str, ...] = (
     GET_RUN,
     LIST_PLANS,
+    LIST_DEVICES,
     LIST_RUNS,
     GET_RUN_DATA,
 )

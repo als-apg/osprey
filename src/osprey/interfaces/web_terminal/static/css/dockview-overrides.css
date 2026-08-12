@@ -300,8 +300,142 @@
   border-color: var(--border-accent);
 }
 
+/* Search pill. Deliberately the same grammar as `.command-palette-trigger`
+ * in palette.css — magnifier, muted placeholder, bordered panel field — so a
+ * panel's filter and the hub's own search read as one affordance. Sized to
+ * the 36px bar rather than the 28px header, and allowed to shrink to an
+ * icon-plus-stub before the priority pass considers hiding it outright. */
+.dock-root .contrib-search {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 0 1 200px;
+  min-width: 92px;
+  height: 24px;
+  padding: 0 var(--space-2);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.dock-root .contrib-search:hover,
+.dock-root .contrib-search:focus-within {
+  border-color: var(--border-accent);
+  background: var(--bg-elevated);
+}
+
+.dock-root .contrib-search-icon {
+  font-size: var(--text-sm);
+  line-height: var(--leading-none);
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.dock-root .contrib-search-input {
+  appearance: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  padding: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  line-height: var(--leading-none);
+  color: var(--text-primary);
+}
+
+.dock-root .contrib-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Chrome/Safari draw their own clear affordance on type=search; the Escape
+ * key is the panel-agnostic one and the bar has no room for both. */
+.dock-root .contrib-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* ⋯ overflow trigger. Quiet until hovered, like the tile's own actions. */
+.dock-root .contrib-menu-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-lg);
+  line-height: var(--leading-none);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.dock-root .contrib-menu-btn:hover,
+.dock-root .contrib-menu-btn[aria-expanded='true'] {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
 .dock-root .contrib-hidden {
   display: none;
+}
+
+/* Menu popover. Body-level and fixed — the contribution region is
+ * overflow:hidden and one bar tall, so an in-place popover would be clipped
+ * away. Positioned from JS (tile-header-items.js place()); everything here is
+ * appearance only. Not scoped under .dock-root: it is a child of <body>. */
+.contrib-menu-popover {
+  position: fixed;
+  z-index: 60;
+  min-width: 168px;
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+}
+
+.contrib-menu-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  line-height: var(--leading-none);
+  color: var(--text-secondary);
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.contrib-menu-item:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-panel);
+}
+
+.contrib-menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.contrib-menu-item.checked {
+  color: var(--text-primary);
+}
+
+/* Fixed-width gutter so labels align whether or not an entry is checkable. */
+.contrib-menu-tick {
+  flex: 0 0 auto;
+  width: 12px;
+  color: var(--color-accent);
 }
 
 .dock-root .tile-tab-actions {

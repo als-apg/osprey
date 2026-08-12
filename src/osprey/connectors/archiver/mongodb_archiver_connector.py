@@ -22,6 +22,70 @@ from osprey.utils.logger import get_logger
 
 logger = get_logger("mongodb_archiver_connector")
 
+# Appended to every connect()-time failure. On an OSPREY-deployed stack the store
+# is a container the project brings up itself, and "built but never deployed" is
+# by far the most common way to reach these errors — the password is minted into
+# the project's .env by `osprey up`, so before that first run there is nothing to
+# authenticate with and nothing listening. Phrased as a likely remedy rather than
+# the only one, since a facility MongoDB may be administered elsewhere.
+DEPLOY_HINT = "If this project deploys its own MongoDB, run 'osprey up' to start it."
+
+# Names the optional dependency the way it is actually installed, so the message
+# works whether or not the reader knows pymongo is what backs this connector.
+PYMONGO_INSTALL_HINT = (
+    "pymongo is required for the MongoDB archiver. "
+    "Install it with: pip install 'osprey-framework[archiver-mongodb]'"
+)
+
+#: Environment overrides for the two connection keys whose configured value is
+#: only correct when read from the host.
+#:
+#: The contract, stated here because this is the module that opens the socket:
+#: **the config block carries the host-side truth** — where the agent, running on
+#: the host, reaches the store, which for a project deploying its own store is
+#: loopback at the published ``port_host``. Inside the compose network that
+#: address names the reading container's own loopback and reaches nothing, so a
+#: containerized consumer is given the store's network alias and container port
+#: through this pair, and **the environment wins**.
+#:
+#: That is the ordinary environment-override contract, not a container special
+#: case: set in a host shell these win there too, exactly as
+#: ``OSPREY_OTEL_OPENOBSERVE_HOST`` does. Compose templates are simply the
+#: caller that has a reason to set them.
+#:
+#: Read by two consumers — this connector and the archiver-recorder service —
+#: through :func:`address_overrides`, so both agree on what an empty value means
+#: and on how the port is typed.
+HOST_OVERRIDE_ENV = "OSPREY_ARCHIVER_MONGODB_HOST"
+PORT_OVERRIDE_ENV = "OSPREY_ARCHIVER_MONGODB_PORT"
+
+
+def address_overrides() -> tuple[str | None, int | None]:
+    """The in-network store address this process was given, if it was given one.
+
+    Returns:
+        ``(host, port)``, either of which is ``None`` when the corresponding
+        variable is unset — or set to whitespace, which is treated as unset
+        rather than as an address of nothing. A caller applies whichever half it
+        got over its own configured value, and keeps its own rules about what to
+        do when neither source supplies one.
+
+    Raises:
+        ValueError: If the port override is set to something that is not an
+            integer. Silently falling back to the configured host-side port
+            would send a container to an address nothing serves, and the reason
+            would be a typo nobody is looking at.
+    """
+    host = os.environ.get(HOST_OVERRIDE_ENV, "").strip() or None
+
+    raw_port = os.environ.get(PORT_OVERRIDE_ENV, "").strip()
+    if not raw_port:
+        return host, None
+    try:
+        return host, int(raw_port)
+    except ValueError as exc:
+        raise ValueError(f"{PORT_OVERRIDE_ENV} must be an integer port (got {raw_port!r})") from exc
+
 
 class MongoDBArchiverConnector(ArchiverConnector):
     """
@@ -50,6 +114,13 @@ class MongoDBArchiverConnector(ArchiverConnector):
         >>> )
     """
 
+    # pymongo exception classes, bound by connect(). Declared here so every
+    # method can reference them on a connector that never completed a connect()
+    # — including the stub connectors tests wire up by hand.
+    _MongoClient = None
+    _ConnectionFailure = None
+    _ConfigurationError = None
+
     def __init__(self):
         self._connected = False
         self._client = None
@@ -73,8 +144,13 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         Raises:
             ImportError: If pymongo is not installed
-            ValueError: If required config values are missing
-            ConnectionError: If connection cannot be established
+            ValueError: If required config *keys* are missing — an authoring
+                error in config.yml, not a runtime condition
+            ConnectionError: If the store cannot be reached or authenticated
+                against, including when ``password_env`` names a variable that
+                is not set. These are the states a not-yet-deployed project is
+                in, so they carry the deploy hint and reach the agent as a
+                ``connection_error`` rather than an internal error.
         """
         try:
             from pymongo import MongoClient
@@ -88,12 +164,16 @@ class MongoDBArchiverConnector(ArchiverConnector):
             self._ConnectionFailure = ConnectionFailure
             self._ConfigurationError = ConfigurationError
         except ImportError as e:
-            raise ImportError(
-                "pymongo is required for MongoDB archiver. Install with: pip install pymongo"
-            ) from e
+            raise ImportError(PYMONGO_INSTALL_HINT) from e
 
-        # Validate required config
-        host = config.get("host")
+        # Where the store is. The configured value is the host-side truth; a
+        # containerized consumer is handed the in-network address through the
+        # environment and that wins (see HOST_OVERRIDE_ENV). Resolved before the
+        # required-ness check so an environment-only address is a legitimate
+        # one, and the error below still fires when neither source names a host.
+        override_host, override_port = address_overrides()
+
+        host = override_host or config.get("host")
         if not host:
             raise ValueError("host is required for MongoDB archiver")
 
@@ -105,7 +185,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         if not collection_name:
             raise ValueError("collection is required for MongoDB archiver")
 
-        port = config.get("port", 27017)
+        port = override_port if override_port is not None else config.get("port", 27017)
         self._timeout = config.get("timeout", 60)
 
         # Validate required authentication config
@@ -121,12 +201,16 @@ class MongoDBArchiverConnector(ArchiverConnector):
         if not auth_db:
             raise ValueError("auth (authentication database) is required for MongoDB archiver")
 
-        # Get password from environment variable
+        # Get password from environment variable. An unset variable is a
+        # deployment state, not a config error: `osprey up` mints the password
+        # into the project's .env, so this is what a built-but-never-deployed
+        # project hits. ConnectionError so the agent gets an actionable
+        # connection_error envelope instead of an opaque internal error.
         password = os.getenv(password_env)
         if not password:
-            raise ValueError(
-                f"Environment variable '{password_env}' not set. "
-                "Password is required for MongoDB authentication."
+            raise ConnectionError(
+                f"Environment variable '{password_env}' is not set, so the MongoDB "
+                f"archiver has no password to authenticate with. {DEPLOY_HINT}"
             )
 
         try:
@@ -157,16 +241,16 @@ class MongoDBArchiverConnector(ArchiverConnector):
         except self._ConnectionFailure as e:
             raise ConnectionError(
                 f"Cannot connect to MongoDB at {host}:{port}. "
-                "Please check connectivity and authentication."
+                f"Please check connectivity and authentication. {DEPLOY_HINT}"
             ) from e
         except self._ConfigurationError as e:
             raise ConnectionError(f"MongoDB configuration error: {e}") from e
         except (TimeoutError, OSError) as e:
-            raise ConnectionError(f"MongoDB connection failed: {e}") from e
+            raise ConnectionError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
         except Exception as e:
             # Last resort - log and re-raise as ConnectionError
             logger.error(f"Unexpected error connecting to MongoDB: {e}", exc_info=True)
-            raise ConnectionError(f"MongoDB connection failed: {e}") from e
+            raise ConnectionError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
 
     async def disconnect(self) -> None:
         """Cleanup MongoDB connection."""
@@ -184,6 +268,19 @@ class MongoDBArchiverConnector(ArchiverConnector):
         self._collection = None
         self._connected = False
         logger.debug("MongoDB Archiver connector disconnected")
+
+    def _connection_error_types(self) -> tuple[type[BaseException], ...]:
+        """pymongo's connection-class exceptions, as an ``except``-ready tuple.
+
+        ``ConnectionFailure`` is the root of pymongo's network-and-server
+        family — ``AutoReconnect``, ``NetworkTimeout`` and
+        ``ServerSelectionTimeoutError`` all derive from it — so catching it
+        covers every way a live connection can go away mid-session. Returns an
+        empty tuple when ``connect()`` never ran and the classes were never
+        bound; an empty tuple in an ``except`` clause simply never matches,
+        which is the correct behaviour there.
+        """
+        return (self._ConnectionFailure,) if self._ConnectionFailure is not None else ()
 
     def _require_connected(self) -> None:
         """Raise ``RuntimeError`` unless a live collection is available.
@@ -222,7 +319,9 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Raises:
             RuntimeError: If archiver not connected
             TimeoutError: If operation times out
-            ConnectionError: If MongoDB cannot be reached
+            ConnectionError: If MongoDB cannot be reached, or the connection is
+                lost mid-query — the caller is expected to drop this connector
+                and reconnect
             TypeError: If start_date or end_date are not datetime objects
             ValueError: If pv_list is empty, data retrieval fails, or a
                 non-raw processing mode is requested for a channel that
@@ -301,6 +400,13 @@ class MongoDBArchiverConnector(ArchiverConnector):
             raise TimeoutError(f"MongoDB query timed out after {timeout}s") from e
         except ConnectionError as e:
             raise ConnectionError(f"Network connectivity issue with MongoDB: {e}") from e
+        except self._connection_error_types() as e:
+            # A pymongo connection-class failure means the store went away
+            # mid-session. Surfacing it as ConnectionError (rather than the
+            # ValueError the generic branch below would produce) is what makes
+            # connector_error_handler invalidate the cached connector, so the
+            # next tool call reconnects instead of reusing a dead client.
+            raise ConnectionError(f"Lost connection to MongoDB: {e}") from e
         except (ValueError, TypeError) as e:
             raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
         except Exception as e:
@@ -312,36 +418,48 @@ class MongoDBArchiverConnector(ArchiverConnector):
         """
         Get archiving metadata for a PV.
 
-        Note: Basic implementation that checks if PV exists in collection.
-        Could be enhanced with actual metadata queries.
+        ``archival_start`` and ``archival_end`` are the timestamps of the
+        oldest and newest documents actually holding this PV, read from the
+        store — not a declared or assumed coverage window. An agent that asks
+        how far back the history goes gets the real answer, so a query outside
+        the stored range reads as "not archived that far back" rather than as
+        missing data inside a range it was told existed.
 
         Args:
             pv_name: Name of the process variable
 
         Returns:
-            ArchiverMetadata with basic archiving information
+            ArchiverMetadata; ``is_archived`` is False and both bounds are None
+            when the PV has no stored samples or the store cannot be queried.
 
         Raises:
             RuntimeError: If archiver not connected
         """
         self._require_connected()
 
-        def check_pv():
-            """Check if PV exists in any document."""
-            # Query for any document that has this PV field
+        def stored_extent():
+            """Timestamps of the oldest and newest documents carrying this PV."""
+            # Sorting on 'date' rides the mandatory {date: 1} index, so this is
+            # two index-ordered lookups rather than a collection scan.
             query = {pv_name: {"$exists": True}}
-            count = self._collection.count_documents(query, limit=1)
-            return count > 0
+            projection = {"date": 1}
+            oldest = self._collection.find_one(query, projection, sort=[("date", 1)])
+            if oldest is None:
+                return None, None
+            newest = self._collection.find_one(query, projection, sort=[("date", -1)])
+            return oldest.get("date"), (newest or {}).get("date")
 
         try:
-            is_archived = await asyncio.to_thread(check_pv)
+            first, last = await asyncio.to_thread(stored_extent)
         except Exception as e:
             logger.warning(f"Error checking PV metadata: {e}")
-            is_archived = False
+            first = last = None
 
         return ArchiverMetadata(
             pv_name=pv_name,
-            is_archived=is_archived,
+            is_archived=first is not None,
+            archival_start=first,
+            archival_end=last,
             description=f"MongoDB Archived PV: {pv_name}",
         )
 

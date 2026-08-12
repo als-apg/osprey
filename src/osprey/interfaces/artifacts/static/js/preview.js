@@ -106,6 +106,16 @@ export function createPreviewRenderer(callbacks) {
     if (!previewEmpty || !previewContent) return;
 
     if (!getSelectedArtifact()) {
+      // Never render the empty placeholder while fullscreen: fullscreen-mode
+      // hides the header, sidebar and splitter (gallery.css), so a cleared
+      // selection — Delete from the fullscreen header, or an agent-side
+      // artifact_deleted SSE — would strand a chrome-less pane with no exit
+      // affordance. exitFullscreen re-enters renderPreview with the flag
+      // already cleared, so this cannot recurse.
+      if (isFullscreen) {
+        exitFullscreen();
+        return;
+      }
       previewEmpty.classList.remove("hidden");
       previewContent.classList.add("hidden");
       return;

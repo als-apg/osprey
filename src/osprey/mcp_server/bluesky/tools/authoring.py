@@ -62,7 +62,12 @@ async def write_plan(
             on-disk file stem and the generated metadata's ``name`` field.
         category: Free-text grouping shown to operators (e.g. "accelerator").
         required_devices: Names of the `PARAMS` fields naming devices the
-            plan drives/reads (e.g. ``["correctors", "detectors"]``).
+            plan drives/reads (e.g. ``["correctors", "detectors"]``). Name the
+            field immediately around the device-name strings — for a nested
+            shape that is the inner key, as `grid_scan` declares
+            ``"setpoints"`` for its ``axes[].setpoint`` values. The bridge
+            checks device names against the worker's device list before
+            queuing, and a field it cannot match is left unchecked.
         writes: Whether this plan moves a device (vs. read-only). Authoring
             metadata only — has no effect on whether writes actually happen;
             that is governed entirely by ``control_system.writes_enabled``.

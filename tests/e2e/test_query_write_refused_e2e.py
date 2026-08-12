@@ -1,8 +1,18 @@
 """E2E safety test: ``osprey query`` refuses hardware writes.
 
 Proves the read-only guarantee at the SDK layer: ``mcp__controls__channel_write``
-never appears in a query run's tool trace, regardless of the
+never *executes* in a query run, regardless of the
 ``control_system.writes_enabled`` kill-switch setting.
+
+The assertion is on execution, not emission: ``disallowed_tools`` strips the
+tool from the model's toolset, but a model told the exact tool name (as the
+directive prompt here does) can still hallucinate a ``tool_use`` block naming
+it. The SDK rejects that call with ``No such tool available`` and it never
+reaches the MCP server — the trace records the doomed emission with
+``is_error=True``. A trace entry is therefore a leak only if it is anything
+other than that rejection: a success result, or a hook-level denial (which
+would mean the tool was still registered — the actual regression this test
+guards against).
 
 The load-bearing case is ``writes_enabled=True``: the application-level
 kill-switch hook would *permit* the write, yet the SDK-level
@@ -62,7 +72,8 @@ def test_query_refuses_write(tmp_path: Path, writes_enabled: bool) -> None:
     (structural: passes even before a live run).
 
     Guard 2 — a directive prompt explicitly naming ``mcp__controls__channel_write``
-    produces no tool-trace entry for that tool (behavioural: the SDK-level block
+    never produces an *executed* call: any trace entry for the tool must be the
+    SDK's ``No such tool available`` rejection (behavioural: the SDK-level block
     holds against a model that has been told exactly what to call).
     """
     repo = init_project(
@@ -97,10 +108,14 @@ def test_query_refuses_write(tmp_path: Path, writes_enabled: bool) -> None:
     json_start = output.find("{")
     assert json_start >= 0, f"No JSON found in command output:\n{output}"
     payload, _ = json.JSONDecoder().raw_decode(output[json_start:].strip())
-    names = [t["name"] for t in payload["tool_traces"]]
-    assert "mcp__controls__channel_write" not in names, (
-        f"WRITE LEAKED (writes_enabled={writes_enabled}): {names}"
-    )
+    write_traces = [
+        t for t in payload["tool_traces"] if t["name"] == "mcp__controls__channel_write"
+    ]
+    for t in write_traces:
+        assert t["is_error"] and "No such tool available" in (t["result"] or ""), (
+            f"WRITE LEAKED (writes_enabled={writes_enabled}): a channel_write trace "
+            f"is not the SDK's no-such-tool rejection — the tool was reachable: {t}"
+        )
 
 
 # Directive prompt naming the built-in Bash tool — the non-MCP escape hatch.
@@ -120,8 +135,10 @@ def test_query_refuses_builtin_bash(tmp_path: Path) -> None:
     and Bash is arbitrary shell (a hardware-write / file-mutation vector).
 
     Guard 1 — Bash is in the SDK-level disallowed set (structural).
-    Guard 2 — a directive prompt naming Bash produces no Bash tool trace
-    (behavioural: the SDK-level block holds against a model told to use it).
+    Guard 2 — a directive prompt naming Bash never produces an *executed* Bash
+    call: any Bash trace must be the SDK's ``No such tool available`` rejection
+    (behavioural: the SDK-level block holds against a model told to use it; see
+    the module docstring for why emission alone is not a leak).
     """
     repo = init_project(
         tmp_path,
@@ -146,5 +163,9 @@ def test_query_refuses_builtin_bash(tmp_path: Path) -> None:
     json_start = output.find("{")
     assert json_start >= 0, f"No JSON found in command output:\n{output}"
     payload, _ = json.JSONDecoder().raw_decode(output[json_start:].strip())
-    names = [t["name"] for t in payload["tool_traces"]]
-    assert "Bash" not in names, f"BASH LEAKED: {names}"
+    bash_traces = [t for t in payload["tool_traces"] if t["name"] == "Bash"]
+    for t in bash_traces:
+        assert t["is_error"] and "No such tool available" in (t["result"] or ""), (
+            f"BASH LEAKED: a Bash trace is not the SDK's no-such-tool rejection "
+            f"— the tool was reachable: {t}"
+        )

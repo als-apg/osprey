@@ -421,10 +421,19 @@ archiver:
   # Options:
   #   - mock_archiver: Development mode (generates synthetic data)
   #   - epics_archiver: EPICS Archiver Appliance
-  #   - mongodb_archiver: MongoDB time-series collection. Needs the
-  #     archiver-mongodb extra AND a mongodb_archiver block (see below) —
-  #     the connector has no defaults for the required keys.
-  type: mock_archiver  # <-- Change to 'epics_archiver' for production
+  #   - mongodb_archiver: MongoDB time-series collection. Reads a store this
+  #     project deploys, seeds and records into — real recorded history, which
+  #     is what the control-assistant PRESET selects, because it also declares
+  #     the `va_archiver:` block that deploys the store.
+  #
+  # The default here stays mock_archiver, and deliberately: a project built from
+  # this template WITHOUT a `va_archiver:` block deploys no store, so naming a
+  # store-backed connector would leave it pointing at something that does not
+  # exist and failing at connect. A mock is the honest answer for a project with
+  # no archive — it synthesizes, and says so. The flip to a real archive travels
+  # with the block that makes the archive exist, which is the preset's job and
+  # arrives as an `archiver.type` override at build time.
+  type: mock_archiver  # <-- 'epics_archiver' for production
 
   # Mock archiver (development mode) — synthesizes history from the same
   # simulation machine model as the control-system connector above, so live
@@ -447,20 +456,27 @@ archiver:
     url: https://archiver.als.lbl.gov:8443
     timeout: 60              # Timeout for archiver requests in seconds
 
-  # MongoDB archiver — install the extra first:
+  # MongoDB archiver — needs the archiver-mongodb extra:
   #   pip install 'osprey-framework[archiver-mongodb]'
-  # Every key below except port and timeout is required; the connector raises
-  # on the first one missing. The password itself is never stored here — it is
-  # read at connect time from the environment variable named by password_env.
-  # mongodb_archiver:
-  #   host: mongodb.example.org
-  #   port: 27017             # Optional, defaults to 27017
-  #   name: my-archiver-database
-  #   collection: my-archiver-collection
-  #   auth: database-auth     # Authentication database
-  #   username: my-username
-  #   password_env: MONGODB_READONLY_PASSWORD
-  #   timeout: 60             # Optional, defaults to 60 seconds
+  # Every key here except port and timeout is required; the connector raises on
+  # the first one missing. The password itself is never stored here — it is read
+  # at connect time from the environment variable named by password_env, which
+  # `osprey up` mints into the project's .env.
+  #
+  # A project whose build profile declares a `va_archiver:` block has these
+  # written from it at build time, so they describe the store this project
+  # deploys. Edit them to point at a store someone else runs; edit the profile
+  # block instead if this project deploys its own, or the next build overwrites
+  # what you wrote here.
+  mongodb_archiver:
+    host: localhost
+    port: 27017             # Optional, defaults to 27017
+    name: osprey_archiver
+    collection: pv_history
+    auth: admin             # Authentication database
+    username: osprey
+    password_env: MONGO_ROOT_PASSWORD
+    timeout: 5              # Optional, defaults to 60 seconds
 
 # ============================================================
 # SCAN PLANS (BLUESKY BRIDGE)
@@ -492,11 +508,34 @@ archiver:
 #   plan_dirs:
 #     - /app/project/extra_plans
 
-# Migration from tutorial to production:
-# 1. Change control_system.type from 'mock' to 'epics'
-# 2. Change archiver.type from 'mock_archiver' to 'epics_archiver'
+# Migration from tutorial to production. Every key named below is a field INSIDE
+# its section — edit `type:` under `control_system:`, not a new top-level
+# `control_system.type:` line. This file is read as nested sections, so a dotted
+# line added at the top level configures nothing and is silently ignored.
+# 1. Change `type:` under `control_system:` to 'epics' and fill in the epics
+#    block above
+# 2. Change `type:` under `archiver:` to 'epics_archiver' and point
+#    epics_archiver.url at your Archiver Appliance. If you came from the
+#    control-assistant preset, that field reads 'mongodb_archiver': the preset
+#    both DEPLOYS a store and selects it, so that history is real — but it is a
+#    simulated machine's history, which is not what you want against hardware.
 # 3. Test with: osprey health
 # Your code doesn't need to change!
+#
+# One thing not to do: hand-flipping the archiver to a store-backed connector
+# without deploying a store. Nothing would be writing the archive you just named,
+# so it reads as empty rather than as broken — it fails at connect, which is at
+# least an error you can act on.
+#
+# The opposite pairing is refused outright, in all three places it can appear: a
+# 'virtual_accelerator' control system whose archiver is 'mock_archiver' — or
+# unset, which the connector factory resolves to the mock — is rejected by
+# `osprey build`, by `osprey up`, and by the MCP server at startup. A
+# simulated machine whose history is synthesized at read time reports a past that
+# never happened, and nothing can catch it. Each refusal names the way out:
+# declare a `va_archiver:` block and select 'mongodb_archiver' (what this project
+# does), point the archiver at a store you run yourself, or set the control
+# system to 'mock' for an honestly storeless deployment.
 
 # ============================================================
 # CHANNEL FINDER CONFIGURATION

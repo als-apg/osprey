@@ -396,6 +396,7 @@ class TestTemplateManifest:
             "osprey_memory_guard.py",
             "osprey_notebook_update.py",
             "osprey_panels_context.py",
+            "osprey_workspace_delta.py",
             "osprey_writes_check.py",
         }
         hooks_dir = project_dir / ".claude" / "hooks"
@@ -528,6 +529,60 @@ class TestBuiltinPanelRegistryDrift:
         assert panels.get("okf", {}).get("enabled") is True
         assert panels.get("channel-finder", {}).get("enabled") is True
         assert "ariel" not in panels
+
+
+class TestControlAssistantMongoDBTemplate:
+    """The archiver block in the control-assistant config template.
+
+    The load-bearing invariant: the build's `va_archiver:` override sets
+    leaves in an EXISTING mapping, so the `mongodb_archiver:` block must be
+    LIVE in the template — a commented example could not receive the derived
+    connection keys, and the preset's values would land beside it instead of
+    in it.
+    """
+
+    @staticmethod
+    def _template_text() -> str:
+        from pathlib import Path
+
+        import osprey
+
+        path = (
+            Path(osprey.__file__).parent
+            / "templates"
+            / "apps"
+            / "control_assistant"
+            / "config.yml.j2"
+        )
+        return path.read_text(encoding="utf-8")
+
+    def test_template_documents_mongodb_option(self):
+        """The options comment must list mongodb_archiver and name the extra."""
+        template = self._template_text()
+
+        assert "#   - mongodb_archiver:" in template
+        assert "archiver-mongodb" in template
+
+    def test_template_shows_required_mongodb_keys(self):
+        """A LIVE block covers every key the connector refuses to default.
+
+        Live rather than commented. The template's own default stays
+        ``mock_archiver`` — a project that deploys no store should read a mock
+        that admits it is one — but the control-assistant PRESET selects
+        ``mongodb_archiver`` and deploys the store to back it, and the build
+        writes these keys from its ``va_archiver:`` block.
+        """
+        template = self._template_text()
+
+        assert "\n  mongodb_archiver:\n" in template, (
+            "the mongodb block must be live, not commented"
+        )
+        block = template.split("\n  mongodb_archiver:\n", 1)[1]
+        # Stop at the next key at the same depth, so a later `host:` elsewhere
+        # in the template cannot stand in for one this block is missing.
+        body = block.split("\n\n", 1)[0]
+        for key in ("host", "name", "collection", "auth", "username", "password_env"):
+            assert f"    {key}:" in body, f"required key {key!r} missing from the mongodb block"
 
 
 if __name__ == "__main__":

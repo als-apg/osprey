@@ -404,3 +404,124 @@ def test_registered_on_the_top_level_cli():
     with Context(cli) as ctx:
         assert cli.get_command(ctx, "set") is set_command
         assert "set" in cli.list_commands(ctx)
+
+
+# --- the honesty rule, at the verbs that own it now --------------------------
+#
+# `osprey config set-control-system` used to refuse a virtual accelerator
+# paired with the mock archiver at WRITE time. The write verb is now
+# `osprey set`, which is deliberately unguarded — profile.yml is a document,
+# and the build is where a profile's claims are judged — so the truth table
+# moved with the refusal: set the pairing, and the next `osprey build`
+# refuses it. The pure predicate is pinned in
+# tests/connectors/test_honesty_rule.py; what this class pins is the two-verb
+# OPERATOR path — an `osprey set` that walks into the pairing is caught by the
+# very next build, with the profile-level fix in the message.
+
+
+def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
+    """A minimal buildable repo with NO archiver spelled anywhere."""
+    repo = tmp_path / name
+    repo.mkdir()
+    (repo / "profile.yml").write_text(
+        "name: Honesty Table\n"
+        "data_bundle: control_assistant\n"
+        "provider: cborg\n"
+        "model: haiku\n"
+        "channel_finder_mode: in_context\n"
+        "tier: 1\n",
+        encoding="utf-8",
+    )
+    return repo
+
+
+def _build(runner: CliRunner, repo: Path):
+    from osprey.cli.build_cmd import build
+
+    return runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+
+
+class TestASetPairingIsJudgedAtTheNextBuild:
+    def test_va_onto_the_mock_archiver_is_refused(self, runner, tmp_path, caplog):
+        repo = _honesty_repo(tmp_path)
+        wrote = _invoke(
+            runner, repo, "connector=virtual_accelerator", "config.archiver.type=mock_archiver"
+        )
+        assert wrote.exit_code == 0, wrote.output
+
+        result = _build(runner, repo)
+
+        assert result.exit_code != 0
+        # The refusal reaches the operator through the logger, and the Rich
+        # handler wraps rendered lines — read the records, which carry the
+        # message whole (the repo-wide CliRunner convention).
+        assert "mock" in caplog.text
+
+    def test_va_with_no_archiver_at_all_is_refused(self, runner, tmp_path, caplog):
+        """Unset counts as mock: the connector factory would resolve it there."""
+        repo = _honesty_repo(tmp_path)
+        assert _invoke(runner, repo, "connector=virtual_accelerator").exit_code == 0
+
+        result = _build(runner, repo)
+
+        assert result.exit_code != 0
+        assert "archiver.type" in caplog.text
+
+    def test_the_refusal_names_the_profile_level_fix(self, runner, tmp_path, caplog):
+        """The build is the one site that can talk in profile keys, so it must."""
+        repo = _honesty_repo(tmp_path)
+        assert _invoke(runner, repo, "connector=virtual_accelerator").exit_code == 0
+
+        result = _build(runner, repo)
+
+        assert result.exit_code != 0
+        assert "va_archiver" in caplog.text
+        assert "mongodb_archiver" in caplog.text
+
+    def test_the_refusal_is_a_clean_report_not_a_crash(self, runner, tmp_path):
+        repo = _honesty_repo(tmp_path)
+        assert _invoke(runner, repo, "connector=virtual_accelerator").exit_code == 0
+
+        result = _build(runner, repo)
+
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
+
+    def test_va_onto_a_real_archive_builds(self, runner, lifecycle_repo):
+        """The exemplar pairs the VA with its `va_archiver:` store — legal."""
+        assert _invoke(runner, lifecycle_repo, "connector=virtual_accelerator").exit_code == 0
+
+        result = _build(runner, lifecycle_repo)
+
+        assert result.exit_code == 0, result.output
+
+    def test_epics_onto_the_mock_archiver_builds(self, runner, tmp_path):
+        """A real machine with no archive attached yet is a real facility state."""
+        repo = _honesty_repo(tmp_path)
+        assert _invoke(runner, repo, "connector=epics").exit_code == 0
+
+        result = _build(runner, repo)
+
+        assert result.exit_code == 0, result.output
+
+    def test_mock_onto_the_mock_archiver_builds(self, runner, tmp_path):
+        """Mock-on-mock claims nothing is real, so nothing lies."""
+        repo = _honesty_repo(tmp_path)
+        assert _invoke(runner, repo, "connector=mock").exit_code == 0
+
+        result = _build(runner, repo)
+
+        assert result.exit_code == 0, result.output
+
+    def test_a_case_wrong_spelling_is_refused_at_set_and_writes_nothing(self, runner, tmp_path):
+        """`Virtual_Accelerator` must not slip past the honesty rule as an
+        unknown type: the shorthand refuses it at write time, with the
+        case-corrected suggestion, and the profile is left untouched."""
+        repo = _honesty_repo(tmp_path)
+        before = _profile_text(repo)
+
+        result = _invoke(runner, repo, "connector=Virtual_Accelerator")
+
+        assert result.exit_code != 0
+        assert "virtual_accelerator" in result.output
+        assert _profile_text(repo) == before

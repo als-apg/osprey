@@ -1,7 +1,7 @@
 """MCP tools: read/allow-listed Bluesky bridge operations.
 
 Each tool is a thin HTTP client of one endpoint of the facility-side Bluesky
-bridge. All four are safe to call without operator approval
+bridge. All five are safe to call without operator approval
 (``permissions_allow``) — none of them can start motion; ``queue_start`` is
 the sole path by which execution begins.
 
@@ -10,6 +10,7 @@ Tool                        Bridge endpoint
 ==========================  =================================================
 get_run                    GET  /runs/{id}
 list_plans             GET  /plans
+list_devices               GET  /devices
 list_runs                   GET  /runs
 get_run_data               GET  /runs/{id}/data
 ==========================  =================================================
@@ -115,7 +116,34 @@ async def list_plans() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool 4: list runs
+# Tool 4: list devices
+# ---------------------------------------------------------------------------
+@mcp.tool()
+async def list_devices() -> str:
+    """List the device names this deployment's plans accept.
+
+    Plan parameters carry devices as strings (a plan's ``required_devices``
+    metadata names which fields those are), and this is the set those strings
+    must come from — a name that is not here is not a device the worker has,
+    and the run fails on its first step rather than at queue time. Read this
+    before staging any device name into the draft; never invent or guess one.
+
+    Returns:
+        JSON ``{"status": "success", "devices": [...]}``, each entry
+        ``{"name"}`` plus whichever of ``is_movable``/``is_readable``/
+        ``is_flyable`` the worker reported — ``is_movable`` marks a device that
+        can be driven as a setpoint, ``is_readable`` one that can be read as a
+        detector. A missing flag means the worker did not say, not "no".
+        An empty list means this deployment's worker built no devices at all.
+    """
+    status, body = await anyio.to_thread.run_sync(_http_get_json, "/devices")
+    if status != 200:
+        return make_error("bluesky_bridge_error", bridge_error_message(body, status))
+    return json.dumps({"status": "success", "devices": body})
+
+
+# ---------------------------------------------------------------------------
+# Tool 5: list runs
 # ---------------------------------------------------------------------------
 @mcp.tool()
 async def list_runs(limit: int = 20) -> str:
@@ -142,7 +170,7 @@ async def list_runs(limit: int = 20) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool 5: get run data (bounded)
+# Tool 6: get run data (bounded)
 # ---------------------------------------------------------------------------
 @mcp.tool()
 async def get_run_data(

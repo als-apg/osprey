@@ -45,9 +45,16 @@ This application demonstrates production-validated patterns for building AI assi
   readbacks). **Requires the VA service** — add `virtual_accelerator` to
   `deployed_services` in `profile.yml`, run
   `osprey set connector=virtual_accelerator`, then `osprey build` and
-  `osprey up`. See the
-  "Use the Virtual Accelerator" how-to guide for scenarios, limits, and the
-  archiver live-vs-history note.
+  `osprey up`.
+
+  That pairing **also requires a real archive**: `osprey build` refuses while
+  the profile still reads the `mock_archiver`, because a simulated machine
+  whose history is synthesized at read time reports a past that never
+  happened. Point `archiver.type` at a store this deployment writes — the way
+  to get one is a `va_archiver:` block in the build profile, which makes
+  `osprey up` stand up a store and a recorder beside the VA and seed the
+  history. See the "Use the Virtual Accelerator" how-to guide for the archive,
+  scenarios and limits.
 - **`epics`** — production EPICS via the facility gateway.
 
 ---

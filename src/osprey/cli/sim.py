@@ -138,6 +138,29 @@ def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
     click.echo("  the old environment.")
 
 
+def _confirm_archive_rewrite(store: dict) -> None:
+    """Warn before overwriting stored history, and let the user back out.
+
+    The archive is *stored data*, and the rewrite is not additive: windows a
+    previous scenario marked go back to base, and on a virtual-accelerator
+    deployment the affected windows may hold samples a recorder took from the
+    running machine. That is the documented behaviour — one timeline, and the
+    active scenario owns its event windows — but it is not something to do to
+    someone's data without saying so first.
+
+    The caller passes the store the preflight already resolved, and skips this
+    entirely when the project has none: there is nothing to lose and nothing to
+    decide, and a prompt about a store that does not exist trains people to hit
+    enter.
+    """
+    click.echo(
+        f"This will REWRITE the scenario's event windows in the stored archive "
+        f"({store['host']}:{store['port']}/{store['database']}.{store['collection']}), "
+        f"restoring any windows a previous scenario touched."
+    )
+    click.confirm("Continue?", abort=True)
+
+
 # ---------------------------------------------------------------------------
 # Group
 # ---------------------------------------------------------------------------
@@ -186,8 +209,10 @@ def status_command(repo: Path | None) -> None:
 @sim_group.command("apply")
 @repo_option
 @click.argument("names", nargs=-1, required=True)
-@click.option("--no-seed", is_flag=True, help="Change telemetry only; do not touch the logbook DB.")
-@click.option("--yes", "-y", is_flag=True, help="Skip the purge confirmation prompt.")
+@click.option("--no-seed", is_flag=True, help="Change telemetry only; touch no stored data.")
+@click.option("--no-seed-logbook", is_flag=True, help="Leave the logbook database untouched.")
+@click.option("--no-seed-archiver", is_flag=True, help="Leave the stored archive untouched.")
+@click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompts.")
 @click.option(
     "--now",
     "now_iso",
@@ -202,25 +227,37 @@ def status_command(repo: Path | None) -> None:
     ),
 )
 def apply_command(
-    repo: Path | None, names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str | None
+    repo: Path | None,
+    names: tuple[str, ...],
+    no_seed: bool,
+    no_seed_logbook: bool,
+    no_seed_archiver: bool,
+    yes: bool,
+    now_iso: str | None,
 ) -> None:
-    """Compose and activate scenarios NAMES.
+    """Activate scenarios NAMES and seed their stored data.
 
-    Their logbook is seeded too unless --no-seed is given. Active scenarios
-    must touch disjoint channel sets. Seeding purges and reseeds the ARIEL
-    logbook so the narrative matches the active telemetry.
+    Active scenarios must touch disjoint channel sets. Seeding purges and
+    reseeds the ARIEL logbook, and rewrites the affected windows of the stored
+    archive, so the narrative and the history both match the active telemetry.
+    Use --no-seed-logbook or --no-seed-archiver to leave one of them alone, or
+    --no-seed for both.
+
     A scenario's physics block is rendered into the deployment's .env for the
     virtual accelerator to pick up at its next container boot.
     """
     from osprey.simulation.apply import (
         apply_scenarios,
         compute_scenario_physics_env,
+        preflight_archive_rewrite,
         resolve_simulation_file,
         write_scenario_physics_env,
     )
     from osprey.simulation.engine import resolve_active_scenarios
 
     now = _parse_now(now_iso) if now_iso else None
+    seed_logbook = not (no_seed or no_seed_logbook)
+    seed_archive = not (no_seed or no_seed_archiver)
     repo_root, config = _resolve_deployment(repo)
     ariel_config = config.get("ariel")
 
@@ -232,6 +269,7 @@ def apply_command(
     # "not simulation-backed" error for it, which the handler turns into exit 1.
     machine_path, *_ = resolve_simulation_file(config, repo_root)
     physics: dict[str, str] | None = None
+    store: dict | None = None
     if machine_path is not None:
         from osprey.simulation.engine import SimulationEngine, resolve_state_dir
 
@@ -250,7 +288,19 @@ def apply_command(
             click.echo(f"Error: {exc}", err=True)
             raise SystemExit(1) from None
 
-    if not no_seed and not yes and ariel_config:
+        # The archive rewrite's own refusals belong here too, not inside it: a
+        # store whose password the project's .env does not carry, or an event
+        # positioned by window fraction, would otherwise be discovered after
+        # the scenario is live and the logbook reseeded -- leaving telemetry
+        # and narrative saying one thing and the untouched history another.
+        if seed_archive:
+            try:
+                store = preflight_archive_rewrite(repo_root, config, machine_path, list(names))
+            except (ValueError, RuntimeError) as exc:
+                click.echo(f"Error: {exc}", err=True)
+                raise SystemExit(1) from None
+
+    if seed_logbook and not yes and ariel_config:
         from osprey.services.ariel_search.cli_operations import get_purge_info
 
         try:
@@ -265,6 +315,9 @@ def apply_command(
             )
             click.confirm("Continue?", abort=True)
 
+    if seed_archive and not yes and store is not None:
+        _confirm_archive_rewrite(store)
+
     # Past the last abort point: write the physics vars, then say so immediately.
     # Emitting the notice here rather than after apply_scenarios means a failed
     # logbook seed can never swallow it.
@@ -272,8 +325,17 @@ def apply_command(
         _echo_physics_notice(config, physics)
 
     try:
-        result = apply_scenarios(repo_root, list(names), seed_logbook=not no_seed, now=now)
+        result = apply_scenarios(
+            repo_root,
+            list(names),
+            seed_logbook=seed_logbook,
+            seed_archive=seed_archive,
+            now=now,
+        )
     except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from None
+    except RuntimeError as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(1) from None
     except Exception as exc:
@@ -285,9 +347,16 @@ def apply_command(
         raise
 
     click.echo("✓ Active scenarios: " + ", ".join(result.active))
-    if no_seed:
-        click.echo("  (telemetry only — logbook unchanged)")
+    if not seed_logbook:
+        click.echo("  (logbook unchanged)")
     elif result.logbook_seeded:
         click.echo(f"✓ Seeded {result.logbook_seeded} logbook entries (purged and reseeded).")
     elif ariel_config is None:
         click.echo("  (no ARIEL config — logbook not seeded)")
+
+    if not seed_archive:
+        click.echo("  (stored archive unchanged)")
+    elif result.archiver is not None and not result.archiver.skipped:
+        click.echo(f"✓ Archive rewritten: {result.archiver.describe()}")
+    elif result.archiver is not None:
+        click.echo(f"  ({result.archiver.skipped})")

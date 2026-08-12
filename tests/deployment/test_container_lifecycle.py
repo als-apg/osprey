@@ -8,7 +8,11 @@ without a container runtime.
 
 from __future__ import annotations
 
+import json
+import logging
 import subprocess
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -1898,3 +1902,664 @@ class TestResolvePipSpec:
 
         with pytest.raises(UnreleasedVersionPinError):
             container_lifecycle._resolve_pip_spec(dev_mode=False)
+
+
+# ---------------------------------------------------------------------------
+# Staged archiver bring-up
+# ---------------------------------------------------------------------------
+
+
+class _FakeAdmin:
+    """``client.admin``, answering ``ping`` only after ``fail_times`` refusals."""
+
+    def __init__(self, fail_times: int = 0):
+        self.fail_times = fail_times
+        self.pings = 0
+
+    def command(self, name):
+        self.pings += 1
+        if self.fail_times > 0:
+            self.fail_times -= 1
+            from pymongo.errors import ServerSelectionTimeoutError
+
+            raise ServerSelectionTimeoutError("store not up yet")
+        return {"ok": 1}
+
+
+class _FakeCollection:
+    """Just enough of a pymongo collection for the staged bring-up's own calls."""
+
+    def __init__(self, fail_pings: int = 0):
+        self.admin = _FakeAdmin(fail_pings)
+        self.dropped = False
+        # collection.database.client.admin is the path the health poll walks.
+        self.database = type("_Db", (), {"client": type("_Client", (), {"admin": self.admin})()})()
+
+    def drop(self):
+        self.dropped = True
+
+
+ARCHIVER_CONFIG = {
+    "deployed_services": ["mongodb", "archiver_recorder", "virtual_accelerator"],
+    "services": {"mongodb": {"compression": "zstd", "port_host": 27017}},
+    "va_archiver": {
+        "retention_days": 1,
+        "hot_span_hours": 1,
+        "hot_cadence_sec": 10,
+        "tail_cadence_sec": 60,
+    },
+    "archiver": {
+        "mongodb_archiver": {
+            "host": "localhost",
+            "port": 27017,
+            "name": "osprey_archiver",
+            "collection": "pv_history",
+            "auth": "admin",
+            "username": "osprey",
+            "password_env": "MONGO_ROOT_PASSWORD",
+            "timeout": 5,
+        }
+    },
+}
+
+
+@pytest.fixture
+def staged_archiver(monkeypatch, tmp_path):
+    """Drive ``deploy_up`` for an archiver project with every store call faked.
+
+    Records the compose argv in order (so the *sequence* of staged store, quiesce
+    and full bring-up is assertable) plus what the seeder was asked to do.
+    """
+    from osprey.simulation import apply as apply_mod
+    from osprey.simulation import archiver_seed
+
+    state: dict = {
+        "cmds": [],
+        "collection": _FakeCollection(),
+        "seeded": [],
+        "reapplied": [],
+        "fingerprint_state": archiver_seed.SeedState.ABSENT,
+        "differences": (),
+        "returncode": 0,
+    }
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("MONGO_ROOT_PASSWORD=s3cret\n")
+
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (dict(ARCHIVER_CONFIG), ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
+
+    def _fake_run(cmd, env=None, check=False):
+        state["cmds"].append(list(cmd))
+        # A real CompletedProcess, because the quiesce checks its returncode.
+        return subprocess.CompletedProcess(list(cmd), state["returncode"])
+
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+
+    # The seed inputs are a manifest read plus a machine-model load; both are
+    # exercised by their own module's tests, and neither belongs in an argv test.
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_archiver_seed_inputs",
+        lambda config, project_dir: ([{"address": "SR:BPM1:X"}], None, {}),
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_reapply_active_scenarios",
+        lambda config, project_dir, engine: state["reapplied"].append(project_dir),
+    )
+
+    @contextmanager
+    def _fake_collection(store):
+        state["store"] = store
+        yield state["collection"]
+
+    monkeypatch.setattr(apply_mod, "archiver_collection", _fake_collection)
+    monkeypatch.setattr(
+        archiver_seed,
+        "compare_fingerprint",
+        lambda collection, fingerprint: archiver_seed.FingerprintComparison(
+            state["fingerprint_state"], state["differences"]
+        ),
+    )
+
+    def _fake_seed_base(collection, channels, knobs, **kwargs):
+        state["seeded"].append({"channels": list(channels), "knobs": knobs, "kwargs": kwargs})
+        # The staged step reports on what it wrote, so hand back a real report.
+        return archiver_seed.SeedReport(documents=10, channels=len(channels))
+
+    monkeypatch.setattr(archiver_seed, "seed_base", _fake_seed_base)
+    return state
+
+
+def _verbs(cmds):
+    """The compose verb (plus service argument) of each recorded invocation.
+
+    Strips the runtime command and the leading option pairs — the invocation
+    contract's ``--project-directory``, plus ``-f``, ``--env-file`` and
+    ``--progress`` — which are the same on every invocation and only obscure
+    the ordering under test.
+    """
+    verbs = []
+    for cmd in cmds:
+        rest = list(cmd)
+        while rest and rest[0] in ("docker", "compose", "podman"):
+            rest.pop(0)
+        while rest and rest[0] in ("-f", "--env-file", "--progress", "--project-directory"):
+            del rest[:2]
+        verbs.append(" ".join(rest))
+    return verbs
+
+
+def test_staged_store_comes_up_before_the_full_bring_up(staged_archiver, tmp_path):
+    """The store is started alone first: the recorder must never race the seeder
+    into creating the collection with the wrong indexes."""
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    verbs = _verbs(staged_archiver["cmds"])
+    staged = verbs.index("up -d mongodb")
+    full = verbs.index("up --remove-orphans -d")
+    assert staged < full
+
+
+def test_reseed_quiesces_the_recorder_before_dropping_the_collection(staged_archiver, tmp_path):
+    """The recorder writes into the collection being dropped, so it is stopped
+    first. The following `up` restores it — nothing here has to undo the stop."""
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    verbs = _verbs(staged_archiver["cmds"])
+    assert verbs.index("stop archiver-recorder") < verbs.index("up --remove-orphans -d")
+    assert staged_archiver["collection"].dropped
+    assert len(staged_archiver["seeded"]) == 1
+
+
+def test_absent_fingerprint_seeds_after_a_volume_wipe(staged_archiver, tmp_path):
+    """`clean`/`rebuild` remove the volume, leaving no manifest — the same path a
+    first deploy takes, which is what makes a wiped store re-seed."""
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert len(staged_archiver["seeded"]) == 1
+    assert staged_archiver["reapplied"] == [tmp_path]
+
+
+def test_matching_fingerprint_skips_the_seed(staged_archiver, tmp_path):
+    """Unchanged knobs mean the stored archive already describes this profile:
+    nothing is dropped, written, or re-applied, and the recorder keeps running."""
+    from osprey.simulation.archiver_seed import SeedState
+
+    staged_archiver["fingerprint_state"] = SeedState.MATCH
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    verbs = _verbs(staged_archiver["cmds"])
+    assert "up -d mongodb" in verbs
+    assert "stop archiver-recorder" not in verbs
+    assert staged_archiver["seeded"] == []
+    assert staged_archiver["reapplied"] == []
+    assert not staged_archiver["collection"].dropped
+
+
+def test_mismatched_fingerprint_rebuilds_and_reapplies(staged_archiver, tmp_path):
+    """Changed knobs make the stored coverage wrong, so the base is rebuilt and
+    the active scenario set re-applied onto it — otherwise the deployment would
+    claim a fault whose history it had just erased."""
+    from osprey.simulation.archiver_seed import SeedState
+
+    staged_archiver["fingerprint_state"] = SeedState.MISMATCH
+    staged_archiver["differences"] = (("retention_days", 30, 1),)
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert staged_archiver["collection"].dropped
+    assert len(staged_archiver["seeded"]) == 1
+    assert staged_archiver["reapplied"] == [tmp_path]
+
+
+@pytest.mark.parametrize("state", ["ABSENT", "MISMATCH"])
+def test_drop_and_rebuild_always_implies_a_quiesced_recorder(staged_archiver, tmp_path, state):
+    """The invariant, stated once for every path that reaches it: a rebuild of
+    the base implies a quiesced recorder.
+
+    Not "mismatch quiesces and absent does not" — that conditional would leave
+    the absent path letting a writer run into a collection being dropped
+    underneath it. Stopping a service that was never started is a no-op, so the
+    unconditional rule is both simpler and strictly safer.
+    """
+    from osprey.simulation.archiver_seed import SeedState
+
+    staged_archiver["fingerprint_state"] = getattr(SeedState, state)
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    verbs = _verbs(staged_archiver["cmds"])
+    assert "stop archiver-recorder" in verbs
+    assert staged_archiver["collection"].dropped
+
+
+@pytest.mark.parametrize(
+    ("state", "expect_seed"),
+    [("MISMATCH", False), ("ABSENT", True)],
+)
+def test_keep_archiver_base_suppresses_only_the_mismatch_rebuild(
+    staged_archiver, tmp_path, state, expect_seed
+):
+    """The flag keeps an EXISTING base; it does not mean "never seed".
+
+    On a mismatch it preserves recorded history at the cost of honesty about the
+    new knobs. On an absent manifest — a first deploy, or a wiped volume — there
+    is no base to keep, so the seed must still happen; otherwise the flag would
+    silently leave the deployment with no history at all. This is also why
+    `rebuild` needs no flag of its own: it always lands on the absent path.
+    """
+    from osprey.simulation.archiver_seed import SeedState
+
+    staged_archiver["fingerprint_state"] = getattr(SeedState, state)
+    staged_archiver["differences"] = (("retention_days", 30, 1),)
+    container_lifecycle.deploy_up(
+        str(tmp_path / "config.yml"), detached=True, keep_archiver_base=True
+    )
+
+    assert bool(staged_archiver["seeded"]) is expect_seed
+    assert staged_archiver["collection"].dropped is expect_seed
+    assert ("stop archiver-recorder" in _verbs(staged_archiver["cmds"])) is expect_seed
+
+
+def test_seeder_authenticates_with_the_project_dotenv_password(staged_archiver, tmp_path):
+    """Read from the project's own `.env` by name — never from whatever the
+    ambient environment happens to export for another deployment's store."""
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert staged_archiver["store"]["password"] == "s3cret"
+
+
+def test_deploy_without_the_store_service_stages_nothing(captured_argv, monkeypatch, tmp_path):
+    """A project that reads a store someone else runs must never have its history
+    seeded by a local deploy."""
+    staged: list = []
+    monkeypatch.setattr(
+        container_lifecycle, "_stage_archiver_store", lambda *a, **k: staged.append(a)
+    )
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert staged == []
+
+
+def test_pymongo_preflight_aborts_before_any_container_work(monkeypatch, tmp_path):
+    """Naming the extra in seconds beats an ImportError after a minutes-long
+    image build, so the check sits beside the token mint, not at the seeder."""
+    import sys
+
+    ran: list = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (dict(ARCHIVER_CONFIG), ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "_build_project_image", lambda *a, **k: ran.append("build")
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess, "run", lambda *a, **k: ran.append("compose")
+    )
+    # A None entry in sys.modules is what an absent optional extra looks like to
+    # `import pymongo` — the import machinery raises ImportError without touching
+    # the installed package.
+    monkeypatch.setitem(sys.modules, "pymongo", None)
+
+    with pytest.raises(RuntimeError, match=r"osprey-framework\[archiver-mongodb\]"):
+        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    assert ran == []
+
+
+def test_pymongo_preflight_is_silent_without_the_store_service():
+    """No archiver in the deploy, no dependency to demand."""
+    container_lifecycle._preflight_archiver_pymongo({"deployed_services": ["event_dispatcher"]})
+
+
+def test_health_poll_returns_once_the_store_answers(monkeypatch):
+    """A store on a fresh volume creates its admin user before it accepts
+    connections, so early refusals are expected rather than fatal."""
+    monkeypatch.setattr(container_lifecycle.time, "sleep", lambda seconds: None)
+    collection = _FakeCollection(fail_pings=3)
+
+    container_lifecycle._wait_for_archiver_store(
+        collection, time.monotonic() + container_lifecycle._ARCHIVER_HEALTH_TIMEOUT_S
+    )
+    assert collection.admin.pings == 4
+
+
+def test_health_poll_is_bounded(monkeypatch):
+    """An unreachable store fails the deploy with the store named, rather than
+    leaving `osprey up` polling forever."""
+    monkeypatch.setattr(container_lifecycle.time, "sleep", lambda seconds: None)
+    collection = _FakeCollection(fail_pings=10_000)
+
+    with pytest.raises(RuntimeError, match="did not become reachable"):
+        container_lifecycle._wait_for_archiver_store(collection, time.monotonic() - 1)
+
+
+def test_missing_store_password_aborts_with_the_variable_named(
+    staged_archiver, monkeypatch, tmp_path
+):
+    """Without the credential the store is created with, the seeder cannot open
+    the store it is staging — and the fix is a named variable."""
+    (tmp_path / ".env").write_text("")
+    monkeypatch.delenv("MONGO_ROOT_PASSWORD", raising=False)
+
+    with pytest.raises(RuntimeError, match="MONGO_ROOT_PASSWORD"):
+        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+
+def test_reapply_anchors_on_the_persisted_t0_not_a_fresh_one(monkeypatch, tmp_path):
+    """The re-apply must land on the anchor the running world is already on.
+
+    Minting a fresh T0 would slide the live VA's events, the seeded logbook and
+    the archive's event windows to an instant nobody asked for, as a side effect
+    of a deploy that was only supposed to rebuild the store. Reading the anchor
+    is `osprey.simulation.apply.persisted_scenario_anchor`'s job (and is tested
+    there); what this pins is that the deploy passes what it read straight
+    through to `apply_scenarios` as `now`.
+    """
+    from datetime import UTC, datetime
+
+    from osprey.simulation import apply as apply_mod
+
+    anchor = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+    forwarded: dict = {}
+
+    def _record(project_dir, names, **kwargs):
+        forwarded.update(names=names, **kwargs)
+        return apply_mod.ApplyResult(active=tuple(names), logbook_seeded=0, purged=False)
+
+    monkeypatch.setattr(apply_mod, "persisted_scenario_anchor", lambda config, project_dir: anchor)
+    monkeypatch.setattr(apply_mod, "apply_scenarios", _record)
+    engine = type("_Engine", (), {"active_scenarios": lambda self: ("nominal", "rf-thermal")})()
+
+    container_lifecycle._reapply_active_scenarios({}, tmp_path, engine)
+
+    assert forwarded["now"] == anchor
+    # The logbook is a knob change's business only if the narrative changed, and
+    # it did not — purging ARIEL here would destroy history nobody asked to touch.
+    assert forwarded["seed_logbook"] is False
+
+
+def _manifest_channel(address: str) -> dict:
+    """One manifest entry carrying the full per-channel schema the loader demands."""
+    return {
+        "address": address,
+        "ring": "SR",
+        "system": "diagnostics",
+        "family": "BPM",
+        "device": "1",
+        "field": "X",
+        "subfield": "",
+        "partition": "static-noisy",
+        "record_type": "ai",
+        "noise": 0.01,
+    }
+
+
+def test_seed_inputs_read_the_manifest_the_project_env_names(tmp_path):
+    """The seeded channel set is the manifest the VA and the recorder read, found
+    the way they find it — so seeded history covers exactly what the live half
+    serves rather than another facility's namespace.
+
+    The manifest lives in the RENDER's data dir (``build/data/simulation``):
+    the build generates it only there, and that is the directory the containers
+    mount as ``/data/simulation`` — the source ``data/`` zone never holds it."""
+    simulation_dir = tmp_path / "build" / "data" / "simulation"
+    simulation_dir.mkdir(parents=True)
+    (simulation_dir / "channel_manifest.json").write_text(
+        json.dumps({"channels": [_manifest_channel("SR:BPM1:X")]})
+    )
+    (tmp_path / ".env").write_text("VA_CHANNELS_FILE=channel_manifest.json\n")
+
+    channels, engine, boot_values = container_lifecycle._archiver_seed_inputs({}, tmp_path)
+
+    assert [c["address"] for c in channels] == ["SR:BPM1:X"]
+    # No machine model in this project: every channel is procedural, which is a
+    # valid configuration rather than a fault.
+    assert engine is None
+    assert boot_values == {}
+
+
+def test_reapply_without_a_machine_model_is_a_no_op(tmp_path):
+    """A store-only project has no scenarios to restore onto the rebuilt base."""
+    container_lifecycle._reapply_active_scenarios({}, tmp_path, None)
+
+
+def test_exported_password_is_used_when_the_dotenv_has_none(staged_archiver, monkeypatch, tmp_path):
+    """`osprey up` is the process that hands compose its environment.
+
+    When the password is exported rather than written to `.env`, the exported
+    value is what the store container is created with — so it is also what the
+    seeder must authenticate with. (`sim apply` deliberately does NOT do this: it
+    runs from anywhere and must not pick up a foreign deployment's credential.)
+    """
+    (tmp_path / ".env").write_text("")
+    monkeypatch.setenv("MONGO_ROOT_PASSWORD", "exported-not-written")
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert staged_archiver["store"]["password"] == "exported-not-written"
+
+
+def test_store_without_a_connection_block_seeds_nothing(
+    staged_archiver, monkeypatch, tmp_path, caplog
+):
+    """A project deploying the store but declaring no connection block cannot be
+    seeded. It says so and leaves the store to the normal bring-up rather than
+    guessing a host — an empty archive read honestly beats a wrong one."""
+    config = {key: value for key, value in ARCHIVER_CONFIG.items() if key != "archiver"}
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (config, ["docker-compose.yml"]),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert "archiver.mongodb_archiver" in caplog.text
+    verbs = _verbs(staged_archiver["cmds"])
+    assert "up -d mongodb" not in verbs
+    assert staged_archiver["seeded"] == []
+    assert not staged_archiver["collection"].dropped
+
+
+def test_authentication_is_retried_while_a_fresh_volume_initializes(monkeypatch):
+    """A FRESH volume refuses authentication before it has created its root user.
+
+    mongod accepts connections before it applies MONGO_INITDB_ROOT_PASSWORD, so a
+    probe landing in that window is refused by a store that is about to be
+    perfectly healthy. Treating that as terminal aborts the FIRST deploy of every
+    new project — intermittently, depending on which side of the race the probe
+    lands, which is the worst way for it to fail.
+    """
+    from pymongo.errors import OperationFailure
+
+    monkeypatch.setattr(container_lifecycle.time, "sleep", lambda seconds: None)
+    collection = _FakeCollection()
+    refusals = [3]
+
+    def _initializing(name):
+        collection.admin.pings += 1
+        if refusals[0] > 0:
+            refusals[0] -= 1
+            raise OperationFailure("Authentication failed.", code=18)
+        return {"ok": 1}
+
+    collection.admin.command = _initializing
+
+    container_lifecycle._wait_for_archiver_store(
+        collection,
+        time.monotonic() + container_lifecycle._ARCHIVER_HEALTH_TIMEOUT_S,
+        "osprey@localhost:27017",
+    )
+    assert collection.admin.pings == 4
+
+
+def test_authentication_failure_past_the_grace_window_fails_with_the_cause(monkeypatch):
+    """After the store has had time to initialize, the SAME error means the
+    stale-volume shape instead: a rotated password against a volume that keeps
+    the credentials it was created with. That will never succeed, so it fails
+    with the cause named rather than consuming the full reachability budget."""
+    from pymongo.errors import OperationFailure
+
+    monkeypatch.setattr(container_lifecycle.time, "sleep", lambda seconds: None)
+    # Collapse the grace window so the refusal is read as final immediately.
+    monkeypatch.setattr(container_lifecycle, "_ARCHIVER_AUTH_GRACE_S", 0.0)
+    collection = _FakeCollection()
+
+    def _refuse(name):
+        collection.admin.pings += 1
+        raise OperationFailure("Authentication failed.", code=18)
+
+    collection.admin.command = _refuse
+
+    with pytest.raises(RuntimeError, match="rejected the credentials"):
+        container_lifecycle._wait_for_archiver_store(
+            collection,
+            time.monotonic() + container_lifecycle._ARCHIVER_HEALTH_TIMEOUT_S,
+            "osprey@localhost:27017",
+        )
+    # Terminal on the first refusal once the grace window has passed — it will
+    # not start working, and the full budget would only delay the diagnosis.
+    assert collection.admin.pings == 1
+
+
+def test_a_non_auth_operation_failure_is_not_swallowed(monkeypatch):
+    """Only AuthenticationFailed gets the grace/stale-volume treatment; any other
+    server-side command failure propagates as itself rather than being retimed
+    into a credentials message that would misdirect the reader."""
+    from pymongo.errors import OperationFailure
+
+    monkeypatch.setattr(container_lifecycle.time, "sleep", lambda seconds: None)
+    collection = _FakeCollection()
+
+    def _fail(name):
+        raise OperationFailure("not authorized on admin", code=13)
+
+    collection.admin.command = _fail
+
+    with pytest.raises(OperationFailure, match="not authorized"):
+        container_lifecycle._wait_for_archiver_store(
+            collection, time.monotonic() + 5, "osprey@localhost:27017"
+        )
+
+
+def test_a_failed_reapply_names_the_command_that_fixes_it(monkeypatch, tmp_path):
+    """The manifest is already written by this point, so the next deploy reads
+    MATCH and skips both the reseed and this step — leaving a clean base under a
+    faulted machine forever. The error has to hand over the one command that
+    repairs it, because retrying the deploy will not."""
+    from osprey.simulation import apply as apply_mod
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("store went away")
+
+    monkeypatch.setattr(apply_mod, "apply_scenarios", _boom)
+    engine = type("_Engine", (), {"active_scenarios": lambda self: ("nominal", "rf-thermal")})()
+
+    with pytest.raises(RuntimeError, match=r"osprey sim apply rf-thermal") as caught:
+        container_lifecycle._reapply_active_scenarios({}, tmp_path, engine)
+
+    assert "shows a clean machine" in str(caught.value)
+    # The cause is chained rather than replaced — the original failure is what a
+    # maintainer needs, the recovery is what the operator needs.
+    assert isinstance(caught.value.__cause__, RuntimeError)
+
+
+def test_a_recorder_that_will_not_stop_is_reported(staged_archiver, tmp_path, caplog):
+    """A recorder still running writes into the collection being dropped. The
+    rebuild is still right, but the breach of the quiesce invariant must be
+    visible rather than swallowed by a return code nobody reads."""
+    staged_archiver["returncode"] = 1
+
+    with caplog.at_level(logging.WARNING):
+        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert "archiver-recorder" in caplog.text
+    # Reported, not fatal: the seed still ran.
+    assert len(staged_archiver["seeded"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [("snappy", "snappy"), (None, "zstd")],
+)
+def test_compression_comes_from_the_service_block_not_the_knobs(
+    staged_archiver, monkeypatch, tmp_path, configured, expected
+):
+    """The block compressor is a property of the SERVER, not of the archive's
+    shape, so it lives at `services.mongodb.compression` and deliberately not in
+    SeedKnobs. The seeder is handed it from that path, and it reaches the
+    fingerprint from there — which is what makes changing the compressor a
+    reported reseed rather than a store that is half one codec and half another.
+    """
+    config = dict(ARCHIVER_CONFIG)
+    config["services"] = {"mongodb": {"port_host": 27017}}
+    if configured is not None:
+        config["services"]["mongodb"]["compression"] = configured
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (config, ["docker-compose.yml"]),
+    )
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    assert staged_archiver["seeded"][0]["kwargs"]["compression"] == expected
+
+
+def test_the_auth_grace_sits_between_the_healthcheck_and_the_reachability_budget():
+    """The 15/45/180 ordering documented at ``_ARCHIVER_AUTH_GRACE_S`` IS the design.
+
+    Each constant is pinned somewhere already, but only in isolation: nothing
+    compared them, so moving the template's ``start_period`` — the one the
+    comment says "this has to move with it" — inverted the relationship
+    silently. Below the start_period, a fresh volume's normal root-user
+    creation is reported as a wrong password and the first deploy of every new
+    project aborts. Above the reachability budget, the grace never expires and
+    a genuinely stale volume burns the full budget for a diagnosis that was
+    available in seconds.
+    """
+    import re
+
+    import osprey
+
+    template = (
+        Path(osprey.__file__).parent
+        / "templates"
+        / "services"
+        / "mongodb"
+        / "docker-compose.yml.j2"
+    ).read_text(encoding="utf-8")
+
+    match = re.search(r"start_period:\s*(\d+)s", template)
+    assert match, "no healthcheck start_period found in the mongodb template"
+    start_period_s = float(match.group(1))
+
+    assert start_period_s < container_lifecycle._ARCHIVER_AUTH_GRACE_S, (
+        f"the auth grace ({container_lifecycle._ARCHIVER_AUTH_GRACE_S}s) must outlast the "
+        f"store's own healthcheck start_period ({start_period_s}s), or a fresh volume's "
+        "root-user creation is reported as a wrong password"
+    )
+    assert (
+        container_lifecycle._ARCHIVER_AUTH_GRACE_S < container_lifecycle._ARCHIVER_HEALTH_TIMEOUT_S
+    ), (
+        f"the auth grace ({container_lifecycle._ARCHIVER_AUTH_GRACE_S}s) must expire inside the "
+        f"reachability budget ({container_lifecycle._ARCHIVER_HEALTH_TIMEOUT_S}s), or a stale "
+        "volume burns the whole budget before saying so"
+    )

@@ -1,5 +1,6 @@
 /**
- * Unit tests for the BLUESKY panel's queue logic and results half.
+ * Unit tests for the BLUESKY panel: its queue logic, its Results view, and
+ * the shell that holds Plans | Queue | Results together.
  *
  * happy-dom environment (configured globally in vitest.config.js):
  *   npx vitest run tests/interfaces/bluesky_panels/bluesky-panel.test.mjs
@@ -1019,11 +1020,14 @@ describe('bundle wiring', () => {
   // repo root.
   const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_panels/panels/bluesky/`;
 
-  test('every element id panel.js looks up exists in index.html', () => {
+  test('every element id the shell and queue view look up exists in index.html', () => {
     // The bundle has no build step and is served as authored, so a renamed id
     // fails only at runtime, in the operator's browser, as a silently dead
-    // control. This is the drift-net for that.
-    const source = readFileSync(`${BUNDLE}panel.js`, 'utf-8');
+    // control. This is the drift-net for that. (plans-view.js gets the same
+    // guard in draft-client.test.mjs.)
+    const source = [`${BUNDLE}panel.js`, `${BUNDLE}queue-view.js`]
+      .map((path) => readFileSync(path, 'utf-8'))
+      .join('\n');
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
 
     const referenced = [...source.matchAll(/(?:byId|getElementById)\(\s*'([^']+)'/g)].map(
@@ -1042,12 +1046,93 @@ describe('bundle wiring', () => {
     expect(manifest.entry).toBe('index.html');
   });
 
-  test('the panel chrome agrees with the manifest and its sibling', () => {
+  test('the panel chrome agrees with the manifest', () => {
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
     expect(html).toContain('<title>Bluesky</title>');
     expect(html).toContain('<h1>Bluesky</h1>');
-    // Same kicker as panels/plan — the two are one product, not two.
     expect(html).toContain('OSPREY Bluesky Panels');
+  });
+
+  test('the two halts render OUTSIDE the three view containers', () => {
+    // The whole point of the status strip: a halt must never be a tab switch
+    // away. If either button ever migrates inside a view container, it becomes
+    // invisible on the other two tabs.
+    const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
+    const firstView = html.indexOf('id="view-plans"');
+    expect(firstView).toBeGreaterThan(-1);
+    for (const id of ['stop-btn', 'abort-btn', 'queue-state-badge', 'queue-banner']) {
+      expect(html.indexOf(`id="${id}"`), `${id} must precede the view containers`).toBeLessThan(
+        firstView
+      );
+    }
+    // Start is the counter-example — arming a queue stays a deliberate act
+    // behind the Queue tab.
+    expect(html.indexOf('id="start-btn"')).toBeGreaterThan(firstView);
+  });
+
+  test('the in-body view switcher and filter hide only when embedded AND Expert', () => {
+    // The single most important correctness point of the merge, checked as
+    // resolved style rather than as matching source text. `contributeHeader`
+    // is a no-op standalone, and the hub collapses a service tile's bar in
+    // Simple mode — in both of those cases the in-body strip is the ONLY way
+    // to navigate the panel, so a plain `body.embedded` rule would strand the
+    // operator on whichever view happened to be showing. Same rule, same
+    // reason, for the plan filter.
+    const style = document.createElement('style');
+    style.textContent = readFileSync(`${BUNDLE}panel.css`, 'utf-8');
+    document.head.appendChild(style);
+    const tabs = document.createElement('nav');
+    tabs.className = 'panel-tabs';
+    const filter = document.createElement('div');
+    filter.className = 'sidebar-head';
+    const strip = document.createElement('div');
+    strip.className = 'status-strip';
+    document.body.append(tabs, filter, strip);
+
+    /** @param {{embedded: boolean, simple: boolean}} context */
+    function shown({ embedded, simple }) {
+      document.body.classList.toggle('embedded', embedded);
+      if (simple) document.documentElement.setAttribute('data-ui-mode', 'simple');
+      else document.documentElement.removeAttribute('data-ui-mode');
+      return {
+        tabs: getComputedStyle(tabs).display !== 'none',
+        filter: getComputedStyle(filter).display !== 'none',
+        strip: getComputedStyle(strip).display !== 'none',
+      };
+    }
+
+    try {
+      expect(shown({ embedded: false, simple: false })).toEqual({
+        tabs: true,
+        filter: true,
+        strip: true,
+      });
+      expect(shown({ embedded: false, simple: true })).toEqual({
+        tabs: true,
+        filter: true,
+        strip: true,
+      });
+      // The one case the hub really is drawing these for us.
+      expect(shown({ embedded: true, simple: false })).toEqual({
+        tabs: false,
+        filter: false,
+        strip: true,
+      });
+      // Simple: the tile bar is collapsed to zero height, so the body keeps
+      // both — and the safety strip is on screen in every single case.
+      expect(shown({ embedded: true, simple: true })).toEqual({
+        tabs: true,
+        filter: true,
+        strip: true,
+      });
+    } finally {
+      style.remove();
+      tabs.remove();
+      filter.remove();
+      strip.remove();
+      document.body.classList.remove('embedded');
+      document.documentElement.removeAttribute('data-ui-mode');
+    }
   });
 
   test('the abort button never ships disabled either', () => {
@@ -1143,8 +1228,13 @@ describe('booting the shipped bundle', () => {
       startBtn: byId('start-btn'),
       abortBtn: byId('abort-btn'),
       pushFrame(frameObject) {
+        // Only the QUEUE stream: the merged bundle also opens the shared
+        // plan-draft stream, and a queue frame pushed at that one would be
+        // read as a draft frame with a revision gap.
         for (const source of BootEventSource.instances) {
-          if (source.onmessage) source.onmessage({ data: JSON.stringify(frameObject) });
+          if (source.url.includes('/queue/events') && source.onmessage) {
+            source.onmessage({ data: JSON.stringify(frameObject) });
+          }
         }
       },
     };
@@ -1410,5 +1500,386 @@ describe('booting the shipped bundle', () => {
     const before = fetchMock.mock.calls.length;
     panel.abortBtn.click();
     expect(fetchMock.mock.calls.length).toBe(before); // re-arms instead of firing
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The merged panel's shell: three views, one status strip
+// ---------------------------------------------------------------------------
+
+/**
+ * PLAN and BLUESKY are one panel now, and the shell that holds them together
+ * is the part with no pure module behind it: which view is showing, what the
+ * tile bar is told about them, and whether picking a run takes the operator to
+ * it. All of that only exists once the real markup and the real panel.js are
+ * wired together, so these boot the bundle exactly as the browser does.
+ */
+describe('the merged panel shell', () => {
+  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_panels/panels/bluesky/`;
+
+  /** Captures the panel's EventSources so a test can push queue frames. */
+  class ShellEventSource {
+    /** @type {ShellEventSource[]} */
+    static instances = [];
+    /** @param {string} url */
+    constructor(url) {
+      this.url = url;
+      /** @type {((event: {data: string}) => void)|null} */
+      this.onmessage = null;
+      /** @type {(() => void)|null} */
+      this.onerror = null;
+      ShellEventSource.instances.push(this);
+    }
+    close() {}
+  }
+
+  /**
+   * Every contribution the panel has posted at the (faked) hub. Untyped on
+   * purpose: these assert the WIRE shape, so the test must be able to look at
+   * whatever was actually sent.
+   *
+   * @type {any[]}
+   */
+  let contributions = [];
+
+  /**
+   * Mount the shipped markup and pretend to be inside the web terminal.
+   *
+   * `embedded` decides whether `contributeHeader` does anything at all — it is
+   * a strict no-op outside a frame — so a test that wants to see the
+   * contribution has to claim both the body class and a distinct parent.
+   *
+   * @param {{embedded?: boolean, mode?: 'expert'|'simple'}} [options]
+   */
+  function mount({ embedded = true, mode = 'expert' } = {}) {
+    const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
+    const body = html.match(/<body>([\s\S]*)<\/body>/);
+    if (!body) throw new Error('could not extract <body> from index.html');
+    document.body.innerHTML = body[1].replace(/<script[\s\S]*?<\/script>/g, '');
+    document.documentElement.setAttribute('data-ui-mode', mode);
+    if (embedded) document.body.classList.add('embedded');
+    Object.defineProperty(window, 'parent', {
+      configurable: true,
+      value: {
+        /** @param {any} message */
+        postMessage(message) {
+          if (message && message.type === 'osprey-header-contribution') {
+            contributions.push(message.items);
+          }
+        },
+      },
+    });
+  }
+
+  /**
+   * The most recent contribution's items.
+   *
+   * @returns {any[]}
+   */
+  function lastContribution() {
+    return contributions[contributions.length - 1];
+  }
+
+  /** @param {string} id */
+  const byId = (id) => /** @type {any} */ (document.getElementById(id));
+
+  /**
+   * The nav item of the most recent contribution, with its entries typed as
+   * the loose wire objects they are.
+   *
+   * @returns {{id: string, items: Array<{id: string, label: string, active?: boolean}>}}
+   */
+  function navContribution() {
+    return lastContribution().find((entry) => entry.kind === 'nav');
+  }
+
+  /**
+   * The Results nav entry of the most recent contribution. Asserted present
+   * rather than optional-chained: an absent Results entry is itself the
+   * regression these tests exist to catch.
+   */
+  function resultsNavEntry() {
+    const entry = navContribution().items.find((candidate) => candidate.id === 'results');
+    if (!entry) throw new Error('no Results entry in the contribution');
+    return entry;
+  }
+
+  /** @param {any} frameObject */
+  function pushQueueFrame(frameObject) {
+    for (const source of ShellEventSource.instances) {
+      if (source.url.includes('/queue/events') && source.onmessage) {
+        source.onmessage({ data: JSON.stringify(frameObject) });
+      }
+    }
+  }
+
+  /**
+   * Deliver a hub header action exactly as the postMessage bridge would.
+   *
+   * @param {string} id
+   * @param {string} [value]
+   */
+  function sendHeaderAction(id, value) {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'osprey-header-action', id, value },
+        origin: window.location.origin,
+      })
+    );
+  }
+
+  beforeEach(() => {
+    ShellEventSource.instances = [];
+    contributions = [];
+    vi.resetModules();
+    vi.stubGlobal('EventSource', ShellEventSource);
+    // A settled world by default: every route answers in its documented shape,
+    // and any run the panel follows is terminal, so the results poll runs once
+    // and stops instead of outliving the test. Tests that need a live run
+    // override this.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        const path = String(url);
+        if (path.endsWith('/data')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              columns: [],
+              rows: [],
+              row_count: 0,
+              truncated: false,
+              partial: false,
+            }),
+          };
+        }
+        if (/\/runs\/[^/]+$/.test(path)) {
+          return { ok: true, status: 200, json: async () => ({ id: 'run', status: 'completed' }) };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.innerHTML = '';
+    document.body.classList.remove('embedded');
+    document.documentElement.removeAttribute('data-ui-mode');
+  });
+
+  /** Which of the three view containers is on screen. */
+  function visibleViews() {
+    return ['plans', 'queue', 'results'].filter((id) => !byId(`view-${id}`).hidden);
+  }
+
+  test('exactly one view shows at a time, and Plans is the one on boot', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    expect(visibleViews()).toEqual(['plans']);
+    expect(byId('view-tab-plans').getAttribute('aria-selected')).toBe('true');
+  });
+
+  test('the in-body strip switches views, and the tabs track it', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+
+    byId('view-tab-queue').click();
+    expect(visibleViews()).toEqual(['queue']);
+    expect(byId('view-tab-queue').getAttribute('aria-selected')).toBe('true');
+    expect(byId('view-tab-plans').getAttribute('aria-selected')).toBe('false');
+
+    byId('view-tab-results').click();
+    expect(visibleViews()).toEqual(['results']);
+  });
+
+  test('the hub nav action drives the same switch as the in-body strip', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+
+    sendHeaderAction('view', 'results');
+    expect(visibleViews()).toEqual(['results']);
+    expect(byId('view-tab-results').classList.contains('active')).toBe(true);
+
+    // An id the panel does not know must be ignored rather than blanking every
+    // view — the value comes from another frame, not from this module.
+    sendHeaderAction('view', 'nonsense');
+    expect(visibleViews()).toEqual(['results']);
+  });
+
+  test('picking a run in the Queue view opens the Results view on it', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    byId('view-tab-queue').click();
+
+    pushQueueFrame({
+      type: 'queue',
+      status: summary({ items_in_queue: 1 }),
+      items: [item()],
+      running_item: null,
+    });
+    const row = /** @type {any} */ (byId('queue-items').querySelector('button.queue-label'));
+    expect(row).not.toBeNull();
+    row.click();
+
+    expect(visibleViews()).toEqual(['results']);
+    // And the selection is reflected back in the queue list it came from.
+    expect(byId('queue-items').querySelector('.queue-row.selected')).not.toBeNull();
+  });
+
+  test('a ?run_id= deep link still selects the run and opens Results', async () => {
+    mount();
+    window.history.replaceState({}, '', '/bluesky/?run_id=run-deep');
+    try {
+      await import(`${BUNDLE}panel.js`);
+      expect(visibleViews()).toEqual(['results']);
+      const calls = /** @type {any} */ (globalThis.fetch).mock.calls;
+      /** @type {string[]} */
+      const asked = calls.map((/** @type {any[]} */ call) => String(call[0]));
+      expect(asked.some((url) => url.includes('/runs/run-deep'))).toBe(true);
+    } finally {
+      window.history.replaceState({}, '', '/');
+    }
+  });
+
+  test('the three views are contributed as one nav item, active flag and all', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+
+    const nav = navContribution();
+    expect(nav.id).toBe('view');
+    expect(nav.items.map((entry) => entry.id)).toEqual(['plans', 'queue', 'results']);
+    expect(nav.items.map((entry) => entry.label)).toEqual(['Plans', 'Queue', 'Results']);
+    expect(nav.items.filter((entry) => entry.active).map((entry) => entry.id)).toEqual(['plans']);
+
+    byId('view-tab-queue').click();
+    const after = navContribution();
+    expect(after.items.filter((entry) => entry.active).map((entry) => entry.id)).toEqual(['queue']);
+  });
+
+  test('the plan filter is contributed only while Plans is showing', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    expect(lastContribution().some((entry) => entry.kind === 'search')).toBe(true);
+
+    byId('view-tab-queue').click();
+    expect(lastContribution().some((entry) => entry.kind === 'search')).toBe(false);
+
+    byId('view-tab-plans').click();
+    const search = lastContribution().find((entry) => entry.kind === 'search');
+    expect(search.id).toBe('plan-filter');
+    expect(search.placeholder).toContain('Filter plans');
+  });
+
+  test('Simple mode contributes no search — the hub collapses the bar there', async () => {
+    // Simple deliberately ENLARGES a search box; the tile bar it would live in
+    // is zero-height. The in-body one is the one on screen.
+    mount({ mode: 'simple' });
+    await import(`${BUNDLE}panel.js`);
+    expect(lastContribution().some((entry) => entry.kind === 'search')).toBe(false);
+    // The nav still goes up — a collapsed bar renders nothing, it does not
+    // reject anything.
+    expect(lastContribution().some((entry) => entry.kind === 'nav')).toBe(true);
+  });
+
+  test('the hub search action filters the same plans the in-body box does', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) =>
+        String(url).endsWith('/plans')
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => [
+                { name: 'grid_scan', provenance: 'shipped', description: '' },
+                { name: 'orm', provenance: 'shipped', description: '' },
+              ],
+            }
+          : { ok: true, status: 200, json: async () => ({}) }
+      )
+    );
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    await vi.waitFor(() => expect(byId('plan-tree').textContent).toContain('grid_scan'));
+
+    sendHeaderAction('plan-filter', 'orm');
+    expect(byId('plan-tree').textContent).not.toContain('grid_scan');
+    expect(byId('plan-tree').textContent).toContain('orm');
+    // The in-body box is kept in step, so flipping to Simple — where the
+    // contributed copy disappears — does not lose the filter.
+    expect(byId('plan-search').value).toBe('orm');
+  });
+
+  test('the Results tab carries a marker while data arrives for an unwatched run', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        const path = String(url);
+        if (path.endsWith('/runs/run-1')) {
+          return { ok: true, status: 200, json: async () => ({ id: 'run-1', status: 'running' }) };
+        }
+        if (path.endsWith('/runs/run-1/data')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              columns: ['x'],
+              rows: [[1]],
+              row_count: 1,
+              truncated: false,
+              partial: true,
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      })
+    );
+    mount();
+    await import(`${BUNDLE}panel.js`);
+
+    byId('view-tab-queue').click();
+    pushQueueFrame({
+      type: 'queue',
+      status: summary({ items_in_queue: 1 }),
+      items: [item()],
+      running_item: null,
+    });
+    /** @type {any} */ (byId('queue-items').querySelector('button.queue-label')).click();
+    // Selecting opened Results, so no marker: the operator IS watching. Wait
+    // for the first poll to land, which is what starts the polling.
+    await vi.waitFor(() => expect(byId('table-card').hidden).toBe(false));
+    expect(resultsNavEntry().label).toBe('Results');
+
+    // Walk away while it is still filling in.
+    byId('view-tab-queue').click();
+    expect(resultsNavEntry().label).toBe('Results •');
+
+    // Coming back clears it.
+    byId('view-tab-results').click();
+    expect(resultsNavEntry().label).toBe('Results');
+  });
+
+  test('standalone, the panel contributes nothing and stays navigable', async () => {
+    // The single most important correctness point of the merge: with no hub
+    // there is no contributed strip, so the in-body one must still work.
+    mount({ embedded: false });
+    await import(`${BUNDLE}panel.js`);
+    expect(contributions).toEqual([]);
+    byId('view-tab-results').click();
+    expect(visibleViews()).toEqual(['results']);
+  });
+
+  test('the two halts are live on every view, not just the Queue one', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    for (const view of ['plans', 'queue', 'results']) {
+      byId(`view-tab-${view}`).click();
+      expect(byId('stop-btn').disabled, `stop dead on ${view}`).toBe(false);
+      expect(byId('abort-btn').disabled, `abort dead on ${view}`).toBe(false);
+      // Not merely enabled — actually on screen, i.e. outside the hidden views.
+      expect(byId('stop-btn').closest('[hidden]'), `stop hidden on ${view}`).toBeNull();
+      expect(byId('abort-btn').closest('[hidden]'), `abort hidden on ${view}`).toBeNull();
+    }
   });
 });

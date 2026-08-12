@@ -186,8 +186,8 @@ Bundled Services & Tutorials
       :link-type: doc
 
       Run measurement scans through a durable queue — compose with the Osprey
-      agent, review in the PLAN panel, start and stop in BLUESKY, and add
-      scan plans of your own.
+      agent, review, start and stop in the BLUESKY panel, and add scan plans
+      of your own.
 
 .. seealso::
 

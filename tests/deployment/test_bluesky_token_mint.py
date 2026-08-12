@@ -243,12 +243,13 @@ def test_ensure_service_tokens_writes_an_alphanumeric_tiled_key_every_time(
 def test_var_generators_registry_is_pinned():
     """Pin the blast radius: only vars with a downstream alphabet/policy
     constraint override the default token recipe (Tiled's alphanumeric
-    --api-key, OpenObserve's four-class root password, the ARIEL Postgres
-    password's URI-safe alphabet)."""
+    --api-key, OpenObserve's four-class root password, and the URI-safe
+    alphabet the ARIEL Postgres and archiver Mongo passwords share)."""
     assert set(container_lifecycle._VAR_GENERATORS) == {
         "BLUESKY_TILED_API_KEY",
         "ZO_ROOT_USER_PASSWORD",
         "ARIEL_DB_PASSWORD",
+        "MONGO_ROOT_PASSWORD",
     }
     declared = {
         var for token_vars in container_lifecycle._SERVICE_TOKEN_VARS.values() for var in token_vars
@@ -472,6 +473,7 @@ def test_validator_registry_keyset_is_pinned():
         "ARIEL_DSN",
         "ZO_ROOT_USER_PASSWORD",
         "ARIEL_DB_PASSWORD",
+        "MONGO_ROOT_PASSWORD",
     }
 
     declared = {

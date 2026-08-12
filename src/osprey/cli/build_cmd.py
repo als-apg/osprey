@@ -68,6 +68,7 @@ from .build_injectors import (
     _inject_nextcloud_bridge,
     _inject_profile_services,
     _inject_va,
+    _inject_va_archiver,
     _locate_pkg_services,
 )
 from .build_lifecycle import (
@@ -103,6 +104,7 @@ __all__ = [
     "_inject_nextcloud_bridge",
     "_inject_profile_services",
     "_inject_va",
+    "_inject_va_archiver",
     "_locate_pkg_services",
     "_persist_artifact_server",
     "_persist_mcp_servers",
@@ -696,6 +698,7 @@ def _render_project(
         write_project_manifest,
     )
 
+    from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides
     from .validate_claude_artifacts import validate_agent_tools_against_permissions
 
@@ -748,13 +751,22 @@ def _render_project(
     )
     progress("  ✓ Base template rendered")
 
-    derived = deploy_config_overrides(build_profile.deploy, build_profile.config)
+    # What the deploy and va_archiver blocks contribute to the rendered config,
+    # applied with the profile's own `config:` entries in one pass. Derived
+    # keys the profile also spells are rejected at validation, so winning here
+    # can never silently overwrite a facility's own value.
+    derived_by_block = {
+        "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
+        "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
+    }
+    derived = {key: value for block in derived_by_block.values() for key, value in block.items()}
     config_overrides = {**build_profile.config, **derived}
     if config_overrides:
         _apply_config_overrides(render_dir, config_overrides)
         progress("  ✓ Applied %d config override(s)", len(config_overrides))
-        for key, value in derived.items():
-            progress("      %s: %s (from the profile's deploy block)", key, value)
+        for block, entries in derived_by_block.items():
+            for key, value in entries.items():
+                progress("      %s: %s (from the profile's %s block)", key, value, block)
 
     _inject_services(build_profile, repo_root, render_dir)
 
@@ -1918,6 +1930,15 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
         _inject_bluesky_panels(build_profile.bluesky_panels, project_path)
     if build_profile.virtual_accelerator is not None:
         _inject_va(build_profile.virtual_accelerator, project_path)
+    # Must follow the VA injector: the recorder's compose template gates its
+    # image source, startup ordering and Channel Access addressing on
+    # `virtual_accelerator` being in `deployed_services`, which is exactly what
+    # _inject_va writes there. The connection block and the archive's knobs are
+    # not written here — they reach the rendered config through the derived
+    # overrides, which an attached project also gets (see
+    # va_archiver_config_overrides).
+    if build_profile.va_archiver is not None:
+        _inject_va_archiver(build_profile.va_archiver, project_path)
 
 
 @click.command()

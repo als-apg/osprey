@@ -120,6 +120,11 @@
             "type": "command",
             "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_focus_validate.py" 2>/dev/null || true') | tojson }},
             "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_workspace_delta.py" 2>/dev/null || true') | tojson }},
+            "timeout": 3
           }
         ]
       }{% for rule in declared.get('UserPromptSubmit', []) %},{{ declared_entry(rule, current_python_env) }}{% endfor %}

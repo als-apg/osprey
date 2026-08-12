@@ -941,9 +941,9 @@ def test_the_queue_relay_shadows_no_pre_existing_sidecar_route() -> None:
     assert set(paths["/health"].keys()) == {"get"}
 
 
-def test_results_mount_is_an_alias_of_the_bluesky_panel_mount() -> None:
-    """Both mounts serve ONE bundle directory, so the alias cannot drift from
-    the bundle it aliases when the directory is renamed."""
+def test_deprecated_mounts_are_aliases_of_the_bluesky_panel_mount() -> None:
+    """All three mounts serve ONE bundle directory, so an alias cannot drift
+    from the bundle it aliases when the directory is renamed."""
     from starlette.routing import Mount
 
     from osprey.interfaces.bluesky_panels.app import app as composed_app
@@ -956,7 +956,7 @@ def test_results_mount_is_an_alias_of_the_bluesky_panel_mount() -> None:
 
     assert set(directories) == {"/bluesky", "/results", "/plan"}
     assert directories["/results"] == directories["/bluesky"]
-    assert directories["/plan"] != directories["/bluesky"]
+    assert directories["/plan"] == directories["/bluesky"]
 
 
 def test_results_and_bluesky_mounts_serve_identical_content() -> None:

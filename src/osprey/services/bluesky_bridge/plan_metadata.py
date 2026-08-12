@@ -42,6 +42,16 @@ class PlanMetadata(BaseModel):
     description: str
     category: str
     required_devices: list[str]
+    """The `PARAMS` fields whose string values are device names.
+
+    Each entry names the field *immediately* enclosing those strings, which for
+    a nested shape is the inner key rather than the outer one: `grid_scan`
+    carries its devices as ``axes[].setpoint`` and so declares ``"setpoints"``.
+    Read by `queue.py`'s add-time device pre-check, which resolves exactly
+    these fields against the worker's device list; an entry it cannot match to
+    a field is left unchecked rather than guessed at.
+    """
+
     writes: bool
 
 

@@ -1,8 +1,8 @@
 """Full-stack Docker integration test for the Phase-6 "Operator Interfaces"
-scan panels (task 4.3, bluesky-panels-deploy-e2e) -- the gold-standard proof
+scan panel (task 4.3, bluesky-panels-deploy-e2e) -- the gold-standard proof
 that the turn-key tutorial stack (Virtual Accelerator + Bluesky bridge + the
 queueserver RE Manager + Redis + co-deployed Tiled + the bluesky-panels
-sidecar + its web panels) boots as real containers and drives a real scan end
+sidecar + its web panel) boots as real containers and drives a real scan end
 to end THROUGH THE SIDECAR, exactly as a browser would.
 
 That last clause is this module's subject and the thing no sibling e2e covers:
@@ -518,12 +518,12 @@ def test_stack_boots_and_binds_loopback(deployed_stack: DeployedStack) -> None:
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
 def test_panels_served_200(deployed_stack: DeployedStack) -> None:
-    """Both panel bundles serve, including the deprecated ``/results`` alias.
+    """The panel bundle serves, including its two deprecated aliases.
 
-    ``/bluesky`` and ``/results`` are ONE bundle mounted twice (the sidecar
-    drives both from a single ``_BLUESKY_PANEL_DIR`` constant), so the alias
-    must serve identical bytes -- an alias that drifted into serving something
-    else would be worse than a 404.
+    ``/bluesky``, ``/plan`` and ``/results`` are ONE bundle mounted three times
+    (the sidecar drives all of them from a single ``_BLUESKY_PANEL_DIR``
+    constant), so each alias must serve identical bytes -- an alias that
+    drifted into serving something else would be worse than a 404.
     """
     bodies: dict[str, str] = {}
     for path in ("/plan/", "/bluesky/", "/results/"):
@@ -532,13 +532,10 @@ def test_panels_served_200(deployed_stack: DeployedStack) -> None:
         assert "<html" in body.lower(), f"GET {path} did not return HTML: {body[:200]!r}"
         bodies[path] = body
 
-    assert bodies["/results/"] == bodies["/bluesky/"], (
-        "/results must be a pure alias of /bluesky, serving the identical bundle"
-    )
-    assert bodies["/plan/"] != bodies["/bluesky/"], (
-        "the PLAN and BLUESKY panels are different bundles; serving one for both "
-        "means a mount is misconfigured"
-    )
+    for alias in ("/results/", "/plan/"):
+        assert bodies[alias] == bodies["/bluesky/"], (
+            f"{alias} must be a pure alias of /bluesky, serving the identical bundle"
+        )
 
 
 # ---------------------------------------------------------------------------

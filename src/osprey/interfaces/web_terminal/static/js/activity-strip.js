@@ -14,7 +14,7 @@
  *
  * Suppression: when the panel that self-signals this activity is already the
  * active panel, the strip stays silent (the gallery navigates on focus SSE,
- * the plan panel shows its launched banner, and the rail glow has already
+ * the bluesky panel shows its launched banner, and the rail glow has already
  * fired in panel-manager). The kind→panel mapping is the SUPPRESSION table
  * below; suppression itself is a pure function (exported for tests).
  *
@@ -36,9 +36,10 @@ export const ACTIVITY_CLEAR_MS = 6000;
  * SUPPRESSION table: the panel id that self-signals a given activity kind.
  *
  *   artifact → 'artifacts'  (workspace gallery navigates on the focus SSE)
- *   run      → 'plan'       (the canonical plans panel shows its launched
- *                            banner; a config-renamed plans panel falls
- *                            outside this table and still gets strip entries)
+ *   run      → 'bluesky'    (the canonical scan panel shows its launched
+ *                            banner in its Plans view; a config-renamed scan
+ *                            panel falls outside this table and still gets
+ *                            strip entries)
  *   panel    → the frame's own target.panel (that panel is the signal)
  *   channel  → none (channel writes have no self-signaling panel)
  *
@@ -49,7 +50,7 @@ export const ACTIVITY_CLEAR_MS = 6000;
 export function suppressionPanelFor(target) {
   switch (target.kind) {
     case 'artifact': return 'artifacts';
-    case 'run': return 'plan';
+    case 'run': return 'bluesky';
     case 'panel': return target.panel ?? null;
     default: return null; // 'channel' — never suppressed
   }

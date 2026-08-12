@@ -8,7 +8,9 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 
 from osprey.deployment.compose_generator import (
@@ -101,12 +103,27 @@ logger = get_logger("deployment.lifecycle")
 # volume — a pre-existing volume keeps its original password (same
 # stale-volume caveat as openobserve; recreate the volume to adopt the minted
 # value).
+#
+# mongodb is the archiver store, and follows the same shape one step further:
+# its compose template carries an insecure ``${MONGO_ROOT_PASSWORD:-osprey}``
+# default, and the minted value has to reach THREE readers, not two — the
+# container (MONGO_INITDB_ROOT_PASSWORD), the archiver_recorder service writing
+# samples in-network, and the agent's own connector, whose config block names
+# the variable rather than carrying a value
+# (``archiver.mongodb_archiver.password_env: MONGO_ROOT_PASSWORD``). All three
+# resolve the same ``.env`` entry, which is what keeps one store openable by
+# the process that writes it and the process that reads it. The seeder and
+# ``osprey sim apply`` read it from the project ``.env`` explicitly rather than
+# from an ambient environment.
+# NOTE: mongod, like postgres, reads its root credentials only when
+# initializing a fresh data volume — the same stale-volume caveat applies.
 _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "bluesky": ("BLUESKY_LAUNCH_TOKEN", "BLUESKY_TILED_API_KEY"),
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
     "postgresql": ("ARIEL_DB_PASSWORD",),
+    "mongodb": ("MONGO_ROOT_PASSWORD",),
 }
 
 # Vars checked against their _VAR_VALIDATORS constraint when present, but
@@ -130,19 +147,20 @@ _VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN"}
 
 #: Minted vars a service reads ONLY when it initializes a fresh data volume.
 #: For every other token, minting a new value and restarting is enough; for
-#: these two the container keeps whatever it was born with, so a fresh mint
+#: these the container keeps whatever it was born with, so a fresh mint
 #: beside a surviving volume produces a credential mismatch that shows up as an
 #: authentication failure at start rather than as anything about ``.env``.
 #:
 #: The dangerous case is exactly "minted, not found": an operator who deleted
-#: ``.env`` (or just its minted section) while the volumes lived. Both vars are
-#: interpolated with a ``:-`` DEFAULT in their compose templates, so neither
+#: ``.env`` (or just its minted section) while the volumes lived. Every var here
+#: is interpolated with a ``:-`` DEFAULT in its compose template, so none
 #: carries a ``:?`` guard that would abort the deploy and say so — which is why
 #: this warning is the only thing standing between that operator and a login
 #: that will not work for reasons nothing has named.
 _VOLUME_INITIALIZED_VARS: dict[str, str] = {
     "ZO_ROOT_USER_PASSWORD": "openobserve",
     "ARIEL_DB_PASSWORD": "postgresql",
+    "MONGO_ROOT_PASSWORD": "mongodb",
 }
 
 # Document-plane CURVE certificate layout, relative to the project directory.
@@ -390,6 +408,49 @@ def _ensure_service_tokens(
             _raise_invalid_var(name, effective)
 
 
+def _refuse_invented_history(config: dict) -> None:
+    """Abort a deploy that would stand up a machine with a fabricated past.
+
+    The honesty rule's deploy-time site. ``osprey build`` refuses to write the
+    pairing and the MCP server refuses to start on it, but neither covers the
+    deploy of a project whose ``config.yml`` was edited after the build — and a
+    deploy is where the pairing becomes a running stack other people trust.
+
+    Keyed on ``control_system.type`` alone, exactly as the other two sites are,
+    rather than on ``deployed_services`` like ``_ensure_bluesky_substrate_env``
+    below: that function is auto-configuring a service and so only cares whether
+    the service is here, while this one is asking what the deployment claims
+    about itself. An attached project deploying no VA container of its own still
+    points its agent at one.
+
+    Both keys are resolved through nested sections only, the way ``ConfigBuilder``
+    reads a rendered ``config.yml`` — see
+    :func:`~osprey.connectors.honesty.pairing_in_rendered_config`.
+
+    :param config: Raw deploy config (the rendered project's ``config.yml``).
+    :raises RuntimeError: if the config pairs a virtual accelerator with the
+        mock archiver, an unset ``archiver.type`` included.
+    """
+    from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+    from osprey.connectors.types import VIRTUAL_ACCELERATOR
+
+    pairing = pairing_in_rendered_config(config)
+    if not pairing.is_invented_history:
+        return
+
+    raise RuntimeError(
+        f"This deployment's control_system.type is {VIRTUAL_ACCELERATOR!r} and its "
+        f"archiver.type is {pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY}\n"
+        f"Fix config.yml before deploying: under its `archiver:` section set `type:` "
+        f"to a connector reading a store this stack writes, or set the `type:` under "
+        f"`control_system:` to 'mock' for an honestly storeless deployment. To have "
+        f"the stack deploy its own store, rebuild from a profile carrying a "
+        f"`va_archiver:` block — the control-assistant preset ships one, and "
+        f"`osprey up` then brings up the store and its recorder beside the "
+        f"virtual accelerator."
+    )
+
+
 def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
     """Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
     VA-backed Bluesky stack, making ``osprey up`` turn-key.
@@ -454,7 +515,9 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
             "be listed and composed but never executed. Skipping "
             "BLUESKY_EPICS_SUBSTRATE auto-configuration (scan devices need an "
             "EPICS-like connector to speak Channel Access to). Flip it with "
-            "`osprey set connector=virtual_accelerator`."
+            "`osprey set connector=virtual_accelerator` -- that pairing needs the "
+            "archiver pointed at a real store, and on a mock-archiver profile the "
+            "next `osprey build` refuses and names the fix."
         )
         return
 
@@ -1474,7 +1537,485 @@ def _preflight_host_ports(config, compose_files):
     )
 
 
-def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False):
+# ---------------------------------------------------------------------------
+# Staged archiver bring-up
+# ---------------------------------------------------------------------------
+
+# The archiver's two compose service keys. The store's key and its
+# deployed_services name are the same word; the recorder's are NOT — config and
+# deployed_services call it ``archiver_recorder`` (the directory under
+# ``services/``), while its compose service key is hyphenated. Getting that
+# wrong turns the quiesce below into a "no such service" error, so both spellings
+# are named here rather than being spelled inline at each use.
+_ARCHIVER_STORE_SERVICE = "mongodb"
+_ARCHIVER_RECORDER_SERVICE = "archiver-recorder"
+_ARCHIVER_RECORDER_DEPLOY_NAME = "archiver_recorder"
+
+# The install target every archiver error names. pymongo is an optional extra,
+# and a deploy that hits the seeder without it must say what to install rather
+# than surfacing a bare ImportError.
+_ARCHIVER_EXTRA = "osprey-framework[archiver-mongodb]"
+
+# How long the staged store gets to start answering before the deploy gives up.
+# Generous because the very first start of a fresh volume creates the admin user
+# and preallocates WiredTiger's journal before mongod accepts a connection —
+# which is exactly what the compose healthcheck's own ``start_period`` covers.
+_ARCHIVER_HEALTH_TIMEOUT_S = 180.0
+_ARCHIVER_HEALTH_POLL_S = 2.0
+
+# MongoDB's AuthenticationFailed error code.
+_MONGO_AUTHENTICATION_FAILED = 18
+
+# How long an authentication refusal is read as "the store is still creating its
+# root user" rather than "this password is wrong".
+#
+# Three numbers have to stay in this order, and the ordering IS the design:
+#
+#   15 s   the mongodb compose template's healthcheck ``start_period`` — mongod's
+#          own declared allowance for initializing a fresh volume
+#   45 s   this grace window
+#  180 s   _ARCHIVER_HEALTH_TIMEOUT_S, the full reachability budget
+#
+# Below the start_period, a fresh volume's normal initialization would be called
+# a wrong password and abort the first deploy of every new project. Above the
+# reachability budget, the grace would never expire and a genuinely stale volume
+# would burn the whole budget for a diagnosis available in seconds. Move the
+# healthcheck's start_period and this has to move with it.
+_ARCHIVER_AUTH_GRACE_S = 45.0
+
+# Minimum gap between seed progress lines. A base seed writes thousands of
+# chunks; reporting each one would bury the deploy log, and reporting none would
+# leave a multi-minute step looking like a hang.
+_ARCHIVER_PROGRESS_INTERVAL_S = 15.0
+
+
+def _archiver_store_deployed(config: dict) -> bool:
+    """True when this deploy runs the archiver store itself.
+
+    Membership in ``deployed_services`` is the gate for every archiver step
+    below: a project that reads a store someone *else* runs (an attached
+    facility project, which sets ``va_archiver.host``) must never have its
+    history seeded or reseeded by a local deploy.
+    """
+    return _ARCHIVER_STORE_SERVICE in (config.get("deployed_services") or [])
+
+
+def _preflight_archiver_pymongo(config: dict) -> None:
+    """Abort a store-deploying run that cannot talk to the store it deploys.
+
+    pymongo is an optional extra, and without it the seeder cannot run — but the
+    only place that becomes visible is minutes later, after the project image has
+    been built and the store container is already up. Checking here, beside the
+    token mint, turns that into an immediate error naming the install.
+
+    :param config: Raw deploy config.
+    :raises RuntimeError: if the store is deployed and pymongo is absent.
+    """
+    if not _archiver_store_deployed(config):
+        return
+    try:
+        import pymongo  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            "This project deploys the archiver store (services.mongodb), and seeding "
+            "its history needs pymongo, which is not installed.\n"
+            f"Install it with: pip install '{_ARCHIVER_EXTRA}'"
+        ) from exc
+
+
+def _archiver_seed_inputs(config: dict, project_dir: Path):
+    """The channel set, engine and boot values one base seed is built from.
+
+    Every import here is function-local. The seeder pulls in numpy and the
+    simulation package, and hoisting either into this module's import path would
+    put a scientific-stack import on every deploy-verb invocation, archiver
+    or not.
+
+    The channel set is the build-generated manifest the Virtual Accelerator and
+    the recorder both read, resolved exactly as they resolve it
+    (``VA_CHANNELS_FILE``, relative names against ``data/simulation/``), so the
+    seeded history covers precisely the channels the live half serves. It is read
+    from the project's own ``.env`` first, because that is where the build wrote
+    it; the ambient value is the fallback for a deploy whose environment carries
+    it instead.
+
+    :returns: ``(channels, engine, boot_values)``. ``engine`` is ``None`` and
+        ``boot_values`` empty for a project with no machine model — every channel
+        is then procedural, which is a valid configuration, not a fault.
+    """
+    from osprey.services.virtual_accelerator.manifest.build import build_manifest
+    from osprey.services.virtual_accelerator.manifest.loaders import (
+        load_machine_json_channels,
+        load_manifest_file,
+    )
+    from osprey.simulation.apply import resolve_simulation_file
+    from osprey.simulation.engine import SimulationEngine, resolve_state_dir
+
+    env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
+    named = (env.get("VA_CHANNELS_FILE") or os.environ.get("VA_CHANNELS_FILE") or "").strip()
+    if named:
+        manifest_path = Path(named)
+        if not manifest_path.is_absolute():
+            # The render's data dir, not the source zone: the build generates
+            # the manifest into `build/data/simulation` only, and that is the
+            # directory the VA and recorder containers mount as /data/simulation
+            # — so it is the one place a relative VA_CHANNELS_FILE can name the
+            # same channel set the live half serves.
+            manifest_path = project_dir / BUILD_DIRNAME / "data" / "simulation" / manifest_path
+        channels = load_manifest_file(manifest_path)
+    else:
+        channels = build_manifest()["channels"]
+
+    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
+    if machine_path is None or not machine_path.is_file():
+        return channels, None, {}
+
+    engine = SimulationEngine.from_file(
+        machine_path, state_dir=resolve_state_dir(config, project_dir)
+    )
+    # The same map the Virtual Accelerator boots its records from: machine.json's
+    # static channel values, skipping the handful of derived channels that carry
+    # an expression instead. Anchoring the procedural generator on it is what
+    # makes a seeded sample and a recorded one describe the same machine.
+    boot_values = {
+        address: entry["value"]
+        for address, entry in load_machine_json_channels(machine_path).items()
+        if "value" in entry
+    }
+    return channels, engine, boot_values
+
+
+def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
+    """Re-apply the active scenario set onto a freshly rebuilt base.
+
+    A reseed rewrites the whole base series, which erases the event windows the
+    active scenarios had written into it. Without this the deployment would come
+    back up claiming a fault is active while its history showed a clean machine —
+    precisely the divergence the stored archiver exists to remove.
+
+    The logbook is deliberately left alone: a knob change rebuilds the archive,
+    not the narrative, and purging ARIEL's entries here would destroy history
+    this deploy was never asked to touch.
+
+    A failure here is not recoverable by retrying the deploy, and the error says
+    so. By this point the seeder has written the manifest, so the next
+    ``osprey up`` reads MATCH, skips the reseed, and skips this step with it —
+    leaving a clean base under a faulted machine permanently. The manifest is
+    deliberately NOT deleted to force a retry: that would throw away a
+    multi-minute seed to redo work that succeeded. The one step that failed is
+    the one the operator is told to re-run.
+
+    :raises RuntimeError: if the re-apply fails, naming the command that fixes it.
+    """
+    from osprey.simulation.apply import apply_scenarios, persisted_scenario_anchor
+    from osprey.simulation.engine import DEFAULT_SCENARIO
+
+    if engine is None:
+        logger.info("No machine model in this project; no scenarios to re-apply after the reseed")
+        return
+
+    names = engine.active_scenarios()
+    # The anchor the running world is already on: re-anchoring here would slide
+    # the live VA's events, the logbook and the archive's windows to a T0 nobody
+    # asked for, as a side effect of a deploy meant to rebuild only the store.
+    anchor = persisted_scenario_anchor(config, project_dir)
+    try:
+        result = apply_scenarios(project_dir, names, seed_logbook=False, now=anchor)
+    except Exception as exc:
+        # `nominal` is implicit, so the recovery command names the faults — which
+        # is what the operator activated and what `sim apply` expects back.
+        faults = [name for name in names if name != DEFAULT_SCENARIO] or [DEFAULT_SCENARIO]
+        raise RuntimeError(
+            "The base series was rebuilt but the active scenarios could not be "
+            "re-applied, so the archive currently shows a clean machine while the "
+            f"simulation runs {list(names)!r}.\n"
+            f"Re-run `osprey sim apply {' '.join(faults)}` from {project_dir} to put the "
+            f"event windows back. Cause: {exc}"
+        ) from exc
+    logger.key_info(f"Re-applied scenarios {list(result.active)!r} onto the rebuilt archive")
+
+
+def _wait_for_archiver_store(
+    collection, deadline: float, store_hint: str = "the archiver store"
+) -> None:
+    """Block until the staged store answers, or fail with what it was asked.
+
+    The compose healthcheck already gates the recorder on the same condition;
+    this is the host side of it, and it probes with the credentials the seeder is
+    about to use — so an authentication failure surfaces here, with the variable
+    named, rather than as an unexplained seeding error.
+
+    :param collection: The archive collection, for its client.
+    :param deadline: :func:`time.monotonic` instant to give up at.
+    :param store_hint: How to name this store in an error — who is connecting
+        where, which is what tells an operator whose credentials were refused.
+    :raises RuntimeError: if the store rejects these credentials, or is still
+        unreachable at ``deadline``.
+    """
+    from pymongo.errors import OperationFailure, PyMongoError
+
+    client = collection.database.client
+    auth_deadline = time.monotonic() + _ARCHIVER_AUTH_GRACE_S
+    last: Exception | None = None
+    while True:
+        try:
+            client.admin.command("ping")
+            return
+        except OperationFailure as exc:
+            # "Authentication failed" means two opposite things depending on
+            # WHEN it arrives, and the difference decides whether a first deploy
+            # works at all.
+            #
+            # On a FRESH volume, mongod accepts connections before it has created
+            # the root user from MONGO_INITDB_ROOT_USERNAME/PASSWORD. A probe
+            # landing in that window is refused — and the store is perfectly
+            # healthy a second later. Treating that as terminal aborts the very
+            # first deploy of every new project, intermittently, depending on
+            # which side of the race the probe lands. (It is the same window the
+            # compose healthcheck covers with its own ``start_period``.)
+            #
+            # Once the store has had time to initialize, the SAME error means the
+            # stale-volume shape instead: mongod reads its root credentials only
+            # when initializing a fresh volume, so a rotated MONGO_ROOT_PASSWORD
+            # leaves a running store that will refuse this password forever. That
+            # is worth failing fast on rather than burning the full budget.
+            #
+            # So the grace window is what separates them: retry while the store
+            # could still be initializing, then treat a refusal as final.
+            if exc.code != _MONGO_AUTHENTICATION_FAILED:
+                raise
+            if time.monotonic() < auth_deadline:
+                last = exc
+                time.sleep(_ARCHIVER_HEALTH_POLL_S)
+                continue
+            raise RuntimeError(
+                f"The archiver store rejected the credentials in {store_hint}: {exc}\n"
+                "mongod reads its root credentials only when initializing a FRESH data "
+                "volume, so a store whose volume predates the current MONGO_ROOT_PASSWORD "
+                "keeps the password it was created with. Either restore the original "
+                "value, or remove the `archiver_mongodb_data` volume to re-initialize the "
+                "store — which discards the seeded and recorded history with it."
+            ) from exc
+        except PyMongoError as exc:
+            last = exc
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"The archiver store did not become reachable within "
+                    f"{_ARCHIVER_HEALTH_TIMEOUT_S:.0f}s: {exc}\n"
+                    f"Check `{_ARCHIVER_STORE_SERVICE}` in `osprey status` and its "
+                    "container logs. A store on a pre-existing volume keeps the credentials "
+                    "it was initialized with, so a rotated MONGO_ROOT_PASSWORD needs the "
+                    "volume recreated (which discards the archive)."
+                ) from last
+            time.sleep(_ARCHIVER_HEALTH_POLL_S)
+
+
+def _seed_progress_reporter():
+    """A :func:`~osprey.simulation.archiver_seed.seed_base` progress callback.
+
+    Rate-limited rather than per-chunk: the point is to prove a multi-minute step
+    is moving, not to narrate every insert.
+    """
+    last = [time.monotonic()]
+
+    def report(seed_report) -> None:
+        now = time.monotonic()
+        if now - last[0] < _ARCHIVER_PROGRESS_INTERVAL_S:
+            return
+        last[0] = now
+        logger.info(
+            f"  seeding archive: {seed_report.documents:,} documents written "
+            f"({seed_report.elapsed_s:.0f}s elapsed)"
+        )
+
+    return report
+
+
+def _archiver_store_connection(config: dict, project_dir: Path) -> dict | None:
+    """Connection parameters for the store this deploy is bringing up.
+
+    Delegates to :func:`~osprey.simulation.apply.archiver_store_config` so the
+    deploy-time seeder and ``osprey sim apply`` open one store the same way, then
+    fills in the one difference between the two callers. ``sim apply`` reads the
+    password from the project ``.env`` and never from the ambient environment,
+    because it is routinely run from somewhere else and must not pick up a
+    foreign deployment's credential. ``osprey up`` is the process that hands
+    compose its environment: when the password is exported rather than written to
+    ``.env``, the exported value is what the store container is created with, so
+    it is also what the seeder must authenticate with.
+
+    :returns: The parameters, or ``None`` when the project declares no connection
+        block for the store it deploys — nothing can be seeded, and saying so is
+        better than guessing a host.
+    """
+    from osprey.simulation.apply import archiver_store_config
+
+    store = archiver_store_config(config, project_dir)
+    if store is None:
+        return None
+    if not store["password"]:
+        store["password"] = os.environ.get(store["password_env"], "")
+    return store
+
+
+def _stage_archiver_store(config, compose_files, env, project_dir, *, keep_base=False) -> None:
+    """Start the archiver store on its own and seed its base history.
+
+    Staged ahead of the full bring-up for one reason: the recorder writes into a
+    collection the seeder creates, with the indexes and the compressor the seeder
+    chooses. Starting both at once would race the collection into existence with
+    whatever options the first writer happened to imply.
+
+    What happens depends on what the store's seed manifest says about the knobs
+    now in force:
+
+    * **match** — the store already holds the archive this profile describes.
+      Nothing is written, and the deploy continues immediately.
+    * **absent** — no manifest: a first deploy, or a volume that ``clean``/
+      ``rebuild`` wiped. Seed it.
+    * **mismatch** — the knobs moved, so the store's coverage no longer describes
+      what the profile asks for. Report what changed, then rebuild — unless
+      ``keep_base`` says to leave it alone.
+
+    Both rebuild paths quiesce the recorder first. It is one operation — stop the
+    writer, drop the collection, rebuild it, re-apply the active scenarios — and
+    splitting it by state would leave the mismatch path stopping a writer the
+    absent path lets run into a collection being dropped underneath it. Stopping
+    a service that was never started is a no-op, and neither deploy branch needs
+    anything undone afterwards: the full ``up`` that follows starts it again.
+
+    :param config: Raw deploy config.
+    :param compose_files: Rendered compose file paths for this deploy.
+    :param env: The environment the deploy hands compose.
+    :param project_dir: Root of the built project (holds ``.env`` and ``data/``).
+    :param keep_base: Leave a mismatched base in place instead of rebuilding it.
+    :raises RuntimeError: if the store cannot be reached or authenticated.
+    """
+    from osprey.simulation.apply import archiver_collection
+    from osprey.simulation.archiver_seed import (
+        SeedKnobs,
+        SeedState,
+        compare_fingerprint,
+        seed_base,
+        seed_fingerprint,
+    )
+
+    store = _archiver_store_connection(config, project_dir)
+    if store is None:
+        logger.warning(
+            "This project deploys the archiver store but declares no "
+            "`archiver.mongodb_archiver` connection block, so its history cannot be "
+            "seeded. The store still starts; archiver reads will find it empty."
+        )
+        return
+    if not store["password"]:
+        raise RuntimeError(
+            f"The archiver store's password variable {store['password_env']} is set "
+            f"neither in {project_dir / '.env'} nor in this environment, so the seeder "
+            "cannot authenticate against the store it is about to start."
+        )
+
+    knobs = SeedKnobs.from_config(config)
+    services = config.get("services") or {}
+    compression = str((services.get(_ARCHIVER_STORE_SERVICE) or {}).get("compression") or "zstd")
+
+    run_env = runtime_env(config, env)
+    # The invocation contract, same as _start_stack: -f paths and --env-file
+    # anchored on the repo root, so staging is correct from any working
+    # directory rather than only from a root the caller chdir'd into.
+    base_cmd = compose_base_cmd(
+        get_runtime_command(config),
+        compose_files,
+        project_dir,
+        _env_file_args(project_dir),
+    )
+
+    up_cmd = base_cmd + ["up", "-d", _ARCHIVER_STORE_SERVICE]
+    logger.info(f"Running command:\n    {' '.join(up_cmd)}")
+    subprocess.run(up_cmd, env=run_env, check=True)
+
+    # Assembled while the store boots, and before the health budget starts: this
+    # reads a manifest and a machine model off disk, and charging that time
+    # against the store's start-up allowance would make a slow disk look like an
+    # unreachable server.
+    channels, engine, boot_values = _archiver_seed_inputs(config, project_dir)
+    fingerprint = seed_fingerprint(
+        knobs, (str(channel["address"]) for channel in channels), compression=compression
+    )
+
+    store_hint = f"{store['username']}@{store['host']}:{store['port']}"
+    with archiver_collection(store) as collection:
+        _wait_for_archiver_store(
+            collection, time.monotonic() + _ARCHIVER_HEALTH_TIMEOUT_S, store_hint
+        )
+        comparison = compare_fingerprint(collection, fingerprint)
+
+        if comparison.state is SeedState.MATCH:
+            logger.key_info("Archive already covers the configured window; skipping the base seed")
+            return
+
+        if comparison.state is SeedState.MISMATCH:
+            logger.key_info("The archive's knobs changed since it was seeded:")
+            logger.key_info(comparison.describe())
+            if keep_base:
+                logger.warning(
+                    "Keeping the existing base (--keep-archiver-base). The stored history "
+                    "still describes the OLD knobs, so archiver reads will not match what "
+                    "this profile declares."
+                )
+                return
+            logger.key_info(
+                "Rebuilding the base series. Recorded history is discarded with it — the "
+                "recorder's samples share the collection being dropped. Pass "
+                "--keep-archiver-base to skip this."
+            )
+
+        if _ARCHIVER_RECORDER_DEPLOY_NAME in (config.get("deployed_services") or []):
+            stop_cmd = base_cmd + ["stop", _ARCHIVER_RECORDER_SERVICE]
+            logger.info(f"Running command:\n    {' '.join(stop_cmd)}")
+            quiesce = subprocess.run(stop_cmd, env=run_env)
+            # Not fatal — the rebuild is still the right thing to do — but a
+            # recorder that would not stop is writing into the collection about
+            # to be dropped, so the breach of the quiesce invariant has to be
+            # visible rather than swallowed by a return code nobody reads.
+            if quiesce.returncode != 0:
+                logger.warning(
+                    f"Could not stop `{_ARCHIVER_RECORDER_SERVICE}` (exit "
+                    f"{quiesce.returncode}). If it is still running it may write "
+                    "samples into the collection being rebuilt; check "
+                    "`osprey status` if the reseeded archive looks wrong."
+                )
+
+        collection.drop()
+        logger.key_info(
+            f"Seeding {len(channels):,} channels over {knobs.retention_days} days "
+            f"({knobs.hot_span_hours}h at {knobs.hot_cadence_sec}s, then "
+            f"{knobs.tail_cadence_sec}s). This takes minutes on a first deploy."
+        )
+        report = seed_base(
+            collection,
+            channels,
+            knobs,
+            t0=datetime.now(UTC),
+            engine=engine,
+            boot_values=boot_values,
+            compression=compression,
+            progress=_seed_progress_reporter(),
+        )
+        logger.key_info(report.describe())
+
+    # Outside the store connection: re-applying opens its own, and holding this
+    # one across it would keep an idle client alive for the whole rewrite.
+    _reapply_active_scenarios(config, project_dir, engine)
+
+
+def deploy_up(
+    config_path,
+    detached=False,
+    dev_mode=False,
+    expose_network=False,
+    keep_archiver_base=False,
+):
     """Start services using container runtime (Docker or Podman).
 
     The legacy entry point: it RE-RENDERS the compose files from the config it
@@ -1489,8 +2030,16 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     :type dev_mode: bool
     :param expose_network: Expose services to all network interfaces (0.0.0.0)
     :type expose_network: bool
+    :param keep_archiver_base: Leave a mismatched archiver base in place instead
+        of rebuilding it (see :func:`_stage_archiver_store`)
+    :type keep_archiver_base: bool
     """
     config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
+    project_dir = Path(config_path).resolve().parent
+
+    # Before every other check, and before any branch below has touched the
+    # host: a deployment whose archive is fabricated does not get to start.
+    _refuse_invented_history(config)
 
     # The compose project directory for every invocation below, resolved from
     # the config path rather than inherited from the working directory — see
@@ -1501,7 +2050,7 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # an older framework/preset self-describes an out-of-date service set in
     # config.yml, so the deploy below would "succeed" at the wrong goal with
     # no error anywhere. Never blocks (see warn_if_project_stale).
-    warn_if_project_stale(Path(config_path).resolve().parent)
+    warn_if_project_stale(project_dir)
 
     _start_stack(
         config,
@@ -1516,10 +2065,9 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
         # compose invocation below reads `<repo>/.env` with --env-file, so an
         # unanchored mint writes tokens the stack never reads — a deploy that
         # comes up with its fail-closed tokens unset, which looks secure and
-        # says nothing. Only the anchor changes here; the surrounding legacy
-        # start path is left structurally as-is (task 4.1 rewrites this region
-        # against main's archiver staging).
+        # says nothing.
         env_path=repo_root / COMPOSE_ENV_FILENAME,
+        keep_archiver_base=keep_archiver_base,
     )
 
 
@@ -1533,6 +2081,7 @@ def _start_stack(
     expose_network: bool = False,
     env_path: Path | None = None,
     build_context: Path | str | None = None,
+    keep_archiver_base: bool = False,
 ) -> None:
     """Provision, preflight and start one already-resolved stack.
 
@@ -1572,6 +2121,8 @@ def _start_stack(
         build_context: Directory holding the rendered ``Dockerfile`` for the
             project image. ``None`` resolves the repo root — correct only for a
             project directory that IS its own render.
+        keep_archiver_base: Leave a mismatched archiver base in place instead
+            of rebuilding it (see :func:`_stage_archiver_store`).
     """
     web_terminals_enabled = _web_terminals_enabled(config)
 
@@ -1615,6 +2166,12 @@ def _start_stack(
     # the appended tokens, and a tokens-only .env carries no provider secret to
     # mount in the first place.
     _ensure_service_tokens(config, expose_network, env_path)
+
+    # Fail fast on the optional dependency the staged archiver bring-up below
+    # cannot proceed without. Here, beside the mint that provisions the store's
+    # own credential, rather than at the seeder: a missing extra must abort in
+    # seconds, before the minutes-long image build, not after it.
+    _preflight_archiver_pymongo(config)
 
     # Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
     # VA-backed Bluesky stack (additive; no-op unless both bluesky and
@@ -1665,6 +2222,17 @@ def _start_stack(
     # unless the worker is deployed on the local project image. Run before
     # `compose up` (which, non-detached, os.execvpe-replaces this process).
     _build_project_image(config, dev_mode, env, build_context)
+
+    # Stage the archiver store and seed its history BEFORE the branch split, so
+    # both deploy paths inherit it and the recorder — started by whichever `up`
+    # follows — finds a collection that already exists with the right indexes.
+    # No-op unless this project deploys the store itself. Anchored on the repo
+    # root: the single root `.env` is the secret store the seeder authenticates
+    # from, and every compose invocation on this path reads it with --env-file.
+    if _archiver_store_deployed(config):
+        _stage_archiver_store(
+            config, compose_files, env, Path(repo_root), keep_base=keep_archiver_base
+        )
 
     if web_terminals_enabled:
         deploy_up_web_terminals(config, compose_files, dev_mode, env, _env_file_args(repo_root))
@@ -1856,6 +2424,7 @@ def up_as_built(
     *,
     detached: bool = False,
     dev_mode: bool = False,
+    keep_archiver_base: bool = False,
 ) -> None:
     """Start a deployment repo from ``build/`` exactly as it was built.
 
@@ -1894,6 +2463,8 @@ def up_as_built(
         repo_root: The deployment repo — the directory holding ``profile.yml``.
         detached: Run in detached mode.
         dev_mode: Stage the local osprey checkout into the images.
+        keep_archiver_base: Leave a mismatched archiver base in place instead
+            of rebuilding it (see :func:`_stage_archiver_store`).
 
     Raises:
         NoBuildError: When ``build/`` holds no rendered config to start.
@@ -1901,7 +2472,15 @@ def up_as_built(
     """
     repo_root = Path(repo_root)
     config, compose_files, exposed = _resolve_as_built_inputs(repo_root, dev_mode=dev_mode)
-    _start_as_built(repo_root, config, compose_files, exposed, detached=detached, dev_mode=dev_mode)
+    _start_as_built(
+        repo_root,
+        config,
+        compose_files,
+        exposed,
+        detached=detached,
+        dev_mode=dev_mode,
+        keep_archiver_base=keep_archiver_base,
+    )
 
 
 def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, list[str], bool]:
@@ -1944,6 +2523,15 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
         preflight_dev_mode()
 
     config = load_project_config(str(config_path), wrap_errors=True)
+
+    # Before anything below can matter: a deployment whose archive is fabricated
+    # does not get to start. build/config.yml is what the last build wrote, but
+    # nothing stops a hand-edit between build and start, and a start is where
+    # the pairing becomes a running stack other people trust. Hosted here so
+    # both callers — `osprey up` and `osprey restart` — refuse identically,
+    # before the restart's `down` has stopped anything.
+    _refuse_invented_history(config)
+
     compose_files = as_built_compose_files(config, repo_root)
 
     if not compose_files and config.get("deployed_services"):
@@ -1964,6 +2552,7 @@ def _start_as_built(
     *,
     detached: bool,
     dev_mode: bool,
+    keep_archiver_base: bool = False,
 ) -> None:
     """Start already-resolved as-built inputs, with a deployment repo's rules.
 
@@ -1988,6 +2577,7 @@ def _start_as_built(
         # looking, and silent.
         env_path=repo_root / COMPOSE_ENV_FILENAME,
         build_context=container_image_context(repo_root, resolve_project_name(config)),
+        keep_archiver_base=keep_archiver_base,
     )
 
 
@@ -2159,6 +2749,7 @@ def restart_deployment(
     *,
     detached: bool = False,
     dev_mode: bool = False,
+    keep_archiver_base: bool = False,
 ) -> None:
     """Stop this deployment and start it again from ``build/``.
 
@@ -2188,6 +2779,8 @@ def restart_deployment(
         repo_root: The deployment repo.
         detached: Run in detached mode.
         dev_mode: Stage the local osprey checkout into the images.
+        keep_archiver_base: Leave a mismatched archiver base in place instead
+            of rebuilding it (see :func:`_stage_archiver_store`).
 
     Raises:
         NoBuildError: When ``build/`` holds nothing to start. Nothing is stopped.
@@ -2196,7 +2789,15 @@ def restart_deployment(
     repo_root = Path(repo_root)
     config, compose_files, exposed = _resolve_as_built_inputs(repo_root, dev_mode=dev_mode)
     down_deployment(repo_root)
-    _start_as_built(repo_root, config, compose_files, exposed, detached=detached, dev_mode=dev_mode)
+    _start_as_built(
+        repo_root,
+        config,
+        compose_files,
+        exposed,
+        detached=detached,
+        dev_mode=dev_mode,
+        keep_archiver_base=keep_archiver_base,
+    )
 
 
 def deploy_down(config_path, dev_mode=False):
@@ -2263,6 +2864,11 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     """
     config, compose_files = prepare_compose_files(config_path, expose_network=expose_network)
 
+    # config.yml is bind-mounted, so a restart is how an edit takes effect —
+    # including an edit into the pairing deploy_up refuses. Same guard, same
+    # reason. (`rebuild_deployment` reaches it through deploy_up.)
+    _refuse_invented_history(config)
+
     # Verify container runtime is actually running
     is_running, error_msg = verify_runtime_is_running(config)
     if not is_running:
@@ -2275,11 +2881,10 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     # env_path it falls back to a cwd-relative `.env`. Run from anywhere but the
     # repo root that wrote tokens into a stray file — where the operator would
     # never find them and the next deploy would mint different ones — and the
-    # containers pinned to the originals would not come back up. The anchor is
-    # the only thing changed here; the surrounding legacy restart path is left
-    # structurally as-is on purpose (task 4.1 rewrites this region against
-    # main's archiver staging, and a restructure now would collide with it).
-    _ensure_service_tokens(config, expose_network, resolve_repo_root(config, config_path) / ".env")
+    # containers pinned to the originals would not come back up.
+    _ensure_service_tokens(
+        config, expose_network, resolve_repo_root(config, config_path) / COMPOSE_ENV_FILENAME
+    )
 
     # Same reason the token mint above runs on this path: the bluesky compose
     # template expands the manager's private key with a `:?` guard, so an unset
@@ -2291,7 +2896,9 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     # so generating them would change nothing until the next `osprey up`.
     # Anchored for the same reason as the token mint above — this mints a
     # keypair, and a cwd-relative `.env` would strand it.
-    _ensure_bluesky_control_plane_keys(config, resolve_repo_root(config, config_path) / ".env")
+    _ensure_bluesky_control_plane_keys(
+        config, resolve_repo_root(config, config_path) / COMPOSE_ENV_FILENAME
+    )
 
     cmd = compose_base_cmd(
         with_plain_progress(get_runtime_command(config)),

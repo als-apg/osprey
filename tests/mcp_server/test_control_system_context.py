@@ -1,7 +1,8 @@
 """Tests for the MCP Server Registry.
 
 Covers: initialization, singleton access, connector caching, invalidation,
-config validation warnings, shutdown, channel_finder_config, and dot-path access.
+config validation warnings, the one config the server refuses to start on,
+shutdown, channel_finder_config, and dot-path access.
 """
 
 import logging
@@ -10,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
+from osprey.errors import ConfigurationError
 from osprey.mcp_server.control_system.server_context import (
     ControlSystemContext,
     get_server_context,
@@ -402,3 +404,129 @@ async def test_unknown_connector_raises(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="Unknown connector"):
         await registry._get_connector("nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# The honesty rule at runtime: the server refuses to serve invented history
+# ---------------------------------------------------------------------------
+
+_VA_MOCK_NESTED = {
+    "control_system": {"type": "virtual_accelerator", "writes_enabled": False},
+    "archiver": {"type": "mock_archiver"},
+}
+_VA_UNSET_ARCHIVER = {"control_system": {"type": "virtual_accelerator"}}
+
+# A hand-edited config.yml can carry a top-level dotted line that LOOKS like it
+# sets the key. MCPServerConfig reads nested sections only (raw.get("archiver")),
+# and the factory then sees no type and falls back to the mock -- so each of
+# these runs a VA against invented history while appearing configured.
+_FLAT_ARCHIVER_OVER_NESTED_MOCK = _VA_MOCK_NESTED | {"archiver.type": "mongodb_archiver"}
+_FLAT_ARCHIVER_ONLY = _VA_UNSET_ARCHIVER | {"archiver.type": "mongodb_archiver"}
+_FLAT_CONTROL_SYSTEM_OVER_NESTED_VA = _VA_MOCK_NESTED | {"control_system.type": "mock"}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_VA_MOCK_NESTED, id="nested-mock"),
+        pytest.param(_VA_UNSET_ARCHIVER, id="archiver-unset"),
+        pytest.param(_FLAT_ARCHIVER_OVER_NESTED_MOCK, id="inert-flat-archiver-over-mock"),
+        pytest.param(_FLAT_ARCHIVER_ONLY, id="inert-flat-archiver-only"),
+        pytest.param(_FLAT_CONTROL_SYSTEM_OVER_NESTED_VA, id="inert-flat-control-system"),
+    ],
+)
+def test_a_virtual_accelerator_with_invented_history_refuses_to_start(
+    tmp_path, monkeypatch, config
+):
+    """Every tool in this server would answer, and the archiver's answers would
+    be invented -- a failure no single call can show. So the server does not
+    start: whether the mock is named or fallen back to, and whether or not an
+    inert top-level dotted line makes the file look configured.
+    """
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, config)
+
+    with pytest.raises(ConfigurationError) as excinfo:
+        initialize_server_context()
+
+    assert "virtual_accelerator" in str(excinfo.value)
+
+
+@pytest.mark.unit
+def test_the_refusal_explains_an_inert_flat_line_rather_than_calling_it_unset(
+    tmp_path, monkeypatch
+):
+    """Someone who typed `archiver.type: mongodb_archiver` at the top level is
+    owed better than "unset" -- the reason it did nothing IS the fix."""
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, _FLAT_ARCHIVER_ONLY)
+
+    with pytest.raises(ConfigurationError) as excinfo:
+        initialize_server_context()
+    message = str(excinfo.value)
+
+    assert "configures nothing" in message
+    assert "nested sections" in message
+
+
+@pytest.mark.unit
+def test_a_flat_only_control_system_is_a_mock_deployment_not_a_refusal(tmp_path, monkeypatch):
+    """The mirror of the rule. With no `control_system:` section the factory
+    falls back to the mock, so this is a mock machine with a mock archive --
+    honest, however little the inert line achieved."""
+    monkeypatch.chdir(tmp_path)
+    _write_config(
+        tmp_path,
+        {"control_system.type": "virtual_accelerator", "archiver": {"type": "mock_archiver"}},
+    )
+
+    registry = initialize_server_context()
+
+    assert registry.config.control_system == {}
+
+
+@pytest.mark.unit
+def test_the_refusal_names_the_config_and_both_ways_out(tmp_path, monkeypatch):
+    """A refusal at MCP startup reaches someone reading a launcher's stderr, who
+    needs the file to open and the edit to make."""
+    monkeypatch.chdir(tmp_path)
+    config_file = _write_config(tmp_path, _VA_MOCK_NESTED)
+
+    with pytest.raises(ConfigurationError) as excinfo:
+        initialize_server_context()
+    message = str(excinfo.value)
+
+    assert str(config_file) in message
+    assert "mongodb_archiver" in message
+    assert "'mock'" in message
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(
+            {
+                "control_system": {"type": "virtual_accelerator"},
+                "archiver": {"type": "mongodb_archiver"},
+            },
+            id="va-with-store",
+        ),
+        pytest.param(
+            {"control_system": {"type": "mock"}, "archiver": {"type": "mock_archiver"}},
+            id="mock-with-mock",
+        ),
+        pytest.param(
+            {"control_system": {"type": "epics"}, "archiver": {"type": "mock_archiver"}},
+            id="epics-with-mock",
+        ),
+    ],
+)
+def test_every_honest_pairing_still_starts(tmp_path, monkeypatch, config):
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, config)
+
+    registry = initialize_server_context()
+
+    assert registry.config.raw == config

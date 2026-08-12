@@ -3,6 +3,7 @@
 from textwrap import dedent
 
 import pytest
+import yaml
 
 from osprey.utils.config_writer import (
     get_control_system_type,
@@ -104,3 +105,14 @@ def test_set_control_system_only(tmp_path, sample_config_content):
     config_path.write_text(new_content)
     assert get_control_system_type(config_path) == "epics"
     assert get_control_system_type(config_path, key="archiver.type") == "mock_archiver"
+
+
+def test_only_the_types_are_written(tmp_path, sample_config_content):
+    """The writer touches the two type keys and nothing else in the section."""
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(sample_config_content)
+
+    new_content, _ = set_control_system_type(config_path, "epics", "epics_archiver")
+
+    data = yaml.safe_load(new_content)
+    assert set(data["archiver"]) == {"type"}

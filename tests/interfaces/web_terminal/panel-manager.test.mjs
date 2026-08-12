@@ -18,6 +18,13 @@
  * Every prefix case is paired with an empty-prefix case asserting
  * byte-identical (unprefixed) behavior, per the prefix contract.
  *
+ * Beyond the prefix contract this file also pins the SSE-driven behavior the
+ * rail and the dock share — agent activity styling, rail membership, the
+ * simple-UX chat-only boot, and (with a hand-built DockviewApi published
+ * through the mocked dock-workspace module) the placement an agent switch_panel
+ * produces: focus the panel's own tile, or open one BESIDE, never evicting the
+ * tile the operator is watching.
+ *
  * Module isolation: panel-manager.js keeps PANELS/panelState/visiblePanels
  * as module-private state mutated in place by initPanelManager(), so each
  * test does vi.resetModules() + a fresh dynamic import (same pattern as
@@ -27,6 +34,37 @@
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+
+// dock-workspace.js is stubbed at the module boundary so a test can publish a
+// hand-built DockviewApi (see makeDockApi) and exercise the real placement
+// engine in dock-iframe.js / dock-sync.js. `dockState.api` stays null by
+// default, which is exactly what the real getDockApi returns with no dockview
+// shell — every test that does not opt in keeps running in fallback mode.
+const { getDockApi, openTerminalPanel, closeTerminalPanel, dockState } = vi.hoisted(() => ({
+  dockState: { api: /** @type {any} */ (null) },
+  getDockApi: vi.fn(() => /** @type {any} */ (null)),
+  openTerminalPanel: vi.fn(),
+  closeTerminalPanel: vi.fn(),
+}));
+getDockApi.mockImplementation(() => dockState.api);
+
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
+  getDockApi,
+  openTerminalPanel,
+  closeTerminalPanel,
+  // Pulled in by dock-iframe.js on the transitive import chain; a mock must
+  // supply them or they resolve to undefined.
+  defaultServiceWidth: () => 600,
+  setServiceRedock: () => {},
+  onDragGesture: () => [],
+}));
+
+/** The adapter's live-follow observer; geometry itself is browser-suite turf. */
+class FakeResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 
 /** Minimal ok-JSON fetch Response stand-in. @param {any} body */
 function jsonOk(body) {
@@ -80,6 +118,9 @@ async function freshImport() {
 
 beforeEach(() => {
   delete window.__OSPREY_PREFIX__;
+  vi.clearAllMocks();
+  getDockApi.mockImplementation(() => dockState.api);
+  dockState.api = null;
 });
 
 afterEach(() => {
@@ -698,5 +739,730 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     const term = entry('terminal');
     expect(term).not.toBeNull();
     expect(term?.classList.contains('disabled')).toBe(false);
+  });
+});
+
+/**
+ * A hand-built DockviewApi stand-in modeling the group bookkeeping the placement
+ * engine relies on: an add with `direction: 'within'` joins the reference group
+ * (dockview's stacking — the evicting 'replace' placement), anything else opens
+ * a fresh group. Activation is tracked on both `activePanel` and `activeGroup`
+ * (the anchor dockPanelBesideActive splits against) and fires the active-panel
+ * listeners synchronously, as dockview does — that synchronicity is what makes
+ * the echo guard work.
+ * @returns {any}
+ */
+function makeDockApi() {
+  let groupSeq = 0;
+  /** @type {any} */
+  const api = {
+    activePanel: null,
+    activeGroup: null,
+    groups: /** @type {any[]} */ ([]),
+    panels: /** @type {any[]} */ ([]),
+    _added: /** @type {any[]} */ ([]),
+    _activeCbs: /** @type {(() => void)[]} */ ([]),
+    onDidLayoutChange: vi.fn(() => ({ dispose() {} })),
+    // rail-drag.js wires these two; HTML5 rail drags are not under test here.
+    onUnhandledDragOver: vi.fn(() => ({ dispose() {} })),
+    onDidDrop: vi.fn(() => ({ dispose() {} })),
+    onDidActivePanelChange: vi.fn((/** @type {() => void} */ cb) => {
+      api._activeCbs.push(cb);
+      return { dispose() {} };
+    }),
+    getPanel: (/** @type {string} */ id) =>
+      api.panels.find((/** @type {any} */ p) => p.id === id) ?? null,
+    addPanel: (/** @type {any} */ opts) => {
+      api._added.push(opts);
+      const group = opts.position?.referenceGroup && opts.position.direction === 'within'
+        ? opts.position.referenceGroup
+        : makeGroup();
+      /** @type {any} */
+      const panel = { id: opts.id, title: opts.title, group };
+      panel.api = { setActive: () => activate(panel) };
+      group.panels.push(panel);
+      api.panels.push(panel);
+      activate(panel);
+      return panel;
+    },
+    removePanel: (/** @type {any} */ panel) => {
+      api.panels = api.panels.filter((/** @type {any} */ p) => p !== panel);
+      const group = panel.group;
+      group.panels = group.panels.filter((/** @type {any} */ p) => p !== panel);
+      if (group.panels.length === 0) {
+        api.groups = api.groups.filter((/** @type {any} */ g) => g !== group);
+      } else if (group.activePanel === panel) {
+        group.activePanel = group.panels[0];
+      }
+      if (api.activePanel === panel) {
+        const next = group.panels[0] ?? api.panels[0] ?? null;
+        api.activePanel = next;
+        api.activeGroup = next?.group ?? null;
+        if (next) for (const cb of api._activeCbs) cb();
+      }
+    },
+    /** The dock's own view of its layout — what serializeOpenTiles walks. */
+    toJSON: () => ({
+      grid: {
+        root: {
+          type: 'branch',
+          data: api.groups.map((/** @type {any} */ g) => ({
+            type: 'leaf',
+            data: { views: g.panels.map((/** @type {any} */ p) => p.id) },
+          })),
+        },
+      },
+    }),
+  };
+  /** @param {any} panel */
+  function activate(panel) {
+    panel.group.activePanel = panel;
+    api.activePanel = panel;
+    api.activeGroup = panel.group;
+    for (const cb of api._activeCbs) cb();
+  }
+  function makeGroup() {
+    const element = document.createElement('div');
+    const content = document.createElement('div');
+    content.className = 'dv-content-container';
+    element.appendChild(content);
+    /** @type {any} */
+    const group = { id: `group-${++groupSeq}`, panels: [], activePanel: null, element };
+    api.groups.push(group);
+    return group;
+  }
+  /** Seed the native terminal card in its own group (the first split's anchor). */
+  api._addTerminal = () => {
+    const group = makeGroup();
+    /** @type {any} */
+    const terminal = { id: 'terminal', group };
+    terminal.api = { setActive: () => activate(terminal) };
+    group.panels.push(terminal);
+    api.panels.push(terminal);
+    activate(terminal);
+    return terminal;
+  };
+  return api;
+}
+
+/** Catalog config endpoints for the panels these suites boot (panel-catalog.js).
+ *  @type {Record<string, string>} */
+const CONFIG_ENDPOINT = {
+  artifacts: '/api/artifact-server',
+  ariel: '/api/ariel-server',
+  'channel-finder': '/api/channel-finder-server',
+  lattice: '/api/lattice-server',
+};
+
+/**
+ * The service ids holding a dock tile, in the order the fake api added them —
+ * a set membership check, NOT spatial order. Left-to-right placement is pinned
+ * by the `position` an add carried, which is what dockview actually lays out on.
+ */
+const dockedTiles = (/** @type {any} */ api) =>
+  api.panels
+    .filter((/** @type {any} */ p) => p.id.startsWith('iframe:'))
+    .map((/** @type {any} */ p) => p.id.slice('iframe:'.length));
+
+/**
+ * Boot the manager against a live dock shell. Every listed panel is enabled and
+ * (unless named in `unhealthy`) resolves a url, which is what marks these
+ * endpoint-less panels healthy; `visible` is the server-owned rail membership,
+ * defaulting to all of them. The FIRST listed panel is the catalog default, so
+ * boot docks its tile. Resolves once every panel's config has settled and that
+ * first tile exists, i.e. past every activation the boot itself performs.
+ * @param {{ panels?: string[], visible?: string[], unhealthy?: string[],
+ *           mode?: 'simple'|'expert' }} [opts]
+ */
+async function bootWorkspace({ panels = ['artifacts', 'ariel'], visible, unhealthy = [], mode } = {}) {
+  if (mode) document.documentElement.setAttribute('data-ui-mode', mode);
+  window.__OSPREY_PREFIX__ = '';
+  vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+  // The overlay layer mounts in .main-container — without it the adapter
+  // silently stays in fallback mode and no placeholder is ever created.
+  // (No #dock-root: dock-sync's reverse half — a human dock gesture becoming a
+  // POST — is its own module's contract, and leaving it unwired keeps the POST
+  // assertions in these suites about panel-manager's own reporting.)
+  document.body.innerHTML = `
+    <div class="main-container">
+      <nav id="panel-rail"></nav>
+      <div id="panel-manager"><div id="panel-content"></div></div>
+    </div>
+  `;
+  const members = visible ?? panels;
+  /** @type {{url: string, opts: any}[]} */
+  const calls = [];
+  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
+    calls.push({ url, opts: o });
+    if (url === '/api/panels') {
+      return jsonOk({
+        enabled: panels,
+        custom: [],
+        default: null,
+        visible: members,
+        active: null,
+        labels: {},
+        // Simple mode boots chat-only while the workspace is empty; these
+        // suites are about placement, so start past that onboarding state.
+        workspace_has_artifacts: true,
+      });
+    }
+    const id = panels.find((p) => CONFIG_ENDPOINT[p] === url);
+    if (id) return jsonOk(unhealthy.includes(id) ? {} : { url: `/panel/${id}`, available: true });
+    return jsonOk({ status: 'ok' });
+  }));
+  const { emit } = stubEventSource();
+
+  const api = makeDockApi();
+  api._addTerminal();
+  dockState.api = api;
+
+  const mod = await freshImport();
+  await mod.initPanelManager('panel-manager');
+  // The configEndpoint fetches settle after initPanelManager's own promise: a
+  // healthy panel resolves its url on that settle, an unhealthy one never does
+  // (wait on the fetch itself so both land before the frame under test).
+  for (const id of panels) {
+    if (unhealthy.includes(id)) {
+      await vi.waitFor(() => expect(calls.some((c) => c.url === CONFIG_ENDPOINT[id])).toBe(true));
+    } else {
+      await vi.waitFor(() => expect(mod.getPanelStandaloneUrl(id)).toBe(`/panel/${id}`));
+    }
+  }
+  await vi.waitFor(() => expect(api.getPanel(`iframe:${panels[0]}`)).not.toBeNull());
+  calls.length = 0;
+  return { api, emit, mod, calls };
+}
+
+/** POSTs the client sent — an applied SSE frame must never re-report focus. */
+const posts = (/** @type {{url: string, opts: any}[]} */ calls) =>
+  calls.filter((c) => c.opts?.method === 'POST').map((c) => c.url);
+
+describe("agent switch_panel (panel_focus source:'agent') — focus or open BESIDE, never evict", () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-ui-mode');
+  });
+
+  test('an undocked rail member opens as a NEW tile beside the active one — nothing is evicted', async () => {
+    const { api, emit, calls } = await bootWorkspace();
+    const artifactsTile = api.getPanel('iframe:artifacts');
+    const artifactsGroup = artifactsTile.group;
+
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+
+    // The operator's tile survives, untouched (same panel object, same group).
+    expect(api.getPanel('iframe:artifacts')).toBe(artifactsTile);
+    expect(artifactsTile.group).toBe(artifactsGroup);
+    // ariel arrived as its own tile, split off the active group.
+    const added = api._added.filter((/** @type {any} */ o) => o.id === 'iframe:ariel');
+    expect(added).toHaveLength(1);
+    expect(added[0].position).toMatchObject({ referenceGroup: artifactsGroup, direction: 'right' });
+    expect(api.getPanel('iframe:ariel').group).not.toBe(artifactsGroup);
+    // ...and holds the focus, without echoing it back to the server.
+    expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('ariel');
+    expect(posts(calls)).toEqual([]);
+  });
+
+  test('a panel that already holds a tile is only focused — no second tile, no move', async () => {
+    const { api, emit, calls } = await bootWorkspace();
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+    const arielTile = api.getPanel('iframe:ariel');
+    const artifactsTile = api.getPanel('iframe:artifacts');
+    const addsBefore = api._added.length;
+
+    emit({ type: 'panel_focus', panel: 'artifacts', source: 'agent' });
+
+    expect(api._added).toHaveLength(addsBefore);
+    expect(api.getPanel('iframe:artifacts')).toBe(artifactsTile);
+    expect(api.getPanel('iframe:ariel')).toBe(arielTile);
+    expect(api.activePanel).toBe(artifactsTile);
+    expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('artifacts');
+    expect(posts(calls)).toEqual([]);
+  });
+
+  test('a NON-member gains its rail entry first, then opens beside', async () => {
+    const { api, emit, mod, calls } = await bootWorkspace({ visible: ['artifacts'] });
+    expect(document.querySelector('.panel-rail-button[data-panel-id="ariel"]')).toBeNull();
+    const artifactsTile = api.getPanel('iframe:artifacts');
+
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+
+    const entry = document.querySelector('.panel-rail-button[data-panel-id="ariel"]');
+    expect(entry).not.toBeNull();
+    expect(entry?.classList.contains('disabled')).toBe(false);
+    expect(mod.getHiddenPanels().map((p) => p.id)).not.toContain('ariel');
+    expect(api.getPanel('iframe:artifacts')).toBe(artifactsTile);
+    expect(api.getPanel('iframe:ariel')).not.toBeNull();
+    // Membership is APPLIED locally, never reported: this is the optimistic
+    // half of a decision the server makes too, and its visibility echo lands on
+    // the entry already here (see the idempotency case below).
+    expect(posts(calls)).toEqual([]);
+  });
+
+  test('an UNHEALTHY target opens no tile — a tile it could never fill would linger empty', async () => {
+    const { api, emit } = await bootWorkspace({ unhealthy: ['ariel'] });
+    const addsBefore = api._added.length;
+
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+
+    expect(api.getPanel('iframe:ariel')).toBeNull();
+    expect(api._added).toHaveLength(addsBefore);
+    // The activation refuses too, exactly as before — artifacts keeps the focus.
+    expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('artifacts');
+  });
+
+  test('an unknown panel id touches neither the rail nor the grid', async () => {
+    const { api, emit } = await bootWorkspace();
+    const addsBefore = api._added.length;
+
+    emit({ type: 'panel_focus', panel: 'no-such-panel', source: 'agent' });
+
+    expect(api._added).toHaveLength(addsBefore);
+    expect(api.getPanel('iframe:no-such-panel')).toBeNull();
+    expect(document.querySelector('.panel-rail-button[data-panel-id="no-such-panel"]')).toBeNull();
+  });
+
+  test('a layout that cannot be serialized still opens BESIDE — never a takeover', async () => {
+    const { api, emit } = await bootWorkspace();
+    const artifactsTile = api.getPanel('iframe:artifacts');
+    const artifactsGroup = artifactsTile.group;
+    // Mid-rebuild, or an api that refuses toJSON: occupancy is unreadable from
+    // the serialized layout even though a tile is plainly on screen. Reading it
+    // as "no tiles" would send this switch down the replacing path.
+    api.toJSON = () => {
+      throw new Error('layout mid-rebuild');
+    };
+
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+
+    expect(api.getPanel('iframe:artifacts')).toBe(artifactsTile);
+    expect(artifactsTile.group).toBe(artifactsGroup);
+    expect(api.getPanel('iframe:ariel')).not.toBeNull();
+    expect(api.getPanel('iframe:ariel').group).not.toBe(artifactsGroup);
+  });
+
+  test('with EVERY service tile retired, the switch re-anchors left of the terminal', async () => {
+    const { api, emit } = await bootWorkspace({ visible: ['artifacts'] });
+    // Retire the only service tile the way a hide does, leaving the dock holding
+    // just the terminal — the state where "beside the active group" would mean
+    // "beside the terminal".
+    emit({ type: 'panel_visibility', panel: 'artifacts', visible: false });
+    expect(dockedTiles(api)).toEqual([]);
+    expect(api.activeGroup).toBe(api.getPanel('terminal').group);
+
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+
+    // The first tile rule wins: left of the terminal at the classic width, not
+    // a default-width split off the terminal's own group.
+    const added = api._added.filter((/** @type {any} */ o) => o.id === 'iframe:ariel');
+    expect(added).toHaveLength(1);
+    expect(added[0].position).toMatchObject({ referencePanel: 'terminal', direction: 'left' });
+    expect(added[0].initialWidth).toBeGreaterThan(0);
+    expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('ariel');
+  });
+
+  test("the switch's membership add is idempotent with the server's own visibility echo", async () => {
+    const { emit } = await bootWorkspace({ visible: ['artifacts'] });
+
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+    const added = document.querySelector('.panel-rail-button[data-panel-id="ariel"]');
+    expect(added).not.toBeNull();
+
+    // The focus route also appends the non-member server-side and broadcasts a
+    // visibility frame; arriving after the optimistic local add, it must leave
+    // the very same entry in place rather than rebuild or duplicate it.
+    emit({ type: 'panel_visibility', panel: 'ariel', visible: true, source: 'agent' });
+
+    const entries = document.querySelectorAll('.panel-rail-button[data-panel-id="ariel"]');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toBe(added);
+    expect(entries[0].classList.contains('disabled')).toBe(false);
+  });
+
+  test('an untagged (human-origin) focus echo keeps the evicting takeover', async () => {
+    const { api, emit } = await bootWorkspace();
+    const artifactsTile = api.getPanel('iframe:artifacts');
+    const artifactsGroup = artifactsTile.group;
+
+    emit({ type: 'panel_focus', panel: 'ariel' });
+
+    // Rail-click semantics: ariel takes the tile over and artifacts is evicted.
+    expect(api.getPanel('iframe:artifacts')).toBeNull();
+    expect(api.getPanel('iframe:ariel').group).toBe(artifactsGroup);
+  });
+
+  test('simple mode keeps the single-tile takeover (the placement verb no-ops there)', async () => {
+    const { api, emit } = await bootWorkspace({ mode: 'simple' });
+    const artifactsGroup = api.getPanel('iframe:artifacts').group;
+
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+
+    expect(api.getPanel('iframe:artifacts')).toBeNull();
+    expect(api.getPanel('iframe:ariel').group).toBe(artifactsGroup);
+    expect(api.panels.filter((/** @type {any} */ p) => p.id.startsWith('iframe:'))).toHaveLength(1);
+  });
+
+  test('fallback mode (no dock shell) activates exactly as before — no focus re-POST', async () => {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    /** @type {{url: string, opts: any}[]} */
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
+      calls.push({ url, opts: o });
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: ['artifacts', 'ariel'], custom: [], default: null,
+          visible: ['artifacts'], active: null, labels: {},
+        });
+      }
+      if (url === '/api/artifact-server') return jsonOk({ url: '/panel/artifacts', available: true });
+      if (url === '/api/ariel-server') return jsonOk({ url: '/panel/ariel', available: true });
+      return jsonOk({ status: 'ok' });
+    }));
+    const { emit } = stubEventSource();
+
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+    await vi.waitFor(() => expect(mod.getPanelStandaloneUrl('ariel')).toBe('/panel/ariel'));
+    calls.length = 0;
+
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+
+    expect(document.getElementById('panel-manager')?.dataset.activePanel).toBe('ariel');
+    expect(document.querySelector('.panel-rail-button[data-panel-id="ariel"]')).not.toBeNull();
+    expect(posts(calls)).toEqual([]);
+  });
+});
+
+describe('panel_arrange — the declarative whole-workspace rebuild', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-ui-mode');
+  });
+
+  /** @param {string} id */
+  const entry = (id) => document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`);
+  const activeStamp = () => document.getElementById('panel-manager')?.dataset.activePanel ?? null;
+
+  const THREE = ['artifacts', 'ariel', 'channel-finder'];
+
+  test('converges to exactly the requested tiles, left to right', async () => {
+    const { api, emit } = await bootWorkspace({ panels: THREE });
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'] });
+
+    expect(dockedTiles(api)).toEqual(['channel-finder', 'ariel']);
+    // The first tile splits against the grid's left edge (services sit left of
+    // the terminal); each next one lands to the RIGHT of the one before it.
+    const adds = api._added.filter((/** @type {any} */ o) => o.id.startsWith('iframe:'));
+    const cf = adds.at(-2);
+    const ariel = adds.at(-1);
+    expect(cf).toMatchObject({ id: 'iframe:channel-finder', position: { direction: 'left' } });
+    expect(ariel.position).toMatchObject({
+      referenceGroup: api.getPanel('iframe:channel-finder').group,
+      direction: 'right',
+    });
+  });
+
+  test('converges from a DIFFERENT start layout to the same end state', async () => {
+    const { api, emit } = await bootWorkspace({ panels: THREE });
+    // Start with all three open in a different order than the arrangement asks
+    // for, so the rebuild has both a tile to drop and tiles to reorder.
+    emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
+    emit({ type: 'panel_focus', panel: 'channel-finder', source: 'agent' });
+    expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts', 'channel-finder']);
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'] });
+
+    expect(dockedTiles(api)).toEqual(['channel-finder', 'ariel']);
+    // Same end state as the clean-start case, positions included: the region is
+    // rebuilt, not diffed, so a differing start layout cannot leave order behind.
+    expect(api._added.at(-1).position).toMatchObject({
+      referenceGroup: api.getPanel('iframe:channel-finder').group,
+      direction: 'right',
+    });
+    // The dropped tile keeps its rail membership — a tile close is not a hide.
+    expect(entry('artifacts')).not.toBeNull();
+  });
+
+  test('the requested focus wins when healthy; the tiles all get their iframes', async () => {
+    const { api, emit } = await bootWorkspace({ panels: THREE });
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'], focus: 'ariel' });
+
+    expect(activeStamp()).toBe('ariel');
+    expect(api.getPanel('iframe:ariel').group.activePanel.id).toBe('iframe:ariel');
+    // Every arranged tile is surfaced, not just the focused one: a docked tile
+    // whose panel was never activated would show an empty placeholder.
+    for (const id of ['channel-finder', 'ariel']) {
+      expect(document.querySelector(`iframe[data-panel-id="${id}"]`)).not.toBeNull();
+    }
+  });
+
+  test('an unhealthy focus target falls back to the first healthy listed tile', async () => {
+    const { emit } = await bootWorkspace({ panels: THREE, unhealthy: ['channel-finder'] });
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'], focus: 'channel-finder' });
+
+    expect(activeStamp()).toBe('ariel');
+  });
+
+  test('no healthy tile at all leaves focus unchanged rather than stranding it', async () => {
+    const { emit } = await bootWorkspace({ panels: THREE, unhealthy: ['ariel', 'channel-finder'] });
+    expect(activeStamp()).toBe('artifacts');
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'], focus: 'channel-finder' });
+
+    // artifacts lost its tile to the rebuild, so the accent it held is dropped;
+    // nothing healthy remains to take it, and no unhealthy panel is surfaced.
+    expect(activeStamp()).toBeNull();
+    expect(document.querySelector('.panel-rail-button.active')).toBeNull();
+    // ...and the pane is painted empty, the same strand-proof ending the
+    // visibility channel gives when its last usable panel goes away — a
+    // cleared accent over a stale surface would be the worse half of both.
+    expect(document.querySelector('.artifacts-empty-state')).not.toBeNull();
+  });
+
+  test('an UNHEALTHY listed panel gets no tile — only its rail entry', async () => {
+    const { api, emit } = await bootWorkspace({ panels: THREE, unhealthy: ['channel-finder'] });
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'] });
+
+    // A tile it could never fill would sit empty for as long as anything else
+    // holds focus, and nothing comes back for it.
+    expect(api.getPanel('iframe:channel-finder')).toBeNull();
+    expect(api._added.filter((/** @type {any} */ o) => o.id === 'iframe:channel-finder')).toHaveLength(0);
+    expect(dockedTiles(api)).toEqual(['ariel']);
+    // Membership still applied, so it stays one rail click away.
+    expect(entry('channel-finder')).not.toBeNull();
+  });
+
+  test('a skipped tile never becomes the anchor the next one splits against', async () => {
+    const { api, emit } = await bootWorkspace({ panels: THREE, unhealthy: ['channel-finder'] });
+
+    // The unhealthy panel is listed FIRST, so a naive walk would leave `prev`
+    // pointing at a tile that does not exist and split ariel off the terminal.
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'] });
+
+    const added = api._added.filter((/** @type {any} */ o) => o.id === 'iframe:ariel').at(-1);
+    expect(added.position).toEqual({ direction: 'left' });
+    expect(api.getPanel('iframe:ariel').group).not.toBe(api.getPanel('terminal').group);
+  });
+
+  test('a tile still on screen is never painted over as an empty workspace', async () => {
+    // The one reachable route to "docked but UNHEALTHY": the rail's ⊞ corner
+    // docks a tile regardless of health (its activation then refuses), which is
+    // the state the rebuild deliberately leaves on screen.
+    const { api, emit } = await bootWorkspace({
+      panels: ['artifacts', 'ariel'],
+      unhealthy: ['ariel'],
+    });
+    const beside = /** @type {HTMLElement} */ (
+      document.querySelector('[data-panel-id="ariel"] .panel-rail-beside')
+    );
+    beside.click();
+    expect(dockedTiles(api).sort()).toEqual(['ariel', 'artifacts']);
+    expect(activeStamp()).toBe('artifacts'); // the unhealthy panel took no focus
+
+    // Arrange onto the unhealthy panel alone: nothing listed can be focused, and
+    // the panel that held the view (artifacts) is not listed.
+    emit({ type: 'panel_arrange', tiles: ['ariel'] });
+
+    // Its existing tile survives the rebuild...
+    expect(dockedTiles(api)).toEqual(['ariel']);
+    // ...so the accent clears, but the pane is NOT painted empty over it.
+    expect(activeStamp()).toBeNull();
+    expect(document.querySelector('.artifacts-empty-state')).toBeNull();
+  });
+
+  test('a listed NON-member is added to the rail; a plain tiles request removes nobody', async () => {
+    const { emit, mod } = await bootWorkspace({ panels: THREE, visible: ['artifacts'] });
+    expect(entry('ariel')).toBeNull();
+
+    emit({ type: 'panel_arrange', tiles: ['ariel'] });
+
+    expect(entry('ariel')).not.toBeNull();
+    // Membership is only ADDED: artifacts is not in the arrangement but keeps
+    // its rail entry (the precedence split against panel_visibility).
+    expect(entry('artifacts')).not.toBeNull();
+    expect(mod.getHiddenPanels().map((p) => p.id)).toEqual(['channel-finder']);
+  });
+
+  test('prune_rail (the preset path) makes membership exactly the arranged tiles', async () => {
+    const { api, emit, mod } = await bootWorkspace({ panels: THREE });
+
+    emit({ type: 'panel_arrange', tiles: ['ariel'], prune_rail: true });
+
+    expect(entry('ariel')).not.toBeNull();
+    expect(entry('artifacts')).toBeNull();
+    expect(entry('channel-finder')).toBeNull();
+    expect(mod.getHiddenPanels().map((p) => p.id).sort()).toEqual(['artifacts', 'channel-finder']);
+    expect(dockedTiles(api)).toEqual(['ariel']);
+  });
+
+  test('applying an arrangement reports nothing back to the server', async () => {
+    const { emit, calls } = await bootWorkspace({ panels: THREE });
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'], focus: 'ariel', source: 'agent' });
+
+    expect(posts(calls)).toEqual([]);
+  });
+
+  test("source:'agent' glows the arranged entries transiently, without the badge", async () => {
+    const { emit } = await bootWorkspace({ panels: THREE });
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'], source: 'agent' });
+
+    expect(entry('ariel')?.classList.contains('agent-flash')).toBe(true);
+    expect(entry('channel-finder')?.classList.contains('agent-flash')).toBe(true);
+    expect(entry('ariel')?.classList.contains('agent-attention')).toBe(false);
+    expect(entry('artifacts')?.classList.contains('agent-flash')).toBe(false);
+  });
+
+  test('unknown ids are dropped rather than arranged as ghost tiles', async () => {
+    const { api, emit } = await bootWorkspace({ panels: THREE });
+
+    emit({ type: 'panel_arrange', tiles: ['ariel', 'no-such-panel'] });
+
+    expect(dockedTiles(api)).toEqual(['ariel']);
+    expect(entry('no-such-panel')).toBeNull();
+  });
+
+  test('simple mode skips the rebuild and takes the single tile over', async () => {
+    const { api, emit } = await bootWorkspace({ panels: THREE, mode: 'simple' });
+    expect(dockedTiles(api)).toEqual(['artifacts']);
+
+    emit({ type: 'panel_arrange', tiles: ['channel-finder', 'ariel'], focus: 'ariel' });
+
+    // One service tile by construction: the focus target takes it over, and no
+    // second tile is opened beside it.
+    expect(dockedTiles(api)).toEqual(['ariel']);
+    expect(activeStamp()).toBe('ariel');
+    // Membership still applies in simple mode — the rail is not a dock feature.
+    expect(entry('channel-finder')).not.toBeNull();
+  });
+
+  test('fallback mode (no dock shell) applies membership and focus only', async () => {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    /** @type {{url: string, opts: any}[]} */
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ o) => {
+      calls.push({ url, opts: o });
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: ['artifacts', 'ariel'], custom: [], default: null,
+          visible: ['artifacts'], active: null, labels: {},
+        });
+      }
+      if (url === '/api/artifact-server') return jsonOk({ url: '/panel/artifacts', available: true });
+      if (url === '/api/ariel-server') return jsonOk({ url: '/panel/ariel', available: true });
+      return jsonOk({ status: 'ok' });
+    }));
+    const { emit } = stubEventSource();
+
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+    await vi.waitFor(() => expect(mod.getPanelStandaloneUrl('ariel')).toBe('/panel/ariel'));
+    calls.length = 0;
+
+    emit({ type: 'panel_arrange', tiles: ['ariel'], focus: 'ariel', prune_rail: true });
+
+    expect(entry('ariel')).not.toBeNull();
+    expect(entry('artifacts')).toBeNull();  // prune_rail holds without a dock
+    expect(activeStamp()).toBe('ariel');
+    expect(posts(calls)).toEqual([]);
+  });
+});
+
+describe('SSE reconnect resync — membership re-converges from /api/panels', () => {
+  /**
+   * Boot against a MUTABLE server state and an EventSource stub whose
+   * `open()` drives the onopen handler — the reconnect seam. SSE has no
+   * replay, so a frame published while a client was disconnected is simply
+   * gone; on every open panel-manager must re-fetch /api/panels and apply
+   * the authoritative visible set as a delta.
+   */
+  async function bootResync() {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    const server = { visible: ['artifacts', 'ariel'] };
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: ['artifacts', 'ariel'],
+          custom: [],
+          default: null,
+          visible: [...server.visible],
+          active: null,
+          labels: {},
+        });
+      }
+      if (url === '/api/artifact-server') {
+        return jsonOk({ url: '/panel/artifacts', available: true });
+      }
+      if (url === '/api/ariel-server') {
+        return jsonOk({ url: '/panel/ariel', available: true });
+      }
+      return jsonOk({ status: 'ok' });
+    }));
+
+    /** @type {{ onopen?: (() => void) | null }[]} */
+    const sources = [];
+    class FakeEventSource {
+      constructor() {
+        /** @type {(() => void) | null} */
+        this.onopen = null;
+        sources.push(this);
+      }
+      close() {}
+    }
+    vi.stubGlobal('EventSource', FakeEventSource);
+
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+    return { mod, server, open: () => { for (const s of sources) s.onopen?.(); } };
+  }
+
+  /** @param {string} id */
+  const entry = (id) => document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`);
+
+  test('a hide missed while disconnected is applied on reconnect', async () => {
+    const { mod, server, open } = await bootResync();
+    expect(entry('ariel')).not.toBeNull();
+
+    // The agent hid ariel while this client's SSE stream was down: the
+    // panel_visibility frame never arrived. The stream then reconnects.
+    server.visible = ['artifacts'];
+    open();
+
+    await vi.waitFor(() => expect(entry('ariel')).toBeNull());
+    expect(mod.getHiddenPanels().map((p) => p.id)).toContain('ariel');
+  });
+
+  test('a show missed while disconnected is applied on reconnect', async () => {
+    const { server, open } = await bootResync();
+    server.visible = ['artifacts'];
+    open();
+    await vi.waitFor(() => expect(entry('ariel')).toBeNull());
+
+    server.visible = ['artifacts', 'ariel'];
+    open();
+
+    await vi.waitFor(() => expect(entry('ariel')).not.toBeNull());
+  });
+
+  test('an in-sync reconnect changes nothing', async () => {
+    const { open } = await bootResync();
+    const before = [...document.querySelectorAll('.panel-rail-button')].map(
+      (b) => b.getAttribute('data-panel-id'),
+    );
+
+    open();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const after = [...document.querySelectorAll('.panel-rail-button')].map(
+      (b) => b.getAttribute('data-panel-id'),
+    );
+    expect(after).toEqual(before);
   });
 });

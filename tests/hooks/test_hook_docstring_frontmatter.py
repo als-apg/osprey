@@ -25,6 +25,7 @@ HOOK_FILES = [
     "osprey_config_drift.py",
     "osprey_focus_validate.py",
     "osprey_panels_context.py",
+    "osprey_workspace_delta.py",
     "osprey_cf_feedback_capture.py",
 ]
 

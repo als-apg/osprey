@@ -636,6 +636,17 @@ class QueueBackend:
         """
         return await self._call("plans_allowed")
 
+    async def devices_allowed(self) -> dict[str, Any]:
+        """The devices the worker namespace currently exposes.
+
+        The authority on which device *names* a plan's parameters can carry:
+        every plan resolves its device fields by string name against the
+        worker's namespace, so a name absent here fails the run on its first
+        iteration. Reading it is how a caller learns the set instead of
+        guessing at it.
+        """
+        return await self._call("devices_allowed")
+
     # ---------------------------------------------- environment lifecycle
 
     async def open_environment(self) -> dict[str, Any]:

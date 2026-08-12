@@ -9,7 +9,7 @@
  *   - config ok flattens a NESTED sections tree into leaf dot-keys, and each
  *     item's run calls the injected revealSetting with its dot-key
  *   - Panels emit Show/Focus items wired to showPanel/focusPanel by id
- *   - Layouts emit items wired to applyPreset with the preset's panels
+ *   - Layouts emit items wired to applyPreset with the preset's NAME
  *   - Actions are wrapped in order with run passed through
  *   - missing optional deps never throw and contribute nothing
  *
@@ -134,19 +134,21 @@ describe('buildRegistry', () => {
     expect(focused).toEqual(['okf']);
   });
 
-  it('LAYOUTS: preset run applies the preset panels array', () => {
-    /** @type {string[][]} */
+  it('LAYOUTS: preset run applies the preset BY NAME', () => {
+    /** @type {string[]} */
     const applied = [];
     const items = buildRegistry({
       getPresets: () => [{ name: 'Focus Mode', panels: ['chat', 'ariel'] }],
-      applyPreset: (panels) => applied.push(panels),
+      applyPreset: (name) => applied.push(name),
     });
 
     const layouts = inGroup(items, 'Layouts');
     expect(layouts).toHaveLength(1);
     expect(layouts[0].label).toContain('Focus Mode');
     layouts[0].run();
-    expect(applied).toEqual([['chat', 'ariel']]);
+    // The name is what the arrange request carries — members are resolved
+    // server-side, so the palette never handles the panel list itself.
+    expect(applied).toEqual(['Focus Mode']);
   });
 
   it('ACTIONS: injected actions preserved in order with run wired through', () => {

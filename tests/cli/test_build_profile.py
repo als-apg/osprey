@@ -3,12 +3,13 @@ build-profile schema.
 
 Covers the :class:`BlueskyPanelsConfig` dataclass, the ``BuildProfile.validate``
 exemption that lets the non-builtin scan-panel web_panels ids
-(``plan``, ``results``) validate without a
-pre-existing ``web.panels.<id>.url`` when a ``bluesky_panels`` block is present
+(``bluesky``, plus the deprecated ``plan``/``results`` spellings) validate
+without a pre-existing ``web.panels.<id>.url`` when a ``bluesky_panels`` block
+is present
 (their urls are derived post-build by ``_inject_bluesky_panels``), and a
 regression guard that the shipped control-assistant preset/profile still
 validates — the gate task 3.3 (tutorial-config) re-runs after adding the
-scan panels to that preset.
+scan panel to that preset.
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ def test_bluesky_panels_ids_validate_without_url_when_bluesky_panels_present(
     _inject_bluesky_panels, which runs after this validator."""
     profile = BuildProfile(
         name="x",
-        web_panels=["plan", "results"],
+        web_panels=["bluesky"],
         bluesky_panels=BlueskyPanelsConfig(),
     )
     profile.validate(tmp_path)  # must not raise
@@ -185,7 +186,7 @@ def test_control_assistant_profile_validates() -> None:
 # The control-assistant preset now bakes the bluesky/virtual_accelerator/
 # bluesky_panels injector blocks in directly (no --set/--override flags needed),
 # so `osprey build` on the bare preset renders the full scan stack + the
-# three scan panels turn-key. These tests build a control-assistant deployment
+# BLUESKY scan panel turn-key. These tests build a control-assistant deployment
 # repo in-process (CliRunner, --skip-deps --skip-lifecycle -- Docker-free,
 # mirroring tests/cli/test_va_default_config.py's scaffolded_project fixture and
 # tests/e2e/_orm_stack.py's build_via_cli_runner) and assert on the rendered
@@ -251,12 +252,7 @@ class TestControlAssistantTurnkeyScanServices:
 
 
 class TestControlAssistantTurnkeyScanPanels:
-    """Both scan-panel web.panels entries are registered with a url."""
-
-    def test_control_assistant_scan_plan_panel(self, turnkey_scan_config: dict) -> None:
-        panel = turnkey_scan_config["web"]["panels"]["plan"]
-        assert panel["path"] == "/plan/"
-        assert panel["url"]
+    """The one scan-panel web.panels entry is registered with a url."""
 
     def test_control_assistant_scan_bluesky_panel(self, turnkey_scan_config: dict) -> None:
         panel = turnkey_scan_config["web"]["panels"]["bluesky"]
@@ -271,6 +267,13 @@ class TestControlAssistantTurnkeyScanPanels:
         built before the rename (kept working by the sidecar's alias mount);
         re-emitting it here would put the old tab back on every rebuild."""
         assert "results" not in turnkey_scan_config["web"]["panels"]
+
+    def test_control_assistant_ships_no_deprecated_plan_panel(
+        self, turnkey_scan_config: dict
+    ) -> None:
+        """Same rule for the PLAN panel, now the Plans tab of BLUESKY. Emitting
+        both ids would put two rail entries in front of the same panel."""
+        assert "plan" not in turnkey_scan_config["web"]["panels"]
 
 
 class TestControlAssistantTurnkeyScanControlSystem:

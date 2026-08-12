@@ -282,6 +282,11 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
     is_flag=True,
     help="Start build/ as it was rendered, even though profile.yml has moved on.",
 )
+@click.option(
+    "--keep-archiver-base",
+    is_flag=True,
+    help="Keep the existing archiver history even when the profile's retention/cadence knobs no longer match it. Without this, changed knobs rebuild the base series and discard recorded samples.",
+)
 @click.pass_context
 def up_verb(
     ctx: click.Context,
@@ -290,6 +295,7 @@ def up_verb(
     dev: bool,
     chain_build: bool,
     as_built: bool,
+    keep_archiver_base: bool,
 ) -> None:
     """Start this deployment from build/, as built.
 
@@ -356,7 +362,9 @@ def up_verb(
     previous = Path.cwd()
     os.chdir(repo_root)
     try:
-        up_as_built(repo_root, detached=detached, dev_mode=dev)
+        up_as_built(
+            repo_root, detached=detached, dev_mode=dev, keep_archiver_base=keep_archiver_base
+        )
     except NoBuildError as e:
         _abort(f"{e} Nothing was started.")
     except DevModeUnavailableError as e:
@@ -457,6 +465,11 @@ def down_verb(repo: Path | None) -> None:
     is_flag=True,
     help="Restart build/ as it was rendered, even though profile.yml has moved on.",
 )
+@click.option(
+    "--keep-archiver-base",
+    is_flag=True,
+    help="Keep the existing archiver history even when the profile's retention/cadence knobs no longer match it. Without this, changed knobs rebuild the base series and discard recorded samples.",
+)
 @click.pass_context
 def restart_verb(
     ctx: click.Context,
@@ -465,6 +478,7 @@ def restart_verb(
     dev: bool,
     chain_build: bool,
     as_built: bool,
+    keep_archiver_base: bool,
 ) -> None:
     """Stop and start this deployment again.
 
@@ -533,7 +547,9 @@ def restart_verb(
     previous = Path.cwd()
     os.chdir(repo_root)
     try:
-        restart_deployment(repo_root, detached=detached, dev_mode=dev)
+        restart_deployment(
+            repo_root, detached=detached, dev_mode=dev, keep_archiver_base=keep_archiver_base
+        )
     except NoBuildError as e:
         _abort(f"{e} Nothing was stopped.")
     except DevModeUnavailableError as e:

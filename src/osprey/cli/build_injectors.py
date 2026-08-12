@@ -6,7 +6,8 @@ registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
 ``BlueskyPanelsConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
-``GChatBridgeProfileConfig``).
+``GChatBridgeProfileConfig``) plus ``VAArchiverConfig``, whose block lives in
+:mod:`osprey.cli.build_profile_archiver`.
 ``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
 and facility-declared service templates.
 """
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
         NextcloudBridgeProfileConfig,
         VAConfig,
     )
+    from osprey.cli.build_profile_archiver import VAArchiverConfig
 
 logger = get_logger("build")
 
@@ -638,6 +640,19 @@ _RESULTS_PANEL_DEPRECATION = (
     "list and in any web.panels.results.* config override."
 )
 
+# The PLAN panel was folded into BLUESKY as its Plans tab, on the same terms as
+# the RESULTS rename above: one bundle, one registration, and a ``/plan/`` alias
+# mount that keeps a config.yml written before the merge resolving for one
+# release rather than 404ing. Registering both ids now would put two rail
+# entries in front of the SAME panel.
+_PLAN_PANEL_DEPRECATION = (
+    "web.panels.plan is deprecated: the PLAN panel is now the Plans tab of BLUESKY "
+    "(web.panels.bluesky, served at /bluesky/). The `plan` id keeps working for "
+    "ONE release — the sidecar serves the same bundle at /plan/ — and is removed "
+    "after that. Drop `plan` from the build profile's web_panels list, along with "
+    "any web.panels.plan.* config override."
+)
+
 
 def _fill_panel_defaults(panel_cfg: Any, url: str, path: str, label: str) -> None:
     """Fill a partially-specified ``web.panels.<id>`` entry in place.
@@ -663,14 +678,14 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     2. Write ``services.bluesky_panels`` config + register it in
        ``deployed_services`` (so ``find_service_config`` resolves it,
        mirroring ``_inject_bluesky``).
-    3. Register the two ``web.panels.<id>`` entries (``plan``, ``bluesky``)
-       pointing at the sidecar's root URL, mirroring ``_inject_dispatch``'s
-       ``events`` panel registration: each panel points the proxy at the
-       sidecar ROOT and uses ``path`` to select the panel's static mount, so
-       the panel HTML loads there while its prefix-relative API fetches reach
-       the sidecar root. A ``results`` entry left in a profile from before the
-       rename is completed and warned about rather than dropped — see
-       ``_RESULTS_PANEL_DEPRECATION``.
+    3. Register the ``web.panels.bluesky`` entry pointing at the sidecar's root
+       URL, mirroring ``_inject_dispatch``'s ``events`` panel registration: the
+       panel points the proxy at the sidecar ROOT and uses ``path`` to select
+       the panel's static mount, so the panel HTML loads there while its
+       prefix-relative API fetches reach the sidecar root. A ``results`` or
+       ``plan`` entry left in a profile from before the rename/merge is
+       completed and warned about rather than dropped — see
+       ``_RESULTS_PANEL_DEPRECATION`` and ``_PLAN_PANEL_DEPRECATION``.
     4. Print a post-build hint (image prerequisite).
 
     Thin mirror of :func:`_inject_va`/:func:`_inject_bluesky` for the compose
@@ -724,7 +739,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
         anchored_append(deployed, "bluesky_panels")
     config["deployed_services"] = deployed
 
-    # 3. Register the two web.panels.<id> entries. Derive each url from
+    # 3. Register the web.panels.bluesky entry. Derive its url from
     # bluesky_panels.port so the port is a single source of truth (mirroring the
     # events-panel comment in _inject_dispatch), but write only when the
     # profile has not already set an explicit `web.panels.<id>.url` via a
@@ -736,10 +751,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # double-prefix sub-routes. `setdefault` on `path`/`label` honors a
     # facility override.
     default_url = f"${{BLUESKY_PANELS_URL:-http://localhost:{bluesky_panels.port}}}"
-    panel_specs = (
-        ("plan", "/plan/", "PLAN"),
-        ("bluesky", "/bluesky/", "BLUESKY"),
-    )
+    panel_specs = (("bluesky", "/bluesky/", "BLUESKY"),)
     panels = config.setdefault("web", {}).setdefault("panels", {})
     for panel_id, panel_path, label in panel_specs:
         panel_cfg = panels.get(panel_id)
@@ -751,14 +763,21 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
             continue
         _fill_panel_defaults(panel_cfg, default_url, panel_path, label)
 
-    # Deprecated ``results`` alias: completed, never created. An entry only
-    # exists here when the profile still declares one (a `web.panels.results.*`
-    # override merged earlier in the build, or a config.yml built before the
-    # rename and rebuilt in place), and it keeps resolving because the sidecar
-    # serves the BLUESKY bundle at /results/ as well.
-    if "results" in panels:
-        logger.warning("  ! %s", _RESULTS_PANEL_DEPRECATION)
-        _fill_panel_defaults(panels["results"], default_url, "/results/", "RESULTS")
+    # Deprecated ``results``/``plan`` aliases: completed, never created. An
+    # entry only exists here when the profile still declares one (a
+    # `web.panels.<id>.*` override merged earlier in the build, or a config.yml
+    # built before the rename/merge and rebuilt in place), and it keeps
+    # resolving because the sidecar serves the BLUESKY bundle at /results/ and
+    # /plan/ as well.
+    for _deprecated_id, _deprecated_path, _deprecated_label, _notice in (
+        ("results", "/results/", "RESULTS", _RESULTS_PANEL_DEPRECATION),
+        ("plan", "/plan/", "PLAN", _PLAN_PANEL_DEPRECATION),
+    ):
+        if _deprecated_id in panels:
+            logger.warning("  ! %s", _notice)
+            _fill_panel_defaults(
+                panels[_deprecated_id], default_url, _deprecated_path, _deprecated_label
+            )
 
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
@@ -766,8 +785,8 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # 4. Post-build hint.
     logger.info("  ✓ Injected bluesky-panels sidecar (port %d)", bluesky_panels.port)
     logger.info(
-        "    Panels:     PLAN, BLUESKY — reached through the "
-        "web-terminal proxy at /panel/{plan,bluesky}."
+        "    Panels:     BLUESKY (Plans | Queue | Results) — reached through the "
+        "web-terminal proxy at /panel/bluesky."
     )
     logger.info(
         "    Images:     `osprey up` builds the bluesky-panels image locally "
@@ -970,4 +989,125 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         "    Images:     `osprey up` builds the gchat-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_GCHAT_BRIDGE_IMAGE to use a published image."
+    )
+
+
+def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> None:
+    """Wire the stored archiver — store plus recorder — into a built project.
+
+    1. Copy the bundled ``mongodb`` and ``archiver_recorder`` compose templates
+       into ``<project>/services/``.
+    2. Write ``services.{mongodb,archiver_recorder}`` config + register both in
+       ``deployed_services``.
+    3. Print a post-build hint (deploy-time seed, minted password, what the
+       recorder waits for).
+
+    A two-service injector like :func:`_inject_dispatch`, and paired for the
+    same reason: a store nothing writes to and a recorder with nowhere to write
+    are each half a feature. They are deployed together and the recorder's
+    compose template health-gates on the store.
+
+    Must run *after* :func:`_inject_va`, which is what puts
+    ``virtual_accelerator`` into ``deployed_services`` — the recorder template
+    reads that membership to decide whether it can reuse the VA's image and
+    address the IOC in-network, or must be told both from the environment.
+
+    The connection block the agent reads (``archiver.mongodb_archiver.*``) and
+    the archive's shape knobs (``va_archiver.*``) are deliberately NOT written
+    here: they come from :func:`~osprey.cli.build_profile_archiver.va_archiver_config_overrides`
+    on the ordinary config-override path, which an attached project reaches and
+    this injector does not.
+
+    Args:
+        va_archiver: Validated archiver configuration from the build profile.
+        project_path: Root of the built project.
+    """
+    from ruamel.yaml import YAML
+
+    # 1. Copy the bundled compose templates (located the same way as service
+    #    templates). The recorder ships no Dockerfile — it runs the VA's image
+    #    with a different command — so there is nothing to build here either.
+    pkg_services = _locate_pkg_services()
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    owned = _user_owned_services(project_path)
+
+    for name in ("mongodb", "archiver_recorder"):
+        src_dir = pkg_services / name
+        if not src_dir.is_dir():
+            logger.warning("No package template for archiver service %r at %s", name, src_dir)
+            continue
+        _refresh_service_dir(src_dir, dest_services_root / name, name, owned)
+
+    # 1a. The recorder bind-mounts the simulation data dir read-only to read the
+    # channel manifest. An app bundle that ships no such tree would leave the
+    # mount source missing, and the container runtime materializes a missing
+    # source itself, root-owned — which then locks the host out of a directory
+    # inside its own project. Same guard, same reason, as the VA injector's.
+    (project_path / "data" / "simulation").mkdir(parents=True, exist_ok=True)
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found — skipping archiver config registration")
+        return
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    with open(config_path) as fh:
+        config = yaml.load(fh)
+
+    # Only the keys the compose templates read: how the store publishes itself,
+    # who it creates, and how it compresses. They restate profile knobs the
+    # agent-side connection block also carries — one profile value rendered into
+    # the two places that read it, which is derivation rather than a second home
+    # for the fact. No ``image`` key on either service: the store falls to the
+    # template's pinned upstream tag, and the recorder to the VA's image.
+    config.setdefault("services", {})
+    anchored_put(
+        config["services"],
+        "mongodb",
+        {
+            "path": "./services/mongodb",
+            "port_host": va_archiver.port_host,
+            "username": va_archiver.username,
+            "compression": va_archiver.compression,
+        },
+    )
+    anchored_put(
+        config["services"],
+        "archiver_recorder",
+        {"path": "./services/archiver_recorder"},
+    )
+    deployed = config.get("deployed_services", []) or []
+    for name in ("mongodb", "archiver_recorder"):
+        if name not in [str(s) for s in deployed]:
+            anchored_append(deployed, name)
+    config["deployed_services"] = deployed
+
+    with open(config_path, "w") as fh:
+        yaml.dump(config, fh)
+
+    # 3. Post-build hint.
+    logger.info(
+        "  ✓ Injected archiver store + recorder (port %d, %d-day retention)",
+        va_archiver.port_host,
+        va_archiver.retention_days,
+    )
+    logger.info(
+        "    History:    `osprey up` seeds the base series before the "
+        "stack starts (minutes on a first deploy, skipped when the knobs have "
+        "not changed). Until then the archive is empty and archiver reads "
+        "honestly return nothing."
+    )
+    logger.info(
+        "    Password:   `osprey up` mints %s into .env; the store, the "
+        "recorder and the agent all authenticate with that one value.",
+        va_archiver.password_env,
+    )
+    logger.info(
+        "    Recording:  the recorder writes only while control_system.type is "
+        "'virtual_accelerator' — on any other control system it idles. It "
+        "re-reads that setting on an interval, so the flip needs no restart."
     )

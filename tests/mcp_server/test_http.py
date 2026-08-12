@@ -2,8 +2,10 @@
 
 Covers URL construction (config + env precedence), the fire-and-forget
 ``post_json`` swallowing unreachable targets, the response-returning
-``_post_json_with_response`` distinguishing rejection from unreachability, and
-``notify_panel_register`` mapping HTTP outcomes to its structured dict.
+``_post_json_with_response`` distinguishing rejection from unreachability,
+``fetch_panels`` reading live panel state (including the layout-report
+freshness fields), and ``notify_panel_register`` / ``notify_panel_arrange``
+mapping HTTP outcomes to their structured dicts.
 """
 
 from __future__ import annotations
@@ -220,6 +222,169 @@ def test_notify_panel_register_passes_health_endpoint():
     assert captured["health_endpoint"] == "http://h"
     assert captured["path"] == "/sub"
     assert captured["id"] == "p1"
+
+
+# ---------------------------------------------------------------------------
+# fetch_panels
+# ---------------------------------------------------------------------------
+
+
+def _panels_response(payload: bytes) -> MagicMock:
+    """Build a urlopen context-manager mock returning *payload*."""
+    resp = MagicMock()
+    resp.read.return_value = payload
+    cm = MagicMock()
+    cm.__enter__.return_value = resp
+    return cm
+
+
+@pytest.mark.unit
+def test_fetch_panels_returns_payload_with_freshness_fields():
+    """The layout-report fields reach the caller unchanged."""
+    body = (
+        b'{"enabled": ["artifacts"], "visible": ["artifacts"], "active": null,'
+        b' "open_tiles": ["artifacts", "lattice"], "open_tiles_age_s": 4.5,'
+        b' "open_tiles_dock": true}'
+    )
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch("urllib.request.urlopen", return_value=_panels_response(body)) as urlopen,
+    ):
+        data = http.fetch_panels()
+    assert urlopen.call_args.args[0] == "http://wt/api/panels"
+    assert data is not None
+    assert data["open_tiles"] == ["artifacts", "lattice"]
+    assert data["open_tiles_age_s"] == 4.5
+    assert data["open_tiles_dock"] is True
+
+
+@pytest.mark.unit
+def test_fetch_panels_tolerates_server_without_freshness_fields():
+    """An older server omitting the fields is not an error — keys are absent."""
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch("urllib.request.urlopen", return_value=_panels_response(b'{"enabled": []}')),
+    ):
+        data = http.fetch_panels()
+    assert data == {"enabled": []}
+    assert data.get("open_tiles_age_s") is None
+
+
+@pytest.mark.unit
+def test_fetch_panels_unreachable_returns_none():
+    """An unreachable web terminal yields None rather than raising."""
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch("urllib.request.urlopen", side_effect=OSError("connection refused")),
+        patch.object(http, "logger") as mock_logger,
+    ):
+        assert http.fetch_panels() is None
+    assert mock_logger.warning.called
+
+
+@pytest.mark.unit
+def test_fetch_panels_non_object_payload_returns_none():
+    """A JSON body that is not an object is treated as unusable."""
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch("urllib.request.urlopen", return_value=_panels_response(b"[1, 2]")),
+    ):
+        assert http.fetch_panels() is None
+
+
+# ---------------------------------------------------------------------------
+# notify_panel_arrange
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_notify_panel_arrange_posts_tiles_and_focus():
+    """Tiles, focus and the agent attribution are sent to the arrange route."""
+    captured: dict = {}
+
+    def _fake(url, payload, *, timeout):
+        captured["url"] = url
+        captured["payload"] = payload
+        return 200, {"status": "ok", "tiles": payload["tiles"]}
+
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", side_effect=_fake),
+    ):
+        http.notify_panel_arrange(tiles=["artifacts", "lattice"], focus="lattice")
+
+    assert captured["url"] == "http://wt/api/panel-arrange"
+    assert captured["payload"] == {
+        "source": "agent",
+        "tiles": ["artifacts", "lattice"],
+        "focus": "lattice",
+    }
+
+
+@pytest.mark.unit
+def test_notify_panel_arrange_preset_omits_tiles_and_focus():
+    """A preset call sends only the preset name (plus attribution)."""
+    captured: dict = {}
+
+    def _fake(url, payload, *, timeout):
+        captured.update(payload)
+        return 200, {}
+
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", side_effect=_fake),
+    ):
+        http.notify_panel_arrange(preset="injection")
+
+    assert captured == {"source": "agent", "preset": "injection"}
+
+
+@pytest.mark.unit
+def test_notify_panel_arrange_success_returns_data():
+    applied = {"status": "ok", "tiles": ["artifacts"], "focus": None, "prune_rail": False}
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", return_value=(200, applied)),
+    ):
+        out = http.notify_panel_arrange(tiles=["artifacts"])
+    assert out == {"ok": True, "status": 200, "data": applied}
+
+
+@pytest.mark.unit
+def test_notify_panel_arrange_rejected_surfaces_detail():
+    """A 422 from the route reaches the caller verbatim — never swallowed."""
+    detail = "Unknown panel ids: ['bogus']. Valid panel ids: ['artifacts', 'lattice']"
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", return_value=(422, {"detail": detail})),
+    ):
+        out = http.notify_panel_arrange(tiles=["bogus"])
+    assert out == {"ok": False, "status": 422, "detail": detail}
+
+
+@pytest.mark.unit
+def test_notify_panel_arrange_stringifies_structured_detail():
+    """FastAPI body-validation 422s carry a list; the contract stays textual."""
+    structured = [{"loc": ["body", "tiles"], "msg": "value is not a valid list"}]
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", return_value=(422, {"detail": structured})),
+    ):
+        out = http.notify_panel_arrange(tiles=["artifacts"])
+    assert out["ok"] is False
+    assert isinstance(out["detail"], str)
+    assert "value is not a valid list" in out["detail"]
+
+
+@pytest.mark.unit
+def test_notify_panel_arrange_unreachable():
+    """A down web terminal is reported as such, not raised."""
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", side_effect=OSError("no route")),
+    ):
+        out = http.notify_panel_arrange(tiles=["artifacts"])
+    assert out == {"ok": False, "status": None, "detail": "Web Terminal is not running."}
 
 
 # ---------------------------------------------------------------------------

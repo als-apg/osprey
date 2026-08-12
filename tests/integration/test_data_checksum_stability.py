@@ -103,7 +103,15 @@ class TestRuntimeWriters:
         from osprey.simulation.apply import apply_scenarios
         from osprey.utils.workspace import resolve_simulation_state_dir
 
-        apply_scenarios(built_project, ["vacuum-burst"], seed_logbook=False)
+        # Both side-seedings are off for the same reason: each one reaches a
+        # service this test does not run and is not about. `seed_logbook` wants
+        # ARIEL's Postgres; `seed_archive` wants the MongoDB store the
+        # control-assistant preset now declares, and refuses outright without
+        # the password `osprey up` mints -- correctly, since a rewrite it
+        # cannot perform would leave the archive contradicting the scenario.
+        # What is under test here is where the ACTIVATION writes: the state file
+        # belongs in `_agent_data/`, never in the build-owned `data/` tree.
+        apply_scenarios(built_project, ["vacuum-burst"], seed_logbook=False, seed_archive=False)
 
         # Resolved from the config rather than spelled out, because where the
         # agent-data root sits is a config decision: pinning the literal here
@@ -202,7 +210,10 @@ class TestTheInstrumentHasTeeth:
         (project / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
         before = _data_checksums(project)
 
-        apply_scenarios(project, ["vacuum-burst"], seed_logbook=False)
+        # Same two opt-outs as the positive case above, for the same reason —
+        # this negative control is about where the state file lands, not about
+        # ARIEL or the archive.
+        apply_scenarios(project, ["vacuum-burst"], seed_logbook=False, seed_archive=False)
 
         assert (project / "data" / "simulation" / "active_scenarios").exists()
         assert _data_checksums(project) != before

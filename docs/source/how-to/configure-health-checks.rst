@@ -118,7 +118,8 @@ suite runs the checks and grades each result ``ok`` / ``warning`` / ``error`` /
        ``warning``, as is an empty query window. An unreachable archiver, or an
        ``archiver_freshness`` check declared with no ``archiver:`` configured,
        is an ``error``. A reachable archiver UI does not prove data is flowing
-       — this probe checks the data.
+       — this probe checks the data. A project that deploys its own archive can
+       have this check **derived** rather than declared (below).
 
 .. note::
 
@@ -162,6 +163,53 @@ tile on the web dashboard, graded against the bands you choose:
 Reads go through the suite's control-system connector — the same connector,
 selected by ``control_system.type``, the agent itself uses — so a green canary
 also proves the connector configuration end to end.
+
+Recipe: archive freshness, without declaring a check
+-----------------------------------------------------
+
+A project that deploys its own archive — one whose build profile carries a
+``va_archiver:`` block (see :doc:`build-profiles`) — can have the freshness
+check written for it. Name one canary channel and nothing else:
+
+.. code-block:: yaml
+
+   # in the build profile, not config.yml
+   va_archiver:
+     freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
+
+The build turns that into a complete ``archiver`` category holding one
+``archiver_freshness`` check on that channel — the same thing you would write by
+hand, plus a ``max_age_s`` you do not have to choose.
+
+**Where the threshold comes from.** It is **three times the recorder's own
+sample cadence**, with a floor of 60 seconds. The recorder is what writes this
+archive, so how long a healthy archive can go without a sample is a fact about
+*it*, not a preference: three intervals tolerates two missed ticks before the
+check says anything, which is where "the recorder is behind" stops being
+ordinary scheduling jitter, and the floor keeps a fast recorder from alarming
+sooner than a container can restart. Slow the recorder down and the threshold
+follows — there is no second number to remember to re-tune.
+
+Which channel is representative is the one thing only you know, so there is no
+default: a profile that names none derives no check rather than having the
+framework guess. The ``control-assistant`` preset names the stored-beam DCCT
+current, for the reason a control room would pick it — it is the first thing to
+stop moving when the machine does.
+
+.. note::
+
+   On a deployment whose control system is ``mock``, the recorder idles by
+   design (it records a virtual accelerator, nothing else), so the newest sample
+   is whatever the deploy seeded and the check reports the archive as **stale**.
+   That is a ``warning``, never an ``error``, and it is an honest answer rather
+   than a misconfiguration: the store is reachable, it is simply not being
+   written. Flip the control system back and it goes green within a poll.
+
+Declare the check yourself *or* name a ``freshness_channel`` — not both. A
+profile that sets ``freshness_channel`` and also declares
+``health.categories.archiver`` in its ``config:`` block is refused at build time,
+because the two would be one fact in two homes, merged in whichever order the
+keys happened to be read.
 
 Built-in service categories
 ---------------------------

@@ -70,7 +70,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
-from tests.e2e import _queue_drive
+from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -312,12 +312,16 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # render both persona projects, build two web images, and start nginx/web
     # containers -- none of which this substrate-equivalence proof exercises
     # (that topology is covered by test_control_assistant_demo.py).
+    # `_orm_stack.VA_ARCHIVER_CI_KNOBS` shrinks the archive the preset declares
+    # to a CI-sized one -- this proof deploys the store (the preset's
+    # `va_archiver:` block is what makes the VA's history real) but reads none
+    # of its history, and seeding a tutorial-sized month costs every run.
     override_path = base / "override.yml"
     override_path.write_text(
         "config:\n"
         "  control_system.type: virtual_accelerator\n"
         "  modules.web_terminals.enabled: false\n"
-        "dispatch: null\n",
+        "dispatch: null\n" + _orm_stack.VA_ARCHIVER_CI_KNOBS,
         encoding="utf-8",
     )
 
