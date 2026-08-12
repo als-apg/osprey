@@ -38,6 +38,7 @@ import {
   createQueueStream,
   describeProgress,
   describeQueueStatus,
+  describeStartRequest,
   historyChanged,
   historyEmptyState,
   historyRecords,
@@ -49,6 +50,7 @@ import {
   queueEmptyState,
   reduceQueueFrame,
   refusalTone,
+  startRequest,
   stopButtonClass,
   stopButtonLabel,
   writeOutcomeTone,
@@ -193,6 +195,75 @@ describe('describeQueueStatus', () => {
 
   test('a null status reads as unavailable rather than throwing', () => {
     expect(describeQueueStatus(null).label).toBe('unavailable');
+  });
+});
+
+describe('start request (the tokenless agent asking this panel to arm)', () => {
+  test('startRequest surfaces the summary record, and only a real one', () => {
+    const record = {
+      request_id: 'r1',
+      requested_by: 'agent',
+      requested_at: '2026-08-12T20:00:00+00:00',
+      items_in_queue: 2,
+    };
+    const withRequest = reduceQueueFrame(
+      createInitialQueueState(),
+      frame({ status: summary({ start_request: record }) })
+    );
+    expect(startRequest(withRequest)).toEqual(record);
+
+    const without = reduceQueueFrame(createInitialQueueState(), frame());
+    expect(startRequest(without)).toBeNull();
+
+    // A summary that never mentions the key, a null status, and a malformed
+    // (non-object) record all read as "nothing to render", never a throw.
+    expect(startRequest(createInitialQueueState())).toBeNull();
+    const malformed = reduceQueueFrame(
+      createInitialQueueState(),
+      frame({ status: summary({ start_request: 'yes please' }) })
+    );
+    expect(startRequest(malformed)).toBeNull();
+  });
+
+  test('the request survives a manager outage frame — it is bridge state', () => {
+    const record = { request_id: 'r1', requested_by: 'agent', items_in_queue: 1 };
+    const outage = reduceQueueFrame(
+      createInitialQueueState(),
+      frame({
+        status: {
+          available: false,
+          reason: 'manager_unreachable',
+          start_request: record,
+        },
+      })
+    );
+    expect(startRequest(outage)).toEqual(record);
+  });
+
+  test('describeStartRequest names who asked, how much, and when', () => {
+    const sentence = describeStartRequest({
+      request_id: 'r1',
+      requested_by: 'agent',
+      requested_at: '2026-08-12T20:00:00+00:00',
+      items_in_queue: 2,
+    });
+    expect(sentence).toContain('The agent asks to start the queue');
+    expect(sentence).toContain('2 items at the time');
+    expect(sentence).toContain('requested ');
+    expect(sentence).toContain('exactly as listed below');
+  });
+
+  test('describeStartRequest omits what it cannot state truthfully', () => {
+    const sentence = describeStartRequest({ request_id: 'r1' });
+    expect(sentence).toContain('The agent asks to start the queue');
+    expect(sentence).toContain('the queued items');
+    expect(sentence).not.toContain('requested ');
+
+    // A singular count reads as one item, not "1 items".
+    expect(describeStartRequest({ items_in_queue: 1 })).toContain('1 item at the time');
+
+    // An unparseable timestamp is dropped, never rendered as "Invalid Date".
+    expect(describeStartRequest({ requested_at: 'not-a-date' })).not.toContain('Invalid');
   });
 });
 

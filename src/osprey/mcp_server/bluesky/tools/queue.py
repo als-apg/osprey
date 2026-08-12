@@ -93,8 +93,18 @@ from osprey.mcp_server.http import notify_agent_activity
 # the tool's own generic hints — an unknown code is relayed, never dropped.
 _REFUSAL_HINTS: dict[str, list[str]] = {
     "launch_token_required": [
-        "This operation arms hardware motion and needs the bridge's launch token.",
-        "If the deployment has no BLUESKY_LAUNCH_TOKEN configured, the operator must set one.",
+        "This operation arms hardware motion and needs the bridge's launch token, "
+        "which this agent does not hold — in deployed control rooms the token stays "
+        "with the operator's BLUESKY queue panel, by design.",
+        "Hand the action to the operator: arming is done from the queue panel by a "
+        "human. Never edit config.yml, .env, or settings to obtain a token.",
+        "Only if this deployment has no token configured ANYWHERE (details say so) "
+        "does an operator need to set one — that is operator work, not yours.",
+    ],
+    "queue_empty": [
+        "The queue holds no items, so there is nothing a start could run.",
+        "Stage the plan with set_draft and add it with queue_add first, then ask "
+        "for the start again.",
     ],
     "stale_draft_revision": [
         "The draft changed after you pinned this revision; re-read it with get_draft "
@@ -223,14 +233,26 @@ def _refuse_unarmed(tool: str) -> NoReturn:
 
     Uses the bridge's own ``launch_token_required`` code so the agent branches
     on one name whether the missing token is caught here or at the bridge.
+
+    The wording is posture-aware, not accusatory: in deployed control rooms
+    the agent's environment holds no launch token BY DESIGN — the token lives
+    with the operator's queue panel, and only a human arms from there. So the
+    suggestion sends the agent to the human, never to config surgery
+    (``queue_start`` itself no longer comes here at all — tokenless, it files
+    a start request for the panel instead).
     """
     return make_error(
         "launch_token_required",
-        f"This Bluesky MCP server has no BLUESKY_LAUNCH_TOKEN configured — "
-        f"{tool} is refused client-side before contacting the bridge.",
+        f"This Bluesky MCP server holds no launch token, so {tool} is refused "
+        f"client-side before contacting the bridge. In deployed control rooms this "
+        f"is the intended posture, not a misconfiguration: the launch token stays "
+        f"with the operator's BLUESKY queue panel, and arming decisions are made "
+        f"there by a human.",
         [
-            "Set BLUESKY_LAUNCH_TOKEN (or bluesky.launch_token in config.yml) "
-            "for this bridge instance."
+            f"Ask the operator to perform this from the BLUESKY queue panel — "
+            f"{tool} is an arming action reserved for the launch-token holder.",
+            "Do not edit config.yml or environment files to obtain a token; the "
+            "agent's environment is tokenless by design in deployed terminals.",
         ],
         details={"code": "launch_token_required"},
     )
@@ -346,8 +368,11 @@ async def queue_list() -> str:
         ``status`` carries ``available`` (false when the manager could not be
         read at all, with ``reason``), ``manager_state``,
         ``worker_environment_exists``, ``items_in_queue``, ``items_in_history``,
-        ``running_item_uid``, ``queue_stop_pending`` and
-        ``queue_autostart_enabled``. A ``manager_state`` of ``executing_queue``,
+        ``running_item_uid``, ``queue_stop_pending``,
+        ``queue_autostart_enabled`` and ``start_request`` (the pending
+        panel start request a tokenless queue_start filed, or null — non-null
+        means the operator has not confirmed or dismissed it yet). A
+        ``manager_state`` of ``executing_queue``,
         ``starting_queue``, ``executing_task`` or ``paused`` means the queue is
         already draining toward hardware — adding to it then is an armed
         operation.
@@ -413,10 +438,13 @@ async def queue_add(draft_revision: int) -> str:
     Refusals (nothing is queued, and the pinned revision stays usable):
         - launch_token_required: the queue is already draining and this add
           needed the launch token. ``details.manager_state`` names the state
-          that made it armed. Either the deployment has no token, or this
-          server withheld it because writes are disabled — the suggestions say
-          which, and neither is agent-recoverable; the operator must enable
-          writes or configure the token. If ``details.item_left_behind`` is
+          that made it armed. Either this server holds no token (in deployed
+          terminals that is the intended posture — the token lives with the
+          operator's queue panel, so hand the add to the human there), or this
+          server withheld it because writes are disabled (then enabling
+          writes, an operator action, is what unblocks it) — the suggestions
+          say which. Neither is agent-recoverable, and neither is a config
+          edit for you to attempt. If ``details.item_left_behind`` is
           true, an item could NOT be withdrawn and is sitting in an armed queue
           — ``details.item_uid`` names it and a human must deal with it.
         - stale_draft_revision: the draft changed after you pinned it. Re-read
@@ -498,24 +526,43 @@ async def queue_start() -> str:
     every pending item, in order, not just the one you added — so read
     queue_list first and be sure the whole queue is what should run.
 
-    Two local gates pass before any network call: this deployment's
-    ``control_system.writes_enabled`` must re-read true (fresh every call,
-    never cached, so a hook-bypassed invocation holding a valid token is still
-    refused while writes are off), and this server must hold a launch token.
-    The bridge re-verifies the token, re-checks every queued session plan's
-    validation, and opens the worker environment if needed. The human also sees
-    an approval prompt for the start.
+    This tool behaves differently depending on where the launch token lives,
+    and BOTH outcomes are success paths — know which deployment you are in:
+
+    - **This server holds the launch token** (typically a host-run dev
+      session): the start goes to the bridge directly, behind your approval
+      prompt. ``control_system.writes_enabled`` is re-read fresh first — never
+      cached — so a hook-bypassed invocation holding a valid token is still
+      refused while writes are off. The bridge re-verifies the token,
+      re-checks every queued session plan's validation, and opens the worker
+      environment if needed. Returns ``{"started": true, "msg"}``.
+    - **This server holds no token** (every deployed web terminal — the token
+      stays with the operator's BLUESKY queue panel, by design, and no config
+      change from here can obtain it): the call files a START REQUEST instead.
+      The request shows up in the human's queue panel, right next to the queue
+      it would drain, with a Confirm control only the panel (the token holder)
+      can honour. Returns ``{"started": false, "start_request": {...},
+      "message"}`` — tell the human their confirmation is waiting in the
+      queue panel, then watch queue_status/queue_list for the start. Refiling
+      replaces the pending request; the human can also dismiss it.
 
     Returns:
-        JSON ``{"started": true, "msg"}``. The queue then drains
-        asynchronously — poll queue_list for progress and get_run_data for the
-        running item's data.
+        JSON ``{"started": true, "msg"}`` when this server holds the token and
+        the bridge accepted the start — the queue then drains asynchronously
+        (poll queue_list for progress and get_run_data for the running item's
+        data). JSON ``{"started": false, "start_request", "message"}`` when
+        the start was handed to the operator's queue panel to confirm.
 
-    Refusals (nothing started):
-        - writes_disabled: writes are off in this deployment. Not
-          agent-recoverable; the operator must enable writes.
-        - launch_token_required: no launch token here or at the bridge, or the
-          two do not match. Not agent-recoverable; contact the operator.
+    Refusals (nothing started, no request filed):
+        - writes_disabled: writes are off in this deployment. Refused before
+          a direct start AND before filing a request — a confirmable request
+          must not exist while the kill switch is off. Not agent-recoverable;
+          the operator must enable writes.
+        - launch_token_required: the bridge rejected this server's token (the
+          two do not match), or the bridge itself has no token configured.
+          Not agent-recoverable; contact the operator.
+        - queue_empty (tokenless path): the queue holds no items, so there is
+          nothing a confirmation could run. Stage a draft and queue_add first.
         - session_plan_unvalidated / session_plan_not_in_namespace: a plan
           somewhere in the queue is a session plan without a current passing
           validation. One stale plan refuses the whole start, all-or-nothing;
@@ -545,7 +592,11 @@ async def queue_start() -> str:
 
     token = get_server_context().launch_token
     if not token:
-        return _refuse_unarmed("queue_start")
+        # The tokenless deployment posture: this server cannot arm — the
+        # launch token lives with the operator's queue panel — so hand the
+        # human the decision instead of dead-ending. The request route is
+        # ungated and arms nothing (no token header exists to send).
+        return await _request_panel_start()
 
     # anyio's run_sync only forwards positional args, and `headers` is
     # keyword-only on `_http_post_json`, hence the lambda.
@@ -563,6 +614,47 @@ async def queue_start() -> str:
         functools.partial(notify_agent_activity, "queue_start", "run", detail="queue")
     )
     return json.dumps(body)
+
+
+async def _request_panel_start() -> str:
+    """File a start request for the operator's queue panel to confirm.
+
+    ``queue_start``'s tokenless half. The bridge parks the request on the
+    queue summary, every open queue panel renders it as a Confirm control
+    within a poll tick, and the confirmation itself is the panel's own
+    token-gated start — nothing here acquired any arming capability. The
+    kill-switch re-read has already passed in ``queue_start``; it is the one
+    local gate this path shares with the direct start.
+    """
+    status, body = await anyio.to_thread.run_sync(
+        lambda: _http_post_json("/queue/start-request", {"requested_by": "agent"}, headers=None)
+    )
+    if status != 200:
+        return _relay_refusal(
+            body,
+            status,
+            fallback_hints=["Check queue_list for the queue's current state."],
+        )
+
+    record = body.get("start_request") if isinstance(body, dict) else None
+    await anyio.to_thread.run_sync(
+        functools.partial(notify_agent_activity, "queue_start", "run", detail="start-request")
+    )
+    return json.dumps(
+        {
+            "started": False,
+            "start_request": record,
+            "message": (
+                "This deployment keeps the launch token with the operator's BLUESKY "
+                "queue panel, so the agent cannot start the queue directly — that is "
+                "the intended arming posture, not an error. A start request has been "
+                "filed and is now visible in the queue panel: tell the operator their "
+                "confirmation is waiting there, then watch queue_status/queue_list "
+                "for the start. Do not attempt to obtain a token or edit "
+                "configuration; only the panel's Confirm control arms the queue."
+            ),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +696,9 @@ async def queue_stop(cancel: bool = False) -> str:
         - writes_disabled (cancel=True only): writes are off, so a pending stop
           cannot be withdrawn. A plain stop is never refused for this reason.
         - launch_token_required (cancel=True only): no launch token here or at
-          the bridge, or the two do not match.
+          the bridge, or the two do not match. In deployed terminals the agent
+          holds no token by design — ask the operator to withdraw the stop
+          from their queue panel instead; never chase the token in config.
         - manager_not_configured / manager_unreachable: the manager could not
           be reached. The queue was NOT stopped — say so plainly; do not report
           an unconfirmed halt as done.
