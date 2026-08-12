@@ -35,7 +35,7 @@ logic.
 
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
-Teardown goes through ``osprey deploy down``, matching every other e2e in
+Teardown goes through ``osprey down``, matching every other e2e in
 this directory.
 
 Gating: needs Docker; the VA image builds natively for the host arch, so on
@@ -110,19 +110,26 @@ AXIS_STOP_A = 3.0
 NUM_POINTS = 3
 
 
-def _channel_limits(project_dir: Path) -> dict[str, Any]:
-    return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+def _channel_limits(repo: Path) -> dict[str, Any]:
+    """The limits database the deployed containers actually read.
+
+    ``control_system.limits_checking.database_path`` resolves against
+    ``CONFIG_FILE``'s directory, and the render points that at
+    ``<repo>/build/config.yml`` -- so the render's copy, not the operator-owned
+    source under ``<repo>/data/``, is the file whose channels the containers see.
+    """
+    return json.loads((repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
-def _minted_token(project_dir: Path) -> str:
+def _minted_token(repo: Path) -> str:
     from osprey.utils.dotenv import parse_dotenv_file
 
-    env_path = project_dir / ".env"
+    env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
     token = env.get("BLUESKY_LAUNCH_TOKEN")
     assert token, (
-        "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env — `deploy up` "
+        "BLUESKY_LAUNCH_TOKEN missing/empty in the deployment repo's .env — `osprey up` "
         "mints it for every deployed service that declares it"
     )
     return token
@@ -165,10 +172,10 @@ def _find_column(columns: list[str], device_name: str) -> str:
 
 
 class DeployedGridScanStack:
-    """Everything the round-trip test needs about the one co-deployed project."""
+    """Everything the round-trip test needs about the one deployment repo."""
 
-    def __init__(self, project_dir: Path, corrector_name: str, bpm_name: str):
-        self.project_dir = project_dir
+    def __init__(self, repo: Path, corrector_name: str, bpm_name: str):
+        self.repo = repo
         self.corrector_name = corrector_name
         self.bpm_name = bpm_name
 
@@ -178,24 +185,28 @@ def deployed_grid_scan_stack(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[DeployedGridScanStack]:
     base = tmp_path_factory.mktemp("grid_scan_roundtrip_build")
-    project_dir = _orm_stack.build_project_subprocess(
+    # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
+    # render `osprey build` produced is `<repo>/build`.
+    repo = _orm_stack.build_project_subprocess(
         "grid-scan-roundtrip", output_dir=base, bridge_port=BRIDGE_PORT, timeout=BUILD_TIMEOUT_SEC
     )
 
-    limits = _channel_limits(project_dir)
+    limits = _channel_limits(repo)
     # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
     # the orm plan, grid_scan doesn't sweep every named corrector against
     # every named detector, so there is no benefit to _orm_stack's usual
     # DEFAULT_CORRECTOR_COUNT/DEFAULT_BPM_COUNT of 4.
     correctors = _orm_stack.select_correctors(limits, count=1)
     bpms = _orm_stack.select_bpms(limits, count=1)
-    _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
+    # Writes the repo root's `.env` — the deployment's whole secret store, and
+    # the file `osprey up` refuses to start without.
+    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
-    # (osprey deploy up does not pass --build to compose, so it would
-    # otherwise reuse a stale cached image). Exact-named images only.
+    # (osprey up does not pass --build to compose, so it would otherwise
+    # reuse a stale cached image). Exact-named images only.
     # E2E_REUSE_IMAGES=1 skips this for fast local iteration on the test
     # itself when the osprey source is unchanged; never set it in CI.
     if not os.environ.get("E2E_REUSE_IMAGES"):
@@ -212,8 +223,8 @@ def deployed_grid_scan_stack(
 
     try:
         up = subprocess.run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
@@ -221,26 +232,26 @@ def deployed_grid_scan_stack(
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         yield DeployedGridScanStack(
-            project_dir=project_dir,
+            repo=repo,
             corrector_name=next(iter(correctors)),
             bpm_name=next(iter(bpms)),
         )
     finally:
         down = subprocess.run(
-            [str(osprey_bin), "deploy", "down"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "down"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=300,
         )
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
@@ -277,7 +288,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
         "snake_axes": False,
     }
 
-    token = _minted_token(deployed_grid_scan_stack.project_dir)
+    token = _minted_token(deployed_grid_scan_stack.repo)
     run_id, status_body = _queue_drive.run_scan(
         BRIDGE_URL,
         "grid_scan",

@@ -1,6 +1,6 @@
-"""L3→L5 bridge — the full runtime chain claude_cmd performs, end to end, locally.
+"""L3→L5 bridge — the full runtime chain the chat verb performs, end to end, locally.
 
-Reproduces exactly what `osprey claude` does for a custom OpenAI-compatible provider:
+Reproduces exactly what `osprey chat` does for a custom OpenAI-compatible provider:
 
     resolve()  ->  inject_provider_env()  ->  start_proxy()  ->  ANTHROPIC_BASE_URL rewrite
 
@@ -51,13 +51,13 @@ def running_proxy():
     spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
     assert spec.needs_proxy and spec.upstream_base_url == OLLAMA_BASE
 
-    # Mimic the shell env claude_cmd starts from (derived secret env var name).
+    # Mimic the shell env `osprey chat` starts from (derived secret env var name).
     environ: dict[str, str] = {spec.auth_secret_env: "ollama"}
     inject_provider_env(environ, spec)
     assert environ["ANTHROPIC_AUTH_TOKEN"] == "ollama"
 
     port = start_proxy(spec.upstream_base_url, environ.get(spec.auth_env_var))
-    base = f"http://127.0.0.1:{port}"  # what claude_cmd writes to ANTHROPIC_BASE_URL
+    base = f"http://127.0.0.1:{port}"  # what `osprey chat` writes to ANTHROPIC_BASE_URL
     try:
         yield base
     finally:

@@ -33,6 +33,7 @@ from tests.e2e.sdk_helpers import (
     enable_writes_in_project,
     init_project,
     is_claude_code_available,
+    render_dir,
 )
 
 pytestmark = [
@@ -64,23 +65,24 @@ def test_query_refuses_write(tmp_path: Path, writes_enabled: bool) -> None:
     produces no tool-trace entry for that tool (behavioural: the SDK-level block
     holds against a model that has been told exactly what to call).
     """
-    project = init_project(
+    repo = init_project(
         tmp_path,
         f"w_{writes_enabled}",
         template="hello_world",
         provider="als-apg",
     )
     if writes_enabled:
-        enable_writes_in_project(project)
+        enable_writes_in_project(repo)
 
-    # Guard 1: channel_write must be in the SDK-level disallowed set.
-    assert "mcp__controls__channel_write" in read_only_disallowed_tools(project)
+    # Guard 1: channel_write must be in the SDK-level disallowed set. The set is
+    # read out of the render, which is the directory holding ``.claude/``.
+    assert "mcp__controls__channel_write" in read_only_disallowed_tools(render_dir(repo))
 
     # Guard 2: a directive write prompt must not produce a channel_write tool trace.
     runner = CliRunner()
     res = runner.invoke(
         query,
-        ["--project", str(project), "--json", _WRITE_PROMPT],
+        ["--repo", str(repo), "--json", _WRITE_PROMPT],
         catch_exceptions=False,
     )
     output = res.output.strip()
@@ -121,7 +123,7 @@ def test_query_refuses_builtin_bash(tmp_path: Path) -> None:
     Guard 2 — a directive prompt naming Bash produces no Bash tool trace
     (behavioural: the SDK-level block holds against a model told to use it).
     """
-    project = init_project(
+    repo = init_project(
         tmp_path,
         "bash_refuse",
         template="hello_world",
@@ -129,14 +131,14 @@ def test_query_refuses_builtin_bash(tmp_path: Path) -> None:
     )
 
     # Guard 1: Bash (and the other built-in unsafe tools) are disallowed.
-    disallowed = read_only_disallowed_tools(project)
+    disallowed = read_only_disallowed_tools(render_dir(repo))
     assert "Bash" in disallowed
 
     # Guard 2: a directive Bash prompt must not produce a Bash tool trace.
     runner = CliRunner()
     res = runner.invoke(
         query,
-        ["--project", str(project), "--json", _BASH_PROMPT],
+        ["--repo", str(repo), "--json", _BASH_PROMPT],
         catch_exceptions=False,
     )
     output = res.output.strip()

@@ -2,9 +2,10 @@
 
 Thin pytest wrapper over ``BenchmarkRunner`` that exercises each of the three
 channel-finder paradigms (hierarchical, middle_layer, in_context) against the
-preset's channel database. Each project ships the tier-resolved unified query
-set (one source of truth, paradigm-resolved at build time), so this test reads
-the full materialized queries file and slices the first ``SLICE_SIZE`` queries.
+preset's channel database. Each build materializes the tier-resolved unified
+query set into the render (``build/data/benchmarks/queries.json``) — one source
+of truth, paradigm-resolved at build time — so this test reads that file and
+slices the first ``SLICE_SIZE`` queries.
 
 The runner, queries, and evaluator all live in
 ``osprey.services.channel_finder.benchmarks``; this file only wires them into
@@ -30,6 +31,7 @@ from osprey.services.channel_finder.benchmarks.runner import BenchmarkRunner
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     init_project,
+    render_dir,
 )
 
 pytestmark = [
@@ -52,11 +54,17 @@ def perfect_match_rate(run: BenchmarkRun) -> float:
     return sum(1 for r in run.query_results if r.f1 == 1.0) / len(run.query_results)
 
 
-def _resolve_dataset_path(project_dir: Path) -> Path:
-    config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
+def _resolve_dataset_path(render: Path) -> Path:
+    """The materialized query set, resolved against the RENDER.
+
+    ``dataset_path`` is configured relative (``data/benchmarks/queries.json``)
+    and the file is a build output, so it resolves against the directory holding
+    the rendered ``config.yml`` — not the repo's source ``data/`` tree.
+    """
+    config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
     rel = config["channel_finder"]["benchmark"]["dataset_path"]
     path = Path(rel)
-    return path if path.is_absolute() else project_dir / path
+    return path if path.is_absolute() else render / path
 
 
 NEAR_MISS_CATEGORY = "near-miss"
@@ -123,18 +131,21 @@ def _run_paradigm_benchmark(tmp_path_factory, paradigm: str) -> BenchmarkRun:
     tmp = tmp_path_factory.mktemp(f"cf-bench-{paradigm}")
     # Build with provider=als-apg so the gate (ALS_APG_API_KEY) lines up with
     # the routing the test will actually exercise. The runner picks up the
-    # provider/wire-id mapping from the project's config.yml — no model knob
+    # provider/wire-id mapping from the rendered config.yml — no model knob
     # to plumb through this fixture.
-    project_dir = init_project(
+    repo = init_project(
         tmp,
         f"cf-bench-{paradigm}",
         provider="als-apg",
         channel_finder_mode=paradigm,
     )
+    # The runner reads ``<dir>/config.yml`` and runs with its cwd there, so it
+    # takes the render.
+    render = render_dir(repo)
 
-    indices = _slice_indices(_resolve_dataset_path(project_dir))
+    indices = _slice_indices(_resolve_dataset_path(render))
     runner = BenchmarkRunner(
-        project_dir,
+        render,
         model="als-apg/claude-haiku-4-5-20251001",
         max_concurrent=3,
         max_budget_per_query=0.20,

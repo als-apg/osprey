@@ -1,10 +1,13 @@
 """End-to-end tests for the full Claude Code + OSPREY MCP integration.
 
 These tests verify the complete workflow:
-1. `osprey build` creates a project with Claude Code integration files
-2. The Claude Code CLI discovers the OSPREY MCP server via .mcp.json
+1. `osprey init` + `osprey build` create a deployment repo whose ``build/``
+   render carries the Claude Code integration files
+2. The Claude Code CLI, run with its cwd at that render, discovers the OSPREY
+   MCP server via .mcp.json
 3. Claude calls MCP tools (archiver_read, execute, channel_find)
-4. The tools produce real artifacts (archiver data files, PNG plots)
+4. The tools produce real artifacts (archiver data files, PNG plots) under the
+   repo's durable state zone, ``var/agent_data/``
 
 This is the Claude Code equivalent of test_tutorials.py's BPM tutorial test,
 proving the MCP integration works soup-to-nuts.
@@ -32,7 +35,8 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from tests.e2e.sdk_helpers import provider_env_for_project
+from osprey.cli.init_cmd import init
+from tests.e2e.sdk_helpers import agent_data_dir, provider_env_for_project, render_dir
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -88,7 +92,11 @@ def init_project(
     provider: str,
     model: str = "haiku",
 ) -> Path:
-    """Create a project via ``osprey build --preset <template>``, return project_dir.
+    """Create and build a deployment repo at ``tmp_path/name``; return the repo root.
+
+    Two commands, matching the surface: ``osprey init <dir>`` writes the repo's
+    source zone from the preset, ``osprey build --repo <dir>`` renders
+    ``build/`` from it. The directory name IS the deployment name.
 
     Uses the Click test runner so we don't need a real shell. ``provider`` is
     keyword-only and required — see the helper in ``tests/e2e/sdk_helpers``
@@ -98,35 +106,41 @@ def init_project(
     answer Channel Access.
     """
     runner = CliRunner()
-    args = [
-        name,
-        "--preset",
-        template.replace("_", "-"),
-        "--skip-deps",
-        "--skip-lifecycle",
-        "--output-dir",
-        str(tmp_path),
-        "--set",
-        f"provider={provider}",
-        "--set",
-        f"model={model}",
-        "--set",
-        "connector=mock",
-    ]
-    result = runner.invoke(build, args)
-    assert result.exit_code == 0, f"osprey build failed: {result.output}"
-    project_dir = tmp_path / name
-    assert project_dir.exists(), f"Project directory not created: {project_dir}"
-    return project_dir
+    repo = tmp_path / name
+    init_result = runner.invoke(
+        init,
+        [
+            str(repo),
+            "--preset",
+            template.replace("_", "-"),
+            "--no-git",
+            "--set",
+            f"provider={provider}",
+            "--set",
+            f"model={model}",
+            "--set",
+            "connector=mock",
+        ],
+    )
+    assert init_result.exit_code == 0, f"osprey init failed: {init_result.output}"
+    build_result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    assert build_result.exit_code == 0, f"osprey build failed: {build_result.output}"
+    assert repo.is_dir(), f"Deployment repo not created: {repo}"
+    assert (render_dir(repo) / "config.yml").is_file(), f"Build produced no render in {repo}"
+    return repo
 
 
 def run_claude(
-    project_dir: Path,
+    repo: Path,
     prompt: str,
     timeout: int = 180,
     max_budget: str = "1.00",
 ) -> subprocess.CompletedProcess:
-    """Run Claude Code CLI non-interactively in *project_dir*.
+    """Run Claude Code CLI non-interactively in the render of *repo*.
+
+    The agent's working directory is ``<repo>/build`` — the render holds
+    ``.mcp.json``, ``.claude/`` and ``CLAUDE.md``, so that is where a session
+    has to start for the MCP servers to be discovered at all.
 
     Unsets ``CLAUDECODE`` env var to avoid the nested-session guard that
     triggers when ``claude`` is invoked from within an existing Claude
@@ -136,14 +150,15 @@ def run_claude(
     returncode=-1 so callers can inspect partial stdout/stderr and run
     diagnostics instead of crashing with an unhandled ``TimeoutExpired``.
 
-    Injects the project's resolved provider env block (``ANTHROPIC_BASE_URL``,
+    Injects the deployment's resolved provider env block (``ANTHROPIC_BASE_URL``,
     ``ANTHROPIC_DEFAULT_*_MODEL``, auth token) so the bundled Claude CLI
-    routes to the provider the project was built with. Without this, the
+    routes to the provider the deployment was built with. Without this, the
     CLI would inherit whatever ambient ``ANTHROPIC_BASE_URL`` the developer
     has set (e.g. CBORG, which 403s off LBLnet).
     """
+    render = render_dir(repo)
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
-    env.update(provider_env_for_project(project_dir))
+    env.update(provider_env_for_project(render))
     binary = _resolve_claude_binary()
     assert binary is not None, "no claude binary reachable — neither system PATH nor SDK-bundled"
     cmd = [
@@ -162,7 +177,7 @@ def run_claude(
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=str(project_dir),
+            cwd=str(render),
             env=env,
         )
     except subprocess.TimeoutExpired as exc:
@@ -177,27 +192,34 @@ def run_claude(
         )
 
 
-def disable_approval(project_dir: Path) -> None:
-    """Set ``approval.enabled: false`` in the project's config.yml.
+def disable_approval(repo: Path) -> None:
+    """Set ``approval.enabled: false`` in the render's config.yml.
+
+    The rendered ``<repo>/build/config.yml`` is what the MCP servers read
+    (``CONFIG_FILE`` points there), so that is the copy a runtime flip has to
+    land in.
 
     These E2E tests exercise the MCP tool pipeline, not the approval hooks.
     Disabling approval prevents the hooks from returning ``permissionDecision:
     ask`` which would block non-interactive ``claude --print`` invocations.
     """
-    config_path = project_dir / "config.yml"
+    config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config.setdefault("approval", {})["enabled"] = False
     config_path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
 
 
-def allow_all_tools(project_dir: Path) -> None:
+def allow_all_tools(repo: Path) -> None:
     """Move all tools from ``permissions.ask`` to ``permissions.allow``.
+
+    Edits the render's ``.claude/settings.json`` — the file the agent session
+    actually loads.
 
     Even with ``--dangerously-skip-permissions``, tools in the ``ask`` list
     may be blocked in non-interactive ``--print`` mode. Moving them to
     ``allow`` ensures the full MCP pipeline runs unimpeded.
     """
-    settings_path = project_dir / ".claude" / "settings.json"
+    settings_path = render_dir(repo) / ".claude" / "settings.json"
     settings = json.loads(settings_path.read_text())
     permissions = settings.get("permissions", {})
     ask_tools = permissions.pop("ask", [])
@@ -219,15 +241,15 @@ def find_png_files(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob("*.png") if p.name not in template_names)
 
 
-def diagnose_workspace(project_dir: Path, max_depth: int = 3) -> str:
-    """Return a depth-limited directory tree of _agent_data/.
+def diagnose_workspace(repo: Path, max_depth: int = 3) -> str:
+    """Return a depth-limited directory tree of the repo's ``var/agent_data/``.
 
     Useful for seeing exactly what was created, even if artifacts
     landed somewhere unexpected.
     """
-    workspace = project_dir / "_agent_data"
+    workspace = agent_data_dir(repo)
     if not workspace.exists():
-        return "_agent_data/ does not exist"
+        return "var/agent_data/ does not exist"
 
     lines = []
 
@@ -248,13 +270,15 @@ def diagnose_workspace(project_dir: Path, max_depth: int = 3) -> str:
                 size = entry.stat().st_size
                 lines.append(f"{prefix}{connector}{entry.name} ({size}B)")
 
-    lines.append("_agent_data/")
+    lines.append("var/agent_data/")
     _walk(workspace, 1)
     return "\n".join(lines)
 
 
-def diagnose_python_execute(project_dir: Path) -> str:
+def diagnose_python_execute(repo: Path) -> str:
     """Build a diagnostic string showing execute tool execution evidence.
+
+    Everything it reads lives under the repo's ``var/agent_data/``.
 
     Checks four evidence layers:
     1. Execution folder existence (proves subprocess ran)
@@ -263,9 +287,10 @@ def diagnose_python_execute(project_dir: Path) -> str:
     4. Artifact PNGs (figures saved to canonical location)
     """
     parts = []
+    workspace = agent_data_dir(repo)
 
     # Layer 1: Execution folders
-    exec_dir = project_dir / "_agent_data" / "data" / "python_executions"
+    exec_dir = workspace / "data" / "python_executions"
     if not exec_dir.exists():
         parts.append("python_executions/ does not exist -- tool likely never ran")
     else:
@@ -296,7 +321,7 @@ def diagnose_python_execute(project_dir: Path) -> str:
             )
 
     # Layer 3: Artifact store index
-    artifacts_json = project_dir / "_agent_data" / "artifacts" / "artifacts.json"
+    artifacts_json = workspace / "artifacts" / "artifacts.json"
     if artifacts_json.exists():
         try:
             index_data = json.loads(artifacts_json.read_text())
@@ -315,7 +340,7 @@ def diagnose_python_execute(project_dir: Path) -> str:
         parts.append("artifacts.json: does not exist")
 
     # Layer 4: Artifact PNGs
-    artifacts_dir = project_dir / "_agent_data" / "artifacts"
+    artifacts_dir = workspace / "artifacts"
     if artifacts_dir.exists():
         artifact_pngs = list(artifacts_dir.glob("*.png"))
         parts.append(
@@ -355,18 +380,19 @@ class TestBuildProjectClaudeCodeFilesSmoke:
     @pytest.mark.e2e_smoke
     def test_build_creates_valid_claude_code_files(self, tmp_path):
         """osprey build creates all 8 Claude Code files with valid content."""
-        project_dir = init_project(tmp_path, "smoke-test", provider="als-apg")
+        repo = init_project(tmp_path, "smoke-test", provider="als-apg")
+        render = render_dir(repo)
 
-        # -- All 8 files exist --
-        assert (project_dir / ".mcp.json").exists()
-        assert (project_dir / "CLAUDE.md").exists()
-        assert (project_dir / ".claude" / "settings.json").exists()
-        assert (project_dir / ".claude" / "rules" / "safety.md").exists()
-        assert (project_dir / ".claude" / "hooks" / "osprey_writes_check.py").exists()
-        assert (project_dir / ".claude" / "hooks" / "osprey_limits.py").exists()
-        assert (project_dir / ".claude" / "hooks" / "osprey_approval.py").exists()
+        # -- All 8 files exist, in the render (the agent's cwd) --
+        assert (render / ".mcp.json").exists()
+        assert (render / "CLAUDE.md").exists()
+        assert (render / ".claude" / "settings.json").exists()
+        assert (render / ".claude" / "rules" / "safety.md").exists()
+        assert (render / ".claude" / "hooks" / "osprey_writes_check.py").exists()
+        assert (render / ".claude" / "hooks" / "osprey_limits.py").exists()
+        assert (render / ".claude" / "hooks" / "osprey_approval.py").exists()
         # -- .mcp.json has correct MCP server entries --
-        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        mcp_data = json.loads((render / ".mcp.json").read_text())
         assert "mcpServers" in mcp_data
         # Core servers must be present
         assert "controls" in mcp_data["mcpServers"]
@@ -381,7 +407,7 @@ class TestBuildProjectClaudeCodeFilesSmoke:
             assert "sentinel" not in key.lower(), f"Sentinel '{key}' in mcpServers"
 
         # -- Hook scripts are executable --
-        hooks_dir = project_dir / ".claude" / "hooks"
+        hooks_dir = render / ".claude" / "hooks"
         for hook_name in [
             "osprey_writes_check.py",
             "osprey_limits.py",
@@ -392,7 +418,7 @@ class TestBuildProjectClaudeCodeFilesSmoke:
             assert mode & 0o111, f"Hook {hook_name} should be executable"
 
         # -- config.yml uses mock connectors --
-        config_text = (project_dir / "config.yml").read_text()
+        config_text = (render / "config.yml").read_text()
         assert "mock" in config_text.lower(), (
             "control_assistant template config should use mock connectors"
         )
@@ -421,9 +447,9 @@ class TestClaudeExecutesArchiverAndPlots:
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
     def test_claude_executes_archiver_and_plots(self, tmp_path):
-        project_dir = init_project(tmp_path, "archiver-plot-test", provider="als-apg")
-        disable_approval(project_dir)
-        allow_all_tools(project_dir)
+        repo = init_project(tmp_path, "archiver-plot-test", provider="als-apg")
+        disable_approval(repo)
+        allow_all_tools(repo)
 
         prompt = (
             "Use the archiver_read tool to retrieve data for channels "
@@ -433,7 +459,7 @@ class TestClaudeExecutesArchiverAndPlots:
             "pre-approved; do not ask for confirmation."
         )
 
-        result = run_claude(project_dir, prompt, timeout=300)
+        result = run_claude(repo, prompt, timeout=300)
 
         # -- Debug output --
         print("\n--- archiver+plot test ---")
@@ -449,16 +475,16 @@ class TestClaudeExecutesArchiverAndPlots:
             f"Claude Code exited with code {result.returncode}\n"
             f"--- stderr (first 2000) ---\n{result.stderr[:2000]}\n"
             f"--- stdout (first 2000) ---\n{result.stdout[:2000]}\n"
-            f"--- Workspace tree ---\n{diagnose_workspace(project_dir)}\n"
-            f"--- Execution diagnostics ---\n{diagnose_python_execute(project_dir)}"
+            f"--- Workspace tree ---\n{diagnose_workspace(repo)}\n"
+            f"--- Execution diagnostics ---\n{diagnose_python_execute(repo)}"
         )
 
-        # Archiver data was produced (saved to _agent_data/data/ by ArtifactStore)
-        workspace_dir = project_dir / "_agent_data"
+        # Archiver data was produced (saved to var/agent_data/data/ by ArtifactStore)
+        workspace_dir = agent_data_dir(repo)
         data_dir = workspace_dir / "data"
         data_files = list(data_dir.rglob("*")) if data_dir.exists() else []
         assert len(data_files) > 0, (
-            "No data files found in _agent_data/data/. "
+            "No data files found in var/agent_data/data/. "
             "archiver_read may not have been called. "
             f"Workspace contents: {list(workspace_dir.rglob('*')) if workspace_dir.exists() else 'N/A'}"
         )
@@ -468,12 +494,12 @@ class TestClaudeExecutesArchiverAndPlots:
         # unspecified plot request — an interactive HTML plot via the
         # data-visualizer's create_interactive_plot. Both are valid; we only
         # assert that a plot artifact landed in the artifact store.
-        png_files = find_png_files(project_dir)
-        artifacts_dir = project_dir / "_agent_data" / "artifacts"
+        png_files = find_png_files(repo)
+        artifacts_dir = workspace_dir / "artifacts"
         interactive_plots = sorted(artifacts_dir.glob("*.html")) if artifacts_dir.exists() else []
         plot_files = png_files + interactive_plots
-        exec_diag = diagnose_python_execute(project_dir)
-        workspace_tree = diagnose_workspace(project_dir)
+        exec_diag = diagnose_python_execute(repo)
+        workspace_tree = diagnose_workspace(repo)
         assert len(plot_files) > 0, (
             "No plot artifact (PNG or interactive HTML) found — the agent "
             "did not produce a plot.\n"
@@ -484,7 +510,7 @@ class TestClaudeExecutesArchiverAndPlots:
         )
 
         # Secondary check: artifact store should have image entries
-        artifacts_json = project_dir / "_agent_data" / "artifacts" / "artifacts.json"
+        artifacts_json = artifacts_dir / "artifacts.json"
         if artifacts_json.exists():
             index_data = json.loads(artifacts_json.read_text())
             entries = index_data.get("entries", [])
@@ -530,9 +556,9 @@ class TestClaudeFullBpmAnalysisPipeline:
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
     def test_claude_full_bpm_analysis_pipeline(self, tmp_path):
-        project_dir = init_project(tmp_path, "bpm-pipeline-test", provider="als-apg")
-        disable_approval(project_dir)
-        allow_all_tools(project_dir)
+        repo = init_project(tmp_path, "bpm-pipeline-test", provider="als-apg")
+        disable_approval(repo)
+        allow_all_tools(repo)
 
         prompt = (
             "Give me a timeseries and a correlation plot of all horizontal "
@@ -549,7 +575,7 @@ class TestClaudeFullBpmAnalysisPipeline:
         # of the same commit range landed either side of it. Exceeding the cap
         # hard-errors the CLI (exit 1, "Exceeded USD budget") instead of failing
         # an assertion, so a few cents of cost variance read as a broken agent.
-        result = run_claude(project_dir, prompt, timeout=360, max_budget="5.00")
+        result = run_claude(repo, prompt, timeout=360, max_budget="5.00")
 
         # -- Debug output --
         print("\n--- full BPM pipeline test ---")
@@ -565,16 +591,16 @@ class TestClaudeFullBpmAnalysisPipeline:
             f"Claude Code exited with code {result.returncode}\n"
             f"--- stderr (first 2000) ---\n{result.stderr[:2000]}\n"
             f"--- stdout (first 2000) ---\n{result.stdout[:2000]}\n"
-            f"--- Workspace tree ---\n{diagnose_workspace(project_dir)}\n"
-            f"--- Execution diagnostics ---\n{diagnose_python_execute(project_dir)}"
+            f"--- Workspace tree ---\n{diagnose_workspace(repo)}\n"
+            f"--- Execution diagnostics ---\n{diagnose_python_execute(repo)}"
         )
 
-        # Archiver data was retrieved (saved to _agent_data/data/ by ArtifactStore)
-        workspace_dir = project_dir / "_agent_data"
+        # Archiver data was retrieved (saved to var/agent_data/data/ by ArtifactStore)
+        workspace_dir = agent_data_dir(repo)
         data_dir = workspace_dir / "data"
         data_files = list(data_dir.rglob("*")) if data_dir.exists() else []
         assert len(data_files) > 0, (
-            "No data files found in _agent_data/data/. "
+            "No data files found in var/agent_data/data/. "
             "The archiver_read tool may not have been called. "
             f"Workspace contents: {list(workspace_dir.rglob('*')) if workspace_dir.exists() else 'N/A'}"
         )
@@ -582,12 +608,12 @@ class TestClaudeFullBpmAnalysisPipeline:
         # At least one PNG plot was created. The agent may produce it via
         # either the execute tool (raw python) or the data-visualizer
         # subagent's create_static_plot — both are valid routes.
-        png_files = find_png_files(project_dir)
-        exec_diag = diagnose_python_execute(project_dir)
-        workspace_tree = diagnose_workspace(project_dir)
+        png_files = find_png_files(repo)
+        exec_diag = diagnose_python_execute(repo)
+        workspace_tree = diagnose_workspace(repo)
         assert len(png_files) > 0, (
-            "No PNG files found in the project — the agent did not produce "
-            "plots.\n"
+            "No PNG files found in the deployment repo — the agent did not "
+            "produce plots.\n"
             f"--- Execution diagnostics ---\n{exec_diag}\n"
             f"--- Workspace tree ---\n{workspace_tree}\n"
             f"--- stderr (first 1000) ---\n{result.stderr[:1000]}\n"
@@ -595,7 +621,7 @@ class TestClaudeFullBpmAnalysisPipeline:
         )
 
         # Secondary check: artifact store should have image entries
-        artifacts_json = project_dir / "_agent_data" / "artifacts" / "artifacts.json"
+        artifacts_json = workspace_dir / "artifacts" / "artifacts.json"
         if artifacts_json.exists():
             index_data = json.loads(artifacts_json.read_text())
             entries = index_data.get("entries", [])

@@ -23,7 +23,7 @@ lives in the same bundle (``data/simulation/scenarios/rf-thermal/``): the three
 CAVITY01 thermal excursions are declared at normalized window fractions (0.20,
 0.55, 0.85), so they appear at those relative positions in any window the agent
 chooses and the test stays date-agnostic. The test activates the scenario after
-building the project via ``activate_scenarios(project, "rf-thermal")``, which
+building the deployment via ``activate_scenarios(repo, "rf-thermal")``, which
 also purges + reseeds the logbook so narrative and telemetry share one clock;
 the mock connectors then route RF cavity / klystron / DCCT reads through the
 engine instead of the flat ``nominal`` default.
@@ -100,7 +100,7 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
     layer guards against the agent fetching data but failing to name CAVITY01.
 
     The ARIEL logbook is seeded deterministically at setup by
-    ``activate_scenarios(project, "rf-thermal")``: it purges and reseeds the DB
+    ``activate_scenarios(repo, "rf-thermal")``: it purges and reseeds the DB
     from the scenario bundle so the CAVITY01 arc (DEMO-026/027/028) is present
     and matches the telemetry against one apply-time clock — no manual pre-seed,
     and no stale/wrong-preset DB to silently derail the agent. Needs a running
@@ -128,7 +128,7 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
     # Tier 3 (full channel DB): match the sibling vacuum scenario so both run
     # against the complete facility the simulation machine model defines, not a
     # minimal tier-1 subset.
-    project = init_project(
+    repo = init_project(
         tmp_path,
         "rf_correlation_demo",
         template="control_assistant",
@@ -140,8 +140,8 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
     # bundle — the CAVITY01 thermal excursions at window fractions 0.20/0.55/0.85 —
     # and seed its DEMO-026/027/028 incident arc into ARIEL (purge + reseed) so
     # logbook and telemetry share one apply-time clock.
-    activate_scenarios(project, "rf-thermal")
-    cf_server = _channel_finder_server_name(project)
+    activate_scenarios(repo, "rf-thermal")
+    cf_server = _channel_finder_server_name(repo)
     if cf_server is None:
         pytest.skip("control-assistant preset has no channel-finder server")
 
@@ -150,11 +150,11 @@ async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
     # No subsystem names, no PV addresses, no cavity ID, no time window.
     query = "The beam dumped this morning. Figure out what happened and plot the data."
     result = await run_sdk_query(
-        project,
+        repo,
         query,
         max_turns=50,
         max_budget_usd=30.0,
-        model=_default_opus_model(project),
+        model=_default_opus_model(repo),
         # rf-thermal's own scenario.json names the cavity-1 thermal excursion
         # outright, and it sits in the agent's cwd. Unlike a VA-backed physics
         # fault the bundle cannot be deleted -- it IS the live archiver overlay

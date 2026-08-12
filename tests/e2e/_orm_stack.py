@@ -5,7 +5,7 @@ Bluesky bridge + co-deployed Tiled catalog with
 ``control_system.type=virtual_accelerator`` and the ``scan`` MCP server
 enabled (``default_enabled=False`` in the framework registry; opted in here
 via ``claude_code.servers.bluesky.enabled``). ``BLUESKY_LAUNCH_TOKEN`` is
-minted unconditionally by ``osprey deploy up``, so no execution-method
+minted unconditionally by ``osprey up``, so no execution-method
 override is needed to get the agent armed. Corrector
 setpoints and BPM readbacks are wired into ``BLUESKY_EPICS_MOTORS``/
 ``_DETECTORS`` from the *built* project's own ``channel_limits.json`` --
@@ -24,13 +24,13 @@ via ``build_project_subprocess`` + ``select_correctors``/``select_bpms``/
 ``write_scan_env``.
 
 Building this config never touches Docker by itself -- only a subsequent
-``osprey deploy up`` does (left to each caller, since only the real
-e2e/agentic tests need a live stack).
+``osprey up`` does (left to each caller, since only the real e2e/agentic
+tests need a live stack).
 
 ``select_correctors``/``select_bpms``/``write_scan_env`` delegate to the
 canonical derivation in
 ``osprey.services.bluesky_bridge.substrate_devices`` (the single source of
-this logic, also used by ``osprey deploy up`` to auto-configure a VA-backed
+this logic, also used by ``osprey up`` to auto-configure a VA-backed
 scan stack's ``.env`` -- see ``container_lifecycle._ensure_bluesky_substrate_env``).
 This module keeps its own public API/signatures/defaults unchanged so every
 existing e2e importer is unaffected.
@@ -38,7 +38,6 @@ existing e2e importer is unaffected.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -154,7 +153,7 @@ def override_yaml() -> str:
     )
 
 
-def build_args(
+def init_args(
     project_name: str,
     *,
     override_path: Path,
@@ -164,26 +163,33 @@ def build_args(
     provider: str | None = None,
     model: str | None = None,
 ) -> list[str]:
-    """``osprey build`` CLI args (sans the leading ``build`` subcommand
-    token) for FR11's turn-key scan-stack deploy config.
+    """``osprey init`` CLI args (sans the leading ``init`` token) for FR11's
+    turn-key scan-stack deployment.
 
-    Works both as ``CliRunner().invoke(build, build_args(...))`` (in-process,
-    no Docker -- see ``build_via_cli_runner``) and as
-    ``[osprey_bin, "build", *build_args(...)]`` (subprocess, for a real
-    ``deploy up`` afterward -- see ``build_project_subprocess``).
+    The stack is materialized in two steps now, because the surface has two:
+    ``osprey init`` writes the deployment repo's source zone from the preset
+    plus these overrides, and a later ``osprey build`` renders ``build/`` from
+    it. This function covers the first step only; both builders below run the
+    second. ``--no-git`` because every caller works in a throwaway directory
+    and none of them reads the history.
+
+    Works both as ``CliRunner().invoke(init, init_args(...))`` (in-process, no
+    Docker -- see ``build_via_cli_runner``) and as
+    ``[osprey_bin, "init", *init_args(...)]`` (subprocess, for a real
+    ``osprey up`` afterward -- see ``build_project_subprocess``).
 
     ``provider``/``model``, when given, append ``--set provider=<provider>``
     and/or ``--set model=<model>`` overrides -- e.g. an agentic-discovery
     caller that must pin an explicit provider rather than let the
     control-assistant preset's own default apply silently (this project's
     "no default provider" convention). Left ``None`` by default: nothing is
-    appended and the preset's own provider/model apply unchanged, so the
-    default deploy shape is byte-identical to before these params existed.
+    appended and the preset's own provider/model apply unchanged.
     """
     args = [
-        project_name,
+        str(output_dir / project_name),
         "--preset",
         "control-assistant",
+        "--no-git",
         "--override",
         str(override_path),
         "--set",
@@ -192,11 +198,6 @@ def build_args(
         f"bluesky.port={bridge_port}",
         "--set",
         "bluesky.tiled_enabled=true",
-        "--skip-deps",
-        "--skip-lifecycle",
-        "--output-dir",
-        str(output_dir),
-        "--force",
     ]
     if provider is not None:
         args += ["--set", f"provider={provider}"]
@@ -213,22 +214,26 @@ def build_via_cli_runner(
     bridge_port: int = BRIDGE_PORT,
     va_port: int = VA_CA_PORT,
 ) -> Path:
-    """In-process ``osprey build`` (``CliRunner``, no subprocess/Docker) for
-    fast render-only gates -- see ``tests/cli/test_va_default_config.py`` for
-    the same in-process pattern. Renders config.yml, the service compose
-    templates, and the Claude Code artifacts (``.mcp.json`` included); never
-    starts a container.
+    """In-process ``osprey init`` + ``osprey build`` (``CliRunner``, no
+    subprocess/Docker) for fast render-only gates -- see
+    ``tests/cli/test_va_default_config.py`` for the same in-process pattern.
+    Renders config.yml, the service compose templates, and the Claude Code
+    artifacts (``.mcp.json`` included); never starts a container.
 
-    Returns the built project directory.
+    Returns the RENDER -- ``<repo>/build`` -- because that is the directory
+    holding config.yml and the compose files a caller goes on to read. The repo
+    root above it is ``result.parent``.
     """
     from osprey.cli.build_cmd import build
+    from osprey.cli.init_cmd import init
 
     override_path = tmp_path / "override.yml"
     override_path.write_text(override_yaml(), encoding="utf-8")
 
+    repo = tmp_path / project_name
     result: Result = runner.invoke(
-        build,
-        build_args(
+        init,
+        init_args(
             project_name,
             override_path=override_path,
             output_dir=tmp_path,
@@ -237,8 +242,12 @@ def build_via_cli_runner(
         ),
     )
     if result.exit_code != 0:
+        raise AssertionError(f"osprey init failed (exit={result.exit_code}):\n{result.output}")
+
+    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    if result.exit_code != 0:
         raise AssertionError(f"osprey build failed (exit={result.exit_code}):\n{result.output}")
-    return tmp_path / project_name
+    return repo / "build"
 
 
 def find_osprey_console_script() -> Path:
@@ -268,14 +277,17 @@ def build_project_subprocess(
     provider: str | None = None,
     model: str | None = None,
 ) -> Path:
-    """Real ``osprey build`` subprocess for a project a caller will later
-    ``osprey deploy up`` (that step needs Docker; this one doesn't -- it only
-    renders config.yml/compose templates/.mcp.json, same as
-    ``build_via_cli_runner``, but out-of-process so ``--dev``/``deploy up``
-    against the resulting project directory behave exactly as they would for
-    an operator running the real CLI).
+    """Real ``osprey init`` + ``osprey build`` subprocesses for a deployment a
+    caller will later ``osprey up`` (that step needs Docker; these don't -- they
+    only render config.yml/compose templates/.mcp.json, same as
+    ``build_via_cli_runner``, but out-of-process so ``--dev``/``osprey up``
+    against the resulting repo behave exactly as they would for an operator
+    running the real CLI).
 
-    ``provider``/``model`` thread straight through to ``build_args`` (see its
+    Returns the deployment REPO, not its render: the start verbs are repo-scoped
+    and this is what a caller hands to ``osprey up --repo``.
+
+    ``provider``/``model`` thread straight through to ``init_args`` (see its
     docstring for the override they append). Left ``None`` by default, which
     preserves the exact default deploy shape.
     """
@@ -285,8 +297,8 @@ def build_project_subprocess(
 
     cmd = [
         str(osprey_bin),
-        "build",
-        *build_args(
+        "init",
+        *init_args(
             project_name,
             override_path=override_path,
             output_dir=output_dir,
@@ -296,24 +308,28 @@ def build_project_subprocess(
             model=model,
         ),
     ]
-    result = subprocess.run(
-        cmd,
-        cwd=str(output_dir),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"osprey build failed (rc={result.returncode}):\n"
-            f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
+    repo = output_dir / project_name
+    for label, argv in (
+        ("osprey init", cmd),
+        (
+            "osprey build",
+            [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        ),
+    ):
+        result = subprocess.run(
+            argv,
+            cwd=str(output_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env={**os.environ, "CLAUDECODE": ""},
         )
-    return output_dir / project_name
-
-
-def _channel_limits(project_dir: Path) -> dict[str, Any]:
-    return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"{label} failed (rc={result.returncode}):\n"
+                f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
+            )
+    return repo
 
 
 def select_correctors(
@@ -370,20 +386,23 @@ def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -
 
 
 def write_scan_env(
-    project_dir: Path,
+    repo: Path,
     *,
     correctors: dict[str, tuple[str, str]],
     bpms: dict[str, str],
     launch_token: str | None = None,
 ) -> None:
     """Wire correctors + BPMs into ``BLUESKY_EPICS_MOTORS``/``_DETECTORS``
-    and set ``BLUESKY_EPICS_SUBSTRATE=1``, appended to the project ``.env``
-    BEFORE ``osprey deploy up`` (the bridge compose template passes these
-    through from the project ``.env``, same mechanism as
-    ``BLUESKY_LAUNCH_TOKEN``).
+    and set ``BLUESKY_EPICS_SUBSTRATE=1``, appended to the deployment repo's
+    ``.env`` BEFORE ``osprey up`` (the bridge compose template passes these
+    through from that file, same mechanism as ``BLUESKY_LAUNCH_TOKEN``).
+
+    ``repo`` is the repo ROOT, not its render: one repo has exactly one
+    ``.env``, it sits beside ``profile.yml``, and it is the file every compose
+    invocation is pointed at with ``--env-file``.
 
     ``launch_token``, if given, is also written. The container-exec path
-    normally auto-mints one on ``deploy up``; callers that need a
+    normally auto-mints one on ``osprey up``; callers that need a
     deterministic value for a scripted launch call supply their own (the
     same operator-provides-a-token path used elsewhere in this e2e suite).
 
@@ -405,7 +424,7 @@ def write_scan_env(
     if launch_token:
         values["BLUESKY_LAUNCH_TOKEN"] = launch_token
 
-    env_path = project_dir / ".env"
+    env_path = repo / ".env"
     existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
     if existing and not existing.endswith("\n"):
         existing += "\n"

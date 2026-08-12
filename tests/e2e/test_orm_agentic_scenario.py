@@ -33,8 +33,9 @@ data the agent could search instead of measuring.
 
 Withholding the answer from the logbook is not enough on its own, because the
 scenario bundle itself is an answer key: ``scenario.json``'s ``description``
-names both faults in plain English, and the agent's cwd IS the deployed
-project directory. So the deploy scaffold below closes that route from both
+names both faults in plain English, and the agent's cwd IS the render
+(``<repo>/build``), which carries its own copy of the bundle. So the deploy
+scaffold below closes that route from both
 ends once the bundle has done its job (``render_scenario_physics_env`` has
 already baked the faults into the VA container's boot environment, and
 ``activate_scenarios`` has already seeded the logbook):
@@ -43,7 +44,7 @@ and ``SCENARIO_INTEGRITY_DISALLOWED_TOOLS`` strips the generic
 filesystem-search tools from the session. Without both, the cheapest correct
 answer is a ``Glob`` plus a ``Read``, and the resulting pass proves nothing.
 
-Deploy shape reuses ``tests/e2e/_orm_stack.py``'s single source (build +
+Deploy shape reuses ``tests/e2e/_orm_stack.py``'s single source (init + build +
 ``override_yaml`` for the VA/container/scan-MCP flip + ``select_correctors``/
 ``select_bpms``/``write_scan_env``), exactly as the deleted draft did. The
 corrector/BPM wiring below requests the FULL SR pyat-coupled set (``count=
@@ -88,7 +89,7 @@ forward.
 
 Container safety: every docker invocation below names an exact
 container/image (mirrors ``test_va_substrate_equivalence.py``); teardown goes
-through ``osprey deploy down``, never a raw sweep.
+through ``osprey down``, never a raw sweep.
 
 Collection-validate with::
 
@@ -141,9 +142,10 @@ from tests.e2e.test_preset_agentic import _to_workflow_result
 
 # Same provider for the agent AND the judge (als-apg -- reachable from GitHub
 # Actions runners). Explicit at every callsite, never a build-time default
-# (this project's "no default provider" convention): _orm_stack.build_args()
-# doesn't set provider/model, so without this the control-assistant preset's
-# own `provider: anthropic` default would apply silently.
+# (this project's "no default provider" convention): _orm_stack.init_args()
+# doesn't set provider/model unless asked, so without this the
+# control-assistant preset's own `provider: anthropic` default would apply
+# silently.
 PROVIDER = "als-apg"
 AGENT_MODEL_TIER = "opus"  # diagnostic reasoning needs Opus, not the haiku default
 
@@ -328,35 +330,44 @@ def _wait_for_health(url: str, timeout: float) -> None:
     raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
-def _channel_limits(project_dir: Path) -> dict:
+def _channel_limits(repo: Path) -> dict:
     """Local copy of ``_orm_stack``'s identical private helper (mirrors
     ``test_va_substrate_equivalence.py``'s own local redefinition) -- reading
-    the deployed project's ``channel_limits.json`` isn't part of
-    ``_orm_stack``'s named single-source surface.
+    the render's ``channel_limits.json`` isn't part of ``_orm_stack``'s named
+    single-source surface.
+
+    The RENDER's copy, not the operator-owned source under ``<repo>/data/``:
+    the limits database resolves against ``CONFIG_FILE``'s directory, which the
+    render points at ``<repo>/build/config.yml``, so this is the file whose
+    channels the deployed containers see.
     """
-    return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+    return json.loads((repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
-def _minted_launch_token(project_dir: Path) -> str:
-    env_path = project_dir / ".env"
+def _minted_launch_token(repo: Path) -> str:
+    env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
     token = env.get("BLUESKY_LAUNCH_TOKEN")
-    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env"
+    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the deployment repo's .env"
     return token
 
 
 @contextlib.contextmanager
 def _deployed_dual_fault_stack(tmp_path: Path, project_name: str) -> Iterator[Path]:
-    """Build, wire, seed, and deploy the ``orm-dual-fault`` VA stack; tear it
-    down exact-named on exit (even on a mid-setup skip/failure).
+    """Init, build, wire, seed, and deploy the ``orm-dual-fault`` VA stack; tear
+    it down exact-named on exit (even on a mid-setup skip/failure).
+
+    Yields the deployment REPO: ``osprey up`` runs there, ``.env`` lives there,
+    and every helper below anchors on it -- including the ones whose effect
+    lands in the render (``<repo>/build``, the agent's own working directory).
 
     A physics fault is deploy-time-only (PROPOSAL: no hot-swap), so this is a
     single function-scoped boot -- both faults land in the SAME activation,
     matching the task contract ("one activation, disjoint devices").
     """
     osprey_bin = _orm_stack.find_osprey_console_script()
-    project_dir = _orm_stack.build_project_subprocess(
+    repo = _orm_stack.build_project_subprocess(
         project_name,
         output_dir=tmp_path,
         timeout=BUILD_TIMEOUT_SEC,
@@ -364,21 +375,24 @@ def _deployed_dual_fault_stack(tmp_path: Path, project_name: str) -> Iterator[Pa
         model=AGENT_MODEL_TIER,
     )
 
-    limits = _channel_limits(project_dir)
+    limits = _channel_limits(repo)
     # Full pyat-coupled set (count=None), not a small default slice: BPM17
     # and HCM01 must both be in range, and hand-narrowing the wiring to
     # conveniently include them would leak the answer's location into the
     # deploy config (see module docstring).
     correctors = _orm_stack.select_correctors(limits, count=None)
     bpms = _orm_stack.select_bpms(limits, count=None)
-    # No launch_token kwarg: `deploy up` mints BLUESKY_LAUNCH_TOKEN for the
-    # deployed bluesky service unconditionally.
-    _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
+    # No launch_token kwarg: `osprey up` mints BLUESKY_LAUNCH_TOKEN for the
+    # deployed bluesky service unconditionally. This call also creates the repo
+    # root's `.env` — the deployment's whole secret store, and the file
+    # `osprey up` refuses to start without.
+    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
 
-    # FR5's deploy-time hook -- MUST run before `deploy up`: a physics fault
+    # FR5's deploy-time hook -- MUST run before `osprey up`: a physics fault
     # applies once at VA container boot. Both faults in orm-dual-fault's
-    # single `physics` block render together here.
-    render_scenario_physics_env(project_dir, [SCENARIO])
+    # single `physics` block render together here, into the same repo-root
+    # `.env` (the simulation helpers anchor on the repo, not the render).
+    render_scenario_physics_env(repo, [SCENARIO])
 
     # Force fresh --dev builds so the deployed containers run CURRENT source.
     # Exact-named images only; E2E_REUSE_IMAGES=1 skips this for fast local
@@ -397,8 +411,8 @@ def _deployed_dual_fault_stack(tmp_path: Path, project_name: str) -> Iterator[Pa
 
     try:
         up = subprocess.run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
@@ -406,7 +420,7 @@ def _deployed_dual_fault_stack(tmp_path: Path, project_name: str) -> Iterator[Pa
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"http://localhost:{_orm_stack.BRIDGE_PORT}/health", HEALTH_TIMEOUT_SEC)
@@ -416,20 +430,30 @@ def _deployed_dual_fault_stack(tmp_path: Path, project_name: str) -> Iterator[Pa
         # the co-deployed `postgresql` service. A connection failure here is
         # an honest prerequisite gap, not a model-capability miss -- skip
         # rather than let it surface as a downstream tool-trace failure.
+        # Repo-anchored: `apply_scenarios` resolves the simulation model under
+        # `<repo>/data/simulation/` and the mutable scenario state under
+        # `<repo>/var/agent_data/simulation/`, taking `config.yml` from the
+        # render.
         try:
-            activate_scenarios(project_dir, SCENARIO)
+            activate_scenarios(repo, SCENARIO)
         except Exception as exc:  # noqa: BLE001 — any failure means "not ready"
             pytest.skip(f"ARIEL Postgres (co-deployed) not ready for logbook seeding: {exc}")
 
         # Benchmark integrity, both ends. The bundle has done its whole job by
-        # now -- its `physics` block was rendered into the project .env above
+        # now -- its `physics` block was rendered into the repo's .env above
         # and baked into the VA container at boot -- so from here it is nothing
         # but the answer key sitting in the agent's own cwd, one Glob away.
         # ``bpm-polarity`` goes with it: that bundle is inactive here, but its
         # description restates this benchmark's first fault word for word ("BPM
         # 17's horizontal readback has an inverted polarity"), so leaving it
         # behind would concede half the answer key.
-        conceal_scenario_ground_truth(project_dir, SCENARIO, "bpm-polarity")
+        #
+        # Repo-anchored, like the seeding above: the bundle exists twice now
+        # (the operator-owned source under `<repo>/data/simulation/` and the
+        # render's copy under `<repo>/build/data/simulation/`, the one inside
+        # the agent's cwd), and the active-scenario state file sits under
+        # `<repo>/var/agent_data/simulation/`. All three hang off the repo root.
+        conceal_scenario_ground_truth(repo, SCENARIO, "bpm-polarity")
         # ...and the tools this benchmark's method actually requires. All sit
         # in the rendered `permissions.ask` list, which headless has no
         # responder for, so each comes back to the agent as a hard denial: the
@@ -443,25 +467,28 @@ def _deployed_dual_fault_stack(tmp_path: Path, project_name: str) -> Iterator[Pa
         # stay gated, or the agent gains a hand-stepped substitute for the
         # measurement being graded. The read-only scan contract is guarded
         # independently by tests/e2e/test_bluesky_write_refused_e2e.py.
+        # Repo-anchored too; the settings file it edits is the rendered
+        # `<repo>/build/.claude/settings.json`, which is what the agent session
+        # reads from its own cwd.
         promote_ask_to_allow(
-            project_dir,
+            repo,
             "mcp__python__execute",
             "mcp__bluesky__queue_add",
             "mcp__bluesky__queue_start",
         )
 
-        yield project_dir
+        yield repo
     finally:
         down = subprocess.run(
-            [str(osprey_bin), "deploy", "down"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "down"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=300,
         )
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
@@ -495,17 +522,17 @@ async def test_orm_dual_fault_agentic_localizes_both_faults(
     Not run by CI (needs Docker + a native VA image build +
     ``ALS_APG_API_KEY``) -- see the module docstring's manual-gate command.
     """
-    with _deployed_dual_fault_stack(tmp_path, "orm-dual-fault-agentic") as project_dir:
-        token = _minted_launch_token(project_dir)
+    with _deployed_dual_fault_stack(tmp_path, "orm-dual-fault-agentic") as repo:
+        token = _minted_launch_token(repo)
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://localhost:{_orm_stack.BRIDGE_PORT}")
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", token)
 
         result = await run_sdk_query(
-            project_dir,
+            repo,
             QUERY,
             max_turns=60,
             max_budget_usd=40.0,
-            model=_default_opus_model(project_dir),
+            model=_default_opus_model(repo),
             disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
         )
 

@@ -61,11 +61,11 @@ def test_query_cmd_default_output(tmp_path: Path) -> None:
     Uses the hello_world preset (mock controls, no external infra).
     Exercises the CliRunner path for the plain-text output code branch.
     """
-    project = init_project(tmp_path, "hw_query", template="hello_world", provider="als-apg")
+    repo = init_project(tmp_path, "hw_query", template="hello_world", provider="als-apg")
     runner = CliRunner()
     result = runner.invoke(
         query,
-        ["--project", str(project), "What channels are available on the controls MCP server?"],
+        ["--repo", str(repo), "What channels are available on the controls MCP server?"],
     )
     assert result.exit_code == 0, (
         f"osprey query exited {result.exit_code}.\n"
@@ -90,15 +90,15 @@ def test_query_cmd_json_mcp_connected(tmp_path: Path) -> None:
     Asserts ``mcp_servers.controls == "connected"`` — the mechanism contract
     proving all declared servers were online before the agent ran.
     """
-    project = init_project(tmp_path, "hw_query_json", template="hello_world", provider="als-apg")
+    repo = init_project(tmp_path, "hw_query_json", template="hello_world", provider="als-apg")
     result = subprocess.run(
         [
             sys.executable,
             "-m",
             "osprey.cli.main",
             "query",
-            "--project",
-            str(project),
+            "--repo",
+            str(repo),
             "--json",
             "Read the current value of the example channel and report it.",
         ],

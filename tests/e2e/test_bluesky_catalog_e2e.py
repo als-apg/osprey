@@ -33,7 +33,7 @@ refuses to hold work it could never run.
 
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
-Teardown goes through ``osprey deploy down``, matching every other e2e in
+Teardown goes through ``osprey down``, matching every other e2e in
 this directory.
 
 Gating: needs Docker. Much lighter than the VA-backed e2e (no amd64
@@ -57,7 +57,10 @@ from typing import Any
 
 import pytest
 
-from osprey.services.bluesky_bridge.queue_backend import REASON_BROWSE_ONLY_CONNECTOR
+from osprey.services.bluesky_bridge.queue_backend import (
+    FLIP_COMMAND,
+    REASON_BROWSE_ONLY_CONNECTOR,
+)
 from tests.e2e import _orm_stack
 
 pytestmark = [
@@ -72,6 +75,11 @@ pytestmark = [
 # shared dev machine without a port collision.
 BRIDGE_PORT = 18103
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
+
+# The repo directory name IS the deployment name, and the bridge compose
+# template renders its locally-built image as ``<project>-bluesky-bridge:local``
+# -- so one constant feeds both the `osprey init` path and the image tag.
+PROJECT_NAME = "proj"
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 DEPLOY_UP_TIMEOUT_SEC = 600
@@ -180,9 +188,20 @@ def _request(path: str, method: str, body: dict | None = None) -> tuple[int, Any
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
+def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        cmd,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env={**os.environ, "CLAUDECODE": ""},
+    )
+
+
 @pytest.fixture(scope="module")
 def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Build + ``osprey deploy up --dev`` a bluesky-bridge project with one
+    """Init + build + ``osprey up --dev`` a bluesky-bridge repo with one
     facility-injected plan file; tear down after.
 
     ``hello-world`` (mirrors ``test_bluesky_deploy.py``): no VA co-deploy, no
@@ -197,30 +216,38 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     base = tmp_path_factory.mktemp("scan_catalog_build")
     plan_dir = tmp_path_factory.mktemp("scan_catalog_plans")
     (plan_dir / "facility_probe.py").write_text(_FACILITY_PLAN_SOURCE, encoding="utf-8")
-    project_dir = base / "proj"
+    # The deployment repo. Its directory name IS the deployment name, so the
+    # image tag derived below (``proj-bluesky-bridge:local``) still holds.
+    repo = base / PROJECT_NAME
 
-    build = subprocess.run(
+    # Two steps, because the surface has two: `init` writes the repo's source
+    # zone from the preset plus these overrides, `build` renders build/ from it.
+    init = _run(
         [
             str(osprey_bin),
-            "build",
-            "proj",
+            "init",
+            str(repo),
             "--preset",
             "hello-world",
+            "--no-git",
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",
             f"bluesky.plan_dir={plan_dir}",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
         ],
-        cwd=str(base),
-        capture_output=True,
-        text=True,
+        cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
-        env={**os.environ, "CLAUDECODE": ""},
+    )
+    if init.returncode != 0:
+        pytest.fail(
+            f"osprey init failed (rc={init.returncode}):\n"
+            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
+        )
+
+    build = _run(
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        cwd=base,
+        timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
         pytest.fail(
@@ -228,43 +255,42 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
+    # The repo root's .env is the deployment's whole secret store and the file
+    # every compose invocation is pointed at, so `up` refuses to start without
+    # one. `osprey init` writes it only when the shell exports a key for this
+    # profile's provider, which this browse-only lane has no need of — this is
+    # the `cp .env.example .env` the CLI itself recommends, done for the
+    # operator.
+    env_path = repo / ".env"
+    if not env_path.exists():
+        shutil.copy(repo / ".env.example", env_path)
+
     # Force a fresh --dev build so the deployed bridge runs CURRENT source
-    # (osprey deploy up does not pass --build to compose, so it would
-    # otherwise reuse a stale cached image). Exact-named image only.
+    # (osprey up does not pass --build to compose, so it would otherwise
+    # reuse a stale cached image). Exact-named image only.
     # E2E_REUSE_IMAGES=1 skips this for fast local iteration once the image
     # cache is warm; never set it in CI.
     if not os.environ.get("E2E_REUSE_IMAGES"):
         subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.bridge_image("proj")], capture_output=True, text=True
+            ["docker", "rmi", "-f", _orm_stack.bridge_image(PROJECT_NAME)],
+            capture_output=True,
+            text=True,
         )
 
     try:
-        up = subprocess.run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=str(project_dir),
-            capture_output=True,
-            text=True,
-            timeout=DEPLOY_UP_TIMEOUT_SEC,
-            env={**os.environ, "CLAUDECODE": ""},
-        )
+        up = _run([str(osprey_bin), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-        yield project_dir
+        yield repo
     finally:
-        down = subprocess.run(
-            [str(osprey_bin), "deploy", "down"],
-            cwd=str(project_dir),
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
+        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
@@ -343,7 +369,10 @@ def test_deployment_reports_browse_only_and_names_the_flip(
     capability = body["capability"]
     assert capability["can_execute"] is False, f"mock cannot execute plans: {capability}"
     assert capability["reason"] == REASON_BROWSE_ONLY_CONNECTOR, f"wrong reason: {capability}"
-    assert "set-control-system virtual_accelerator" in capability["detail"], (
+    # Asserted against the bridge's own FLIP_COMMAND rather than a literal: the
+    # subject is that the detail NAMES the flip command, and a copy of its
+    # spelling here would pin whichever verb that constant happened to hold.
+    assert FLIP_COMMAND in capability["detail"], (
         f"the browse-only detail must name the command that flips it: {capability}"
     )
 

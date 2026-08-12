@@ -14,19 +14,20 @@ contain one. ``tests/e2e/test_bluesky_queue_e2e.py`` proves the queue stack
 itself against the bridge; this proves the hop in front of it.
 
 Reuses ``tests/e2e/_orm_stack.py`` (the single source for FR11's VA-backed
-turn-key deploy config): ``build_args``/``find_osprey_console_script`` build
-the real project and ``select_correctors``/``select_bpms``/``write_scan_env``
-wire the substrate device env from the *built* project's own
-``data/channel_limits.json`` -- never a hardcoded preset channel.
+turn-key deploy config): ``init_args``/``find_osprey_console_script`` materialize
+the real deployment repo and ``select_correctors``/``select_bpms``/
+``write_scan_env`` wire the substrate device env from the render's own
+``build/data/channel_limits.json`` -- the limits database the deployed
+containers read, never a hardcoded preset channel.
 ``override_yaml()`` still pins ``control_system.type: virtual_accelerator``
 explicitly even though the preset now defaults to it (a connector-mediated
 scan only runs against a setpoint-tracking control system; the shipped
 default is asserted, not assumed, in ``test_bluesky_queue_e2e.py``). The one
-thing ``_orm_stack.build_args``/``build_project_subprocess`` don't parameterize
+thing ``_orm_stack.init_args``/``build_project_subprocess`` don't parameterize
 is the bluesky-panels sidecar's port, so this module calls ``override_yaml``/
-``build_args``/``find_osprey_console_script`` directly (mirroring what
+``init_args``/``find_osprey_console_script`` directly (mirroring what
 ``build_project_subprocess`` does internally) and appends one extra
-``--set bluesky_panels.port=...`` override.
+``--set bluesky_panels.port=...`` override to the ``osprey init`` step.
 
 Plan discovery (test 3/4's headline): ``GET /plans`` through the sidecar's
 read-proxy is scanned for a plan whose ``metadata.writes`` is ``True`` (the
@@ -56,7 +57,7 @@ resource (``<project>-bluesky-bridge``, ``<project>-virtual-accelerator``,
 ``<project>-bluesky-panels``, images ``<project>-bluesky-bridge:local``/
 ``<project>-va:local``/``<project>-bluesky-panels:local``) -- never ``system prune``,
 never ``--volumes``, never a wildcard ``docker rm``/``rmi``. Teardown goes
-through ``osprey deploy down`` (the shipped compose path).
+through ``osprey down`` (the shipped compose path).
 
 Gating: needs Docker; the VA image builds natively for the host arch (PyAT/
 softioc compile from source on Apple Silicon -- slow on a cold image cache).
@@ -103,7 +104,7 @@ VA_CA_PORT = _orm_stack.VA_CA_PORT
 # ariel-postgres (5432) and OpenObserve (5080) are deployed unconditionally by
 # the control-assistant preset with no profile knob to drop them, and a
 # locally-running tutorial deploy routinely holds both. A bound-port collision
-# aborts `deploy up` before the containers this proof needs ever start, so both
+# aborts `osprey up` before the containers this proof needs ever start, so both
 # move to high, unassigned ports. Appended to _orm_stack's override rather than
 # added there: only this module needs them moved, and _orm_stack's shape is
 # shared with the render gate.
@@ -158,8 +159,15 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
-def _channel_limits(project_dir: Path) -> dict[str, Any]:
-    return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+def _channel_limits(repo: Path) -> dict[str, Any]:
+    """The limits database the deployed containers actually read.
+
+    ``control_system.limits_checking.database_path`` resolves against
+    ``CONFIG_FILE``'s directory, and the render points that at
+    ``<repo>/build/config.yml`` -- so the render's copy, not the operator-owned
+    source under ``<repo>/data/``, is the file whose channels the containers see.
+    """
+    return json.loads((repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
 def _bounds(limits: dict[str, Any], address: str) -> tuple[float, float]:
@@ -167,14 +175,14 @@ def _bounds(limits: dict[str, Any], address: str) -> tuple[float, float]:
     return float(entry["min_value"]), float(entry["max_value"])
 
 
-def _minted_token(project_dir: Path) -> str:
+def _minted_token(repo: Path) -> str:
     from osprey.utils.dotenv import parse_dotenv_file
 
-    env_path = project_dir / ".env"
+    env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
     token = env.get("BLUESKY_LAUNCH_TOKEN")
-    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env"
+    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the deployment repo's .env"
     return token
 
 
@@ -361,17 +369,17 @@ def _discover_writes_plan(
 
 
 class DeployedStack:
-    """Everything the tests need about the one deployed project."""
+    """Everything the tests need about the one deployment repo."""
 
     def __init__(
         self,
-        project_dir: Path,
+        repo: Path,
         correctors: dict[str, tuple[str, str]],
         bpms: dict[str, str],
         plan_name: str,
         plan_args: dict[str, Any],
     ):
-        self.project_dir = project_dir
+        self.repo = repo
         self.correctors = correctors
         self.bpms = bpms
         self.plan_name = plan_name
@@ -382,7 +390,9 @@ class DeployedStack:
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedStack]:
     osprey_bin = _orm_stack.find_osprey_console_script()
     base = tmp_path_factory.mktemp("bluesky_panels_build")
-    project_dir = base / PROJECT_NAME
+    # The deployment repo. Its directory name IS the deployment name, so the
+    # container/image names derived above still hold.
+    repo = base / PROJECT_NAME
 
     override_path = base / "override.yml"
     # The two port moves go INSIDE _orm_stack's `config:` block, which its
@@ -405,11 +415,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         encoding="utf-8",
     )
 
-    # _orm_stack.build_args()/build_project_subprocess() don't parameterize
+    # _orm_stack.init_args()/build_project_subprocess() don't parameterize
     # the bluesky-panels sidecar's port, so build the arg list directly (mirrors
     # what build_project_subprocess does internally) and append one extra
     # --set for it.
-    args = _orm_stack.build_args(
+    args = _orm_stack.init_args(
         PROJECT_NAME,
         override_path=override_path,
         output_dir=base,
@@ -418,24 +428,39 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     )
     args += ["--set", f"bluesky_panels.port={BLUESKY_PANELS_PORT}"]
 
-    build = _run([str(osprey_bin), "build", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
+    # Two steps, because the surface has two: `init` writes the repo's source
+    # zone from the preset plus these overrides, `build` renders build/ from it.
+    init = _run([str(osprey_bin), "init", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
+    if init.returncode != 0:
+        pytest.fail(
+            f"osprey init failed (rc={init.returncode}):\n"
+            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
+        )
+
+    build = _run(
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        cwd=base,
+        timeout=BUILD_TIMEOUT_SEC,
+    )
     if build.returncode != 0:
         pytest.fail(
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
-    limits = _channel_limits(project_dir)
+    limits = _channel_limits(repo)
     correctors = _orm_stack.select_correctors(limits, count=1)
     bpms = _orm_stack.select_bpms(limits, count=2)
-    # launch_token left unset: `osprey deploy up` mints BLUESKY_LAUNCH_TOKEN
-    # for every deployed service that declares it, so there is nothing to
-    # supply ourselves here.
-    _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
+    # launch_token left unset: `osprey up` mints BLUESKY_LAUNCH_TOKEN for every
+    # deployed service that declares it, so there is nothing to supply
+    # ourselves here. This call also creates the repo root's `.env` — the
+    # deployment's whole secret store, and the file `osprey up` refuses to
+    # start without.
+    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
-    # (osprey deploy up does not pass --build to compose, so it would
-    # otherwise reuse stale cached images). Exact-named images only.
+    # (osprey up does not pass --build to compose, so it would otherwise
+    # reuse stale cached images). Exact-named images only.
     # E2E_REUSE_IMAGES=1 skips this (dev-only fast local iteration); never
     # set it in CI, where a source change must always rebuild.
     if not os.environ.get("E2E_REUSE_IMAGES"):
@@ -444,13 +469,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     try:
         up = _run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=project_dir,
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
@@ -459,17 +484,17 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         plan_name, plan_args = _discover_writes_plan(correctors, bpms, limits)
 
         yield DeployedStack(
-            project_dir=project_dir,
+            repo=repo,
             correctors=correctors,
             bpms=bpms,
             plan_name=plan_name,
             plan_args=plan_args,
         )
     finally:
-        down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=300)
+        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
@@ -532,7 +557,7 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
     it and asserts, on every single response it reads, that the token has not
     come back out.
     """
-    token = _minted_token(deployed_stack.project_dir)
+    token = _minted_token(deployed_stack.repo)
 
     def _assert_no_token(label: str, payload: Any) -> None:
         assert token not in json.dumps(payload), f"launch token leaked into the sidecar {label}"
@@ -607,7 +632,7 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
     holds the launch token itself -- the bridge gates the arming action, and
     the sidecar's only job is to hold that credential on the browser's behalf.
     """
-    token = _minted_token(deployed_stack.project_dir)
+    token = _minted_token(deployed_stack.repo)
 
     # Clear the shared draft first — the sidecar test stages these same args,
     # and a same-content PATCH is a no-op that keeps the consumed revision

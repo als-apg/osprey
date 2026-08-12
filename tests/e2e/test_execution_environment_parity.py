@@ -1,4 +1,10 @@
-"""E2E: a built project's Python environment is the same on the host and in the image.
+"""E2E: a deployment's Python environment is the same on the host and in the image.
+
+The subject on the host side is the RENDER, ``<repo>/build``: the build writes
+the project venv and the dependency record (``pyproject.toml``) there. The image
+is built from the container context beside it — ``build/.image/<project>``, the
+deployment repo the build renders against the ``/app`` path a container sees —
+because that is the image ``osprey up`` actually produces.
 
 This is the instrument for the two bugs the honest-execution-config work exists
 to fix, and it is deliberately built so that either bug reappearing fails a test
@@ -38,8 +44,8 @@ Every assertion here is built to be able to fail:
   driver that reports success unconditionally.
 
 Requires a container runtime and an editable OSPREY checkout (the image is built
-against a wheel staged from this working tree — the same mechanism ``osprey
-deploy up --dev`` uses — because an image running the released PyPI build would
+against a wheel staged from this working tree — the same mechanism ``osprey up
+--dev`` uses — because an image running the released PyPI build would
 measure released code, not this branch). Skips cleanly without either.
 """
 
@@ -55,6 +61,11 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.utils.workspace import (
+    BUILD_DIR_NAME,
+    RENDERED_CONFIG_RELPATH,
+    container_image_context,
+)
 
 # ── Markers ──────────────────────────────────────────────────────────────────
 
@@ -124,6 +135,9 @@ PROBE_TARGETS = [
 ]
 
 PROJECT_NAME = "parityproj"
+#: The container's project root. A container is a deployment REPO, not a
+#: flattened copy of one, so its render sits at RENDERED_CONFIG_RELPATH below
+#: this — the same place a host repo keeps it.
 CONTAINER_PROJECT_ROOT = f"/app/{PROJECT_NAME}"
 
 # Must stay comfortably BELOW the CI job's `timeout-minutes`, which also has to
@@ -287,20 +301,22 @@ def _importable(probe: dict) -> set[str]:
     return {name for name, info in probe.items() if info["importable"]}
 
 
-def _recorded_dependencies(project: Path) -> dict[str, str | None]:
+def _recorded_dependencies(render: Path) -> dict[str, str | None]:
     """Distributions the build recorded in ``pyproject.toml`` → pinned version or None.
 
-    This is the set the build promises the project's environment contains, and
-    therefore the set an image built from the project has to reproduce. Reading
-    it back (rather than hard-coding the markers) keeps the parity assertion
-    honest for any profile: whatever the build recorded, the container must have.
+    Reads the render's record — ``pyproject.toml`` is written beside the project
+    venv the build creates, in ``<repo>/build``. This is the set the build
+    promises that environment contains, and therefore the set an image built
+    from the render has to reproduce. Reading it back (rather than hard-coding
+    the markers) keeps the parity assertion honest for any profile: whatever the
+    build recorded, the container must have.
     """
     import tomllib
 
     from packaging.requirements import Requirement
     from packaging.utils import canonicalize_name
 
-    data = tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
+    data = tomllib.loads((render / "pyproject.toml").read_text(encoding="utf-8"))
     recorded: dict[str, str | None] = {}
     for raw in data["project"]["dependencies"]:
         req = Requirement(raw)
@@ -354,8 +370,13 @@ def base_venv(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def built_project(base_venv, tmp_path_factory) -> Path:
-    """A real ``osprey build`` whose profile declares the venv base + one addition."""
+def built_render(base_venv, tmp_path_factory) -> Path:
+    """A real init + build whose profile declares the venv base + one addition.
+
+    Returns the RENDER (``<repo>/build``) — the zone that holds the project
+    venv, the ``pyproject.toml`` dependency record and the ``Dockerfile``, and
+    the directory the image is built from.
+    """
     out_dir = tmp_path_factory.mktemp("parity-build")
     override = out_dir / "environment-override.yml"
     override.write_text(
@@ -372,46 +393,57 @@ def built_project(base_venv, tmp_path_factory) -> Path:
         encoding="utf-8",
     )
 
-    result = CliRunner().invoke(
+    repo = out_dir / PROJECT_NAME
+    runner = CliRunner()
+    init_result = runner.invoke(
         cli,
         [
-            "build",
-            PROJECT_NAME,
+            "init",
+            str(repo),
             "--preset",
             "hello-world",
+            "--no-git",
             "--set",
             "provider=als-apg",
             "--set",
             "model=haiku",
             "-O",
             str(override),
-            "--skip-lifecycle",
-            "-o",
-            str(out_dir),
         ],
     )
-    assert result.exit_code == 0, result.output
+    assert init_result.exit_code == 0, init_result.output
 
-    project = out_dir / PROJECT_NAME
-    assert (project / ".venv" / "bin" / "python").exists(), "build produced no project venv"
-    assert (project / "Dockerfile").exists()
-    return project
+    # No --skip-deps: the project venv this test measures IS the thing the deps
+    # step creates.
+    build_result = runner.invoke(cli, ["build", "--repo", str(repo), "--skip-lifecycle"])
+    assert build_result.exit_code == 0, build_result.output
+
+    render = repo / "build"
+    assert (render / ".venv" / "bin" / "python").exists(), "build produced no project venv"
+    assert (render / "Dockerfile").exists()
+    return render
 
 
 @pytest.fixture(scope="module")
-def host_probe(built_project) -> dict:
+def host_probe(built_render) -> dict:
     """Package probe run under the project venv — the host side of the comparison."""
     return _probe_packages(
-        [str(built_project / ".venv" / "bin" / "python")], what="host project venv"
+        [str(built_render / ".venv" / "bin" / "python")], what="host project venv"
     )
 
 
 @pytest.fixture(scope="module")
-def built_image(built_project):
-    """Build the project's own generated Dockerfile into a throwaway image.
+def built_image(built_render):
+    """Build the deployment's own generated Dockerfile into a throwaway image.
+
+    Built from the CONTAINER context the build renders — the deployment repo
+    under ``build/.image/`` — because that is what ``osprey up`` builds and
+    therefore the only image whose environment is worth comparing against the
+    host's. Building the host render instead would compare against a layout
+    nothing ships.
 
     The image is built against a wheel staged from this working tree (the
-    mechanism ``osprey deploy up --dev`` uses). Without it the deps layer would
+    mechanism ``osprey up --dev`` uses). Without it the deps layer would
     install the released PyPI build and every container assertion below would
     describe released code rather than the branch under test.
 
@@ -438,9 +470,12 @@ def built_image(built_project):
     # Deliberately NOT wrapped: _copy_local_framework_for_override raises
     # DevModeUnavailableError for staging failures too (a failed wheel build,
     # an unwritable context), and those must surface as errors, not skips.
-    _copy_local_framework_for_override(str(built_project))
+    context = container_image_context(built_render.parent, PROJECT_NAME)
+    # Staged at the CONTEXT root, which is where the Dockerfile's wheel-drop
+    # layer looks: `COPY .dockerignore *.wh[l]` is context-root relative.
+    _copy_local_framework_for_override(str(context))
 
-    staged = [built_project / LOCAL_REQUIREMENTS_FILENAME, *built_project.glob("*.whl")]
+    staged = [context / LOCAL_REQUIREMENTS_FILENAME, *context.glob("*.whl")]
     tag = f"osprey-parity-e2e:{uuid.uuid4().hex[:8]}"
     try:
         build = subprocess.run(
@@ -454,9 +489,11 @@ def built_image(built_project):
                 f"com.osprey.project={PROJECT_NAME}",
                 "--build-arg",
                 "OSPREY_DEV=1",
+                "-f",
+                str(context / "build" / "Dockerfile"),
                 ".",
             ],
-            cwd=built_project,
+            cwd=context,
             capture_output=True,
             text=True,
             timeout=BUILD_TIMEOUT,
@@ -489,7 +526,7 @@ def _docker_run_argv(tag: str) -> list[str]:
         "-w",
         CONTAINER_PROJECT_ROOT,
         "-e",
-        f"OSPREY_CONFIG={CONTAINER_PROJECT_ROOT}/config.yml",
+        f"OSPREY_CONFIG={CONTAINER_PROJECT_ROOT}/{RENDERED_CONFIG_RELPATH}",
         tag,
         "python",
     ]
@@ -498,7 +535,7 @@ def _docker_run_argv(tag: str) -> list[str]:
 # ── 1-2. The project venv carries both the frozen base and the addition ──────
 
 
-def test_project_venv_imports_frozen_base_and_added_package(built_project, host_probe):
+def test_project_venv_imports_frozen_base_and_added_package(built_render, host_probe):
     """The built venv holds the base venv's package AND the profile's addition."""
     assert host_probe[MARKER_FROZEN]["importable"], (
         f"{MARKER_FROZEN} was installed in the declared base venv but is not "
@@ -521,7 +558,7 @@ def test_project_venv_imports_frozen_base_and_added_package(built_project, host_
 
     # The freeze records a pin, not a bare name. Assert the recorded artifact
     # says so, so a rebuild elsewhere resolves the same version.
-    pyproject = (built_project / "pyproject.toml").read_text(encoding="utf-8")
+    pyproject = (built_render / "pyproject.toml").read_text(encoding="utf-8")
     frozen_version = host_probe[MARKER_FROZEN]["version"]
     assert f'"{MARKER_FROZEN}=={frozen_version}"' in pyproject, (
         f"pyproject.toml does not pin {MARKER_FROZEN}=={frozen_version}:\n{pyproject}"
@@ -532,7 +569,7 @@ def test_project_venv_imports_frozen_base_and_added_package(built_project, host_
 # ── 3. The image's environment matches the host's ────────────────────────────
 
 
-def test_container_environment_matches_host(built_project, built_image, host_probe):
+def test_container_environment_matches_host(built_render, built_image, host_probe):
     """The image reproduces the project venv's distribution set.
 
     The drift bug's direct test: the reported failure was a package importable
@@ -575,7 +612,7 @@ def test_container_environment_matches_host(built_project, built_image, host_pro
     )
 
     # ── The recorded dependency set, in full ──
-    recorded = _recorded_dependencies(built_project)
+    recorded = _recorded_dependencies(built_render)
     assert MARKER_FROZEN in recorded and MARKER_ADDED in recorded, (
         f"the build did not record the markers, so this comparison would be "
         f"trivially satisfiable: {recorded}"
@@ -668,15 +705,15 @@ def _assert_execution_healthy(payload: dict, where: str) -> str:
     return stamped[0]
 
 
-def test_execute_succeeds_on_host_build(built_project):
+def test_execute_succeeds_on_host_build(built_render):
     """A freshly built project executes agent code without any further setup."""
     completed = subprocess.run(
-        [str(built_project / ".venv" / "bin" / "python"), "-c", _EXEC_DRIVER],
-        cwd=built_project,
+        [str(built_render / ".venv" / "bin" / "python"), "-c", _EXEC_DRIVER],
+        cwd=built_render,
         capture_output=True,
         text=True,
         timeout=EXEC_TIMEOUT,
-        env={**os.environ, "OSPREY_CONFIG": str(built_project / "config.yml")},
+        env={**os.environ, "OSPREY_CONFIG": str(built_render / "config.yml")},
     )
     payload = _parse_sentinel(completed, "host execution")
     agent_python = _assert_execution_healthy(payload, "host")
@@ -685,7 +722,7 @@ def test_execute_succeeds_on_host_build(built_project):
     # to launch OSPREY — resolve_agent_interpreter's "project venv exists"
     # branch. The path comes from the executed code, so this measures the
     # resolution rather than restating the interpreter the test launched.
-    assert agent_python == str(built_project / ".venv" / "bin" / "python"), (
+    assert agent_python == str(built_render / ".venv" / "bin" / "python"), (
         f"agent code ran under {agent_python}, expected the project venv"
     )
 
@@ -701,10 +738,18 @@ def test_execute_succeeds_in_deployed_container(built_image):
     payload = _parse_sentinel(completed, "container execution")
     agent_python = _assert_execution_healthy(payload, "container")
 
-    # The image ships no .venv (.dockerignore excludes it), so agent code falls
-    # back to the interpreter running OSPREY — resolve_agent_interpreter's other
-    # branch, exercised only here. Again the path is what the executed code
-    # reported, so the two branches are genuinely distinguished.
-    assert not agent_python.startswith(f"{CONTAINER_PROJECT_ROOT}/.venv"), (
-        f"container resolved a project venv that should not exist: {agent_python}"
-    )
+    # The image ships no .venv — the container render is rendered without one
+    # (an image builds its own environment from OSPREY_PIP_SPEC) and
+    # `.dockerignore` excludes it besides — so agent code falls back to the
+    # interpreter running OSPREY, resolve_agent_interpreter's other branch,
+    # exercised only here. Again the path is what the executed code reported, so
+    # the two branches are genuinely distinguished. Both plausible homes are
+    # checked: the repo root a flat image used to have, and the render zone this
+    # one keeps its build output in.
+    for absent in (
+        f"{CONTAINER_PROJECT_ROOT}/.venv",
+        f"{CONTAINER_PROJECT_ROOT}/{BUILD_DIR_NAME}/.venv",
+    ):
+        assert not agent_python.startswith(absent), (
+            f"container resolved a project venv that should not exist: {agent_python}"
+        )

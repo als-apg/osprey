@@ -1,7 +1,19 @@
 """E2E: build, boot, and serve an agent from the generated reference Dockerfile.
 
-Renders a hello-world project, runs a real ``docker build`` on the Dockerfile
-that ``osprey build`` generated, then exercises the image at two depths:
+Initializes a deployment repo, builds it, runs a real ``docker build`` on the
+Dockerfile that ``osprey build`` generated, then exercises the image at two
+depths.
+
+What the image has to be is the whole premise here: **a deployment repo at
+``/app/<project>``**. The framework inside a container resolves paths exactly
+the way it does on a host — there is no container branch — so the image needs a
+``profile.yml`` at the project root (``osprey web``, this image's ``CMD``,
+resolves the deployment it serves by walking up to one), the render below it in
+``build/`` (which is where ``registry/mcp.py`` tells every MCP server the config
+lives), and that render's ``project_root`` pointing at the container path rather
+than at whichever host built it. Those three are one contract, and
+``test_every_config_path_in_the_image_resolves`` is the acceptance gate for it:
+no MCP server may name a file the image does not have.
 
 ``test_generated_dockerfile_builds_and_boots`` — static smoke checks:
 
@@ -9,10 +21,6 @@ that ``osprey build`` generated, then exercises the image at two depths:
 - the runtime user is the non-root ``osprey`` user,
 - ``claude --version`` works as that user (canary for the /root/.local
   permission-traversal chain the native installer requires),
-- ``config.yml`` inside the image points at the container path (the
-  ``osprey claude regen --runtime-root`` build step healed the host paths —
-  the host build here uses ``--skip-deps``, which records the host
-  interpreter, so this genuinely exercises the relocation path),
 - ``.dockerignore`` kept ``.env`` out of the image.
 
 ``test_generated_image_serves_agent_over_http`` — full functional proof:
@@ -40,9 +48,8 @@ provider CI can reach; LLM credentials are injected at ``docker run`` time
 (never baked into the image).
 
 Set ``OSPREY_E2E_PIP_SPEC`` to override which OSPREY gets installed inside the
-image. The image default is the PyPI release, which only works once a release
-containing ``regen --runtime-root`` is published — CI pins the PR head SHA
-instead so the image tests the branch under review.
+image. The image default is the PyPI release; CI pins the PR head SHA instead so
+the image tests the branch under review.
 
 The HTTP test additionally needs ``ALS_APG_API_KEY`` (``requires_als_apg``);
 it auto-skips without it. The build/boot test has no such requirement.
@@ -68,6 +75,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.utils.workspace import container_image_context
 
 
 def _docker_available() -> bool:
@@ -113,39 +121,55 @@ def _docker_run(tag: str, *cmd: str) -> subprocess.CompletedProcess:
     )
 
 
-def _render_hello_world(out_dir) -> "tuple":
-    """Render a hello-world project pinned to the als-apg provider.
+def _init_and_build_repo(out_dir: Path) -> Path:
+    """Init a hello-world deployment repo pinned to als-apg, and build it.
 
-    Returns ``(project_path, project_name)``. ``--skip-deps`` records the host
-    interpreter on purpose (the image's ``regen --runtime-root`` step heals it).
+    ``--no-git`` because nothing here reads history and the tmp tree may sit
+    inside another repository; ``--skip-deps`` because the image installs its
+    own dependencies from ``OSPREY_PIP_SPEC`` and the host venv would only slow
+    the render down. Returns the repo root.
     """
-    result = CliRunner().invoke(
+    repo = out_dir / PROJECT_NAME
+    runner = CliRunner()
+    init = runner.invoke(
         cli,
         [
-            "build",
-            PROJECT_NAME,
+            "init",
+            str(repo),
             "--preset",
             "hello-world",
             "--set",
             "provider=als-apg",
             "--set",
             "model=haiku",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "-o",
-            str(out_dir),
+            "--no-git",
         ],
     )
-    assert result.exit_code == 0, result.output
-    project = out_dir / PROJECT_NAME
-    assert (project / "Dockerfile").exists()
-    return project, PROJECT_NAME
+    assert init.exit_code == 0, init.output
+    build = runner.invoke(cli, ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    assert build.exit_code == 0, build.output
+    return repo
 
 
-def _build_image(project, tag: str, *, progress_plain: bool = False) -> subprocess.CompletedProcess:
+def _image_context(repo: Path) -> Path:
+    """The directory ``docker build`` runs against for this repo's image.
+
+    Resolved through the production helper, not spelled here: the context is
+    what lands in the image, so it is what decides the container's layout, and a
+    test that picked its own would prove the layout of something the deploy path
+    never builds. It is a deployment repo the build rendered against the
+    ``/app/<project>`` path a container sees, so its ``Dockerfile`` is one level
+    down, in the render.
+    """
+    context = container_image_context(repo, PROJECT_NAME)
+    assert (context / "build" / "Dockerfile").is_file(), f"no rendered Dockerfile under {context}"
+    return context
+
+
+def _build_image(context, tag: str, *, progress_plain: bool = False) -> subprocess.CompletedProcess:
     """Run ``docker build`` on the generated Dockerfile; return the completed process.
 
-    Passes the same ``com.osprey.project`` label ``osprey deploy`` stamps via
+    Passes the same ``com.osprey.project`` label ``osprey up`` stamps via
     ``_project_image_build_cmd``, so label assertions here cover the shape the
     real build path produces. ``DOCKER_BUILDKIT=1`` pins the BuildKit builder
     for every build so layer-cache semantics (and ``--progress=plain`` output,
@@ -155,6 +179,8 @@ def _build_image(project, tag: str, *, progress_plain: bool = False) -> subproce
         "docker",
         "build",
         *_PLATFORM_ARGS,
+        "-f",
+        str(Path(context) / "build" / "Dockerfile"),
         "-t",
         tag,
         "--label",
@@ -168,7 +194,7 @@ def _build_image(project, tag: str, *, progress_plain: bool = False) -> subproce
     build_cmd.append(".")
     build = subprocess.run(
         build_cmd,
-        cwd=project,
+        cwd=context,
         capture_output=True,
         text=True,
         timeout=BUILD_TIMEOUT,
@@ -183,19 +209,19 @@ def _build_image(project, tag: str, *, progress_plain: bool = False) -> subproce
 
 @pytest.fixture(scope="module")
 def built_image(tmp_path_factory):
-    """Render + build the reference image once for the whole module."""
+    """Build the repo + its reference image once for the whole module."""
     out_dir = tmp_path_factory.mktemp("dockerfile-e2e")
-    project, project_name = _render_hello_world(out_dir)
+    repo = _init_and_build_repo(out_dir)
     tag = f"osprey-dockerfile-e2e:{uuid.uuid4().hex[:8]}"
     try:
-        _build_image(project, tag)
-        yield tag, project, project_name, out_dir
+        _build_image(_image_context(repo), tag)
+        yield tag, repo, PROJECT_NAME, out_dir
     finally:
         subprocess.run(["docker", "rmi", "-f", tag], capture_output=True)
 
 
 def test_generated_dockerfile_builds_and_boots(built_image):
-    tag, _project, project_name, out_dir = built_image
+    tag, _repo, project_name, _out_dir = built_image
 
     # OSPREY installed and importable
     version = _docker_run(tag, "osprey", "--version")
@@ -212,15 +238,71 @@ def test_generated_dockerfile_builds_and_boots(built_image):
         f"traversal chain is broken:\n{claude.stderr}"
     )
 
-    # regen --runtime-root healed the recorded host paths
-    config = _docker_run(tag, "cat", f"/app/{project_name}/config.yml")
-    assert config.returncode == 0, config.stderr
-    assert f"project_root: /app/{project_name}" in config.stdout
-    assert str(out_dir) not in config.stdout, "host build path leaked into the image config"
-
     # .dockerignore did its job: no secrets/host state in the image
-    env_check = _docker_run(tag, "sh", "-c", f"test ! -e /app/{project_name}/.env && echo OK")
-    assert "OK" in env_check.stdout, ".env must never enter the image"
+    env_check = _docker_run(tag, "sh", "-c", f"find /app/{project_name} -name '.env' | head -1")
+    assert not env_check.stdout.strip(), (
+        f".env must never enter the image, found: {env_check.stdout.strip()}"
+    )
+
+
+# ── The container layout contract ────────────────────────────────────────────
+
+
+def test_every_config_path_in_the_image_resolves(built_image):
+    """Acceptance gate: no MCP server may name a file the image does not have.
+
+    Reads the ``.mcp.json`` the image actually ships and resolves every config
+    path it hands its servers, inside the image. This is the property the whole
+    layout exists to deliver — an unresolvable path here means every framework
+    MCP server in every container built from this image starts against a
+    missing config.
+    """
+    tag, _repo, project_name, _out_dir = built_image
+    project_root = f"/app/{project_name}"
+
+    mcp = _docker_run(tag, "cat", f"{project_root}/build/.mcp.json")
+    assert mcp.returncode == 0, (
+        f"no .mcp.json under {project_root}/build — the render is not where "
+        f"registry/mcp.py says it is:\n{mcp.stderr}"
+    )
+    servers = json.loads(mcp.stdout)["mcpServers"]
+
+    named = {
+        f"{server}.{key}": value
+        for server, spec in servers.items()
+        for key, value in (spec.get("env") or {}).items()
+        if key in ("OSPREY_CONFIG", "CONFIG_FILE")
+    }
+    assert named, "no server declares a config path — the registry render changed"
+
+    missing = {
+        where: path
+        for where, path in named.items()
+        if _docker_run(tag, "test", "-f", path).returncode != 0
+    }
+    assert not missing, f"config paths named in .mcp.json but absent from the image: {missing}"
+
+
+def test_image_project_root_is_a_deployment_repo(built_image):
+    """``osprey web`` — this image's CMD — must be able to resolve its deployment.
+
+    Repo discovery is the one rule, containers included: a ``profile.yml`` at
+    the project root, the render in ``build/`` below it, and a ``project_root``
+    that names the container path rather than the host that built the image.
+    """
+    tag, _repo, project_name, out_dir = built_image
+    project_root = f"/app/{project_name}"
+
+    marker = _docker_run(tag, "test", "-f", f"{project_root}/profile.yml")
+    assert marker.returncode == 0, (
+        f"no profile.yml at {project_root} — `osprey web` cannot resolve the "
+        "deployment this image ships"
+    )
+
+    config = _docker_run(tag, "cat", f"{project_root}/build/config.yml")
+    assert config.returncode == 0, config.stderr
+    assert f"project_root: {project_root}" in config.stdout
+    assert str(out_dir) not in config.stdout, "host build path leaked into the image config"
 
 
 # ── Functional: the shipped CMD actually serves an agent ─────────────────────
@@ -283,7 +365,7 @@ def _post_chat(base_url: str, prompt: str, timeout: float) -> dict:
 @pytest.mark.requires_als_apg
 def test_generated_image_serves_agent_over_http(built_image):
     """Boot the image's CMD and drive one real LLM turn through osprey web."""
-    tag, _project, _project_name, _out_dir = built_image
+    tag, _repo, _project_name, _out_dir = built_image
 
     # Mirror the production run contract (`docker run --env-file .env`): pass
     # the raw provider secret, never a pre-resolved token. The full osprey web
@@ -373,10 +455,10 @@ def test_rebuild_without_changes_is_fully_cached(built_image):
     build again with ``--progress=plain`` and assert every Dockerfile RUN/COPY
     step is reported CACHED.
     """
-    _tag, project, _project_name, _out_dir = built_image
+    _tag, repo, _project_name, _out_dir = built_image
     rebuild_tag = f"osprey-dockerfile-e2e-cachehit:{uuid.uuid4().hex[:8]}"
     try:
-        build = _build_image(project, rebuild_tag, progress_plain=True)
+        build = _build_image(_image_context(repo), rebuild_tag, progress_plain=True)
         progress = build.stdout + build.stderr
 
         steps = {
@@ -462,7 +544,7 @@ def test_equal_version_dev_wheel_lands_local_code(tmp_path):
     EXACT version plus a sentinel module, rebuild, and assert the sentinel is
     importable in the final image.
     """
-    project, _project_name = _render_hello_world(tmp_path)
+    context = _image_context(_init_and_build_repo(tmp_path))
     suffix = uuid.uuid4().hex[:8]
     base_tag = f"osprey-dockerfile-e2e-sentinel-base:{suffix}"
     dev_tag = f"osprey-dockerfile-e2e-sentinel-dev:{suffix}"
@@ -471,17 +553,17 @@ def test_equal_version_dev_wheel_lands_local_code(tmp_path):
         #    the deps layer resolved from OSPREY_PIP_SPEC. Note: the dist name
         #    is osprey-framework, so read osprey.__version__, not importlib
         #    metadata for "osprey".
-        _build_image(project, base_tag)
+        _build_image(context, base_tag)
         primed = _docker_run(base_tag, "python", "-c", "import osprey; print(osprey.__version__)")
         assert primed.returncode == 0, primed.stderr
         primed_version = primed.stdout.strip()
         assert primed_version, "could not read the deps-layer osprey version"
 
         # 2. Stage a version-equal sentinel wheel in the build context and
-        #    rebuild — exactly what `osprey deploy up --dev` does.
+        #    rebuild — exactly what `osprey up --dev` does.
         wheel = _build_sentinel_wheel(primed_version, tmp_path)
-        shutil.copy2(wheel, project / wheel.name)
-        _build_image(project, dev_tag)
+        shutil.copy2(wheel, context / wheel.name)
+        _build_image(context, dev_tag)
 
         # 3. Local code landed despite the equal version.
         probe = _docker_run(
@@ -510,8 +592,8 @@ def test_final_image_has_no_toolchain_and_carries_project_label(built_image):
     """The deps layer's purge-in-same-RUN kept the C toolchain out of the image,
     and the build carries the ``com.osprey.project`` label the deploy path
     stamps (``_build_image`` passes it the way ``_project_image_build_cmd``
-    does, so ``osprey deploy nuke`` can identify the image)."""
-    tag, _project, _project_name, _out_dir = built_image
+    does, so ``osprey reset`` can identify the image)."""
+    tag, _repo, _project_name, _out_dir = built_image
 
     for pkg in ("build-essential", "python3-dev"):
         check = _docker_run(tag, "sh", "-c", f"dpkg -s {pkg}")

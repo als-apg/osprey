@@ -1,4 +1,4 @@
-"""Acceptance proof that ``osprey deploy up`` stands up a WORKING login perimeter
+"""Acceptance proof that ``osprey up`` stands up a WORKING login perimeter
 from the **real** auth-sidecar image.
 
 WHAT THIS FILE IS FOR, AND WHAT IT DELIBERATELY DOES NOT DUPLICATE
@@ -21,8 +21,8 @@ This file is the one job that builds it. It is therefore deliberately NARROW in
 the other direction — it asks only the questions that need the real image and a
 real deploy, and leaves every semantic question to the unit lane:
 
-  T1  ``deploy up`` BUILDS the real sidecar image, labeled with this
-      deployment's project (what ``nuke`` verifies before removing a tag).
+  T1  ``up`` BUILDS the real sidecar image, labeled with this deployment's
+      project (what ``osprey reset`` verifies per tag before removing one).
   T2  The sidecar container comes up and its ``/health`` reports ``configured``
       — i.e. the image can actually import and run the app, and it found the
       credentials the same deploy provisioned.
@@ -31,6 +31,21 @@ real deploy, and leaves every semantic question to the unit lane:
       USER'S upstream container — proving the whole chain (login → cookie →
       ``auth_request`` → prefix-stripped proxy) works on the deployed artifacts,
       not just on a harness.
+
+THE DEPLOYMENT THIS BUILDS
+--------------------------
+A real deployment repo, through the surface an operator uses: ``osprey init``
+writes the source zone from ``hello-world`` plus one ``-O`` overlay carrying
+this lane's web-terminal stanza, and ``osprey build`` renders ``build/``. The
+repo's DIRECTORY NAME is the deployment name, so it is also the compose project
+name and the ``com.osprey.project`` label T1 asserts.
+
+The persona catalog is added to ``profile.yml`` between those two commands,
+which is the documented way to hand-write one: materialization requires every
+catalog entry to name a preset that extends the host preset, and this lane
+deliberately supplies a hand-written stub project instead of a rendered persona
+(see below). A start accepts that — it verifies each referenced persona HAS a
+usable project (``config.yml`` + ``Dockerfile``) and renders none itself.
 
 WHY THE PERSONA STUB SERVES HTTP HERE
 -------------------------------------
@@ -42,6 +57,10 @@ failures. The stub below serves one byte-identifiable page over busybox
 ``httpd``, so T4 can assert it received the response ALICE'S OWN container
 produced — the positive control that distinguishes "auth let it through" from
 "auth let it through and the proxy pointed somewhere else".
+
+It is a stub for the same reason the sidecar is not: a real persona image is a
+full framework install per persona, and this lane's subject is the perimeter in
+front of the terminal, not the terminal.
 
 COST, AND WHY THIS IS ITS OWN LANE
 ----------------------------------
@@ -96,11 +115,16 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
         f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
     )
 
+# The repo DIRECTORY name, which is the deployment name: the rendered
+# config.yml's project_name, the compose project, and the com.osprey.project
+# label on every image this deploy builds.
 PROJECT_NAME = "osprey-e2e-auth-perimeter"
 PREFIX = "authe2e"
 PERSONA = "operator"
 PERSONA_PROJECT = f"{PREFIX}-operator"
 USERS = ("alice", "bob")
+#: The preset the repo is materialized from — the smallest one that builds.
+PRESET = "hello-world"
 
 # Ports well clear of every other stack a developer may have up (the tutorial
 # stacks hold 5064/5080/5432, and the lifecycle fixtures the 9000s/19081).
@@ -119,7 +143,10 @@ BASE_PORTS = {
 UPSTREAM_MARKER = "osprey-e2e-auth-perimeter upstream"
 
 AUTH_IMAGE_TAG = f"{PREFIX}-assistant-auth:local"
-PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}:local"
+# `<catalog project>-<persona>:local`, exactly as resolve_personas derives a
+# local-mode persona tag. Teardown-only, but spelled the way the render spells
+# it so an `rmi` here removes the tag this deploy actually built.
+PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}-{PERSONA}:local"
 
 NGINX_C = f"{PREFIX}-nginx"
 AUTH_C = f"{PREFIX}-auth"
@@ -127,11 +154,14 @@ AUTH_C = f"{PREFIX}-auth"
 # The sidecar build is a real framework install; everything else here is alpine.
 DEPLOY_UP_TIMEOUT_SEC = 1800
 VERB_TIMEOUT_SEC = 120
+# `init` + `build` render the whole repo (no dependency install, no lifecycle
+# hooks — see the flags below), which is filesystem work rather than network.
+RENDER_TIMEOUT_SEC = 600
 READY_TIMEOUT_SEC = 120.0
 
-#: Seeded per user in the project ``.env`` as ``OSPREY_AUTH_PW_<USER>``, the
+#: Seeded per user in the repo ``.env`` as ``OSPREY_AUTH_PW_<USER>``, the
 #: documented way to set a password you already chose (provisioning step 2).
-#: Deterministic on purpose: the alternative — scraping the password ``deploy
+#: Deterministic on purpose: the alternative — scraping the password ``osprey
 #: up`` prints for a generated credential — reads a rich-rendered line that may
 #: wrap, which would split the secret at an arbitrary column. What that print
 #: does is covered where it belongs, in the credential unit tests.
@@ -223,10 +253,14 @@ def _write_persona_project(root: Path) -> Path:
     ``127.0.0.1`` mirrors the production app: nginx shares the host network
     namespace and is the only thing meant to reach a per-user port.
 
+    ``config.yml`` and ``Dockerfile`` are exactly the two files a start requires
+    of a persona's rendered project (``_check_existing_render``), which is why a
+    stub this small is accepted where a rendered persona would otherwise be.
+
     ``busybox-extras`` is REQUIRED and easy to lose: alpine's default busybox
     does NOT include the ``httpd`` applet, so without this package the CMD dies
     with "httpd: not found", the container crashloops, and the failure surfaces
-    far from its cause — as ``deploy up`` aborting because it could not seed a
+    far from its cause — as ``osprey up`` aborting because it could not seed a
     container that never stayed up.
     """
     root.mkdir(parents=True)
@@ -238,7 +272,13 @@ def _write_persona_project(root: Path) -> Path:
         "RUN apk add --no-cache busybox-extras \\\n"
         "    && adduser -D dispatch \\\n"
         "    && mkdir -p /data/claude-config \\\n"
-        f"    && mkdir -p {container_dir}/_agent_data \\\n"
+        # var/agent_data, not a literal of this test's own choosing: the render
+        # derives the per-user agent-data mount target from config.yml's
+        # `agent_data.base_dir` (default `var/agent_data`), exactly as the
+        # shipped project Dockerfile pre-creates it. A directory the image never
+        # created is created root-owned at first start, and the non-root user
+        # this container runs as cannot then write to its own memory.
+        f"    && mkdir -p {container_dir}/var/agent_data \\\n"
         f"    && mkdir -p {container_dir}/.claude/skills \\\n"
         f"    && chown -R dispatch:dispatch /data/claude-config {container_dir} \\\n"
         # /srv belongs to dispatch too: the CMD writes index.html at start-up,
@@ -259,58 +299,122 @@ def _write_persona_project(root: Path) -> Path:
     return root
 
 
-def _config_dict(persona_path: Path) -> dict[str, Any]:
-    """Local-mode facility config with password auth over cleartext.
+def _override_text() -> str:
+    """The ``-O`` overlay carrying this lane's whole web-terminal stanza.
+
+    Dotted leaf keys under ``config:``, the one spelling a profile's config
+    block accepts — and ``modules.web_terminals`` deliberately as ONE dotted key
+    with a nested value, so it sets that subtree without replacing the rendered
+    ``modules:`` mapping around it.
 
     ``allow_insecure_http`` is what lets auth render without TLS. That is the
     documented posture for a deployment behind a TLS terminator, and here it
     keeps the test off certificate management — the TLS mount has its own
     render-level coverage in ``tests/deployment/web_terminals/test_auth_tls_seams.py``.
+
+    ``deployed_services: []`` drops everything the preset would otherwise
+    deploy: this lane deploys the web tier and nothing else, and a backend
+    service would only add containers and bound ports to a proof about nginx.
     """
-    return {
-        "project_name": PROJECT_NAME,
-        "container_runtime": RUNTIME,
-        "facility": {"name": "E2E Auth Perimeter Fixture", "prefix": PREFIX, "timezone": "UTC"},
-        "llm": {"api_key_env_var": "ANTHROPIC_API_KEY"},
-        "deploy": {"fqdn": "127.0.0.1"},
-        "deployed_services": [],
-        "modules": {
-            "web_terminals": {
-                "enabled": True,
-                "image_source": "local",
-                "default_persona": PERSONA,
-                "personas": {
-                    PERSONA: {"project": PERSONA_PROJECT, "project_path": str(persona_path)}
-                },
-                "nginx_port": NGINX_PORT,
-                "web_base_port": BASE_PORTS["web"],
-                "artifact_base_port": BASE_PORTS["artifact"],
-                "ariel_base_port": BASE_PORTS["ariel"],
-                "lattice_base_port": BASE_PORTS["lattice"],
-                "channel_finder_base_port": BASE_PORTS["channel_finder"],
-                "users": list(USERS),
-                "auth": {
-                    "method": "password",
-                    "port": AUTH_PORT,
-                    "allow_insecure_http": True,
+    return yaml.safe_dump(
+        {
+            "config": {
+                "container_runtime": RUNTIME,
+                "facility.name": "E2E Auth Perimeter Fixture",
+                "facility.prefix": PREFIX,
+                "facility.timezone": "UTC",
+                "deploy.fqdn": "127.0.0.1",
+                "deployed_services": [],
+                "modules.web_terminals": {
+                    "enabled": True,
+                    "image_source": "local",
+                    "default_persona": PERSONA,
+                    "nginx_port": NGINX_PORT,
+                    "web_base_port": BASE_PORTS["web"],
+                    "artifact_base_port": BASE_PORTS["artifact"],
+                    "ariel_base_port": BASE_PORTS["ariel"],
+                    "lattice_base_port": BASE_PORTS["lattice"],
+                    "channel_finder_base_port": BASE_PORTS["channel_finder"],
+                    "users": list(USERS),
+                    "auth": {
+                        "method": "password",
+                        "port": AUTH_PORT,
+                        "allow_insecure_http": True,
+                    },
                 },
             }
         },
-    }
-
-
-def _make_project_dir(tmp_path: Path) -> Path:
-    persona_path = _write_persona_project(tmp_path / "persona")
-    dest = tmp_path / "project"
-    dest.mkdir()
-    (dest / "config.yml").write_text(
-        yaml.safe_dump(_config_dict(persona_path), sort_keys=False), encoding="utf-8"
+        sort_keys=False,
     )
-    (dest / ".env").write_text(_ENV_CONTENT, encoding="utf-8")
-    context_dir = dest / "docker" / "web-terminal-context"
-    context_dir.mkdir(parents=True)
-    (context_dir / "base.md").write_text("# auth perimeter e2e\n", encoding="utf-8")
-    return dest
+
+
+def _add_persona_catalog(repo: Path, persona_path: Path) -> None:
+    """Point the profile's persona catalog at the hand-written stub project.
+
+    After materialization, deliberately. ``osprey init`` renders one delta per
+    catalog entry and requires each entry to name a preset that EXTENDS the host
+    preset — the shape a rendered persona has. This lane's persona is a stub
+    project instead (see the module docstring), so the entry is added to
+    ``profile.yml`` once the repo exists and before ``osprey build`` reads it,
+    which is the remedy materialization itself names for a hand-written persona.
+
+    A YAML round-trip rather than a text splice: the emitted profile is plain
+    YAML, and the comments a dump drops are documentation for an operator, not
+    input to the build.
+    """
+    profile_path = repo / "profile.yml"
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    profile["config"]["modules.web_terminals"]["personas"] = {
+        PERSONA: {"project": PERSONA_PROJECT, "project_path": str(persona_path)}
+    }
+    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+
+
+def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
+    """``init`` + persona catalog + ``build`` — the repo this lane deploys.
+
+    ``--skip-deps``/``--skip-lifecycle`` keep the render off the network and
+    quick: nothing here runs the deployment's own venv, only its containers.
+    """
+    persona_path = _write_persona_project(tmp_path / "persona")
+    repo = tmp_path / PROJECT_NAME
+    override_path = tmp_path / "override.yml"
+    override_path.write_text(_override_text(), encoding="utf-8")
+
+    init = _run_osprey(
+        osprey_bin,
+        [
+            "init",
+            str(repo),
+            "--preset",
+            PRESET,
+            "--no-git",
+            "--override",
+            str(override_path),
+        ],
+        tmp_path,
+        timeout=RENDER_TIMEOUT_SEC,
+    )
+    assert init.returncode == 0, _fmt("osprey init (auth perimeter)", init)
+
+    _add_persona_catalog(repo, persona_path)
+
+    build = _run_osprey(
+        osprey_bin,
+        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        tmp_path,
+        timeout=RENDER_TIMEOUT_SEC,
+    )
+    assert build.returncode == 0, _fmt("osprey build (auth perimeter)", build)
+
+    # The repo root's .env is this deployment's whole secret store: the auth
+    # provisioning reads each user's chosen OSPREY_AUTH_PW_<USER> from it, the
+    # provider-secret gate reads the key, and `osprey up` refuses to start
+    # without the file at all.
+    env_path = repo / ".env"
+    env_path.write_text(_ENV_CONTENT, encoding="utf-8")
+    os.chmod(env_path, 0o600)
+    return repo
 
 
 def _teardown() -> None:
@@ -395,37 +499,43 @@ def _navigation() -> dict[str, str]:
 
 @pytest.fixture(scope="module")
 def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
-    """One ``deploy up --dev`` for the whole module — the expensive part runs once."""
+    """One ``osprey up --dev`` for the whole module — the expensive part runs once."""
     if shutil.which(RUNTIME) is None:
         pytest.skip(f"{RUNTIME} not available")
     if _runtime_cli("ps", timeout=10).returncode != 0:
         pytest.skip(f"{RUNTIME} daemon not responding")
 
     tmp_path = tmp_path_factory.mktemp("auth-perimeter")
-    project_dir = _make_project_dir(tmp_path)
     osprey_bin = _find_osprey_console_script()
+    repo = _make_repo(tmp_path, osprey_bin)
 
     _teardown()  # clear anything a previous crashed run stranded under these names
     try:
-        up = _run_osprey(
-            osprey_bin, ["deploy", "up", "--dev"], project_dir, timeout=DEPLOY_UP_TIMEOUT_SEC
-        )
-        assert up.returncode == 0, _fmt("deploy up --dev (auth perimeter)", up)
+        # Run from inside the repo: every lifecycle verb walks up to the nearest
+        # profile.yml, so standing in the deployment is what selects it.
+        up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+        assert up.returncode == 0, _fmt("osprey up --dev (auth perimeter)", up)
         health = _wait_for_health(READY_TIMEOUT_SEC)
-        yield {"project_dir": project_dir, "health": health, "up": up}
+        yield {"repo": repo, "health": health, "up": up}
     finally:
+        # The shipped teardown first — it stops the web stack the way the
+        # lifecycle does, in the order that leaves nothing behind — then the
+        # exact-named sweep as a safety net for anything it could not reach.
+        _run_osprey(osprey_bin, ["down"], repo)
         _teardown()
 
 
-def test_deploy_up_builds_the_real_sidecar_image(deployment: dict[str, Any]) -> None:
+def test_up_builds_the_real_sidecar_image(deployment: dict[str, Any]) -> None:
     """T1: the DEPLOYED Dockerfile builds, and the tag carries this project's label.
 
     The image is what every other assertion in this file runs against, and it is
     the artifact no other job in the suite produces. The ownership label matters
-    on its own: ``nuke`` verifies it before removing a tag, so an unlabeled image
-    would survive a full teardown.
+    on its own: an image tag is host-global and shared between two checkouts of
+    one deployment, so it is the one class ``osprey reset`` cannot scope by
+    checkout identity — it verifies ``com.osprey.project`` on the tag itself
+    before removing it, and an unlabeled image survives a factory reset.
     """
-    assert _image_exists(AUTH_IMAGE_TAG), f"{AUTH_IMAGE_TAG} was not built by 'deploy up'"
+    assert _image_exists(AUTH_IMAGE_TAG), f"{AUTH_IMAGE_TAG} was not built by 'osprey up'"
     assert _image_label(AUTH_IMAGE_TAG, "com.osprey.project") == PROJECT_NAME
 
 

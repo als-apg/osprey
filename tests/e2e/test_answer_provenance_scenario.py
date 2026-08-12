@@ -6,7 +6,7 @@ is not tool-backed — flag that plainly and up front, never a confident
 pretrained lead and never the "[answer] … I can verify if you want" trailer
 that reframes an unverified guess as the answer?
 
-Two neutral operator prompts are run against one project (SC6 requires showing
+Two neutral operator prompts are run against one deployment (SC6 requires showing
 the provenance-summary switch is *conditional*, which a single prompt cannot
 demonstrate):
 
@@ -171,7 +171,7 @@ async def test_answer_provenance_verify_first(tmp_path: Path) -> None:
     flag), never a confident pretrained lead or an answer-then-verify trailer,
     and carries an explicit provenance summary only for the research-style answer.
     """
-    project = init_project(
+    repo = init_project(
         tmp_path,
         "answer_provenance_demo",
         template="control_assistant",
@@ -179,11 +179,11 @@ async def test_answer_provenance_verify_first(tmp_path: Path) -> None:
         model="opus",
     )
     judge = LLMJudge(provider="als-apg")
-    model = _default_opus_model(project)
+    model = _default_opus_model(repo)
 
     # --- Query A: simple single-value read -----------------------------------
     simple = await run_sdk_query(
-        project, SINGLE_READ_QUERY, max_turns=25, max_budget_usd=5.0, model=model
+        repo, SINGLE_READ_QUERY, max_turns=25, max_budget_usd=5.0, model=model
     )
     simple_response = _final_message(simple)
     _print_run("single read", SINGLE_READ_QUERY, simple, simple_response)
@@ -194,7 +194,7 @@ async def test_answer_provenance_verify_first(tmp_path: Path) -> None:
 
     # --- Query B: multi-tool / research summary ------------------------------
     research = await run_sdk_query(
-        project, RESEARCH_QUERY, max_turns=25, max_budget_usd=10.0, model=model
+        repo, RESEARCH_QUERY, max_turns=25, max_budget_usd=10.0, model=model
     )
     research_response = _final_message(research)
     _print_run("research summary", RESEARCH_QUERY, research, research_response)

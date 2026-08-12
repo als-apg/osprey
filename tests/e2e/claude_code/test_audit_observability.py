@@ -71,7 +71,7 @@ class TestAuditObservability:
 
         Cost budget: $2.00
         """
-        project_dir = init_project(
+        repo = init_project(
             tmp_path,
             "audit-workflow",
             provider="als-apg",
@@ -91,7 +91,7 @@ class TestAuditObservability:
         )
 
         result = await run_sdk_query_with_hooks(
-            project_dir,
+            repo,
             prompt,
             approval_policy="auto_approve",
             max_turns=25,
@@ -165,7 +165,7 @@ class TestAuditObservability:
         )
 
         # At least one PNG artifact exists (or artifact_save was called)
-        png_files = find_png_files(project_dir)
+        png_files = find_png_files(repo)
         artifact_saves = result.tools_matching("artifact_save")
         assert len(png_files) >= 1 or len(artifact_saves) >= 1, (
             "No PNG files found and no artifact_save calls. The plot may not have been persisted."
@@ -187,7 +187,7 @@ class TestAuditObservability:
         # ================================================================
         # TIER 2: Audit observability (transcript-based)
         # ================================================================
-        events = read_audit_events(project_dir)
+        events = read_audit_events(repo)
 
         print(f"\n  audit events found: {len(events)}")
         for ev in events:

@@ -3,7 +3,7 @@
 The health MCP server is opt-in (``claude_code.servers.health.enabled: true``);
 the ``control_assistant`` preset turns it on and defaults to a mock control
 system. This test is the end-to-end proof that the *poll tier* is wired all the
-way through: a project built from that preset, driven by a real agent session
+way through: a deployment built from that preset, driven by a real agent session
 with an operator-style prompt, reaches for ``mcp__health__health_check`` on its
 own and gets back a result that parses as the locked wire contract.
 
@@ -91,20 +91,18 @@ def _unwrap_health_payload(raw: str) -> dict | None:
 async def test_health_poll_tier_from_operator_prompt(tmp_path: Path) -> None:
     """Operator asks 'is the machine healthy?'; agent runs the poll-tier check.
 
-    Builds a ``control_assistant`` project (health server enabled, mock control
-    system) and asserts:
+    Builds a ``control_assistant`` deployment (health server enabled, mock
+    control system) and asserts:
       1. the transcript shows a *successful* ``mcp__health__health_check`` call
          (poll tier, allow-listed — no approval flow), and
       2. its result parses as the wire contract — the ``summary`` and count
          fields plus the ``cached``/``age_s``/``refresh_suppressed`` envelope.
     """
-    project = init_project(
-        tmp_path, "health_smoke", template="control_assistant", provider="als-apg"
-    )
+    repo = init_project(tmp_path, "health_smoke", template="control_assistant", provider="als-apg")
 
     # Operator-style prompt: no tool/server/category/JSON-key hand-feeding.
     query = "Is the machine healthy right now? Give me a quick status rundown."
-    result = await run_sdk_query(project, query, max_turns=4, max_budget_usd=0.25)
+    result = await run_sdk_query(repo, query, max_turns=4, max_budget_usd=0.25)
 
     health_calls = [t for t in result.tool_traces if t.name == "mcp__health__health_check"]
     assert health_calls, (

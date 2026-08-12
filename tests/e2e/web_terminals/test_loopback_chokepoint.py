@@ -151,13 +151,16 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
     )
 
     free_port = _free_port()
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    # `osprey web` refuses to launch without a resolvable project config, so
-    # the directory it runs in has to be a real (if minimal) project — same as
-    # the deployment this test mirrors. Without it the server exits before
-    # binding and the bind assertions below never get to run.
-    (project_dir / "config.yml").write_text("system:\n  name: loopback-chokepoint\n")
+    # `osprey web` serves a deployment repo's RENDER: it walks up from the
+    # working directory to the nearest `profile.yml` and refuses when that repo
+    # has no `build/config.yml` to serve. So the directory it runs in has to be
+    # a real (if minimal) repo — same as the deployment this test mirrors.
+    # Without it the server exits before binding and the bind assertions below
+    # never get to run.
+    repo = tmp_path / "loopback-chokepoint"
+    (repo / "build").mkdir(parents=True)
+    (repo / "profile.yml").write_text("name: loopback-chokepoint\n")
+    (repo / "build" / "config.yml").write_text("system:\n  name: loopback-chokepoint\n")
     log_path = tmp_path / "server.log"
 
     # sys.executable, NEVER bare "python": in this shared worktree, bare
@@ -178,9 +181,10 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
 
     env = dict(os.environ)
     env[DECLARED_BIND_ENV] = "127.0.0.1"
-    # An OSPREY_CONFIG exported in the developer's shell outranks the cwd when
-    # the child resolves its project, which would silently point this launch at
-    # some other project's config. Drop it so `cwd=project_dir` is what decides.
+    # `osprey web` publishes OSPREY_CONFIG for its children rather than reading
+    # it, but a CONFIG_FILE/OSPREY_CONFIG exported in the developer's shell is
+    # still read by everything downstream of the launch and would point this run
+    # at some other deployment's config. Dropped so `cwd=repo` is what decides.
     env.pop("OSPREY_CONFIG", None)
     env.pop("CONFIG_FILE", None)
     # Neutralize the browser-open side effect (run_web -> _open_browser_when_ready
@@ -193,7 +197,7 @@ def test_declared_loopback_survives_hostile_host_flag_over_real_socket(tmp_path:
     with open(log_path, "w") as log_fh:
         proc = subprocess.Popen(
             cmd,
-            cwd=str(project_dir),
+            cwd=str(repo),
             env=env,
             stdout=log_fh,
             stderr=subprocess.STDOUT,

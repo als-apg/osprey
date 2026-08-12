@@ -1,9 +1,22 @@
 """Shared helpers for Claude Code SDK-based E2E tests.
 
-Provides the SDK runner, tool-trace dataclasses, and project initialization
-utilities used by both the functional SDK tests and the safety E2E tests.
+Provides the SDK runner, tool-trace dataclasses, and deployment-repo
+initialization utilities used by both the functional SDK tests and the safety
+E2E tests.
 
 Extracted from test_claude_code_sdk_e2e.py to avoid circular imports.
+
+**Zones.** Every public helper here takes the *deployment repo root* — what
+:func:`init_project` returns and what ``osprey init`` creates — so a test
+carries one handle. A repo has three zones the helpers resolve internally:
+
+* ``<repo>/`` — SOURCE: ``profile.yml``, the operator-owned ``data/`` tree
+  (including ``data/simulation/``), ``personas/``, and the ``.env`` secret store.
+* ``<repo>/build/`` — the RENDER (see :func:`render_dir`): ``config.yml``,
+  ``.mcp.json``, ``CLAUDE.md``, ``.claude/``, and the render's own ``data/``
+  copy. This is the Claude Code agent's working directory.
+* ``<repo>/var/`` — STATE: ``agent_data/`` (agent memory, artifacts, the
+  simulation's ``active_scenarios`` file) and ``audit/``.
 """
 
 from __future__ import annotations
@@ -75,10 +88,36 @@ from osprey.agent_runner.primitives import (
 from osprey.agent_runner.primitives import (
     provider_env_for_project as provider_env_for_project,  # re-exported for e2e tests
 )
+from osprey.utils.workspace import (
+    BUILD_DIR_NAME,
+    DEFAULT_AGENT_DATA_BASE_DIR,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def render_dir(repo: Path) -> Path:
+    """The render zone of the deployment repo at *repo* — ``<repo>/build``.
+
+    Everything ``osprey build`` produces lands here: ``config.yml``,
+    ``.mcp.json``, ``CLAUDE.md``, ``.claude/`` and the render's ``data/`` copy.
+    It is also the Claude Code agent's working directory. Spelled once, through
+    the same constant the framework renders against, so the zone split cannot
+    drift between this module and the build.
+    """
+    return Path(repo) / BUILD_DIR_NAME
+
+
+def agent_data_dir(repo: Path) -> Path:
+    """The state zone's agent-data root — ``<repo>/var/agent_data``.
+
+    Agent memory, artifacts and the simulation's mutable ``active_scenarios``
+    file live under ``var/`` so they survive the wholesale re-creation of
+    ``build/`` that every build performs.
+    """
+    return Path(repo) / DEFAULT_AGENT_DATA_BASE_DIR
 
 
 def is_claude_code_available() -> bool:
@@ -144,7 +183,7 @@ def ariel_db_skip_reason(uri: str | None = None) -> str | None:
         return (
             f"ARIEL Postgres not reachable ({exc.__class__.__name__}) — scenario "
             "tests need a live, seeded ARIEL logbook DB. Bring it up with "
-            "`osprey deploy up && osprey ariel migrate && osprey ariel quickstart`."
+            "`osprey up && osprey ariel migrate && osprey ariel quickstart`."
         )
     count = row[0] if row else 0
     if count == 0:
@@ -152,8 +191,12 @@ def ariel_db_skip_reason(uri: str | None = None) -> str | None:
     return None
 
 
-def _override_ariel_db_uri(project_dir: Path) -> None:
-    """Point a freshly built project at the per-cell ARIEL database.
+def _override_ariel_db_uri(render: Path) -> None:
+    """Point a freshly built deployment at the per-cell ARIEL database.
+
+    Takes the RENDER directory (``<repo>/build``) — the rewrite targets the
+    rendered ``config.yml``, which is what every MCP server is pointed at via
+    ``CONFIG_FILE`` and what ``apply_scenarios`` loads.
 
     When ``OSPREY_ARIEL_DB_URI`` is set (the matrix runner provisions one
     database per (model, seed) cell), rewrite the rendered ``config.yml`` so the
@@ -176,7 +219,7 @@ def _override_ariel_db_uri(project_dir: Path) -> None:
     override = os.environ.get("OSPREY_ARIEL_DB_URI")
     if not override or override == _DEFAULT_ARIEL_DB_URI:
         return
-    config_path = project_dir / "config.yml"
+    config_path = render / "config.yml"
     text = config_path.read_text(encoding="utf-8")
     if _DEFAULT_ARIEL_DB_URI not in text:
         return
@@ -194,7 +237,21 @@ def init_project(
     tier: int | None = None,
     connector: str = "mock",
 ) -> Path:
-    """Create a project via ``osprey build --preset <template>``, return project_dir.
+    """Create a deployment repo at ``tmp_path/name`` and build it; return the repo root.
+
+    Two commands, because the surface has two: ``osprey init <dir> --preset P``
+    writes the repo's source zone (``profile.yml``, ``data/``, ``personas/``,
+    ``.env.example``), and ``osprey build --repo <dir>`` renders ``build/`` from
+    it. The directory name IS the deployment name.
+
+    Returns the REPO ROOT, not the render: it is what
+    :func:`osprey.simulation.apply.apply_scenarios` takes, it is the
+    ``project_root`` the rendered config records, and ``var/agent_data`` hangs
+    off it. Every helper in this module takes that same handle and resolves the
+    render itself via :func:`render_dir`.
+
+    ``--no-git`` is always passed: no test reads the repo's history and
+    ``git init`` is pure latency here.
 
     ``connector`` is pinned to ``mock`` rather than inherited from the preset:
     the control-assistant preset defaults to ``virtual_accelerator``, which
@@ -206,11 +263,12 @@ def init_project(
     Tier selection follows a per-mode default: tier 1 is in_context-only, while
     ``hierarchical``/``middle_layer`` require tier 3. When ``tier`` is left
     ``None`` and a ``channel_finder_mode`` is given, the tier is derived from it
-    (in_context → 1, else → 3); when neither is given, ``--tier`` is omitted and
-    the build derives the tier from the preset's own paradigm. An explicit
-    ``tier`` kwarg is always honored. Consequence: hierarchical/middle_layer
-    callers now score the full tier-3 (2908-channel) surface, not a tier-1
-    subset.
+    (in_context → 1, else → 3); when neither is given, ``tier`` is left out of
+    the profile and the build derives it from the preset's own paradigm. An
+    explicit ``tier`` kwarg is always honored. Consequence:
+    hierarchical/middle_layer callers score the full tier-3 (2908-channel)
+    surface, not a tier-1 subset. The tier is a profile field, so it is set the
+    same way as every other one: ``--set tier=N`` on ``init``.
 
     ``provider`` is required (keyword-only) — every test callsite must name
     it explicitly. Each provider gates on different credentials (CBORG needs
@@ -220,8 +278,8 @@ def init_project(
     ``"als-apg"`` for GitHub Actions runners, ``"cborg"`` from LBLnet, or
     ``"anthropic"`` when you have an ``ANTHROPIC_API_KEY`` available.
 
-    Invoked via ``subprocess`` rather than Click's ``CliRunner`` because
-    ``osprey build`` instantiates ``rich.Console(force_terminal=True)``,
+    Both commands are invoked via ``subprocess`` rather than Click's
+    ``CliRunner`` because they instantiate ``rich.Console(force_terminal=True)``,
     which performs terminal-aware lifecycle management on the captured
     ``BytesIO`` stream that ``CliRunner`` substitutes for stdout. On
     Python ≥3.11 that closes the wrapper before Click reads it back,
@@ -242,14 +300,12 @@ def init_project(
     effective_tier = tier
     if effective_tier is None and channel_finder_mode is not None:
         effective_tier = default_tier_for_mode(channel_finder_mode)
-    args = [
-        name,
+    repo = tmp_path / name
+    init_args = [
+        str(repo),
         "--preset",
         template.replace("_", "-"),
-        "--skip-deps",
-        "--skip-lifecycle",
-        "--output-dir",
-        str(tmp_path),
+        "--no-git",
         "--set",
         f"provider={provider}",
         "--set",
@@ -258,28 +314,43 @@ def init_project(
         f"connector={connector}",
     ]
     if effective_tier is not None:
-        args.extend(["--tier", str(effective_tier)])
+        init_args.extend(["--set", f"tier={effective_tier}"])
     if channel_finder_mode is not None:
-        args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
+        init_args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
+    _run_osprey("init", init_args, timeout=180)
+    _run_osprey(
+        "build",
+        ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        timeout=300,
+    )
+
+    assert repo.is_dir(), f"Deployment repo not created: {repo}"
+    render = render_dir(repo)
+    assert (render / "config.yml").is_file(), f"Build produced no render at {render}"
+    _override_ariel_db_uri(render)
+    return repo
+
+
+def _run_osprey(verb: str, args: list[str], *, timeout: int) -> None:
+    """Run one ``osprey`` verb, failing loudly with both streams on a non-zero exit."""
     result = subprocess.run(
-        [sys.executable, "-m", "osprey.cli.main", "build", *args],
+        [sys.executable, "-m", "osprey.cli.main", verb, *args],
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=timeout,
     )
     assert result.returncode == 0, (
-        f"osprey build failed (exit {result.returncode}):\n"
+        f"osprey {verb} failed (exit {result.returncode}):\n"
         f"--- stdout ---\n{result.stdout}\n"
         f"--- stderr ---\n{result.stderr}"
     )
-    project_dir = tmp_path / name
-    assert project_dir.exists(), f"Project directory not created: {project_dir}"
-    _override_ariel_db_uri(project_dir)
-    return project_dir
 
 
-def enable_writes_in_project(project_dir: Path) -> None:
-    """Ensure ``control_system.writes_enabled`` is true in the project's config.yml.
+def enable_writes_in_project(repo: Path) -> None:
+    """Ensure ``control_system.writes_enabled`` is true in the rendered config.
+
+    Takes the REPO ROOT; the flip lands in the render's ``config.yml``, which is
+    what the MCP servers read (``CONFIG_FILE=<repo>/build/config.yml``).
 
     Required for tests that exercise the approval-hook path: the
     ``osprey_writes_check.py`` PreToolUse hook denies before
@@ -291,13 +362,15 @@ def enable_writes_in_project(project_dir: Path) -> None:
     at build time when ``writes_enabled`` is false (so Claude Code's permissions
     layer short-circuits before the PreToolUse hook chain runs). Flipping
     ``config.yml`` alone leaves the rendered ``settings.json`` stale, so after the
-    flip we regenerate the Claude Code artifacts — exactly the production fix
-    (``osprey claude regen`` / the web + CLI auto-regen) rather than a hand-patch.
+    flip we regenerate the Claude Code artifacts — exactly what a fresh
+    ``osprey build`` (and the web + CLI auto-regen) does, rather than a
+    hand-patch.
 
     Idempotent: presets like ``control_assistant`` already ship with
     ``writes_enabled: true``; only ``hello_world`` defaults to false.
     """
-    config_path = project_dir / "config.yml"
+    render = render_dir(repo)
+    config_path = render / "config.yml"
     text = config_path.read_text(encoding="utf-8")
     if "writes_enabled: true" not in text:
         updated = text.replace("writes_enabled: false", "writes_enabled: true", 1)
@@ -310,26 +383,32 @@ def enable_writes_in_project(project_dir: Path) -> None:
     # Re-render artifacts so the stale settings.json deny entry is dropped.
     from osprey.cli.templates.manager import TemplateManager
 
-    TemplateManager().regen_if_drift(project_dir)
+    TemplateManager().regen_if_drift(render)
 
 
-def activate_scenario(project_dir: Path, scenario: str) -> None:
+def activate_scenario(repo: Path, scenario: str) -> None:
     """Activate a single scenario's telemetry overlay (no logbook seeding).
 
-    Writes the scenario name into ``_agent_data/simulation/active_scenarios``
-    (runtime state, outside the build-owned ``data/`` tree); the simulation
-    engine re-reads the state file on mtime change and clears any session
-    writes (fresh machine state). Telemetry only — for scenarios whose
+    Takes the REPO ROOT. Writes the scenario name into
+    ``<repo>/var/agent_data/simulation/active_scenarios`` — mutable state, which
+    is why it lives under ``var/`` rather than in either ``data/`` tree; the
+    simulation engine re-reads the state file on mtime change and clears any
+    session writes (fresh machine state). Telemetry only — for scenarios whose
     diagnosis needs a seeded logbook, use :func:`activate_scenarios`, which also
     purges and reseeds ARIEL deterministically.
     """
-    state_file = project_dir / "_agent_data" / "simulation" / "active_scenarios"
+    state_file = agent_data_dir(repo) / "simulation" / "active_scenarios"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(scenario + "\n", encoding="utf-8")
 
 
-def activate_scenarios(project_dir: Path, *names: str, now=None):
+def activate_scenarios(repo: Path, *names: str, now=None):
     """Compose and apply scenarios, seeding their logbook into ARIEL.
+
+    Takes the REPO ROOT — that is what
+    :func:`osprey.simulation.apply.apply_scenarios` anchors on: the
+    ``data/simulation/`` model and the ``var/agent_data/simulation/`` state both
+    hang off it, and it reads the render's ``config.yml`` itself.
 
     Calls :func:`osprey.simulation.apply.apply_scenarios` with
     ``seed_logbook=True``: it writes the active-scenario state (with a shared
@@ -343,20 +422,20 @@ def activate_scenarios(project_dir: Path, *names: str, now=None):
     """
     from osprey.simulation.apply import apply_scenarios
 
-    return apply_scenarios(project_dir, list(names), seed_logbook=True, now=now)
+    return apply_scenarios(repo, list(names), seed_logbook=True, now=now)
 
 
 # ---------------------------------------------------------------------------
 # Agentic-scenario benchmark integrity
 #
 # A scenario benchmark asks the agent to *derive* a fault from instrument data.
-# Its ground truth ships inside the project as
+# Its ground truth ships inside the deployment repo as
 # ``data/simulation/scenarios/<name>/scenario.json``, whose ``description``
-# names the seeded fault outright — and the agent's cwd IS the deployed project
-# directory. Left alone, the cheapest route to a correct answer is to search the
-# tree and read the answer key, which produces a right answer by a route that
-# proves nothing about the capability under test. The two helpers below close
-# that route from both ends.
+# names the seeded fault outright — and the agent's cwd IS the render, which
+# carries its own copy of that tree. Left alone, the cheapest route to a correct
+# answer is to search the tree and read the answer key, which produces a right
+# answer by a route that proves nothing about the capability under test. The two
+# helpers below close that route from both ends.
 # ---------------------------------------------------------------------------
 
 # Generic filesystem-search tools, forbidden at the SDK level for the duration
@@ -370,20 +449,26 @@ def activate_scenarios(project_dir: Path, *names: str, now=None):
 # ``disallowed_tools`` still takes precedence.
 #
 # ``Read`` is deliberately NOT in this list: ``data-visualizer`` and
-# ``pyat-specialist`` declare it for ``_agent_data`` artifacts, and disallowing
+# ``pyat-specialist`` declare it for agent-data artifacts, and disallowing
 # a tool strips it from subagents too. Concealing the answer key (below) is what
 # makes a bare ``Read`` harmless; this list is what stops the agent from finding
 # anything worth reading in the first place.
 SCENARIO_INTEGRITY_DISALLOWED_TOOLS = ["Bash", "Glob", "Grep"]
 
 
-def conceal_scenario_ground_truth(project_dir: Path, *scenarios: str) -> None:
-    """Delete the named scenarios' definition bundles from the deployed project.
+def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
+    """Delete the named scenarios' definition bundles from the deployment repo.
+
+    Takes the REPO ROOT and scrubs BOTH simulation trees: the operator-owned
+    source at ``<repo>/data/simulation`` (what the host-side engine resolves via
+    ``project_root``) and the render's copy at ``<repo>/build/data/simulation``
+    (which sits inside the agent's own working directory). Leaving either would
+    leave the answer key one ``Read`` away.
 
     Call AFTER every setup step that consumes the bundle (``activate_scenarios``
-    for logbook seeding, ``render_scenario_physics_env`` + ``deploy up`` for a
+    for logbook seeding, ``render_scenario_physics_env`` + ``osprey up`` for a
     VA stack's boot-time physics) and BEFORE the agent session starts. Also drops
-    the names from the live ``_agent_data/simulation/active_scenarios`` state
+    the names from the live ``var/agent_data/simulation/active_scenarios`` state
     file (the location :func:`activate_scenario` writes), since the name itself
     ("orm-dual-fault") is a hint, and leaving an active name whose bundle is gone
     would only earn an "Unknown scenario ... ignoring" warning from the engine.
@@ -398,30 +483,34 @@ def conceal_scenario_ground_truth(project_dir: Path, *scenarios: str) -> None:
     :data:`SCENARIO_INTEGRITY_DISALLOWED_TOOLS` alone.
 
     Raises:
-        AssertionError: if a named bundle is not present (template drift — the
-            caller believes it concealed something it did not).
+        AssertionError: if a named bundle is not present in either tree
+            (template drift — the caller believes it concealed something it did
+            not).
     """
-    sim_dir = project_dir / "data" / "simulation"
+    source_sim = Path(repo) / "data" / "simulation"
+    render_sim = render_dir(repo) / "data" / "simulation"
+    sim_dirs = (source_sim, render_sim)
     for name in scenarios:
-        bundle = sim_dir / "scenarios" / name
-        assert bundle.is_dir(), (
-            f"no scenario bundle at {bundle} to conceal — template layout may have "
-            "changed; the benchmark's answer key would stay readable by the agent"
-        )
-        shutil.rmtree(bundle)
+        for sim_dir in sim_dirs:
+            bundle = sim_dir / "scenarios" / name
+            assert bundle.is_dir(), (
+                f"no scenario bundle at {bundle} to conceal — template layout may have "
+                "changed; the benchmark's answer key would stay readable by the agent"
+            )
+            shutil.rmtree(bundle)
 
-    # The live state file activate_scenario writes; a legacy copy under
-    # data/simulation is scrubbed too if present. The live file must EXIST —
+    # The live state file activate_scenario writes; a stray copy beside either
+    # machine model is scrubbed too if present. The live file must EXIST —
     # a silent skip here is how a state-file relocation once left the answer
     # key agent-readable while this helper reported success.
-    state_dir = project_dir / "_agent_data" / "simulation"
+    state_dir = agent_data_dir(repo) / "simulation"
     live_state = state_dir / "active_scenarios"
     assert live_state.is_file(), (
         f"no active-scenarios state file at {live_state} — the state-file "
         "location moved again; update this helper or the answer key stays "
         "readable by the agent"
     )
-    for state_file in (live_state, sim_dir / "active_scenarios"):
+    for state_file in (live_state, *(d / "active_scenarios" for d in sim_dirs)):
         if not state_file.is_file():
             continue
         kept = [
@@ -431,22 +520,25 @@ def conceal_scenario_ground_truth(project_dir: Path, *scenarios: str) -> None:
         ]
         state_file.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
 
-    # Self-check: prove the concealment rather than assume it. Cheap — both
+    # Self-check: prove the concealment rather than assume it. Cheap — all three
     # trees are a handful of small JSON/text files. The state dir is included
-    # because Read is deliberately allowed for _agent_data artifacts.
+    # because Read is deliberately allowed for agent-data artifacts.
     for name in scenarios:
         leaked = [
             p
-            for tree in (sim_dir, state_dir)
+            for tree in (*sim_dirs, state_dir)
             for p in tree.rglob("*")
             if p.is_file() and name in p.read_text(encoding="utf-8", errors="ignore")
         ]
         assert not leaked, f"scenario {name!r} still readable from the agent's tree: {leaked}"
 
 
-def promote_ask_to_allow(project_dir: Path, *tools: str) -> None:
+def promote_ask_to_allow(repo: Path, *tools: str) -> None:
     """Move ``tools`` from ``permissions.ask`` to ``permissions.allow`` in the
-    project's rendered ``.claude/settings.json``.
+    render's ``.claude/settings.json``.
+
+    Takes the REPO ROOT; the settings file the agent reads is the rendered one
+    under ``<repo>/build/.claude/``.
 
     ``run_sdk_query`` runs headless with no responder for an approval prompt, so
     an ``ask``-listed tool comes back to the agent as "Claude requested
@@ -461,15 +553,15 @@ def promote_ask_to_allow(project_dir: Path, *tools: str) -> None:
     ``mcp__controls__channel_write``, i.e. a hand-stepped alternative to the
     measurement the benchmark is grading.
 
-    Call AFTER ``osprey deploy up`` — the deploy path can re-render the Claude
-    Code artifacts and would discard an earlier edit.
+    Call AFTER ``osprey up`` — the deploy path can re-render the Claude Code
+    artifacts and would discard an earlier edit.
 
     Raises:
         AssertionError: if a named tool is not in ``permissions.ask`` (either it
             was already granted, or the settings renderer changed — both mean
             this call is not doing what the caller thinks).
     """
-    settings_path = project_dir / ".claude" / "settings.json"
+    settings_path = render_dir(repo) / ".claude" / "settings.json"
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
     permissions = settings.setdefault("permissions", {})
     ask = permissions.setdefault("ask", [])
@@ -486,14 +578,17 @@ def promote_ask_to_allow(project_dir: Path, *tools: str) -> None:
     settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
 
 
-def _default_opus_model(project_dir: Path) -> str:
-    """Resolve the project's opus-tier model name.
+def _default_opus_model(repo: Path) -> str:
+    """Resolve the deployment's opus-tier model name.
+
+    Takes the REPO ROOT; the provider spec is resolved from the render's
+    ``config.yml``.
 
     Use for tests that benchmark agent reasoning (diagnostic-style
     challenges) — Opus is required for the planner to converge on a
     committed conclusion instead of hedging on a data dump.
     """
-    spec = _resolve_project_spec(project_dir)
+    spec = _resolve_project_spec(render_dir(repo))
     if spec is not None:
         return spec.tier_to_model.get("opus", "claude-opus-4-7")
     return "claude-opus-4-7"
@@ -509,8 +604,12 @@ def find_html_files(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob("*.html") if p.name != "index.html")
 
 
-def read_audit_events(project_dir: Path) -> list[dict]:
+def read_audit_events(repo: Path) -> list[dict]:
     """Read OSPREY tool-call events from Claude Code native transcripts.
+
+    Takes the REPO ROOT. Claude Code keys its transcript directory on the
+    session's working directory, which is the RENDER, so that is what the reader
+    is pointed at.
 
     Uses TranscriptReader to extract events from the most recent transcript
     in ``~/.claude/projects/<encoded>/``.
@@ -520,7 +619,7 @@ def read_audit_events(project_dir: Path) -> list[dict]:
     """
     from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
 
-    reader = TranscriptReader(project_dir)
+    reader = TranscriptReader(render_dir(repo))
     return reader.read_current_session()
 
 
@@ -529,15 +628,18 @@ def read_audit_events(project_dir: Path) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _persist_mcp_sidecar(workflow: SDKWorkflowResult, project_dir: Path) -> None:
+def _persist_mcp_sidecar(workflow: SDKWorkflowResult, repo: Path) -> None:
     """Write the MCP-status snapshot to a per-test sidecar when
     ``OSPREY_E2E_INIT_SIDECAR`` is set. Off by default, so ordinary CI/local runs
     are byte-for-byte unchanged. The sidecar turns the infra-vs-model question
-    into a recorded fact for post-hoc benchmark forensics."""
+    into a recorded fact for post-hoc benchmark forensics.
+
+    Written at the REPO ROOT rather than inside the render: it is forensic
+    output about a run, and the render is re-created wholesale by every build."""
     if not os.environ.get("OSPREY_E2E_INIT_SIDECAR"):
         return
     try:
-        out_dir = project_dir / ".osprey_e2e"
+        out_dir = Path(repo) / ".osprey_e2e"
         out_dir.mkdir(exist_ok=True)
         payload = {
             "mcp_server_status": workflow.mcp_server_status,
@@ -570,9 +672,12 @@ def _result_text(content: Any) -> str:
 def _harvest_subagent_traces(
     workflow: SDKWorkflowResult,
     pending_tools: dict[str, ToolTrace],
-    project_dir: Path,
+    render: Path,
 ) -> None:
     """Append sub-agent tool calls that never streamed through ``query()``.
+
+    Takes the RENDER directory — the SDK's transcript lookup is keyed on the
+    session's working directory, which is where the agent ran.
 
     Claude Code CLI >= 2.1.x writes sub-agent transcripts to side files rather
     than streaming them through the SDK iterator. We read them back via the
@@ -590,7 +695,7 @@ def _harvest_subagent_traces(
     if not session_id:
         return
 
-    directory = str(project_dir)
+    directory = str(render)
     try:
         agent_ids = list_subagents(session_id, directory=directory)
     except Exception:
@@ -660,7 +765,7 @@ def e2e_budget_scale() -> float:
 
 
 async def run_sdk_query(
-    project_dir: Path,
+    repo: Path,
     prompt: str,
     *,
     max_turns: int = 25,
@@ -671,7 +776,9 @@ async def run_sdk_query(
     """Run a query via the Claude Agent SDK and collect full tool traces.
 
     Args:
-        project_dir: Path to an initialized OSPREY project.
+        repo: Deployment repo root (what :func:`init_project` returns). The
+            agent runs with its cwd at the render, ``<repo>/build``, where
+            ``.mcp.json``, ``.claude/`` and ``CLAUDE.md`` live.
         prompt: The user prompt to send.
         max_turns: Maximum agentic turns before stopping.
         max_budget_usd: Budget cap in USD.
@@ -691,13 +798,14 @@ async def run_sdk_query(
     # Collect stderr lines for debugging CLI failures
     stderr_lines: list[str] = []
 
+    render = render_dir(repo)
     options = ClaudeAgentOptions(
-        model=model if model is not None else resolve_default_model(project_dir),
-        cwd=str(project_dir),
+        model=model if model is not None else resolve_default_model(render),
+        cwd=str(render),
         permission_mode="bypassPermissions",
         max_turns=max_turns,
         max_budget_usd=max_budget_usd * e2e_budget_scale(),
-        env=sdk_env(project_dir),
+        env=sdk_env(render),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
         disallowed_tools=disallowed_tools or [],
@@ -714,7 +822,7 @@ async def run_sdk_query(
         # first turn — eliminating the controls cold-start race (see await_mcp_ready).
         # Message handling is identical to the query() iterator.
         async with ClaudeSDKClient(options=options) as client:
-            workflow.mcp_servers = await await_mcp_ready(client, expected_mcp_servers(project_dir))
+            workflow.mcp_servers = await await_mcp_ready(client, expected_mcp_servers(render))
             await client.query(prompt)
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
@@ -751,9 +859,9 @@ async def run_sdk_query(
 
     # Sub-agent tool calls don't stream through query() on CLI >= 2.1.x; read
     # them from the on-disk transcripts so delegation tests can observe them.
-    _harvest_subagent_traces(workflow, pending_tools, project_dir)
+    _harvest_subagent_traces(workflow, pending_tools, render)
 
-    _persist_mcp_sidecar(workflow, project_dir)
+    _persist_mcp_sidecar(workflow, repo)
     return workflow
 
 
@@ -780,7 +888,7 @@ class HookObservedResult(SDKWorkflowResult):
 
 
 async def run_sdk_query_with_hooks(
-    project_dir: Path,
+    repo: Path,
     prompt: str,
     *,
     approval_policy: Callable[[str, dict[str, Any]], bool] | str = "auto_approve",
@@ -804,7 +912,9 @@ async def run_sdk_query_with_hooks(
     Every callback invocation is recorded in ``hook_events`` for observability.
 
     Args:
-        project_dir: Path to an initialized OSPREY project.
+        repo: Deployment repo root (what :func:`init_project` returns). The
+            agent runs with its cwd at the render, ``<repo>/build``, which is
+            where the ``.claude/`` hooks and settings it obeys are rendered.
         prompt: The user prompt to send.
         approval_policy: How to handle "ask" decisions from hooks.
         max_turns: Maximum agentic turns before stopping.
@@ -855,13 +965,14 @@ async def run_sdk_query_with_hooks(
         else:
             return PermissionResultDeny(message="Denied by test approval policy")
 
+    render = render_dir(repo)
     options = ClaudeAgentOptions(
-        model=model if model is not None else resolve_default_model(project_dir),
-        cwd=str(project_dir),
+        model=model if model is not None else resolve_default_model(render),
+        cwd=str(render),
         permission_mode="default",
         max_turns=max_turns,
         max_budget_usd=max_budget_usd * e2e_budget_scale(),
-        env=sdk_env(project_dir),
+        env=sdk_env(render),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
         can_use_tool=_can_use_tool,
@@ -880,7 +991,7 @@ async def run_sdk_query_with_hooks(
             # Wait out async MCP registration (controls cold-starts ~1.5s) so the
             # agent never races a half-built toolset. Snapshot is the authoritative
             # infra-vs-model record.
-            workflow.mcp_servers = await await_mcp_ready(client, expected_mcp_servers(project_dir))
+            workflow.mcp_servers = await await_mcp_ready(client, expected_mcp_servers(render))
             await client.query(prompt)
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
@@ -915,8 +1026,8 @@ async def run_sdk_query_with_hooks(
         raise RuntimeError(f"SDK query failed: {exc}\n\nCLI stderr:\n{stderr_output}") from exc
 
     # See run_sdk_query: sub-agent tool calls live in on-disk transcripts.
-    _harvest_subagent_traces(workflow, pending_tools, project_dir)
+    _harvest_subagent_traces(workflow, pending_tools, render)
 
     workflow.hook_events = hook_events
-    _persist_mcp_sidecar(workflow, project_dir)
+    _persist_mcp_sidecar(workflow, repo)
     return workflow
