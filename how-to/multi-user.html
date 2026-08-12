@@ -1016,10 +1016,14 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <span class="w">    </span><span class="nt">channel_finder_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9591</span>
 <span class="w">    </span><span class="nt">default_persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span><span class="w">                   </span><span class="c1"># bare name → default_persona</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Control</span><span class="nv"> </span><span class="s">Room</span><span class="nv"> </span><span class="s">(Alice)&quot;</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
 <span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Read-Only</span><span class="nv"> </span><span class="s">View</span><span class="nv"> </span><span class="s">(Bob)&quot;</span>
 <span class="w">    </span><span class="nt">personas</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">readonly</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-readonly</span>
@@ -1040,8 +1044,10 @@ preset name, an absolute path, or a path outside <code class="docutils literal n
 rejected by both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">users</span></code> list is the roster — the single source of truth for who
-exists. A bare name resolves to <code class="docutils literal notranslate"><span class="pre">default_persona</span></code>; an entry with an
-explicit <code class="docutils literal notranslate"><span class="pre">persona</span></code> picks its tier. Each user’s host ports are
+exists. A bare name (<code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">carol</span></code>) resolves to <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> —
+read-only, so a hastily added user lands on the safe side; an entry with
+an explicit <code class="docutils literal notranslate"><span class="pre">persona</span></code> picks its tier, and an optional <code class="docutils literal notranslate"><span class="pre">display_name</span></code>
+becomes that user’s browser tab title. Each user’s host ports are
 <code class="docutils literal notranslate"><span class="pre">base</span> <span class="pre">+</span> <span class="pre">index</span></code> in every port family — one family per companion panel
 (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
 terminal itself — so alice (index 0) serves her terminal on <code class="docutils literal notranslate"><span class="pre">9091</span></code> and
@@ -1193,22 +1199,26 @@ each labelled with the persona it resolves to:</p>
 <a class="reference internal image-reference" href="../_images/multi_user_landing.png"><img alt="The multi-user landing page — two user cards under a Terminals heading, each badged with the persona its session resolves to" src="../_images/multi_user_landing.png" style="width: 100%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">The grouped landing page: alice resolves to the readonly persona, bob to
-readwrite. Click a card to open that user’s session.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+<p><span class="caption-text">The grouped landing page: alice resolves to the readwrite persona, bob to
+readonly. Click a card to open that user’s session.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
-<p>alice is a bare roster entry, so she resolves to the preset’s
-<code class="docutils literal notranslate"><span class="pre">default_persona</span></code> (readonly). bob names his persona (readwrite) explicitly.
-Clicking a card opens that user’s terminal at <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code>, proxied by nginx
-to the user’s own container.</p>
+<p>Both entries name their persona explicitly — alice the readwrite tier, bob the
+readonly one. (A bare roster entry would fall back to the preset’s
+<code class="docutils literal notranslate"><span class="pre">default_persona</span></code>, readonly, so an implicit user always lands on the safe
+side.) Clicking a card opens that user’s terminal at <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code>, proxied
+by nginx to the user’s own container.</p>
 </section>
 <section id="two-sessions-two-write-postures">
 <h3>Two sessions, two write postures<a class="headerlink" href="#two-sessions-two-write-postures" title="Link to this heading">#</a></h3>
 <p>Each persona is a self-contained OSPREY project with its <strong>own</strong> permissions,
 because permissions are a property of a project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — the two
-tiers are genuinely different agents, not one agent with a UI toggle. They
-differ on exactly <strong>one</strong> config key, the reference monitor’s master write
-switch:</p>
+tiers are genuinely different agents, not one agent with a UI toggle. The
+enforcement boundary is exactly <strong>one</strong> config key, the reference monitor’s
+master write switch; the tiers additionally differ in presentation — the
+write-armed terminal gets the full expert workspace with the EVENTS and
+BLUESKY control panels, the read-only one a chat-first simple surface without
+them:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 14.0%" />
@@ -1223,16 +1233,16 @@ switch:</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><strong>alice</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
-<td><p>Read-only. Channel reads, the channel finder, the archiver, and logbook
-search all work — but every write surface refuses: channel writes,
-read-write Python execution, all of it, from the single switch.</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>bob</strong></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">true</span></code></p></td>
 <td><p>Write-capable — and supervised, not unguarded. A channel write still
 passes the writes-check hook, per-channel min/max limits, and a human
 approval prompt before the connector executes it.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>bob</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
+<td><p>Read-only. Channel reads, the channel finder, the archiver, and logbook
+search all work — but every write surface refuses: channel writes,
+read-write Python execution, all of it, from the single switch.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1245,16 +1255,18 @@ one deployment.</p>
 user’s terminal and ask both agents to do the same two things:</p>
 <p><strong>Read.</strong> Ask either agent about a channel — a corrector setpoint, a BPM
 reading. Both sessions answer identically: reads are ungated on both tiers.</p>
-<p><strong>Write.</strong> Ask each agent to change a setpoint. In bob’s session the write
-goes to a human approval prompt, then executes. In alice’s session the same
-request is <strong>refused</strong>: the write tool is denied in her project’s rendered
-permissions, and the refusal states plainly that writes are disabled in her
+<p><strong>Write.</strong> Ask each agent to change a setpoint. In alice’s session the write
+goes to a human approval prompt, then executes. In bob’s session the same
+request is <strong>refused</strong>: the write tool is denied in his project’s rendered
+permissions, and the refusal states plainly that writes are disabled in his
 configuration.</p>
 <p>Both agents carry the <em>same</em> tool surface — the readonly tier is not a
 stripped-down agent that never heard of writing. It is the same agent whose
 write path is switched off in its own project, which is exactly what you want
 to demonstrate to a control room: the boundary holds at the enforcement layer,
-not at the menu.</p>
+not at the menu. (The readonly terminal’s leaner look — no EVENTS/BLUESKY
+tabs, chat-first layout — is presentation for the viewer tier, not the
+boundary itself: the refusal above fires with or without it.)</p>
 </section>
 <section id="logging-out-and-switching-users">
 <h3>Logging out and switching users<a class="headerlink" href="#logging-out-and-switching-users" title="Link to this heading">#</a></h3>

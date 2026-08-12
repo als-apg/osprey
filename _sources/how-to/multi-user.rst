@@ -114,10 +114,14 @@ The config block
              channel_finder_base_port: 9591
              default_persona: readonly
              users:
-             - alice                   # bare name → default_persona
+             - name: alice
+               index: 0
+               persona: readwrite
+               display_name: "Control Room (Alice)"
              - name: bob
                index: 1
-               persona: readwrite
+               persona: readonly
+               display_name: "Read-Only View (Bob)"
              personas:
                readonly:
                  project: control-assistant-readonly
@@ -138,8 +142,10 @@ The config block
       ``osprey deploy up``.
 
       The ``users`` list is the roster — the single source of truth for who
-      exists. A bare name resolves to ``default_persona``; an entry with an
-      explicit ``persona`` picks its tier. Each user's host ports are
+      exists. A bare name (``- carol``) resolves to ``default_persona`` —
+      read-only, so a hastily added user lands on the safe side; an entry with
+      an explicit ``persona`` picks its tier, and an optional ``display_name``
+      becomes that user's browser tab title. Each user's host ports are
       ``base + index`` in every port family — one family per companion panel
       (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
       terminal itself — so alice (index 0) serves her terminal on ``9091`` and
@@ -289,22 +295,26 @@ each labelled with the persona it resolves to:
    :align: center
    :width: 100%
 
-   The grouped landing page: alice resolves to the readonly persona, bob to
-   readwrite. Click a card to open that user's session.
+   The grouped landing page: alice resolves to the readwrite persona, bob to
+   readonly. Click a card to open that user's session.
 
-alice is a bare roster entry, so she resolves to the preset's
-``default_persona`` (readonly). bob names his persona (readwrite) explicitly.
-Clicking a card opens that user's terminal at ``/u/<name>/``, proxied by nginx
-to the user's own container.
+Both entries name their persona explicitly — alice the readwrite tier, bob the
+readonly one. (A bare roster entry would fall back to the preset's
+``default_persona``, readonly, so an implicit user always lands on the safe
+side.) Clicking a card opens that user's terminal at ``/u/<name>/``, proxied
+by nginx to the user's own container.
 
 Two sessions, two write postures
 --------------------------------
 
 Each persona is a self-contained OSPREY project with its **own** permissions,
 because permissions are a property of a project's ``config.yml`` — the two
-tiers are genuinely different agents, not one agent with a UI toggle. They
-differ on exactly **one** config key, the reference monitor's master write
-switch:
+tiers are genuinely different agents, not one agent with a UI toggle. The
+enforcement boundary is exactly **one** config key, the reference monitor's
+master write switch; the tiers additionally differ in presentation — the
+write-armed terminal gets the full expert workspace with the EVENTS and
+BLUESKY control panels, the read-only one a chat-first simple surface without
+them:
 
 .. list-table::
    :header-rows: 1
@@ -314,15 +324,15 @@ switch:
      - ``control_system.writes_enabled``
      - What that means in the session
    * - **alice**
-     - ``false``
-     - Read-only. Channel reads, the channel finder, the archiver, and logbook
-       search all work — but every write surface refuses: channel writes,
-       read-write Python execution, all of it, from the single switch.
-   * - **bob**
      - ``true``
      - Write-capable — and supervised, not unguarded. A channel write still
        passes the writes-check hook, per-channel min/max limits, and a human
        approval prompt before the connector executes it.
+   * - **bob**
+     - ``false``
+     - Read-only. Channel reads, the channel finder, the archiver, and logbook
+       search all work — but every write surface refuses: channel writes,
+       read-write Python execution, all of it, from the single switch.
 
 The posture is a property of the **session**, not a statement about the
 person: which teammates get a write-capable tier is your roster's call, and
@@ -335,17 +345,19 @@ user's terminal and ask both agents to do the same two things:
 **Read.** Ask either agent about a channel — a corrector setpoint, a BPM
 reading. Both sessions answer identically: reads are ungated on both tiers.
 
-**Write.** Ask each agent to change a setpoint. In bob's session the write
-goes to a human approval prompt, then executes. In alice's session the same
-request is **refused**: the write tool is denied in her project's rendered
-permissions, and the refusal states plainly that writes are disabled in her
+**Write.** Ask each agent to change a setpoint. In alice's session the write
+goes to a human approval prompt, then executes. In bob's session the same
+request is **refused**: the write tool is denied in his project's rendered
+permissions, and the refusal states plainly that writes are disabled in his
 configuration.
 
 Both agents carry the *same* tool surface — the readonly tier is not a
 stripped-down agent that never heard of writing. It is the same agent whose
 write path is switched off in its own project, which is exactly what you want
 to demonstrate to a control room: the boundary holds at the enforcement layer,
-not at the menu.
+not at the menu. (The readonly terminal's leaner look — no EVENTS/BLUESKY
+tabs, chat-first layout — is presentation for the viewer tier, not the
+boundary itself: the refusal above fires with or without it.)
 
 Logging out and switching users
 -------------------------------
