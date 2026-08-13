@@ -116,9 +116,16 @@ jobs:
       # timeout is a hard cancel: the runner stops the job outright, and the
       # collection steps below never get a dependable chance to run, so a
       # wedged lane is recorded as `cancelled` with nothing to read. Failing
-      # the STEP instead costs the same wall clock and leaves ~8 minutes for
-      # the summary and upload steps to do their work.
-      timeout-minutes: 22
+      # the STEP instead costs the same wall clock and leaves the summary and
+      # upload steps room to run.
+      #
+      # The margin is sized to what collection actually costs, which is two
+      # seconds — measured, both steps together. It is NOT slack for the test
+      # run: the ubuntu cells legitimately reach ~22min (they carry the whole
+      # suite; macOS finishes in ~12), so a margin generous enough to feel safe
+      # reds a healthy lane, which is exactly what a 22-minute cap did here.
+      # Two minutes is sixty times what the collection needs.
+      timeout-minutes: 28
       env:
         # Switches on tests/ci_diagnostics.py: a continuously flushed event log
         # and stack-dump file per xdist worker, written here and uploaded below.

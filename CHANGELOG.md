@@ -26,8 +26,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   container logs, exit codes and `OOMKilled` flags — plus runner disk and
   memory state — before teardown removes the containers, and uploads them as a
   `ci-diag-<lane>` artifact. The unit-test lane records, per parallel worker
-  and flushed as it goes, which test was in flight, along with stack dumps for
-  anything stuck past five minutes. A lane that is killed rather than failing
+  and flushed as it goes, which test was in flight, alongside a stack snapshot
+  of every thread taken every five minutes — including after the last test, so
+  a hang during shutdown is visible too. A lane that is killed rather than failing
   (job timeout, runner stall) now names the test each worker stopped on in the
   run summary, instead of ending as a silent `cancelled`. Lanes that declare a
   time budget now cap their test step below it, so a hang fails that step and

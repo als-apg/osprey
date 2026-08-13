@@ -14,9 +14,14 @@ complete at every instant rather than at exit:
     ``scripts/ci/diag_summary.py``.
 
 ``stacks-<worker>.txt``
-    Every thread's stack, dumped on a repeating timer once a single test has run
-    longer than the stack timeout, plus a traceback if the interpreter crashes
-    outright.
+    Every thread's stack, sampled on a repeating timer for the whole session,
+    plus a traceback if the interpreter crashes outright. The timer is armed
+    once at session start rather than around each test, so this is a periodic
+    snapshot, not a per-test stuck detector: a healthy long run leaves a handful
+    of dumps, and a wedged one leaves the same frames over and over, which is
+    what "stuck" looks like. Sampling the whole session is deliberate — it keeps
+    dumping after the LAST test has finished, which is where a shutdown hang
+    lives, and a per-test timer would be cancelled by then and show nothing.
 
 Both are gated on ``OSPREY_CI_DIAG_DIR``: unset (every local run) means this
 module installs nothing at all.
@@ -57,13 +62,13 @@ from typing import Any
 #: to. The CI job uploads that directory as an artifact.
 ENV_DIR = "OSPREY_CI_DIAG_DIR"
 
-#: Seconds a single test may run before its stacks are dumped. ``0`` disables
-#: stack dumping while leaving the event log on.
+#: Seconds between whole-process stack snapshots. ``0`` disables stack dumping
+#: while leaving the event log on.
 ENV_STACK_TIMEOUT = "OSPREY_CI_DIAG_STACK_TIMEOUT"
 
-#: Comfortably above the slowest legitimate test — the container-starting files
-#: can sit in a cold image pull for minutes. Dump-only: nothing is ever killed
-#: on this timer, so a slow-but-honest test costs one wasted stack dump.
+#: The sampling interval, not a deadline: nothing is ever killed on this timer.
+#: Five minutes keeps a healthy half-hour lane down to a handful of dumps while
+#: still landing several inside any hang worth investigating.
 DEFAULT_STACK_TIMEOUT = 300.0
 
 
