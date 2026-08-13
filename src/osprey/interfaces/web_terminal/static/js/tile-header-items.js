@@ -4,7 +4,9 @@
  * Creates and patches the DOM for one contributed item. Split out of
  * tile-header-contrib.js, which keeps the message plumbing, the per-panel
  * store and the reconcile pass; this module knows only how a single item of
- * each kind looks and behaves. The item vocabulary itself is documented once,
+ * each kind looks and behaves, plus the shared body-level popover both menu
+ * kinds ride (a contributed ⋯ menu and the overflow ladder's fold target —
+ * see toggleOverflowMenu). The item vocabulary itself is documented once,
  * on the panel side: design_system/static/js/header-contrib.js.
  *
  * Create vs. patch matters more than it looks. A contribution is a whole
@@ -274,21 +276,17 @@ function patchNav(item, nav) {
  * scroll/resize close rather than a reposition loop. */
 
 /**
+ * Open an empty popover anchored to btn and register it as THE open menu
+ * (there is at most one, shared by contributed menus and the bar's own
+ * overflow menu). The caller fills in rows and click handling.
  * @param {HTMLElement} btn
- * @param {Dispatch} dispatch
+ * @returns {HTMLElement} the popover element
  */
-function openMenuFor(btn, dispatch) {
+function openPopover(btn) {
   closeMenu();
   const pop = document.createElement('div');
   pop.className = 'contrib-menu-popover';
   pop.setAttribute('role', 'menu');
-  pop.addEventListener('click', (e) => {
-    const row = e.target instanceof Element ? e.target.closest('.contrib-menu-item') : null;
-    if (!(row instanceof HTMLElement) || !row.dataset.entryId) return;
-    const id = /** @type {HeaderItem} */ (itemState.get(btn))?.id;
-    closeMenu();
-    if (id) dispatch(id, row.dataset.entryId);
-  });
   document.body.appendChild(pop);
 
   const onDocDown = (/** @type {Event} */ e) => {
@@ -316,7 +314,58 @@ function openMenuFor(btn, dispatch) {
     },
   };
   btn.setAttribute('aria-expanded', 'true');
+  return pop;
+}
+
+/**
+ * @param {HTMLElement} btn
+ * @param {Dispatch} dispatch
+ */
+function openMenuFor(btn, dispatch) {
+  const pop = openPopover(btn);
+  pop.addEventListener('click', (e) => {
+    const row = e.target instanceof Element ? e.target.closest('.contrib-menu-item') : null;
+    if (!(row instanceof HTMLElement) || !row.dataset.entryId) return;
+    const id = /** @type {HeaderItem} */ (itemState.get(btn))?.id;
+    closeMenu();
+    if (id) dispatch(id, row.dataset.entryId);
+  });
   renderMenuRows(btn);
+  place(pop, btn);
+}
+
+/**
+ * One row of the bar's overflow menu — a control the overflow ladder folded
+ * out of a narrow bar, carrying its own pick action.
+ * @typedef {object} OverflowRow
+ * @property {string} label
+ * @property {boolean} [checked]
+ * @property {boolean} [disabled]
+ * @property {() => void} pick
+ */
+
+/**
+ * Toggle the bar-owned overflow menu (tile-header-contrib.js's fold target).
+ * One-shot rows: a re-render of the bar rebuilds the fold set, so the open
+ * popover is simply closed by disposeItem/closeMenu rather than re-rendered
+ * the way a contributed menu is.
+ * @param {HTMLElement} btn
+ * @param {OverflowRow[]} rows
+ */
+export function toggleOverflowMenu(btn, rows) {
+  if (openMenu && openMenu.btn === btn) {
+    closeMenu();
+    return;
+  }
+  const pop = openPopover(btn);
+  pop.replaceChildren(...rows.map((row) => {
+    const el = rowElement(row.label, row.checked, row.disabled === true);
+    el.addEventListener('click', () => {
+      closeMenu();
+      row.pick();
+    });
+    return el;
+  }));
   place(pop, btn);
 }
 
@@ -332,30 +381,41 @@ function renderMenuRows(btn) {
   );
   openMenu.pop.replaceChildren(
     ...entries.map((entry) => {
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'contrib-menu-item';
+      const row = rowElement(entry.label, entry.checked, entry.disabled === true);
       row.dataset.entryId = entry.id;
-      row.disabled = entry.disabled === true;
-      // A checkable entry keeps its checkbox role so the state is announced;
-      // a plain action must not claim one.
-      if (entry.checked === undefined) {
-        row.setAttribute('role', 'menuitem');
-      } else {
-        row.setAttribute('role', 'menuitemcheckbox');
-        row.setAttribute('aria-checked', entry.checked ? 'true' : 'false');
-        row.classList.toggle('checked', entry.checked);
-      }
-      const tick = document.createElement('span');
-      tick.className = 'contrib-menu-tick';
-      tick.setAttribute('aria-hidden', 'true');
-      tick.textContent = entry.checked ? '✓' : '';
-      const text = document.createElement('span');
-      text.textContent = entry.label;
-      row.append(tick, text);
       return row;
     })
   );
+}
+
+/**
+ * Build one popover row: tick gutter + label, with the checkbox role only
+ * when the entry is actually checkable — a plain action must not claim one.
+ * @param {string} label
+ * @param {boolean | undefined} checked
+ * @param {boolean} disabled
+ * @returns {HTMLButtonElement}
+ */
+function rowElement(label, checked, disabled) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'contrib-menu-item';
+  row.disabled = disabled;
+  if (checked === undefined) {
+    row.setAttribute('role', 'menuitem');
+  } else {
+    row.setAttribute('role', 'menuitemcheckbox');
+    row.setAttribute('aria-checked', checked ? 'true' : 'false');
+    row.classList.toggle('checked', checked);
+  }
+  const tick = document.createElement('span');
+  tick.className = 'contrib-menu-tick';
+  tick.setAttribute('aria-hidden', 'true');
+  tick.textContent = checked ? '✓' : '';
+  const text = document.createElement('span');
+  text.textContent = label;
+  row.append(tick, text);
+  return row;
 }
 
 /**

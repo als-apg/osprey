@@ -18,6 +18,14 @@ Compatibility is documented in release notes, not encoded in the version string.
   differences from an earlier arrangement. Guidance for moving an existing
   deployment onto the profile format is unchanged.
 
+- Web terminal tile headers were redesigned: the bar now spans its whole tile
+  (close always at the tile's right edge), sits on one seated surface whose
+  hairline turns accent on the active tile, and renders one unified 24px
+  control language with SVG icons. Panel names lead the bar with contributed
+  text as a subtitle; on narrow tiles a contributed search collapses to its
+  magnifier and remaining controls fold into a ⋯ menu instead of vanishing.
+  The six-dot drag grip is gone — the bar itself remains the drag handle.
+
 - The control-assistant preset's two-user roster now ships alice as the
   write-capable operator and bob as the read-only viewer. The tiers differ
   visibly, not just in enforcement: the write-armed terminal keeps the full

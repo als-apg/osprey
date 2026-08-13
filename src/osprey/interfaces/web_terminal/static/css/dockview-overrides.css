@@ -225,7 +225,12 @@
  * push the close control off the bar. Primary on the active tile; the
  * dv-inactive-group rule above dims it. */
 .dock-root .tile-tab-title {
-  flex: 0 1 auto;
+  /* Identity holds its ground: the name does not flex-shrink (a narrowing
+   * tile crowds the contrib region instead, which is what engages the
+   * overflow ladder), but a long runtime label caps at 40% of the bar and
+   * ellipsizes so it can never push the close control off the tile. */
+  flex: 0 0 auto;
+  max-width: 40%;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -273,10 +278,11 @@
 }
 
 /* Subtitle: the loaded-file-name idiom — quiet mono beside the display-type
- * name. */
+ * name. Its floor makes the region overflow (and the ladder fold controls)
+ * before the subtitle is squeezed past a stub. */
 .dock-root .contrib-text {
   flex: 0 1 auto;
-  min-width: 0;
+  min-width: 40px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -438,8 +444,42 @@
   display: none;
 }
 
+/* A control the overflow ladder folded into the bar's ⋯ menu. Folded, not
+ * lost: the menu keeps it reachable (see applyOverflowLadder). */
 .dock-root .contrib-hidden {
   display: none;
+}
+
+/* The bar-owned ⋯ fold target sits at the controls cluster's right edge,
+ * inside the region (order 3 > the controls' order 2). */
+.dock-root .tile-tab-contrib > .contrib-overflow-btn {
+  order: 3;
+}
+
+/* Ladder step 1: the search field down to its magnifier — a 24px ghost
+ * button (click / Enter re-expands it for typing). */
+.dock-root .contrib-search-collapsed {
+  flex: 0 0 auto;
+  width: 24px;
+  min-width: 24px;
+  padding: 0;
+  justify-content: center;
+  background: transparent;
+  border-color: transparent;
+  cursor: pointer;
+}
+
+.dock-root .contrib-search-collapsed:hover {
+  background: var(--bg-elevated);
+  border-color: transparent;
+}
+
+.dock-root .contrib-search-collapsed .contrib-search-input {
+  display: none;
+}
+
+.dock-root .contrib-search-collapsed .contrib-search-icon {
+  color: var(--text-secondary);
 }
 
 /* Menu popover. Body-level and fixed — the contribution region is

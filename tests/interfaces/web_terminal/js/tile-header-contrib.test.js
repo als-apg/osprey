@@ -307,6 +307,183 @@ describe('action round-trip', () => {
   });
 });
 
+describe('overflow ladder', () => {
+  /**
+   * happy-dom does no layout, so crowding is mocked: clientWidth is fixed and
+   * scrollWidth derives from the currently-VISIBLE children at deterministic
+   * per-kind widths. Folding/collapsing therefore changes the measurement,
+   * which is exactly the feedback loop the ladder runs on.
+   * @param {HTMLElement} host
+   * @param {number} clientWidth
+   */
+  function mockCrowding(host, clientWidth) {
+    Object.defineProperty(host, 'clientWidth', { value: clientWidth, configurable: true });
+    Object.defineProperty(host, 'scrollWidth', {
+      configurable: true,
+      get() {
+        let w = 0;
+        for (const el of host.children) {
+          if (el.classList.contains('contrib-hidden')) continue;
+          else if (el.classList.contains('contrib-search-collapsed')) w += 24;
+          else if (el.classList.contains('contrib-search')) w += 92;
+          else if (el.classList.contains('contrib-overflow-btn')) w += 24;
+          else if (el.classList.contains('contrib-text')) w += 40;
+          else w += 80;
+        }
+        return w;
+      },
+    });
+  }
+
+  test('a crowded bar collapses search to its magnifier before folding anything', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+    mockCrowding(host, 150); // search(92) + button(80) = 172 > 150; collapsed: 104 fits
+
+    deliverContribution(
+      [
+        { kind: 'search', id: 'filter', placeholder: 'Filter…' },
+        { kind: 'button', id: 'refresh', label: 'Refresh' },
+      ],
+      contentWindow
+    );
+
+    const search = host.querySelector('.contrib-search');
+    expect(search?.classList.contains('contrib-search-collapsed')).toBe(true);
+    expect(search?.getAttribute('role')).toBe('button');
+    expect(host.querySelector('.contrib-hidden')).toBeNull();
+    expect(host.querySelector('.contrib-overflow-btn')).toBeNull();
+  });
+
+  test('still-crowded controls fold lowest-priority-first into a bar ⋯ menu that round-trips', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    document.body.appendChild(host); // popover positions off a real element
+    registerContribHost(panelId, host);
+    mockCrowding(host, 120); // nav(80) + button(80) = 160 > 120; fold nav: 80+24 fits
+
+    deliverContribution(
+      [
+        {
+          kind: 'nav',
+          id: 'view',
+          priority: 1,
+          items: [
+            { id: 'browse', label: 'Browse', active: true },
+            { id: 'edit', label: 'Edit' },
+          ],
+        },
+        { kind: 'button', id: 'refresh', label: 'Refresh', priority: 5 },
+      ],
+      contentWindow
+    );
+
+    // The lower-priority nav folded; the button stayed; the ⋯ appeared.
+    expect(host.querySelector('.contrib-nav')?.classList.contains('contrib-hidden')).toBe(true);
+    expect(host.querySelector('.contrib-btn')?.classList.contains('contrib-hidden')).toBe(false);
+    const more = /** @type {HTMLElement} */ (host.querySelector('.contrib-overflow-btn'));
+    expect(more).toBeTruthy();
+
+    // Open it: the folded nav appears as one row per view, active = checked.
+    more.dispatchEvent(new Event('click', { bubbles: true }));
+    const rows = [...document.querySelectorAll('.contrib-menu-item')];
+    expect(rows.map((r) => r.textContent)).toEqual(['✓Browse', 'Edit']);
+    expect(rows[0].getAttribute('aria-checked')).toBe('true');
+
+    // A row dispatches exactly what the unfolded control would have.
+    rows[1].dispatchEvent(new Event('click', { bubbles: true }));
+    expect(contentWindow.postMessage).toHaveBeenCalledWith(
+      { type: 'osprey-header-action', id: 'view', value: 'edit' },
+      window.location.origin
+    );
+    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
+  });
+
+  test('subtitle text never folds — controls give way around it', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+    mockCrowding(host, 60); // text(40) + button(80) = 120 > 60
+
+    deliverContribution(
+      [
+        { kind: 'text', id: 'file', text: 'als_ring_v3.lat' },
+        { kind: 'button', id: 'refresh', label: 'Refresh' },
+      ],
+      contentWindow
+    );
+
+    expect(host.querySelector('.contrib-text')?.classList.contains('contrib-hidden')).toBe(false);
+    expect(host.querySelector('.contrib-btn')?.classList.contains('contrib-hidden')).toBe(true);
+    expect(host.querySelector('.contrib-overflow-btn')).toBeTruthy();
+  });
+
+  test('a widened tile gets everything back', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+    mockCrowding(host, 120);
+
+    const items = [
+      { kind: 'search', id: 'filter' },
+      { kind: 'button', id: 'refresh', label: 'Refresh' },
+      { kind: 'button', id: 'export', label: 'Export' },
+    ];
+    deliverContribution(items, contentWindow);
+    expect(host.querySelectorAll('.contrib-hidden').length).toBeGreaterThan(0);
+
+    mockCrowding(host, 1000);
+    deliverContribution(items, contentWindow);
+
+    expect(host.querySelectorAll('.contrib-hidden').length).toBe(0);
+    expect(host.querySelector('.contrib-overflow-btn')).toBeNull();
+    expect(host.querySelector('.contrib-search-collapsed')).toBeNull();
+  });
+
+  test('a collapsed search expands for typing on click and re-collapses on blur', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    document.body.appendChild(host); // focus needs an attached element
+    registerContribHost(panelId, host);
+    mockCrowding(host, 100); // search alone: 92 fits, but with a button it collapses
+
+    deliverContribution(
+      [
+        { kind: 'search', id: 'filter', placeholder: 'Filter…' },
+        { kind: 'button', id: 'refresh', label: 'Refresh' },
+      ],
+      contentWindow
+    );
+    const wrap = /** @type {HTMLElement} */ (host.querySelector('.contrib-search'));
+    expect(wrap.classList.contains('contrib-search-collapsed')).toBe(true);
+
+    wrap.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const input = /** @type {HTMLInputElement} */ (wrap.querySelector('input'));
+    expect(wrap.classList.contains('contrib-search-collapsed')).toBe(false);
+    expect(document.activeElement).toBe(input);
+
+    // While pinned open, a ladder re-run must not collapse it under the caret.
+    deliverContribution(
+      [
+        { kind: 'search', id: 'filter', placeholder: 'Filter…' },
+        { kind: 'button', id: 'refresh', label: 'Refresh' },
+      ],
+      contentWindow
+    );
+    expect(wrap.classList.contains('contrib-search-collapsed')).toBe(false);
+
+    input.blur();
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    expect(wrap.classList.contains('contrib-search-collapsed')).toBe(true);
+  });
+});
+
 describe('host lifecycle', () => {
   test('a rebuilt tab re-renders from the cache; the stale host is dropped', () => {
     const panelId = freshPanelId();
