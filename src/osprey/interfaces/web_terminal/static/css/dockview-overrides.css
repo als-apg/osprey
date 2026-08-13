@@ -30,13 +30,17 @@
 .dock-root.dockview-theme-light,
 .dock-root .dv-shell.dockview-theme-dark,
 .dock-root .dv-shell.dockview-theme-light {
-  /* Surfaces */
+  /* Surfaces. The header bar is ONE seated surface: strip and tab share
+   * --bg-panel so there is no seam where the tab ends (--bg-secondary is
+   * only 3/255 from the body in the dark theme — a distinction that read as
+   * dirt, not structure). The active-tile signal is the bar's hairline and
+   * title color (below), not a background split. */
   --dv-group-view-background-color: var(--bg-primary);
-  --dv-tabs-and-actions-container-background-color: var(--bg-secondary);
-  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-primary);
-  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-secondary);
-  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-secondary);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-secondary);
+  --dv-tabs-and-actions-container-background-color: var(--bg-panel);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-panel);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-panel);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-panel);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-panel);
 
   /* Tab text: the active tab reads primary, everything backgrounded is dimmer. */
   --dv-activegroup-visiblepanel-tab-color: var(--text-primary);
@@ -142,13 +146,20 @@
 /* ---- Tile header bar: the single tab IS the host chrome ----
  * One panel per tile is a workspace invariant (both modes), so a tile's "tab"
  * can never have siblings; dock-tab.js renders it as the tile's header bar.
- * EVERY tile carries the same 36px bar with the same grammar — six-dot drag
- * grip on the left, the tile's identity beside it, close on the right — so
- * grabbing, naming and closing a tile is one gesture learned once:
+ * EVERY tile carries the same 36px bar with the same grammar — the tile's
+ * identity on the left, its actions right-anchored — so naming and closing a
+ * tile is one gesture learned once. There is no drag badge: the whole bar is
+ * the drag handle (cursor: grab below).
  *
- *   SERVICE tiles show grip + the panel's name (.tile-tab-title) + close.
- *   The TERMINAL tile shows grip + the adopted .terminal-header (session LED,
+ *   SERVICE tiles show the panel's name (.tile-tab-title) + contributed
+ *     controls + close.
+ *   The TERMINAL tile shows the adopted .terminal-header (session LED,
  *     session id, selector, "+ New") + close.
+ *
+ * SEATED CHROME: the bar is its own surface (--bg-panel, remapped above)
+ * closed by a hairline. The hairline turns accent on the ACTIVE tile — the
+ * tile receiving keystrokes — and inactive tiles dim their name to
+ * secondary, so focus is legible at a glance without a background split.
  *
  * Fixed height, no hover reveal: the bar never changes size, so tile content
  * never reflows on pointer movement.
@@ -163,6 +174,21 @@
  * specificity, deterministically, in either theme. */
 .dock-root .dv-tabs-and-actions-container {
   height: 36px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+/* The active tile's bar closes with the accent hairline. dv-active-group /
+ * dv-inactive-group are stamped by dockview on the group element (verified
+ * against the vendored 7.0.2 bundle); the container is box-sizing:border-box,
+ * so the hairline never changes the bar's outer height. */
+.dock-root .dv-groupview.dv-active-group > .dv-tabs-and-actions-container {
+  border-bottom-color: var(--color-accent);
+}
+
+/* Inactive tiles dim their identity to secondary; the active tile's name
+ * reads primary (set on .tile-tab-title below). */
+.dock-root .dv-groupview.dv-inactive-group .tile-tab-title {
+  color: var(--text-secondary);
 }
 
 /* The lone tab fills the strip; the void container (dockview's empty-space
@@ -184,37 +210,16 @@
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  padding: 0 6px 0 10px;
+  padding: 0 6px 0 12px;
   width: 100%;
   height: 100%;
   min-width: 0;
   cursor: grab;
 }
 
-/* The drag grip: an upright 2×3 dot grid on every tile — the one mark that
- * means "grab here to move this tile", muted at rest and accent under the
- * pointer, matching the sash/splitter grip treatment above. */
-.dock-root .tile-tab-grip {
-  flex: 0 0 auto;
-  width: 10px;
-  height: 14px;
-  background-image:
-    radial-gradient(circle, var(--text-muted) 1.5px, transparent 1.6px);
-  background-size: 5px 5px;
-  background-position: 0 0;
-  opacity: 0.6;
-  transition: opacity var(--duration-fast) ease;
-}
-
-.dock-root .dv-tab:hover .tile-tab-grip,
-.dock-root .dv-tab:active .tile-tab-grip {
-  background-image:
-    radial-gradient(circle, var(--color-accent) 1.5px, transparent 1.6px);
-  opacity: 1;
-}
-
-/* Service tile name: display type at rail-label weight, ellipsized so a long
- * runtime-panel label can never push the close control off the bar. */
+/* Service tile name: the bar's identity anchor, ellipsized so a long
+ * runtime-panel label can never push the close control off the bar. Primary
+ * on the active tile; the dv-inactive-group rule above dims it. */
 .dock-root .tile-tab-title {
   flex: 0 1 auto;
   min-width: 0;
@@ -224,7 +229,7 @@
   font-family: var(--font-display);
   font-size: var(--text-sm);
   letter-spacing: 0.05em;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 /* ---- Contribution region: the panel-controls slot ----
@@ -472,9 +477,9 @@
  * (disableDnd) and sash resize (api.locked) at runtime, so a service tile's
  * header bar is dead chrome there — it collapses away entirely and the panel
  * gets those pixels back. The terminal's bar stays (`:not(:has(...))` — it
- * carries live session controls, content rather than chrome), but its grip
- * and close are suppressed: moving or closing tiles is not a simple-mode
- * gesture.
+ * carries live session controls, content rather than chrome), but its close
+ * is suppressed: closing tiles is not a simple-mode gesture (drag is already
+ * off via disableDnd).
  * display:none overrides dockview's own visibility toggle on the active tab.
  *
  * A zero-height flex container does not clip its children on its own, and
@@ -486,7 +491,6 @@ html[data-ui-mode="simple"] .dock-root .dv-tabs-and-actions-container:not(:has(.
 }
 
 html[data-ui-mode="simple"] .dv-tab .tile-tab-close,
-html[data-ui-mode="simple"] .dv-tab .tile-tab-grip,
 html[data-ui-mode="simple"] .dv-tab .dv-default-tab-action {
   display: none;
 }

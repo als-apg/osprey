@@ -252,8 +252,9 @@ def _open_page(browser, base_url: str) -> Page:
 # Dock DOM helpers
 # ---------------------------------------------------------------------------
 #
-# Every tile renders the same header bar (dock-tab.js): drag grip, identity,
-# close. A service tile's identity is its visible .tile-tab-title, mirrored
+# Every tile renders the same header bar (dock-tab.js): identity on the left,
+# actions right-anchored (the bar itself is the drag handle — no grip badge).
+# A service tile's identity is its visible .tile-tab-title, mirrored
 # into the bar's aria-label and kept current through onDidTitleChange — the
 # aria-label is the stable handle these tests address tabs by.
 # The terminal tab is the one exception: it renders no aria-label — it adopts
@@ -804,9 +805,10 @@ def test_service_tile_close_button_is_local_vacate(tmp_path, chromium_browser):
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _focus_service_panel(page, "data-viz", "DATA VIZ")
-        # The unified bar: grip + visible title + close (popout stays rail-only).
+        # The unified bar: visible title + close, no grip badge (popout stays
+        # rail-only).
         tab = _service_tab(page, "DATA VIZ")
-        expect(tab.locator(".tile-tab-grip")).to_have_count(1)
+        expect(tab.locator(".tile-tab-grip")).to_have_count(0)
         expect(tab.locator(".tile-tab-title")).to_have_text("DATA VIZ")
         expect(tab.locator(".tile-tab-close")).to_have_count(1)
         expect(tab.locator(".tile-tab-popout")).to_have_count(0)
@@ -1444,13 +1446,13 @@ def test_corrupt_stored_layout_falls_back_to_default(tmp_path, chromium_browser)
 
 
 def test_simple_mode_locks_layout_and_hides_close_controls(tmp_path, chromium_browser):
-    """Simple mode is a locked layout: no per-tab close/grip, and drag is a no-op.
+    """Simple mode is a locked layout: no per-tab close, and drag is a no-op.
 
-    The dock is api.locked with drag disabled and the per-tab close and drag-grip
-    controls (.tile-tab-close, .tile-tab-grip) hidden by the simple-mode CSS; a
-    service tile's strip collapses to nothing at all there, since a grip with
-    drag disabled is dead chrome. A Playwright drag of a tab leaves the
-    arrangement unchanged.
+    The dock is api.locked with drag disabled and the per-tab close control
+    (.tile-tab-close) hidden by the simple-mode CSS; a service tile's strip
+    collapses to nothing at all there, since a bar that can neither drag nor
+    close is dead chrome. A Playwright drag of a tab leaves the arrangement
+    unchanged.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1469,12 +1471,11 @@ def test_simple_mode_locks_layout_and_hides_close_controls(tmp_path, chromium_br
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
         page.wait_for_timeout(1_000)
 
-        # Locked, and no per-tab close or grip control is visible anywhere —
-        # neither on the single service tile the locked simple layout docks
-        # (per applySimpleLayout) nor on the terminal beside it.
+        # Locked, and no per-tab close control is visible anywhere — neither
+        # on the single service tile the locked simple layout docks (per
+        # applySimpleLayout) nor on the terminal beside it.
         assert _dock_locked(page) is True
         expect(page.locator(".dv-tab .tile-tab-close:visible")).to_have_count(0)
-        expect(page.locator(".dv-tab .tile-tab-grip:visible")).to_have_count(0)
         # The service tile's whole strip collapses; the terminal's stays, since
         # its bar is content (session id, "+ New") rather than a drag handle.
         assert _strip_height(page, terminal=False) == 0
@@ -2058,7 +2059,7 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
     """Tile header bars never change height — hover must not reflow content.
 
     Replaces the retired collapse/reveal behavior. Every tile carries the same
-    fixed-height bar (grip + identity + close); hovering one (the old expand
+    fixed-height bar (identity + actions); hovering one (the old expand
     trigger) must leave the height and the content's top edge unmoved.
     """
     workspace = tmp_path / "_agent_data"
@@ -2094,10 +2095,10 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
             == content_top
         ), "tile content shifted on hover"
 
-        # A service tile carries the unified bar: grip + visible title + close
-        # (popout stays a rail-entry affordance).
+        # A service tile carries the unified bar: visible title + close, no
+        # grip badge (popout stays a rail-entry affordance).
         ws = _service_tab(page, "WORKSPACE")
-        expect(ws.locator(".tile-tab-grip")).to_have_count(1)
+        expect(ws.locator(".tile-tab-grip")).to_have_count(0)
         expect(ws.locator(".tile-tab-title")).to_have_text("WORKSPACE")
         expect(ws.locator(".tile-tab-close")).to_have_count(1)
         expect(ws.locator(".tile-tab-popout")).to_have_count(0)
