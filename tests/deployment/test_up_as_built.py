@@ -267,6 +267,64 @@ def test_a_start_exports_no_repo_identity_variable(lifecycle_repo, started):
     assert "OSPREY_REPO_ID" not in started["env"]
 
 
+# ---------------------------------------------------------------------------
+# The host process resolves the same config the containers are handed
+# ---------------------------------------------------------------------------
+
+
+def test_host_side_work_during_a_start_reads_the_render_not_the_working_directory(
+    lifecycle_repo, started, monkeypatch
+):
+    """A start does real work in-process, and it must read ``build/config.yml``.
+
+    Compose hands every service ``CONFIG_FILE`` naming the render, so a container
+    resolves the facility zone correctly. The host process that stages and seeds
+    the archiver store before that compose runs is the one participant in the
+    same contract that used to be left out: it chdirs to the repo ROOT, where the
+    three-zone layout puts only ``profile.yml``, so the global resolver found no
+    ``config.yml`` at all and every synthesis call degraded to UTC.
+
+    Asserted on the resolved zone rather than on the variable, because UTC is
+    what a facility that configures nothing gets anyway: the bug is only visible
+    as a WRONG ANSWER when the render names a real zone.
+    """
+    from osprey.utils.config import get_facility_timezone
+
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(
+        lifecycle_repo, config=_RENDERED_CONFIG + "system:\n  timezone: America/Los_Angeles\n"
+    )
+
+    seen: dict = {}
+
+    def _probe(config, dev_mode, env, build_context=None):
+        seen["tz"] = str(get_facility_timezone())
+
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", _probe)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    assert seen["tz"] == "America/Los_Angeles"
+
+
+def test_a_start_leaves_no_config_anchor_behind_in_the_environment(
+    lifecycle_repo, started, monkeypatch
+):
+    """The anchor is scoped to the start, like the working directory is.
+
+    ``CONFIG_FILE`` is a generic enough name that leaving one deployment's render
+    exported would redirect the next OSPREY process this shell runs — including a
+    verb pointed at a DIFFERENT repo with ``--repo``.
+    """
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+
+    assert run_up(lifecycle_repo, "-d").exit_code == 0
+    assert "CONFIG_FILE" not in os.environ
+
+
 def test_a_missing_build_is_a_refusal_naming_the_build_verb(lifecycle_repo, started, caplog):
     result = run_up(lifecycle_repo, "-d")
 

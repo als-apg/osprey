@@ -17,7 +17,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
-from tests.cli._lifecycle_build import stub_build
+from tests.cli._lifecycle_build import STUB_CONFIG, stub_build
 
 # ``archiver`` is None here for the same reason ``load_config`` returns {}: this
 # project declares no stored archive, so the rewrite has nothing to report.
@@ -62,6 +62,42 @@ def test_apply_now_threads_aware_anchor(deployment):
     assert isinstance(now, datetime)
     assert now.tzinfo is not None, "naive --now must be given the facility timezone"
     assert (now.year, now.month, now.day, now.hour) == (2024, 3, 18, 12)
+
+
+def test_apply_now_is_stamped_with_the_renders_zone_not_utc(lifecycle_repo):
+    """A naive ``--now`` takes the DEPLOYMENT's zone, not whatever resolves.
+
+    ``tzinfo is not None`` cannot catch the failure this guards: an unanchored
+    process falls back to UTC, which is aware, non-``None``, and wrong. Only a
+    repo whose render names a real zone tells the two apart — which is also why
+    the bug survived so long in the deploy path, where the fallback and the
+    configured default happened to agree.
+
+    ``sim`` runs entirely on the host, so nothing injects ``CONFIG_FILE`` for it
+    and its working directory is the repo root, which holds no ``config.yml``.
+    The zone therefore has to come from the render this verb resolved.
+    """
+    stub_build(
+        lifecycle_repo,
+        config=STUB_CONFIG + "system:\n  timezone: America/Los_Angeles\n",
+    )
+
+    with patch("osprey.simulation.apply.apply_scenarios", return_value=_FAKE_RESULT) as apply_mock:
+        result = CliRunner().invoke(
+            sim_group,
+            [
+                "apply",
+                "nominal",
+                "--yes",
+                "--now",
+                "2024-03-18T12:00:00",
+                "--repo",
+                str(lifecycle_repo),
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert str(apply_mock.call_args.kwargs["now"].tzinfo) == "America/Los_Angeles"
 
 
 def test_apply_now_from_env(deployment):

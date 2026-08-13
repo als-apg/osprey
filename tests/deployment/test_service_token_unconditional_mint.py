@@ -217,8 +217,15 @@ def test_mint_logs_no_withholding_warning_under_the_formerly_guarded_posture(
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
     # caplog's handler already calls record.getMessage(), so r.message is the
-    # final rendered string.
-    warnings = " ".join(r.message for r in caplog.records if r.levelno >= logging.WARNING).lower()
+    # final rendered string. Scoped to the logger this test opened, because the
+    # claim is about what the MINT says: an unscoped sweep also reads warnings
+    # that echo a filesystem path, and pytest names ``tmp_path`` after the test
+    # — so this test's own name would match its own assertion.
+    warnings = " ".join(
+        r.message
+        for r in caplog.records
+        if r.levelno >= logging.WARNING and r.name == "deployment.lifecycle"
+    ).lower()
     assert "withheld" not in warnings
     assert "withholding" not in warnings
     assert "bluesky_launch_token" not in warnings

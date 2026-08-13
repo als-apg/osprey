@@ -22,6 +22,7 @@ import copy
 import logging
 import os
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 
@@ -38,7 +39,7 @@ from osprey.utils.workspace import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterator, Mapping
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -835,6 +836,58 @@ def get_config_builder(
     return _get_config(config_path, set_as_default)
 
 
+@contextmanager
+def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
+    """Answer this process's unqualified config lookups from *config_path*.
+
+    Every :func:`get_config_value` and :func:`get_facility_timezone` call that
+    names no config resolves the default singleton, which knows exactly two
+    places to look: ``CONFIG_FILE``, and ``config.yml`` in the working
+    directory. Compose satisfies that contract for every container by injecting
+    ``CONFIG_FILE``. On the host there is nobody to inject it, and a deployment
+    repo keeps its render one zone down in ``build/`` while its verbs stand at
+    the repo root — so a host verb doing in-process work satisfies neither
+    branch, and every lookup it makes degrades to a default. Silently: a
+    degraded answer (UTC, an empty dict) is indistinguishable from a configured
+    one at the call site, which is how a whole archive can be synthesized
+    against the wrong clock without anything failing.
+
+    This is the host's half of that contract, and it is deliberately in-process
+    rather than an exported ``CONFIG_FILE``. The attached start path
+    ``os.execvpe``-replaces itself with the container runtime, and an exported
+    variable would ride into that process's interpolation environment; the
+    anchor has no business outliving the verb that set it.
+
+    Scoped for the same reason — the previous default is restored on exit, so a
+    verb pointed at one deployment with ``--repo`` cannot leave the next lookup
+    in this process answering for it.
+
+    Never raises. A config that will not load leaves the previous default in
+    place and warns: this makes lookups honest, and an anchor that aborted its
+    caller would turn a degraded lookup into a failed deploy.
+
+    Args:
+        config_path: The rendered config this process is acting on — normally
+            ``<repo>/build/config.yml`` (see
+            :func:`osprey.utils.workspace.rendered_config_path`).
+    """
+    global _default_config, _default_configurable
+
+    previous = (_default_config, _default_configurable)
+    try:
+        try:
+            _get_config(str(config_path), set_as_default=True)
+        except Exception as exc:  # noqa: BLE001 - an unusable anchor must not fail the caller
+            logger.warning(
+                f"Could not anchor configuration at {config_path} "
+                f"({type(exc).__name__}: {exc}). Values this process reads without an "
+                "explicit path will fall back to their defaults."
+            )
+        yield
+    finally:
+        _default_config, _default_configurable = previous
+
+
 def load_config(config_path: str | None = None) -> dict[str, Any]:
     """Load raw configuration dictionary from YAML file.
 
@@ -989,6 +1042,7 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
 
 
 _tz_drift_warned = False
+_tz_fallback_warned = False
 
 
 def get_facility_timezone() -> "ZoneInfo":
@@ -999,16 +1053,28 @@ def get_facility_timezone() -> "ZoneInfo":
     ``config.yml`` and no ``CONFIG_FILE``) or a misconfigured/typo'd zone name
     degrades to UTC with a logged warning rather than propagating to callers.
 
+    The fallback warns **once per process**, not once per call. Synthesis calls
+    this per channel per chunk — thousands of times to seed one archive — and a
+    failed load is never cached (only a successful one is), so the fallback is
+    re-taken on every one of them. Repeating the multi-line "no config.yml
+    found" remedy that often buries every other line of the deploy and makes a
+    seed that is working normally read as a hung terminal. Once is deliberate
+    rather than none: a process resolving the wrong config still has to be
+    diagnosable from its own log.
+
     Returns:
         ZoneInfo for the configured facility timezone, defaulting to UTC.
     """
+    global _tz_fallback_warned
     from zoneinfo import ZoneInfo
 
     try:
         tz_name = get_config_value("facility_timezone", "UTC")
         zone = ZoneInfo(tz_name)
     except Exception as exc:  # noqa: BLE001 - any failure must degrade to UTC, not raise
-        logger.warning(f"Falling back to UTC facility timezone ({type(exc).__name__}: {exc})")
+        if not _tz_fallback_warned:
+            _tz_fallback_warned = True
+            logger.warning(f"Falling back to UTC facility timezone ({type(exc).__name__}: {exc})")
         return ZoneInfo("UTC")
 
     _warn_on_tz_drift(tz_name)

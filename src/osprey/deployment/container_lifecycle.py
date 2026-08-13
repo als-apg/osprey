@@ -56,7 +56,7 @@ from osprey.deployment.web_terminals.provision import (
     preflight_web_terminals,
 )
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
-from osprey.utils.config import load_project_config
+from osprey.utils.config import config_anchored_at, load_project_config
 from osprey.utils.dotenv import (
     compose_unsafe_vars,
     parse_dotenv_file,
@@ -2062,23 +2062,28 @@ def deploy_up(
     # no error anywhere. Never blocks (see warn_if_project_stale).
     warn_if_project_stale(project_dir)
 
-    _start_stack(
-        config,
-        compose_files,
-        repo_root,
-        detached=detached,
-        dev_mode=dev_mode,
-        expose_network=expose_network,
-        # ANCHORED, deliberately: the provisioners this reaches mint REAL
-        # SECRETS, and `_start_stack`'s default leaves them writing a
-        # cwd-relative `.env`. The repo root is resolved four lines up and every
-        # compose invocation below reads `<repo>/.env` with --env-file, so an
-        # unanchored mint writes tokens the stack never reads — a deploy that
-        # comes up with its fail-closed tokens unset, which looks secure and
-        # says nothing.
-        env_path=repo_root / COMPOSE_ENV_FILENAME,
-        keep_archiver_base=keep_archiver_base,
-    )
+    # Anchored on the config this verb was HANDED, not on a derived
+    # `<repo>/build/config.yml`: a legacy flat project's own directory is its
+    # render, so deriving the path would name a file that does not exist there.
+    # Same contract as the as-built path — see `_start_as_built`.
+    with config_anchored_at(config_path):
+        _start_stack(
+            config,
+            compose_files,
+            repo_root,
+            detached=detached,
+            dev_mode=dev_mode,
+            expose_network=expose_network,
+            # ANCHORED, deliberately: the provisioners this reaches mint REAL
+            # SECRETS, and `_start_stack`'s default leaves them writing a
+            # cwd-relative `.env`. The repo root is resolved four lines up and
+            # every compose invocation below reads `<repo>/.env` with
+            # --env-file, so an unanchored mint writes tokens the stack never
+            # reads — a deploy that comes up with its fail-closed tokens unset,
+            # which looks secure and says nothing.
+            env_path=repo_root / COMPOSE_ENV_FILENAME,
+            keep_archiver_base=keep_archiver_base,
+        )
 
 
 def _start_stack(
@@ -2667,23 +2672,33 @@ def _start_as_built(
     makes it repo-specific rather than generic is the two arguments it pins on
     :func:`_start_stack`: the repo's single ``.env``, and the build directory as
     the image build context.
+
+    The whole start runs with this repo's render anchored as the process config.
+    A start is not only a sequence of ``compose`` invocations — it synthesizes
+    and seeds an archive in THIS process, and that work reads the config through
+    unqualified lookups. Compose hands every container ``CONFIG_FILE``; without
+    the anchor the host is the one participant in that contract left resolving
+    against a working directory that holds no ``config.yml`` at all, and its
+    lookups degrade to defaults without failing. See
+    :func:`~osprey.utils.config.config_anchored_at`.
     """
-    _start_stack(
-        config,
-        compose_files,
-        repo_root,
-        detached=detached,
-        dev_mode=dev_mode,
-        expose_network=exposed,
-        # Explicit, never the cwd-relative default: the token mint writes real
-        # secrets, and every compose invocation on this path reads
-        # `<repo>/.env` with --env-file. A mint that landed anywhere else would
-        # leave the stack starting with its fail-closed tokens unset — secure
-        # looking, and silent.
-        env_path=repo_root / COMPOSE_ENV_FILENAME,
-        build_context=container_image_context(repo_root, resolve_project_name(config)),
-        keep_archiver_base=keep_archiver_base,
-    )
+    with config_anchored_at(as_built_config_path(repo_root)):
+        _start_stack(
+            config,
+            compose_files,
+            repo_root,
+            detached=detached,
+            dev_mode=dev_mode,
+            expose_network=exposed,
+            # Explicit, never the cwd-relative default: the token mint writes
+            # real secrets, and every compose invocation on this path reads
+            # `<repo>/.env` with --env-file. A mint that landed anywhere else
+            # would leave the stack starting with its fail-closed tokens unset —
+            # secure looking, and silent.
+            env_path=repo_root / COMPOSE_ENV_FILENAME,
+            build_context=container_image_context(repo_root, resolve_project_name(config)),
+            keep_archiver_base=keep_archiver_base,
+        )
 
 
 def _repo_label_filter(repo_root: Path) -> str:

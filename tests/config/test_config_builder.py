@@ -363,6 +363,35 @@ class TestGetFacilityTimezone:
 
         assert get_facility_timezone() == ZoneInfo("America/Los_Angeles")
 
+    def test_an_unresolvable_config_is_reported_once_not_once_per_call(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """The fallback must say its piece once, then stop.
+
+        This resolver is called once per channel per chunk by the archiver
+        seeder — thousands of times on a first deploy — and a failed load is
+        never cached, so the fallback is re-taken every time. Unguarded, the
+        eight-line "no config.yml found" remedy is re-rendered for each call and
+        a seed that is working normally reads as a hung terminal.
+
+        Once is not zero: a deploy resolving the wrong config still has to be
+        diagnosable from its own log.
+        """
+        import logging
+
+        from osprey.utils.config import get_facility_timezone
+
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.chdir(tmp_path)  # empty dir, no config.yml
+        self._reset_config_singleton()
+
+        with caplog.at_level(logging.WARNING, logger="CONFIG"):
+            for _ in range(5):
+                get_facility_timezone()
+
+        fallback = [r for r in caplog.records if "Falling back to UTC" in r.message]
+        assert len(fallback) == 1, f"expected one fallback warning, got {len(fallback)}"
+
 
 class TestToFacilityIso:
     """``to_facility_iso`` is the single shared timestamp-egress transform for the
