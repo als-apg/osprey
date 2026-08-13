@@ -166,9 +166,15 @@
 }
 
 /* The lone tab fills the strip; the void container (dockview's empty-space
- * group drag surface) collapses to zero — the bar itself is the handle. */
+ * group drag surface) collapses to zero — the bar itself is the handle.
+ * singleTabMode:'fullwidth' (dock-workspace.js) does the stretching; the
+ * min-width:0 here is what makes the shrink side real — a flex item's
+ * default min-width:auto floors it at content width, which would silently
+ * disable both `flex-shrink` and the whole priority-hide/ellipsis path on
+ * narrow tiles. */
 .dock-root .dv-tab {
   flex: 1 1 auto;
+  min-width: 0;
   max-width: none;
   padding: 0;
 }
