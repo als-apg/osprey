@@ -239,6 +239,11 @@ def _build_project(output_dir: Path) -> Path:
     repo on disk built by the same console script an operator would run.
     Returns the deployment REPO root; the render it starts from is
     ``<repo>/build``.
+
+    ``--dev`` is a property of the RENDER, not of the start: the deploy below
+    runs ``up --dev`` so the recorder under test is this checkout, and ``up``
+    never re-renders — a pinned render would be refused there rather than
+    quietly deploying the published release.
     """
     from tests.e2e import _orm_stack
 
@@ -265,7 +270,15 @@ def _build_project(output_dir: Path) -> Path:
         ),
         (
             "osprey build",
-            [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+            [
+                str(osprey_bin),
+                "build",
+                "--repo",
+                str(repo),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--dev",
+            ],
         ),
     ):
         result = subprocess.run(

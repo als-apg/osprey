@@ -11,13 +11,15 @@ pre-unification behaviour) would silently drop both, and no mock can falsify
 that: only a live container dispatch proves the overlay artifacts and data files
 reached the agent.
 
-The test mutates a freshly rendered control-assistant ``build/`` *before* deploy
-so it carries three things that a hollow/degraded worker could not satisfy:
+The test mutates a freshly initialized control-assistant repo's SOURCE zone
+*before* ``osprey build``, so the render carries three things that a
+hollow/degraded worker could not satisfy:
 
-  * an OVERLAY SKILL (``build/.claude/skills/facility-marker``) that is NOT an
-    OSPREY built-in, whose instructions produce an observable marker token;
-  * the render's ``build/data/channel_limits.json`` overwritten with a small
-    fixture carrying a distinctive sentinel value;
+  * an OVERLAY SKILL (``skills/facility-marker`` -> rendered to
+    ``build/.claude/skills/facility-marker``) that is NOT an OSPREY built-in,
+    whose instructions produce an observable marker token;
+  * ``data/channel_limits.json`` overwritten with a small fixture carrying a
+    distinctive sentinel value, which the render copies to ``build/data/``;
   * a custom ``overlay-visibility`` trigger that routes to the worker, invokes
     the overlay skill, and carries a ``surface_prompt`` fragment.
 
@@ -232,26 +234,36 @@ def _remove_worker_workspace_volume() -> None:
     )
 
 
-def _mutate_render(render: Path) -> None:
+def _mutate_source(repo: Path) -> None:
     """Inject the overlay skill, known data fixture, and custom trigger.
 
-    Applied to the repo's ``build/`` — the render, which is what the deploy runs
-    — *after* ``osprey build`` (every build wipes and re-renders that zone) and
-    *before* ``osprey up`` (whose worker image bakes the whole repo in via
-    ``COPY .``). None of the three are OSPREY built-ins, so a config-only /
-    hollow worker could not satisfy the resulting assertions.
+    Applied to the repo's SOURCE zone — the tracked material an operator edits —
+    *between* ``osprey init`` and ``osprey build``, because the build is what
+    renders every one of the three into the places the deploy reads them:
+
+      * ``skills/<name>/`` -> ``build/.claude/skills/<name>/`` (convention dir);
+      * ``data/`` -> ``build/data/``;
+      * ``triggers.yml`` (named by the profile's ``dispatch.triggers``) ->
+        ``build/triggers.yml`` AND the copy under
+        ``build/services/event_dispatcher/`` that the dispatcher container
+        bind-mounts. Writing the trigger into the render post-build would leave
+        that second copy — the only one the dispatcher reads — un-mutated, and
+        the webhook would 404.
+
+    None of the three are OSPREY built-ins, so a config-only / hollow worker
+    could not satisfy the resulting assertions.
     """
-    skill_path = render / ".claude" / "skills" / "facility-marker" / "SKILL.md"
+    skill_path = repo / "skills" / "facility-marker" / "SKILL.md"
     skill_path.parent.mkdir(parents=True, exist_ok=True)
     skill_path.write_text(_OVERLAY_SKILL_MD, encoding="utf-8")
 
-    data_path = render / "data" / "channel_limits.json"
+    data_path = repo / "data" / "channel_limits.json"
     data_path.parent.mkdir(parents=True, exist_ok=True)
     data_path.write_text(json.dumps(_DATA_FIXTURE, indent=2), encoding="utf-8")
 
-    # Append the custom trigger to the rendered triggers file, preserving its
+    # Append the custom trigger to the source triggers file, preserving its
     # dispatcher block (which carries the dispatch-worker-1:9190 routing).
-    triggers_path = render / "triggers.yml"
+    triggers_path = repo / "triggers.yml"
     doc = yaml.safe_load(triggers_path.read_text(encoding="utf-8")) or {}
     doc.setdefault("triggers", []).append(_OVERLAY_TRIGGER_ENTRY)
     triggers_path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
@@ -259,11 +271,11 @@ def _mutate_render(render: Path) -> None:
 
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Init + build + mutate + ``osprey up`` a control-assistant stack.
+    """Init + mutate + build + ``osprey up`` a control-assistant stack.
 
-    The mutation (overlay skill + data fixture + custom trigger) is applied
-    between ``osprey build`` and ``osprey up`` so the freshly built worker image
-    bakes it in.
+    The mutation (overlay skill + data fixture + custom trigger) is applied to
+    the source zone between ``osprey init`` and ``osprey build``, so the build
+    renders all three and the freshly built worker image bakes them in.
     """
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
@@ -310,6 +322,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
         )
 
+    # Inject the overlay skill, known data fixture, and custom trigger into the
+    # source zone so the build renders them into build/ (worker image and
+    # dispatcher mount alike).
+    _mutate_source(repo)
+
     build = _run(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
@@ -320,10 +337,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
-
-    # Inject the overlay skill, known data fixture, and custom trigger into the
-    # render so the worker image bakes them in.
-    _mutate_render(repo / "build")
 
     # The repo root's .env is the deployment's whole secret store — the file the
     # worker's env_file (compose template) delivers to the container so
