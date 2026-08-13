@@ -103,6 +103,21 @@ def _no_ambient_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(key, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _shell_is_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer the PTY shell lookup without requiring the agent CLI on the host.
+
+    ``osprey web`` resolves ``web_terminal.shell`` to an absolute path before it
+    launches, so a machine without the agent CLI installed fails the launch —
+    which is correct behaviour, checked in ``test_web_cmd.py``, and nothing to do
+    with which deployment was discovered. Left unpatched these tests pass on a
+    developer's machine and fail everywhere the CLI is absent.
+    """
+    monkeypatch.setattr(
+        "osprey.utils.shell_resolver.resolve_shell_command", lambda command: f"/abs/{command}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # osprey web — the launch
 # ---------------------------------------------------------------------------

@@ -567,7 +567,7 @@ def logs_argv(repo: Path, **kwargs) -> list[str]:
     return cmd
 
 
-def test_logs_is_built_through_the_pinned_compose_contract(lifecycle_repo):
+def test_logs_is_built_through_the_pinned_compose_contract(lifecycle_repo, runtime):
     """One base for every invocation: project directory, repo-anchored -f, env file."""
     render_build(lifecycle_repo)
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
@@ -582,14 +582,14 @@ def test_logs_is_built_through_the_pinned_compose_contract(lifecycle_repo):
     assert argv[-1] == "logs"
 
 
-def test_follow_is_passed_through(lifecycle_repo):
+def test_follow_is_passed_through(lifecycle_repo, runtime):
     render_build(lifecycle_repo)
 
     assert "--follow" in logs_argv(lifecycle_repo, follow=True)
     assert "--follow" not in logs_argv(lifecycle_repo)
 
 
-def test_tail_is_passed_through_and_otherwise_left_to_the_runtime(lifecycle_repo):
+def test_tail_is_passed_through_and_otherwise_left_to_the_runtime(lifecycle_repo, runtime):
     """No invented default: an unset ``--tail`` means compose's own behaviour."""
     render_build(lifecycle_repo)
 
@@ -599,7 +599,7 @@ def test_tail_is_passed_through_and_otherwise_left_to_the_runtime(lifecycle_repo
     assert "--tail" not in logs_argv(lifecycle_repo)
 
 
-def test_a_named_service_is_the_last_argument(lifecycle_repo):
+def test_a_named_service_is_the_last_argument(lifecycle_repo, runtime):
     render_build(lifecycle_repo)
 
     argv = logs_argv(lifecycle_repo, service="event-dispatcher", follow=True)
@@ -607,7 +607,7 @@ def test_a_named_service_is_the_last_argument(lifecycle_repo):
     assert argv[-1] == "event-dispatcher"
 
 
-def test_the_web_stack_is_carried_when_the_deployment_has_one(lifecycle_repo):
+def test_the_web_stack_is_carried_when_the_deployment_has_one(lifecycle_repo, runtime):
     """Two compose invocations start the deployment; one reads its logs.
 
     They are a single compose project, so a ``logs`` that carried only the
@@ -623,7 +623,7 @@ def test_the_web_stack_is_carried_when_the_deployment_has_one(lifecycle_repo):
     assert str(web_compose_file(lifecycle_repo)) in logs_argv(lifecycle_repo)
 
 
-def test_logs_does_not_warn_about_services_starting(lifecycle_repo, caplog):
+def test_logs_does_not_warn_about_services_starting(lifecycle_repo, runtime, caplog):
     """The shared ``--env-file`` resolver warns about a missing ``.env`` in terms
     of what the stack will come up with. Nothing comes up here.
 
@@ -639,7 +639,7 @@ def test_logs_does_not_warn_about_services_starting(lifecycle_repo, caplog):
     assert "will start" not in caplog.text
 
 
-def test_logs_pins_the_compose_project_name(lifecycle_repo):
+def test_logs_pins_the_compose_project_name(lifecycle_repo, runtime):
     """Left unset, compose derives a project from the directory and finds nothing —
     which prints an empty log and looks like a deployment that logs nothing."""
     render_build(lifecycle_repo)
@@ -656,7 +656,7 @@ def test_logs_without_a_build_refuses_and_names_the_remedy(lifecycle_repo):
     assert "osprey build" in str(excinfo.value)
 
 
-def test_logs_renders_nothing(lifecycle_repo, monkeypatch):
+def test_logs_renders_nothing(lifecycle_repo, runtime, monkeypatch):
     """A read verb that re-rendered would answer about a stack that was never started."""
     from osprey.deployment import container_lifecycle
 
