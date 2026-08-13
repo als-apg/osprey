@@ -19,14 +19,10 @@
  * All text reaches the DOM via textContent. Nothing here interpolates markup.
  */
 
+import { svgIcon } from './svg-icons.js';
+
 /** Debounce before a search item reports its text back to the panel. */
 const SEARCH_DEBOUNCE_MS = 200;
-
-/** ⋯ — the overflow-menu glyph. */
-const MENU_GLYPH = '⋯';
-
-/** 🔍 — the same magnifier the hub's own command-palette trigger uses. */
-const SEARCH_GLYPH = '\u{1F50D}';
 
 /**
  * @typedef {import('/design-system/js/header-contrib.js').HeaderItem} HeaderItem
@@ -158,7 +154,7 @@ function buildSearch(item, dispatch) {
   const icon = document.createElement('span');
   icon.className = 'contrib-search-icon';
   icon.setAttribute('aria-hidden', 'true');
-  icon.textContent = SEARCH_GLYPH;
+  icon.appendChild(svgIcon('search'));
 
   const input = document.createElement('input');
   input.type = 'search';
@@ -204,7 +200,7 @@ function buildMenu(item, dispatch) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'contrib-menu-btn';
-  btn.textContent = MENU_GLYPH;
+  btn.appendChild(svgIcon('ellipsis'));
   btn.setAttribute('aria-haspopup', 'menu');
   btn.setAttribute('aria-expanded', 'false');
   const label = item.label || 'More options';

@@ -26,6 +26,7 @@ import { TERMINAL_RAIL_ID } from './panel-catalog.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
 import { withEchoSuppressed } from './dock-sync.js';
+import { svgIcon } from './svg-icons.js';
 
 /** defaultTabComponent name registered on the dockview instance. */
 export const OSPREY_TAB_COMPONENT = 'osprey-tile-tab';
@@ -159,7 +160,7 @@ class TileTab {
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'tile-tab-close';
-    close.textContent = '×';
+    close.appendChild(svgIcon('close'));
     close.title = 'Close tile';
     close.setAttribute('aria-label', 'Close tile');
     close.addEventListener('click', (e) => {

@@ -186,8 +186,10 @@
 }
 
 /* Inactive tiles dim their identity to secondary; the active tile's name
- * reads primary (set on .tile-tab-title below). */
-.dock-root .dv-groupview.dv-inactive-group .tile-tab-title {
+ * reads primary (set on .tile-tab-title below). The terminal's session label
+ * is the same identity element (see terminal.css), so it dims the same way. */
+.dock-root .dv-groupview.dv-inactive-group .tile-tab-title,
+.dock-root .dv-groupview.dv-inactive-group .tile-tab .terminal-label {
   color: var(--text-secondary);
 }
 
@@ -217,9 +219,11 @@
   cursor: grab;
 }
 
-/* Service tile name: the bar's identity anchor, ellipsized so a long
- * runtime-panel label can never push the close control off the bar. Primary
- * on the active tile; the dv-inactive-group rule above dims it. */
+/* Service tile name: the bar's identity anchor — display type at medium
+ * weight so it outranks the controls beside it (it was 10px/400, dimmer than
+ * the buttons it labels) — ellipsized so a long runtime-panel label can never
+ * push the close control off the bar. Primary on the active tile; the
+ * dv-inactive-group rule above dims it. */
 .dock-root .tile-tab-title {
   flex: 0 1 auto;
   min-width: 0;
@@ -227,17 +231,22 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   font-family: var(--font-display);
-  font-size: var(--text-sm);
-  letter-spacing: 0.05em;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
   color: var(--text-primary);
 }
 
-/* ---- Contribution region: the panel-controls slot ----
+/* ---- Contribution region: subtitle + the panel-controls slot ----
  * Rendered by tile-header-contrib.js from an embedded panel's
- * `osprey-header-contribution`. Sits between the tile name and the close
- * button, separated by a hairline when non-empty. min-width:0 + hidden
- * overflow let text items ellipsize before whole items are priority-hidden
- * (.contrib-hidden). */
+ * `osprey-header-contribution`. Fills the bar between the tile name and the
+ * close button, with no divider fence: inert `text` items are the tile's
+ * SUBTITLE and read left, beside the name (they are identity, not a
+ * control), while every interactive control right-anchors toward the
+ * actions. The split is pure CSS `order` around a flexible ::before spacer,
+ * so the reconcile in tile-header-contrib.js keeps one flat child list.
+ * min-width:0 + hidden overflow let text ellipsize before the overflow
+ * ladder folds whole controls (.contrib-hidden). */
 .dock-root .tile-tab-contrib {
   display: flex;
   align-items: center;
@@ -248,11 +257,23 @@
   overflow: hidden;
 }
 
-.dock-root .tile-tab-contrib.has-items {
-  border-left: 1px solid var(--border-default);
-  padding-left: 10px;
+.dock-root .tile-tab-contrib::before {
+  content: "";
+  flex: 1 1 0;
+  order: 1;
+  min-width: 0;
 }
 
+.dock-root .tile-tab-contrib > * {
+  order: 2;
+}
+
+.dock-root .tile-tab-contrib > .contrib-text {
+  order: 0;
+}
+
+/* Subtitle: the loaded-file-name idiom — quiet mono beside the display-type
+ * name. */
 .dock-root .contrib-text {
   flex: 0 1 auto;
   min-width: 0;
@@ -264,41 +285,56 @@
   color: var(--text-muted);
 }
 
-.dock-root .contrib-nav {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
-}
-
+/* ---- One control language ----
+ * Every interactive element the bar renders — contributed buttons, nav
+ * segments, the ⋯ menu, the tile's own close — is the same 24px ghost
+ * control: transparent at rest, elevated fill under the pointer, one
+ * radius, one type style. Icons are inline SVG on currentColor
+ * (svg-icons.js), so they take each control's own state color. */
+.dock-root .tile-tab-actions button,
+.dock-root .contrib-btn,
 .dock-root .contrib-nav-link,
-.dock-root .contrib-btn {
+.dock-root .contrib-menu-btn {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: 24px;
+  padding: 0 var(--space-2);
   border: none;
   background: transparent;
   font-family: var(--font-display);
   font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   line-height: var(--leading-none);
   color: var(--text-secondary);
-  padding: 4px 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 
+.dock-root .tile-tab-actions button:hover,
+.dock-root .contrib-btn:hover:not(:disabled),
 .dock-root .contrib-nav-link:hover,
-.dock-root .contrib-btn:hover:not(:disabled) {
+.dock-root .contrib-menu-btn:hover,
+.dock-root .contrib-menu-btn[aria-expanded='true'] {
   color: var(--text-primary);
   background: var(--bg-elevated);
 }
 
-.dock-root .contrib-nav-link.active {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
+/* Icon-only controls square off. */
+.dock-root .tile-tab-actions button,
+.dock-root .contrib-menu-btn {
+  width: 24px;
+  padding: 0;
 }
 
-.dock-root .contrib-btn {
-  border: 1px solid var(--border-default);
+.dock-root .bar-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .dock-root .contrib-btn:disabled {
@@ -308,14 +344,44 @@
 
 .dock-root .contrib-btn-accent {
   color: var(--color-accent);
-  border-color: var(--border-accent);
+}
+
+.dock-root .contrib-btn-accent:hover:not(:disabled) {
+  color: var(--color-accent);
+  background: var(--accent-tint-08);
+}
+
+/* Nav renders as a segmented control: one bordered track, the active view a
+ * filled segment — a view switcher should read as one control with N
+ * positions, not N sibling buttons. */
+.dock-root .contrib-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 2px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  flex: 0 0 auto;
+}
+
+.dock-root .contrib-nav-link {
+  height: 18px;
+  border-radius: var(--radius-xs);
+}
+
+.dock-root .contrib-nav-link.active {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
 }
 
 /* Search pill. Deliberately the same grammar as `.command-palette-trigger`
- * in palette.css — magnifier, muted placeholder, bordered panel field — so a
- * panel's filter and the hub's own search read as one affordance. Sized to
+ * in palette.css — magnifier, muted placeholder, bordered field — so a
+ * panel's filter and the hub's own search read as one affordance. Recessed
+ * to --bg-primary now that the bar itself sits on --bg-panel. Sized to
  * the 36px bar rather than the 28px header, and allowed to shrink to an
- * icon-plus-stub before the priority pass considers hiding it outright. */
+ * icon-plus-stub before the overflow ladder collapses it further. */
 .dock-root .contrib-search {
   display: inline-flex;
   align-items: center;
@@ -324,9 +390,9 @@
   min-width: 92px;
   height: 24px;
   padding: 0 var(--space-2);
-  background: var(--bg-panel);
+  background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
 
@@ -337,10 +403,15 @@
 }
 
 .dock-root .contrib-search-icon {
-  font-size: var(--text-sm);
-  line-height: var(--leading-none);
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
-  opacity: 0.8;
+  color: var(--text-muted);
+}
+
+.dock-root .contrib-search-icon .bar-icon {
+  width: 12px;
+  height: 12px;
 }
 
 .dock-root .contrib-search-input {
@@ -365,26 +436,6 @@
  * key is the panel-agnostic one and the bar has no room for both. */
 .dock-root .contrib-search-input::-webkit-search-cancel-button {
   display: none;
-}
-
-/* ⋯ overflow trigger. Quiet until hovered, like the tile's own actions. */
-.dock-root .contrib-menu-btn {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--text-lg);
-  line-height: var(--leading-none);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  flex: 0 0 auto;
-}
-
-.dock-root .contrib-menu-btn:hover,
-.dock-root .contrib-menu-btn[aria-expanded='true'] {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
 }
 
 .dock-root .contrib-hidden {
@@ -449,28 +500,13 @@
   color: var(--color-accent);
 }
 
+/* Actions cluster: right-anchored; its buttons take the unified ghost
+ * language above. */
 .dock-root .tile-tab-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: 2px;
-}
-
-.dock-root .tile-tab-actions button {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--text-xl);
-  line-height: var(--leading-none);
-  padding: 4px 6px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.dock-root .tile-tab-actions button:hover {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
 }
 
 /* Simple mode is a locked layout. dock-workspace.js disables drag/float
