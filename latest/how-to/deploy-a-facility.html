@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -496,11 +496,11 @@ facility writes itself.</p>
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p class="sd-card-text">Creating a facility repository with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code></p></li>
+<li><p class="sd-card-text">Creating a deployment repository with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code></p></li>
 <li><p class="sd-card-text">Editing the profile down to the services your facility actually runs</p></li>
 <li><p class="sd-card-text">Adding a container the facility owns, with its own image-build job</p></li>
-<li><p class="sd-card-text">Emitting the CI pipeline and the health check with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">scaffold</span></code></p></li>
-<li><p class="sd-card-text">Building the project and bringing the stack up</p></li>
+<li><p class="sd-card-text">Emitting the CI pipeline and the health check with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code></p></li>
+<li><p class="sd-card-text">Rendering the build and bringing the stack up</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> A working OSPREY installation, <code class="docutils literal notranslate"><span class="pre">git</span></code>, and Docker or
 Podman running locally.</p>
@@ -509,21 +509,22 @@ Podman running locally.</p>
 </details><div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p>Read <a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a> first if the words <em>preset</em>, <em>profile</em> and
-<em>project</em> are new. This page assumes you know that the profile is the source
-of truth and the project is a rendered artifact.</p>
+<em>build</em> are new. This page assumes you know that the profile is the source
+of truth and <code class="docutils literal notranslate"><span class="pre">build/</span></code> is a rendered artifact.</p>
 </div>
 <section id="what-you-are-building">
 <h2>What you are building<a class="headerlink" href="#what-you-are-building" title="Link to this heading">#</a></h2>
 <p>One repository, holding the facility’s editable source and the deployment
 scaffolding that goes with it:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>demo-facility/
-├── profile/                          the source you own — edit this
-│   ├── profile.yml
-│   ├── data/                         channel databases, knowledge, lattice
-│   ├── personas/                     one delta per web-terminal persona
-│   ├── services/facility-mcp/        the facility&#39;s own container
-│   └── project/scripts/verify.sh     the post-deploy health check
+├── profile.yml                       the manifest you own — edit this
+├── data/                             channel databases, knowledge, lattice
+├── personas/                         one delta per web-terminal persona
+├── services/facility-mcp/            the facility&#39;s own container
+├── scripts/verify.sh                 the post-deploy health check
+├── .env                              the deployment&#39;s one secret store
 ├── build/                            render target, kept out of git
+├── var/                              agent memory and audit log, kept out of git
 ├── .gitlab-ci.yml                    emitted from the profile&#39;s deploy: block
 ├── ci-extra.yml                      your own CI jobs; never regenerated
 └── .gitignore
@@ -567,7 +568,7 @@ is in <a class="reference internal" href="#deploy-a-facility-own-service"><span 
 </section>
 <section id="step-1-create-the-facility-repository">
 <h2>Step 1 — Create the facility repository<a class="headerlink" href="#step-1-create-the-facility-repository" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>demo-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>demo-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant
 <span class="nb">cd</span><span class="w"> </span>demo-facility
 </pre></div>
 </div>
@@ -581,7 +582,7 @@ pipeline from it.</p>
 </section>
 <section id="step-2-trim-the-profile-to-this-facility-s-stack">
 <h2>Step 2 — Trim the profile to this facility’s stack<a class="headerlink" href="#step-2-trim-the-profile-to-this-facility-s-stack" title="Link to this heading">#</a></h2>
-<p>Open <code class="docutils literal notranslate"><span class="pre">profile/profile.yml</span></code>. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships a fuller
+<p>Open <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships a fuller
 stack than Demo Facility runs, so the first edit is subtraction. Delete:</p>
 <ul class="simple">
 <li><p>the top-level <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code>, <code class="docutils literal notranslate"><span class="pre">bluesky_panels:</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> blocks. Each
@@ -600,7 +601,7 @@ facility drives.</p>
 </section>
 <section id="step-3-name-the-facility-and-pin-its-services">
 <h2>Step 3 — Name the facility and pin its services<a class="headerlink" href="#step-3-name-the-facility-and-pin-its-services" title="Link to this heading">#</a></h2>
-<p>Still in <code class="docutils literal notranslate"><span class="pre">profile/profile.yml</span></code>, under <code class="docutils literal notranslate"><span class="pre">config:</span></code>, set these six values. Some
+<p>Still in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, under <code class="docutils literal notranslate"><span class="pre">config:</span></code>, set these six values. Some
 are already present with a different value; some ship commented out.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
@@ -620,7 +621,7 @@ nothing.</p>
 block and the <code class="docutils literal notranslate"><span class="pre">services:</span></code> entry you add in Step 4 each append their own
 service to this list at build time. Naming <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> explicitly is what
 keeps the packaged skeleton’s <code class="docutils literal notranslate"><span class="pre">postgresql</span></code> <em>out</em> — declared is not deployed,
-and this list is what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> reads.</p>
+and this list is what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads.</p>
 <p><code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code> becomes the container-name prefix for the web tier
 (<code class="docutils literal notranslate"><span class="pre">demo-nginx</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-web-alice</span></code>), so keep it short and distinct from the
 project name.</p>
@@ -629,19 +630,19 @@ project name.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">personas</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">readonly</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo-facility-readonly</span>
-<span class="w">    </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">../demo-facility-readonly</span>
+<span class="w">    </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/demo-facility-readonly</span>
 <span class="w">    </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readonly.yml</span>
 <span class="w">  </span><span class="nt">readwrite</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo-facility-readwrite</span>
-<span class="w">    </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">../demo-facility-readwrite</span>
+<span class="w">    </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/demo-facility-readwrite</span>
 <span class="w">    </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
 </pre></div>
 </div>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>Each persona’s <code class="docutils literal notranslate"><span class="pre">project</span></code> must equal the basename of its <code class="docutils literal notranslate"><span class="pre">project_path</span></code>.
-Persona auto-render relies on that to land the rendered project exactly where
-the web tier mounts it.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives a persona render’s name the same way, which is how
+it lands exactly where the web tier mounts it.</p>
 </div>
 </section>
 <section id="step-4-add-the-facility-s-own-container">
@@ -665,7 +666,7 @@ line and the commented <code class="docutils literal notranslate"><span class="p
 <p><code class="docutils literal notranslate"><span class="pre">template:</span></code> is profile-relative, so the next thing to do is write that
 directory. The port appears twice because it is the same fact told to two
 parties: the container publishes it, and the agent dials it.</p>
-<p>Now create <code class="docutils literal notranslate"><span class="pre">profile/services/facility-mcp/</span></code> with four files.</p>
+<p>Now create <code class="docutils literal notranslate"><span class="pre">services/facility-mcp/</span></code> with four files.</p>
 <p><code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>mcp==1.9.4
 </pre></div>
@@ -818,33 +819,33 @@ or pulls them.</p>
 <section id="step-6-add-the-secrets">
 <h2>Step 6 — Add the secrets<a class="headerlink" href="#step-6-add-the-secrets" title="Link to this heading">#</a></h2>
 <p>The profile owns this deployment’s secrets, so that is where they go.</p>
-<p>Step 1 may already have written <code class="docutils literal notranslate"><span class="pre">profile/.env</span></code> for you, seeded from a matching
+<p>Step 1 may already have written <code class="docutils literal notranslate"><span class="pre">.env</span></code> for you, seeded from a matching
 key your shell exports — it says so in its output. If that file does not exist
 yet, start from the documented list:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>profile/.env.example<span class="w"> </span>profile/.env
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 </pre></div>
 </div>
-<p>Either way, edit <code class="docutils literal notranslate"><span class="pre">profile/.env</span></code> and set <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> (or the key for
+<p>Either way, edit <code class="docutils literal notranslate"><span class="pre">.env</span></code> and set <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> (or the key for
 whichever provider your profile names) and <code class="docutils literal notranslate"><span class="pre">DEMO_REGISTRY_TOKEN</span></code>. The
-repository’s <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> keeps <code class="docutils literal notranslate"><span class="pre">profile/.env</span></code> out of git.</p>
-<p>Service credentials such as <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> stay blank. <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">deploy</span> <span class="pre">up</span></code> mints a strong value for each unset one on first deploy and writes
-it back into <code class="docutils literal notranslate"><span class="pre">profile/.env</span></code>, so a later rebuild comes up on the same
-credentials the running volumes were initialized with.</p>
-<p><code class="docutils literal notranslate"><span class="pre">.env.example</span></code> is written when the profile is materialized. After you change
+repository’s <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> keeps <code class="docutils literal notranslate"><span class="pre">.env</span></code> out of git.</p>
+<p>Service credentials such as <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> stay blank. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+mints a strong value for each unset one on first deploy and writes it back into
+<code class="docutils literal notranslate"><span class="pre">.env</span></code>, so a later rebuild comes up on the same credentials the running
+volumes were initialized with.</p>
+<p><code class="docutils literal notranslate"><span class="pre">.env.example</span></code> is written by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>. After you change
 <code class="docutils literal notranslate"><span class="pre">env.required</span></code>, update the example alongside it — it is the documented list
 that whoever sets this up next will read.</p>
 </section>
 <section id="step-7-validate-then-emit-the-deployment-files">
 <h2>Step 7 — Validate, then emit the deployment files<a class="headerlink" href="#step-7-validate-then-emit-the-deployment-files" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>profile/
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate
 </pre></div>
 </div>
 <p>A valid profile reports its name and its deploy target — <code class="docutils literal notranslate"><span class="pre">Deploy:</span> <span class="pre">gitlab</span> <span class="pre">CI</span> <span class="pre">→</span>
 <span class="pre">osprey&#64;demo-deploy</span></code>. If anything is wrong, every problem is reported at once
 rather than one per run.</p>
 <p>Now render the deployment files from the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>scaffold
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>ci
 </pre></div>
 </div>
 <p>Two files appear:</p>
@@ -857,28 +858,26 @@ holding the private key for the deploy-host account. The SSH key is CI-only —
 it authenticates the deploy job and is never part of the deployment’s own
 environment, which is why it is not in <code class="docutils literal notranslate"><span class="pre">env.required</span></code>.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">profile/project/scripts/verify.sh</span></code></dt><dd><p>The post-deploy health check, emitted into the profile’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror.
-Every build copies that mirror onto the project root, so it arrives as
-<code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code> in the built project.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code></dt><dd><p>The post-deploy health check, at the repository root.</p>
 </dd>
 </dl>
-<p>Re-run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">scaffold</span></code> whenever the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block changes. It is
+<p>Re-run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code> whenever the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block changes. It is
 safe to re-run: a file whose content already matches is left untouched, and a
 file the scaffolder did not write is reported and left alone unless you pass
 <code class="docutils literal notranslate"><span class="pre">--force</span></code>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> created in Step 1, is the
+<p><code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> created in Step 1, is the
 facility’s own include point. The pipeline includes it after everything the
 scaffolder emits, so a job you add there can also override a scaffolded job by
 redefining it under the same name. Nothing ever regenerates that file.</p>
 </section>
 <section id="step-8-build-the-project">
 <h2>Step 8 — Build the project<a class="headerlink" href="#step-8-build-the-project" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>demo-facility<span class="w"> </span>profile/
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
 </pre></div>
 </div>
-<p>Because the profile is nested in a facility repository, the build renders into
-<code class="docutils literal notranslate"><span class="pre">build/demo-facility/</span></code> — from whichever directory you run it. Watch for these
-lines in the output:</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> walks up to the repository’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and renders
+<code class="docutils literal notranslate"><span class="pre">build/</span></code> from it, from whichever directory inside the repository you run it.
+Watch for these lines in the output:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">Injected</span> <span class="pre">1</span> <span class="pre">profile</span> <span class="pre">service(s)</span> <span class="pre">for</span> <span class="pre">deploy</span></code> — <code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code> was picked up.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">Injected</span> <span class="pre">Virtual</span> <span class="pre">Accelerator</span> <span class="pre">soft-IOC</span> <span class="pre">(CA</span> <span class="pre">port</span> <span class="pre">5064)</span></code>.</p></li>
@@ -886,34 +885,33 @@ lines in the output:</p>
 <code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code>.</p></li>
 </ul>
 <p>Confirm the service list is exactly the three you expect:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>grep<span class="w"> </span>-A3<span class="w"> </span><span class="s1">&#39;^deployed_services:&#39;</span><span class="w"> </span>build/demo-facility/config.yml
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>--rendered<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-A3<span class="w"> </span><span class="s1">&#39;^deployed_services:&#39;</span>
 </pre></div>
 </div>
 <p>It should read <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>, <code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code>.</p>
 </section>
 <section id="step-9-deploy-and-check">
 <h2>Step 9 — Deploy and check<a class="headerlink" href="#step-9-deploy-and-check" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>build/demo-facility
-osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>-d
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Running OSPREY from a <strong>source checkout</strong> rather than a released install?
-Add <code class="docutils literal notranslate"><span class="pre">--dev</span></code> — <code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> otherwise refuses, because a container built
+Add <code class="docutils literal notranslate"><span class="pre">--dev</span></code> — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> otherwise refuses, because a container built
 from PyPI would run different code than your checkout, and <code class="docutils literal notranslate"><span class="pre">--dev</span></code> builds
 the image from the checkout instead; see <a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a> for that
 workflow.</p>
 </div>
 <p>The first run is slow: the virtual accelerator and the facility’s own image are
-both built locally. When the containers are up, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> runs
+both built locally. When the containers are up, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> runs
 <code class="docutils literal notranslate"><span class="pre">scripts/verify.sh</span></code> itself and prints a summary of the published endpoints.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>status
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>status
 </pre></div>
 </div>
-<p>Read the lines <em>above</em> the status table first. A stale-render warning there
-means the project was rendered from an older profile than the one on disk now,
-and the fix is <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--force</span></code>, not a restart.</p>
+<p>Read the lines <em>above</em> the status table first. A drift report there means
+<code class="docutils literal notranslate"><span class="pre">build/</span></code> was rendered from an older profile than the one on disk now, and the
+fix is <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, not a restart.</p>
 <p>You can run the health check by hand at any time, and it is worth doing once
 before you trust it:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/verify.sh<span class="w">              </span><span class="c1"># every probe</span>
@@ -929,44 +927,44 @@ the reason a deploy is called a failure.</p>
 <p>The walkthrough above is the local path. The pipeline in <code class="docutils literal notranslate"><span class="pre">.gitlab-ci.yml</span></code>
 takes the same profile through three stages:</p>
 <p><strong>validate</strong> runs on every commit and needs no credentials. It runs
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code>, then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> with <code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> with <code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span>
 <span class="pre">--skip-deps</span></code> — CI has no container runtime for post-build hooks, and nothing
 there runs the agent, so its virtual environment would be dead weight. The
-rendered project is published as an artifact so a reviewer can see exactly what
-the commit produces.</p>
+render is published as an artifact so a reviewer can see exactly what the
+commit produces.</p>
 <p><strong>images</strong> builds one image per facility-owned service that carries a
 Dockerfile — here, just <code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code>. The build context is the service
-directory in the <em>profile</em>, not the rendered copy. Every build pushes a
+directory in the <em>source zone</em>, not the rendered copy. Every build pushes a
 commit-SHA tag; only the default branch moves <code class="docutils literal notranslate"><span class="pre">:latest</span></code>, so a feature branch
 can never reach the deploy host by accident.</p>
 <p><strong>deploy</strong> is manual and default-branch only, serialized by a resource group so
 two operators cannot interleave on the host. It re-renders on the host from the
 same commit rather than unpacking the artifact, which is what makes the running
 stack reproducible from git alone:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>demo-facility<span class="w"> </span>profile/profile.yml<span class="w"> </span>--force
-osprey<span class="w"> </span>deploy<span class="w"> </span>render-env-production<span class="w"> </span>--project<span class="w"> </span>build/demo-facility<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--output<span class="w"> </span>build/demo-facility/.env.production
-osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--project<span class="w"> </span>build/demo-facility
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
+osprey<span class="w"> </span>users<span class="w"> </span>env-production<span class="w"> </span>--output<span class="w"> </span>.env.production
+osprey<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">render-env-production</span></code> writes the env file every per-user web-terminal
-container runs with, from the deploy host’s own <code class="docutils literal notranslate"><span class="pre">profile/.env</span></code>. Passing
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">env-production</span></code> writes the env file every per-user web-terminal
+container runs with, from the deploy host’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code>. Passing
 <code class="docutils literal notranslate"><span class="pre">--output</span></code> is not optional: without it the command writes the assembled
 secrets to stdout, which in a pipeline is the job log. <code class="docutils literal notranslate"><span class="pre">--output</span></code> also creates
 the file at mode <code class="docutils literal notranslate"><span class="pre">0600</span></code> from its first byte, which a shell redirect would not.</p>
 </section>
 <section id="changing-something-later">
 <h2>Changing something later<a class="headerlink" href="#changing-something-later" title="Link to this heading">#</a></h2>
-<p>The loop is always the same: edit the profile, rebuild, redeploy. Run it from
-the repository root, not from the built project:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>demo-facility<span class="w"> </span>profile/<span class="w"> </span>--force
-<span class="nb">cd</span><span class="w"> </span>build/demo-facility<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>-d
+<p>The loop is always the same: edit the profile, rebuild, redeploy. Run it
+anywhere inside the repository:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics<span class="w">          </span><span class="c1"># or edit profile.yml by hand</span>
+osprey<span class="w"> </span>build
+osprey<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">--force</span></code> re-renders everything the framework owns and preserves what you own:
-the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>, and its git history. The profile
-directory itself is never touched by a build.</p>
-<p>If you changed the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block, run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">scaffold</span></code> again first
+<p>Or in one step, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--build</span> <span class="pre">-d</span></code>. Every build re-renders everything the
+framework owns and preserves what you own: <code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">var/</span></code>, and the
+repository’s git history. The source zone itself is never touched by a build.</p>
+<p>If you changed the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block, run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code> again first
 so the pipeline and health check match the new coordinates.</p>
 </section>
 <section id="operating-it">
@@ -984,7 +982,7 @@ and let the OSPREY agent work from it. From the repository root:</p>
 <dt><a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a></dt><dd><p>What lives in a profile, the convention directories, and taking ownership
 of a framework artifact.</p>
 </dd>
-<dt><a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a></dt><dd><p>The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> reference: service configuration, compose template
+<dt><a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a></dt><dd><p>The container-deployment reference: service configuration, compose template
 variables, image overrides, and the <code class="docutils literal notranslate"><span class="pre">--dev</span></code> workflow.</p>
 </dd>
 <dt><a class="reference internal" href="multi-user.html"><span class="doc">Multi-User Support</span></a></dt><dd><p>The web tier this facility deploys — the landing page and one

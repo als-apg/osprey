@@ -13,7 +13,7 @@ every project.
    - How to keep a customized Dockerfile across rebuilds
    - Building and running the image (ports, secrets, volumes)
    - The three build-arg extension points for site-specific installs
-   - Path relocation with ``osprey claude regen --runtime-root``
+   - Path relocation with ``osprey build --runtime-root``
    - Air-gapped images, the non-root requirement, and Kubernetes notes
 
    **Prerequisites:** Docker (or Podman) installed; a project built with
@@ -29,23 +29,22 @@ recipe at the project root:
   copies the project in, relocates its recorded paths, and serves the web
   terminal.
 - ``.dockerignore`` — keeps secrets (``.env``) and host-specific state
-  (``.venv``, ``.git``, ``_agent_data/``) out of the image.
+  (``.venv``, ``.git``, ``var/``) out of the image.
 
 Both files are **generated, then yours to edit in place**: change them freely,
 but keep ``.dockerignore`` — the build depends on it, and it is what keeps your
-``.env`` secrets out of the image. ``osprey claude regen`` never touches either
+``.env`` secrets out of the image. ``osprey build`` never touches either
 file.
 
-An edit made in the project lasts only until the next ``osprey build --force``,
-which re-renders both from the framework (only ``.env``, ``_agent_data/`` and
-``.git`` survive a force rebuild). To make a customization durable, put your
-version in the build profile's ``project/`` mirror instead:
+An edit made in ``build/`` lasts only until the next ``osprey build``, which
+re-renders both from the framework. To make a customization durable, put your
+version in the source zone's ``project/`` mirror instead:
 
 .. code-block:: text
 
-   my-profile/
+   my-facility/
      project/
-       Dockerfile          # copied verbatim onto the project root, every build
+       Dockerfile          # copied verbatim onto the render, every build
 
 The mirror is applied after the framework render, so your copy wins each time.
 See :doc:`build-profiles` for the profile's convention directories.
@@ -53,7 +52,7 @@ See :doc:`build-profiles` for the profile's convention directories.
 .. note::
 
    This page covers the **project image** — one container that runs the
-   assistant and its web terminal. ``osprey deploy`` manages the project's
+   assistant and its web terminal. The lifecycle verbs manage the deployment's
    *service* containers (databases, MCP servers) — see :doc:`deploy-project`
    — but the two meet in one place: a deploy that includes the dispatch
    worker builds this same project image (tagged ``<project>:local``) for
@@ -64,8 +63,9 @@ Quickstart
 
 .. code-block:: bash
 
-   cd my-project          # the directory osprey build created
-   docker build -t my-project .
+   osprey build                            # renders the container repo too
+   cd build/.image/my-project              # the context the build rendered
+   docker build -t my-project -f build/Dockerfile .
    docker run --rm -p 8087:8087 --env-file .env my-project
 
 Then open http://localhost:8087. Secrets are passed at runtime via
@@ -102,7 +102,7 @@ The image exposes these knobs for site-specific builds:
        matches the framework version that generated the Dockerfile; override
        to test a newer CLI without regenerating the project.
 
-(A fifth ARG, ``OSPREY_DEV``, is used internally by ``osprey deploy up
+(A fifth ARG, ``OSPREY_DEV``, is used internally by ``osprey up
 --dev`` to install a locally built wheel; you normally never set it by hand.)
 
 Example — install OSPREY from an internal mirror behind a proxy, with
@@ -126,18 +126,19 @@ vendored assets for an air-gapped host:
 Path Relocation
 ===============
 
-A project built on a host records that host's path in ``config.yml`` as
-``project_root``. The generated Dockerfile fixes it during the image build:
+A render made on a host records that host's path in ``config.yml`` as
+``project_root``, which would be wrong inside an image. Nothing in the
+Dockerfile fixes that: ``osprey build`` renders a second copy of the deployment
+specifically for the container, against its ``/app`` path rather than the
+building host's, and that copy is what the image build uses as its context. The
+recorded ``project_root``, the agent artifacts (``.mcp.json``, ``CLAUDE.md``,
+``.claude/``) and every path they name are already the container's before the
+first ``docker build`` layer runs.
 
-.. code-block:: docker
-
-   RUN osprey claude regen --project /app/my-project --runtime-root /app/my-project
-
-``--runtime-root`` rewrites ``project_root`` in ``config.yml``
-(comment-preserving) and re-renders the agent artifacts (``.mcp.json``,
-``CLAUDE.md``, ``.claude/``) against the new root. No interpreter path is
-recorded in ``config.yml``, so nothing else needs relocating. This works for
-projects built with or without ``osprey build --runtime-root``.
+That is why the by-hand build below runs from ``build/.image/<name>/`` rather
+than from the repository root. ``osprey build --runtime-root PATH`` is the same
+mechanism exposed directly, for a render whose output will run somewhere other
+than where it was made.
 
 Why Non-Root
 ============
@@ -155,11 +156,11 @@ Two kinds of state are worth persisting across container restarts:
 .. code-block:: bash
 
    docker run --rm -p 8087:8087 --env-file .env \
-     -v my-project-agent-data:/app/my-project/_agent_data \
+     -v my-project-agent-data:/app/my-project/var/agent_data \
      -v my-project-home:/home/osprey \
      my-project
 
-- ``_agent_data/`` — API call logs and generated data artifacts.
+- ``var/agent_data/`` — API call logs and generated data artifacts.
 - ``/home/osprey`` — the agent CLI's per-user state (sessions, credentials);
   set ``CLAUDE_CONFIG_DIR`` if you want it somewhere more explicit.
 
@@ -167,7 +168,7 @@ Kubernetes notes
 ----------------
 
 - Give each user/instance a PVC for ``/home/osprey`` (or
-  ``CLAUDE_CONFIG_DIR``) and one for ``_agent_data/`` — session state does
+  ``CLAUDE_CONFIG_DIR``) and one for ``var/agent_data/`` — session state does
   not survive pod rescheduling otherwise.
 - The container already runs as a non-root user, so a restricted
   ``securityContext`` (``runAsNonRoot: true``) works out of the box.
@@ -208,8 +209,8 @@ The file is yours — common edits:
 .. seealso::
 
    :doc:`deploy-project`
-       Service containers (databases, MCP servers) via ``osprey deploy`` —
+       Service containers (databases, MCP servers) via ``osprey up`` —
        the complement to the project image on this page.
 
    :doc:`../cli-reference/index`
-       ``osprey claude regen --runtime-root`` and ``osprey vendor`` reference.
+       ``osprey build --runtime-root`` and ``osprey vendor`` reference.

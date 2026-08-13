@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -557,14 +557,14 @@ re-run <code class="docutils literal notranslate"><span class="pre">osprey</span
 1. Configure</label><div class="sd-tab-content docutils">
 <p class="sd-card-text">The easiest way to get started is to create a new project from the
 <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> template, which includes ARIEL pre-configured:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>--preset<span class="w"> </span>ariel-standalone
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-project<span class="w"> </span>--preset<span class="w"> </span>ariel-standalone
 <span class="nb">cd</span><span class="w"> </span>my-project
 </pre></div>
 </div>
-<p class="sd-card-text">This generates a ready-to-use <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> with PostgreSQL, the ARIEL
-web interface, and all search modules enabled — skip to Step 2. It
-also writes <code class="docutils literal notranslate"><span class="pre">my-project-profile/</span></code> beside the project: the profile the
-build reads, and where your provider keys and durable edits belong.</p>
+<p class="sd-card-text">Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> in it and you get a ready-to-use <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+with PostgreSQL, the ARIEL web interface, and all search modules
+enabled — skip to Step 2. The repository’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is what
+the build reads, and its <code class="docutils literal notranslate"><span class="pre">.env</span></code> is where your provider keys belong.</p>
 </div>
 <input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-3">
@@ -573,7 +573,7 @@ build reads, and where your provider keys and durable edits belong.</p>
 so it may take a few minutes depending on your internet connection.</p>
 <p class="sd-card-text">Generate Docker Compose files from your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, pull the
 container images, and start them in the background:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>-d
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
 <p class="sd-card-text">Once the containers are running, connect to PostgreSQL, run database
@@ -611,7 +611,7 @@ Agent Chat</label><div class="sd-tab-content docutils">
 <p class="sd-card-text">Ask the Osprey agent. The logbook-search MCP tools connect the
 agent to the ARIEL search service, so it can combine logbook
 results with other context.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>chat
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>chat
 &gt;&gt;&gt;<span class="w"> </span>What<span class="w"> </span>does<span class="w"> </span>the<span class="w"> </span>logbook<span class="w"> </span>say<span class="w"> </span>about<span class="w"> </span>the<span class="w"> </span>last<span class="w"> </span>RF<span class="w"> </span>cavity<span class="w"> </span>trip?
 </pre></div>
 </div>

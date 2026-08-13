@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -517,7 +517,7 @@ OTLP collector or observability platform you already run. OSPREY only produces
 OTLP; it does not care what receives it.</p></li>
 <li><p><strong>Phase 2 — the local OpenObserve add-on (the scaffolded default).</strong> A
 single-binary OpenObserve store deployed next to your project with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>; all telemetry stays on the same host. This is the
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>; all telemetry stays on the same host. This is the
 turn-key option when you have no existing observability stack.</p></li>
 </ul>
 <div class="admonition note">
@@ -613,7 +613,7 @@ default. If your project removed it, restore it:</p>
 <section id="optional-set-the-admin-credentials">
 <h3>2. (Optional) set the admin credentials<a class="headerlink" href="#optional-set-the-admin-credentials" title="Link to this heading">#</a></h3>
 <p>The OpenObserve root account doubles as the OTLP ingest credential. You do not
-have to set it yourself: the first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> mints a strong
+have to set it yourself: the first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints a strong
 <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code> into the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> automatically, and the
 project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> is derived from there. Set the two variables yourself (in the
 profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>) only if you want specific values — the same pair configures
@@ -626,7 +626,7 @@ the container <strong>and</strong> authenticates the agent’s OTLP push, one so
 </section>
 <section id="deploy-it">
 <h3>3. Deploy it<a class="headerlink" href="#deploy-it" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w">        </span><span class="c1"># brings up openobserve alongside your other services</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">        </span><span class="c1"># brings up openobserve alongside your other services</span>
 </pre></div>
 </div>
 <p>The UI is then available at <code class="docutils literal notranslate"><span class="pre">http://localhost:5080</span></code> (log in with the

@@ -10,16 +10,18 @@ analytics, etc.) via their URLs in a browser.
 Launching
 ---------
 
-From any OSPREY project directory:
+From anywhere inside a deployment repository:
 
 .. code-block:: bash
 
-   osprey claude chat
+   osprey chat
 
 This command:
 
-1. Regenerates Osprey agent integration files (``.mcp.json``, ``CLAUDE.md``,
-   ``.claude/settings.json``) from ``config.yml``.
+1. Finds the deployment by walking up to the nearest ``profile.yml``, and starts
+   the agent in that repository's ``build/`` — nothing is re-rendered, since
+   ``osprey build`` owns that. A profile that has changed since the last build
+   is reported as a warning and the session starts anyway.
 2. Resolves the configured LLM provider and injects authentication.
 3. Starts the translation proxy if the provider needs it (see
    :doc:`configure-providers`).
@@ -31,13 +33,13 @@ Options
 
 .. code-block:: bash
 
-   osprey claude chat -p /path/to/project           # explicit project dir (--project)
-   osprey claude chat --resume SESSION_ID           # resume a previous session
-   osprey claude chat --print                       # non-interactive (pipe-friendly)
-   osprey claude chat --effort high                 # set effort level
-   osprey claude chat --no-pin                      # ignore the pinned CLI version
+   osprey chat --repo /path/to/deployment    # explicit deployment repo
+   osprey chat --resume SESSION_ID           # resume a previous session
+   osprey chat --print                       # non-interactive (pipe-friendly)
+   osprey chat --effort high                 # set effort level
+   osprey chat --no-pin                      # ignore the pinned CLI version
 
-When ``--project`` is omitted, the current directory is used.
+When ``--repo`` is omitted, the deployment enclosing the current directory is used.
 
 If ``claude_code.cli_version`` is set in ``config.yml``, chat launches that
 exact agent CLI version instead of whatever is installed globally, so every
@@ -47,7 +49,7 @@ global installation.
 Companion Services
 ------------------
 
-On startup, ``osprey claude chat`` launches the same companion servers as
+On startup, ``osprey chat`` launches the same companion servers as
 ``osprey web``. Each server's URL is printed before the Osprey agent starts:
 
 .. code-block:: text
@@ -70,7 +72,7 @@ When to Use CLI vs. Web Terminal
    :header-rows: 1
    :widths: 50 50
 
-   * - CLI chat (``osprey claude chat``)
+   * - CLI chat (``osprey chat``)
      - Web terminal (``osprey web``)
    * - Native terminal experience
      - Browser-based split-pane UI

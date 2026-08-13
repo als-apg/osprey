@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -587,18 +587,18 @@ concrete correct procedure rather than a prohibition alone.</p>
 <h2>Changing a rule<a class="headerlink" href="#changing-a-rule" title="Link to this heading">#</a></h2>
 <p>There are two ways to edit a rule.</p>
 <p><strong>Edit the Markdown directly.</strong> Each rule is a file under <code class="docutils literal notranslate"><span class="pre">.claude/rules/</span></code>.
-<code class="docutils literal notranslate"><span class="pre">facility.md</span></code> is yours to edit — it is user-owned, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>
+<code class="docutils literal notranslate"><span class="pre">facility.md</span></code> is yours to edit — it is user-owned, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
 never overwrites it. The framework-generated rules <em>are</em> re-rendered by
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>; to keep an edit to one of those, claim it. A claim
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>; to keep an edit to one of those, claim it. A claim
 <strong>moves</strong> the rule into the profile the project was built from, which is where
 you then edit it:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>rules/safety<span class="w">              </span><span class="c1"># moves it to my-profile/rules/safety.md</span>
-<span class="gp">$ </span><span class="nv">$EDITOR</span><span class="w"> </span>my-profile/rules/safety.md
-<span class="gp">$ </span>osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>my-profile/profile.yml<span class="w"> </span>--force
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>rules/safety<span class="w">              </span><span class="c1"># moves it to rules/safety.md</span>
+<span class="gp">$ </span><span class="nv">$EDITOR</span><span class="w"> </span>rules/safety.md
+<span class="gp">$ </span>osprey<span class="w"> </span>build
 <span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>rules/safety<span class="w">               </span><span class="c1"># compare yours vs the framework version</span>
 </pre></div>
 </div>
-<p>The rebuild copies it back and registers it as yours, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>
+<p>The rebuild copies it back and registers it as yours, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
 leaves it alone from then on. See <a class="reference internal" href="build-profiles.html#profile-claim"><span class="std std-ref">Taking ownership of a framework artifact</span></a>.</p>
 <p><strong>Through the web terminal.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> exposes the agent’s <code class="docutils literal notranslate"><span class="pre">.claude/</span></code>
 files in the browser: edit a rule in the setup editor, or use the scaffold
@@ -619,11 +619,11 @@ confidence/scope note — while single reads stay terse.</p>
 <p>Because it ships in framework-generated artifacts, the claimed-artifact caveat
 from <a class="reference internal" href="#changing-a-rule">Changing a rule</a> applies. A deployment that has <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span>
 <span class="pre">claim``ed</span> <span class="pre">``CLAUDE.md</span></code> (<code class="docutils literal notranslate"><span class="pre">claude-md</span></code>) or the <code class="docutils literal notranslate"><span class="pre">control-operator</span></code> output-style
-keeps its own copy and will <strong>not</strong> pick up this behavior on <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span>
-<span class="pre">regen</span></code>. To adopt it, review the framework version and either merge it by hand or
-unclaim and regen:</p>
+keeps its own copy and will <strong>not</strong> pick up this behavior on the next
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. To adopt it, review the framework version and either merge it
+by hand or unclaim and rebuild:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>output-styles/control-operator<span class="w">     </span><span class="c1"># framework vs. yours</span>
-<span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>output-styles/control-operator<span class="w">  </span><span class="c1"># then: osprey claude regen</span>
+<span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>output-styles/control-operator<span class="w">  </span><span class="c1"># then: osprey build</span>
 </pre></div>
 </div>
 <div class="admonition seealso">

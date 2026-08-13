@@ -260,9 +260,13 @@ category picks one automatically:
 
 - If you set ``url_key`` explicitly, that choice is always used.
 - Otherwise the framework detects whether the health check is itself running
-  inside a container — a Docker ``/.dockerenv`` marker file, or the
-  ``OSPREY_IN_CONTAINER`` environment variable set by the deployment — and uses
-  ``docker_url`` when containerized, ``host_url`` on a plain host.
+  inside a container — the runtime's own marker file, ``/.dockerenv`` under
+  Docker or ``/run/.containerenv`` under Podman, or an ``OSPREY_IN_CONTAINER``
+  environment variable you set yourself — and uses ``docker_url`` when
+  containerized, ``host_url`` on a plain host. Nothing in the shipped
+  deployment sets that variable; set ``url_key`` explicitly when the automatic
+  answer is wrong for your network layout (a host-networked container is in a
+  container but cannot resolve compose service names).
 
 **Expected tools.** If a server block declares ``permissions`` (its ``allow``
 and ``ask`` tool lists), the derived check also confirms the server actually

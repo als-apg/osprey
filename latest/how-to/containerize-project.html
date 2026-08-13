@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -496,7 +496,7 @@ every project.</p>
 <li><p class="sd-card-text">How to keep a customized Dockerfile across rebuilds</p></li>
 <li><p class="sd-card-text">Building and running the image (ports, secrets, volumes)</p></li>
 <li><p class="sd-card-text">The three build-arg extension points for site-specific installs</p></li>
-<li><p class="sd-card-text">Path relocation with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span> <span class="pre">--runtime-root</span></code></p></li>
+<li><p class="sd-card-text">Path relocation with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span></code></p></li>
 <li><p class="sd-card-text">Air-gapped images, the non-root requirement, and Kubernetes notes</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> Docker (or Podman) installed; a project built with
@@ -511,19 +511,18 @@ recipe at the project root:</p>
 copies the project in, relocates its recorded paths, and serves the web
 terminal.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> — keeps secrets (<code class="docutils literal notranslate"><span class="pre">.env</span></code>) and host-specific state
-(<code class="docutils literal notranslate"><span class="pre">.venv</span></code>, <code class="docutils literal notranslate"><span class="pre">.git</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>) out of the image.</p></li>
+(<code class="docutils literal notranslate"><span class="pre">.venv</span></code>, <code class="docutils literal notranslate"><span class="pre">.git</span></code>, <code class="docutils literal notranslate"><span class="pre">var/</span></code>) out of the image.</p></li>
 </ul>
 <p>Both files are <strong>generated, then yours to edit in place</strong>: change them freely,
 but keep <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> — the build depends on it, and it is what keeps your
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> secrets out of the image. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> never touches either
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> secrets out of the image. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> never touches either
 file.</p>
-<p>An edit made in the project lasts only until the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--force</span></code>,
-which re-renders both from the framework (only <code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> and
-<code class="docutils literal notranslate"><span class="pre">.git</span></code> survive a force rebuild). To make a customization durable, put your
-version in the build profile’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror instead:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profile/
+<p>An edit made in <code class="docutils literal notranslate"><span class="pre">build/</span></code> lasts only until the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, which
+re-renders both from the framework. To make a customization durable, put your
+version in the source zone’s <code class="docutils literal notranslate"><span class="pre">project/</span></code> mirror instead:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   project/
-    Dockerfile          # copied verbatim onto the project root, every build
+    Dockerfile          # copied verbatim onto the render, every build
 </pre></div>
 </div>
 <p>The mirror is applied after the framework render, so your copy wins each time.
@@ -531,7 +530,7 @@ See <a class="reference internal" href="build-profiles.html"><span class="doc">B
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>This page covers the <strong>project image</strong> — one container that runs the
-assistant and its web terminal. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> manages the project’s
+assistant and its web terminal. The lifecycle verbs manage the deployment’s
 <em>service</em> containers (databases, MCP servers) — see <a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a>
 — but the two meet in one place: a deploy that includes the dispatch
 worker builds this same project image (tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;:local</span></code>) for
@@ -540,8 +539,9 @@ the worker to run.</p>
 </section>
 <section id="quickstart">
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>my-project<span class="w">          </span><span class="c1"># the directory osprey build created</span>
-docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>.
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w">                            </span><span class="c1"># renders the container repo too</span>
+<span class="nb">cd</span><span class="w"> </span>build/.image/my-project<span class="w">              </span><span class="c1"># the context the build rendered</span>
+docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>-f<span class="w"> </span>build/Dockerfile<span class="w"> </span>.
 docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">8087</span>:8087<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span>my-project
 </pre></div>
 </div>
@@ -589,7 +589,7 @@ to test a newer CLI without regenerating the project.</p></td>
 </tbody>
 </table>
 </div>
-<p>(A fifth ARG, <code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code>, is used internally by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span>
+<p>(A fifth ARG, <code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code>, is used internally by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span>
 <span class="pre">--dev</span></code> to install a locally built wheel; you normally never set it by hand.)</p>
 <p>Example — install OSPREY from an internal mirror behind a proxy, with
 vendored assets for an air-gapped host:</p>
@@ -609,16 +609,18 @@ internal mirror.</p>
 </section>
 <section id="path-relocation">
 <h2>Path Relocation<a class="headerlink" href="#path-relocation" title="Link to this heading">#</a></h2>
-<p>A project built on a host records that host’s path in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> as
-<code class="docutils literal notranslate"><span class="pre">project_root</span></code>. The generated Dockerfile fixes it during the image build:</p>
-<div class="highlight-docker notranslate"><div class="highlight"><pre><span></span><span class="k">RUN</span><span class="w"> </span>osprey<span class="w"> </span>claude<span class="w"> </span>regen<span class="w"> </span>--project<span class="w"> </span>/app/my-project<span class="w"> </span>--runtime-root<span class="w"> </span>/app/my-project
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span></code> rewrites <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-(comment-preserving) and re-renders the agent artifacts (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>,
-<code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, <code class="docutils literal notranslate"><span class="pre">.claude/</span></code>) against the new root. No interpreter path is
-recorded in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, so nothing else needs relocating. This works for
-projects built with or without <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span></code>.</p>
+<p>A render made on a host records that host’s path in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> as
+<code class="docutils literal notranslate"><span class="pre">project_root</span></code>, which would be wrong inside an image. Nothing in the
+Dockerfile fixes that: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders a second copy of the deployment
+specifically for the container, against its <code class="docutils literal notranslate"><span class="pre">/app</span></code> path rather than the
+building host’s, and that copy is what the image build uses as its context. The
+recorded <code class="docutils literal notranslate"><span class="pre">project_root</span></code>, the agent artifacts (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>,
+<code class="docutils literal notranslate"><span class="pre">.claude/</span></code>) and every path they name are already the container’s before the
+first <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code> layer runs.</p>
+<p>That is why the by-hand build below runs from <code class="docutils literal notranslate"><span class="pre">build/.image/&lt;name&gt;/</span></code> rather
+than from the repository root. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span> <span class="pre">PATH</span></code> is the same
+mechanism exposed directly, for a render whose output will run somewhere other
+than where it was made.</p>
 </section>
 <section id="why-non-root">
 <h2>Why Non-Root<a class="headerlink" href="#why-non-root" title="Link to this heading">#</a></h2>
@@ -631,13 +633,13 @@ by any user — keep the non-root user if you customize the recipe.</p>
 <h2>Runtime State and Volumes<a class="headerlink" href="#runtime-state-and-volumes" title="Link to this heading">#</a></h2>
 <p>Two kinds of state are worth persisting across container restarts:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">8087</span>:8087<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-v<span class="w"> </span>my-project-agent-data:/app/my-project/_agent_data<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span>my-project-agent-data:/app/my-project/var/agent_data<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span>my-project-home:/home/osprey<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>my-project
 </pre></div>
 </div>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> — API call logs and generated data artifacts.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code> — API call logs and generated data artifacts.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> — the agent CLI’s per-user state (sessions, credentials);
 set <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code> if you want it somewhere more explicit.</p></li>
 </ul>
@@ -645,7 +647,7 @@ set <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_D
 <h3>Kubernetes notes<a class="headerlink" href="#kubernetes-notes" title="Link to this heading">#</a></h3>
 <ul class="simple">
 <li><p>Give each user/instance a PVC for <code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> (or
-<code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code>) and one for <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> — session state does
+<code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code>) and one for <code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code> — session state does
 not survive pod rescheduling otherwise.</p></li>
 <li><p>The container already runs as a non-root user, so a restricted
 <code class="docutils literal notranslate"><span class="pre">securityContext</span></code> (<code class="docutils literal notranslate"><span class="pre">runAsNonRoot:</span> <span class="pre">true</span></code>) works out of the box.</p></li>
@@ -685,10 +687,10 @@ needs the same customization.</p></li>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
-<dt><a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a></dt><dd><p>Service containers (databases, MCP servers) via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> —
+<dt><a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a></dt><dd><p>Service containers (databases, MCP servers) via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> —
 the complement to the project image on this page.</p>
 </dd>
-<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span> <span class="pre">--runtime-root</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span></code> reference.</p>
+<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span></code> reference.</p>
 </dd>
 </dl>
 </div>

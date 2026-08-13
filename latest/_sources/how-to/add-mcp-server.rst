@@ -55,7 +55,7 @@ After editing, regenerate the Osprey agent configuration:
 
 .. code-block:: bash
 
-   osprey claude regen
+   osprey build
 
 The server will appear in ``.mcp.json`` and its permissions will be added
 to ``.claude/settings.json``.
@@ -242,7 +242,7 @@ Important ``ServerDefinition`` fields:
     Use ``_APPROVAL`` for human-in-the-loop on safety-critical tools and
     ``_post_error()`` for standard error guidance.
 
-After adding the entry, run ``osprey claude regen`` to regenerate the Osprey
+After adding the entry, run ``osprey build`` to regenerate the Osprey
 agent configuration.  The server will appear in ``.mcp.json``.
 
 

@@ -16,11 +16,11 @@ facility writes itself.
    :color: primary
    :icon: book
 
-   - Creating a facility repository with ``osprey profile new``
+   - Creating a deployment repository with ``osprey init``
    - Editing the profile down to the services your facility actually runs
    - Adding a container the facility owns, with its own image-build job
-   - Emitting the CI pipeline and the health check with ``osprey deploy scaffold``
-   - Building the project and bringing the stack up
+   - Emitting the CI pipeline and the health check with ``osprey scaffold ci``
+   - Rendering the build and bringing the stack up
 
    **Prerequisites:** A working OSPREY installation, ``git``, and Docker or
    Podman running locally.
@@ -30,8 +30,8 @@ facility writes itself.
 .. tip::
 
    Read :doc:`build-profiles` first if the words *preset*, *profile* and
-   *project* are new. This page assumes you know that the profile is the source
-   of truth and the project is a rendered artifact.
+   *build* are new. This page assumes you know that the profile is the source
+   of truth and ``build/`` is a rendered artifact.
 
 
 What you are building
@@ -43,13 +43,14 @@ scaffolding that goes with it:
 .. code-block:: text
 
    demo-facility/
-   ├── profile/                          the source you own — edit this
-   │   ├── profile.yml
-   │   ├── data/                         channel databases, knowledge, lattice
-   │   ├── personas/                     one delta per web-terminal persona
-   │   ├── services/facility-mcp/        the facility's own container
-   │   └── project/scripts/verify.sh     the post-deploy health check
+   ├── profile.yml                       the manifest you own — edit this
+   ├── data/                             channel databases, knowledge, lattice
+   ├── personas/                         one delta per web-terminal persona
+   ├── services/facility-mcp/            the facility's own container
+   ├── scripts/verify.sh                 the post-deploy health check
+   ├── .env                              the deployment's one secret store
    ├── build/                            render target, kept out of git
+   ├── var/                              agent memory and audit log, kept out of git
    ├── .gitlab-ci.yml                    emitted from the profile's deploy: block
    ├── ci-extra.yml                      your own CI jobs; never regenerated
    └── .gitignore
@@ -86,7 +87,7 @@ Step 1 — Create the facility repository
 
 .. code-block:: bash
 
-   osprey profile new demo-facility --preset control-assistant
+   osprey init demo-facility --preset control-assistant
    cd demo-facility
 
 The command writes the whole repository, runs ``git init`` at its root, and
@@ -102,7 +103,7 @@ pipeline from it.
 Step 2 — Trim the profile to this facility's stack
 ==================================================
 
-Open ``profile/profile.yml``. The ``control-assistant`` preset ships a fuller
+Open ``profile.yml``. The ``control-assistant`` preset ships a fuller
 stack than Demo Facility runs, so the first edit is subtraction. Delete:
 
 * the top-level ``bluesky:``, ``bluesky_panels:`` and ``dispatch:`` blocks. Each
@@ -123,7 +124,7 @@ facility drives.
 Step 3 — Name the facility and pin its services
 ===============================================
 
-Still in ``profile/profile.yml``, under ``config:``, set these six values. Some
+Still in ``profile.yml``, under ``config:``, set these six values. Some
 are already present with a different value; some ship commented out.
 
 .. code-block:: yaml
@@ -146,7 +147,7 @@ nothing.
 block and the ``services:`` entry you add in Step 4 each append their own
 service to this list at build time. Naming ``openobserve`` explicitly is what
 keeps the packaged skeleton's ``postgresql`` *out* — declared is not deployed,
-and this list is what ``osprey deploy up`` reads.
+and this list is what ``osprey up`` reads.
 
 ``facility.prefix`` becomes the container-name prefix for the web tier
 (``demo-nginx``, ``demo-web-alice``), so keep it short and distinct from the
@@ -160,18 +161,18 @@ Then rename the two personas, further down the same ``config:`` block under
      personas:
        readonly:
          project: demo-facility-readonly
-         project_path: ../demo-facility-readonly
+         project_path: build/demo-facility-readonly
          build_profile: personas/readonly.yml
        readwrite:
          project: demo-facility-readwrite
-         project_path: ../demo-facility-readwrite
+         project_path: build/demo-facility-readwrite
          build_profile: personas/readwrite.yml
 
 .. important::
 
    Each persona's ``project`` must equal the basename of its ``project_path``.
-   Persona auto-render relies on that to land the rendered project exactly where
-   the web tier mounts it.
+   ``osprey build`` derives a persona render's name the same way, which is how
+   it lands exactly where the web tier mounts it.
 
 
 .. _deploy-a-facility-own-service:
@@ -201,7 +202,7 @@ line and the commented ``mcp_servers:`` example with:
 directory. The port appears twice because it is the same fact told to two
 parties: the container publishes it, and the agent dials it.
 
-Now create ``profile/services/facility-mcp/`` with four files.
+Now create ``services/facility-mcp/`` with four files.
 
 ``requirements.txt``:
 
@@ -372,24 +373,24 @@ Step 6 — Add the secrets
 
 The profile owns this deployment's secrets, so that is where they go.
 
-Step 1 may already have written ``profile/.env`` for you, seeded from a matching
+Step 1 may already have written ``.env`` for you, seeded from a matching
 key your shell exports — it says so in its output. If that file does not exist
 yet, start from the documented list:
 
 .. code-block:: bash
 
-   cp profile/.env.example profile/.env
+   cp .env.example .env
 
-Either way, edit ``profile/.env`` and set ``ANTHROPIC_API_KEY`` (or the key for
+Either way, edit ``.env`` and set ``ANTHROPIC_API_KEY`` (or the key for
 whichever provider your profile names) and ``DEMO_REGISTRY_TOKEN``. The
-repository's ``.gitignore`` keeps ``profile/.env`` out of git.
+repository's ``.gitignore`` keeps ``.env`` out of git.
 
-Service credentials such as ``ZO_ROOT_USER_PASSWORD`` stay blank. ``osprey
-deploy up`` mints a strong value for each unset one on first deploy and writes
-it back into ``profile/.env``, so a later rebuild comes up on the same
-credentials the running volumes were initialized with.
+Service credentials such as ``ZO_ROOT_USER_PASSWORD`` stay blank. ``osprey up``
+mints a strong value for each unset one on first deploy and writes it back into
+``.env``, so a later rebuild comes up on the same credentials the running
+volumes were initialized with.
 
-``.env.example`` is written when the profile is materialized. After you change
+``.env.example`` is written by ``osprey init``. After you change
 ``env.required``, update the example alongside it — it is the documented list
 that whoever sets this up next will read.
 
@@ -399,7 +400,7 @@ Step 7 — Validate, then emit the deployment files
 
 .. code-block:: bash
 
-   osprey profile validate profile/
+   osprey validate
 
 A valid profile reports its name and its deploy target — ``Deploy: gitlab CI →
 osprey@demo-deploy``. If anything is wrong, every problem is reported at once
@@ -409,7 +410,7 @@ Now render the deployment files from the ``deploy:`` block:
 
 .. code-block:: bash
 
-   osprey deploy scaffold
+   osprey scaffold ci
 
 Two files appear:
 
@@ -422,17 +423,15 @@ Two files appear:
    it authenticates the deploy job and is never part of the deployment's own
    environment, which is why it is not in ``env.required``.
 
-``profile/project/scripts/verify.sh``
-   The post-deploy health check, emitted into the profile's ``project/`` mirror.
-   Every build copies that mirror onto the project root, so it arrives as
-   ``scripts/verify.sh`` in the built project.
+``scripts/verify.sh``
+   The post-deploy health check, at the repository root.
 
-Re-run ``osprey deploy scaffold`` whenever the ``deploy:`` block changes. It is
+Re-run ``osprey scaffold ci`` whenever the ``deploy:`` block changes. It is
 safe to re-run: a file whose content already matches is left untouched, and a
 file the scaffolder did not write is reported and left alone unless you pass
 ``--force``.
 
-``ci-extra.yml``, which ``osprey profile new`` created in Step 1, is the
+``ci-extra.yml``, which ``osprey init`` created in Step 1, is the
 facility's own include point. The pipeline includes it after everything the
 scaffolder emits, so a job you add there can also override a scaffolded job by
 redefining it under the same name. Nothing ever regenerates that file.
@@ -443,11 +442,11 @@ Step 8 — Build the project
 
 .. code-block:: bash
 
-   osprey build demo-facility profile/
+   osprey build
 
-Because the profile is nested in a facility repository, the build renders into
-``build/demo-facility/`` — from whichever directory you run it. Watch for these
-lines in the output:
+``osprey build`` walks up to the repository's ``profile.yml`` and renders
+``build/`` from it, from whichever directory inside the repository you run it.
+Watch for these lines in the output:
 
 * ``Injected 1 profile service(s) for deploy`` — ``facility-mcp`` was picked up.
 * ``Injected Virtual Accelerator soft-IOC (CA port 5064)``.
@@ -458,7 +457,7 @@ Confirm the service list is exactly the three you expect:
 
 .. code-block:: bash
 
-   grep -A3 '^deployed_services:' build/demo-facility/config.yml
+   osprey config --rendered | grep -A3 '^deployed_services:'
 
 It should read ``openobserve``, ``facility-mcp``, ``virtual_accelerator``.
 
@@ -468,28 +467,27 @@ Step 9 — Deploy and check
 
 .. code-block:: bash
 
-   cd build/demo-facility
-   osprey deploy up -d
+   osprey up -d
 
 .. note::
 
    Running OSPREY from a **source checkout** rather than a released install?
-   Add ``--dev`` — ``deploy up`` otherwise refuses, because a container built
+   Add ``--dev`` — ``osprey up`` otherwise refuses, because a container built
    from PyPI would run different code than your checkout, and ``--dev`` builds
    the image from the checkout instead; see :doc:`deploy-project` for that
    workflow.
 
 The first run is slow: the virtual accelerator and the facility's own image are
-both built locally. When the containers are up, ``osprey deploy up`` runs
+both built locally. When the containers are up, ``osprey up`` runs
 ``scripts/verify.sh`` itself and prints a summary of the published endpoints.
 
 .. code-block:: bash
 
-   osprey deploy status
+   osprey status
 
-Read the lines *above* the status table first. A stale-render warning there
-means the project was rendered from an older profile than the one on disk now,
-and the fix is ``osprey build --force``, not a restart.
+Read the lines *above* the status table first. A drift report there means
+``build/`` was rendered from an older profile than the one on disk now, and the
+fix is ``osprey build``, not a restart.
 
 You can run the health check by hand at any time, and it is worth doing once
 before you trust it:
@@ -511,15 +509,15 @@ The walkthrough above is the local path. The pipeline in ``.gitlab-ci.yml``
 takes the same profile through three stages:
 
 **validate** runs on every commit and needs no credentials. It runs
-``osprey profile validate``, then ``osprey build`` with ``--skip-lifecycle
+``osprey validate``, then ``osprey build`` with ``--skip-lifecycle
 --skip-deps`` — CI has no container runtime for post-build hooks, and nothing
 there runs the agent, so its virtual environment would be dead weight. The
-rendered project is published as an artifact so a reviewer can see exactly what
-the commit produces.
+render is published as an artifact so a reviewer can see exactly what the
+commit produces.
 
 **images** builds one image per facility-owned service that carries a
 Dockerfile — here, just ``facility-mcp``. The build context is the service
-directory in the *profile*, not the rendered copy. Every build pushes a
+directory in the *source zone*, not the rendered copy. Every build pushes a
 commit-SHA tag; only the default branch moves ``:latest``, so a feature branch
 can never reach the deploy host by accident.
 
@@ -530,13 +528,12 @@ stack reproducible from git alone:
 
 .. code-block:: bash
 
-   osprey build demo-facility profile/profile.yml --force
-   osprey deploy render-env-production --project build/demo-facility \
-       --output build/demo-facility/.env.production
-   osprey deploy up -d --project build/demo-facility
+   osprey build
+   osprey users env-production --output .env.production
+   osprey up -d
 
-``render-env-production`` writes the env file every per-user web-terminal
-container runs with, from the deploy host's own ``profile/.env``. Passing
+``osprey users env-production`` writes the env file every per-user web-terminal
+container runs with, from the deploy host's own ``.env``. Passing
 ``--output`` is not optional: without it the command writes the assembled
 secrets to stdout, which in a pipeline is the job log. ``--output`` also creates
 the file at mode ``0600`` from its first byte, which a shell redirect would not.
@@ -545,19 +542,20 @@ the file at mode ``0600`` from its first byte, which a shell redirect would not.
 Changing something later
 ========================
 
-The loop is always the same: edit the profile, rebuild, redeploy. Run it from
-the repository root, not from the built project:
+The loop is always the same: edit the profile, rebuild, redeploy. Run it
+anywhere inside the repository:
 
 .. code-block:: bash
 
-   osprey build demo-facility profile/ --force
-   cd build/demo-facility && osprey deploy up -d
+   osprey set connector=epics          # or edit profile.yml by hand
+   osprey build
+   osprey up -d
 
-``--force`` re-renders everything the framework owns and preserves what you own:
-the project's ``.env``, ``_agent_data/``, and its git history. The profile
-directory itself is never touched by a build.
+Or in one step, ``osprey up --build -d``. Every build re-renders everything the
+framework owns and preserves what you own: ``.env``, ``var/``, and the
+repository's git history. The source zone itself is never touched by a build.
 
-If you changed the ``deploy:`` block, run ``osprey deploy scaffold`` again first
+If you changed the ``deploy:`` block, run ``osprey scaffold ci`` again first
 so the pipeline and health check match the new coordinates.
 
 
@@ -580,7 +578,7 @@ and let the OSPREY agent work from it. From the repository root:
        of a framework artifact.
 
    :doc:`deploy-project`
-       The ``osprey deploy`` reference: service configuration, compose template
+       The container-deployment reference: service configuration, compose template
        variables, image overrides, and the ``--dev`` workflow.
 
    :doc:`multi-user`

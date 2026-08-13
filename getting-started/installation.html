@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -506,12 +506,12 @@ project’s <code class="docutils literal notranslate"><span class="pre">config.
 <span class="w">  </span><span class="nt">cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.146&quot;</span><span class="w">   </span><span class="c1"># exact version, no semver ranges</span>
 </pre></div>
 </div>
-<p>When set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code> and the web terminal launch the pinned
+<p>When set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> and the web terminal launch the pinned
 version via <code class="docutils literal notranslate"><span class="pre">npx</span> <span class="pre">-y</span> <span class="pre">&#64;anthropic-ai/claude-code&#64;&lt;version&gt;</span></code> instead of the
 globally-installed <code class="docutils literal notranslate"><span class="pre">claude</span></code> binary. The first run downloads the package;
 subsequent runs hit the npx cache. Use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> to confirm the pin
 is being honored. To temporarily bypass the pin for debugging, run
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span> <span class="pre">--no-pin</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span> <span class="pre">--no-pin</span></code>.</p>
 </section>
 </section>
 <section id="step-3-install-python-tools">
@@ -587,15 +587,14 @@ Other providers</label><div class="sd-tab-content docutils">
 <p>Using <code class="docutils literal notranslate"><span class="pre">bash</span></code> instead of <code class="docutils literal notranslate"><span class="pre">zsh</span></code>? Replace <code class="docutils literal notranslate"><span class="pre">~/.zshrc</span></code> with <code class="docutils literal notranslate"><span class="pre">~/.bashrc</span></code>.</p>
 </div>
 <div class="important admonition">
-<p class="admonition-title">Where the key lives once you build a project</p>
-<p>A shell export reaches a <strong>build profile</strong> once: when the profile is created,
-either by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> or by your first <code class="docutils literal notranslate"><span class="pre">--preset</span></code> build. From then
-on the profile’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code> is the key’s home — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives each
-project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from it and never re-reads your shell, so a key exported
-<em>after</em> the profile exists does not get in.</p>
-<p>Keep the export for host-local runs and for seeding that first build; put the
-key in the profile’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code> — <code class="docutils literal notranslate"><span class="pre">profile/.env</span></code> in a facility repository
-— for anything you want to survive a rebuild. See <a class="reference internal" href="../how-to/build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
+<p class="admonition-title">Where the key lives once you create a deployment</p>
+<p>A shell export reaches a <strong>deployment repository</strong> once: when <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
+creates it. From then on the repository’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code> is the key’s home —
+builds and deploys read it and never re-read your shell, so a key exported
+<em>after</em> the repository exists does not get in.</p>
+<p>Keep the export for host-local runs and for seeding that first repository;
+put the key in the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> for anything you want to survive a
+rebuild. See <a class="reference internal" href="../how-to/build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
 </div>
 </section>
 <section id="step-5-install-osprey">

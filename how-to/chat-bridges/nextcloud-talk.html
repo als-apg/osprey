@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -574,7 +574,7 @@ part of its URL: in <code class="docutils literal notranslate"><span class="pre"
 <td><p>The trigger to fire. Filled in for you from the profile block above.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code></p></td>
-<td><p>Shared secret for talking to the dispatcher. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>
+<td><p>Shared secret for talking to the dispatcher. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
 generates it when unset.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DISPATCH_WORKER_TOKEN</span></code></p></td>
@@ -669,7 +669,7 @@ the <strong>profile’s</strong> <code class="docutils literal notranslate"><spa
 </div>
 <p><strong>4. Bring the stack up.</strong> The bridge is registered in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>, so
 it starts with everything else:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w">        </span><span class="c1"># add --dev to bake in a local osprey checkout</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">        </span><span class="c1"># add --dev to bake in a local osprey checkout</span>
 </pre></div>
 </div>
 <p>Then mention the bot in one of the listed rooms and ask it something. If nothing

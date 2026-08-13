@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -545,52 +545,52 @@ exactly as it does the mock or a real machine; only the backend changes.</p>
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
 <p>The Control Assistant stack ships pointed at the Virtual Accelerator and
 <strong>already deploys</strong> it: the preset’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> block renders a
-compose service, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> brings the soft-IOC up alongside the
+compose service, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings the soft-IOC up alongside the
 rest of the stack and the connector is already talking to it. There is nothing
 to switch on.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w">   </span><span class="c1"># brings up the soft-IOC with the rest of the stack</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">   </span><span class="c1"># brings up the soft-IOC with the rest of the stack</span>
 osprey<span class="w"> </span>web<span class="w">         </span><span class="c1"># the agent talks to real Channel Access</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> brings up more than the soft-IOC. Because the preset also
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up more than the soft-IOC. Because the preset also
 declares a <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block, the deploy stands up the machine’s <strong>archive</strong>
 next to it — a MongoDB store and a recorder service — and seeds it before the
 rest of the stack starts. See <a class="reference internal" href="#the-archive">The archive</a> below.</p>
-<p>The very first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> that includes the Virtual Accelerator
+<p>The very first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> that includes the Virtual Accelerator
 builds its container image from source (compiling PyAT and the soft-IOC), so
 expect it to take several minutes — it is building, not hanging. Later deploys
 reuse the image.</p>
-<p>If your project was built from an older preset (or a profile that sets it),
+<p>If your deployment came from an older preset (or a profile that sets it),
 point it at the soft-IOC explicitly:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<span class="w"> </span>virtual_accelerator
-osprey<span class="w"> </span>deploy<span class="w"> </span>up
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>virtual_accelerator
+osprey<span class="w"> </span>build
+osprey<span class="w"> </span>up
 </pre></div>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The second command is what makes a switch take effect for <strong>deployed
-services</strong>. <code class="docutils literal notranslate"><span class="pre">set-control-system</span></code> edits the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, but
-services do not read that file directly — each gets a copy staged into its
-own directory at deploy time. A purely local <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> run picks the
-change up immediately; anything already running in a container does not,
-until you re-deploy. No image rebuild is involved either way.</p>
+<p>All three steps matter. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> writes the setting into
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> carries it into <code class="docutils literal notranslate"><span class="pre">build/</span></code>, where each
+service gets its own copy of the rendered config; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> starts what
+was just rendered. Anything already running in a container keeps the old
+setting until you restart it. No image rebuild is involved.</p>
 </div>
-<p><strong>The archive has to come first.</strong> On a project built from the
+<p><strong>The archive has to come first.</strong> On a deployment created from the
 <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset the switch just works: the preset declares where the
-archive lives, so the project already reads a real store. On a project with no
-archive of its own — one still reading the mock archiver, which makes its history
-up as it is asked for it — <code class="docutils literal notranslate"><span class="pre">set-control-system</span> <span class="pre">virtual_accelerator</span></code>
-<strong>refuses</strong>, and says what to do instead: point <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at a store this
-deployment writes (<code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> for the store the preset deploys), or
-stay on <code class="docutils literal notranslate"><span class="pre">mock</span></code> for an honestly storeless project. <a class="reference internal" href="#the-honesty-rule">The honesty rule</a> below
-explains why.</p>
+archive lives, so the deployment already reads a real store. On one with no
+archive of its own — still reading the mock archiver, which makes its history
+up as it is asked for it — the build <strong>refuses</strong> the profile, and says what to
+do instead: point <code class="docutils literal notranslate"><span class="pre">archiver.type</span></code> at a store this deployment writes
+(<code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> for the store the preset deploys), or stay on <code class="docutils literal notranslate"><span class="pre">mock</span></code> for
+an honestly storeless deployment. <a class="reference internal" href="#the-honesty-rule">The honesty rule</a> below explains why.</p>
 </section>
 <section id="switching-back-to-the-mock">
 <h2>Switching back to the mock<a class="headerlink" href="#switching-back-to-the-mock" title="Link to this heading">#</a></h2>
 <p>An environment with no containers to depend on can run the tutorial on the
 in-process simulation instead:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<span class="w"> </span>mock
-osprey<span class="w"> </span>deploy<span class="w"> </span>up
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>mock
+osprey<span class="w"> </span>build
+osprey<span class="w"> </span>up
 </pre></div>
 </div>
 <p>Read one consequence before you do: <strong>scans become browse-only.</strong> The mock
@@ -682,7 +682,7 @@ channels; it is not a closed allowlist here.</p>
 <section id="the-archive">
 <h2>The archive<a class="headerlink" href="#the-archive" title="Link to this heading">#</a></h2>
 <p>A simulated machine still needs somewhere to keep what its channels did, and the
-stack deploys one. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> brings up two more containers beside the
+stack deploys one. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up two more containers beside the
 soft-IOC:</p>
 <ul class="simple">
 <li><p><strong>the store</strong> — a MongoDB service (<code class="docutils literal notranslate"><span class="pre">archiver-mongodb</span></code> on the deployment’s
@@ -730,7 +730,7 @@ these defaults.</p>
 <p>Every number above is a knob in the build profile’s <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block —
 <code class="docutils literal notranslate"><span class="pre">retention_days</span></code>, <code class="docutils literal notranslate"><span class="pre">hot_span_hours</span></code>, the cadences — not a constant in the
 code. Changing one is a profile edit and a rebuild; the next
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> notices the archive no longer describes what the profile
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> notices the archive no longer describes what the profile
 asks for and reseeds it. See <a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
 </div>
 </section>
@@ -772,7 +772,7 @@ caught by disagreeing with the machine it claims to describe.</p>
 a <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block (which is what makes the store exist) and set
 <code class="docutils literal notranslate"><span class="pre">config:</span> <span class="pre">{archiver.type:</span> <span class="pre">mongodb_archiver}</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> / <code class="docutils literal notranslate"><span class="pre">restart</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> / <code class="docutils literal notranslate"><span class="pre">restart</span></code></p></td>
 <td><p>The deploy aborts before starting anything, and names the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
 edit: set <code class="docutils literal notranslate"><span class="pre">type:</span></code> under <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> to a connector reading a store
 this stack writes, or set <code class="docutils literal notranslate"><span class="pre">type:</span></code> under <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> back to
@@ -782,10 +782,10 @@ this stack writes, or set <code class="docutils literal notranslate"><span class
 <td><p>The server refuses to start on such a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, so a file
 hand-edited after the build cannot quietly bring the pairing back.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">set-control-system</span> <span class="pre">virtual_accelerator</span></code></p></td>
-<td><p>Refused <em>before</em> the write, because this command can create the pairing:
-it would switch the project onto the simulated machine while its archiver
-stays the one that invents history.</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code></p></td>
+<td><p>Reports the same refusal without building anything, so the pairing is
+caught the moment it is written into <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> rather than at
+deploy time.</p></td>
 </tr>
 </tbody>
 </table>

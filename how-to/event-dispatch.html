@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -962,10 +962,10 @@ config into your project, and appends both to <code class="docutils literal notr
 <section id="bring-it-up">
 <h2>Bring It Up<a class="headerlink" href="#bring-it-up" title="Link to this heading">#</a></h2>
 <p>Both services are registered in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>, so they come up with the
-rest of the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> auto-generates both bearer tokens into
+rest of the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> auto-generates both bearer tokens into
 the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> when they are unset, then derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
 from it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w">        </span><span class="c1"># add --dev to bake in a local osprey checkout</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">        </span><span class="c1"># add --dev to bake in a local osprey checkout</span>
 </pre></div>
 </div>
 <p>The first build is slow: both images install Node and the agent CLI the
@@ -974,7 +974,7 @@ worker runs on.</p>
 <summary class="sd-summary-title sd-card-header">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-package" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.878.392 5.25 3.045c.54.314.872.89.872 1.514v6.098a1.75 1.75 0 0 1-.872 1.514l-5.25 3.045a1.75 1.75 0 0 1-1.756 0l-5.25-3.045A1.75 1.75 0 0 1 1 11.049V4.951c0-.624.332-1.201.872-1.514L7.122.392a1.75 1.75 0 0 1 1.756 0ZM7.875 1.69l-4.63 2.685L8 7.133l4.755-2.758-4.63-2.685a.248.248 0 0 0-.25 0ZM2.5 5.677v5.372c0 .09.047.171.125.216l4.625 2.683V8.432Zm6.25 8.271 4.625-2.683a.25.25 0 0 0 .125-.216V5.677L8.75 8.432Z"></path></svg></span><span class="sd-summary-text">Image build &amp; overrides</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <p class="sd-card-text">The two services use two different images, both built locally on first
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>:</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>:</p>
 <ul class="simple">
 <li><p class="sd-card-text">the <strong>dispatcher</strong> gets its own small image
 (<code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-dispatch:local</span></code>, from
@@ -992,7 +992,7 @@ override must be a project-style image containing <code class="docutils literal 
 a dispatch image:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">OSPREY_DISPATCH_IMAGE</span><span class="o">=</span>my-registry/osprey-dispatch:dev<span class="w"> </span><span class="se">\</span>
 <span class="nv">OSPREY_WORKER_IMAGE</span><span class="o">=</span>my-registry/my-project:dev<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>osprey<span class="w"> </span>deploy<span class="w"> </span>up
+<span class="w">  </span>osprey<span class="w"> </span>up
 </pre></div>
 </div>
 <p class="sd-card-text">Inside the compose network the worker is reachable as
@@ -1142,7 +1142,7 @@ stack never exercises it; the behaviour is covered by
 </details></section>
 <section id="authentication">
 <h2>Authentication<a class="headerlink" href="#authentication" title="Link to this heading">#</a></h2>
-<p>Two bearer tokens guard the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> auto-generates a strong
+<p>Two bearer tokens guard the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> auto-generates a strong
 random value for each when it is unset (and logs where it wrote it), so a
 containerized deploy needs no token editing. A generated value is written into
 the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> and derived from there into the project’s, so a
@@ -1173,7 +1173,7 @@ handoff.</p>
 <dl class="simple">
 <dt><a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a></dt><dd><p>Container deployment mechanics for all Osprey services.</p>
 </dd>
-<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Full <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> reference.</p>
+<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Full <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and lifecycle-verb reference.</p>
 </dd>
 </dl>
 </div>

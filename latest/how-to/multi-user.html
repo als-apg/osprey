@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -924,7 +924,7 @@ window.addEventListener("load", load);</script>
 <p>The multi-user Web Terminal turns one OSPREY project into a small shared
 product: a landing page where each member of your team picks their name, and a
 private, containerized Web Terminal behind each card — all served from a single
-host, brought up with a single <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>.</p>
+host, brought up with a single <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -956,8 +956,9 @@ containers, no proxy, ready in seconds at <code class="docutils literal notransl
 the fastest way to try OSPREY and the right tool whenever one person sits in
 front of one machine; <a class="reference internal" href="web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> covers it.</p>
 <p>The multi-user stack is strictly opt-in. It lives in a
-<code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block in the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, read only by
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> (and validated by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code>).
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block in the deployment’s built <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, read
+only by the lifecycle verbs (and validated by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code>).
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> never looks at it — so a project that carries the block (the
 <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships one) still runs single-user exactly as
 before. Reach for the multi-user stack when several people need their own
@@ -978,7 +979,7 @@ container, plus two named volumes that belong to the <em>user</em>, not the cont
 a workspace volume (the files the agent reads and writes) and an
 agent-configuration volume. Upgrading or rebuilding an image replaces the
 container but never touches those volumes, so a user’s files and settings
-survive every redeploy. On first start, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> seeds each user’s
+survive every redeploy. On first start, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds each user’s
 configuration volume automatically — no per-user setup steps.</p>
 <p><strong>A persona is a capability tier — and a whole project.</strong> Users map to
 <em>personas</em>, and each persona is its own rendered OSPREY project with its own
@@ -987,8 +988,9 @@ a property of a project, the tiers are genuinely different agents — not one
 agent with a UI toggle. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships two: a
 <em>read-only</em> tier and a <em>read-write</em> tier — the same agent and tool surface,
 differing on exactly one config key (<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>).
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> auto-renders any persona project that doesn’t exist yet
-and builds its container image locally, so no registry or CI is involved.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one persona project per delta in <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each one’s container image locally, so no registry or CI is
+involved.</p>
 <p><strong>One front door.</strong> An nginx reverse proxy serves the landing page and proxies
 <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> to that user’s container. The per-user containers are pinned to
 the loopback interface, so nginx is the only network path in. The landing page
@@ -1007,7 +1009,7 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">image_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span><span class="w">       </span><span class="c1"># deploy up builds persona images itself</span>
+<span class="w">    </span><span class="nt">image_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span><span class="w">       </span><span class="c1"># osprey up builds persona images itself</span>
 <span class="w">    </span><span class="nt">nginx_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9080</span><span class="w">          </span><span class="c1"># the landing page</span>
 <span class="w">    </span><span class="nt">web_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9091</span><span class="w">       </span><span class="c1"># per-user ports: base + user index</span>
 <span class="w">    </span><span class="nt">artifact_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9291</span>
@@ -1027,22 +1029,22 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <span class="w">    </span><span class="nt">personas</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">readonly</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-readonly</span>
-<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">../control-assistant-readonly</span>
+<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-readonly</span>
 <span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readonly.yml</span>
 <span class="w">      </span><span class="nt">readwrite</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-readwrite</span>
-<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">../control-assistant-readwrite</span>
+<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-readwrite</span>
 <span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
 </pre></div>
 </div>
-<p>Each <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> names that persona’s <strong>delta</strong> inside the build
-profile this project was rendered from — the file
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> writes under <code class="docutils literal notranslate"><span class="pre">personas/</span></code> and points the catalog
-at. The delta merges over that profile, so every persona shares one data
+<p>Each <code class="docutils literal notranslate"><span class="pre">build_profile</span></code> names that persona’s <strong>delta</strong> in the deployment
+repository — the file <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes under <code class="docutils literal notranslate"><span class="pre">personas/</span></code> and
+points the catalog at. The delta merges over <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, so every
+persona shares one data
 tree, one set of secrets, and one set of your own artifacts. A bundled
 preset name, an absolute path, or a path outside <code class="docutils literal notranslate"><span class="pre">personas/</span></code> is
 rejected by both <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">users</span></code> list is the roster — the single source of truth for who
 exists. A bare name (<code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">carol</span></code>) resolves to <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> —
 read-only, so a hastily added user lands on the safe side; an entry with
@@ -1065,14 +1067,14 @@ deployment.</p>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">
 Day-to-day operations</label><div class="sd-tab-content docutils">
-<p>The roster drives everything: edit it, then let <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>
+<p>The roster drives everything: edit it, then let the lifecycle verbs
 reconcile reality against it.</p>
-<p>Edit it in the <strong>build profile</strong> — the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.users</span></code>
-entry under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — and rebuild the project with
-<code class="docutils literal notranslate"><span class="pre">--force</span></code>. A roster change made directly in the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-deploys, but the next build overwrites it. Rebuilding also seeds an empty
-<code class="docutils literal notranslate"><span class="pre">web-terminal-context/&lt;user&gt;/</span></code> slot in the profile for each new
-operator, which is where their per-user context goes.</p>
+<p>Edit it in the <strong>source profile</strong> — the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.users</span></code>
+entry under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — and rebuild. A roster change
+made directly in the built <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> deploys, but the next
+build overwrites it. Rebuilding also seeds an empty
+<code class="docutils literal notranslate"><span class="pre">web-terminal-context/&lt;user&gt;/</span></code> slot for each new operator, which is
+where their per-user context goes.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 34.0%" />
@@ -1086,89 +1088,90 @@ operator, which is where their per-user context goes.</p>
 <tbody>
 <tr class="row-even"><td><p><strong>Add a user</strong></p></td>
 <td><p>Add a roster entry with the next free <code class="docutils literal notranslate"><span class="pre">index</span></code>, then
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>. The new container comes up with freshly
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The new container comes up with freshly
 allocated ports and a seeded workspace; existing users are
 untouched.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Reseed workspaces</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">seed</span> <span class="pre">[USER]</span></code> re-applies the seeded configuration
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">seed</span> <span class="pre">[USER]</span></code> re-applies the seeded configuration
 for one user, or for everyone when <code class="docutils literal notranslate"><span class="pre">USER</span></code> is omitted.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Remove one user</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">decommission</span> <span class="pre">USER</span></code> stops and removes the user’s
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span> <span class="pre">USER</span></code> stops and removes the user’s
 container. Their volumes are <strong>retained</strong> by default; add
 <code class="docutils literal notranslate"><span class="pre">--archive</span></code> to tarball them into <code class="docutils literal notranslate"><span class="pre">web_terminal_archives/</span></code>
 first, or <code class="docutils literal notranslate"><span class="pre">--purge</span></code> to delete them outright.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Clean up leftovers</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">prune</span></code> removes workspaces of users no longer on
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">prune</span></code> removes workspaces of users no longer on
 the roster. <code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> shows what it would do first, and the
 same <code class="docutils literal notranslate"><span class="pre">--archive</span></code> / <code class="docutils literal notranslate"><span class="pre">--purge</span></code> policy applies.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Tear it all down</strong></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">nuke</span></code> removes the entire multi-user stack —
-containers, volumes, and images — after a typed confirmation.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code> wipes the whole deployment back to a fresh state —
+containers, volumes, and images, every user’s workspace included —
+after a typed confirmation. It prints the removal plan first;
+<code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> stops there.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">status</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">down</span></code> work exactly as they
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> work exactly as they
 do for any other OSPREY service stack.</p>
 </div>
 </div>
 </section>
 <section id="run-the-two-persona-stack">
 <h2>Run the two-persona stack<a class="headerlink" href="#run-the-two-persona-stack" title="Link to this heading">#</a></h2>
-<p>From a fresh checkout, build a project from the bundled preset, then bring the
-stack up from inside it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Render the project from the control-assistant preset</span>
-osprey<span class="w"> </span>build<span class="w"> </span>control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+<p>From a fresh checkout, create a deployment repository from the bundled preset,
+then build and bring the stack up from inside it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Create the deployment repo from the control-assistant preset</span>
+osprey<span class="w"> </span>init<span class="w"> </span>control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
 
-<span class="c1"># 2. From inside the project, bring the whole stack up</span>
+<span class="c1"># 2. From inside the repo, render it and bring the whole stack up</span>
 <span class="nb">cd</span><span class="w"> </span>control-assistant
-osprey<span class="w"> </span>deploy<span class="w"> </span>up
+osprey<span class="w"> </span>build
+osprey<span class="w"> </span>up
 </pre></div>
 </div>
 <p>That is the entire setup: the preset ships the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block
 above, so no extra flags or configuration are needed. Alongside the web tier,
-<code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> brings up everything else the control-assistant tutorial deploys
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the scan services, and the supporting
 PostgreSQL/OpenObserve containers — so the two personas open onto a working
 control room, not an empty shell.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The personas’ agent needs your provider credentials at run time. Add them
-to the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> before <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> (the preset defaults
-to Anthropic — set <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code>). If you chose a different
-provider at build time (<code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">provider=...</span></code>), that choice is recorded in
-the project and forwarded automatically to every auto-rendered persona
-project.</p>
+to the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> before <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> (the preset defaults
+to Anthropic — set <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code>). If you chose a different provider
+(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">provider=...</span></code>), that choice is recorded in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and
+carried into every persona project the build renders.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Running from a <strong>source checkout</strong> of the OSPREY repository rather than a
-released install? Add <code class="docutils literal notranslate"><span class="pre">--dev</span></code> to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>. The images install
+released install? Add <code class="docutils literal notranslate"><span class="pre">--dev</span></code> to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. The images install
 the framework from PyPI by default, and a source tree’s version isn’t
 published there; <code class="docutils literal notranslate"><span class="pre">--dev</span></code> bakes your local checkout into the images
 instead.</p>
 </div>
-<section id="what-osprey-deploy-up-does-for-the-web-tier">
-<h3>What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> does for the web tier<a class="headerlink" href="#what-osprey-deploy-up-does-for-the-web-tier" title="Link to this heading">#</a></h3>
+<section id="what-osprey-build-and-osprey-up-do-for-the-web-tier">
+<h3>What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> do for the web tier<a class="headerlink" href="#what-osprey-build-and-osprey-up-do-for-the-web-tier" title="Link to this heading">#</a></h3>
 <ol class="arabic simple">
-<li><p><strong>Auto-renders the two persona projects.</strong> For any persona whose project
-directory does not yet exist, <code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> renders it from that persona’s
-<strong>delta</strong> in the build profile beside your project — landing it as a sibling
-of the main project (<code class="docutils literal notranslate"><span class="pre">../control-assistant-readonly</span></code> and
-<code class="docutils literal notranslate"><span class="pre">../control-assistant-readwrite</span></code>). Because each delta merges over that
-profile’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, both personas share its data tree, secrets and
-artifacts, and inherit the choices recorded there (provider, model): edit
-the profile once and both terminals pick the change up from the file rather
-than from a replayed command line. An already-rendered project is
-user-owned and never overwritten; a half-written one errors with a
-remediation hint rather than being rebuilt over.</p></li>
-<li><p><strong>Builds each persona’s image.</strong> In the preset’s local mode
-(<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> builds each persona’s image
-(tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-&lt;persona&gt;:local</span></code>) itself from that rendered project —
+<li><p><strong>The build renders the two persona projects.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one
+project per <strong>delta</strong> in <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, into the build zone beside the main
+render (<code class="docutils literal notranslate"><span class="pre">build/control-assistant-readonly</span></code> and
+<code class="docutils literal notranslate"><span class="pre">build/control-assistant-readwrite</span></code>). Because each delta merges over
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, both personas share its data tree, secrets and artifacts,
+and inherit the choices recorded there (provider, model): edit the profile
+once and both terminals pick the change up from the file rather than from a
+replayed command line. A start renders none of this — <code class="docutils literal notranslate"><span class="pre">build/</span></code> is the
+whole account of what will run — so a persona project missing at start time
+is reported as a stale or partial build, with a rebuild as the remedy.</p></li>
+<li><p><strong>The start builds each persona’s image.</strong> In the preset’s local mode
+(<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each persona’s image
+(tagged <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-&lt;persona&gt;:local</span></code>) from that rendered project —
 no registry, no CI.</p></li>
 <li><p><strong>Brings up the web tier.</strong> An nginx reverse proxy (container <code class="docutils literal notranslate"><span class="pre">ca-nginx</span></code>)
 serves the landing page on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:9080</span></code>, and one Web Terminal
@@ -1177,8 +1180,8 @@ container comes up per user — <code class="docutils literal notranslate"><span
 <code class="docutils literal notranslate"><span class="pre">ca-</span></code> prefix is the preset’s <code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code>; change it for your
 site.)</p></li>
 </ol>
-<p>Stop the stack again with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">down</span></code>; check on it with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">status</span></code>.</p>
+<p>Stop the stack again with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>; check on it with
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code>.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The web stack runs with host networking. On Linux,
@@ -1187,8 +1190,9 @@ site.)</p></li>
 Desktop (Settings → Resources → Network) so the stack’s ports reach your
 browser.</p>
 <p>If another OSPREY deployment already occupies a service port on this host,
-change it in the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (e.g.
-<code class="docutils literal notranslate"><span class="pre">services.postgresql.port_host</span></code>) before <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>.</p>
+change it in the profile and rebuild — for example
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.services.postgresql.port_host=5433</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">build</span></code> —
+before <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
 </div>
 </section>
 <section id="the-landing-page">
@@ -1286,7 +1290,7 @@ clicking a card on the landing page opens that terminal, and anyone who can
 reach the nginx port can click any card. That posture suits a <strong>single trusted
 host</strong> — a workstation or control-room machine you already trust — and nothing
 beyond it. It is the walkthrough’s choice, not a limit of the stack: it keeps
-one <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> on a laptop free of certificates and identity
+one <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> on a laptop free of certificates and identity
 providers. No preset ships with login enabled, so this is something you turn on
 deliberately.</p>
 <p>Set <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> and every request under <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> — pages, APIs and
@@ -1358,7 +1362,7 @@ token exchange that refuses for no visible reason.</p>
 you, since you did not choose those characters. If yours contains a <code class="docutils literal notranslate"><span class="pre">$</span></code>,
 issue a new one rather than trying to escape it — escaping is not portable
 between container runtimes, so there is no spelling that works everywhere.</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> refuses to start a stack whose secrets would be corrupted
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start a stack whose secrets would be corrupted
 this way and names the offending variables, so you find out before the
 deployment is running rather than after someone cannot log in.</p>
 <p>The same rule extends to each user’s <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>, which travels a
@@ -1373,7 +1377,7 @@ session stays valid, in <strong>whole seconds</strong> (default <code class="doc
 <code class="docutils literal notranslate"><span class="pre">auth.image</span></code> names the service’s image, which is <strong>required</strong> when
 <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code> — your CI publishes that image the same way it
 publishes the terminal images. In <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> mode
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> builds it for you and <code class="docutils literal notranslate"><span class="pre">auth.image</span></code> is not needed.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds it for you and <code class="docutils literal notranslate"><span class="pre">auth.image</span></code> is not needed.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p><code class="docutils literal notranslate"><span class="pre">auth.port</span></code> and <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> must be plain positive integers.
@@ -1435,7 +1439,7 @@ where you accept that risk is the only other case for it.</p>
 </section>
 <section id="passwords-and-where-they-live">
 <h3>Passwords, and where they live<a class="headerlink" href="#passwords-and-where-they-live" title="Link to this heading">#</a></h3>
-<p>In password mode <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> makes sure every user on the roster has a
+<p>In password mode <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> makes sure every user on the roster has a
 password hash before it starts anything, and aborts before a single container
 starts if it cannot — an unwritable file is caught here rather than becoming a
 stack nobody can log in to. The same check covers the keys used to sign session
@@ -1463,7 +1467,7 @@ authenticated deployment refuses to render when two roster names collide under
 it (<code class="docutils literal notranslate"><span class="pre">alice-b</span></code> and <code class="docutils literal notranslate"><span class="pre">alice_b</span></code>), or when a name falls outside
 <code class="docutils literal notranslate"><span class="pre">[a-z0-9][a-z0-9_-]*</span></code>.</p>
 <p>To change a password later:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>passwd<span class="w"> </span>alice
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>users<span class="w"> </span>passwd<span class="w"> </span>alice
 </pre></div>
 </div>
 <p>It prompts (never echoing), rewrites that one hash, and restarts the
@@ -1485,8 +1489,8 @@ logout could be replayed until it expires on its own — within
 </div>
 <p>Removing someone needs care, because a credential can outlive the person’s
 account in three different ways:</p>
-<p><strong>Use</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">decommission</span> <span class="pre">alice</span></code> <strong>, not a hand-edit.</strong> Deleting a
-roster entry and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> removes alice’s container, and the
+<p><strong>Use</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span> <span class="pre">alice</span></code> <strong>, not a hand-edit.</strong> Deleting a
+roster entry and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> removes alice’s container, and the
 authentication service stops answering for a name that is no longer on the
 roster — but her hash stays in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>. Add the name back months later and
 her old password works again. <code class="docutils literal notranslate"><span class="pre">decommission</span></code> (or <code class="docutils literal notranslate"><span class="pre">prune</span></code>, for names already
@@ -1494,7 +1498,7 @@ edited out) is what actually retires the credential.</p>
 <p><strong>A plaintext password in</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>survives decommission.</strong> If you seeded
 alice’s password by putting <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_ALICE</span></code> in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
 decommissioning her clears the hash but leaves that line — and the next
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> for a new alice hashes it straight back in, handing the new
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> for a new alice hashes it straight back in, handing the new
 person the departed one’s password. The decommission warns you, but the warning
 scrolls past in a deploy log weeks before anyone reuses the name. <strong>Delete the</strong>
 <code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>line by hand when the person leaves.</strong></p>
@@ -1504,7 +1508,7 @@ authentication service when it actually removed a password entry — and an OIDC
 user has none. Their container is gone either way, so the stale route just
 fails; but if what you need is that person’s <em>session</em> closed now, run
 <code class="docutils literal notranslate"><span class="pre">decommission</span></code>.</p>
-<p>To turn login back off, set <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>.
+<p>To turn login back off, set <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.
 That re-renders nginx and the compose file, drops the authentication service,
 and returns the stack to the open posture described at the top of this section.
 <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is left in place, so turning login on again keeps everyone’s
@@ -1530,8 +1534,8 @@ companion panels, and theming.</p>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Deploy a Project</div>
-<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> lifecycle the multi-user stack rides on:
-up, status, down, and the service containers.</p>
+<p class="sd-card-text">The lifecycle the multi-user stack rides on: build, up, status, down,
+and the service containers.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a></div>
 </div>
@@ -1591,7 +1595,7 @@ up, status, down, and the service containers.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">How it works</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-config-block">The config block</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-two-persona-stack">Run the two-persona stack</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-osprey-deploy-up-does-for-the-web-tier">What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> does for the web tier</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-osprey-build-and-osprey-up-do-for-the-web-tier">What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> do for the web tier</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-landing-page">The landing page</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#two-sessions-two-write-postures">Two sessions, two write postures</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#logging-out-and-switching-users">Logging out and switching users</a></li>

@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -750,7 +750,7 @@ in the <code class="docutils literal notranslate"><span class="pre">watch</span>
 <p>All ingested and enhanced data lives in PostgreSQL. The core <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code> table stores one row per logbook entry with the normalized fields that every adapter produces — entry ID, timestamp, author, raw text, and a JSONB metadata column for facility-specific extras. Enhancement modules write their results either into columns on this same table (keywords, summaries) or into dedicated per-model tables (vector embeddings). The pgvector extension provides the <code class="docutils literal notranslate"><span class="pre">vector</span></code> column type and cosine-distance operators that power semantic search. Core tables and an embedding table for each configured model are created automatically by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code>, which reads <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> to determine which embedding tables to create. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">reembed</span></code> (re)creates and backfills a single model’s table on demand.</p>
 <div class="important admonition">
 <p class="admonition-title">pgvector requirement</p>
-<p>The <strong>pgvector</strong> extension is required for semantic search. It is automatically installed in the Osprey-managed PostgreSQL container (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>). For external databases, install it manually: <code class="docutils literal notranslate"><span class="pre">CREATE</span> <span class="pre">EXTENSION</span> <span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span> <span class="pre">vector;</span></code></p>
+<p>The <strong>pgvector</strong> extension is required for semantic search. It is automatically installed in the Osprey-managed PostgreSQL container (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>). For external databases, install it manually: <code class="docutils literal notranslate"><span class="pre">CREATE</span> <span class="pre">EXTENSION</span> <span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span> <span class="pre">vector;</span></code></p>
 </div>
 </section>
 </section>

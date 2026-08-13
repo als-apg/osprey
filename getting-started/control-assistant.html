@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -473,12 +473,14 @@ in detail — everything below builds directly on it.</p>
 <section id="step-1-build-the-project-and-bring-it-up">
 <h2>Step 1: Build the Project and Bring It Up<a class="headerlink" href="#step-1-build-the-project-and-bring-it-up" title="Link to this heading">#</a></h2>
 <p>Create a project from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
 <span class="nb">cd</span><span class="w"> </span>my-control-assistant
+osprey<span class="w"> </span>build
 </pre></div>
 </div>
-<p>As in Hello World, this writes <code class="docutils literal notranslate"><span class="pre">my-control-assistant-profile/</span></code> beside the
-project and builds from it; provider keys go in that directory’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
+<p>As in Hello World, this writes one repository whose <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the
+source and whose <code class="docutils literal notranslate"><span class="pre">build/</span></code> is the render; provider keys go in the repository’s
+<code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
 <p>No hardware is involved, so every example below is safe to run; hardware writes
 are still gated behind the human-approval prompt. Unlike <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, the
 preset ships a <strong>channel database</strong>, a <strong>seeded electronic logbook</strong>, and an
@@ -490,7 +492,7 @@ into — plus a set of sub-agents and operator skills.</p>
 dependencies. Subsequent builds are near-instant.</p>
 </div>
 <p>Then bring the stack up (this needs Docker or Podman):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up
 </pre></div>
 </div>
 <p>This starts the containers the preset declares: the Virtual Accelerator
@@ -700,14 +702,13 @@ see <a class="reference internal" href="../how-to/web-terminal/operate.html"><sp
 <p><strong>Choose a channel-finder strategy.</strong> The preset defaults to <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>
 mode, which scales to large facilities with thousands of channels. For a small
 facility (under ~1,000 channels) the <code class="docutils literal notranslate"><span class="pre">in_context</span></code> strategy can be simpler and
-faster. The strategy is a build-time choice, so select it when you build:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--set<span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context<span class="w"> </span>--force
+faster. The strategy is a build-time choice, so set it and rebuild:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
+osprey<span class="w"> </span>build
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">--force</span></code> re-renders the existing project directory. The <code class="docutils literal notranslate"><span class="pre">--set</span></code> value is
-written into <code class="docutils literal notranslate"><span class="pre">my-control-assistant-profile/profile.yml</span></code> first, so it stays in
-effect for every later build — you can also just edit that file instead.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> writes the value into <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, so it stays in effect for
+every later build — you can also just edit that file instead.</p>
 <p>See <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> for a comparison of the strategies.</p>
 <p><strong>Tune how much history the archive keeps.</strong> Two settings decide the store’s
 size and reach: <code class="docutils literal notranslate"><span class="pre">retention_days</span></code> (how far back it goes — 30 by default) and
@@ -715,7 +716,7 @@ size and reach: <code class="docutils literal notranslate"><span class="pre">ret
 48 by default; everything older is kept at 60 seconds). Both live in the
 <strong>profile</strong>, in its <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block, which is the one place the archive is
 described:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># my-control-assistant-profile/profile.yml</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
 <span class="nt">va_archiver</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">retention_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7</span><span class="w">        </span><span class="c1"># a week is plenty for a demo, and seeds faster</span>
 <span class="w">  </span><span class="nt">hot_span_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24</span>
@@ -727,21 +728,19 @@ longer matches what the profile asks for, says what changed, and reseeds it
 copy these keys into the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — the build writes that file
 from the block, and a second copy is free to disagree with the first.</p>
 <p><strong>Switch to real hardware.</strong> As in Hello World, moving to production is a
-configuration change, not a code change. Point the connectors at your facility in
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span><span class="w">            </span><span class="c1"># was: virtual_accelerator</span>
-
-<span class="nt">archiver</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span><span class="w">   </span><span class="c1"># was: mongodb_archiver</span>
+configuration change, not a code change. Point the connectors at your facility
+in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.archiver.type<span class="o">=</span>epics_archiver
 </pre></div>
 </div>
 <p>The archive this tutorial deploys is a <em>simulated</em> machine’s history, which is
 not what you want against hardware — so the archiver moves to your facility’s
 appliance at the same time as the control system.</p>
-<p>Because these are build-time inputs, regenerate the agent’s artifacts and relaunch:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>regen
-claude
+<p>Because these are build-time inputs, re-render the agent’s artifacts and
+relaunch:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
+osprey<span class="w"> </span>chat
 </pre></div>
 </div>
 <p>Your queries don’t change — “Read the current in the booster’s defocusing

@@ -468,7 +468,7 @@ neither a container runtime nor seeded data. Regenerate one recipe with
 
 - ``SCREENSHOTOPTS=--stack`` -- the ARIEL search/browse/create/status views.
   Builds the ``control-assistant`` tutorial project, brings up Postgres
-  (``osprey deploy up -d``), and seeds the logbook with
+  (``osprey up -d``), and seeds the logbook with
   ``osprey sim apply nominal --yes --now <anchor>``. Needs a container runtime
   and a free host port 5432. The ``--now`` anchor freezes the seeded dates, so
   repeat captures are byte-stable.

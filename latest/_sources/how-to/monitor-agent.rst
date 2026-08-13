@@ -35,7 +35,7 @@ it:
   OTLP; it does not care what receives it.
 - **Phase 2 — the local OpenObserve add-on (the scaffolded default).** A
   single-binary OpenObserve store deployed next to your project with
-  ``osprey deploy up``; all telemetry stays on the same host. This is the
+  ``osprey up``; all telemetry stays on the same host. This is the
   turn-key option when you have no existing observability stack.
 
 .. note::
@@ -128,7 +128,7 @@ default. If your project removed it, restore it:
 ---------------------------------------
 
 The OpenObserve root account doubles as the OTLP ingest credential. You do not
-have to set it yourself: the first ``osprey deploy up`` mints a strong
+have to set it yourself: the first ``osprey up`` mints a strong
 ``ZO_ROOT_USER_PASSWORD`` into the profile's ``.env`` automatically, and the
 project's ``.env`` is derived from there. Set the two variables yourself (in the
 profile's ``.env``) only if you want specific values — the same pair configures
@@ -145,7 +145,7 @@ the container **and** authenticates the agent's OTLP push, one source of truth:
 
 .. code-block:: bash
 
-   osprey deploy up        # brings up openobserve alongside your other services
+   osprey up        # brings up openobserve alongside your other services
 
 The UI is then available at ``http://localhost:5080`` (log in with the
 credentials above). Verify the service is recognized with ``osprey health``.

@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -493,7 +493,7 @@ pipelines, health checks, and automated workflows.</p>
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
 <li><p class="sd-card-text">What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> does and when to reach for it</p></li>
-<li><p class="sd-card-text">How project resolution works (<code class="docutils literal notranslate"><span class="pre">--project</span></code> → <code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code> → cwd)</p></li>
+<li><p class="sd-card-text">How deployment resolution works (nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, or <code class="docutils literal notranslate"><span class="pre">--repo</span></code>)</p></li>
 <li><p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">--json</span></code> flag for machine-readable output</p></li>
 <li><p class="sd-card-text">Exit codes and what each means</p></li>
 <li><p class="sd-card-text">The read-only guarantee and how it is enforced</p></li>
@@ -516,28 +516,22 @@ as plots — see the guarantee’s exact scope below.)</p>
 works end-to-end against your real control system, not just that the model
 is reachable.</p>
 </section>
-<section id="project-resolution">
-<h1>Project Resolution<a class="headerlink" href="#project-resolution" title="Link to this heading">#</a></h1>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> resolves the project directory in this order:</p>
-<ol class="arabic simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">--project</span> <span class="pre">DIR</span></code> flag (explicit)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code> environment variable</p></li>
-<li><p>Current working directory (cwd)</p></li>
-</ol>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Explicit project</span>
-osprey<span class="w"> </span>query<span class="w"> </span>--project<span class="w"> </span>~/projects/als-assistant<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
-
-<span class="c1"># Via environment variable</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">OSPREY_PROJECT</span><span class="o">=</span>~/projects/als-assistant
+<section id="deployment-resolution">
+<h1>Deployment Resolution<a class="headerlink" href="#deployment-resolution" title="Link to this heading">#</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> asks the deployment enclosing the current directory: it walks
+up to the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and answers from that repository’s <code class="docutils literal notranslate"><span class="pre">build/</span></code>
+as it was last rendered. <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> names another one.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># The deployment you are standing in</span>
+<span class="nb">cd</span><span class="w"> </span>~/deployments/als-assistant
 osprey<span class="w"> </span>query<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
 
-<span class="c1"># Current directory (cwd)</span>
-<span class="nb">cd</span><span class="w"> </span>~/projects/als-assistant
-osprey<span class="w"> </span>query<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
+<span class="c1"># A deployment somewhere else</span>
+osprey<span class="w"> </span>query<span class="w"> </span>--repo<span class="w"> </span>~/deployments/als-assistant<span class="w"> </span><span class="s2">&quot;List vacuum sections&quot;</span>
 </pre></div>
 </div>
-<p>The command exits with code <code class="docutils literal notranslate"><span class="pre">2</span></code> if no valid project is found at the
-resolved path.</p>
+<p>When <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> or a file it points at has changed since that build, a
+warning on stderr says so and the query runs anyway. The command exits with
+code <code class="docutils literal notranslate"><span class="pre">2</span></code> if there is no build to answer from.</p>
 </section>
 <section id="exit-codes">
 <h1>Exit Codes<a class="headerlink" href="#exit-codes" title="Link to this heading">#</a></h1>
@@ -627,7 +621,7 @@ session logs to deliver its answer — these are additive and regenerable. The
 guarantee is specifically that the run performs no hardware write, no code or
 shell execution, and no deletion of stored data.</p>
 <p>There is no <code class="docutils literal notranslate"><span class="pre">--allow-writes</span></code> flag. If you need an agent run that can write,
-use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code> or the event-dispatch pipeline instead.</p>
+use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> or the event-dispatch pipeline instead.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>This guarantee is independent of the <code class="docutils literal notranslate"><span class="pre">claude_code.permissions</span></code> settings
@@ -657,9 +651,9 @@ validate a facility-specific agent.</p>
 <span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$result</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.exit_code&#39;</span>
 </pre></div>
 </div>
-<p>For a project not in the current directory:</p>
+<p>For a deployment not in the current directory:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>query<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--project<span class="w"> </span>/opt/osprey/als-assistant<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--repo<span class="w"> </span>/opt/osprey/als-assistant<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span><span class="s2">&quot;List all vacuum sections&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span><span class="o">||</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span>
 </pre></div>
@@ -760,7 +754,7 @@ correctly once the install is healthy.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">Non-Interactive Agent Queries</a></li>
 <li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
-<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#project-resolution">Project Resolution</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-resolution">Deployment Resolution</a></li>
 <li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#exit-codes">Exit Codes</a></li>
 <li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#machine-readable-output-json">Machine-Readable Output (<code class="docutils literal notranslate"><span class="pre">--json</span></code>)</a></li>
 <li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#read-only-guarantee">Read-Only Guarantee</a></li>

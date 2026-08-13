@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -493,14 +493,16 @@ scrollback — with access to companion services (artifact gallery, session
 analytics, etc.) via their URLs in a browser.</p>
 <section id="launching">
 <h2>Launching<a class="headerlink" href="#launching" title="Link to this heading">#</a></h2>
-<p>From any OSPREY project directory:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>chat
+<p>From anywhere inside a deployment repository:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>chat
 </pre></div>
 </div>
 <p>This command:</p>
 <ol class="arabic simple">
-<li><p>Regenerates Osprey agent integration files (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>,
-<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>) from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
+<li><p>Finds the deployment by walking up to the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, and starts
+the agent in that repository’s <code class="docutils literal notranslate"><span class="pre">build/</span></code> — nothing is re-rendered, since
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> owns that. A profile that has changed since the last build
+is reported as a warning and the session starts anyway.</p></li>
 <li><p>Resolves the configured LLM provider and injects authentication.</p></li>
 <li><p>Starts the translation proxy if the provider needs it (see
 <a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>).</p></li>
@@ -509,14 +511,14 @@ analytics, etc.) via their URLs in a browser.</p>
 </ol>
 <section id="options">
 <h3>Options<a class="headerlink" href="#options" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>-p<span class="w"> </span>/path/to/project<span class="w">           </span><span class="c1"># explicit project dir (--project)</span>
-osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>--resume<span class="w"> </span>SESSION_ID<span class="w">           </span><span class="c1"># resume a previous session</span>
-osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>--print<span class="w">                       </span><span class="c1"># non-interactive (pipe-friendly)</span>
-osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>--effort<span class="w"> </span>high<span class="w">                 </span><span class="c1"># set effort level</span>
-osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w"> </span>--no-pin<span class="w">                      </span><span class="c1"># ignore the pinned CLI version</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>chat<span class="w"> </span>--repo<span class="w"> </span>/path/to/deployment<span class="w">    </span><span class="c1"># explicit deployment repo</span>
+osprey<span class="w"> </span>chat<span class="w"> </span>--resume<span class="w"> </span>SESSION_ID<span class="w">           </span><span class="c1"># resume a previous session</span>
+osprey<span class="w"> </span>chat<span class="w"> </span>--print<span class="w">                       </span><span class="c1"># non-interactive (pipe-friendly)</span>
+osprey<span class="w"> </span>chat<span class="w"> </span>--effort<span class="w"> </span>high<span class="w">                 </span><span class="c1"># set effort level</span>
+osprey<span class="w"> </span>chat<span class="w"> </span>--no-pin<span class="w">                      </span><span class="c1"># ignore the pinned CLI version</span>
 </pre></div>
 </div>
-<p>When <code class="docutils literal notranslate"><span class="pre">--project</span></code> is omitted, the current directory is used.</p>
+<p>When <code class="docutils literal notranslate"><span class="pre">--repo</span></code> is omitted, the deployment enclosing the current directory is used.</p>
 <p>If <code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> is set in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, chat launches that
 exact agent CLI version instead of whatever is installed globally, so every
 launch of the project behaves the same. <code class="docutils literal notranslate"><span class="pre">--no-pin</span></code> opts out and uses the
@@ -525,7 +527,7 @@ global installation.</p>
 </section>
 <section id="companion-services">
 <h2>Companion Services<a class="headerlink" href="#companion-services" title="Link to this heading">#</a></h2>
-<p>On startup, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code> launches the same companion servers as
+<p>On startup, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> launches the same companion servers as
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>. Each server’s URL is printed before the Osprey agent starts:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Companion servers:
   * Artifact gallery  http://127.0.0.1:8086
@@ -546,7 +548,7 @@ the Osprey agent.</p>
 <col style="width: 50.0%" />
 </colgroup>
 <thead>
-<tr class="row-odd"><th class="head"><p>CLI chat (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code>)</p></th>
+<tr class="row-odd"><th class="head"><p>CLI chat (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>)</p></th>
 <th class="head"><p>Web terminal (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>)</p></th>
 </tr>
 </thead>

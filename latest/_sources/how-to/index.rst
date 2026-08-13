@@ -24,7 +24,7 @@ Build & Deploy a Project
       :link: deploy-a-facility
       :link-type: doc
 
-      The end-to-end walkthrough: one facility repo from ``osprey profile new``
+      The end-to-end walkthrough: one deployment repo from ``osprey init``
       through the CI scaffolding to a running three-service stack.
 
    .. grid-item-card:: Configure LLM Providers
@@ -46,7 +46,7 @@ Build & Deploy a Project
       :link-type: doc
 
       Create, configure, and deploy an OSPREY project from ``osprey build`` through
-      ``osprey deploy`` to a running instance.
+      ``osprey up`` to a running instance.
 
    .. grid-item-card:: Containerize a Project
       :link: containerize-project

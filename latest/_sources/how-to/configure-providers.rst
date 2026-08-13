@@ -96,11 +96,11 @@ Ollama and vLLM run locally and do not require an API key.
 
 .. note::
 
-   A shell export reaches a **profile** only once, when the profile is
-   materialized (``osprey profile new``, or the first ``--preset`` build), and
-   only for providers that profile references. After that, put the key in the
-   profile's ``.env``: the build derives the project's ``.env`` from there and
-   never re-reads your shell. See :ref:`profile-secrets`.
+   A shell export reaches a **deployment** only once, when ``osprey init``
+   creates the repository, and only for providers that profile references. After
+   that, put the key in the repository's ``.env``: it is the deployment's one
+   secret store, and nothing else re-reads your shell. See
+   :ref:`profile-secrets`.
 
 Provider Configuration
 ----------------------

@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -930,112 +930,86 @@ and safe to delete and rebuild at any time.</p>
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p class="sd-card-text">Creating a profile directory and building projects from it</p></li>
+<li><p class="sd-card-text">Creating a deployment repository and rendering its <code class="docutils literal notranslate"><span class="pre">build/</span></code> zone</p></li>
 <li><p class="sd-card-text">What lives in a profile: the convention directories, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, secrets, personas</p></li>
-<li><p class="sd-card-text">Moving an artifact you want to own out of the project and into the profile</p></li>
+<li><p class="sd-card-text">Moving an artifact you want to own out of <code class="docutils literal notranslate"><span class="pre">build/</span></code> and into the profile</p></li>
 <li><p class="sd-card-text">Shipping and wiring your own hook scripts</p></li>
-<li><p class="sd-card-text">Keeping a profile and its project in step</p></li>
+<li><p class="sd-card-text">Keeping a profile and its build in step</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> A working OSPREY installation (<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code>).</p>
 <p class="sd-card-text"><strong>Time:</strong> 15–30 minutes for a basic profile.</p>
 </div>
-</details><section id="preset-profile-project">
-<h2>Preset → Profile → Project<a class="headerlink" href="#preset-profile-project" title="Link to this heading">#</a></h2>
+</details><section id="preset-profile-build">
+<h2>Preset → Profile → Build<a class="headerlink" href="#preset-profile-build" title="Link to this heading">#</a></h2>
 <pre  class="mermaid">
         flowchart LR
-   P[&quot;Preset&lt;br/&gt;(bundled with OSPREY)&quot;] -- materialize --&gt; F[&quot;Profile directory&lt;br/&gt;(yours)&quot;]
-   F -- osprey build --&gt; J[&quot;Project&lt;br/&gt;(derived)&quot;]
-   J -- osprey deploy --&gt; R[&quot;Running containers&quot;]
+   P[&quot;Preset&lt;br/&gt;(bundled with OSPREY)&quot;] -- osprey init --&gt; F[&quot;profile.yml&lt;br/&gt;(yours)&quot;]
+   F -- osprey build --&gt; J[&quot;build/&lt;br/&gt;(derived)&quot;]
+   J -- osprey up --&gt; R[&quot;Running containers&quot;]
     </pre><ul class="simple">
 <li><p><strong>Preset</strong> — a bundled starting point, shipped inside OSPREY
 (<code class="docutils literal notranslate"><span class="pre">src/osprey/profiles/presets/</span></code>). Examples: <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>,
 <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code>, <code class="docutils literal notranslate"><span class="pre">channel-finder-standalone</span></code>.
 Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">presets</span></code> to list them.</p></li>
-<li><p><strong>Profile</strong> — your facility’s directory. Created once from a preset, then
-edited and kept in version control. Everything the preset configured is
-written out here explicitly: nothing is inherited at build time.</p></li>
-<li><p><strong>Project</strong> — the output of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Never edit it in place; the next
-build overwrites what you changed.</p></li>
+<li><p><strong>Profile</strong> — the <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at the root of your deployment repository,
+with the material it names beside it. Created once from a preset, then edited
+and kept in version control. Everything the preset configured is written out
+here explicitly: nothing is inherited at build time.</p></li>
+<li><p><strong>Build</strong> — the <code class="docutils literal notranslate"><span class="pre">build/</span></code> zone <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders. Never edit it in
+place; the next build wipes and re-renders the whole thing.</p></li>
 </ul>
 <p>Because nothing is inherited, a later OSPREY release that improves a preset does
-<strong>not</strong> change your profile. To see what moved, materialize a fresh profile into
-a scratch directory and diff it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>new<span class="w"> </span>/tmp/fresh<span class="w"> </span>--preset<span class="w"> </span>control-assistant
-diff<span class="w"> </span>-u<span class="w"> </span>/tmp/fresh/profile/profile.yml<span class="w"> </span>my-facility/profile/profile.yml
+<strong>not</strong> change your profile. To see what moved, create a fresh deployment in a
+scratch directory and diff it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>/tmp/fresh<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+diff<span class="w"> </span>-u<span class="w"> </span>/tmp/fresh/profile.yml<span class="w"> </span>my-facility/profile.yml
 </pre></div>
 </div>
 </section>
-<section id="creating-a-profile">
-<h2>Creating a profile<a class="headerlink" href="#creating-a-profile" title="Link to this heading">#</a></h2>
-<p>Two commands get you a profile. They differ in what surrounds it.</p>
-<div class="pst-scrollable-table-container"><table class="table">
-<colgroup>
-<col style="width: 45.0%" />
-<col style="width: 55.0%" />
-</colgroup>
-<thead>
-<tr class="row-odd"><th class="head"><p>Command</p></th>
-<th class="head"><p>What it does</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">my-facility</span> <span class="pre">--preset</span> <span class="pre">X</span></code></p></td>
-<td><p>Writes a <strong>facility repository</strong> and stops: a git repository whose
-<code class="docutils literal notranslate"><span class="pre">profile/</span></code> directory holds the profile, with an empty <code class="docutils literal notranslate"><span class="pre">build/</span></code> for
-rendered projects beside it. Use it when you want to look at and edit
-the profile before building anything.</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">my-project</span> <span class="pre">--preset</span> <span class="pre">X</span></code></p></td>
-<td><p>Writes a bare <code class="docutils literal notranslate"><span class="pre">my-project-profile/</span></code> directory beside the project on
-the <em>first</em> run, then builds from it. Every later run reuses that
-directory as it stands.</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-<p>Either way the profile itself is the same. After it exists, the everyday
-command names it directly:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>my-profile/profile.yml
+<section id="creating-a-deployment">
+<h2>Creating a deployment<a class="headerlink" href="#creating-a-deployment" title="Link to this heading">#</a></h2>
+<p>One command creates a deployment repository from a preset:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-facility<span class="w"> </span>--preset<span class="w"> </span>control-assistant
 </pre></div>
 </div>
-<p>A profile nested in a facility repository is the one case where the build
-chooses the output directory for you: it renders into that repository’s
-<code class="docutils literal notranslate"><span class="pre">build/&lt;PROJECT_NAME&gt;/</span></code>, from whichever directory you run the command.</p>
+<p>That writes the repository and stops. Look at the profile, edit it, then render
+and start it from inside:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>my-facility
+osprey<span class="w"> </span>validate
+osprey<span class="w"> </span>build
+osprey<span class="w"> </span>up<span class="w"> </span>-d
+</pre></div>
+</div>
 <div class="important admonition">
-<p class="admonition-title">Every build reads a profile</p>
-<p>There is no build that renders a project straight out of a bundled preset.
-<code class="docutils literal notranslate"><span class="pre">--preset</span></code> on a project that already has a profile directory reuses that
-directory verbatim — the preset is not re-applied. Naming a <em>different</em>
-preset for an existing profile is refused: the profile would be built either
-way, and the label would lie about what was built.</p>
-<p>A preset that has changed since your profile was made is reported as a
-warning, never re-applied.</p>
+<p class="admonition-title">Every build reads the repository’s own profile</p>
+<p>There is no build that renders straight out of a bundled preset. The preset
+is applied once, at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>, and written out in full — after that,
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the only input. A later OSPREY release that changes the
+preset does not reach an existing deployment.</p>
 </div>
-<section id="what-osprey-profile-new-writes">
-<h3>What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> writes<a class="headerlink" href="#what-osprey-profile-new-writes" title="Link to this heading">#</a></h3>
+<section id="what-osprey-init-writes">
+<h3>What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes<a class="headerlink" href="#what-osprey-init-writes" title="Link to this heading">#</a></h3>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
-  profile/
-    profile.yml     the full configuration — edit freely
-    data/           facility content: channel databases, knowledge, lattice
-    .env.example    every variable the agent reads, documented, no values
-    .env            your values (only when your shell had keys to seed)
-    .gitignore      keeps .env out of version control
-    README.md       explains the layout, for whoever opens the directory next
-    triggers.yml    the events the agent runs on (dispatch profiles only)
-    personas/       one delta per web-terminal persona (persona presets only)
-    web-terminal-context/  one seeded directory per operator on the roster
-  build/            empty; where `osprey build` renders projects
-  ci-extra.yml      the facility&#39;s own CI jobs; never regenerated
-  .gitignore        keeps build/ and the profile&#39;s secrets out of git
+  profile.yml     the full configuration — edit freely
+  data/           facility content: channel databases, knowledge, lattice
+  .env.example    every variable the agent reads, documented, no values
+  .env            your values (only when your shell had keys to seed)
+  README.md       explains the layout, for whoever opens the repository next
+  triggers.yml    the events the agent runs on (dispatch profiles only)
+  personas/       one delta per web-terminal persona (persona presets only)
+  web-terminal-context/  one seeded directory per operator on the roster
+  ci-extra.yml    the facility&#39;s own CI jobs; never regenerated
+  .gitignore      keeps build/, var/ and .env out of version control
+  build/          rendered by `osprey build`; disposable
+  var/            agent memory and audit log; durable
 </pre></div>
 </div>
-<p>The last three files under <code class="docutils literal notranslate"><span class="pre">profile/</span></code> appear only when the preset calls for
-them — a <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> profile has none of them.</p>
-<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> runs at the repository root, and nothing is committed. There is no
-CI pipeline yet: the profile ships its <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so
-there are no coordinates to render one from. Fill the block in and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">scaffold</span></code> writes the pipeline — see
-<a class="reference internal" href="deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">personas/</span></code> and <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code> appear only when
+the preset calls for them — a <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> deployment has none of them.</p>
+<p><code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> and an initial commit run at the end. There is no CI pipeline yet:
+the profile ships its <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so there are no
+coordinates to render one from. Fill the block in and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">ci</span></code>
+writes the pipeline — see <a class="reference internal" href="deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>.</p>
 <p>Directories for your own artifacts (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, and the rest) are
 <strong>not</strong> created up front. Create the ones you need; a directory you never create
 simply means the profile contributes nothing of that kind.</p>
@@ -1173,15 +1147,15 @@ treated as yours and never regenerate, quietly freezing that decision.</p>
 <span id="profile-claim"></span><h2>Taking ownership of a framework artifact<a class="headerlink" href="#taking-ownership-of-a-framework-artifact" title="Link to this heading">#</a></h2>
 <p>To customize something OSPREY generates — a rule, an agent, a service template
 — move it into the profile:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>my-project
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>my-facility
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>rules/safety
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>services/postgresql
 </pre></div>
 </div>
-<p>The artifact is <strong>moved</strong> into the matching convention slot of the profile the
-project was built from. Edit it there, then rebuild:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>my-profile/profile.yml<span class="w"> </span>--force
+<p>The artifact is <strong>moved</strong> out of <code class="docutils literal notranslate"><span class="pre">build/</span></code> and into the matching convention
+slot of the repository’s profile. Edit it there, then rebuild:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
 </pre></div>
 </div>
 <p>The next build copies it back and registers it as yours. There is no YAML to
@@ -1213,7 +1187,7 @@ without owning the template.</p>
 <h2>Custom hooks<a class="headerlink" href="#custom-hooks" title="Link to this heading">#</a></h2>
 <p>A hook is a script the agent runs at a defined moment — before a tool call, at
 session start. Ship yours through <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profile/
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   hooks/
     facility_guard.py
 </pre></div>
@@ -1286,9 +1260,9 @@ twice. Select or unselect a built-in through <code class="docutils literal notra
 <h2>Personas<a class="headerlink" href="#personas" title="Link to this heading">#</a></h2>
 <p>Some presets give each operator their own web terminal, and each terminal runs
 with a persona — a capability posture, such as read-only versus write-capable.
-For those presets (<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> writes one
+For those presets (<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes one
 file per persona:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profile/
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   profile.yml
   data/
   personas/
@@ -1304,12 +1278,12 @@ or set of convention directories — everything else comes from the profile abov
 and stays in one place.</p>
 <p>Edit a delta to change what that persona’s terminal can do, and see the merged
 result with:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>my-profile/personas/readonly.yml
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate<span class="w"> </span>personas/readonly.yml
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> points at these files by path — its web-terminal catalog carries
 <code class="docutils literal notranslate"><span class="pre">build_profile:</span> <span class="pre">personas/&lt;name&gt;.yml</span></code> for each one — so keep the names in step
-if you rename one. That is also what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> reads: it renders any
+if you rename one. That is also what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads: it renders any
 persona project that does not exist yet from the named delta. A bundled preset
 name in that field is rejected, because a persona built from a preset of its own
 would not share this profile’s data tree, secrets or artifacts.</p>
@@ -1364,58 +1338,61 @@ facility’s own scan plans; see <a class="reference internal" href="bluesky/wri
 </section>
 <section id="secrets">
 <span id="profile-secrets"></span><h2>Secrets<a class="headerlink" href="#secrets" title="Link to this heading">#</a></h2>
-<p>API keys and service credentials belong to the profile directory, not to the
-projects built from it. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives a project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from the
-profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>, so a value you set once survives every rebuild — and a
-project you delete takes no secret with it.</p>
+<p>API keys and service credentials live in one file: the <code class="docutils literal notranslate"><span class="pre">.env</span></code> at the root of
+the deployment repository. That file is the deployment’s single secret store.
+A build never copies secrets into it or out of it, so a value you set once
+survives every rebuild, and wiping <code class="docutils literal notranslate"><span class="pre">build/</span></code> takes no secret with it.</p>
 <p>Two files, and the difference matters:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">.env.example</span></code> lists every variable the agent reads, with no values. It is
 safe to commit, and it is the file to read when you want to know what can be
-set. The project gets a copy of this same file, so the two can never document
-different variables.</p></li>
+set.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">.env</span></code> holds the values. The generated <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> keeps it out of git.</p></li>
 </ul>
 <section id="seeding-once">
 <h3>Seeding, once<a class="headerlink" href="#seeding-once" title="Link to this heading">#</a></h3>
-<p>Materializing a profile — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code>, or the first <code class="docutils literal notranslate"><span class="pre">--preset</span></code>
-build, which materializes one — seeds the new profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from your
-shell, and only the keys of providers this profile actually references. Keys
-you exported for other providers are named in the summary rather than copied
-in, so you can tell “seen and not needed” from “lost”. If your shell exported
-nothing usable, no <code class="docutils literal notranslate"><span class="pre">.env</span></code> is written at all (an empty secrets file reads as a
-configured one); start it yourself:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>my-profile/.env.example<span class="w"> </span>my-profile/.env
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> seeds the new repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from your shell, and only
+the keys of providers this profile actually references. Keys you exported for
+other providers are named in the summary rather than copied in, so you can tell
+“seen and not needed” from “lost”. If your shell exported nothing usable, no
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> is written at all (an empty secrets file reads as a configured one);
+start it yourself:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 </pre></div>
 </div>
 <div class="important admonition">
-<p class="admonition-title">This is the only moment a shell export reaches a profile</p>
-<p>It happens <strong>once</strong>, at materialization, and what it took is written into
-the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> under a “Seeded by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> from your
-shell” heading — so the file itself records where each value came from.
-Nothing else in the pipeline reads your environment for secrets:
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from the profile and from
-nothing else, and a later build never re-reads your shell. A key that
-reaches a built project was recorded in the profile first, where you can
-audit it.</p>
-<p>The practical consequence: exporting a key <em>after</em> the profile exists does
-not get it in. Put it in the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> and rebuild.</p>
+<p class="admonition-title">This is the only moment a shell export reaches the repository</p>
+<p>It happens <strong>once</strong>, at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>, and what it took is written under a
+“Seeded by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> from your shell” heading — so the file itself
+records where each value came from. Nothing else in the pipeline reads your
+environment for secrets, and a later build never re-reads your shell.</p>
+<p>The practical consequence: exporting a key <em>after</em> the repository exists does
+not get it in. Put it in <code class="docutils literal notranslate"><span class="pre">.env</span></code> yourself.</p>
 </div>
 </section>
-<section id="service-credentials">
-<h3>Service credentials<a class="headerlink" href="#service-credentials" title="Link to this heading">#</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> mints the credentials that only a deploy can produce —
-database passwords, service tokens — and writes them back into the profile
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> under a “Minted by deploy” heading. The project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> is then
-re-derived from the profile, so a rebuild comes up on the <em>same</em> secrets instead
-of minting a second set the running containers do not trust.</p>
+<section id="who-else-writes-to-env">
+<h3>Who else writes to <code class="docutils literal notranslate"><span class="pre">.env</span></code><a class="headerlink" href="#who-else-writes-to-env" title="Link to this heading">#</a></h3>
+<p>Two writers append to the file, and both follow the same rule: <strong>a value
+already on file always wins.</strong> Nothing overwrites what you put there.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints the credentials only a deploy can produce — database
+passwords, service tokens — and appends them under a “Minted by deploy”
+heading. Because a minted value is then on file, a later start comes up on the
+<em>same</em> secrets instead of minting a second set the running containers do not
+trust.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> appends the pointers it derives from what it just rendered —
+currently the virtual accelerator’s channel manifest — under a “Derived by
+build” heading.</p></li>
+</ul>
+<p>Both write to this one file. There is no second <code class="docutils literal notranslate"><span class="pre">.env</span></code> anywhere: <code class="docutils literal notranslate"><span class="pre">build/</span></code>
+holds no secrets, and every service reads them from here.</p>
 <p>The write-back is <strong>append-only</strong>. A key already in the profile keeps its value —
 it is pinned by the docker volume that was initialized with it — and a value that
 disagrees is reported by name (never by value) for you to resolve by hand.</p>
 <p>If the profile cannot be reached — it has moved, or the project was built before
 this mechanism existed — the deploy still works. The secrets stay in the project
 <code class="docutils literal notranslate"><span class="pre">.env</span></code>, a warning names the path that failed, and the project records that its
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> is the only copy. A later <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--force</span></code> repeats that warning
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> is the only copy. A later <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> repeats that warning
 before touching the directory.</p>
 </section>
 </section>
@@ -1513,7 +1490,7 @@ convention directory instead.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">services</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
-<td><p>Container services for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> (see <a class="reference internal" href="#profile-services"><span class="std std-ref">Services</span></a>).</p></td>
+<td><p>Container services the deployment runs (see <a class="reference internal" href="#profile-services"><span class="std std-ref">Services</span></a>).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">va_archiver</span></code></p></td>
 <td><p>mapping</p></td>
@@ -1612,7 +1589,7 @@ under <code class="docutils literal notranslate"><span class="pre">claude_code</
 <p>Custom MCP servers are recorded in the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (under
 <code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code>) and rendered from there into <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> (server
 configuration) and <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> (tool permissions) — so a later
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> re-renders them instead of losing them.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> re-renders them instead of losing them.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">my_server</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python</span>
@@ -1649,7 +1626,7 @@ allow list.</p>
 <p>Put the package in the profile’s <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code> directory — one directory per
 server. The build copies it to <code class="docutils literal notranslate"><span class="pre">_mcp_servers/</span></code> in the project, so the launch
 command finds it:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profile/
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   mcp_servers/
     phoebus/
       __init__.py
@@ -1722,8 +1699,8 @@ unblock it. Use <code class="docutils literal notranslate"><span class="pre">ask
 </section>
 <section id="services">
 <span id="profile-services"></span><h2>Services<a class="headerlink" href="#services" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">services</span></code> section defines facility containers that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>
-manages alongside OSPREY’s built-in ones.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">services</span></code> section defines facility containers the deployment runs
+alongside OSPREY’s built-in ones.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">typesense</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/typesense</span><span class="w">     </span><span class="c1"># relative to the profile directory</span>
@@ -1743,7 +1720,7 @@ carried across the same way and marked as yours — that is what
 <span id="profile-va-archiver"></span><h2>The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block<a class="headerlink" href="#the-va-archiver-block" title="Link to this heading">#</a></h2>
 <p>A deployment that serves simulated channels still needs somewhere to keep what
 those channels did. Declaring <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> is what gives it one: the build
-adds a MongoDB store and a recorder to the service stack, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>
+adds a MongoDB store and a recorder to the service stack, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
 seeds the store with history and then records the running machine into it, and
 the <code class="docutils literal notranslate"><span class="pre">mongodb_archiver</span></code> connector reads it back.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">va_archiver</span><span class="p">:</span>
@@ -2008,27 +1985,21 @@ message, along with the <code class="docutils literal notranslate"><span class="
 profile</strong>, not into the project — beside the CSV inputs it came from, where it
 survives a rebuild. The sequence is meant to run to completion:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>build-database
-<span class="c1"># the project now reports its build as stale</span>
-osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>my-profile/profile.yml<span class="w"> </span>--force
-<span class="c1"># the advisory clears</span>
+<span class="c1"># the deployment now reports its build as out of date</span>
+osprey<span class="w"> </span>build
+<span class="c1"># the report clears</span>
 </pre></div>
 </div>
-<p>The staleness advisory in between is the reminder that the new database has not
-been deployed yet — not a problem to fix. Use <code class="docutils literal notranslate"><span class="pre">--output</span></code> to write somewhere
-else; a project that resolves no profile falls back to its own <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree
-and warns that the next build will overwrite it.</p>
+<p>The drift report in between is the reminder that the new database has not been
+deployed yet — not a problem to fix. Use <code class="docutils literal notranslate"><span class="pre">--output</span></code> to write somewhere else.</p>
 </section>
 <section id="building">
 <h2>Building<a class="headerlink" href="#building" title="Link to this heading">#</a></h2>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>osprey build PROJECT_NAME [PROFILE] [OPTIONS]
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>osprey build [OPTIONS]
 </pre></div>
 </div>
-<p><strong>Arguments</strong></p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">PROJECT_NAME</span></code> — name of the project directory to create</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">PROFILE</span></code> — path to a profile YAML. Mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--preset</span></code>;
-exactly one of the two is required.</p></li>
-</ul>
+<p>Run it with no arguments, anywhere inside the deployment repository. It walks up
+to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and renders the whole <code class="docutils literal notranslate"><span class="pre">build/</span></code> zone from it.</p>
 <p><strong>Options</strong></p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -2036,80 +2007,57 @@ exactly one of the two is required.</p></li>
 <col style="width: 70.0%" />
 </colgroup>
 <tbody>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code></p></td>
-<td><p>Materialize <code class="docutils literal notranslate"><span class="pre">&lt;PROJECT_NAME&gt;-profile/</span></code> from a bundled preset and build
-from it. Reused as-is if it already exists.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-O,</span> <span class="pre">--override</span> <span class="pre">FILE</span></code></p></td>
-<td><p>Layer a YAML file on top of the profile (repeatable, applied in order).</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code></p></td>
-<td><p>Inline override. The right-hand side is parsed as YAML, so
-<code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">tier=3</span></code> lands an int and <code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">hooks=[memory-guard]</span></code> a list.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--tier</span> <span class="pre">{1,3}</span></code></p></td>
-<td><p>Channel-database tier. Overrides the default derived from the channel
-finder mode (<code class="docutils literal notranslate"><span class="pre">in_context</span></code> → tier 1, otherwise tier 3).</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--list-presets</span></code></p></td>
-<td><p>List bundled preset names and exit.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-o,</span> <span class="pre">--output-dir</span> <span class="pre">DIR</span></code></p></td>
-<td><p>Output directory (default: current directory).</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-f,</span> <span class="pre">--force</span></code></p></td>
-<td><p>Re-render an existing project directory in place.</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code></p></td>
 <td><p>Stream lifecycle step output in real time.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span></code></p></td>
 <td><p>Skip <code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>, and <code class="docutils literal notranslate"><span class="pre">validate</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--skip-deps</span></code></p></td>
 <td><p>Skip venv creation and dependency installation (CI mode).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code></p></td>
-<td><p>Override <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in the rendered config, for container builds.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code></p></td>
+<td><p>Override <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in the rendered config, for a build whose
+output runs somewhere other than where it was made.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code></p></td>
+<td><p>Deployment repository to act on (default: the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>
+at or above the working directory).</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <div class="important admonition">
-<p class="admonition-title"><code class="docutils literal notranslate"><span class="pre">--set</span></code>, <code class="docutils literal notranslate"><span class="pre">-O</span></code> and <code class="docutils literal notranslate"><span class="pre">--tier</span></code> edit the profile</p>
-<p>They are not build-time layers that vanish afterwards. On a build from an
-existing profile they are <strong>written into that profile</strong> before it is read,
-replacing the value at each dotted key — because the profile has to keep
-describing the project. On the first <code class="docutils literal notranslate"><span class="pre">--preset</span></code> build they are baked into
-the profile being materialized.</p>
-<p>Comments and formatting are preserved, and a build that then fails puts the
-file back exactly as it was, so a typo never leaves a stuck profile behind.</p>
+<p class="admonition-title">Settings are changed before the build, not during it</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> takes no configuration overrides. Change a setting with
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code>, which writes it into <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — comments and
+formatting intact — and then build. The profile always describes what the
+build will produce, so there is no layer that vanishes afterwards.</p>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">--force</span></code> re-renders everything framework-owned and preserves what you own:
-<code class="docutils literal notranslate"><span class="pre">.env</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>, and the project’s <code class="docutils literal notranslate"><span class="pre">.git</span></code>. It never touches the
-profile — only <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span> <span class="pre">--force</span></code> replaces one of those.</p>
+<p>Every build wipes and re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code> and preserves what you own: <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
+<code class="docutils literal notranslate"><span class="pre">var/</span></code>, and the repository’s <code class="docutils literal notranslate"><span class="pre">.git</span></code>. It never touches the source zone —
+only <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--force</span></code> replaces that.</p>
 <p><strong>Examples</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># See what presets ship</span>
-osprey<span class="w"> </span>build<span class="w"> </span>--list-presets
+osprey<span class="w"> </span>init<span class="w"> </span>--list-presets
 
-<span class="c1"># First build: materializes my-assistant-profile/ and builds from it</span>
-osprey<span class="w"> </span>build<span class="w"> </span>my-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+<span class="c1"># Create the deployment, then render it</span>
+osprey<span class="w"> </span>init<span class="w"> </span>my-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+<span class="nb">cd</span><span class="w"> </span>my-assistant
+osprey<span class="w"> </span>build
 
-<span class="c1"># Later builds reuse that profile directory</span>
-osprey<span class="w"> </span>build<span class="w"> </span>my-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span>--force
+<span class="c1"># Change a setting, then carry it through to build/</span>
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-sonnet-4-6
+osprey<span class="w"> </span>build
 
-<span class="c1"># Build from a profile you keep elsewhere</span>
-osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="w"> </span>~/als-profiles/als-dev/profile.yml
-
-<span class="c1"># Write a setting into the profile as part of the build</span>
-osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="w"> </span>~/als-profiles/als-dev/profile.yml<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>--set<span class="w"> </span><span class="nv">model</span><span class="o">=</span>claude-sonnet-4-6
+<span class="c1"># Render another repository&#39;s build/ without cd-ing to it</span>
+osprey<span class="w"> </span>build<span class="w"> </span>--repo<span class="w"> </span>~/deployments/als-test
 </pre></div>
 </div>
 <section id="checking-a-profile-without-building">
 <h3>Checking a profile without building<a class="headerlink" href="#checking-a-profile-without-building" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>my-profile/
-osprey<span class="w"> </span>profile<span class="w"> </span>validate<span class="w"> </span>my-profile/personas/readonly.yml
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>validate
+osprey<span class="w"> </span>validate<span class="w"> </span>personas/readonly.yml
 </pre></div>
 </div>
 <p>Resolves the profile and runs the full consistency check — convention
@@ -2252,9 +2200,9 @@ relax the constraint in the profile.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-profile-project">Preset → Profile → Project</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-a-profile">Creating a profile</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-osprey-profile-new-writes">What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">new</span></code> writes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-profile-build">Preset → Profile → Build</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#creating-a-deployment">Creating a deployment</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-osprey-init-writes">What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#convention-directories">Convention directories</a><ul class="visible nav section-nav flex-column">
@@ -2273,7 +2221,7 @@ relax the constraint in the profile.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#secrets">Secrets</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#seeding-once">Seeding, once</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#service-credentials">Service credentials</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#who-else-writes-to-env">Who else writes to <code class="docutils literal notranslate"><span class="pre">.env</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profile-yaml-reference">Profile YAML reference</a></li>

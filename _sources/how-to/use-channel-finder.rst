@@ -86,7 +86,7 @@ Build a database from CSV, then validate and preview:
    .. code-block:: bash
 
       osprey channel-finder build-database
-      osprey build my-project my-profile/profile.yml --force
+      osprey build
 
    The pipelines — and a bare ``validate`` / ``preview`` — read the database
    referenced in ``config.yml`` (under ``data/channel_databases/``). If you
@@ -192,7 +192,7 @@ Each pipeline is exposed to the agent through a dedicated MCP server
 (``channel_finder_in_context``, ``channel_finder_hierarchical``,
 ``channel_finder_middle_layer``). The active server is selected from
 ``channel_finder.pipeline_mode`` in ``config.yml`` and wired into the
-agent's artifacts when you run ``osprey build`` (or ``osprey claude regen``
+agent's artifacts when you run ``osprey build`` (or ``osprey build``
 after editing the config). There is no public Python
 ``find_channels(...)`` entry point — drive the resolver from natural
 language via the agent, or invoke the CLI directly:

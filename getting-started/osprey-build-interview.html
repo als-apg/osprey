@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -459,7 +459,7 @@ the interview is a live LLM conversation.</p></li>
 <li><p class="sd-card-text"><strong>A container runtime (Docker or Podman)</strong> — not needed for the interview
 itself, but your generated project will likely include containerized
 services (Jupyter, simulation IOCs, databases). Without one, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-still works but <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> won’t. See the “Container Runtime”
+still works but <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> won’t. See the “Container Runtime”
 dropdown in <a class="reference internal" href="installation.html"><span class="doc">Installation &amp; Setup</span></a> for install instructions.</p></li>
 <li><p class="sd-card-text"><strong>A list or spreadsheet of EPICS PV names</strong> for your subsystem, if you have
 one. Not required — the interview can proceed without concrete PVs — but
@@ -538,7 +538,7 @@ build.</p>
 <p>Then:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
 <span class="nb">cd</span><span class="w"> </span>my-facility
-osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>profile/
+osprey<span class="w"> </span>build
 </pre></div>
 </div>
 <p>One command. OSPREY reads your profile, validates your selections, copies your
@@ -575,14 +575,14 @@ filling it in is the one edit that turns a buildable profile into a deployable
 one. Credentials are <em>named</em> there, never written there.</p>
 <p>Second, one command turns those coordinates into files:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>scaffold
+osprey<span class="w"> </span>scaffold<span class="w"> </span>ci
 </pre></div>
 </div>
 <p>That writes the CI pipeline at the repository root and a post-deploy health
 check inside the profile. Re-run it whenever the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block changes — a
 file whose content already matches is left untouched, and a file you hand-edited
 is reported rather than overwritten.</p>
-<p>From there <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> brings the stack up and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">status</span></code>
+<p>From there <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings the stack up and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code>
 tells you what is running. The <code class="docutils literal notranslate"><span class="pre">osprey-deploy-ops</span></code> runbook covers everything
 past that point: triaging a service that is down, deciding when to re-scaffold,
 and reconciling a secret a container volume adopted at first start.</p>

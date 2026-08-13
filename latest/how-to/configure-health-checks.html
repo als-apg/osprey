@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 12, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 13, 2026"/>
   </head>
   
   
@@ -735,9 +735,13 @@ category picks one automatically:</p>
 <ul class="simple">
 <li><p>If you set <code class="docutils literal notranslate"><span class="pre">url_key</span></code> explicitly, that choice is always used.</p></li>
 <li><p>Otherwise the framework detects whether the health check is itself running
-inside a container — a Docker <code class="docutils literal notranslate"><span class="pre">/.dockerenv</span></code> marker file, or the
-<code class="docutils literal notranslate"><span class="pre">OSPREY_IN_CONTAINER</span></code> environment variable set by the deployment — and uses
-<code class="docutils literal notranslate"><span class="pre">docker_url</span></code> when containerized, <code class="docutils literal notranslate"><span class="pre">host_url</span></code> on a plain host.</p></li>
+inside a container — the runtime’s own marker file, <code class="docutils literal notranslate"><span class="pre">/.dockerenv</span></code> under
+Docker or <code class="docutils literal notranslate"><span class="pre">/run/.containerenv</span></code> under Podman, or an <code class="docutils literal notranslate"><span class="pre">OSPREY_IN_CONTAINER</span></code>
+environment variable you set yourself — and uses <code class="docutils literal notranslate"><span class="pre">docker_url</span></code> when
+containerized, <code class="docutils literal notranslate"><span class="pre">host_url</span></code> on a plain host. Nothing in the shipped
+deployment sets that variable; set <code class="docutils literal notranslate"><span class="pre">url_key</span></code> explicitly when the automatic
+answer is wrong for your network layout (a host-networked container is in a
+container but cannot resolve compose service names).</p></li>
 </ul>
 <p><strong>Expected tools.</strong> If a server block declares <code class="docutils literal notranslate"><span class="pre">permissions</span></code> (its <code class="docutils literal notranslate"><span class="pre">allow</span></code>
 and <code class="docutils literal notranslate"><span class="pre">ask</span></code> tool lists), the derived check also confirms the server actually

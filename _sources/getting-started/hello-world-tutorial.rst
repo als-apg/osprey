@@ -23,24 +23,27 @@ control system channels using the Osprey agent.
 Step 1: Create the Project
 ---------------------------
 
-Create a ready-to-run project in one command:
+Create a ready-to-run deployment, then render it:
 
 .. code-block:: bash
 
-   osprey build my-first-agent --preset hello-world
+   osprey init my-first-agent --preset hello-world
    cd my-first-agent
+   osprey build
 
-That writes **two** directories side by side:
+``osprey init`` writes one git repository with the preset's configuration
+spelled out in full:
 
 .. code-block:: text
 
-   my-first-agent-profile/   the profile — your editable source of truth
-   my-first-agent/           the project — rendered from the profile
+   my-first-agent/
+     profile.yml   the manifest — your editable source of truth
+     build/        rendered by `osprey build`; disposable
 
-The first build copies the preset into ``my-first-agent-profile/``; every later
-build reads that directory as it stands. Nothing in this tutorial needs you to
-edit it, but that is where changes go when you want them to survive a rebuild —
-see :doc:`../how-to/build-profiles`.
+``osprey init`` copies the preset into ``profile.yml``; every later build reads
+that file as it stands. Nothing in this tutorial needs you to edit it, but that
+is where changes go when you want them to survive a rebuild — see
+:doc:`../how-to/build-profiles`.
 
 .. note::
 
@@ -120,11 +123,11 @@ From your project directory:
 
 .. code-block:: bash
 
-   osprey claude chat
+   osprey chat
 
 .. note::
 
-   ``osprey claude chat`` is the recommended way to launch: it reads
+   ``osprey chat`` is the recommended way to launch: it reads
    ``config.yml`` and points the agent at your configured LLM provider.
    Launching the bare agent CLI skips this, so it silently uses whatever
    provider your shell environment points at --- see
@@ -203,13 +206,13 @@ agent's behavior. Regenerate the artifacts and relaunch:
 
 .. code-block:: bash
 
-   osprey claude regen
-   osprey claude chat
+   osprey build
+   osprey chat
 
 .. note::
 
    You can check whether your artifacts are in sync at any time with
-   ``osprey claude status``. If you forget to regenerate, the agent warns you at
+   ``osprey status --agents``. If you forget to regenerate, the agent warns you at
    startup that ``config.yml`` has drifted from its generated configuration.
 
 **2. Write within limits** (succeeds with approval)
@@ -318,5 +321,5 @@ Here's where to go from here:
   MCP server architecture, connector system, and safety mechanisms
 - **CLI reference**: See :doc:`../cli-reference/index` for all ``osprey`` commands
 - **Launch options & providers**: :doc:`../how-to/use-cli-chat` explains what
-  ``osprey claude chat`` sets up and how to point the agent at a non-default LLM
+  ``osprey chat`` sets up and how to point the agent at a non-default LLM
   provider via ``config.yml``

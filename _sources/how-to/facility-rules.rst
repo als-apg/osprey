@@ -98,20 +98,20 @@ Changing a rule
 There are two ways to edit a rule.
 
 **Edit the Markdown directly.** Each rule is a file under ``.claude/rules/``.
-``facility.md`` is yours to edit — it is user-owned, and ``osprey claude regen``
+``facility.md`` is yours to edit — it is user-owned, and ``osprey build``
 never overwrites it. The framework-generated rules *are* re-rendered by
-``osprey claude regen``; to keep an edit to one of those, claim it. A claim
+``osprey build``; to keep an edit to one of those, claim it. A claim
 **moves** the rule into the profile the project was built from, which is where
 you then edit it:
 
 .. code-block:: console
 
-   $ osprey scaffold claim rules/safety              # moves it to my-profile/rules/safety.md
-   $ $EDITOR my-profile/rules/safety.md
-   $ osprey build my-project my-profile/profile.yml --force
+   $ osprey scaffold claim rules/safety              # moves it to rules/safety.md
+   $ $EDITOR rules/safety.md
+   $ osprey build
    $ osprey scaffold diff rules/safety               # compare yours vs the framework version
 
-The rebuild copies it back and registers it as yours, so ``osprey claude regen``
+The rebuild copies it back and registers it as yours, so ``osprey build``
 leaves it alone from then on. See :ref:`profile-claim`.
 
 **Through the web terminal.** ``osprey web`` exposes the agent's ``.claude/``
@@ -135,14 +135,14 @@ confidence/scope note — while single reads stay terse.
 Because it ships in framework-generated artifacts, the claimed-artifact caveat
 from `Changing a rule`_ applies. A deployment that has ``osprey scaffold
 claim``ed ``CLAUDE.md`` (``claude-md``) or the ``control-operator`` output-style
-keeps its own copy and will **not** pick up this behavior on ``osprey claude
-regen``. To adopt it, review the framework version and either merge it by hand or
-unclaim and regen:
+keeps its own copy and will **not** pick up this behavior on the next
+``osprey build``. To adopt it, review the framework version and either merge it
+by hand or unclaim and rebuild:
 
 .. code-block:: console
 
    $ osprey scaffold diff output-styles/control-operator     # framework vs. yours
-   $ osprey scaffold unclaim output-styles/control-operator  # then: osprey claude regen
+   $ osprey scaffold unclaim output-styles/control-operator  # then: osprey build
 
 
 .. seealso::
