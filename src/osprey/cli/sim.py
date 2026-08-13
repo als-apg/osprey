@@ -72,9 +72,20 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
     these commands cannot work in: ``config.yml`` is what names the simulation
     model, the state directory, and the ARIEL logbook.
 
+    The render is also anchored as this process's config for the rest of the
+    command. These verbs run wholly on the host, so nothing injects
+    ``CONFIG_FILE`` the way compose does for a container, and the working
+    directory is a repo root that holds no ``config.yml`` — every unqualified
+    lookup a scenario apply makes would otherwise answer from defaults. The
+    facility timezone is the one that bites: it decides what wall-clock a
+    seeded logbook entry lands on, and the fallback is a plausible-looking UTC
+    rather than an error. Unwound with the click context, so the anchor cannot
+    outlive the verb (see :func:`~osprey.utils.config.config_anchored_at`).
+
     Raises:
         RepoNotFoundError: When no ``profile.yml`` encloses the search start.
     """
+    from osprey.utils.config import config_anchored_at
     from osprey.utils.workspace import BUILD_DIR_NAME, rendered_config_path
 
     repo_root = find_repo_root(repo)
@@ -83,6 +94,7 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
         click.echo(f"Error: no build found at {repo_root / BUILD_DIR_NAME}.", err=True)
         click.echo("Run 'osprey build' first — the scenarios live in the render.", err=True)
         raise SystemExit(1)
+    click.get_current_context().with_resource(config_anchored_at(config_path))
     return repo_root, load_config(str(config_path))
 
 
@@ -255,10 +267,13 @@ def apply_command(
     )
     from osprey.simulation.engine import resolve_active_scenarios
 
-    now = _parse_now(now_iso) if now_iso else None
     seed_logbook = not (no_seed or no_seed_logbook)
     seed_archive = not (no_seed or no_seed_archiver)
     repo_root, config = _resolve_deployment(repo)
+    # After the deployment resolves, never before: a naive --now is stamped with
+    # the facility timezone, and that zone is only knowable once this repo's
+    # render is the config being read.
+    now = _parse_now(now_iso) if now_iso else None
     ariel_config = config.get("ariel")
 
     # Validate pure, write last: every check that can reject the requested set
