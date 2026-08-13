@@ -112,6 +112,18 @@ jobs:
       run: uv sync --extra dev --extra virtual-accelerator
 
     - name: Run unit tests
+      # timeout-minutes is deliberately below the job's 30-minute cap. A JOB
+      # timeout is a hard cancel: the runner stops the job outright, and the
+      # collection steps below never get a dependable chance to run, so a
+      # wedged lane is recorded as `cancelled` with nothing to read. Failing
+      # the STEP instead costs the same wall clock and leaves ~8 minutes for
+      # the summary and upload steps to do their work.
+      timeout-minutes: 22
+      env:
+        # Switches on tests/ci_diagnostics.py: a continuously flushed event log
+        # and stack-dump file per xdist worker, written here and uploaded below.
+        # Unset everywhere else, so local runs are unaffected.
+        OSPREY_CI_DIAG_DIR: ci-diag
       # Coverage is measured only on the cell that uploads to Codecov below —
       # the other three cells were paying ~25% runtime (measured) for a report
       # nobody reads.
@@ -145,11 +157,19 @@ jobs:
         else
           COV_ARGS=""
         fi
-        # faulthandler_timeout: any single test stuck past 5 minutes dumps
-        # every thread's stack to stderr without killing the run — a wedged
-        # worker leaves a diagnosis in the log instead of a silent 99% stall.
-        # Dump-only, so the container-starting files (cold image pulls can
-        # legitimately run long) are never killed by it.
+        # No `-o faulthandler_timeout` here, deliberately. pytest's built-in
+        # version does reach the job log under `-n` (xdist relays worker
+        # stderr), but it dumps once per test and lands only in the log — which
+        # is precisely what a cancelled job truncates. tests/ci_diagnostics.py
+        # (armed by OSPREY_CI_DIAG_DIR above) writes the same stacks to a file
+        # per worker that is uploaded as an artifact, and repeats the dump, so
+        # a genuinely stuck stack is distinguishable from a merely slow one.
+        # The two cannot coexist: dump_traceback_later is process-global and
+        # pytest's plugin re-arms it around every test, so setting the ini
+        # option here would silently replace the file-backed timer.
+        #
+        # Still dump-only, never kill: the container-starting files can sit in
+        # a cold image pull for minutes and must not be shot for it.
         #
         # The two live Channel Access modules are excluded here and run in the
         # isolated step below: libca is process-global and not thread-safe, and
@@ -159,7 +179,32 @@ jobs:
         # minutes later in an unrelated test and EPICS' signal handling turns
         # it into a silent wedge rather than a death. A live CA client/server
         # pair is only safe in a process of its own.
-        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -v --tb=short -n 4 --dist loadgroup $COV_ARGS -o faulthandler_timeout=300
+        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -v --tb=short -n 4 --dist loadgroup $COV_ARGS
+
+    # The two steps below are the reason the step above has its own timeout.
+    # They run on success too: on a green lane the summary is one line, and on
+    # a killed lane it is the only place the answer exists.
+    - name: Summarise lane diagnostics
+      if: always()
+      # Names the test each worker was inside when the lane stopped. All four
+      # workers stalling at once means the runner went away; one worker stalling
+      # means the test it names deadlocked. That distinction decides whether a
+      # rerun is legitimate, and it is not recoverable from the job log.
+      #
+      # `python3`, not `uv run`: the script is stdlib-only and standalone by
+      # design, so it still reports when the failure being diagnosed is the
+      # dependency install itself. `|| true` because a broken diagnostic must
+      # never turn a green lane red, nor mask the real failure on a red one.
+      run: python3 scripts/ci/diag_summary.py ci-diag >> "$GITHUB_STEP_SUMMARY" || true
+
+    - name: Upload lane diagnostics
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ci-diag-unit-${{ matrix.python-version }}-${{ matrix.os }}
+        path: ci-diag/
+        retention-days: 14
+        if-no-files-found: warn
 
     - name: Run live Channel Access suites in isolation
       # One pytest process per module via the live-CA gate — the same venue
@@ -699,6 +744,15 @@ jobs:
         PRESET_K="${PRESET//-/_}"
         uv run pytest tests/e2e/test_preset_agentic.py -v --tb=short -k "$PRESET_K"
 
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: agentic-per-preset-${{ matrix.preset }}
+        engine: docker
+
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
@@ -778,6 +832,10 @@ jobs:
         echo "$bundled" >> "$GITHUB_PATH"
 
     - name: Run E2E tests
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 35
       # E2E_FILTER comes from workflow_dispatch `inputs.e2e_filter` and is
       # empty on push/PR/schedule triggers, so the full-suite command runs
       # by default. The filter is a debug-only convenience for scoped CI
@@ -867,6 +925,15 @@ jobs:
             --ignore=tests/e2e/web_terminals/test_auth_perimeter.py \
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py
         fi
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: e2e-tests
+        engine: docker
+
 
   channel-finder-benchmarks:
     name: Channel-Finder MCP Benchmarks (on demand)
@@ -1006,6 +1073,16 @@ jobs:
         # TemplateNotFound.
         uv run osprey up -d --dev
 
+    # Runs BEFORE the teardown below: the cleanup step deletes the very
+    # containers whose logs explain the failure. Read-only capture; the
+    # artifact is `ci-diag-<lane>` on the run's summary page.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: deploy-e2e
+        engine: docker
+
     - name: osprey down
       if: always()
       run: |
@@ -1092,6 +1169,15 @@ jobs:
         DISPATCH_WORKER_TOKEN: dev-token
       run: |
         uv run pytest tests/e2e/test_dispatch_deploy.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: dispatch-deploy-e2e
+        engine: docker
+
 
   dispatch-overlay-e2e:
     name: Dispatch Overlay E2E (overlay skill/data/trigger visibility, full Docker stack)
@@ -1166,12 +1252,25 @@ jobs:
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
     - name: Run dispatch overlay visibility E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 25
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         EVENT_DISPATCHER_TOKEN: dev-token
         DISPATCH_WORKER_TOKEN: dev-token
       run: |
         uv run pytest tests/e2e/test_dispatch_overlay_visibility.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: dispatch-overlay-e2e
+        engine: docker
+
 
   bluesky-deploy-e2e:
     name: Bluesky Deploy E2E (bluesky bridge, full Docker stack)
@@ -1212,6 +1311,15 @@ jobs:
     - name: Run bluesky deploy E2E
       run: |
         uv run pytest tests/e2e/test_bluesky_deploy.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: bluesky-deploy-e2e
+        engine: docker
+
 
   bluesky-panels-deploy-e2e:
     name: Bluesky Panels Deploy E2E (VA + bluesky bridge + bluesky-panels sidecar, full Docker stack)
@@ -1255,8 +1363,21 @@ jobs:
       run: uv sync --extra dev
 
     - name: Run bluesky panels deploy E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 40
       run: |
         uv run pytest tests/e2e/test_bluesky_panels_deploy.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: bluesky-panels-deploy-e2e
+        engine: docker
+
 
   va-substrate-equivalence-e2e:
     name: VA Substrate Equivalence E2E (virtual accelerator + bluesky bridge, full Docker stack)
@@ -1305,8 +1426,21 @@ jobs:
       run: uv sync --extra dev
 
     - name: Run VA substrate equivalence E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 40
       run: |
         uv run pytest tests/e2e/test_va_substrate_equivalence.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: va-substrate-equivalence-e2e
+        engine: docker
+
 
   orm-roundtrip-e2e:
     name: ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
@@ -1374,6 +1508,15 @@ jobs:
     - name: Run grid scan roundtrip E2E
       run: |
         uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: orm-roundtrip-e2e
+        engine: docker
+
 
   bluesky-queue-e2e:
     name: Bluesky Queue E2E (queueserver + Redis + Tiled + VA, full Docker stack)
@@ -1418,8 +1561,21 @@ jobs:
       run: uv sync --extra dev
 
     - name: Run Bluesky queue E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 70
       run: |
         uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: bluesky-queue-e2e
+        engine: docker
+
 
   scan-agentic-e2e:
     name: Scan Stack Agentic E2E (agent-driven ORM + grid scans on the deployed queue stack)
@@ -1518,6 +1674,10 @@ jobs:
         echo "$bundled" >> "$GITHUB_PATH"
 
     - name: Run scan stack agentic E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 70
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
@@ -1563,6 +1723,15 @@ jobs:
             sys.exit(1)
         print("✅ every scan-stack agentic test ran; none skipped")
         PY
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: scan-agentic-e2e
+        engine: docker
+
 
   archiver-world-e2e:
     name: Archiver World E2E (VA + mongodb store + recorder, full Docker stack)
@@ -1611,12 +1780,25 @@ jobs:
       run: uv sync --extra dev --extra archiver-mongodb
 
     - name: Run archiver world E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 40
       # -s so the measured budgets this lane owns (seed duration, store size,
       # write->read latency) reach the log on a GREEN run. Pytest captures
       # stdout on passing tests, and a budget lane that only shows its numbers
       # when it fails cannot be read for the trend that precedes a failure.
       run: |
         uv run pytest tests/e2e/test_archiver_world_e2e.py -v -s --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: archiver-world-e2e
+        engine: docker
+
 
   tiled-roundtrip-e2e:
     name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
@@ -1659,8 +1841,21 @@ jobs:
       run: uv sync --extra dev
 
     - name: Run Tiled roundtrip E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 15
       run: |
         uv run pytest tests/e2e/test_tiled_roundtrip.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: tiled-roundtrip-e2e
+        engine: docker
+
 
   bluesky-catalog-e2e:
     name: Bluesky Catalog E2E (layered plan catalog, full Docker stack)
@@ -1706,6 +1901,15 @@ jobs:
     - name: Run bluesky catalog E2E
       run: |
         uv run pytest tests/e2e/test_bluesky_catalog_e2e.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: bluesky-catalog-e2e
+        engine: docker
+
 
   bluesky-sandbox-escape-e2e:
     name: Bluesky Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
@@ -1752,8 +1956,21 @@ jobs:
       run: uv sync --extra dev
 
     - name: Run bluesky sandbox escape E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 40
       run: |
         uv run pytest tests/e2e/test_bluesky_sandbox_escape_e2e.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: bluesky-sandbox-escape-e2e
+        engine: docker
+
 
   nextcloud-talk-bridge-e2e:
     name: Nextcloud Talk Bridge E2E (real Talk server + dispatch stack)
@@ -1854,10 +2071,23 @@ jobs:
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
     - name: Run Nextcloud Talk bridge E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 40
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         uv run pytest tests/e2e/test_nextcloud_talk_bridge_e2e.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: nextcloud-talk-bridge-e2e
+        engine: docker
+
 
   gchat-bridge-e2e:
     name: Google Chat Bridge E2E (Pub/Sub emulator + dispatch stack)
@@ -2011,6 +2241,15 @@ jobs:
             sys.exit(1)
         print("✅ every Google Chat test ran; none skipped")
         PY
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: gchat-bridge-e2e
+        engine: docker
+
 
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
@@ -2046,6 +2285,15 @@ jobs:
         # secret is ever absent, so this stays advisory and self-gating.
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: uv run pytest tests/e2e/test_dockerfile_e2e.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: dockerfile-e2e
+        engine: docker
+
 
   execution-environment-parity-e2e:
     name: Execution Environment Parity E2E (host venv vs generated image)
@@ -2083,8 +2331,21 @@ jobs:
       run: uv sync --extra dev
 
     - name: Run execution environment parity E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 35
       run: |
         uv run pytest tests/e2e/test_execution_environment_parity.py -v --tb=short
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: execution-environment-parity-e2e
+        engine: docker
+
 
   deploy-writeback-e2e:
     name: Deploy Write-Back E2E (profile-owned secrets across a rebuild)
@@ -2130,8 +2391,22 @@ jobs:
       run: uv sync --extra dev
 
     - name: Run deploy write-back E2E
+      # Step cap under the job cap so a hang fails THIS step, leaving the
+      # capture step below room to run. A job-level timeout is a hard cancel
+      # that takes the container logs with it.
+      timeout-minutes: 15
       run: |
         uv run pytest tests/e2e/test_deploy_writeback_e2e.py -v --tb=short
+
+    # Runs BEFORE the teardown below: the cleanup step deletes the very
+    # containers whose logs explain the failure. Read-only capture; the
+    # artifact is `ci-diag-<lane>` on the run's summary page.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: deploy-writeback-e2e
+        engine: docker
 
     # Belt-and-suspenders on top of each test's own try/finally teardown: every
     # resource named here is exact (never a prune/-a/wildcard), matching
@@ -2186,6 +2461,16 @@ jobs:
     - name: Run multi-user deploy lifecycle E2E
       run: |
         uv run pytest tests/e2e/test_deploy_lifecycle.py -v --tb=short
+
+    # Runs BEFORE the teardown below: the cleanup step deletes the very
+    # containers whose logs explain the failure. Read-only capture; the
+    # artifact is `ci-diag-<lane>` on the run's summary page.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: multi-user-deploy-lifecycle-e2e
+        engine: docker
 
     # Belt-and-suspenders on top of the test's own try/finally teardown: every
     # resource named here is exact (never a prune/-a/wildcard), matching
@@ -2246,6 +2531,16 @@ jobs:
     - name: Run auth perimeter E2E
       run: |
         uv run pytest tests/e2e/web_terminals/test_auth_perimeter.py -v --tb=short
+
+    # Runs BEFORE the teardown below: the cleanup step deletes the very
+    # containers whose logs explain the failure. Read-only capture; the
+    # artifact is `ci-diag-<lane>` on the run's summary page.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: auth-perimeter-e2e
+        engine: docker
 
     # Belt-and-suspenders on top of the test's own try/finally teardown. Every
     # resource named here is exact — never a prune, an -a/--all sweep, or a
@@ -2332,6 +2627,16 @@ jobs:
         for _ in $(seq 1 30); do if [ -S "$SOCK" ]; then break; fi; sleep 1; done
         export DOCKER_HOST="unix://$SOCK"
         uv run pytest tests/e2e/test_deploy_lifecycle.py -v --tb=short
+
+    # Runs BEFORE the teardown below: the cleanup step deletes the very
+    # containers whose logs explain the failure. Read-only capture; the
+    # artifact is `ci-diag-<lane>` on the run's summary page.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: multi-user-deploy-lifecycle-e2e-podman
+        engine: podman
 
     # Belt-and-suspenders on top of the test's own try/finally teardown: every
     # resource named here is exact (never a prune/-a/wildcard), matching

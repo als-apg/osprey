@@ -22,6 +22,17 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- A red CI lane now leaves evidence behind. Every Docker lane captures its
+  container logs, exit codes and `OOMKilled` flags — plus runner disk and
+  memory state — before teardown removes the containers, and uploads them as a
+  `ci-diag-<lane>` artifact. The unit-test lane records, per parallel worker
+  and flushed as it goes, which test was in flight, along with stack dumps for
+  anything stuck past five minutes. A lane that is killed rather than failing
+  (job timeout, runner stall) now names the test each worker stopped on in the
+  run summary, instead of ending as a silent `cancelled`. Lanes that declare a
+  time budget now cap their test step below it, so a hang fails that step and
+  the capture still runs, rather than the whole job being cancelled mid-teardown.
+
 - A tokenless `queue_start` now files a **start request** the operator confirms
   in the BLUESKY queue panel, instead of dead-ending in a refusal. Deployed
   web terminals never hold the scan launch token by design; the agent stages

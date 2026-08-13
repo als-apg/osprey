@@ -1,0 +1,98 @@
+name: Capture CI diagnostics
+description: >-
+  Snapshot container logs, container state, and runner health into an uploaded
+  artifact. Intended to run on failure, BEFORE any teardown step — the deploy
+  lanes' cleanup blocks delete the very containers that hold the explanation.
+
+inputs:
+  name:
+    description: >-
+      Artifact name suffix. Must be unique across the jobs in one workflow run,
+      or the uploads collide and only one survives.
+    required: true
+  engine:
+    description: Container engine to interrogate — `docker` or `podman`.
+    required: false
+    default: docker
+
+runs:
+  using: composite
+  steps:
+    - name: Snapshot containers and runner state
+      shell: bash
+      # Every container operation here is READ-ONLY: ps, inspect, logs, stats.
+      # No rm, no down, no volume rm, and above all no prune or -a/--all sweep —
+      # this action runs on shared self-hosted runners too, where a prune would
+      # destroy another job's state. Same guardrail the e2e cleanup blocks and
+      # the tests' own teardown follow.
+      #
+      # `|| true` on every probe: this step runs when something has already gone
+      # wrong, so a missing engine or a dead daemon must not mask the original
+      # failure with a diagnostics failure.
+      env:
+        ENGINE: ${{ inputs.engine }}
+      run: |
+        set -u
+        DIAG="ci-diag"
+        mkdir -p "$DIAG/containers"
+
+        # ---- runner health -------------------------------------------------
+        # Answers the "was this an infra stall?" question with evidence rather
+        # than inference: a full disk or an exhausted runner shows up here.
+        {
+          echo "== date =="; date -u
+          echo; echo "== uptime / load =="; uptime
+          echo; echo "== disk =="; df -h
+          echo; echo "== memory =="
+          if command -v free >/dev/null 2>&1; then free -m; else vm_stat; fi
+          echo; echo "== top processes by RSS =="
+          ps -eo pid,ppid,rss,etime,comm --sort=-rss 2>/dev/null | head -25 \
+            || ps axo pid,ppid,rss,etime,comm | head -25
+        } > "$DIAG/runner-state.txt" 2>&1 || true
+
+        if ! command -v "$ENGINE" >/dev/null 2>&1; then
+          echo "$ENGINE not installed on this runner; container capture skipped" \
+            > "$DIAG/containers/SKIPPED.txt"
+          exit 0
+        fi
+
+        # ---- container inventory -------------------------------------------
+        "$ENGINE" ps -a > "$DIAG/containers/ps.txt" 2>&1 || true
+        "$ENGINE" images > "$DIAG/containers/images.txt" 2>&1 || true
+        "$ENGINE" volume ls > "$DIAG/containers/volumes.txt" 2>&1 || true
+        "$ENGINE" network ls > "$DIAG/containers/networks.txt" 2>&1 || true
+
+        # ---- per-container logs and state ----------------------------------
+        # `.State.OOMKilled` and `.State.ExitCode` are the payload: they turn
+        # "the lane just died" into a named cause. Health-check output is
+        # included because a stack that never became healthy fails its test
+        # long before it logs anything interesting.
+        for cid in $("$ENGINE" ps -aq 2>/dev/null); do
+          raw=$("$ENGINE" inspect --format '{{.Name}}' "$cid" 2>/dev/null || echo "$cid")
+          safe=$(printf '%s' "${raw#/}" | tr -c 'A-Za-z0-9._-' '_')
+          [ -n "$safe" ] || safe="$cid"
+
+          "$ENGINE" logs --timestamps "$cid" \
+            > "$DIAG/containers/${safe}.log" 2>&1 || true
+
+          "$ENGINE" inspect \
+            --format '{{.Name}} image={{.Config.Image}} status={{.State.Status}} exit={{.State.ExitCode}} oomkilled={{.State.OOMKilled}} error={{.State.Error}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' \
+            "$cid" >> "$DIAG/containers/state.txt" 2>&1 || true
+
+          health=$("$ENGINE" inspect --format '{{json .State.Health}}' "$cid" 2>/dev/null || true)
+          if [ -n "$health" ] && [ "$health" != "null" ]; then
+            printf '%s\n' "$health" > "$DIAG/containers/${safe}.health.json"
+          fi
+        done
+
+        echo "--- captured into $DIAG ---"
+        ls -R "$DIAG" || true
+
+    - name: Upload diagnostics artifact
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: ci-diag-${{ inputs.name }}
+        path: ci-diag/
+        retention-days: 14
+        if-no-files-found: warn
