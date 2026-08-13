@@ -340,23 +340,39 @@ def resolve_project_root(config: Mapping[str, Any] | None = None) -> Path:
     parent would put every relative path inside the disposable zone.
 
     Resolution order:
-      1. The config's own ``project_root`` key. Authoritative, and the only
-         answer that is right inside a container, where the repo was built at
-         one path and runs at another.
+      1. The config's own ``project_root`` key, when it names a directory that
+         exists here. That qualifier is what makes it right inside a container,
+         where the repo was built at one path and runs at another: a deployed
+         service reads a config STAGED on the host — the compose generator
+         flattens the host render into ``build/services/<svc>/config.yml``, and
+         the service's compose file bind-mounts that over the one in the image —
+         so its ``project_root`` is a host path that names nothing in here.
+         Anchoring on it would put the
+         agent-data root, and every other relative path, outside the mounted
+         volume. Same rule and same reason as
+         :func:`osprey.deployment.compose_generator.resolve_repo_root`.
       2. The repo the resolved config path sits in — its parent, or that
-         parent's parent when the config is in the ``build/`` zone.
-      3. The current working directory, when there is no config at all.
+         parent's parent when the config is in the ``build/`` zone. Filesystem
+         truth, and correct in every container layout: the mount target names
+         the render, so unwrapping it names the repo.
+      3. The configured value after all, when there is no config file to derive
+         from — a build rendered with ``--runtime-root`` records a path that
+         exists only on the machine it will run on, and has nothing better.
+      4. The current working directory, when there is neither.
 
     Args:
         config: Loaded ``config.yml`` mapping, or ``None`` to consult only the
             config *path* (callers that have not loaded one).
     """
     configured = dotted_config_str(config, "project_root")
-    if configured:
-        return Path(configured).expanduser()
+    candidate = Path(configured).expanduser() if configured else None
+    if candidate is not None and candidate.is_dir():
+        return candidate
 
     config_path = resolve_config_path()
-    return repo_root_for_config(config_path) if config_path.exists() else Path.cwd()
+    if config_path.exists():
+        return repo_root_for_config(config_path)
+    return candidate if candidate is not None else Path.cwd()
 
 
 def resolve_agent_data_root() -> Path:

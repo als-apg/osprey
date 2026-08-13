@@ -88,12 +88,35 @@ class TestRenderedConfigPath:
 
 
 class TestResolveProjectRoot:
-    def test_configured_key_wins(self, tmp_path):
+    def test_configured_key_wins(self, tmp_path, monkeypatch):
         """The container case: built at one path, running at another."""
+        deployed = tmp_path / "app" / "demo"
+        deployed.mkdir(parents=True)
+        cfg = _write_repo(tmp_path / "elsewhere", f"project_root: {deployed}\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
+        assert resolve_project_root({"project_root": str(deployed)}) == deployed
+
+    def test_ignores_a_configured_root_this_machine_lacks(self, tmp_path, monkeypatch):
+        """The deployed overlay: a config staged on the host, read in a container.
+
+        The compose generator flattens the host render into
+        ``build/services/<svc>/config.yml`` and the service bind-mounts it over
+        its own — so ``project_root`` names a HOST directory that the container
+        does not have. Anchoring on it would put the agent-data root outside the
+        mounted volume; the mount target is filesystem truth.
+        """
+        cfg = _write_repo(tmp_path, "{}\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
+        assert resolve_project_root({"project_root": "/build/host/only/proj"}) == tmp_path
+
+    def test_keeps_the_configured_key_without_a_config_file(self, tmp_path, monkeypatch):
+        """A ``--runtime-root`` render names the path it will run at, elsewhere."""
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "absent" / "config.yml"))
         assert resolve_project_root({"project_root": "/app/demo"}) == Path("/app/demo")
 
     def test_expands_home_in_the_configured_key(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / "deployments" / "demo").mkdir(parents=True)
         assert resolve_project_root({"project_root": "~/deployments/demo"}) == (
             tmp_path / "deployments" / "demo"
         )
