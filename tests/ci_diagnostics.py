@@ -14,14 +14,14 @@ complete at every instant rather than at exit:
     ``scripts/ci/diag_summary.py``.
 
 ``stacks-<worker>.txt``
-    Every thread's stack, sampled on a repeating timer for the whole session,
-    plus a traceback if the interpreter crashes outright. The timer is armed
-    once at session start rather than around each test, so this is a periodic
-    snapshot, not a per-test stuck detector: a healthy long run leaves a handful
-    of dumps, and a wedged one leaves the same frames over and over, which is
-    what "stuck" looks like. Sampling the whole session is deliberate — it keeps
-    dumping after the LAST test has finished, which is where a shutdown hang
-    lives, and a per-test timer would be cancelled by then and show nothing.
+    Every thread's stack, sampled at a fixed interval for the whole session,
+    plus a traceback if the interpreter crashes outright. Sampling runs for the
+    whole session rather than around each test, so this is a periodic snapshot,
+    not a per-test stuck detector: a healthy long run leaves a handful of dumps,
+    and a wedged one leaves the same frames over and over, which is what "stuck"
+    looks like. Covering the whole session is deliberate — it keeps dumping
+    after the LAST test has finished, which is where a shutdown hang lives, and
+    a per-test timer would be cancelled by then and show nothing.
 
 Both are gated on ``OSPREY_CI_DIAG_DIR``: unset (every local run) means this
 module installs nothing at all.
@@ -35,18 +35,42 @@ for. Its dump lands only in the job log, which is exactly what a cancelled job
 truncates; it fires once per test, so a stack that is genuinely stuck looks the
 same as one that was merely slow; and it says nothing at all about which test
 each worker was inside. Writing to a file fixes the first (the artifact is
-uploaded whatever happens to the log), ``repeat=True`` fixes the second
+uploaded whatever happens to the log), repeated sampling fixes the second
 (identical frames dumped again and again is what "stuck" looks like), and the
 event log fixes the third.
 
-Because ``faulthandler.dump_traceback_later`` is process-global and pytest's
-plugin re-arms it around every test, the two cannot coexist: the unit lane
-passes no ``faulthandler_timeout`` so that the timer installed here survives.
+Why the sampler is a Python thread, and not ``dump_traceback_later``
+--------------------------------------------------------------------
+``faulthandler.dump_traceback_later`` is the obvious way to write this, and it
+is not safe here. Its watchdog lives in C and walks every thread's frames
+*without holding the GIL* — that is the whole point of it, since it has to work
+when the GIL is deadlocked. The cost is that it reads frames the interpreter is
+still mutating. Under this suite that is not a theoretical race: the config and
+template tests spend much of their time inside PyYAML, ruamel and Jinja2, whose
+recursive-descent parsers build and tear down frames continuously, and a sample
+landing there walks a half-freed frame and takes the process down with it. The
+worker dies with no traceback and no protocol shutdown, xdist reports ``node
+down: Not properly terminated``, and the lane then fails in one of two ways
+that look nothing like each other: xdist's loadscope scheduler raises
+``KeyError`` on the replacement worker, or the controller parks forever in
+``dsession.loop_once`` waiting for an event the dead worker will never send.
+Both were observed, on consecutive runs, caused by this module.
 
-One diagnostic aside worth keeping: if the ini option *is* set and no dump
-appears despite a long stall, that is itself evidence. It means the timer
-thread never ran, which points at the runner being frozen rather than at a
-deadlocked test.
+Calling ``faulthandler.dump_traceback`` from an ordinary Python thread holds
+the GIL for the walk, so no frame can move underneath it. What that gives up is
+the case the C watchdog exists for: a hard GIL deadlock, or a C extension
+spinning without releasing it, starves this thread and no dump appears. Every
+hang this lane has actually produced — blocked on a queue, a socket, or a
+subprocess — releases the GIL and samples fine. A dump that never comes is
+itself the signature of the case we cannot sample.
+
+``faulthandler.enable`` is kept. It installs a fatal-signal handler that only
+runs once the process is already lost, so it carries none of this risk, and it
+is what turns a segfault in a C extension into something with a stack on it.
+
+The unit lane still passes no ``faulthandler_timeout`` — pytest's built-in is
+implemented with ``dump_traceback_later``, so arming it re-introduces exactly
+the crash described above, on a per-test timer.
 """
 
 from __future__ import annotations
@@ -54,6 +78,7 @@ from __future__ import annotations
 import faulthandler
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -70,6 +95,11 @@ ENV_STACK_TIMEOUT = "OSPREY_CI_DIAG_STACK_TIMEOUT"
 #: Five minutes keeps a healthy half-hour lane down to a handful of dumps while
 #: still landing several inside any hang worth investigating.
 DEFAULT_STACK_TIMEOUT = 300.0
+
+#: How long ``stop()`` waits for an in-flight sample to finish before closing
+#: the file under it. A dump of a few dozen threads takes milliseconds; this is
+#: only here so a wedged sampler can never hold up the end of a run.
+SAMPLER_JOIN_TIMEOUT = 5.0
 
 
 def worker_id() -> str:
@@ -98,6 +128,8 @@ class DiagnosticsRecorder:
         self._events: Any = None
         self._stacks: Any = None
         self._stopped = False
+        self._sampler: threading.Thread | None = None
+        self._stop_sampling = threading.Event()
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -114,15 +146,35 @@ class DiagnosticsRecorder:
             self._stacks = (self.directory / f"stacks-{self.worker}.txt").open(
                 "a", buffering=1, encoding="utf-8"
             )
-            # enable() covers a hard interpreter crash (a segfault inside a C
-            # extension leaves no Python-level trace otherwise);
-            # dump_traceback_later covers the wedge.
+            # enable() covers a hard interpreter crash: a segfault inside a C
+            # extension leaves no Python-level trace otherwise. It only fires
+            # on a fatal signal, so it cannot itself destabilise a healthy
+            # process — unlike the C watchdog this sampler replaces. See the
+            # module docstring.
             faulthandler.enable(file=self._stacks, all_threads=True)
-            faulthandler.dump_traceback_later(
-                self.stack_timeout, repeat=True, file=self._stacks, exit=False
+            self._sampler = threading.Thread(
+                target=self._sample_stacks,
+                name="osprey-ci-diag-stacks",
+                daemon=True,
             )
+            self._sampler.start()
 
         self.record("session_start", stack_timeout=self.stack_timeout)
+
+    def _sample_stacks(self) -> None:
+        """Dump every thread's stack on an interval until ``stop()`` is called.
+
+        Runs as an ordinary Python thread so the walk happens under the GIL and
+        cannot read a frame mid-mutation. ``Event.wait`` rather than ``sleep``
+        so a finished run is not held up for a whole interval.
+        """
+        assert self.stack_timeout is not None
+        while not self._stop_sampling.wait(self.stack_timeout):
+            try:
+                faulthandler.dump_traceback(file=self._stacks, all_threads=True)
+            except (OSError, ValueError, AttributeError):
+                # Closed handle or full disk. Diagnostics never break a run.
+                return
 
     def stop(self) -> None:
         if self._stopped:
@@ -131,7 +183,13 @@ class DiagnosticsRecorder:
         self._stopped = True
 
         if self._stacks is not None:
-            faulthandler.cancel_dump_traceback_later()
+            # Wake the sampler and let any in-flight dump finish before the
+            # file goes out from under it.
+            self._stop_sampling.set()
+            if self._sampler is not None:
+                self._sampler.join(SAMPLER_JOIN_TIMEOUT)
+                self._sampler = None
+            faulthandler.disable()
             self._stacks.close()
             self._stacks = None
 

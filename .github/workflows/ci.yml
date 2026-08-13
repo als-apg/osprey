@@ -180,9 +180,11 @@ jobs:
         # (armed by OSPREY_CI_DIAG_DIR above) writes the same stacks to a file
         # per worker that is uploaded as an artifact, and repeats the dump, so
         # a genuinely stuck stack is distinguishable from a merely slow one.
-        # The two cannot coexist: dump_traceback_later is process-global and
-        # pytest's plugin re-arms it around every test, so setting the ini
-        # option here would silently replace the file-backed timer.
+        # Setting the ini option here would also be actively unsafe: pytest
+        # implements it with faulthandler.dump_traceback_later, whose watchdog
+        # walks frames without the GIL and segfaults workers that are inside a
+        # YAML or Jinja parser. That crashed this lane on three consecutive
+        # runs; tests/ci_diagnostics.py samples from a Python thread instead.
         #
         # Still dump-only, never kill: the container-starting files can sit in
         # a cold image pull for minutes and must not be shot for it.

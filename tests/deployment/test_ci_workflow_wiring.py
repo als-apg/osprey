@@ -2342,20 +2342,26 @@ def test_unit_lane_uploads_its_diagnostics__mutation_narrows_to_failure() -> Non
 
 
 def test_unit_lane_does_not_set_faulthandler_timeout(workflow: dict[str, Any]) -> None:
-    """The subtle one: two mechanisms competing for one process-global timer.
+    """The subtle one: the ini option arms a watchdog that kills workers.
 
-    ``faulthandler.dump_traceback_later`` can only have one owner, and pytest's
-    plugin re-arms it around every test whenever the ini option is set. Setting
-    it here would therefore silently replace the repeating, file-backed timer
-    armed by ``tests/ci_diagnostics.py`` with a one-shot one that writes only to
-    the job log — the log being exactly what a cancelled job truncates.
+    pytest implements ``faulthandler_timeout`` with
+    ``faulthandler.dump_traceback_later``, whose watchdog walks every thread's
+    frames without holding the GIL. A sample landing inside one of the parsers
+    this suite lives in — PyYAML, ruamel, Jinja2 — reads a frame that is being
+    freed and takes the worker down with it, which xdist reports only as ``node
+    down: Not properly terminated``. ``tests/ci_diagnostics.py`` samples from an
+    ordinary Python thread for that reason, and setting this option would put
+    the unsafe watchdog back, on a per-test timer.
+
+    Its dumps would also reach only the job log, which is exactly what a
+    cancelled job truncates.
     """
     line = _unit_test_pytest_line(workflow)
     assert "faulthandler_timeout" not in line, (
-        "the unit lane must not pass `-o faulthandler_timeout`: pytest's plugin would "
-        "re-arm the process-global faulthandler timer around every test, replacing the "
-        "repeating file-backed dumps armed by tests/ci_diagnostics.py. See that "
-        "module's docstring."
+        "the unit lane must not pass `-o faulthandler_timeout`: pytest implements it "
+        "with faulthandler.dump_traceback_later, whose GIL-free watchdog segfaults "
+        "workers that are inside a YAML or Jinja parser. See the docstring of "
+        "tests/ci_diagnostics.py."
     )
 
 

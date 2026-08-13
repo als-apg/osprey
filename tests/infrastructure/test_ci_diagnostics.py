@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -129,6 +130,59 @@ def test_stack_dump_file_is_opened_when_timeout_set(tmp_path):
         assert (tmp_path / "stacks-gw3.txt").exists()
     finally:
         recorder.stop()
+
+
+def test_sampling_never_arms_the_c_level_watchdog(tmp_path, monkeypatch):
+    """``dump_traceback_later`` must not be used, however tempting it is.
+
+    Its watchdog walks every thread's frames without the GIL, so a sample that
+    lands inside a parser building and discarding frames — which this suite does
+    for minutes at a time, in PyYAML, ruamel and Jinja2 — reads a frame that is
+    being freed and kills the process. That crashed real workers on three
+    consecutive CI runs, which xdist reported as ``node down: Not properly
+    terminated``. The module docstring has the full chain.
+    """
+    import faulthandler
+
+    called: list[object] = []
+    monkeypatch.setattr(faulthandler, "dump_traceback_later", lambda *a, **k: called.append(a))
+
+    recorder = DiagnosticsRecorder(tmp_path, worker="gw0", stack_timeout=0.01)
+    recorder.start()
+    try:
+        time.sleep(0.1)
+    finally:
+        recorder.stop()
+
+    assert called == [], "the GIL-free faulthandler watchdog must never be armed"
+
+
+def test_sampler_writes_dumps_on_its_interval(tmp_path):
+    """The thread must actually produce dumps, not merely exist."""
+    recorder = DiagnosticsRecorder(tmp_path, worker="gw0", stack_timeout=0.01)
+    recorder.start()
+    try:
+        deadline = time.monotonic() + 5.0
+        stacks = tmp_path / "stacks-gw0.txt"
+        while time.monotonic() < deadline and "Thread" not in stacks.read_text():
+            time.sleep(0.02)
+    finally:
+        recorder.stop()
+
+    assert "Thread" in (tmp_path / "stacks-gw0.txt").read_text()
+
+
+def test_stop_shuts_the_sampler_down(tmp_path):
+    """No thread may outlive the recorder and write into a closed file."""
+    recorder = DiagnosticsRecorder(tmp_path, worker="gw0", stack_timeout=0.01)
+    recorder.start()
+    sampler = recorder._sampler
+    assert sampler is not None and sampler.is_alive()
+
+    recorder.stop()
+
+    sampler.join(timeout=5.0)
+    assert not sampler.is_alive()
 
 
 def test_no_stack_file_when_timeout_disabled(tmp_path):
