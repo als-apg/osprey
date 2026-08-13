@@ -25,8 +25,8 @@ from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 SAFE_ARTIFACT = "rules/safety"  # Always available, real content
 
 
-@pytest.fixture()
-def project_dir(tmp_path):
+@pytest.fixture(scope="session")
+def _baked_repo(tmp_path_factory) -> Path:
     """A real render of the control-assistant preset, through the real verbs.
 
     ``osprey init`` materializes the deployment repo, ``osprey build`` renders
@@ -36,15 +36,42 @@ def project_dir(tmp_path):
     The control-assistant preset specifically: the gallery tests assert the
     channel-finder and data-visualizer agents and the diagnose skill, none of
     which ship with hello-world.
+
+    Session-scoped: a render is expensive, and under coverage measurement it is
+    expensive enough that one render per test blows the CI job budget. Tests
+    get an isolated copy via ``project_dir``, never this tree itself.
     """
     runner = CliRunner()
-    repo = tmp_path / "gallery-test"
+    repo = tmp_path_factory.mktemp("gallery-bake") / "gallery-test"
 
     created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
     assert created.exit_code == 0, created.output
 
     result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
+    return repo
+
+
+@pytest.fixture()
+def project_dir(_baked_repo, tmp_path):
+    """A private copy of the baked render, free for the test to mutate.
+
+    A render records absolute paths — ``project_root`` in config.yml,
+    ``build_args.profile_path_abs`` in the manifest — and the baked tree still
+    exists while tests run, so a copy that kept those bytes would resolve
+    every path back to the shared bake and mutate it. Re-anchoring them to the
+    copy is what makes each test's repo genuinely its own.
+    """
+    repo = tmp_path / "gallery-test"
+    shutil.copytree(_baked_repo, repo, symlinks=True)
+
+    old, new = str(_baked_repo).encode(), str(repo).encode()
+    for path in repo.rglob("*"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        data = path.read_bytes()
+        if old in data:
+            path.write_bytes(data.replace(old, new))
     return repo / "build"
 
 
