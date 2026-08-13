@@ -4,10 +4,10 @@ Both tools take an ``execution_mode`` string and guard control-system writes
 with two independent checks: a per-call readonly gate (pattern detection) and a
 deployment-level kill switch (``control_system.writes_enabled`` in the project
 config). Each gate only recognises one canonical spelling, so any *other*
-string used to fall through both — not "readonly", so write patterns were not
-blocked; not "readwrite", so the kill switch never fired. Rejecting unknown
-modes here closes that hole for every caller at once, and gives the kill
-switch a single implementation instead of one copy per tool.
+string falls through both — not "readonly", so write patterns are not blocked;
+not "readwrite", so the kill switch never fires. Rejecting unknown modes here
+closes that hole for every caller at once, and gives the kill switch a single
+implementation instead of one copy per tool.
 """
 
 from __future__ import annotations

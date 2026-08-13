@@ -205,14 +205,14 @@ def with_plain_progress(cmd: list[str]) -> list[str]:
     Docker only, deliberately. ``--progress`` is a docker compose v2 flag;
     ``podman compose`` delegates to whichever provider the host has, and a
     provider that rejects an unknown flag would turn a cosmetic improvement
-    into a failed deploy. Podman hosts keep today's behaviour, and lose
+    into a failed deploy. Podman hosts keep compose's own default, and lose
     little: ``auto`` already resolves to ``plain`` whenever stdout is not a
     terminal, which covers CI and systemd — the places a production deploy's
     output is actually captured.
 
     ``--progress`` is a global flag, valid ahead of every compose subcommand,
     so callers append their ``-f``/``--env-file`` arguments and the subcommand
-    afterwards exactly as before.
+    afterwards unchanged.
 
     Args:
         cmd: A compose argv base, e.g. ``["docker", "compose"]``, as returned

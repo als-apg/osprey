@@ -127,8 +127,8 @@ class ArtifactEntry:
         """Compact response returned to Claude after artifact creation.
 
         When ``summary`` / ``access_details`` are populated (data artifacts),
-        the response includes them so Claude sees the same compact info that
-        DataContext.to_tool_response() used to provide.
+        the response includes them so Claude sees the shape of the data without
+        a second read.
         """
         resp: dict[str, Any] = {
             "status": "success",

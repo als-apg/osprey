@@ -1,6 +1,6 @@
 """Browser smoke tests: the docked (dockview) workspace and its server bridge.
 
-The service panels no longer live in a fixed left/right split — they are docked
+The service panels do not live in a fixed left/right split — they are docked
 in a dockview grid (``dock-workspace.js``) whose panel content follows an overlay
 iframe layer (``dock-iframe.js``), with a state bridge (``dock-sync.js``) that
 turns human dock gestures into the same server POSTs the agent's MCP calls make.

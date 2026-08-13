@@ -7,11 +7,9 @@ Extracted from ``tests/e2e/sdk_helpers.py`` so that production code
 re-exported from :mod:`osprey.agent_runner` — that module is the single source
 of truth for these primitives.
 
-Nothing here builds a project. An ``init_project`` used to sit alongside these
-helpers, shelling out to the retired positional ``osprey build`` form; its only
-consumer moved to ``tests.e2e.sdk_helpers.init_project``, which drives the
-current ``osprey init`` + ``osprey build`` surface. Benchmarks are handed a
-built repo and read it.
+Nothing here builds a project — benchmarks are handed a built repo and read it.
+Project setup belongs to ``tests.e2e.sdk_helpers.init_project``, which drives
+the ``osprey init`` + ``osprey build`` surface.
 """
 
 from __future__ import annotations

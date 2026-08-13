@@ -177,10 +177,9 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
     rather than raised — well-formedness is lint's job; this function only
     decides what to build from what already resolved. A referenced persona
     whose catalog entry is missing/empty ``project_path`` is also skipped,
-    but is logged as a warning (not silent): lint (Task 2.4) is the well-
-    formedness gate for a config that never runs it, so a local deploy that
-    bypasses lint would otherwise fail opaquely at ``compose up`` on an
-    unbuilt tag with no clue why.
+    but is logged as a warning (not silent): lint is the well-formedness gate,
+    so a local deploy that bypasses lint would otherwise fail opaquely at
+    ``compose up`` on an unbuilt tag with no clue why.
 
     :param config: Raw deploy config (read for ``modules.web_terminals.personas``).
     :param resolved_users: :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
@@ -543,11 +542,11 @@ def verify_persona_renders(
     start writes none: this runs BEFORE the image builds so a gap is a refusal
     with a remedy rather than an opaque failure inside a container build.
 
-    A start used to render the missing ones itself. It no longer does, and the
-    absence is the point. ``build/`` is a complete account of what a deploy will
-    run, so a persona project appearing at start time made that account false
-    exactly when it mattered: the operator whose delta had changed got a fresh
-    persona standing beside a deployment rendered from the old profile. The
+    A start must never render the missing ones itself, and the absence is the
+    point. ``build/`` is a complete account of what a deploy will run, so a
+    persona project appearing at start time makes that account false exactly
+    when it matters: the operator whose delta changed would get a fresh persona
+    standing beside a deployment rendered from the earlier profile. The
     drift gate already refuses that start — the persona deltas are folded into
     the build fingerprint — so the honest reading of a missing render is "this
     build is stale or partial", and the honest remedy is the one that replaces

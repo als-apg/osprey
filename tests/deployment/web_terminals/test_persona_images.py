@@ -885,20 +885,20 @@ def test_a_delta_with_no_profile_beside_it_is_rejected(tmp_path, calls):
 
 
 # ---------------------------------------------------------------------------
-# Deletion assertions. Two things this module used to do are gone, and both
-# would be silent regressions rather than failures if they came back.
+# Absence assertions. Two things this module must never do, both of which would
+# be silent regressions rather than failures if they appeared.
 #
-# It used to shell out to `osprey build` for any persona whose project was
-# absent, which is what made a start able to write into `build/`. And before
-# that it read the parent's `.osprey-manifest.json` `build_args`, took the keys
-# passed as `--set` at parent build time, and appended the same pairs to every
-# persona render, so one parent override retinted the whole stack.
+# It must not shell out to `osprey build` for a persona whose project is
+# absent, which is what would make a start able to write into `build/`. And it
+# must not read the parent's `.osprey-manifest.json` `build_args`, take the keys
+# passed as `--set` at parent build time, and append the same pairs to every
+# persona render, retinting the whole stack from one parent override.
 #
-# Neither can come back by accident: `osprey build` renders every persona from
+# Neither can appear by accident: `osprey build` renders every persona from
 # the profile, an explicit override is written INTO the profile, and a delta
 # merges over that same profile -- so replaying a build invocation would apply
 # the change twice, and a stale manifest entry would apply a value the profile
-# no longer holds.
+# does not hold.
 # ---------------------------------------------------------------------------
 
 
@@ -907,9 +907,9 @@ def test_parent_set_override_forwarding_helper_is_gone():
 
 
 def test_the_start_time_render_is_gone():
-    """Both halves: the entry point that rendered, and the manifest indirection
-    that existed only to find the profile it rendered from. Under three zones
-    the repo root IS the profile root, so the lookup had become a tautology with
+    """Both halves: an entry point that renders, and a manifest indirection
+    whose only job would be finding the profile it rendered from. Under three
+    zones the repo root IS the profile root, so that lookup is a tautology with
     failure modes of its own."""
     assert not hasattr(persona_images, "auto_render_missing_personas")
     assert not hasattr(persona_images, "_parent_profile_root")

@@ -22,7 +22,7 @@ Scenario-switch detection deliberately does its own (mtime, content-hash)
 comparison of ``active_scenarios`` in addition to the engine's own internal
 mtime-only tracking: the data directory is bind-mounted (not a single file)
 specifically so an atomic-rename swap survives the mount, but the replacement
-file's mtime can still collide with the old one at the host filesystem's
+file's mtime can still collide with the replaced one at the host filesystem's
 mtime granularity. The content hash is strictly more sensitive than mtime
 alone and catches that edge case.
 """
@@ -68,7 +68,7 @@ class EngineSource:
         state_dir: Directory holding the ``active_scenarios`` file, read fresh
             on every poll tick -- never through a cached file handle, so a
             directory-level atomic-rename swap is always observed. Defaults to
-            ``data_dir`` (the historical layout). The VA entrypoint points it
+            ``data_dir`` (the single-directory layout). The VA entrypoint points it
             at the separately mounted ``_agent_data/simulation/`` the host
             writes, and passes the SAME directory to the engine, so the two
             never disagree about which scenarios are active.

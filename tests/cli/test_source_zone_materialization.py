@@ -311,7 +311,7 @@ def test_only_keys_of_referenced_providers_are_seeded(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
 ) -> None:
     """The keys of the providers this profile names, and nothing else — the
-    profile is now where a facility's secrets live, so what lands there must be
+    profile is where a facility's secrets live, so what lands there must be
     predictable, and importing a whole shell keyring is more than it needs."""
     from osprey.utils.dotenv import parse_dotenv_file
 

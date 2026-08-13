@@ -19,7 +19,7 @@ The ring, the strength map and the variables are built as one set, in that
 order: the map bakes its strength baseline from the very lattice the
 simulator goes on to mutate, so a variable's conversion is always relative
 to the ring it writes into. Building the map from a second ``build_ring()``
-would give a baseline that merely *happens* to match today.
+would give a baseline that merely *happens* to match.
 
 Declared defaults are recorded as the retained input values at construction
 but are not written to the lattice, so the ring boots in exactly the state

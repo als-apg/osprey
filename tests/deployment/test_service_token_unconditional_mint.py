@@ -94,7 +94,7 @@ def _config(**overrides) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# The posture no longer changes what is minted.
+# The posture does not change what is minted.
 # ---------------------------------------------------------------------------
 
 
@@ -197,15 +197,14 @@ def test_minted_key_set_is_identical_across_every_posture(_clean_token_env, tmp_
     )
 
 
-def test_mint_logs_no_withholding_warning_under_the_formerly_guarded_posture(
+def test_mint_logs_no_withholding_warning_under_any_posture(
     captured_argv, _clean_token_env, monkeypatch, tmp_path, caplog
 ):
-    """The guard's operator-facing half is gone too.
+    """The operator-facing half must be silent too.
 
-    It warned, per var, that a token had been withheld. A deploy that mints
-    everything must not still be telling operators something was held back —
-    that text is what sent them looking for a safety property that was never
-    there.
+    A per-var warning that a token had been withheld would tell operators
+    something was held back when a deploy mints everything — text that sends
+    them looking for a safety property that is not there.
     """
     config = _config(
         control_system={"writes_enabled": True},
@@ -252,7 +251,7 @@ def test_dispatch_tokens_mint_alongside_bluesky_under_writes_enabled_local(
 def test_a_new_services_token_mints_without_being_triaged_first(
     captured_argv, _clean_token_env, monkeypatch, tmp_path
 ):
-    """Declaring a var is now sufficient — there is no allowlist to be added to.
+    """Declaring a var is sufficient — there is no allowlist to be added to.
 
     Under the old fail-closed allowlist an untriaged var was withheld by
     omission, so a service added without an accompanying allowlist edit

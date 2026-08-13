@@ -111,7 +111,7 @@ def get_litellm_model_name(
 
     # Last-resort fallback for providers the registry can't resolve (unregistered
     # names that have no provider class). Registered providers are routed above via
-    # their declared attributes, so these maps no longer drive normal routing.
+    # their declared attributes, so these maps never drive normal routing.
     _fallback_prefixes = {
         "anthropic": "anthropic",
         "google": "gemini",

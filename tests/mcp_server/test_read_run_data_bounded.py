@@ -233,6 +233,6 @@ async def test_unknown_run_404_does_not_claim_the_data_is_gone():
     assert "unknown run" in envelope["error_message"]
     hints = " ".join(envelope["suggestions"]).lower()
     assert "in-memory" not in hints, (
-        "the run registry is no longer in-memory; this hint would misdescribe "
+        "the run registry is not in-memory; this hint would misdescribe "
         "durable queue history to the agent"
     )

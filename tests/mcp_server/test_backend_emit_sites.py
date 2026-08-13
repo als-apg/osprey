@@ -988,7 +988,7 @@ async def test_execute_uncanonical_write_mode_rejected_no_emit(tool_name, tmp_pa
     """A non-canonical mode spelling is refused at the boundary — emit nothing.
 
     "READWRITE" used to clear both write gates as an unvalidated free string
-    and run the script; it is now rejected before any gate, so nothing runs
+    and run the script; it is rejected before any gate, so nothing runs
     and nothing reports.
     """
     monkeypatch.chdir(tmp_path)

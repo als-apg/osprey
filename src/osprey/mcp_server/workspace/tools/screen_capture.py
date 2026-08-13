@@ -36,9 +36,9 @@ def _get_output_dir() -> Path:
     Runtime output, so it belongs under the deployment's agent-data root — read
     from ``agent_data.base_dir`` rather than spelled here — and a configured
     ``screen_capture.output_dir`` is anchored on the repo root the same way
-    every other configured path is. Both halves matter: the default used to name
-    the retired ``./_agent_data``, and either value used to resolve against the
-    working directory, which for an MCP server is whatever launched it.
+    every other configured path is. Both halves matter: neither the default nor
+    the configured value may resolve against the working directory, which for an
+    MCP server is whatever launched it.
     """
     config = load_osprey_config()
     configured = (config.get("screen_capture", {}) or {}).get("output_dir")

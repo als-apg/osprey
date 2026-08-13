@@ -5,16 +5,12 @@ injector: config overrides, convention-tree application + its
 scaffold-ownership registration, and persisting profile MCP servers / custom
 categories into ``config.yml``.
 
-Nothing here preserves anything across a build any more, and nothing here makes
-a git repository. Both belonged to the layout where a rendered project WAS the
-durable thing an operator kept: a ``--force`` rebuild had to step around the
-``.env``, agent data and ``.git`` living inside it, and the render had to `git
-init` so Claude Code could find a project boundary. Under the three-zone repo
-the render is ``build/`` — output, wiped and re-made whole by every build — and
-the durable state it used to step around sits outside it, in the repo's own
-``.env``, ``var/`` and ``.git``. A pre-clear that preserves is therefore
-meaningless (there is nothing in the render to keep) and a nested repository is
-actively wrong (the repo IS the git boundary).
+Nothing here preserves anything across a build, and nothing here makes a git
+repository. The render is ``build/`` — output, wiped and re-made whole by every
+build — and the durable state sits outside it, in the repo's own ``.env``,
+``var/`` and ``.git``. A pre-clear that preserves is therefore meaningless
+(there is nothing in the render to keep) and a nested repository is actively
+wrong (the repo is the git boundary).
 """
 
 from __future__ import annotations

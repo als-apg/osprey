@@ -82,7 +82,8 @@ class ProjectProfileProblem(Enum):
     it is there but does not anchor.
     """
 
-    #: The manifest names no profile — a legacy manifest, or not a built project.
+    #: The manifest names no profile — a manifest without that field, or not a
+    #: built project.
     NO_PROFILE_RECORDED = "no_profile_recorded"
 
     #: The manifest names a profile file that is not there any more.

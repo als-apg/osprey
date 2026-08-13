@@ -207,10 +207,10 @@ class TestArtifactStore:
     def test_save_data_sets_agent_usable_data_file(self, tmp_path, monkeypatch):
         """data_file must be a path the agent can open() from project CWD.
 
-        Regression guard: previously this was a bare filename
-        (``{id}_{tool}.json``) which caused FileNotFoundError when the agent
-        passed it to ``open()`` directly. The contract is now a path relative
-        to the project root (one level above the workspace dir).
+        Regression guard: a bare filename (``{id}_{tool}.json``) raises
+        FileNotFoundError when the agent passes it to ``open()`` directly.
+        The contract is a path relative to the project root (one level above
+        the workspace dir).
         """
         from osprey.stores.artifact_store import ArtifactStore
 

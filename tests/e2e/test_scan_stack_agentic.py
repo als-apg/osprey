@@ -342,7 +342,7 @@ def find_satisfying_chain(
     The binding degrades rather than breaks: when the add's result carries no
     usable run id (:func:`_launched_run_id` returns ``None`` — an unparseable
     body, or a response shape that moved), any successful read anchors the
-    chain, exactly as before. A bridge change can cost this floor the extra
+    chain instead. A bridge change can cost this floor the extra
     discrimination; it can never turn a correct run red.
 
     Greedy first-match on the two tail anchors is exhaustive, not a shortcut:

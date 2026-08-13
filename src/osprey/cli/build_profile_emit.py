@@ -936,7 +936,7 @@ def emit_persona_delta_yaml(
     header = (
         f"# {profile_name} — persona profile, a delta over {host_ref}\n"
         f"#\n"
-        f"# Sitting in personas/ beside {host_filename} IS the inheritance: the build merges\n"
+        f"# Sitting in personas/ beside {host_filename} is the inheritance: the build merges\n"
         f"# this file over that profile — including any edit you make there — so the keys\n"
         f"# below are this persona's only differences and there is no `extends:` to\n"
         f"# write. See the resolved whole with:\n"
@@ -961,7 +961,7 @@ def emit_persona_delta_yaml(
 # persona siblings share the mental model and repeating the picture three times
 # per repo would just be noise.
 _ZONE_MAP = """\
-# This repository IS the deployment. One directory, four zones:
+# The repository is the deployment. One directory, four zones:
 #
 #   SOURCE   tracked, yours to edit — profile.yml, data/, personas/,
 #            triggers.yml, web-terminal-context/, scripts/, the CI files

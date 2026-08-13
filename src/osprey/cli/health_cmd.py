@@ -103,9 +103,8 @@ def _resolve_anchors(project_path: Path) -> tuple[Path, Path, Path]:
     the rendered ``config.yml`` lives in the ``build/`` zone while the ``.env``
     and every ``project_root``-relative path (registry file, agent data, disk
     sample) belong to the repo root beside ``profile.yml``. Resolving one
-    directory for both is how ``osprey health`` used to give a half-right answer
-    from either stance — no config from the repo root, no credentials from the
-    render.
+    directory for both gives a half-right answer from either stance — no config
+    from the repo root, no credentials from the render.
 
     So the config is looked up the way :func:`osprey.utils.workspace.resolve_config_path`
     looks it up (render first, then the flat spelling a container project

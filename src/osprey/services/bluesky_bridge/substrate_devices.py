@@ -43,10 +43,9 @@ the connector's per-put reference monitor and the bridge's arming + limits
 facade, which are the boundary.
 
 Deploy caveat: ``container_lifecycle._ensure_bluesky_substrate_env`` never
-overwrites an already-set value, so a project deployed before this naming
-change keeps whatever ``BLUESKY_EPICS_MOTORS``/``_DETECTORS`` its ``.env``
-already holds until those lines are removed. Fresh deploys get the
-address names automatically.
+overwrites an already-set value, so a project keeps whatever
+``BLUESKY_EPICS_MOTORS``/``_DETECTORS`` its ``.env`` already holds until those
+lines are removed. Fresh deploys get the address names automatically.
 
 Two consumers share this module (DRY, one derivation):
 

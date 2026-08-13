@@ -199,9 +199,9 @@ def create_app(bundle_path=None) -> FastAPI:
 
     # Shared CORS + middleware + static mounts (/design-system, /static/fonts,
     # /static) applied last so they wrap the fully-assembled app and never
-    # shadow the API routes above. Drops the old allow_credentials=True (the
-    # shared helper deliberately omits it) and adds the design-system mounts the
-    # theme trio in index.html needs.
+    # shadow the API routes above. Carries no allow_credentials=True (the shared
+    # helper deliberately omits it) and adds the design-system mounts the theme
+    # trio in index.html needs.
     configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app

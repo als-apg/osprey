@@ -605,10 +605,10 @@ def test_sandbox_escape_is_caught_and_no_write_reaches_the_ioc(
     # /queue/items` takes the plan from the shared draft at a pinned revision,
     # never from its own body, and the draft resolves a plan name against the
     # SAME trust-resolved catalog gate (b) just proved this plan is absent
-    # from. So the escape plan is refused one step earlier than it used to be —
-    # it is not composable, let alone queueable.
+    # from. So the escape plan is refused at composition — it is not
+    # composable, let alone queueable.
     #
-    # This is a stronger statement than the 409 it replaces, and it is the
+    # This is a stronger statement than a 409 at enqueue, and it is the
     # honest one for THIS plan: `session_plan_unvalidated` at enqueue is
     # reachable only for a plan that WAS validated and then had its bytes
     # change underneath the pin, which is a different scenario and is covered

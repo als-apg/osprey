@@ -209,7 +209,7 @@ async def get_panels(request: Request):
     ``rail_position`` mirrors the server-rendered ``<html data-rail-position>``
     the same way, and travels with two companions: ``family_rail_defaults``
     (``app.FAMILY_RAIL_DEFAULTS``, the theme-family -> rail-position coupling
-    that makes the retro family restore the pre-redesign top tab strip) and
+    that gives the retro family a top tab strip) and
     ``rail_position_configured`` (whether ``web.rail_position`` was set
     explicitly, which outranks that coupling). ``rail-position.js`` reads both
     so a live theme-family switch can move the rail without the browser
@@ -604,7 +604,7 @@ async def arrange_panels(body: PanelArrangeRequest, request: Request):
     an entry of ``web.presets`` (``app.state.panel_presets``); its members are
     resolved here so the human "Layouts" click and an agent preset call are one
     server operation. A preset additionally sets ``prune_rail`` on the
-    broadcast, preserving today's membership-exclusive preset semantics
+    broadcast, giving presets membership-exclusive semantics
     (non-members leave the launcher rail); a ``tiles`` request never removes
     rail membership, it only adds any listed non-member.
 
@@ -731,8 +731,8 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
     **unknown** (``open_tiles = None``) while still stamping the timestamp and
     the flag — ``GET /api/panels`` then reports ``open_tiles: null`` with a
     numeric age, meaning "a client is watching but cannot report tile order".
-    The request wire format is unchanged; the mapping happens here. ``dock:
-    true`` records the list verbatim, exactly as before.
+    The mapping happens here, not on the wire. ``dock: true`` records the list
+    verbatim.
 
     Content dedupe: a report whose *recorded* occupancy and ``dock`` flag both
     equal the stored state is a no-op — the stored timestamp is deliberately

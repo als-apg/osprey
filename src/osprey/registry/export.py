@@ -27,7 +27,7 @@ def export_registry_to_json(
     """Export registry metadata for external tools and plan editors.
 
     :param config: Current registry configuration.
-    :param registries: Live registries dict (unused today but reserved).
+    :param registries: Live registries dict (reserved; not read here).
     :param output_dir: Directory for saving JSON files; *None* = return only.
     :return: Complete registry metadata dict.
     """

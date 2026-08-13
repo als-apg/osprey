@@ -64,8 +64,8 @@ _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 # The refusal code every retired direct-execute route answers with. One code
-# for all of them: the answer is always "this capability moved to the queue",
-# and the per-route sentence in `detail` says which route took it over.
+# for all of them: the answer is always "this capability belongs to the queue",
+# and the per-route sentence in `detail` says which route owns it.
 _USE_THE_QUEUE = "use_the_queue"
 
 
@@ -76,7 +76,7 @@ def _use_the_queue(detail: str) -> HTTPException:
     (``queue.py``), so a caller branches on ``detail.code`` uniformly rather
     than special-casing these four routes. 410 Gone, not 404: the route is
     still here and still answering — what is gone is the in-process execution
-    it used to perform.
+    behind it.
     """
     return HTTPException(status_code=410, detail={"code": _USE_THE_QUEUE, "detail": detail})
 
@@ -155,12 +155,10 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
       fail-OPEN refuses startup (raises) only if writes are enabled, limits
       checking is enabled, and the limits database can't be read — every other
       combination, including writes disabled entirely, starts normally. It runs
-      unconditionally here. It used to sit inside the retired EPICS-substrate
-      runner branch, which meant a deployment that never set
-      `BLUESKY_EPICS_SUBSTRATE` was never checked at all; the posture it guards
-      against is a property of the project config, not of how the bridge
-      happens to be wired, so gating it on a wiring flag was always the wrong
-      shape.
+      unconditionally here, never behind a wiring flag such as
+      `BLUESKY_EPICS_SUBSTRATE`: the posture it guards against is a property of
+      the project config, not of how the bridge happens to be wired, and a
+      gated guard leaves whole classes of deployment unchecked.
     - The document plane: the 0MQ proxy the queueserver's Publisher connects
       to, and the dispatcher that turns that stream into live rows.
       Unconfigured is a no-op; see `document_plane.start_from_env`.
@@ -300,12 +298,11 @@ async def _manager_view() -> tuple[Any, list[Any], list[Any]]:
 
 @app.post("/runs")
 def create_run() -> dict:
-    """Retired: the bridge no longer mints launch intents of its own.
+    """Retired: the bridge mints no launch intent of its own.
 
-    A run id used to be minted here and launched in a second call. Both halves
-    now belong to `POST /queue/items`, which mints the id AND enqueues in one
-    armed, race-checked step — there is no intermediate state left for this
-    route to create.
+    Minting a run id here and launching it in a second call would leave an
+    intermediate state nothing owns. Both halves belong to `POST /queue/items`,
+    which mints the id AND enqueues in one armed, race-checked step.
     """
     raise _use_the_queue(
         "The bridge no longer records launch intents separately from execution. "
@@ -366,9 +363,8 @@ def launch_run(run_id: str) -> dict:
     """Retired: launching a pre-minted run in-process is gone.
 
     Execution is the queueserver worker's, and the only way into it is the
-    queue. The two-step mint-then-launch flow this route completed collapsed
-    into `POST /queue/items` (enqueue) plus the token-gated `POST /queue/start`
-    (arm and drain).
+    queue: `POST /queue/items` (enqueue) plus the token-gated `POST
+    /queue/start` (arm and drain).
     """
     raise _use_the_queue(
         "Plans now execute in the queue server, not in the bridge. Enqueue the "
@@ -380,10 +376,10 @@ def launch_run(run_id: str) -> dict:
 def launch_draft_run() -> dict:
     """Retired: launching the shared draft directly is gone.
 
-    `POST /queue/items` is the replacement and keeps everything this route
-    guaranteed — the pinned `draft_revision` and the reservation that stops two
-    callers racing the same revision onto hardware — while putting the plan in a
-    durable, serialized queue instead of a thread in this process. The launch
+    `POST /queue/items` carries every guarantee a direct launch would — the
+    pinned `draft_revision` and the reservation that stops two callers racing
+    the same revision onto hardware — while putting the plan in a durable,
+    serialized queue instead of a thread in this process. The launch
     token still gates every enqueue that can actually start something: one onto
     a draining queue, or onto a queue armed to autostart.
     """
@@ -396,11 +392,11 @@ def launch_draft_run() -> dict:
 
 @app.post("/runs/{run_id}/stop")
 def stop_run(run_id: str) -> dict:
-    """Retired: stopping is a queue operation now.
+    """Retired: stopping is a queue operation.
 
-    This route could only ever stop a plan running inside the bridge process,
-    and none do. There are two replacements, and which one a caller wants
-    depends on what they need stopped: `POST /queue/stop` halts the queue AFTER
+    This route can only stop a plan running inside the bridge process, and none
+    do. Which of the two queue operations a caller wants depends on what they
+    need stopped: `POST /queue/stop` halts the queue AFTER
     the running item finishes, and `POST /queue/abort` aborts the item already
     in motion. Neither is token-gated, on the same principle — halting is
     always allowed.

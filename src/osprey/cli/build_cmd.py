@@ -168,9 +168,7 @@ _STATE_DIRS: tuple[str, ...] = STATE_ZONE_DIRS
 
 #: Where the outgoing render's Claude Code artifacts are snapshotted before the
 #: swap replaces them — the durable zone, so the snapshot survives the wipe it
-#: exists to protect against. The shape is inherited from the retired ``osprey
-#: claude regen``, which wrote ``_agent_data/backup/claude-code-<stamp>/``;
-#: here it is re-anchored on ``var/``.
+#: exists to protect against.
 _BACKUP_RELDIR = f"{STATE_DIR_NAME}/agent_data/backup"
 
 #: The rendered files a Claude Code regeneration owns, relative to the render
@@ -327,11 +325,10 @@ def _prune_runtime_state_from_stage(zones: _RenderZones, *, renders: Sequence[Pa
     Nothing durable may live there, and ``rm -rf build/`` losing nothing is the
     property the whole zone layout rests on.
 
-    No renderer writes agent data into its own render any more — each of the
-    three that did was repointed at the repo's own ``var/agent_data`` or dropped
-    outright — so on a correct build this finds nothing and removes nothing.
-    It is kept as the invariant's enforcement point rather than retired with its
-    producers, because the failure it prevents is silent in both directions: a
+    No renderer writes agent data into its own render, so on a correct build
+    this finds nothing and removes nothing. It is kept as the invariant's
+    enforcement point rather than dropped as dead code, because the failure it
+    prevents is silent in both directions: a
     renderer that starts writing state under the tree it is rendering neither
     fails nor logs, and the state it wrote is deleted at the next build with
     nothing to say it existed. Stating the rule once, in the one place that owns
@@ -366,11 +363,10 @@ def _prune_runtime_state_from_stage(zones: _RenderZones, *, renders: Sequence[Pa
 def _backup_outgoing_claude_artifacts(zones: _RenderZones) -> Path | None:
     """Snapshot the outgoing render's Claude Code artifacts that are about to change.
 
-    The retired ``osprey claude regen`` copied these into ``_agent_data/backup/``
-    before overwriting them, so an operator who had edited a rendered hook or
-    agent could get it back. ``build/`` is disposable and no longer a place to edit
-    anything — ``osprey scaffold claim`` is how a file becomes source — but the
-    same courtesy costs nothing and the same accident is still possible.
+    ``build/`` is disposable and not a place to edit anything — ``osprey
+    scaffold claim`` is how a file becomes source — but an operator can still
+    edit a rendered hook or agent by mistake, and a snapshot that lets them get
+    it back costs nothing.
 
     Only files that actually differ are copied, so a rebuild that changes
     nothing leaves no backup directory. Best-effort throughout: this protects
@@ -416,13 +412,11 @@ def _stamp_repo_manifest(
 ) -> None:
     """Add the drift check's per-key commentary to a render's manifest.
 
-    It used to also rewrite ``reproducible_command``, because the generator that
-    produced it assembled a project-name-and-path invocation describing a shape
-    this repo does not have. The generator is gone and
+    ``reproducible_command`` is deliberately not rewritten here.
     :data:`~osprey.cli.templates.manifest.REPO_REPRODUCIBLE_COMMAND` is written
     directly, so the manifest arrives here already correct — generating a wrong
-    answer and patching it afterwards left every manifest written by any other
-    path carrying the wrong one.
+    answer and patching it afterwards would leave every manifest written by any
+    other path carrying the wrong one.
 
     The drift fingerprint's per-key digests are added to the DEPLOYMENT's
     manifest only. The fingerprint itself — ``creation.preset_hash``, a
@@ -475,10 +469,9 @@ def _render_compose_files(
 ) -> dict[str, Any] | None:
     """Render the deployment's compose files into the staged tree.
 
-    This is what ``osprey build`` used to be, folded into the render that
-    produces everything else: compose files are derived from the same
-    ``config.yml``, so having them appear one verb later meant ``build/`` was
-    never a complete description of the deployment.
+    Compose files are rendered in the same pass as everything else, because they
+    are derived from the same ``config.yml``: emitting them a verb later would
+    leave ``build/`` an incomplete description of the deployment.
 
     The generator resolves its inputs relative to the working directory, which
     is what makes it stageable at all: run from the staged render, every service
@@ -1104,8 +1097,7 @@ def _write_image_context_dockerignore(image_root: Path) -> list[str]:
     This is the SECOND guard on the repo's secrets, not the first:
     :func:`_strip_secrets` has already removed every ``.env`` from the tree. Two
     independent guards is the right number for a facility's provider keys — but
-    only if the one that runs at build time actually matches, which before this
-    it did not.
+    only if the one that runs at build time actually matches.
 
     :returns: The patterns written, in file order, for
         :func:`_prune_ignored_entries` to apply to the tree itself.
@@ -1543,8 +1535,8 @@ def _build_repo(
 
     What it renders is the whole OUTPUT zone in one pass — the project (config,
     Claude Code artifacts, data tree, service templates, injected services), the
-    compose files that deploy it, which used to require a second verb, and one
-    project per persona delta (:func:`_render_persona_projects`). It lands in
+    compose files that deploy it, and one project per persona delta
+    (:func:`_render_persona_projects`). It lands in
     ``build/.tmp`` and replaces ``build/`` only once every step below has
     succeeded; see :func:`_swap_in_render`.
 
@@ -1571,7 +1563,7 @@ def _build_repo(
 
     repo_root = find_repo_root(repo)
     profile_path = repo_root / PROFILE_FILENAME
-    # The repo IS the deployment and its directory name IS the deployment's
+    # The repo is the deployment and its directory name is the deployment's
     # name: it is what the compose project, the container labels and the local
     # image tags are derived from. There is no name to pass and none to store.
     name = repo_root.name

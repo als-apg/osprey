@@ -1,7 +1,7 @@
 {#
   docker-compose.web.yml.j2 — multi-user web-terminal stack overlay.
 
-  Rendered by render_web_terminals() (Task 1.4, src/osprey/deployment/web_terminals/
+  Rendered by render_web_terminals() (src/osprey/deployment/web_terminals/
   render.py) with a Jinja2 Environment that has autoescape=False — this emits YAML,
   not HTML, and autoescape would corrupt env values containing "&", "<", etc. Added
   to `runtime.compose_files` alongside the base docker-compose.yml.
@@ -52,7 +52,7 @@
           "extra_mounts": [str, ...],   # resolved by resolve_personas() from the persona's
                                         #   `extra_mounts` -> extra per-user `volumes:` lines
                                         #   (compose volume strings, e.g. "/opt/data:/app/data:ro").
-                                        #   Empty list (the zero-migration default) emits none.
+                                        #   Empty list (the default) emits none.
           "display_name": str | None,   # optional window/tab title -> OSPREY_WEB_APP_NAME;
                                         #   None (the default) emits NO env line — see below
           "web": int,        # web_base_port + index -> OSPREY_WEB_PORT / OSPREY_TERMINAL_WEB_PORT
@@ -60,18 +60,17 @@
             {"name": str,    #   derived by render.py from the registry's port_env_var
              "port": int},   #   + `<family>_base_port + index` (ports.PANEL_ENV_VARS)
             ...              #   — the template only iterates; hand-listing env vars
-          ],                 #   here is what once let a panel miss multi-user wiring
+          ],                 #   here is what would let a panel miss multi-user wiring
         }
       (allocate_ports() also merges each companion family's port under its
       family name — e.g. "artifact": int — for callers/tests; this template
       reads only "web" and "panel_env".)
-      A no-personas config (the zero-migration path) resolves every entry's
-      `image` to the same `<registry_url>/web-terminal:latest` this template
-      used to build directly, and every entry's `container_project_dir` to
-      `/app/<facility_prefix>-assistant` — byte-identical output to before
-      personas existed (see resolve_personas()'s docstring). render.py MUST
-      NOT include an entry whose "user" is "nginx" (reserved
-      service name; enforced by the lint (Task 1.5) against the roster).
+      A no-personas config resolves every entry's `image` to
+      `<registry_url>/web-terminal:latest` and every entry's
+      `container_project_dir` to `/app/<facility_prefix>-assistant` (see
+      resolve_personas()'s docstring). render.py MUST NOT include an entry
+      whose "user" is "nginx" (reserved service name; enforced by the lint
+      against the roster).
       This template ALSO refuses to render such a `services` list (see the
       loop below) — belt-and-suspenders, because a `services:` mapping with
       two `nginx:` keys wouldn't fail loudly on its own: PyYAML silently
@@ -85,9 +84,8 @@
       The fully-qualified origin browsers use to reach nginx, e.g.
       "http://als-deploy.lbl.gov:9080" (scheme + deploy host + nginx_port, no
       trailing slash). Passed to every per-user service as
-      OSPREY_TERMINAL_LANDING_URL so the in-app logout control has a target
-      (see the Task 3.3/4.1 contract in shared_context.md). This can't be
-      computed the way nginx.conf.j2 computes its redirect targets (from
+      OSPREY_TERMINAL_LANDING_URL so the in-app logout control has a target.
+      This can't be computed the way nginx.conf.j2 computes its targets (from
       request-time `$host`) — env vars are baked in at container start — so
       render.py must resolve it once, typically from `deploy.host` + this
       same `nginx_port`.
@@ -110,8 +108,8 @@
 
     auth_method: str, required ("none" | "password" | "oidc")
       "none" (the default posture) renders NO `auth:` service at all — the
-      whole block below is suppressed, byte for byte, so every deployment that
-      has not opted into authentication keeps the compose overlay it has today.
+      whole block below is suppressed, byte for byte, so a deployment that has
+      not opted into authentication carries no login surface.
     auth_port: int, required
       Host port the sidecar's uvicorn binds — on `bind_host` only, exactly like
       the per-user apps. nginx (same host netns) is the only thing that reaches
@@ -155,7 +153,7 @@
       does) — this only decides the `Secure` attribute on the cookies it issues,
       which is why no cert/key is mounted into this service.
 
-    bind_host: str, required (Task 1.1)
+    bind_host: str, required
       Loopback address (always "127.0.0.1") baked into every per-user
       service's OSPREY_TERMINAL_BIND_HOST — and into the auth sidecar's own
       uvicorn bind. Not sourced from config at all — see render.py's
@@ -205,15 +203,12 @@
   NOT the host's routable interface: every per-user app binds `bind_host`
   ("127.0.0.1", via OSPREY_TERMINAL_BIND_HOST) only, so a per-user port is
   unreachable from off-host even though it shares the host network
-  namespace. nginx (bind-nginx-reverse-proxy) is therefore the only intended
-  off-host path to a per-user app — it reverse-proxies to these loopback
-  upstreams rather than the redirect-to-distinct-origin scheme this template
-  used prior to Task 1.1. nginx itself still runs on host networking (so
-  `nginx_port` sits in the same reachability class the per-user ports used
-  to) and binds every interface, unrestricted — it is the one service
-  required to be reachable off-host, and it can always reach the per-user
-  loopback upstreams because loopback is visible to every process sharing
-  the same host netns.
+  namespace. nginx is therefore the only intended off-host path to a per-user
+  app — it reverse-proxies to these loopback upstreams. nginx itself runs on
+  host networking and binds every interface, unrestricted — it is the one
+  service required to be reachable off-host, and it can always reach the
+  per-user loopback upstreams because loopback is visible to every process
+  sharing the same host netns.
 
   MOUNT PATHS: every relative path in this file — the nginx mounts and both
   `env_file:` entries — resolves against ONE directory, the pinned compose
@@ -269,7 +264,7 @@ services:
       retries: 5
       start_period: 10s
 {#- The auth sidecar. Whitespace control on this `if` (and its `endif`) is what
-   keeps the `auth.method: none` render byte-identical to the pre-auth overlay:
+   keeps the `auth.method: none` render free of a stray blank line:
    with the block suppressed, the `{%- if %}` swallows the newline it would
    otherwise leave behind and the `endif` line's own newline restores the one
    that ended `start_period: 10s`. Service key "auth" cannot collide with a
@@ -372,7 +367,7 @@ services:
   {# HARD FAIL: a user literally named "nginx" would silently clobber the
      nginx service key above (PyYAML keeps the last of two duplicate mapping
      keys, so the whole nginx service — and the landing page — would just
-     vanish with no render error). The lint (Task 1.5) already rejects this
+     vanish with no render error). The lint already rejects this
      against the roster; this is a second, independent guard that fires
      even if render.py is ever called without going through the lint first. #}
   {{ 1 / 0 }}

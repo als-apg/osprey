@@ -11,14 +11,14 @@ has to be named separately because its ``__init__`` is PEP 562 lazy -- an
 accidental import costs almost nothing and would not announce itself by
 dragging anything heavy in.
 
-``lume`` and ``h5py`` are **deliberately not blocked**, and that is a change
-of position rather than a relaxation. The serving layer is built around a
+``lume`` and ``h5py`` are **deliberately not blocked**, and that is a considered
+position rather than a relaxation. The serving layer is built around a
 :class:`~lume.model.LUMEModel`: the runner derives its PVA namespace and the
 shape of its run loop from one, and the no-lattice boot serves the empty
 :class:`~osprey.services.virtual_accelerator.serving.model_stub.NullModel`
 rather than no model at all. ``lume`` is therefore a dependency of the
 *serving* layer, not of the physics behind it, and blocking it would have
-this gate assert something the design no longer claims. What the seam
+this gate assert something the design does not claim. What the seam
 protects is what this boot path is allowed to *depend on* -- not what its
 dependencies cost.
 

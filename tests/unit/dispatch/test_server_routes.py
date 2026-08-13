@@ -232,7 +232,7 @@ def test_dashboard_state_shape(app):
 
 
 # ---------------------------------------------------------------------------
-# Dashboard READ endpoints are now bearer-gated (they surface agent output).
+# Dashboard READ endpoints are bearer-gated (they surface agent output).
 # ---------------------------------------------------------------------------
 
 _GATED_READ_ROUTES = [

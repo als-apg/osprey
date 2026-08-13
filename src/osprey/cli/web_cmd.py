@@ -12,9 +12,9 @@ every repo-scoped verb uses: walk up to the nearest ``profile.yml``. ``stop``
 runs the *same* walk as the start, so the two can never disagree about which
 server is being stopped.
 
-``OSPREY_CONFIG`` survives here only as the publication this process makes for
-its own children (PTY shells, their MCP servers, the ``--reload`` worker). It
-is no longer read as a way of *finding* the deployment: an ambient export from
+``OSPREY_CONFIG`` is written here only as the publication this process makes
+for its own children (PTY shells, their MCP servers, the ``--reload`` worker).
+It is never read as a way of *finding* the deployment: an ambient export from
 whichever project the operator last worked in must not decide what this
 command serves.
 """

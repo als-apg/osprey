@@ -84,7 +84,8 @@ def _profile_data_root(project_dir):
 
     Returns:
         The profile's data tree, or ``None`` when the project names no profile
-        (preset-built, legacy or absent manifest), the profile file is gone, it
+        (preset-built, or a manifest that is absent or names none), the profile
+        file is gone, it
         cannot be read, or the resolved profile declares no ``data:`` tree at
         all — every one of which is a normal state the caller falls back from
         rather than an error to raise. Never a guessed ``<root>/data``: a

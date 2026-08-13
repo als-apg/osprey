@@ -110,11 +110,12 @@ def test_shipped_relative_path_agrees_across_all_three_sites(project, monkeypatc
     assert Path.cwd() not in bundle_dir.parents, "fixture must place the CWD outside the project"
 
 
-def test_cli_no_longer_resolves_relative_to_the_cwd(project, monkeypatch):
-    """Regression: the CLI was the CWD-relative outlier.
+def test_cli_does_not_resolve_relative_to_the_cwd(project, monkeypatch):
+    """Regression: the CLI must not be a CWD-relative outlier.
 
     A bundle sitting at ``<cwd>/data/facility_knowledge`` must NOT win over the
-    one the config points at — that decoy is exactly what the CLI used to open.
+    one the config points at — that decoy is exactly what a CWD-relative
+    resolver opens.
     """
     _project_dir, bundle_dir = project
 

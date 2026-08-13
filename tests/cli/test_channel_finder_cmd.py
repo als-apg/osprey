@@ -223,10 +223,9 @@ class TestBuildDatabaseOutputAnchoring:
         printed = _squashed(result.output)
         assert "stale" in printed
         # The command that clears the staleness is a bare `osprey build`.
-        # It used to be `build --force`; the flag is retired, so a message
-        # naming it would hand the operator a command line that no longer
-        # parses. Both halves asserted, because the fragment is exactly
-        # what went stale here.
+        # There is no `--force` flag, so a message naming one would hand
+        # the operator a command line that does not parse. Both halves
+        # asserted, because the fragment is exactly what went stale here.
         assert "ospreybuild" in printed
         assert "--force" not in printed
 
@@ -450,10 +449,9 @@ class TestBuildDatabaseOutputAnchoring:
         printed = _squashed(result.output)
         assert "stale" in printed
         # The command that clears the staleness is a bare `osprey build`.
-        # It used to be `build --force`; the flag is retired, so a message
-        # naming it would hand the operator a command line that no longer
-        # parses. Both halves asserted, because the fragment is exactly
-        # what went stale here.
+        # There is no `--force` flag, so a message naming one would hand
+        # the operator a command line that does not parse. Both halves
+        # asserted, because the fragment is exactly what went stale here.
         assert "ospreybuild" in printed
         assert "--force" not in printed
 

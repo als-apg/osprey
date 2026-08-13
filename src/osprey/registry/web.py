@@ -40,7 +40,7 @@ class WebServerDefinition:
         port_family: Multi-user port-family name for this server (drives the
             ``modules.web_terminals.<family>_base_port`` config field). ``None``
             means the family name is the server's registry key. Only set when a
-            server predates this field under a different conventional name
+            server's family is conventionally named something else
             (``lattice_dashboard`` → ``lattice``).
         multi_user_base_port: Default first per-user port for this server's
             family in multi-user deployments (user *i* gets ``base + i``; see

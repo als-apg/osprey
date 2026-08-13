@@ -4,7 +4,7 @@ Validates LTTB downsampling of archiver_data artifact entries, channel
 filtering, error handling for wrong entry categories, and empty data edge
 cases.
 
-Each channel now carries its own timestamps (independent sample cadences,
+Each channel carries its own timestamps (independent sample cadences,
 not aligned to a shared axis), so ``datasets`` entries are
 ``{"channel", "timestamps", "values", "original_points", "downsampled_points"}``
 rather than a shared-``labels`` Chart.js config.

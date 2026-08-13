@@ -312,9 +312,8 @@ class TestQuadLimitsArePhysicallyStable:
             assert len(family_sp_addresses[family]) == ALS_U_AR.family(family).count, family
 
     def test_recalibrated_address_count_is_108(self, family_sp_addresses):
-        # Replaces the old toy-ring "48 (QF+QD)" count: the repointed bridge
-        # covers four families, all derived from the facility spec --
-        # 24 QF + 24 QD + 24 QFA + 36 DIPOLE = 108.
+        # The bridge covers four families, all derived from the facility
+        # spec -- 24 QF + 24 QD + 24 QFA + 36 DIPOLE = 108.
         expected = sum(ALS_U_AR.family(family).count for family in QUAD_DIPOLE_FAMILIES)
         assert expected == 108
         total = sum(len(addresses) for addresses in family_sp_addresses.values())

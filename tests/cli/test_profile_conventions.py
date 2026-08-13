@@ -7,7 +7,7 @@ source validation, and the unknown-root-entry typo warning.
 The ``zone``-named group at the end pins the three-zone repo layout: the repo
 root is the profile root, so the layout's own directories must be recognized
 rather than warned about, and the warning's remedy must not send an operator
-looking for a nested ``profile/`` directory that no longer exists.
+looking for a nested ``profile/`` directory that does not exist.
 """
 
 from __future__ import annotations
@@ -654,8 +654,8 @@ def test_zone_layout_still_flags_a_genuinely_stray_entry(zone_repo: Path):
 
 
 def test_zone_remedy_does_not_instruct_nesting(zone_repo: Path, caplog: pytest.LogCaptureFixture):
-    """The inverse of the design: the old text told operators to move the
-    profile into a nested profile/ directory. Source lives at the repo root."""
+    """The remedy must not tell operators to nest the profile in a
+    profile/ directory. Source lives at the repo root."""
     (zone_repo / "ioc").mkdir()
     with caplog.at_level(logging.WARNING):
         warn_unknown_root_entries(zone_repo)
@@ -669,7 +669,7 @@ def test_zone_remedy_names_the_channel_to_move_an_entry_into(
     zone_repo: Path, caplog: pytest.LogCaptureFixture
 ):
     """An operator with material that *should* reach the deployment needs the
-    way in, now that nesting it away is not an answer."""
+    way in, since nesting it away is not an answer."""
     (zone_repo / "ioc").mkdir()
     with caplog.at_level(logging.WARNING):
         warn_unknown_root_entries(zone_repo)

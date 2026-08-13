@@ -10,8 +10,9 @@ project_name: "{{ project_name }}"
 
 # Facility identity — one block, two keys:
 #   name   — display name woven into the agent prompts (CLAUDE.md, subagents)
-#            and the web-terminal landing page. Falls back to the older
-#            top-level `facility_name`, then to the project name.
+#            and the web-terminal landing page. Preferred spelling, and it
+#            wins over a top-level `facility_name`, which is honored as a
+#            fallback; with neither set, the project name is used.
 #   prefix — short abbreviation the deployed web stack uses for container
 #            names (`<prefix>-nginx`, `<prefix>-web-<user>`); must be a
 #            non-empty valid Docker name start ([a-zA-Z0-9]).
@@ -117,7 +118,7 @@ api:
 # ============================================================
 # CONTROL SYSTEM CONFIGURATION
 # ============================================================
-# Mock mode: works instantly with any channel names (no hardware required)
+# Mock mode: works with any channel names (no hardware required)
 # Production mode: change type to 'epics' and configure the connector
 #
 # Migration to production:

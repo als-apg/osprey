@@ -548,7 +548,7 @@ def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_b
     ``.app-header`` hides -- and because that header is ``position: fixed``
     with a compensating 48px top padding on ``.app-main``, the padding must
     go with it or the panel opens on an empty 48px band. The pipeline
-    switcher survives the header's removal because it no longer lives there:
+    switcher survives the header's removal because it does not live there:
     it sits in the body's bottom corpus strip, which must stay rendered
     inside the viewport for the panel to remain switchable when embedded.
     """

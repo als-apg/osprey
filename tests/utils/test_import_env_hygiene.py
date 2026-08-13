@@ -261,8 +261,8 @@ def test_litellm_mode_is_pinned_but_respects_an_explicit_setting():
 def test_cli_entry_point_loads_dotenv(tmp_path):
     """`osprey <command>` must still see `.env` from its first line.
 
-    Nothing else populates the environment for a CLI process now that import
-    doesn't, so a subcommand reading ``os.environ`` directly — before anything
+    Nothing else populates the environment for a CLI process, since import must
+    not, so a subcommand reading ``os.environ`` directly — before anything
     builds a config — depends on this. The invocation runs inside the probe's
     subprocess because the CLI writes straight to ``os.environ``, which would
     otherwise outlive the test.

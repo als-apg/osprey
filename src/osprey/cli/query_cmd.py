@@ -56,7 +56,7 @@ def _overlay_repo_env(repo_root: Path) -> None:
     """Load the repo's ``.env`` into ``os.environ``, overriding what is there.
 
     The SECRETS zone is at the repo root while the render is under ``build/``,
-    so the ``.env`` and the ``config.yml`` this verb needs no longer live in one
+    so the ``.env`` and the ``config.yml`` this verb needs do not live in one
     directory — and the runner's own overlay
     (``osprey.build.claude_code_resolver._env_lookup``) looks beside the config
     it was handed. Without this the provider secret would simply not be found

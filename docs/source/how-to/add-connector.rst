@@ -360,11 +360,10 @@ to ``float64``, since there is no data to infer a dtype from).
 channel contributes only its own real samples -- never forward-filled, never
 reindexed onto a regular grid, never padded with a row for a bin or timestamp
 nothing was actually recorded at. A channel with no data in the requested range
-simply contributes no rows; it does not appear as an all-NaN column the way the old
-wide, shared-index format required. Every connector correctness bug this contract
-replaced traced back to violating this rule, so hold to it strictly: if a custom
-connector finds itself building a shared ``DatetimeIndex`` and reindexing per-channel
-series onto it, that is the bug.
+simply contributes no rows; it never appears as an all-NaN column. Connector
+correctness bugs trace back to violating this rule, so hold to it strictly: if a
+custom connector finds itself building a shared ``DatetimeIndex`` and reindexing
+per-channel series onto it, that is the bug.
 
 **Per-channel aggregation.** ``get_data`` takes a trailing ``processing: str =
 "raw"`` keyword -- one of ``raw``, ``mean``, ``min``, ``max``, ``median``, ``std``,
@@ -374,7 +373,7 @@ channels and never onto a shared grid:
 - ``raw`` decimates each ``precision_ms`` bin down to its **last real sample**,
   keeping that sample's own true timestamp -- never a timestamp invented at the
   bin's edge to hold it. This matches the EPICS Archiver Appliance's long-standing
-  ``lastSample_N`` semantics, and every in-tree backend now applies it the same way.
+  ``lastSample_N`` semantics, and every in-tree backend applies it the same way.
 - Every other mode aggregates the real samples that landed in each ``precision_ms``
   bin. A bin with no samples is dropped, not emitted as ``NaN`` -- so a sparse
   channel returns *fewer* rows than it has samples, never more, and no bin-width

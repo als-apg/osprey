@@ -5,10 +5,10 @@ Not the deployment-repo discovery rule — that is
 left here serves the handful of commands that resolve their own inputs and
 carry a ``--project`` flag instead (``channel-finder``, ``health``).
 
-:func:`_clear_claude_code_project_state` lost its last caller with the legacy
-command surface and is kept only because removing it would also remove this
-module's re-export of ``encode_claude_project_path``, which a test still
-imports from here. Both belong to the post-deletion sweep, not to this module.
+:func:`_clear_claude_code_project_state` has no caller. It is kept only because
+removing it would also remove this module's re-export of
+``encode_claude_project_path``, which a test still imports from here. Both
+belong to a dead-code sweep, not to this module.
 """
 
 from pathlib import Path
@@ -62,13 +62,12 @@ def resolve_project_path(project_arg: str | None = None) -> Path:
     Two answers, in priority order: what ``--project`` named, or where the
     command was typed.
 
-    An environment variable naming a project directory used to sit between the
-    two. It is gone, and deliberately not replaced: a variable that silently
-    redirects a command to another directory means the same command line acts on
-    different deployments depending on a shell the operator cannot see in the
-    invocation. Discovery is now one rule
+    No environment variable sits between the two, and none belongs there: a
+    variable that silently redirects a command to another directory means the
+    same command line acts on different deployments depending on a shell the
+    operator cannot see in the invocation. Discovery is one rule
     (:func:`osprey.cli.repo_resolver.find_repo_root`), with ``--repo`` as its
-    only override; the commands still calling this function are the ones that
+    only override; the commands calling this function are the ones that
     resolve their own inputs and take ``--project`` instead.
 
     Args:

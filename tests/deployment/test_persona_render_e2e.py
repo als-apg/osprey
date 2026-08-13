@@ -174,7 +174,7 @@ def test_no_render_carries_the_repos_secrets_into_the_output_zone(built_repo):
     docs promise is disposable, so the rule that keeps the facility's keys at
     the repo root has to hold one level deeper too.
 
-    The render now writes no ``.env`` at all, so the check is for the file's
+    The render writes no ``.env`` at all, so the check is for the file's
     absence rather than for the secret's absence from it — a stronger statement,
     and the one that actually holds: a render that emitted an ``.env`` without
     this key would still be a second secret store for `osprey up` to mint into.

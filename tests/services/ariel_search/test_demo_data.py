@@ -5,7 +5,7 @@ with GenericJSONAdapter for tutorial use. The demo uses *relative* timestamps
 (``when: {days_ago, time}``) resolved at ingest time, so seeded entries always
 land at a recent, deterministic position without mutating the source file.
 
-(The ``control_assistant`` preset no longer ships a standalone demo logbook —
+(The ``control_assistant`` preset ships no standalone demo logbook —
 its logbook narrative lives in self-contained simulation scenario bundles,
 seeded via ``osprey sim apply``; see tests/simulation/test_scenario_bundles.py.)
 """

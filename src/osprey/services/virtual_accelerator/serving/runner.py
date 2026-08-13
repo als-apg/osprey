@@ -46,9 +46,8 @@ is reached through the model wrapper, so it too runs there.
 served that the facility's channel manifest does not describe.
 
 The model's variables are served on **both** transports -- co-hosted on CA,
-natively on PVA -- and keeping those two views of one address in step is
-what the suppressed output pass used to do. It is done here instead, by the
-write path rather than by a model read: every setpoint PV's put handler is
+natively on PVA -- and keeping those two views of one address in step is the
+write path's job, not a model read's: every setpoint PV's put handler is
 replaced with one that routes into the same write path the CA driver uses,
 and every value that path publishes is committed on both views. So a write
 arriving on either transport moves both, and a refused write moves neither.

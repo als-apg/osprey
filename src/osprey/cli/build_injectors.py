@@ -494,14 +494,13 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     }
     if bluesky.plan_dir:
         # Only written when configured — its absence is what keeps a
-        # bridge-only deploy (no facility plan directory) rendering exactly
-        # as before: the compose template's {% if %} guard reads this same
-        # key, so an unset plan_dir means no mount and no BLUESKY_PLAN_DIRS
-        # env var at all (Task 1.4).
+        # bridge-only deploy (no facility plan directory) free of the mount:
+        # the compose template's {% if %} guard reads this same key, so an
+        # unset plan_dir means no mount and no BLUESKY_PLAN_DIRS env var at all.
         svc_config["plan_dir"] = bluesky.plan_dir
     if bluesky.excluded_plans:
         # Only written when non-empty — its absence keeps a deploy with no
-        # exclusions rendering exactly as before: the compose template's
+        # exclusions free of the variable: the compose template's
         # {% if %} guard reads this same key, so an empty list means no
         # BLUESKY_EXCLUDED_PLANS env var at all. The os.pathsep join is done
         # Python-side because the Jinja render context has no `os` module.
@@ -583,11 +582,11 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     with open(config_path) as fh:
         config = yaml.load(fh)
 
-    # No scenario-state directory is created here. This used to pre-create the
-    # compose bind source so the container runtime could not materialize it
-    # root-owned — but it created it under the RENDER root, and the render root
-    # is `build/`, which the next build wipes. The path compose actually binds
-    # is anchored on the repo's own `var/agent_data`, and
+    # No scenario-state directory is created here. Pre-creating the compose bind
+    # source — so the container runtime cannot materialize it root-owned — only
+    # helps where it survives, and anything created under the RENDER root is
+    # wiped by the next build. The path compose actually binds is anchored on
+    # the repo's own `var/agent_data`, and
     # `compose_generator._ensure_agent_data_structure` pre-creates it there,
     # which is the copy that survives long enough to be a mount source.
 

@@ -14,31 +14,31 @@ stacked ("column") layout must be selected before the y handle is live.
 
 Why this host:
 
-- It is the only remaining splitter host with no live browser coverage of its
-  own. ``test_gallery_interactions.py`` drives the gallery hard but never
-  touches either handle, and ``test_osprey_drawer.py`` covers only the
-  drawer's x-axis ``anchor: 'end'`` geometry and its 320px/90vw clamp.
-- It is therefore the only place left where a y-axis drag — a different
-  delta sign and a different clamp path than the x-axis — is exercised live.
+- It is the only splitter host with no live browser coverage of its own.
+  ``test_gallery_interactions.py`` drives the gallery hard but never touches
+  either handle, and ``test_osprey_drawer.py`` covers only the drawer's x-axis
+  ``anchor: 'end'`` geometry and its 320px/90vw clamp.
+- It is therefore the only place where a y-axis drag — a different delta sign
+  and a different clamp path than the x-axis — is exercised live.
 
-This suite previously drove the event dashboard, which carried three splitters
-across two axes. That panel was rebuilt around discrete views and has no
-resizable pane left, so the coverage moved here rather than being dropped.
+The event dashboard is not a host: it is built from discrete views and has no
+resizable pane, so this coverage lives on the gallery instead.
 
-Two assertions from the dashboard era are deliberately NOT ported:
+Two assertions a multi-splitter dashboard host would support are deliberately
+absent:
 
-- **Preset / ``storageKey: null`` / ``onCommit`` interplay.** The dashboard was
-  the only host that kept one layout record with a preset system and fed the
-  splitters through ``onCommit``. No host does that now, so there is nothing
-  left to assert; the gallery's handles persist themselves under their own
-  storage keys, which ``splitter.test.mjs`` already covers.
+- **Preset / ``storageKey: null`` / ``onCommit`` interplay.** No host keeps one
+  layout record with a preset system and feeds the splitters through
+  ``onCommit``, so there is nothing to assert; the gallery's handles persist
+  themselves under their own storage keys, which ``splitter.test.mjs`` already
+  covers.
 - **The computed ``transition-duration`` half of the drag-suppression check.**
   ``base.css`` suppresses transitions via ``[data-splitter-dragging]``, but the
   assertion is only meaningful on a pane that declares a transition on the
-  dragged dimension. The dashboard's ``.timeline-zone`` did; ``.browse-sidebar``
-  does not, so asserting ``0s`` here would pass no matter what the rule did.
-  The attribute half — applied for the drag, dropped on release — IS ported,
-  because that is the mechanism itself and it is non-vacuous on any host.
+  dragged dimension. ``.browse-sidebar`` does not, so asserting ``0s`` here
+  would pass no matter what the rule did. The attribute half — applied for the
+  drag, dropped on release — IS asserted, because that is the mechanism itself
+  and it is non-vacuous on any host.
 
 Placement rationale: ``design_system`` already owns the pattern of
 browser-proving a design-system module against a live consumer app (see

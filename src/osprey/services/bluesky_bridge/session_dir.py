@@ -5,9 +5,9 @@ writes, rather than merely discovers — every directory layer
 ``plan_loader.py`` otherwise scans (``shipped``/``preset``/``facility``) is
 operator-supplied and read-only from the bridge's point of view. This module
 is the single place that resolves *where* an authored plan file lives, so
-both the write path (task 2.3's ``POST /plans/session``) and the discovery
-path (task 2.4's session-tier directory layer) agree on the same directory
-without either hardcoding it.
+both the write path (``POST /plans/session``) and the discovery path
+(``plan_loader.py``'s session-tier directory layer) agree on the same
+directory without either hardcoding it.
 
 Ephemeral by design, like the run registry (``runs.py``) and the validation
 record store (``validation_record.py``): the default directory has no deploy
@@ -45,9 +45,9 @@ def resolve_session_plan_dir() -> Path:
     2. The in-image default (see :data:`_DEFAULT_SESSION_PLAN_DIR`).
 
     Always ``mkdir(parents=True, exist_ok=True)``s the resolved directory
-    before returning it, so every caller (this task's write/validate routes,
-    task 2.4's session-tier directory layer) can rely on the directory
-    existing without each re-implementing the same check.
+    before returning it, so every caller (the write/validate routes, the
+    session-tier directory layer) can rely on the directory existing without
+    each re-implementing the same check.
     """
     raw = os.environ.get(_SESSION_PLAN_DIR_ENV)
     directory = Path(raw) if raw else _DEFAULT_SESSION_PLAN_DIR

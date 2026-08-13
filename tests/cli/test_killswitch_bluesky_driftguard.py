@@ -160,7 +160,7 @@ def test_bluesky_stop_run_never_denied_regardless_of_writes_enabled(tmp_path):
     """stop_run carries approval only (no _WRITES_CHECK) -- the kill switch
     must never block stopping a scan, in either direction.
 
-    This is now load-bearing rather than merely tidy: stop_run is the only
+    This is load-bearing rather than merely tidy: stop_run is the only
     surface that ABORTS a plan already moving hardware (POST /queue/abort).
     Denying it under writes-off would take the emergency halt away at exactly
     the moment writes were disabled because something was wrong.

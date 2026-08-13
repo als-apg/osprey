@@ -6,24 +6,21 @@ declares a service with a Dockerfile, and therefore exercises the images stage
 and the registry credential that the exemplar's ``image_source: local`` never
 reaches.
 
-The byte specification moved. It used to live beside this file as
-``goldens/gitlab-ci.yml`` and ``goldens/verify.sh``, hand-built for the retired
-``profile/`` layout; it is now the three-zone exemplar in
-``tests/fixtures/lifecycle_repo.py``, and ``tests/cli/test_emitted_artifacts_clean.py``
-holds the templates to it byte for byte. Keeping two hand-built reference
-deployments meant keeping two specifications, which is one more than a
-specification can be.
+The byte specification lives elsewhere: the three-zone exemplar in
+``tests/fixtures/lifecycle_repo.py``, which
+``tests/cli/test_emitted_artifacts_clean.py`` holds the templates to byte for
+byte. A second, hand-built reference deployment beside this file would mean
+keeping two specifications, which is one more than a specification can be.
 
 So what is asserted here is behaviour rather than bytes: the branches a
 registry turns on, and the security properties that hold whatever the profile
-says. The security half is the surviving part of the old ``.gitlab-ci.yml``
-template tests. The legacy pipeline assembled ``.env.production`` itself, from a
-heredoc of masked CI variables, and those tests policed which tokens the heredoc
-was allowed to name. This pipeline assembles nothing: the deploy host runs
+says. A pipeline that assembled ``.env.production`` itself, from a heredoc of
+masked CI variables, would need tests policing which tokens the heredoc may
+name. This pipeline assembles nothing: the deploy host runs
 ``osprey users env-production`` against its own ``.env``, and the single
 allowlist in ``osprey.deployment.web_terminals.env_production`` decides what
-lands in that file. What carries over is the absence half — no secret may reach
-a file, or the deploy host's command line, from here.
+lands in that file. What this module pins is the absence half — no secret may
+reach a file, or the deploy host's command line, from here.
 """
 
 from __future__ import annotations
@@ -147,13 +144,13 @@ def test_installed_version_is_the_only_value_that_moves_with_a_release(
 
 
 def test_the_byte_specification_lives_with_the_exemplar() -> None:
-    """The hand-built goldens are gone, and must not come back here.
+    """No hand-built goldens live here, and none may come back.
 
-    They were written for the retired ``profile/`` layout, and a repo carrying
-    both them and the three-zone exemplar would carry two specifications free to
+    They belong to the retired ``profile/`` layout, and a repo carrying both
+    them and the three-zone exemplar would carry two specifications free to
     disagree. The bytes are pinned in ``tests/cli/test_emitted_artifacts_clean.py``
-    against ``tests/fixtures/lifecycle_repo.py``; this asserts the old pair did
-    not quietly reappear beside a suite that no longer reads it.
+    against ``tests/fixtures/lifecycle_repo.py``; this asserts the pair has not
+    quietly reappeared beside a suite that does not read it.
     """
     assert not (GOLDENS / "gitlab-ci.yml").exists()
     assert not (GOLDENS / "verify.sh").exists()

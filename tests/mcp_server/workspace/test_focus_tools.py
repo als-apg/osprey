@@ -1,9 +1,8 @@
 """Tests for artifact_focus / artifact_pin honest gallery reporting.
 
-These tools previously fired a fire-and-forget POST at the gallery and
-returned ``"status": "success"`` unconditionally — a focus that never
-happened (gallery down, or gallery serving a different store) was still
-reported as done. The contract under test:
+A fire-and-forget POST at the gallery that returns ``"status": "success"``
+unconditionally reports a focus that never happened (gallery down, or gallery
+serving a different store) as done. The contract under test:
 
   - artifact_focus: the entire effect is gallery-side, so a failed or
     rejected POST is a tool error (gallery_unreachable / gallery_error).

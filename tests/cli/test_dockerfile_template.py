@@ -373,9 +373,7 @@ class TestDockerignore:
     def test_the_render_itself_is_not_excluded(self, hello_project):
         """``build/`` must NOT be ignored — it is the deployment being shipped.
 
-        This entry used to exist, back when a project directory held its own
-        build output and the image regenerated that output for itself. The
-        render IS the deployment now, and the project image's context is a
+        The render IS the deployment, and the project image's context is a
         deployment repo, so an image built with ``build/`` ignored would carry
         no config.yml, no .mcp.json and no Claude Code artifacts — and would
         fail only at runtime, as an agent with nothing configured.

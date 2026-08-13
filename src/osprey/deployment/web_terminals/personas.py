@@ -20,7 +20,7 @@ from typing import Any
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
-# Task 2.5: the only wired value for `modules.web_terminals.mcp.topology`. Every
+# The only wired value for `modules.web_terminals.mcp.topology`. Every
 # other value (including the recognized-but-rejected `shared_http`) is
 # fail-closed at render time — see render.py's `_check_mcp_topology()`. Lives
 # in this neutral module so lint.py and render.py can both import it without
@@ -60,7 +60,7 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
 
     Legacy bare strings (``"alice"``) normalize to ``{"name": "alice", "index":
     <raw list position>}``, matching the fallback ``render.py`` already uses so
-    ports stay identical to what a pre-existing all-strings roster produces today.
+    ports stay identical to what an all-strings roster produces.
     Already-explicit object entries (``{"name": ..., "index": ...}``) pass through
     with their explicit index preserved, regardless of list position. This makes
     the function idempotent: normalizing an already-normalized list is a no-op,
@@ -350,10 +350,10 @@ def resolve_personas(
     ``modules.web_terminals.image_tag`` (``<tag>`` below, default ``latest``);
     local ``:local`` images are unaffected by that field:
 
-    * **No persona in effect** (``persona`` is ``None``): today's exact values —
+    * **No persona in effect** (``persona`` is ``None``): the facility defaults —
       ``image`` is ``<registry_url>/web-terminal:<tag>`` (unsuffixed, the same
-      string the compose template built directly before this function existed
-      whenever ``<tag>`` is its ``latest`` default),
+      string the compose template names directly whenever ``<tag>`` is its
+      ``latest`` default),
       ``project`` and ``container_project_dir`` are ``<facility_prefix>-assistant``
       / ``/app/<facility_prefix>-assistant``. This is the zero-migration path: a
       config with no ``personas`` catalog at all resolves every entry here.
@@ -467,15 +467,14 @@ def resolve_personas(
     def _zero_migration_entry(
         name: str, index: int, persona: str | None, source: dict[str, Any]
     ) -> dict[str, Any]:
-        """The zero-migration resolution: today's exact pre-persona values, with
+        """The zero-migration resolution: the pre-persona values, with
         ``persona`` carried through for logging (``None`` when no persona is in
         effect, or the unresolvable reference on the lenient degrade path) and the
         optional per-user fields passed through unchanged. ``extra_mounts`` is
         empty here — the zero-migration path has no catalog entry to read
         persona-level host mounts from. ``seed_base`` is ``True`` — the shared
-        base-context prepend has always been mandatory for a
-        no-persona/zero-migration entry, and opting out is only expressible
-        through a catalog entry."""
+        base-context prepend is mandatory for a no-persona/zero-migration entry,
+        and opting out is only expressible through a catalog entry."""
         return _with_optional_fields(
             {
                 "name": name,
@@ -530,7 +529,7 @@ def resolve_personas(
 
         # seed_base: whether this persona's users get the shared base context
         # prepended ahead of their own extra context at seed time. Defaults to
-        # True (the historical, always-prepend behavior); a non-bool value is a
+        # True (always prepend); a non-bool value is a
         # config typo that lint reports separately, so coerce it back to the
         # safe default here rather than propagating garbage.
         seed_base = catalog_entry.get("seed_base")

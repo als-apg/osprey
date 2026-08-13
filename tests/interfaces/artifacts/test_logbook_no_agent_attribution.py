@@ -1,14 +1,14 @@
 """The gallery's send-to-logbook is a human gesture, not agent activity.
 
-Composing a logbook entry is something an operator *clicks*. It used to be
-announced with :func:`notify_panel_focus`, which is an agent-source,
-all-clients broadcast: every connected browser painted agent styling and had
-its workspace yanked to ARIEL because one person hit Submit. These tests pin
-the replacement — navigation is sender-local over the same-origin panel-iframe
-postMessage protocol — from both ends:
+Composing a logbook entry is something an operator *clicks*. Announcing it
+with :func:`notify_panel_focus` — an agent-source, all-clients broadcast —
+would paint agent styling in every connected browser and yank each workspace
+to ARIEL because one person hit Submit. These tests pin the honest shape —
+navigation is sender-local over the same-origin panel-iframe postMessage
+protocol — from both ends:
 
   - server: submitting performs no web-terminal broadcast at all, and the
-    module no longer reaches for the agent-source notifier;
+    module never reaches for the agent-source notifier;
   - contract: the gallery posts ``osprey:navigate`` to its host only when it
     is actually embedded, and the host listener accepts it under the existing
     same-origin guard with no agent attribution anywhere in the payload.

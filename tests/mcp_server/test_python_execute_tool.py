@@ -1107,19 +1107,19 @@ async def test_subprocess_outputs_still_written_to_execution_folder(tmp_path):
 # ============================================================================
 # Tool description — live package inventory
 #
-# The description used to name a fixed set of packages (numpy, pandas, scipy,
-# at, matplotlib, plotly) whatever the deployment had installed.  It is now
+# The description must not name a fixed set of packages (numpy, pandas, scipy,
+# at, matplotlib, plotly) regardless of what the deployment installed.  It is
 # generated from the environment that actually runs agent code, and degrades to
 # a sentence that names nothing rather than to a stale list.
 # ============================================================================
 
 
-#: Names the old hardcoded description asserted were available.
+#: Package names the description must never claim are available.
 _FORMERLY_HARDCODED = ("numpy", "pandas", "scipy", "at", "matplotlib", "plotly")
 
 
 def assert_names_no_packages(text: str) -> None:
-    """Assert ``text`` mentions none of the formerly hardcoded package names."""
+    """Assert ``text`` names no package as guaranteed-available."""
     for name in _FORMERLY_HARDCODED:
         assert not re.search(rf"\b{re.escape(name)}\b", text), (
             f"description must not name packages, found {name!r}"

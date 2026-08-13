@@ -1,14 +1,11 @@
 """MCP tool: bring up a live Phoebus Data Browser for a PV list + time range.
 
-Reincarnates the ``.plt``-generation capability of the retired
-``phoebus_launch`` server (``als-profiles/mcp_servers/phoebus/``) as a
-first-class action of the native Phoebus agent — see
-``.claude/plans/phoebus-als-integration/ADDENDUM-databrowser-reincarnation.md``,
-Task 0.5. Two things changed on migration:
+``.plt`` generation is a first-class action of the Phoebus agent. Two design
+choices shape this tool:
 
-* The embedded LLM styling call is gone. The calling agent is already an LLM
-  — it supplies styling as structured tool arguments (``styling=``) instead
-  of a natural-language ``query`` that used to be sent to a second model.
+* No embedded LLM styling call. The calling agent is already an LLM — it
+  supplies styling as structured tool arguments (``styling=``) rather than a
+  natural-language ``query`` that a second model would have to interpret.
 * Live-open instead of a ``myapp://`` hand-off. This tool writes a styled
   ``.plt`` into the workspace (reusing ``plt_generator``) and POSTs its
   *content* to the agent bridge's ``POST /open`` — the same bridge-client
@@ -22,7 +19,7 @@ generated XML is read back and POSTed as ``{"content": <xml>, "extension":
 "plt"}`` — the bridge writes its own temp file and opens that. The local
 ``.plt`` written by ``plt_generator`` is kept only as a shareable artifact
 (``plt_file`` in the result, a path in *this* tool's own container) for the
-operator to inspect or download; the open no longer depends on it.
+operator to inspect or download; the open does not depend on it.
 
 Facility-neutral archiver binding: the archiver-appliance URL bound into the
 generated ``.plt`` is never hardcoded here — it is resolved from
@@ -71,8 +68,7 @@ logger = logging.getLogger("osprey.mcp_server.tools.phoebus_databrowser")
 
 _EnumT = TypeVar("_EnumT", bound=Enum)
 
-# Default color palette for multiple PVs — parity with the retired server's
-# DEFAULT_COLORS rotation (phoebus_launch.py).
+# Default color palette for multiple PVs, rotated trace by trace.
 _DEFAULT_COLORS: list[tuple[int, int, int]] = [
     (0, 100, 200),  # Blue
     (200, 0, 0),  # Red
@@ -111,9 +107,9 @@ def _plot_dir() -> Path:
     Runtime output, so it belongs under the deployment's agent-data root — read
     from ``agent_data.base_dir`` rather than spelled here — and a configured
     ``phoebus.plot_dir`` is anchored on the repo root the same way every other
-    configured path is. Both halves matter: the default used to name the retired
-    ``./_agent_data``, and either value used to resolve against the working
-    directory, which for an MCP server is whatever launched it.
+    configured path is. Both halves matter: neither the default nor the
+    configured value may resolve against the working directory, which for an
+    MCP server is whatever launched it.
     """
     config = load_osprey_config()
     configured = (config.get("phoebus", {}) or {}).get("plot_dir")
@@ -168,9 +164,9 @@ def _build_plot_config(
     end_time: str,
     styling: dict | None,
 ) -> PlotConfig:
-    """Translate tool arguments into a ``PlotConfig``, applying the retired
-    server's defaults (color rotation, appearance) wherever ``styling``
-    leaves a value unspecified.
+    """Translate tool arguments into a ``PlotConfig``, applying this module's
+    defaults (color rotation, appearance) wherever ``styling`` leaves a value
+    unspecified.
 
     Raises ``ValueError`` (naming the offending ``styling`` field) on any
     malformed sub-field — enum coercion, color tuples, or
@@ -295,7 +291,7 @@ async def phoebus_open_databrowser(
             "scroll": bool, "update_period": float, "axis_name": str,
             "auto_scale": bool, "axis_min": float, "axis_max": float,
             "log_scale": bool, "annotations": [...]}``. Any key omitted uses
-            the retired server's original default.
+            this module's default.
 
     Returns:
         JSON ``{"status": "success", "handle": "handle:d-N", "plt_file":

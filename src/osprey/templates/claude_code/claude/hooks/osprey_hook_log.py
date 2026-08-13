@@ -161,7 +161,7 @@ def get_repo_root(hook_input=None):
        verb finds a repo. Reached only when the config named no root and does
        not exist, where the framework has nothing left to consult either.
     4. The project directory itself. A legacy flat layout has no zones to
-       separate, so anchoring on it is both the old behaviour and the right one.
+       separate, so anchoring on it is the right answer.
 
     Returns:
         The repo root as a string, matching :func:`get_project_dir`'s type.

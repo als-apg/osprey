@@ -4,10 +4,10 @@ Pure Pydantic models — no execution or connector state — so they are
 import-clean of the bluesky stack and safe to import from anywhere the bridge
 needs the wire shapes.
 
-The retired direct-execute routes (``POST /runs``, ``POST /draft/run``) had
-bodies here too; they answer a fixed refusal now and parse nothing, so those
-models are gone. The queue surface defines its own request bodies in
-``queue.py``, next to the routes that read them.
+The retired direct-execute routes (``POST /runs``, ``POST /draft/run``) parse
+nothing — they answer a fixed refusal — so no model here serves them. The queue
+surface defines its own request bodies in ``queue.py``, next to the routes that
+read them.
 """
 
 from __future__ import annotations

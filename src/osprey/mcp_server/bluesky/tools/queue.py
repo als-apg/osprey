@@ -1,9 +1,9 @@
 """MCP tools: the agent's side of the bridge's plan queue.
 
-The queue replaces the old launch-a-single-draft path. Execution is now two
-steps, deliberately: ``queue_add`` puts the pinned draft into the queue (which
-starts nothing), and ``queue_start`` begins draining it (which starts a real
-plan). Splitting them is what lets a human review a composed queue before
+Execution is two steps, deliberately: ``queue_add`` puts the pinned draft into
+the queue (which starts nothing), and ``queue_start`` begins draining it (which
+starts a real plan). Splitting them is what lets a human review a composed queue
+before
 anything moves, and it is why the arming gate sits on *start* rather than on
 composition.
 
@@ -237,8 +237,8 @@ def _refuse_unarmed(tool: str) -> NoReturn:
     the agent's environment holds no launch token BY DESIGN — the token lives
     with the operator's queue panel, and only a human arms from there. So the
     suggestion sends the agent to the human, never to config surgery
-    (``queue_start`` itself no longer comes here at all — tokenless, it files
-    a start request for the panel instead).
+    (``queue_start`` itself never comes here — tokenless, it files a start
+    request for the panel instead).
     """
     return make_error(
         "launch_token_required",
@@ -421,7 +421,7 @@ async def queue_add(draft_revision: int) -> str:
 
     A revision is consumable exactly once. Queuing the same plan twice — a
     repeat scan, a retry — needs a draft edit (set_draft) to mint a new
-    revision first; re-adding the old one is refused, by design, so a
+    revision first; re-adding the spent one is refused, by design, so a
     duplicated call cannot silently double-queue a scan.
 
     Args:

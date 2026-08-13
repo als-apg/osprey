@@ -710,12 +710,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         filepath = Path(data_file)
         if not filepath.is_absolute():
-            # data_file may be (a) a repo-root-relative path like
-            # "var/agent_data/artifacts/foo.json" (current ArtifactStore
-            # format), (b) a bare filename (legacy entries written before the
-            # format change), or (c) some other workspace-relative path. Try
-            # each candidate; the legacy DataContext path used absolute strings
-            # which are handled by the is_absolute() branch above.
+            # A store on disk holds every shape any OSPREY release ever wrote,
+            # so data_file may be (a) a repo-root-relative path like
+            # "var/agent_data/artifacts/foo.json" (the ArtifactStore format),
+            # (b) a bare filename, or (c) some other workspace-relative path.
+            # Try each candidate; the absolute strings a DataContext-era entry
+            # carries are handled by the is_absolute() branch above.
             candidates = [
                 store.repo_root / filepath,
                 store._workspace.parent / filepath,

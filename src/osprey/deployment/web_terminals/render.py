@@ -50,10 +50,9 @@ _COMPOSE_OUTPUT = "docker-compose.web.yml"
 _NGINX_OUTPUT = "nginx/nginx.conf"
 _LANDING_OUTPUT = "nginx/landing.html"
 
-# Per-container constant (Task 1.1): every per-user app's service families
-# (web + every registry companion family) bind this host, never a routable
-# interface —
-# nginx's reverse proxy (Task 1.2) becomes the only off-host path. Not
+# Per-container constant: every per-user app's service families (web + every
+# registry companion family) bind this host, never a routable interface —
+# nginx's reverse proxy is the only off-host path. Not
 # config-driven: unlike the per-family ports, there is no config knob
 # for this, since a facility that wants a per-user port reachable directly
 # off-host would defeat the single-origin chokepoint this module exists to
@@ -62,7 +61,7 @@ _LOOPBACK_BIND_HOST = "127.0.0.1"
 
 # Default nginx image when `modules.web_terminals.nginx_image` is unset. Kept
 # byte-identical to docker-compose.web.yml.j2's own `| default(...)` fallback so
-# an absent config value renders exactly as before this seam existed.
+# an absent config value renders the same image from either side.
 _DEFAULT_NGINX_IMAGE = "nginx:1.27-alpine"
 
 #: The authentication methods this deployment can actually serve: ``none`` (no
@@ -550,9 +549,9 @@ def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
 def _build_groups(
     landing_cfg: dict[str, Any], resolved_users: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Transform config ``landing.groups`` (Task 1.2 shape) into template ``groups``
-    (Task 1.6 shape): plain dicts with a ``label`` and an ``items`` key, since
-    landing.html.j2 uses bracket subscript (``group["items"]``) throughout.
+    """Transform config ``landing.groups`` into the template's ``groups`` shape:
+    plain dicts with a ``label`` and an ``items`` key, since landing.html.j2
+    uses bracket subscript (``group["items"]``) throughout.
 
     ``{type: "users"}`` auto-populates one card per configured user, using the
     relative ``/u/<user>/`` path that nginx.conf.j2 (bind-nginx-reverse-proxy)
@@ -561,13 +560,12 @@ def _build_groups(
     resolves to a persona (:func:`resolve_personas` returns a non-``None``
     ``persona``), that card also carries an optional ``sublabel`` holding the
     persona name, shown as a secondary badge on the card; users with no persona
-    in effect (every pre-persona bare-string roster) omit the key entirely, so
-    landing.html.j2's ``{% if item["sublabel"] %}`` guard renders them exactly as
-    before. ``{type: "links", label, links}`` passes ``links`` straight through as
+    in effect (every bare-string roster) omit the key entirely, so
+    landing.html.j2's ``{% if item["sublabel"] %}`` guard renders them without
+    one. ``{type: "links", label, links}`` passes ``links`` straight through as
     ``items`` (link cards never carry a ``sublabel``). Unrecognized/malformed
-    group entries are dropped rather than raising: the lint (Task 1.5) is the
-    authoritative gate on schema well-formedness, this is just the render-time
-    adapter.
+    group entries are dropped rather than raising: lint is the authoritative
+    gate on schema well-formedness, this is just the render-time adapter.
 
     Args:
         landing_cfg: The already-dict-coerced ``modules.web_terminals.landing``
@@ -778,7 +776,7 @@ def _check_roster_charset(services: list[dict[str, Any]], auth_method: str) -> N
 
     Scoped to authentication being on, deliberately: with ``auth.method: none``
     the username is a routing label, not an identity, and raising here would
-    break renders that work today. Lint still reports it in that case.
+    break an otherwise valid render. Lint still reports it in that case.
 
     Args:
         services: The resolved per-user service entries (each with a ``user``).
@@ -852,15 +850,14 @@ def _check_roster_env_var_collisions(services: list[dict[str, Any]], auth_method
 
 def _check_mcp_topology(web_terminals: dict[str, Any]) -> None:
     """Fail closed on any ``modules.web_terminals.mcp.topology`` value other than
-    the one wired topology, ``per_container_stdio`` (Task 2.5).
+    the one wired topology, ``per_container_stdio``.
 
     Only two of the framework's eight MCP servers (``channel-finder`` and
-    ``facility-knowledge``) were found to be safely shareable across a shared
-    HTTP tier without per-user-state corruption — not enough to justify
-    building and securing a whole shared tier this phase. ``shared_http`` is
-    therefore a *recognized but rejected* schema value: it lints as an ERROR
-    (Task 2.4) and raises here at render time. See
-    ``references/modules/web-terminals.md`` for the full deferral rationale.
+    ``facility-knowledge``) are safely shareable across a shared HTTP tier
+    without per-user-state corruption — not enough to justify building and
+    securing a whole shared tier. ``shared_http`` is therefore a *recognized
+    but rejected* schema value: it lints as an ERROR and raises here at render
+    time. See ``references/modules/web-terminals.md`` for the rationale.
 
     This check is scoped to the shared **framework**-MCP tier only. It has
     nothing to do with, and never rejects, a facility's own

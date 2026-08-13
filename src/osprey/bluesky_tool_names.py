@@ -1,16 +1,15 @@
 """Single source of truth for Bluesky MCP tool names.
 
 The Bluesky safety wiring — kill-switch hook matchers, destructive-marker
-checks, and the registry permission allow/ask lists — historically string-
-matched tool names inline, with no shared vocabulary. Every rename was then a
-latent gate-detachment hazard: a tool could be renamed in its module while a
-matcher in ``registry/mcp.py`` still pointed at the old name, silently
-detaching a safety hook.
+checks, and the registry permission allow/ask lists — must never string-match
+tool names inline. Inline literals make every rename a latent gate-detachment
+hazard: a tool renamed in its module while a matcher in ``registry/mcp.py``
+still names the previous string silently detaches a safety hook.
 
-This leaf module holds every Bluesky tool name as registered today, so the
-registry gate wiring and the destructive-marker classifier can import symbols
-instead of repeating string literals. It imports nothing from ``osprey`` and is
-safe to import from ``mcp_server``, ``registry``, and ``agent_runner`` code.
+This leaf module holds every Bluesky tool name as registered, so the registry
+gate wiring and the destructive-marker classifier can import symbols instead of
+repeating string literals. It imports nothing from ``osprey`` and is safe to
+import from ``mcp_server``, ``registry``, and ``agent_runner`` code.
 
 Names here reflect the *current* registered surface. Renames are made here
 first (changing a single constant), then the consumers follow — keeping every

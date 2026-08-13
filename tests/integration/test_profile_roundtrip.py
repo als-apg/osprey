@@ -18,11 +18,9 @@ it:
 2. **Nothing unregenerable accumulates** (:class:`TestNoUnregenerableFacilityState`)
    — the render carries no secrets surface at all, the mirror refuses a
    build-owned path, and deleting ``build/`` outright loses nothing the source
-   zone owns. This slot previously held the env-derivation classes, which pinned
-   how a rebuild merged the profile's ``.env`` into a copy inside the render.
-   The render carries no ``.env`` now, so the merge and every rule in it are
-   gone; what is left of that contract is asserted directly, as the *absence* of
-   a secrets surface.
+   zone owns. The render carries no ``.env`` at all, so there is no merge of the
+   profile's ``.env`` into a copy inside the render and no rules governing one;
+   that contract is asserted directly, as the *absence* of a secrets surface.
 3. **The persona stack** — a ``personas/<name>.yml`` delta anchored at its root,
    its exclusions (list artifact, convention artifact, and a convention artifact
    shadowing a framework render, which the exclusion restores), its inherited

@@ -155,10 +155,9 @@ class TestCliGroup:
     def test_cli_without_command_prints_help(self, runner):
         """Bare `osprey` lists what there is to run.
 
-        It used to launch an interactive menu, which existed because the legacy
-        verbs took arguments nobody could remember. Every surviving verb is
-        zero-argument, so the help IS the menu — and printing it must exit
-        cleanly rather than read as a usage error.
+        Every verb is zero-argument, so the help IS the menu rather than an
+        interactive launcher — and printing it must exit cleanly rather than
+        read as a usage error.
         """
         result = runner.invoke(cli, [])
 

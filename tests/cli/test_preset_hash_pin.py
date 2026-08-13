@@ -25,88 +25,15 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "channel-finder-standalone": (
         "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
     ),
-    # The web-terminal presets were re-pinned when the shipped roster went
-    # from a bare-string first user to fully explicit name/index/persona
-    # entries — a resolved-content change (deploy-visible as staleness), made
-    # knowingly per the module docstring. The resolved *behavior* is identical.
-    #
-    # Re-pinned again when control-assistant's control_system.type default
-    # flipped from "mock" to "virtual_accelerator" (mock is now the documented
-    # fallback via `osprey set connector=mock`) — both extends
-    # children inherit the new default, so all three digests moved.
-    #
-    # Re-pinned again when the RESULTS panel became BLUESKY: the preset's
-    # web_panels entry and its web.panels.<id>.{label,url,path} overrides all
-    # moved from `results` to `bluesky`. Unlike the two re-pins above this one
-    # is NOT behavior-neutral — a rebuilt project gets a differently-named tab
-    # — so the staleness advisory firing on already-deployed projects is the
-    # correct signal, not noise. Both extends children inherit it, so all three
-    # digests moved again.
-    #
-    # Re-pinned again when control-assistant gained the test-ioc-safety rule
-    # selection (renders only for EPICS-family control systems). Both extends
-    # children inherit it, so all three digests moved.
-    #
-    # Re-pinned again when every preset that ships panels-context also gained
-    # the workspace-delta hook, which reports web workspace changes between the
-    # agent's turns. All four rosters list it, so every digest moved — a rebuilt
-    # project gains a hook file and a UserPromptSubmit wiring entry, which is
-    # exactly what the staleness advisory should report.
-    #
-    # Re-pinned again when control-assistant gained a stored archive: a
-    # `va_archiver:` block, `archiver.type: mongodb_archiver` in `config:`, and
-    # pymongo in `dependencies`. The block derives eight
-    # `archiver.mongodb_archiver.*` keys into the resolved config, so this is a
-    # key change rather than a comment change and the digest is expected to
-    # move. Both extends children inherit it, so all three moved.
-    # Re-pinned again when control-assistant named its freshness canary:
-    # `va_archiver.freshness_channel`. The block derives a
-    # `health.categories.archiver.checks` entry from it — the check itself plus
-    # a staleness threshold computed from `recorder_cadence_sec` — so this is a
-    # key change, not a comment change, and the digest is expected to move. A
-    # rebuilt project gains a health check it did not have, which is exactly
-    # what the staleness advisory should announce. Both extends children inherit
-    # it, so all three moved.
-    # ...and again when the block stated `recorder_cadence_sec: 10` explicitly
-    # instead of riding the dataclass default. Behavior-neutral — the resolved
-    # value is unchanged — but the resolved CONTENT now carries the key, so the
-    # digest moves. Stated rather than defaulted because the freshness threshold
-    # is derived from it, and the preset's own convention is to document the
-    # shape it deploys rather than hide it in a dataclass.
-    # The archive and the workspace-delta hook landed either side of the same
-    # rebase, so the digests below carry both at once: re-pinning against
-    # either change alone would leave the other unaccounted for.
-    # ...and again when the PLAN panel was folded into BLUESKY as its Plans
-    # tab: the preset's `plan` web_panels entry and its `web.panels.plan.*`
-    # overrides are gone. Like the RESULTS rename above, this is NOT
-    # behavior-neutral — a rebuilt project loses a tab and gains it back inside
-    # another — so staleness firing on already-deployed projects is the correct
-    # signal. The archive work and the panel merge landed either side of this
-    # merge, so as above the digests carry both at once. Both extends children
-    # inherit it, so all three moved.
-    #
-    # Re-pinned again for the lifecycle redesign. Comment rewrites cannot move
-    # this hash (`_hash_resolved_profile` hashes resolved canonical JSON and
-    # says so); the content change is the two persona `project_path` values,
-    # which moved from the retired sibling layout
-    # (`../control-assistant-<persona>`) into the render zone
-    # (`build/control-assistant-<persona>`). The digests below carry that AND
-    # every archive/panel change above at once — the redesign and the archiver
-    # work landed either side of one merge. Both extends children inherit it,
-    # so all three moved.
-    # Re-pinned again when the persona tiers were redesigned and setup-mode
-    # left the operator skills roster (it can patch config.yml/.mcp.json —
-    # admin work — and stays in the artifact catalog for admin profiles to opt
-    # into). The roster now maps alice→readwrite and bob→readonly (each with a
-    # `display_name` tab title), the base pins `web.theme: light`, both
-    # personas pin `web.ui_mode` (expert/simple), and the EVENTS/BLUESKY panel
-    # declarations — `config:` overrides AND `web_panels` entries — moved from
-    # the base into the readwrite persona so the readonly build is genuinely
-    # panel-free. NOT behavior-neutral: a rebuilt project loses a skill
-    # directory, a rebuilt readonly project loses two tabs and gains the
-    # simple surface, and the roster swaps which port is write-armed. The
-    # lifecycle redesign and this tier redesign landed either side of the same
-    # merge, so the digests below carry both at once.
+    # A digest here is the resolved content of the preset AND of every preset
+    # that extends it, so a change in a base moves all three control-assistant
+    # entries together. Comment rewrites cannot move a digest
+    # (`_hash_resolved_profile` hashes resolved canonical JSON and says so);
+    # only a key or value change can. Some such changes are behavior-neutral
+    # and some are not — a rebuilt project can gain or lose a tab, a hook, a
+    # health check or a skill directory — and in either case the deploy-side
+    # staleness advisory firing on already-deployed projects is the correct
+    # signal, not noise.
     "control-assistant": "sha256:6926cb0ac876d78035618a7fd2102b3bd7c32e409a4e89a1949ab84bc25ce172",
     "control-assistant-readonly": (
         "sha256:d4f91684bc48b28f51997a32c997d08cb56a108b4acdd9a0a09863472660415a"

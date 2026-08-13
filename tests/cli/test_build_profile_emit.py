@@ -59,7 +59,7 @@ def test_delta_content_is_the_preset_layer_minus_extends(preset: str) -> None:
 
 @pytest.mark.parametrize("preset", PERSONA_PRESETS)
 def test_delta_carries_no_extends(preset: str) -> None:
-    """Position is the inheritance now — a written ``extends:`` inside
+    """Position IS the inheritance — a written ``extends:`` inside
     ``personas/`` is rejected at build time, so emitting one would be a bug."""
     text = emit_persona_delta_yaml(
         preset_name=preset,
@@ -91,7 +91,7 @@ def test_delta_keeps_the_preset_comments() -> None:
     )
 
     unwrapped = _unwrapped_comments(text)
-    assert "this key IS the tier boundary" in unwrapped
+    assert "this key is the tier boundary" in unwrapped
     assert "Pared-down operator layout" in unwrapped
 
 

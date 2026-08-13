@@ -36,7 +36,7 @@ byte-for-byte untouched.
 For an address in the target grown inventory that already exists in the
 loaded database, the existing entry is kept verbatim (hand-authored prose is
 preserved). Only genuinely new addresses -- a new family (QFA/SHF/SHD) or a
-device index beyond the old count -- are templated from the schema. Once a
+device index beyond the loaded count -- are templated from the schema. Once a
 family has been grown to its target count, every target address already
 exists, so re-running is idempotent (identical bytes).
 

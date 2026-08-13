@@ -732,9 +732,9 @@ def _apply_preset_by_click(page: Page) -> None:
 def test_preset_click_and_agent_preset_call_are_the_same_operation(tmp_path, chromium_browser):
     """A "Layouts" click and ``arrange_workspace(preset=…)`` produce one workspace.
 
-    Presets used to be applied by the browser, panel by panel; the agent had no
-    way to ask for one. Both paths now resolve the same preset server-side and
-    broadcast the same arrangement, so the claim to prove is equality of the
+    Both paths resolve the same preset server-side and broadcast the same
+    arrangement, rather than the browser applying it panel by panel, so the
+    claim to prove is equality of the
     RESULT, not of the code path: same tiles in the same order, the same focus,
     and the same pruned rail — a preset is exclusive, so the panel it omits
     leaves the launcher rail in both paths.

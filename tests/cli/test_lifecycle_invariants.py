@@ -224,8 +224,6 @@ _PROJECT_FLAG_ALLOWLIST = {
     # History, deliberately: the module's opening paragraph names the four rules
     # it replaced, and --project was one of them.
     "src/osprey/cli/repo_resolver.py": "narrates the retired rule it replaced",
-    # Same, in the CLI group's own docstring about what the redesign removed.
-    "src/osprey/cli/main.py": "narrates the retired flags",
     # A docstring contrasting this helper's contract with a `--project` verb's.
     "src/osprey/utils/config.py": "contrast with the exempt commands' contract",
 }
@@ -360,10 +358,10 @@ def test_the_runtime_injection_sites_still_read_the_config_env_vars(relative: st
 #: its profile in ``<name>-profile/`` and its build in ``build/<name>/``.
 _RETIRED_SPELLINGS = {
     "the deleted `deploy` group": re.compile(r"\bosprey deploy [a-z]"),
-    # The group name ALONE, with no verb after it. `osprey deploy` used to be a
-    # thing an operator typed, so prose that says "``osprey deploy`` chdirs
-    # first" reads as a live command and the verb-pair patterns above cannot see
-    # it — one such docstring survived the whole flip for exactly that reason.
+    # The group name ALONE, with no verb after it. `osprey deploy` reads as a
+    # thing an operator types, so prose that says "``osprey deploy`` chdirs
+    # first" looks like a live command while the verb-pair patterns above
+    # cannot see it — the exact gap a docstring can slip through.
     # `(?![- \w])` keeps it off the verb-pair form, which is already reported by
     # the entry above and would otherwise be counted twice.
     "the deleted `deploy` group (no verb)": re.compile(r"\bosprey deploy(?![-\s\w])"),
@@ -481,32 +479,17 @@ _RETIRED_SPELLING_ALLOWLIST: dict[tuple[str, str], str] = {
             '_SECRET_HEADER = "# Auto-generated web-terminal auth signing secrets (osprey deploy)"',
         )
     },
-    # The note explaining why the three above may not be touched. It has to
-    # quote the spelling it is protecting.
-    (
-        "src/osprey/deployment/reset.py",
-        "#: HISTORICAL spelling — including ``osprey deploy up``, a verb name that is on",
-    ): "documents why the banner headers keep the retired spelling",
     # Deliberate history: the sentence exists to contrast today's read-only
     # `osprey up` with what the retired verb did, so naming it is the point.
     (
         "src/osprey/deployment/container_lifecycle.py",
         "the legacy ``deploy up``. The locations come from the rendered config's own",
     ): "narrates the retired verb it replaced",
-    # Three more history sentences. Each names a dead verb in order to explain
-    # where a surviving behaviour came from, and each says so in the same
-    # breath — "retired", "Absorbed from the retired", "absorbed from". They are
-    # listed individually rather than matched by a keyword, because a rule that
-    # excused any line containing the word "retired" would be an escape hatch
-    # rather than an exemption.
-    (
-        "src/osprey/cli/build_cmd.py",
-        "The retired ``osprey claude regen`` copied these into ``_agent_data/backup/``",
-    ): "explains why the backup courtesy survives its verb",
-    (
-        "src/osprey/deployment/status_display.py",
-        "Absorbed from the retired ``osprey claude status``: the provider, the",
-    ): "names what this section was absorbed from",
+    # A history sentence, kept deliberately: it names a dead verb in order to
+    # explain where a surviving behaviour came from, and says so in the same
+    # breath. Listed individually rather than matched by a keyword, because a
+    # rule that excused any line containing the word "retired" would be an
+    # escape hatch rather than an exemption.
     (
         "src/osprey/cli/set_cmd.py",
         "#: CLI-only shorthand absorbed from ``osprey config set-epics-gateway",

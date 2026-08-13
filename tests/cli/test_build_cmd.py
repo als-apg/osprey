@@ -1613,7 +1613,7 @@ class TestProfileExtends:
         assert profile.provider == "cborg"  # inherited from grandparent
 
     def test_no_extends_unchanged(self, minimal_profile_yaml: Path):
-        """Profiles without extends work exactly as before."""
+        """A profile without extends loads its own values verbatim."""
         profile = load_profile(minimal_profile_yaml)
         assert profile.name == "Test Profile"
         assert profile.model == "haiku"
@@ -2298,13 +2298,13 @@ class TestCopyServiceTemplates:
 
         # Deployed service still bundles (regression guard).
         assert (project_path / "services" / "postgresql" / "docker-compose.yml.j2").exists()
-        # Declared-but-not-deployed add-on is bundled too (the new behavior).
+        # Declared-but-not-deployed add-on is bundled too.
         assert (project_path / "services" / "openobserve" / "docker-compose.yml.j2").exists()
         assert count == 2
 
     def test_declared_only_service_bundles_without_deployed_services(self, tmp_path: Path) -> None:
         """With an empty deployed_services, a declared service with a package
-        template is still bundled — the copy path no longer early-returns when
+        template is still bundled — the copy path must not early-return when
         deployed_services is empty."""
         from osprey.cli.build_cmd import _copy_service_templates
 

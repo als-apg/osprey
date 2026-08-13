@@ -13,6 +13,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Generated deployment repos, bundled skills, agent instructions and the
+  documentation now describe the system as it is, rather than as a set of
+  differences from an earlier arrangement. Guidance for moving an existing
+  deployment onto the profile format is unchanged.
+
 - The control-assistant preset's two-user roster now ships alice as the
   write-capable operator and bob as the read-only viewer. The tiers differ
   visibly, not just in enforcement: the write-armed terminal keeps the full

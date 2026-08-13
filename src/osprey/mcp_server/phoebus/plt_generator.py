@@ -2,22 +2,19 @@
 
 Generates Data Browser XML (``.plt``) files from ``PlotConfig`` objects.
 
-Migrated from the retired ``phoebus_launch`` server
-(``als-profiles/mcp_servers/phoebus/plt_generator.py``) as the reincarnated
-capability inside ``phoebus_open_databrowser`` — see
-``.claude/plans/phoebus-als-integration/ADDENDUM-databrowser-reincarnation.md``,
-Task 0.5. The ``.plt`` XML serializer and archiver ``<archive>`` binding are
-kept verbatim; two things were dropped on migration:
+The generator supplies the ``.plt`` XML serializer and the archiver
+``<archive>`` binding behind ``phoebus_open_databrowser``. Two things it
+deliberately does not do:
 
-* ``create_launch_uri`` (the ``myapp://`` custom-scheme launcher) — nothing in
-  the live-open flow consumes it; the bridge ``POST /open`` opens the
-  generated ``.plt`` directly.
-* The hardcoded ALS archiver default. ``archiver_url`` now defaults to
-  ``None`` (no facility baked into framework code); the caller resolves it
-  from config/env (``phoebus.archiver_url`` — each facility profile supplies
-  its own archiver appliance URL). When no archiver URL is supplied, PVs are
-  emitted without an ``<archive>`` binding (live-only data, no historical
-  backfill) rather than silently pointing at a facility that may not exist.
+* No ``myapp://`` custom-scheme launch URI — nothing in the live-open flow
+  consumes one; the bridge ``POST /open`` opens the generated ``.plt``
+  directly.
+* No archiver default. ``archiver_url`` defaults to ``None`` (no facility
+  baked into framework code); the caller resolves it from config/env
+  (``phoebus.archiver_url`` — each facility profile supplies its own archiver
+  appliance URL). When no archiver URL is supplied, PVs are emitted without an
+  ``<archive>`` binding (live-only data, no historical backfill) rather than
+  silently pointing at a facility that may not exist.
 """
 
 from __future__ import annotations

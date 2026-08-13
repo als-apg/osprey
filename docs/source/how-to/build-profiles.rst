@@ -526,11 +526,11 @@ The write-back is **append-only**. A key already in the profile keeps its value 
 it is pinned by the docker volume that was initialized with it — and a value that
 disagrees is reported by name (never by value) for you to resolve by hand.
 
-If the profile cannot be reached — it has moved, or the project was built before
-this mechanism existed — the deploy still works. The secrets stay in the project
-``.env``, a warning names the path that failed, and the project records that its
-``.env`` is the only copy. A later ``osprey build`` repeats that warning
-before touching the directory.
+If the profile cannot be reached — it has moved or been deleted, or the project
+names none — the deploy still works. The secrets stay in the project ``.env``, a
+warning names the path that failed, and the project records that its ``.env`` is
+the only copy. A later ``osprey build`` repeats that warning before touching the
+directory.
 
 
 Profile YAML reference
@@ -1278,7 +1278,7 @@ one exists.
 error: a directory in the profile that nothing copies. Usually a typo of a
 convention directory name.
 
-**"Unknown profile key(s): 'overlay'"** — profiles no longer have an overlay
+**"Unknown profile key(s): 'overlay'"** — a profile has no ``overlay``
 section. Move the files into the convention directory that matches what they
 are (see the table above), or into ``project/`` for anything without one.
 

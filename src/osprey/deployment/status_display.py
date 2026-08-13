@@ -16,8 +16,8 @@ Which containers belong to *this* deployment is decided by the
 ``com.osprey.repo-id`` label the render bakes in, so two checkouts of the same
 repo on one host are told apart rather than merged. The label has an honest
 limit that the display states rather than hides: it is applied when a container
-is CREATED, so a stack started before this labelling existed carries none, and
-this module can only match it by project name.
+is CREATED, so a stack whose containers were created by an OSPREY that did not
+stamp it carries none, and this module can only match it by project name.
 
 :func:`show_status` is the legacy project-scoped display behind
 ``osprey status``. It shares the query and table helpers below with the
@@ -92,10 +92,9 @@ def _format_state(state, styles):
 def _extract_web_terminal_user_names(users_raw):
     """Extract bare usernames from ``modules.web_terminals.users``.
 
-    Entries may be legacy bare strings (``"alice"``) or explicit object form
-    (``{"name": "alice", "index": 0}``); both are handled defensively here
-    rather than importing a shared normalizer, since that normalizer lives in
-    a module edited in parallel by another task.
+    Entries may be bare strings (``"alice"``) or explicit object form
+    (``{"name": "alice", "index": 0}``); both are handled defensively here so
+    this read-only display never fails on a malformed roster.
 
     :param users_raw: Raw value of ``modules.web_terminals.users``
     :type users_raw: object
@@ -126,8 +125,8 @@ def _container_label(container, key):
     Two shapes, because two runtimes: podman emits ``Labels`` as an object,
     docker as a comma-joined ``k=v`` string. ``None`` when the label is absent,
     and that absence is a real answer here rather than a parse failure — a
-    container without :data:`REPO_ID_LABEL` is one created before OSPREY
-    stamped it.
+    container created by an OSPREY that did not stamp :data:`REPO_ID_LABEL`
+    carries none.
 
     :param container: One decoded ``ps`` record
     :param key: Label key to read
@@ -526,9 +525,8 @@ def _partition_by_checkout(containers, identity, project_name):
       answered differently would describe a different set of containers than
       the verb acting on them.
     * ``unlabelled`` — the project name matches but there is no repo-id label at
-      all. Created before this labelling existed, so they are shown as part of
-      the deployment and flagged, because the label-driven paths cannot find
-      them.
+      all — created by an OSPREY that did not stamp it. Shown as part of the
+      deployment and flagged, because the label-driven paths cannot find them.
     * ``foreign`` — the project name matches and the repo-id does not. Another
       checkout of the same deployment, running on this host.
     * ``others`` — some other OSPREY project entirely.
@@ -758,10 +756,9 @@ def _artifact_drift(repo_root, build_dir, config):
 def _print_agent_section(repo_root, build_dir, config, console, styles, *, show_agents):
     """Print how the agent in this deployment is configured, and whether it is in sync.
 
-    Absorbed from the retired ``osprey claude status``: the provider, the
-    environment block its settings carry, whether the credential those need can
-    actually be found, the tier-to-model mapping, and whether the rendered agent
-    artifacts still match the config they came from.
+    Reports the provider, the environment block its settings carry, whether the
+    credential those need can actually be found, the tier-to-model mapping, and
+    whether the rendered agent artifacts still match the config they came from.
 
     The per-agent model assignments are behind *show_agents* rather than
     printed always: there are a dozen of them, and a status report whose longest

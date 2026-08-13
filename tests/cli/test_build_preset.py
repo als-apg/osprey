@@ -218,7 +218,7 @@ def test_preset_name_normalization(runner: CliRunner, tmp_path: Path) -> None:
     cfg_b = _config_yaml(_project(out_b, "smoke"))
     # Same preset → same default_model in rendered config.
     # NB: the rendered key lives at claude_code.default_model, NOT top-level
-    # (this test was previously vacuously passing on a top-level lookup).
+    # (a top-level lookup would make this assertion vacuous).
     assert cfg_a["claude_code"]["default_model"] == cfg_b["claude_code"]["default_model"]
 
 
@@ -334,7 +334,7 @@ def test_multiple_override_files_apply_in_order(runner: CliRunner, tmp_path: Pat
 
 
 def test_override_missing_file_aborts(runner: CliRunner, tmp_path: Path) -> None:
-    """A missing -O file is refused where -O now lives: `osprey init`, which
+    """A missing -O file is refused where -O lives: `osprey init`, which
     validates and bakes override layers into the profile it materializes.
     `osprey build` carries no -O of its own — it only ever re-renders a
     profile.yml that already exists — so there is nothing left for it to
@@ -574,7 +574,7 @@ def test_extends_cycle_detected(
 def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_path: Path) -> None:
     """Every bundled preset must materialize and build to a project with a
     valid config and manifest, and the profile it materialized into must still
-    say which preset it came from — the manifest itself no longer can, since a
+    say which preset it came from — the manifest itself cannot, since a
     zero-argument build only ever sees a plain profile.yml and does not know
     whether (or from which preset) it was materialized.
 

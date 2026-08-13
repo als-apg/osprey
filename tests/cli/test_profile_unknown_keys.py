@@ -1,7 +1,7 @@
 """Tests for the unknown-key hard error and the profile-schema version floor.
 
 An unrecognized top-level key used to warn and be ignored, which shipped
-deployments quietly missing whatever the profile asked for. It is now rejected,
+deployments quietly missing whatever the profile asked for. It is rejected,
 naming every offender at once.
 """
 

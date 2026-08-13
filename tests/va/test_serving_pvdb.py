@@ -754,7 +754,7 @@ class TestPhysicsReadbacksReachPva:
     record shim after every solve. Nothing between the solve and the wire is
     aware of a transport, which is the point: the bridge is unchanged and the
     reading reaches both views because the shim it already pushes through
-    now carries both.
+    carries both.
     """
 
     BPM_X = "SR:DIAG:BPM:01:POSITION:X"

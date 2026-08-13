@@ -60,7 +60,7 @@ class TestModuleProviderDrivesBothUses:
 
         assert module._model_config["provider"] == "cborg"
 
-    def test_nested_model_provider_is_no_longer_required(self, provider_models) -> None:
+    def test_nested_model_provider_is_optional(self, provider_models) -> None:
         """Omitting the retired ``model.provider`` still yields a usable model config."""
         module = SemanticProcessorModule()
         module.configure(_config(model={"model_id": "anthropic/claude-haiku", "max_tokens": 256}))

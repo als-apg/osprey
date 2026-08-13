@@ -261,11 +261,10 @@ def _ensure_service_tokens(
     A mint lands once and stays there. Nothing is copied anywhere afterwards:
     the file written here IS the deployment's one secret store, sitting at the
     repo root beside the ``profile.yml`` that describes the stack, and it is the
-    same file compose is pointed at (``--env-file <repo>/.env``). This used to
-    write the effective values on to a second ``.env`` owned by the profile,
-    because a rendered project and its profile were different directories and a
-    rebuild elsewhere would otherwise mint secrets the running containers reject.
-    One directory, one file, no second copy to keep in step.
+    same file compose is pointed at (``--env-file <repo>/.env``). A second copy
+    owned by the profile must never be written: two stores drift, and a rebuild
+    reading the wrong one mints secrets the running containers reject. One
+    directory, one file, no second copy to keep in step.
 
     Independently of the above, every var in ``_VALIDATE_ONLY_VARS``
     (e.g. ``ARIEL_DSN``) is checked against its ``_VAR_VALIDATORS`` constraint
@@ -401,7 +400,7 @@ def _ensure_service_tokens(
     # Validate-only vars (ARIEL_DSN): checked when present in the same
     # effective-value sense as required_vars above, but never minted when
     # absent and never required to unblock a deploy — see _VALIDATE_ONLY_VARS'
-    # docstring for why no _SERVICE_TOKEN_VARS entry can express this today.
+    # docstring for why no _SERVICE_TOKEN_VARS entry can express this.
     for name in _VALIDATE_ONLY_VARS:
         effective = _effective_value(name, post)
         if not effective:
@@ -612,7 +611,7 @@ def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = N
     Generation is **unconditional** for any deploy carrying the ``bluesky``
     service, and deliberately NOT gated on the connector being EPICS-like the
     way substrate derivation is. A mock deploy never opens the RE worker
-    environment, so empty certificate directories would cost it nothing today
+    environment, so empty certificate directories would cost such a deploy nothing
     — but they are not free: the moment an operator flips the connector to
     ``virtual_accelerator`` and restarts without a full redeploy, the bridge
     finds no secret certificate and refuses to bind the plane at all (see
@@ -1269,13 +1268,10 @@ def _build_project_image(
     staged_artifacts: list[Path] = []
     wheel_staged = False
     if dev_mode:
-        # No build-context bloat guard here, deliberately. One used to warn when
-        # a context's `build/` was not excluded from it, back when `build/` was
-        # bulk the image had no use for. In this context `build/` IS the
-        # deployment being shipped, so that advice — add `build/` to
-        # `.dockerignore` — would produce an image with no config, no .mcp.json
-        # and no Claude Code artifacts. The guard has been removed rather than
-        # left uncalled, so nothing can call it back into service.
+        # No build-context bloat guard here, deliberately. `build/` IS the
+        # deployment being shipped in this context, so the usual advice — exclude
+        # `build/` via `.dockerignore` — would produce an image with no config,
+        # no .mcp.json and no Claude Code artifacts.
         before = _staged_dev_artifact_paths(project_root)
         wheel_staged = bool(_copy_local_framework_for_override(project_root))
         staged_artifacts = sorted(_staged_dev_artifact_paths(project_root) - before)
@@ -2354,9 +2350,9 @@ def as_built_compose_files(config: dict, repo_root: Path | str) -> list[str]:
     The repo root is handed to the lookup as its explicit ``base`` because
     ``find_existing_compose_files`` resolves ``build_dir`` and each service's
     template directory relatively: every repo-scoped verb must be correct from
-    any directory inside the repo, not only from its root. (This used to move
-    the working directory instead, which answered the same question by
-    borrowing global process state to do it.)
+    any directory inside the repo, not only from its root. Never answer that by
+    moving the working directory instead: that borrows global process state for
+    one lookup, and re-anchors every relative path the caller still holds.
 
     The paths come back RELATIVE to the repo root, which is what
     :func:`~osprey.deployment.compose_generator.compose_base_cmd` resolves for
@@ -2789,8 +2785,8 @@ def down_deployment(repo_root: Path | str) -> None:
 
     The three-zone stop path, and the mirror of :func:`up_as_built`: it acts on
     what a build left in ``build/`` and renders nothing. Where the legacy
-    :func:`deploy_down` re-rendered the compose files when it could not find
-    them, this refuses to render at stop time — the compose files that declared
+    :func:`deploy_down` re-renders the compose files when it cannot find them,
+    this refuses to render at stop time — the compose files that declared
     the running containers are a fact about the past, and re-deriving them from
     a since-edited profile can only produce a ``down`` aimed at a stack that was
     never started. :func:`_down_by_label` covers that case instead.
@@ -2994,8 +2990,8 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     # Same reason the token mint above runs on this path: the bluesky compose
     # template expands the manager's private key with a `:?` guard, so an unset
     # value aborts the whole `compose restart` rather than degrading. A project
-    # whose .env predates this feature has no key, and restarting it must not
-    # be the thing that breaks it. The document-plane certificates are NOT
+    # whose .env carries no key must not be broken by a restart. The
+    # document-plane certificates are NOT
     # provisioned here -- they are bind-mount sources, and `compose restart`
     # reuses each container's existing config rather than re-resolving mounts,
     # so generating them would change nothing until the next `osprey up`.

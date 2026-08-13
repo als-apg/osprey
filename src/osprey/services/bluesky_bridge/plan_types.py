@@ -4,7 +4,7 @@ Kept free of bluesky/ophyd/tiled imports (pydantic is a core bridge dependency,
 pulled in transitively via FastAPI, so it's fine here) so both sides of the
 injection seam stay on the right side of the import-clean boundary:
 
-- ``plan_loader.py`` (task 2.4) loads a facility module exposing
+- ``plan_loader.py`` loads a facility module exposing
   ``PLANS: dict[str, PlanSpec]`` from a config-pointed path *without* itself
   importing bluesky — only the loaded module needs it.
 - the shipped plan files under ``plans_core/`` (e.g. ``orm.py``, ``grid_scan.py``)

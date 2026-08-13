@@ -173,12 +173,12 @@ PATH_EVIDENCE_LABELS: tuple[str, ...] = (
     "osprey.project.root",
 )
 
-#: Header comments of the ``.env`` blocks a deploy writes, matched at their
-#: HISTORICAL spelling — including ``osprey deploy up``, a verb name that is on
-#: its way out. The text is what identifies the block in ``.env`` files already
-#: on disk, so it is a data format, not a message: renaming it in the writer
-#: without adding the new spelling here would orphan every block written under
-#: the old one, leaving stale tokens in place while reset reported them stripped.
+#: Header comments of the ``.env`` blocks a deploy writes, carried at EVERY
+#: spelling that can be sitting in a ``.env`` on disk. The text is what
+#: identifies the block, so it is a data format, not a message: renaming it in
+#: the writer without adding the new spelling here orphans every block written
+#: under the other one, leaving stale tokens in place while reset reports them
+#: stripped. Entries are only ever added, never rewritten.
 #:
 #: ``tests/deployment/test_reset_scoping.py`` reads the writer's call sites out
 #: of :mod:`osprey.deployment.container_lifecycle` and fails when a block is

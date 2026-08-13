@@ -73,7 +73,7 @@ class MockConnector(ControlSystemConnector):
                 - noise_level: Relative noise level 0-1 (default: 0.01)
                 - simulation_file: Optional path to a machine.json driving the
                   data-driven simulation engine (relative paths resolve against
-                  the project root). Without it, legacy behavior is unchanged.
+                  the project root). Without it, every PV is served procedurally.
         """
         self._response_delay = config.get("response_delay_ms", 10) / 1000.0
         self._noise_level = config.get("noise_level", 0.01)
@@ -117,7 +117,7 @@ class MockConnector(ControlSystemConnector):
         # Simulate network delay
         await asyncio.sleep(self._response_delay)
 
-        # Simulation engine serves its channels; unknown PVs fall back to legacy
+        # Simulation engine serves its channels; unknown PVs fall back to procedural
         if engine_serves(self._sim_engine, channel_address):
             reading = self._sim_engine.read(channel_address)
             now = datetime.now(get_facility_timezone())
@@ -210,7 +210,7 @@ class MockConnector(ControlSystemConnector):
 
         if engine_serves(self._sim_engine, channel_address):
             # Engine channels: :SP -> :RB mirroring is handled by expr readbacks
-            # in the machine file, so no legacy string-replace mirroring here.
+            # in the machine file, so no string-replace mirroring is needed here.
             self._sim_engine.write(channel_address, value)
         else:
             # Update state

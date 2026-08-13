@@ -56,7 +56,7 @@ def _normalize_profile_aliases(raw: dict[str, Any], source: str) -> dict[str, An
             raise BuildProfileError(
                 f"{source} sets both {yaml_key!r} ({value!r}) and its alias "
                 f"{field!r} ({raw[field]!r}) to different values. "
-                f"Keep one spelling — {yaml_key!r} is the current one."
+                f"Keep one spelling — {yaml_key!r} is the profile-YAML spelling."
             )
         raw[field] = value
     return raw

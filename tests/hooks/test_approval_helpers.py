@@ -820,10 +820,9 @@ def test_stop_describers_state_the_limit_and_name_the_tool_that_has_none(approva
     enough, at the moment delay costs most.
 
     It must state the real limit — a plain `queue_stop` does NOT touch the item
-    already in motion — and, now that one exists, name the tool that does. The
-    earlier version of this test pinned the opposite ("no tool here can"),
-    which was true of the retired 410 route and became dangerous the moment a
-    real abort was wired up.
+    already in motion — and name the tool that does. Pinning the opposite ("no
+    tool here can") would be dangerous: a real abort exists, and a prompt that
+    denies it costs the operator the fastest way to stop the machine.
     """
     fake_bridge({"/queue": {"status": {"manager_state": "idle"}, "running_item": None}})
 

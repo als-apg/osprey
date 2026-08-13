@@ -290,8 +290,8 @@ def test_nginx_fragment_has_websocket_upgrade_machinery() -> None:
 
 
 def test_nginx_fragment_proxy_disables_buffering_and_raises_read_timeout_for_sse() -> None:
-    """Now that every request under `/u/<user>/` genuinely flows through nginx
-    (unlike Phase-1's redirect, which never put nginx in the data path), nginx's
+    """Every request under `/u/<user>/` flows through nginx as a proxy, not a
+    redirect, so nginx is genuinely in the data path and its
     DEFAULT proxy buffering and 60s read timeout would apply to the app's
     heartbeat-less Server-Sent-Events streams (`/api/files/events`, chat SSE) too
     — batching/delaying `data:` lines behind nginx's buffer and tearing down an
@@ -550,9 +550,9 @@ def test_landing_url_is_the_external_origin_verbatim_under_tls() -> None:
 
 
 def test_landing_url_baked_into_containers_follows_tls_into_https() -> None:
-    """Regression: OSPREY_TERMINAL_LANDING_URL used to be hardcoded to
-    `http://<fqdn>:<nginx_port>` regardless of TLS, so a TLS deployment shipped every
-    container a "back to landing" link on the plain origin — which under the TLS
+    """Regression: hardcoding OSPREY_TERMINAL_LANDING_URL to
+    `http://<fqdn>:<nginx_port>` regardless of TLS ships every container in a TLS
+    deployment a "back to landing" link on the plain origin — which under the TLS
     posture only ever redirects, and would never carry a Secure session cookie."""
     # Arrange
     config = _tls_config()
@@ -1557,7 +1557,7 @@ def test_render_succeeds_with_auth_default_none_and_tls_default_off() -> None:
     # Act
     artifacts = render_web_terminals(config)
 
-    # Assert — round-trips exactly as before (defaults are inert; no seam rendering here)
+    # Assert — round-trips unchanged (defaults are inert; no seam rendering here)
     assert set(artifacts.keys()) == {
         "docker-compose.web.yml",
         "nginx/nginx.conf",

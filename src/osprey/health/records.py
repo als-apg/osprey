@@ -1,15 +1,15 @@
 """Config loading and category-record assembly for a health run.
 
-This module holds the surface-agnostic core the ``osprey health`` CLI used to
-carry inline: the single ``config.yml`` load (:func:`load_config`) and the
-assembly of the merged category records — built-in "core" categories,
-declarative YAML categories, and facility plugins (:func:`build_records`, with
-its :func:`core_record` / :func:`skip_record` helpers).
+This module holds the surface-agnostic core of a health run: the single
+``config.yml`` load (:func:`load_config`) and the assembly of the merged
+category records — built-in "core" categories, declarative YAML categories, and
+facility plugins (:func:`build_records`, with its :func:`core_record` /
+:func:`skip_record` helpers).
 
-Extracting these off the CLI lets non-CLI surfaces (e.g. the web health view)
-reuse the exact same record-assembly and config-degradation behavior instead of
-reimplementing it. The CLI (:mod:`osprey.cli.health_cmd`) re-imports these names
-and wires them together unchanged.
+Keeping these off the CLI lets non-CLI surfaces (e.g. the web health view) reuse
+the exact same record-assembly and config-degradation behavior instead of
+reimplementing it. The CLI (:mod:`osprey.cli.health_cmd`) imports these names
+and wires them together.
 
 Design contracts honored here:
 

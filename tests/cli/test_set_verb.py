@@ -197,11 +197,11 @@ def test_build_config_is_never_touched(runner, lifecycle_repo):
     assert rendered.read_text(encoding="utf-8") == "control_system:\n  type: mock\n"
 
 
-# --- absorbed shorthands ----------------------------------------------------
+# --- shorthand keys ---------------------------------------------------------
 
 
 def test_connector_shorthand_writes_the_control_system_key(runner, lifecycle_repo):
-    """Absorbs `config set-control-system` — into the PROFILE, not the render."""
+    """`connector=` writes the control-system key into the PROFILE, not the render."""
     result = _invoke(runner, lifecycle_repo, "connector=virtual_accelerator")
 
     assert result.exit_code == 0, result.output
@@ -221,7 +221,7 @@ def test_unknown_connector_is_refused_and_writes_nothing(runner, lifecycle_repo)
 
 
 def test_epics_gateway_shorthand_writes_the_facility_addresses(runner, lifecycle_repo):
-    """Absorbs `config set-epics-gateway --facility als`."""
+    """`epics_gateway=als` expands to the facility's gateway addresses."""
     result = _invoke(runner, lifecycle_repo, "epics_gateway=als")
 
     assert result.exit_code == 0, result.output
@@ -406,13 +406,12 @@ def test_registered_on_the_top_level_cli():
         assert "set" in cli.list_commands(ctx)
 
 
-# --- the honesty rule, at the verbs that own it now --------------------------
+# --- the honesty rule, at the verbs that own it ------------------------------
 #
-# `osprey config set-control-system` used to refuse a virtual accelerator
-# paired with the mock archiver at WRITE time. The write verb is now
-# `osprey set`, which is deliberately unguarded — profile.yml is a document,
-# and the build is where a profile's claims are judged — so the truth table
-# moved with the refusal: set the pairing, and the next `osprey build`
+# The write verb is `osprey set`, which is deliberately unguarded — profile.yml
+# is a document, and the build is where a profile's claims are judged — so a
+# virtual accelerator paired with the mock archiver is refused at BUILD time,
+# not at write time: set the pairing, and the next `osprey build`
 # refuses it. The pure predicate is pinned in
 # tests/connectors/test_honesty_rule.py; what this class pins is the two-verb
 # OPERATOR path — an `osprey set` that walks into the pairing is caught by the

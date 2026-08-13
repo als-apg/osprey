@@ -103,12 +103,12 @@ def test_install_design_philosophy_skill(fake_home: Path) -> None:
 
 
 def test_no_bundled_skill_survives_the_retired_deploy_surface() -> None:
-    """The operate-time runbook was retired with the verbs it described.
+    """No bundled skill may be an operate-time runbook of retired verbs.
 
     Asserted as an absence rather than left out, because the failure it guards
-    is a re-add: a skill shipped again from a branch written against
+    is a re-add: a skill shipped from a branch written against
     ``osprey deploy`` would install cleanly and instruct its reader to run
-    commands the CLI no longer has.
+    commands the CLI does not have.
     """
     from importlib.resources import files
 

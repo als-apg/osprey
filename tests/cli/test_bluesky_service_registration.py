@@ -150,17 +150,15 @@ def _render_copied_compose(project_path: Path, config: dict) -> dict:
 
 
 def test_the_retired_demo_runner_knob_reaches_nothing(tmp_path: Path) -> None:
-    """The bridge no longer runs plans — the queueserver worker does — so the
-    in-process demo runner and the `bluesky.demo_runner` knob that armed it are
-    both gone.
+    """The bridge does not run plans — the queueserver worker does — so there
+    is no in-process demo runner and no `bluesky.demo_runner` knob to arm one.
 
-    This is a standing guard, not a regression test for a bug: the knob rendered
-    `BLUESKY_DEMO_RUNNER` into compose and printed a console line promising a
-    demo, so re-introducing either half would ship a config key that lies about
-    what the deployment does. A stale `demo_runner:` left in an old profile is
-    ignored by the loader (the `bluesky` block ignores every unknown key, which
-    predates this removal), which is why the guard is on the OUTPUT rather than
-    on the parse.
+    This is a standing guard, not a regression test for a bug: such a knob would
+    render `BLUESKY_DEMO_RUNNER` into compose and print a console line promising
+    a demo, so introducing either half would ship a config key that lies about
+    what the deployment does. A stale `demo_runner:` left in a profile is
+    ignored by the loader (the `bluesky` block ignores every unknown key), which
+    is why the guard is on the OUTPUT rather than on the parse.
     """
     project_path = tmp_path / "project"
     project_path.mkdir()

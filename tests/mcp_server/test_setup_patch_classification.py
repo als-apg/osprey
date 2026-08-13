@@ -4,14 +4,14 @@
 (fresh subprocess per call, genuinely re-reads config), the connector (reads the
 value through a process-cached config), and the rendered ``permissions.deny``
 list in ``settings.json`` (re-rendered only by ``osprey build``). Calling the key
-"hot" told the operator a patch alone would un-gate writes, when in fact writes
+"hot" would tell the operator a patch alone un-gates writes, when in fact writes
 stay blocked until a rebuild and restart.
 
 The assertions below pin what each note has to *tell the operator* — the layers
 that stay stale and the verb that clears them — rather than the sentence the
-product happens to phrase it in. That is deliberate: these tests previously
-pinned ``osprey claude regen``, and went red when the verb was retired even
-though the contract they exist to protect had not changed.
+product happens to phrase it in. That is deliberate: pinning a literal verb
+makes these tests go red when the verb is renamed, even though the contract
+they exist to protect has not changed.
 """
 
 from pathlib import Path
@@ -87,8 +87,8 @@ def test_mcp_json_patches_are_cold():
     assert note.startswith("cold")
 
 
-def test_skill_table_no_longer_calls_writes_enabled_hot():
-    """The rendered setup-mode skill tabulated the key as Hot."""
+def test_skill_table_calls_writes_enabled_cold():
+    """The rendered setup-mode skill must tabulate the key as Cold."""
     text = SKILL_TEMPLATE.read_text(encoding="utf-8")
     rows = [ln for ln in text.splitlines() if ln.startswith(f"| `{WRITES_ENABLED}` |")]
     assert len(rows) == 1, f"expected one hot/cold table row, got {rows}"
@@ -97,7 +97,7 @@ def test_skill_table_no_longer_calls_writes_enabled_hot():
 
 
 def test_skill_writes_blocked_remedy_requires_rebuild_and_restart():
-    """The 'Writes Blocked' fix used to prescribe a patch and call it hot."""
+    """The 'Writes Blocked' fix must not prescribe a patch and call it hot."""
     text = SKILL_TEMPLATE.read_text(encoding="utf-8")
     fix_lines = [
         ln for ln in text.splitlines() if ln.startswith("**Fix**:") and WRITES_ENABLED in ln

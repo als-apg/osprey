@@ -10,8 +10,8 @@ attributes; the two delegating methods live here, once.
 **Patch-target preservation.** Each provider's test suite patches
 ``osprey.models.providers.<name>.execute_litellm_completion`` (and
 ``check_litellm_health``) -- the helper name bound in that concrete provider's
-own module. To keep those patches effective now that the method bodies live
-here, the helpers are looked up from the concrete subclass's module namespace
+own module. The method bodies live here, so to keep those patches effective
+the helpers are looked up from the concrete subclass's module namespace
 at call time (via ``sys.modules[type(self).__module__]``) rather than captured
 in this module's globals. Every subclass module therefore still imports the two
 helpers at module level, which is what the patch targets rebind. If a subclass

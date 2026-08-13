@@ -1,17 +1,17 @@
 """The VA connector's gateway port is derived from the VA service it talks to.
 
-``control_system.connector.virtual_accelerator.gateways.*.port`` used to be
-rendered as a hardcoded ``5064`` while the deployed soft-IOC's port came from
-``services.virtual_accelerator.port`` — the same fact in two places, with no
-validation between them.  The preset documented the trap instead of fixing it
-("MUST stay 5064 ... changing this here would desync the connector from the
-deployed container").
+Rendering ``control_system.connector.virtual_accelerator.gateways.*.port`` as a
+hardcoded ``5064`` while the deployed soft-IOC's port comes from
+``services.virtual_accelerator.port`` would state the same fact in two places,
+with no validation between them — and documenting the trap ("MUST stay 5064 ...
+changing this here would desync the connector from the deployed container") is
+not a fix.
 
-The template no longer writes the port out: with it unset the connector
-default-fills from ``services.virtual_accelerator.port`` at config-load time,
-so moving the deployed VA's port moves the connector with it.  An explicit
-gateway ``port`` still wins verbatim — that is how a project reaches a VA it
-does not deploy — which is also what keeps legacy rendered configs working.
+The template leaves the port out: with it unset the connector default-fills
+from ``services.virtual_accelerator.port`` at config-load time, so moving the
+deployed VA's port moves the connector with it.  An explicit gateway ``port``
+still wins verbatim — that is how a project reaches a VA it does not deploy,
+and what keeps a legacy rendered config that carries the key working.
 """
 
 from __future__ import annotations
@@ -118,8 +118,8 @@ def test_template_keeps_a_commented_port_override_example() -> None:
 
 
 @pytest.mark.unit
-def test_preset_no_longer_warns_the_port_must_not_change() -> None:
-    """The warning documented a hardcode that no longer exists."""
+def test_preset_does_not_warn_the_port_must_not_change() -> None:
+    """The preset must not warn about a hardcode it does not have."""
     preset_path = Path(osprey.__file__).parent / PRESET_PATH
     text = preset_path.read_text(encoding="utf-8")
     preset = yaml.safe_load(text)
@@ -179,7 +179,7 @@ def test_defaults_to_5064_when_the_service_port_is_unset(deployed_va_port) -> No
 
 @pytest.mark.unit
 def test_unreadable_config_falls_back_to_5064(monkeypatch) -> None:
-    """Outside a project context the connector behaves as it did when hardcoded."""
+    """Outside a project context the connector falls back to the default port."""
     from osprey.utils import config as config_module
 
     def exploding_get_config_value(path: str, default: Any = None, config_path: str = None):

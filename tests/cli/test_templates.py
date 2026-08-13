@@ -436,9 +436,9 @@ def test_get_framework_version_unknown_on_import_failure(monkeypatch):
 
 
 def test_registry_style_parameter_is_gone():
-    """C1 regression guard: removing the 'standalone' branch must remove the
-    parameter from every entry point that no longer needs it. Catches anyone
-    re-adding it without a real CLI flag."""
+    """C1 regression guard: no entry point may carry the 'standalone' branch's
+    registry-style parameter. Catches anyone re-adding it without a real CLI
+    flag."""
     import inspect
 
     from osprey.cli.templates.manager import TemplateManager
@@ -497,7 +497,7 @@ class TestBuiltinPanelRegistryDrift:
     @pytest.mark.parametrize("template_path", PANEL_TEMPLATES)
     def test_fallback_literal_excludes_okf_when_registry_absent(self, template_path):
         """Safety-net fallback: without ``builtin_panels`` in context the template
-        reverts to the old literal, which excludes ``okf``. Proves the fix is the
+        falls back to its inline literal, which excludes ``okf``. Proves the fix is the
         registry injection — okf is enabled only because the registry supplies it,
         not by accident of an expanded literal."""
         import yaml
@@ -507,12 +507,12 @@ class TestBuiltinPanelRegistryDrift:
         rendered = template.render(selected_web_panels=["okf", "channel-finder"])
         panels = yaml.safe_load(rendered)["web"]["panels"]
 
-        assert "okf" not in panels  # old literal omits okf
+        assert "okf" not in panels  # fallback literal omits okf
         assert panels.get("channel-finder", {}).get("enabled") is True
 
     def test_create_project_enables_okf_builtin_panel(self, tmp_path):
         """End-to-end: ``manager.py`` injects ``sorted(BUILTIN_PANELS)`` → template
-        enables ``okf``. Fails against the old hardcoded literal (which omitted
+        enables ``okf``. Fails against the hardcoded fallback literal (which omits
         okf) and passes with the registry-derived context. This removes the need
         for the ``web.panels.okf.enabled: true`` override BELLA/ALS carried."""
         import yaml

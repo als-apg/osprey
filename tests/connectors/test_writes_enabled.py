@@ -229,8 +229,8 @@ class TestMockWritesDisabledViaBaseClass:
             result = await connector.write_channel("TEST:PV", 1.0)
         assert result.success is True
 
-    def test_mock_no_longer_has_enable_writes_attr(self):
-        """MockConnector should no longer have _enable_writes after cleanup."""
+    def test_mock_has_no_enable_writes_attr(self):
+        """MockConnector must not carry an _enable_writes attribute."""
         from osprey.connectors.control_system.mock_connector import MockConnector
 
         connector = MockConnector()

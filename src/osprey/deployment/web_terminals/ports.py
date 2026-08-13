@@ -26,9 +26,9 @@ FAMILY_BASE_FIELDS = {
 
 # Registry-declared default base port per companion family ("web" has none: the
 # terminal's own base port is facility-chosen, required in config). These are
-# what keep a facility config written before a companion server existed
-# deploying unchanged — the new family allocates from its registry default
-# unless the config overrides `<family>_base_port`.
+# what keep a facility config that names no companion base port deploying
+# unchanged — the family allocates from its registry default unless the config
+# overrides `<family>_base_port`.
 DEFAULT_BASE_PORTS = {
     _family_name(key): defn.multi_user_base_port
     for key, defn in FRAMEWORK_WEB_SERVERS.items()
@@ -54,8 +54,8 @@ def base_ports_from_config(web_terminals: dict[str, Any]) -> dict[str, int]:
 
     A companion family whose base-port field is missing (or not an int) falls
     back to its registry default (:data:`DEFAULT_BASE_PORTS`) — the
-    zero-migration path for configs written before that companion server
-    existed. ``web`` has no default: a missing/malformed ``web_base_port`` is
+    zero-migration path for configs that name no port for that companion
+    server. ``web`` has no default: a missing/malformed ``web_base_port`` is
     dropped, so :func:`allocate_ports` reports it as a clear missing-family
     ``ValueError`` instead of a ``TypeError``.
 

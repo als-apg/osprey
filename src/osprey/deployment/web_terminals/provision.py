@@ -241,7 +241,7 @@ def _report_unshown_mints(credentials: AuthCredentialsResult) -> None:
     credential path prefers over minting.
 
     No-op when nothing was minted, and never reached on a terminal, where the
-    passwords were shown once as before.
+    passwords are shown once as they are generated.
     """
     if not credentials.minted or _stdout_is_a_terminal():
         return
@@ -749,11 +749,10 @@ def deploy_up_web_terminals(
     parameter so this function stays the single place that decides the
     mode-dependent step order:
 
-    - **registry** (default, today's path): :func:`ensure_env_production`
+    - **registry** (the default): :func:`ensure_env_production`
       only exists-checks in this mode (raises if ``.env.production`` is
       missing — a registry deploy expects CI to have produced it already),
-      then the web stack runs ``pull`` before ``up -d``, exactly as before
-      this task.
+      then the web stack runs ``pull`` before ``up -d``.
     - **local**: :func:`ensure_env_production` generates ``.env.production``
       from ``.env`` when absent. Then :func:`build_persona_images` builds
       every referenced persona's ``<project>-<persona>:local`` image —
@@ -770,9 +769,9 @@ def deploy_up_web_terminals(
       upstream tag.
 
     WHY TWO INVOCATIONS, NOT ONE ``-f a -f b -f build/docker-compose.web.yml``:
-    no longer about path resolution. Compose resolves every *relative* path in
+    not path resolution. Compose resolves every *relative* path in
     every merged ``-f`` file (bind-mount sources, ``build:`` contexts,
-    ``env_file:``) against ONE directory, and both invocations below now pin
+    ``env_file:``) against ONE directory, and both invocations below pin
     that directory to the same repo root
     (:func:`~osprey.deployment.compose_generator.compose_base_cmd`), with every
     template spelled against it. Two files, one base — which is what makes the
@@ -1009,7 +1008,7 @@ def _reconcile_web_stack_recreates(
     service whose image or container can't be inspected (missing image,
     container not yet created) is skipped, never aborting the deploy.
 
-    A stale ``.env.auth`` is NOT this function's problem anymore: the render
+    A stale ``.env.auth`` is NOT this function's problem: the render
     step digests the file into the auth sidecar's service definition (the
     ``osprey.auth.env.digest`` label), and a definition change is the recreate
     trigger every compose implementation honours — verified on Docker Compose

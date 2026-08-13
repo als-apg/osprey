@@ -334,9 +334,9 @@ def test_dashboard_runs_session_id_is_none_when_unrecorded(client, monkeypatch):
 # Startup lifecycle: provider-env injection, no artifact regeneration
 # ---------------------------------------------------------------------------
 #
-# The project image now bakes .claude/ and data/ at build time (COPY . +
-# osprey claude regen), so the worker no longer regenerates those artifacts
-# at runtime. Provider auth/model env injection still has to happen at
+# The project image bakes .claude/ and data/ at build time (the render `osprey
+# build` produces is COPYed in), so the worker does not regenerate those
+# artifacts at runtime. Provider auth/model env injection still has to happen at
 # process startup, since it depends on the mounted config.yml/environment.
 
 

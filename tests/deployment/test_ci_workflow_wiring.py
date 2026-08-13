@@ -951,8 +951,8 @@ def _gating_e2e_jobs(wf: dict[str, Any]) -> list[str]:
 
 
 def test_all_checks_passed_needs_promoted_and_new_lanes(workflow: dict[str, Any]) -> None:
-    """The two extracted lanes AND the two previously-advisory bluesky lanes
-    must all gate the merge. Deliberately `all`, not `any` — the same
+    """The two extracted lanes AND the two bluesky lanes must all gate the
+    merge. Deliberately `all`, not `any` — the same
     silent-partial-fix guard shape as ``_needs_contains_both_new_jobs``."""
     assert _gating_e2e_jobs(workflow) == [ORM_JOB, OVERLAY_JOB, CATALOG_JOB, SANDBOX_JOB]
 
@@ -1912,7 +1912,7 @@ def test_all_checks_passed_needs_scan_agentic(workflow: dict[str, Any]) -> None:
     Same drop-together/re-land-together discipline as the queue lane: if
     ``scan-agentic-e2e`` cannot go green in the PR, the job, its gate entry AND
     this guard pair leave as a unit and come back as a unit. Splitting them
-    either wedges the merge gate on a job that no longer exists or leaves the
+    either wedges the merge gate on a job that does not exist or leaves the
     lane running unwatched."""
     assert SCAN_AGENTIC_JOB in _jobs(workflow)[GATE_JOB]["needs"]
     assert f"needs.{SCAN_AGENTIC_JOB}.result" in _gate_run_text(workflow)

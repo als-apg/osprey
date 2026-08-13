@@ -29,7 +29,7 @@ osprey init <dir> --preset <name>
 re-materialize an existing repo's source zone unless `--force` is given. `-O <file>`
 and `--set KEY=VALUE` bake overrides into the written profile.
 
-`<dir>` becomes a git repo — the repo *is* the deployment — holding four zones:
+`<dir>` becomes a git repo that is the deployment, holding four zones:
 
 | Path | What it is |
 | --- | --- |
@@ -62,7 +62,7 @@ Build from the edited profile: `osprey build`
 | What | Where |
 | --- | --- |
 | Bundled presets (what `extends:` resolves to) | `src/osprey/profiles/presets/` |
-| Canonical modern example | the `control-assistant` family in that directory |
+| Canonical example | the `control-assistant` family in that directory |
 | The `deploy:` block's shape and rules | `src/osprey/cli/build_profile_deploy.py` |
 | Selectable model providers | `_BUILTIN_PROVIDERS` in `src/osprey/models/provider_registry.py` |
 | App templates rendered into a project | `src/osprey/templates/apps/` |

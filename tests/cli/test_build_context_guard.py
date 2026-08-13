@@ -4,8 +4,8 @@ Every build installs the framework's ``docker/web-terminal-context/base.md``.
 The profile's ``web-terminal-context/`` convention directory copies one whole
 directory per user *below* that path, so the baseline survives by construction —
 these tests pin that, and pin the error a profile gets when it puts a loose file
-where a per-user directory belongs (the shape that, under the old free-form
-mapping, could replace the context root wholesale).
+where a per-user directory belongs (the shape that could otherwise replace the
+context root wholesale).
 """
 
 from __future__ import annotations
@@ -55,9 +55,9 @@ def test_per_user_context_keeps_baseline_and_seeds_user(tmp_path: Path) -> None:
 def test_loose_file_in_context_dir_is_rejected(tmp_path: Path) -> None:
     """The context convention holds per-user directories, never loose files.
 
-    This is the structural replacement for the old whole-directory guard: a
-    profile can no longer address the context root at all, and the one shape
-    that tries is rejected before anything is copied.
+    This is a structural guard rather than a whole-directory one: a profile
+    cannot address the context root at all, and the one shape that tries is
+    rejected before anything is copied.
     """
     project_path = _built_project(tmp_path, "context-loose-file")
     profile_dir = _profile_with_user_dir(tmp_path, "alice")

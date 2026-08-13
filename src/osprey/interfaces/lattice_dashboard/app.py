@@ -213,10 +213,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         workspace_root: Agent-data root (e.g. ``<repo>/var/agent_data``). The
             lattice state lives under ``<workspace>/lattice/``. Omit it to
             resolve the deployment's configured root, which is what the
-            framework launch path passes explicitly. The default used to be a
-            cwd-relative directory, so a direct caller standing anywhere but the
-            repo root got a fresh empty state rather than the running
-            deployment's.
+            framework launch path passes explicitly. Never default it to a
+            cwd-relative directory: a caller standing anywhere but the repo root
+            would get a fresh empty state rather than the running deployment's.
     """
     ws_root = Path(workspace_root) if workspace_root else resolve_shared_data_root()
     state_dir = ws_root / "lattice"

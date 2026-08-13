@@ -154,8 +154,8 @@ def _inject_provider_env_once() -> None:
     # The render's config (``<repo>/build/config.yml``), taken from the
     # environment the compose service sets rather than re-derived from the repo
     # root: a flat ``<repo>/config.yml`` names no file in a three-zone
-    # deployment, so this read used to miss and the worker started with no
-    # provider auth at all — silently, on the warning branch below.
+    # deployment, so a read derived that way misses and the worker starts with
+    # no provider auth at all — silently, on the warning branch below.
     config_path = deployed_config_path()
     repo_root = deployed_repo_root()
     if not config_path.is_file():
@@ -890,7 +890,7 @@ async def health() -> dict[str, Any]:
             counts[s] += 1
     # Process-lifetime failure counters — monotonic and independent of the
     # evictable _runs map above (see counters module docstring). The _runs-derived
-    # error_runs field is retained unchanged for compatibility.
+    # error_runs field below is a separate, evictable count.
     lifetime = counters.get_counts()
     return {
         "status": "ok",

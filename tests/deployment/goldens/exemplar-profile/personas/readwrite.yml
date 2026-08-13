@@ -1,6 +1,6 @@
 # Profile (readwrite) — persona profile, a delta over ../profile.yml
 #
-# Sitting in personas/ beside profile.yml IS the inheritance: the
+# Sitting in personas/ beside profile.yml is the inheritance: the
 # build merges this file over that profile — including any edit you
 # make there — so the keys below are this persona's only differences
 # and there is no `extends:` to write. See the resolved whole with:

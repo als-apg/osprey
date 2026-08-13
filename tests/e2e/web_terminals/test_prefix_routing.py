@@ -198,8 +198,8 @@ class TestStaticAssetUnderPrefix:
     on their bare path even when a prefix is configured -- that bare path is
     the ONLY form the app ever actually receives in the real deployment (nginx
     strips the prefix before proxying; see this module's docstring). This is
-    the exact regression a forced ``FastAPI(root_path=...)`` previously
-    introduced (fixed; pinned at the unit level in
+    the exact regression a forced ``FastAPI(root_path=...)`` introduces
+    (also pinned at the unit level in
     ``test_prefix_injection.py::test_static_mount_served_on_bare_path_when_prefix_set``).
     """
 

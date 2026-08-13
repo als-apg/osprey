@@ -3,7 +3,7 @@
 Task 1.4 (source-agent-tagging): the three panel routes accept an optional
 ``source: "agent"`` field and pass it through into their SSE broadcast
 frames; browser-originated POSTs (which never send ``source``) broadcast
-exactly as before — the key is *omitted*, not null.  The MCP-side
+without it — the key is *omitted*, not null.  The MCP-side
 ``notify_panel_*`` helpers stamp ``source: "agent"`` on their POST payloads.
 """
 

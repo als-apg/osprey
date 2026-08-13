@@ -10,9 +10,9 @@ Two kinds of plan source, both scanned into the same fail-closed registry:
   own device map at launch.
 - **The legacy single-module contract** — a single ``.py`` file exposing
   ``PLANS: dict[str, PlanSpec]`` and ``get_devices()``, resolved from
-  ``BLUESKY_PLAN_MODULE`` (env) or ``bluesky.plan_module`` (config.yml). This
-  predates the layered model and is folded in as a one-entry ``facility``-tier
-  layer — it is the only source of injected devices.
+  ``BLUESKY_PLAN_MODULE`` (env) or ``bluesky.plan_module`` (config.yml). It is
+  folded in as a one-entry ``facility``-tier layer — and is the only source of
+  injected devices.
 
 Layer sources and their provenance-tier mapping:
 
@@ -24,7 +24,7 @@ Layer sources and their provenance-tier mapping:
    operator trust than a per-instance runtime override.
 3. ``facility`` — directories listed in ``BLUESKY_PLAN_DIRS`` (env,
    ``os.pathsep``-separated), set per bridge instance at launch. This mirrors
-   the legacy contract's existing precedent that an env override outranks
+   the legacy contract's own precedent that an env override outranks
    config (``BLUESKY_PLAN_MODULE`` wins over ``bluesky.plan_module``). The
    legacy single-module contract itself is also pinned to ``facility`` —
    it is scanned *first*, so a lower-trust directory layer (``shipped`` or
@@ -94,8 +94,8 @@ _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
 # bridge instance. Unioned with config.yml's ``bluesky.excluded_plans``.
 _EXCLUDED_PLANS_ENV = "BLUESKY_EXCLUDED_PLANS"
 
-# The in-image core plan directory shipped with this package (task 1.5
-# populates it; scanned even if absent/empty).
+# The in-image core plan directory shipped with this package (scanned even if
+# absent/empty).
 _SHIPPED_PLANS_DIR = Path(__file__).parent / "plans_core"
 
 _TRUST_ORDER: dict[Provenance, int] = {
@@ -510,7 +510,7 @@ def _load_startup_layers(module_path: str | None) -> _StartupLayers:
 # repeat callers that compare by identity (or just want a stable reference)
 # see one. A signature/mtime-based skip was deliberately rejected: a file's
 # mtime doesn't change when a *validation record* is added after the fact
-# (task 2.3's validate route only touches `validation_record.py`, never the
+# (the validate route only touches `validation_record.py`, never the
 # file), so caching on file staleness alone would keep serving a stale
 # rejection after a plan actually became valid — exactly the live-authoring
 # case this layer exists for. Re-gating on every call is the correctness
@@ -532,7 +532,7 @@ def get_facility_plans() -> FacilityPlans:
     (`shipped`/`preset`/`facility`/`session`) into one trust-resolved plan
     set. The startup layers are loaded once and cached (see
     `_load_startup_layers`) — but the `session` layer is a live authoring
-    surface (task 2.3's `POST /plans/session` writes into it between
+    surface (`POST /plans/session` writes into it between
     requests, and its validation status can change without the file itself
     changing), so it is fully re-scanned and re-gated (see `_load_plan_file`)
     on *every* call, merged fresh over the cached startup registry. A newly
