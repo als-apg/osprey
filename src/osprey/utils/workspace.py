@@ -236,12 +236,20 @@ def load_osprey_config() -> dict:
 
 
 def reset_config_cache() -> None:
-    """Clear all config caches — used between tests."""
+    """Clear all config caches — used between tests.
+
+    The warn-once latch on the facility-timezone fallback is cleared with them.
+    It is process state in exactly the way a cache is: left set, whichever test
+    happened to run first would consume the single warning and every later test
+    asserting on it would see none — an order-dependent pass that says nothing
+    about the code.
+    """
     from osprey.utils import config as config_module
 
     config_module._default_config = None
     config_module._default_configurable = None
     config_module._config_cache.clear()
+    config_module._tz_fallback_warned = False
 
 
 def repo_root_for_config(config_path: Path | str) -> Path:
