@@ -30,9 +30,11 @@ import yaml
 # Safe at module level despite this module's no-osprey-imports rule below:
 # ``workspace`` imports nothing from osprey itself, so there is no cycle.
 from osprey.utils.workspace import (
+    DEFAULT_AGENT_DATA_BASE_DIR,
     SIMULATION_STATE_DIR_CONFIG_KEY,
     anchored_path,
     dotted_config_str,
+    repo_root_for_config,
 )
 
 if TYPE_CHECKING:
@@ -152,15 +154,16 @@ _container_method_warned = False
 #: profile/preset and checksummed into the manifest.
 BUILD_OWNED_DATA_DIR = "data"
 
-#: Directory runtime state belongs in — excluded from the manifest checksums and
-#: preserved across ``osprey build --force``.
-RUNTIME_STATE_DIR = "_agent_data"
+#: Directory runtime state belongs in — the durable ``var/`` zone, outside the
+#: render entirely, so it survives every rebuild of ``build/``. Named in the
+#: advisory that fires when a runtime writer is pointed at build-owned ``data/``.
+RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
 
 #: Config keys whose value names a path something writes to *at run time*.
 #: These must stay out of ``data/``: that tree is build-owned and checksummed by
 #: :func:`osprey.cli.templates.manifest.calculate_file_checksums`, so a runtime
 #: write landing there reads as project drift and is erased by the next
-#: ``osprey build --force``.
+#: ``osprey build``.
 RUNTIME_WRITE_PATH_KEYS = (
     SIMULATION_STATE_DIR_CONFIG_KEY,
     "services.channel_finder.pipelines.hierarchical.feedback.store_path",
@@ -287,6 +290,27 @@ def resolve_execution_method(
     )
 
 
+#: Shell values :func:`load_project_dotenv`'s ``override=True`` replaced, keyed
+#: by variable name. The entry-time passthrough makes ``.env`` win inside the
+#: osprey *process*; compose's own precedence is the opposite (a shell export
+#: beats ``--env-file``), so the deploy path needs the shell as it really was —
+#: both to warn about a divergent export and to hand compose an environment
+#: that honors it. Empty when nothing differing was overridden.
+_dotenv_shell_overrides: dict[str, str] = {}
+
+
+def dotenv_shell_overrides() -> dict[str, str]:
+    """The shell's own values for variables the ``.env`` entry-load overrode.
+
+    Only variables whose exported value *differed* from the file's are
+    recorded: a key the shell never set, or set to the same value, was not
+    shadowed. Overlaying this onto ``os.environ`` reconstructs the environment
+    the operator's shell actually provided, which is what compose interpolation
+    is documented against.
+    """
+    return dict(_dotenv_shell_overrides)
+
+
 def load_project_dotenv() -> None:
     """Load ``./.env`` into ``os.environ``, overriding existing values.
 
@@ -297,6 +321,11 @@ def load_project_dotenv() -> None:
     a stale shell export. Every key in the file is passed through, not a
     declared subset — narrowing it would drop Channel Access addressing with no
     error.
+
+    What the override replaces is not discarded: the shell's own differing
+    values are recorded (:func:`dotenv_shell_overrides`) so the deploy path can
+    still see — and warn about — an export that disagrees with the store, and
+    hand compose an environment with the shell's precedence intact.
 
     ``override=True`` and the breadth of the copy are exactly why this must be
     called deliberately. Call it from process entry points only; never at
@@ -315,6 +344,21 @@ def load_project_dotenv() -> None:
         if not dotenv_path.exists():
             logger.debug(f"No .env file found at {dotenv_path}")
             return
+        from osprey.utils.dotenv import parse_dotenv_file
+
+        # Accumulate, never clear: this runs more than once per process, and
+        # after the first load os.environ already matches the file — a later
+        # call sees no difference and must not erase the genuine shell values
+        # the first one recorded. First-seen wins; only the pre-load value is
+        # the shell's own.
+        pinned = parse_dotenv_file(dotenv_path)
+        for name, value in pinned.items():
+            if (
+                name in os.environ
+                and os.environ[name] != value
+                and name not in _dotenv_shell_overrides
+            ):
+                _dotenv_shell_overrides[name] = os.environ[name]
         load_dotenv(dotenv_path, override=True)
         logger.debug(f"Loaded .env file from {dotenv_path}")
     except OSError as e:
@@ -423,12 +467,12 @@ class ConfigBuilder:
         """Warn when a runtime writer is pointed at the build-owned ``data/`` tree.
 
         Advisory only: the misconfiguration still works until the next
-        ``osprey build --force`` wipes ``data/`` and takes the runtime state
+        ``osprey build`` wipes ``data/`` and takes the runtime state
         with it, so this warns rather than raising.
         """
         configured_root = self.raw_config.get("project_root")
         project_root = (
-            Path(configured_root) if configured_root else self.config_path.parent
+            Path(configured_root) if configured_root else repo_root_for_config(self.config_path)
         ).expanduser()
 
         for key, value in find_runtime_write_paths_under_data(self.raw_config, project_root):
@@ -436,7 +480,7 @@ class ConfigBuilder:
                 "Runtime-write path '%s' = %r resolves inside the build-owned "
                 "'%s/' tree (%s). That directory is re-rendered and checksummed on "
                 "every build, so runtime writes there show up as project drift and "
-                "are erased by 'osprey build --force'. Point it at '%s/' instead.",
+                "are erased by the next 'osprey build'. Point it at '%s/' instead.",
                 key,
                 value,
                 BUILD_OWNED_DATA_DIR,

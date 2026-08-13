@@ -17,6 +17,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
+from osprey.cli.init_cmd import init
 from osprey.cli.scaffold_cmd import (
     ScaffoldClaimError,
     _owned_row,
@@ -31,37 +32,52 @@ from osprey.services.build_artifacts.ownership import update_config_add_user_own
 
 
 @pytest.fixture()
-def project_dir(tmp_path):
-    """Create a minimal OSPREY project for scaffold tests."""
+def repo_dir(tmp_path):
+    """A deployment repo whose build zone holds a real render.
+
+    Materialized and built through the real verbs rather than assembled: what
+    these tests need from the render is GENUINE artifacts — the claim/diff/
+    unclaim surface reads a manifest, a config and the files they name, and a
+    hand-written stand-in would prove only that the fixture agrees with itself.
+    """
     runner = CliRunner()
-    result = runner.invoke(
-        build,
-        [
-            "scaffold-test",
-            "--preset",
-            "hello-world",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    repo = tmp_path / "demo-repo"
+
+    result = runner.invoke(init, [str(repo), "--preset", "hello-world", "--no-git"])
     assert result.exit_code == 0, result.output
-    return tmp_path / "scaffold-test"
+
+    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    assert result.exit_code == 0, result.output
+    return repo
+
+
+@pytest.fixture()
+def project_dir(repo_dir):
+    """The build zone of :func:`repo_dir`, where the render landed."""
+    return repo_dir / "build"
 
 
 class Pair:
-    """A built project and the profile its manifest names.
+    """A deployment repo: its source zone, and the build zone beside it.
 
     Stands in for a real ``osprey build`` wherever a test is about the claim
-    logic rather than the build: the only thing claiming reads from a project
-    is its manifest, and the only thing it reads from a profile is the
-    convention slot it is about to write.
+    logic rather than the build: the only thing claiming reads from a build
+    zone is its manifest, and the only thing it reads from the source zone is
+    the convention slot it is about to write.
+
+    ``profile`` is the repo root — in a three-zone repo the profile lives at
+    the root, so the repo the verbs resolve and the profile a claim writes into
+    are the same directory.
     """
 
     def __init__(self, project: Path, profile: Path):
         self.project = project
         self.profile = profile
+
+    @property
+    def repo(self) -> Path:
+        """What ``--repo`` names: the repo root, which is the profile root."""
+        return self.profile
 
     def artifact(self, rel: str, content: str = "# artifact\n") -> Path:
         """Write a project file at ``rel``, creating its parents."""
@@ -90,16 +106,16 @@ def _write_manifest(project: Path, build_args: dict) -> None:
 
 @pytest.fixture()
 def pair(tmp_path) -> Pair:
-    """A project whose manifest names a profile beside it."""
-    profile = tmp_path / "demo-profile"
-    profile.mkdir()
-    (profile / "profile.yml").write_text("name: demo\n", encoding="utf-8")
+    """A deployment repo whose build zone names the profile at its root."""
+    repo = tmp_path / "demo"
+    repo.mkdir()
+    (repo / "profile.yml").write_text("name: demo\n", encoding="utf-8")
 
-    project = tmp_path / "demo"
+    project = repo / "build"
     project.mkdir()
     (project / "config.yml").write_text("project_name: demo\n", encoding="utf-8")
-    _write_manifest(project, {"profile_path_abs": str(profile / "profile.yml")})
-    return Pair(project, profile)
+    _write_manifest(project, {"profile_path_abs": str(repo / "profile.yml")})
+    return Pair(project, repo)
 
 
 # ── Name resolution ──────────────────────────────────────────────────
@@ -540,7 +556,7 @@ class TestClaimRefusals:
         pair.artifact(".claude/rules/safety.md", "# irreplaceable\n")
         (pair.profile / "rules").write_text("not a directory\n", encoding="utf-8")
 
-        result = CliRunner().invoke(scaffold, ["claim", "rules/safety", "-p", str(pair.project)])
+        result = CliRunner().invoke(scaffold, ["claim", "rules/safety", "--repo", str(pair.repo)])
 
         assert result.exit_code != 0
         assert result.output.strip(), "the command exited without saying why"
@@ -611,7 +627,7 @@ class TestClaimCommand:
     def test_successful_claim_reports_the_destination(self, pair):
         pair.artifact(".claude/rules/safety.md")
 
-        result = CliRunner().invoke(scaffold, ["claim", "rules/safety", "-p", str(pair.project)])
+        result = CliRunner().invoke(scaffold, ["claim", "rules/safety", "--repo", str(pair.repo)])
 
         assert result.exit_code == 0, result.output
         assert "Moved" in result.output
@@ -621,24 +637,24 @@ class TestClaimCommand:
         _write_manifest(pair.project, {"source": "preset"})
         pair.artifact(".claude/rules/safety.md")
 
-        result = CliRunner().invoke(scaffold, ["claim", "rules/safety", "-p", str(pair.project)])
+        result = CliRunner().invoke(scaffold, ["claim", "rules/safety", "--repo", str(pair.repo)])
 
         assert result.exit_code != 0
         assert "no profile" in result.output
 
     def test_unknown_name_exits_non_zero(self, pair):
         result = CliRunner().invoke(
-            scaffold, ["claim", "nonexistent/thing", "-p", str(pair.project)]
+            scaffold, ["claim", "nonexistent/thing", "--repo", str(pair.repo)]
         )
 
         assert result.exit_code != 0
         assert "Unknown artifact" in result.output
 
-    def test_claim_on_a_real_build_moves_the_rule_out_of_the_project(self, project_dir):
-        profile_root = project_dir.parent / "scaffold-test-profile"
+    def test_claim_on_a_real_build_moves_the_rule_out_of_the_project(self, repo_dir, project_dir):
+        profile_root = repo_dir
         assert (project_dir / ".claude" / "rules" / "safety.md").is_file()
 
-        result = CliRunner().invoke(scaffold, ["claim", "rules/safety", "-p", str(project_dir)])
+        result = CliRunner().invoke(scaffold, ["claim", "rules/safety", "--repo", str(repo_dir)])
 
         assert result.exit_code == 0, result.output
         assert (profile_root / "rules" / "safety.md").is_file()
@@ -647,13 +663,13 @@ class TestClaimCommand:
         config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
         assert "rules/safety" not in config.get("scaffold", {}).get("user_owned", [])
 
-    def test_claim_twice_errors_on_the_second(self, project_dir):
+    def test_claim_twice_errors_on_the_second(self, repo_dir, project_dir):
         runner = CliRunner()
         assert (
-            runner.invoke(scaffold, ["claim", "rules/safety", "-p", str(project_dir)]).exit_code
+            runner.invoke(scaffold, ["claim", "rules/safety", "--repo", str(repo_dir)]).exit_code
             == 0
         )
-        result = runner.invoke(scaffold, ["claim", "rules/safety", "-p", str(project_dir)])
+        result = runner.invoke(scaffold, ["claim", "rules/safety", "--repo", str(repo_dir)])
 
         assert result.exit_code != 0
         assert "already in the profile" in result.output
@@ -662,24 +678,24 @@ class TestClaimCommand:
 class TestPromptsList:
     """Tests for ``osprey scaffold list``."""
 
-    def test_list_shows_all_artifacts(self, project_dir):
+    def test_list_shows_all_artifacts(self, repo_dir, project_dir):
         runner = CliRunner()
-        result = runner.invoke(scaffold, ["list", "--project", str(project_dir)])
+        result = runner.invoke(scaffold, ["list", "--repo", str(repo_dir)])
         assert result.exit_code == 0
         assert "Build Artifacts" in result.output
         assert "claude-md" in result.output
         assert "agents/channel-finder" in result.output
         assert "hooks/error-guidance" in result.output
 
-    def test_list_shows_framework_managed(self, project_dir):
+    def test_list_shows_framework_managed(self, repo_dir, project_dir):
         runner = CliRunner()
-        result = runner.invoke(scaffold, ["list", "--project", str(project_dir)])
+        result = runner.invoke(scaffold, ["list", "--repo", str(repo_dir)])
         assert "Framework-managed" in result.output
 
-    def test_list_shows_facility(self, project_dir):
+    def test_list_shows_facility(self, repo_dir, project_dir):
         """rules/facility appears either as framework-managed or user-owned."""
         runner = CliRunner()
-        result = runner.invoke(scaffold, ["list", "--project", str(project_dir)])
+        result = runner.invoke(scaffold, ["list", "--repo", str(repo_dir)])
         assert "rules/facility" in result.output
 
     def test_list_shows_ownership_the_catalog_does_not_know(self, pair):
@@ -694,7 +710,7 @@ class TestPromptsList:
         (skill / "SKILL.md").write_text("# orbit\n", encoding="utf-8")
         update_config_add_user_owned(pair.project, "skills/orbit-check")
 
-        result = CliRunner().invoke(scaffold, ["list", "--project", str(pair.project)])
+        result = CliRunner().invoke(scaffold, ["list", "--repo", str(pair.repo)])
 
         assert result.exit_code == 0, result.output
         assert "skills/orbit-check" in result.output
@@ -733,26 +749,26 @@ class TestOwnedRow:
 class TestPromptsDiff:
     """Tests for ``osprey scaffold diff``."""
 
-    def test_diff_not_owned_errors(self, project_dir):
+    def test_diff_not_owned_errors(self, repo_dir, project_dir):
         runner = CliRunner()
         result = runner.invoke(
             scaffold,
-            ["diff", "rules/safety", "--project", str(project_dir)],
+            ["diff", "rules/safety", "--repo", str(repo_dir)],
         )
         assert result.exit_code != 0
         assert "not user-owned" in result.output
 
-    def test_diff_no_changes(self, project_dir):
+    def test_diff_no_changes(self, repo_dir, project_dir):
         # Ownership as a build derives it: registered in config.yml, file in place.
         update_config_add_user_owned(project_dir, "rules/safety")
         result = CliRunner().invoke(
             scaffold,
-            ["diff", "rules/safety", "--project", str(project_dir)],
+            ["diff", "rules/safety", "--repo", str(repo_dir)],
         )
         assert result.exit_code == 0, result.output
         assert "no differences" in result.output
 
-    def test_diff_shows_changes(self, project_dir):
+    def test_diff_shows_changes(self, repo_dir, project_dir):
         update_config_add_user_owned(project_dir, "rules/safety")
 
         safety_file = project_dir / ".claude" / "rules" / "safety.md"
@@ -760,7 +776,7 @@ class TestPromptsDiff:
 
         result = CliRunner().invoke(
             scaffold,
-            ["diff", "rules/safety", "--project", str(project_dir)],
+            ["diff", "rules/safety", "--repo", str(repo_dir)],
         )
         assert result.exit_code == 0
         assert "---" in result.output  # unified diff header
@@ -770,11 +786,11 @@ class TestPromptsDiff:
 class TestPromptsUnclaim:
     """Tests for ``osprey scaffold unclaim``."""
 
-    def test_unclaim_removes_config_entry(self, project_dir):
+    def test_unclaim_removes_config_entry(self, repo_dir, project_dir):
         update_config_add_user_owned(project_dir, "rules/safety")
         result = CliRunner().invoke(
             scaffold,
-            ["unclaim", "rules/safety", "--project", str(project_dir)],
+            ["unclaim", "rules/safety", "--repo", str(repo_dir)],
         )
         assert result.exit_code == 0, result.output
 
@@ -783,7 +799,7 @@ class TestPromptsUnclaim:
         user_owned = config.get("scaffold", {}).get("user_owned", [])
         assert "rules/safety" not in user_owned
 
-    def test_unclaim_removes_manifest_entry(self, project_dir):
+    def test_unclaim_removes_manifest_entry(self, repo_dir, project_dir):
         from osprey.cli.templates.manager import TemplateManager
         from osprey.services.build_artifacts.ownership import update_manifest_add_user_owned
 
@@ -792,27 +808,27 @@ class TestPromptsUnclaim:
 
         CliRunner().invoke(
             scaffold,
-            ["unclaim", "rules/safety", "--project", str(project_dir)],
+            ["unclaim", "rules/safety", "--repo", str(repo_dir)],
         )
 
         manifest = json.loads((project_dir / MANIFEST_FILENAME).read_text())
         assert "rules/safety" not in manifest.get("user_owned", {})
 
-    def test_unclaim_keeps_file(self, project_dir):
+    def test_unclaim_keeps_file(self, repo_dir, project_dir):
         """Unclaim keeps the file in place (user decides what to do)."""
         update_config_add_user_owned(project_dir, "rules/safety")
         CliRunner().invoke(
             scaffold,
-            ["unclaim", "rules/safety", "--project", str(project_dir)],
+            ["unclaim", "rules/safety", "--repo", str(repo_dir)],
         )
 
         assert (project_dir / ".claude" / "rules" / "safety.md").exists()
 
-    def test_unclaim_not_owned_errors(self, project_dir):
+    def test_unclaim_not_owned_errors(self, repo_dir, project_dir):
         runner = CliRunner()
         result = runner.invoke(
             scaffold,
-            ["unclaim", "rules/safety", "--project", str(project_dir)],
+            ["unclaim", "rules/safety", "--repo", str(repo_dir)],
         )
         assert result.exit_code != 0
         assert "not user-owned" in result.output
@@ -823,24 +839,26 @@ class TestPromptsUnclaim:
         (pair.profile / "rules" / "safety.md").write_text("# from profile\n", encoding="utf-8")
         update_config_add_user_owned(pair.project, "rules/safety")
 
-        result = CliRunner().invoke(
-            scaffold, ["unclaim", "rules/safety", "--project", str(pair.project)]
-        )
+        result = CliRunner().invoke(scaffold, ["unclaim", "rules/safety", "--repo", str(pair.repo)])
 
         assert result.exit_code == 0, result.output
         assert "still supplies it" in result.output
 
 
-def _web_terminals_project(root: Path, *, users=("alice", "bob")) -> Path:
-    """Write a project directory whose config.yml carries a clean stanza.
+def _web_terminals_repo(root: Path, *, users=("alice", "bob")) -> Path:
+    """Write a deployment repo whose built config.yml carries a clean stanza.
 
     Only the sections the generator reads, in the shape a build emits them from
     the profile's ``config:`` and ``deploy:`` blocks. Deliberately hand-written
     rather than built: these tests are about where the verbs read the stanza
-    from, not about what a build puts in it.
+    from, not about what a build puts in it — which is why the profile at the
+    repo root is a stub. It is there because it is what makes this directory a
+    repo, and the stanza the verbs read comes from the build zone beside it.
     """
-    project = root / "wt-project"
-    project.mkdir()
+    repo = root / "wt-repo"
+    project = repo / "build"
+    project.mkdir(parents=True)
+    (repo / "profile.yml").write_text("name: demo\n", encoding="utf-8")
     config = {
         "facility": {"name": "Demo Light Source", "prefix": "dls"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
@@ -858,7 +876,7 @@ def _web_terminals_project(root: Path, *, users=("alice", "bob")) -> Path:
         },
     }
     (project / "config.yml").write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
-    return project
+    return repo
 
 
 class TestWebTerminalsRetiredConfigOption:
@@ -883,7 +901,7 @@ class TestWebTerminalsRetiredConfigOption:
         assert result.exit_code != 0, result.output
         reported = caplog.text + (str(result.exception) if result.exception else "")
         assert "--config is no longer supported" in reported
-        assert "osprey deploy scaffold" in reported
+        assert "osprey scaffold ci" in reported
         assert "`deploy:` block" in reported
         assert "/osprey-build-interview" in reported
 
@@ -919,52 +937,58 @@ class TestWebTerminalsRetiredConfigOption:
         assert not out.exists()
 
 
-class TestWebTerminalsReadsTheProjectConfig:
-    """Both verbs take their stanza from a project's config.yml."""
+class TestWebTerminalsReadsTheBuiltConfig:
+    """Both verbs take their stanza from the repo's built config.yml."""
 
-    def test_lint_reads_the_named_project(self, tmp_path):
-        project = _web_terminals_project(tmp_path)
+    def test_lint_reads_the_named_repo(self, tmp_path):
+        repo = _web_terminals_repo(tmp_path)
 
-        result = CliRunner().invoke(scaffold, ["web-terminals", "lint", "--project", str(project)])
+        result = CliRunner().invoke(scaffold, ["web-terminals", "lint", "--repo", str(repo)])
 
         assert result.exit_code == 0, result.output
         assert "no issues found" in result.output
 
     def test_lint_defaults_to_the_current_directory(self, tmp_path, monkeypatch):
-        project = _web_terminals_project(tmp_path)
-        monkeypatch.chdir(project)
+        repo = _web_terminals_repo(tmp_path)
+        monkeypatch.chdir(repo)
 
         result = CliRunner().invoke(scaffold, ["web-terminals", "lint"])
 
         assert result.exit_code == 0, result.output
 
-    def test_lint_reports_the_projects_own_findings(self, tmp_path):
-        """A duplicate in the project's roster is what lint fails on."""
-        project = _web_terminals_project(tmp_path, users=("alice", "alice"))
+    def test_lint_reports_the_repos_own_findings(self, tmp_path):
+        """A duplicate in this repo's roster is what lint fails on."""
+        repo = _web_terminals_repo(tmp_path, users=("alice", "alice"))
 
-        result = CliRunner().invoke(scaffold, ["web-terminals", "lint", "--project", str(project)])
+        result = CliRunner().invoke(scaffold, ["web-terminals", "lint", "--repo", str(repo)])
 
         assert result.exit_code != 0, result.output
         # One word: the finding line is rendered through rich, which wraps at
         # the console width, and a longer phrase could break mid-match.
         assert "duplicate" in result.output
 
-    def test_lint_without_a_project_config_says_so(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
+    def test_lint_without_a_build_says_so(self, tmp_path, monkeypatch):
+        """A repo that has not been built yet gets the remedy, not a puzzle."""
+        repo = tmp_path / "unbuilt"
+        repo.mkdir()
+        (repo / "profile.yml").write_text("name: demo\n", encoding="utf-8")
+        monkeypatch.chdir(repo)
 
         result = CliRunner().invoke(scaffold, ["web-terminals", "lint"])
 
         assert result.exit_code != 0
-        assert "No config.yml found" in result.output
+        assert "No build at" in result.output
+        assert "osprey build" in result.output
 
-    def test_render_writes_the_projects_artifacts(self, tmp_path):
+    def test_render_writes_the_repos_artifacts(self, tmp_path):
         from osprey.deployment.web_terminals.render import render_web_terminals
 
-        project = _web_terminals_project(tmp_path)
+        repo = _web_terminals_repo(tmp_path)
+        project = repo / "build"
         out = tmp_path / "deploy"
 
         result = CliRunner().invoke(
-            scaffold, ["web-terminals", "render", "--project", str(project), "-o", str(out)]
+            scaffold, ["web-terminals", "render", "--repo", str(repo), "-o", str(out)]
         )
 
         assert result.exit_code == 0, result.output
@@ -987,7 +1011,7 @@ class TestWebTerminalsReadsTheProjectConfig:
         `os.environ` for real, and pre-registering the name is what gets it
         restored at teardown.
         """
-        project = _web_terminals_project(tmp_path)
+        project = _web_terminals_repo(tmp_path) / "build"
         monkeypatch.setenv("OSPREY_WT_TEST_IMAGE", "shell-value:latest")
         (project / ".env").write_text(
             "OSPREY_WT_TEST_IMAGE=dotenv-value:latest\n", encoding="utf-8"

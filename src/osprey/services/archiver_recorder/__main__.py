@@ -29,8 +29,9 @@ logger = logging.getLogger(__name__)
 
 #: Same convention as the dispatch worker and the bluesky bridge: the working
 #: directory inside the image is not the project, so the config is named
-#: explicitly and mounted.
-DEFAULT_CONFIG_FILE = "/app/project/config.yml"
+#: explicitly and mounted. The repo is mounted at /app/project and the as-built
+#: config the deploy runs on is its render, under build/.
+DEFAULT_CONFIG_FILE = "/app/project/build/config.yml"
 
 
 async def _run(recorder: Recorder) -> None:
@@ -58,7 +59,7 @@ def main() -> int:
     if not password:
         logger.error(
             "FATAL: %s is unset, so there is no credential for the archive store. "
-            "`osprey deploy up` mints it into the project .env; deploy through it "
+            "`osprey up` mints it into the project .env; deploy through it "
             "rather than running compose directly.",
             settings.password_env,
         )

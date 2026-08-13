@@ -6,13 +6,13 @@ That used to be a pipeline concern: the CI template carried a per-persona
 the guards on it were string assertions against the shipped template text.
 
 The pipeline no longer builds web-terminal images at all — the deploy host
-does, from the persona catalog, when `osprey deploy up` runs. This module holds
+does, from the persona catalog, when `osprey up` runs. This module holds
 both halves of that relocation to the exemplar profile, which declares two
 personas: the rendered pipeline must build no web-terminal image, and every
 referenced persona must still come out as its own host-side build unit. Losing
 either half loses multi-user support without any test going red.
 
-The builder's own behavior (build args, dev wheels, auto-render) is covered in
+The builder's own behavior (build args, dev wheels, the render check) is covered in
 ``tests/deployment/web_terminals/test_persona_images.py``; what is tested here
 is only that the personas reach it.
 """
@@ -80,8 +80,8 @@ def test_pipeline_builds_no_web_terminal_image(
 
     The images stage covers the facility's own service directories only. A
     persona image is the deploy host's to build, against the host's runtime and
-    the persona project it renders on demand — a pipeline that built one would
-    be pushing a second, divergent source of the same tag.
+    the persona project `osprey build` already wrote — a pipeline that built one
+    would be pushing a second, divergent source of the same tag.
     """
     jobs = {
         name: body for name, body in yaml.safe_load(rendered_ci).items() if isinstance(body, dict)

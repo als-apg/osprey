@@ -7,6 +7,7 @@ import pytest
 
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.registry.mcp import HOOK_PRESETS, resolve_agents, resolve_servers
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -14,10 +15,17 @@ from osprey.registry.mcp import HOOK_PRESETS, resolve_agents, resolve_servers
 
 
 def _base_ctx(**overrides):
-    """Build a minimal template context for testing."""
+    """Build a minimal template context for testing.
+
+    ``agent_data_root`` is part of the minimum because the render funnel
+    guarantees it to every Claude Code template; a context without it renders
+    the permission globs against an empty string, which is valid JSON naming
+    nothing.
+    """
     ctx = {
         "project_root": "/tmp/test-project",
         "current_python_env": "/usr/bin/python3",
+        "agent_data_root": DEFAULT_AGENT_DATA_BASE_DIR,
     }
     ctx.update(overrides)
     return ctx
@@ -176,7 +184,7 @@ class TestResolveServers:
         ctx = _base_ctx()
         servers = resolve_servers({}, ctx)
         controls = [s for s in servers if s["name"] == "controls"][0]
-        assert controls["env"]["OSPREY_CONFIG"] == "/tmp/test-project/config.yml"
+        assert controls["env"]["OSPREY_CONFIG"] == "/tmp/test-project/build/config.yml"
         # Shell variables ${...} are preserved
         assert controls["env"]["EPICS_CA_ADDR_LIST"] == "${EPICS_CA_ADDR_LIST:-}"
 
@@ -191,7 +199,7 @@ class TestResolveServers:
         """
         ctx = _base_ctx(channel_finder_pipeline="hierarchical")
         servers = resolve_servers({}, ctx)
-        expected = "/tmp/test-project/config.yml"
+        expected = "/tmp/test-project/build/config.yml"
         for name in ("controls", "python", "osprey_workspace", "ariel", "health", "channel-finder"):
             srv = [s for s in servers if s["name"] == name][0]
             assert srv["env"].get("CONFIG_FILE") == expected, (
@@ -419,8 +427,8 @@ class TestExtendsServers:
         # identity for UI signals, e.g. open_panel → panel_focus) — auto-set
         # to the clone's own name, not inherited from the template.
         assert p2["env"] == {
-            "OSPREY_CONFIG": "/tmp/test-project/config.yml",
-            "CONFIG_FILE": "/tmp/test-project/config.yml",
+            "OSPREY_CONFIG": "/tmp/test-project/build/config.yml",
+            "CONFIG_FILE": "/tmp/test-project/build/config.yml",
             "PHOEBUS_BRIDGE_URL": "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}",
             "OSPREY_SERVER_NAME": "phoebus2",
         }
@@ -992,8 +1000,9 @@ class TestTemplateRendering:
         assert "ask" in data["permissions"]
         # Check a sample allow entry
         allow = data["permissions"]["allow"]
-        assert '"Read(_agent_data/**)"' not in allow  # Not double-quoted
-        assert "Read(_agent_data/**)" in allow
+        root = DEFAULT_AGENT_DATA_BASE_DIR
+        assert f'"Read({root}/**)"' not in allow  # Not double-quoted
+        assert f"Read({root}/**)" in allow
         assert "mcp__osprey_workspace__data_read" in allow
         # Check ask entries
         ask = data["permissions"]["ask"]
@@ -1113,7 +1122,7 @@ class TestTemplateRendering:
         assert p2["command"] == "/usr/bin/python3"
         assert p2["args"] == ["-m", "osprey.mcp_server.phoebus"]
         assert p2["env"]["PHOEBUS_BRIDGE_URL"] == "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
-        assert p2["env"]["OSPREY_CONFIG"] == "/tmp/test-project/config.yml"
+        assert p2["env"]["OSPREY_CONFIG"] == "/tmp/test-project/build/config.yml"
 
     def test_render_hook_config_json_with_extends(self, template_manager):
         """hook_config.json: both phoebus prefixes land in server_prefixes and

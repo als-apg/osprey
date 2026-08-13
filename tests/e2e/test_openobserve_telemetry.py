@@ -1,7 +1,7 @@
 """Full-stack Docker e2e for the OpenObserve telemetry add-on (Phase 2).
 
-Stands up the shipped ``openobserve`` deploy add-on with a real ``osprey build``
-+ ``osprey deploy up``, then proves the OTLP round-trip **without a live LLM**:
+Stands up the shipped ``openobserve`` deploy add-on with a real ``osprey init`` +
+``osprey build`` + ``osprey up``, then proves the OTLP round-trip **without a live LLM**:
 it POSTs a SYNTHETIC OTLP payload — one ``claude_code.*`` metric and one
 ``com.anthropic.claude_code.events`` record — using the Basic auth header that
 the REAL resolver (:func:`_build_telemetry_env`) computes from the project
@@ -17,8 +17,7 @@ appended and ``skipif``-gated on a provider key for when one is present.
 
 CONTAINER SAFETY: every docker/podman invocation names an EXACT container/image
 — never a wildcard, never ``system prune``/``--volumes``. Teardown goes through
-``osprey deploy down`` (the shipped compose teardown), not a raw ``docker rm``
-sweep.
+``osprey down`` (the shipped compose teardown), not a raw ``docker rm`` sweep.
 
 Gating: needs Docker; skipped entirely if unavailable. Lives in ``tests/e2e/``
 so the fast lane never collects this real-container build+deploy; run via
@@ -45,25 +44,26 @@ import yaml
 from osprey.build.claude_code_telemetry import _build_telemetry_env
 
 # Deliberately NOT OpenObserve's 5080 default: this is a shared dev machine and
-# 5080 can collide with an unrelated process. Pinned via the generated config's
-# services.openobserve.port below; the container still listens on 5080 inside.
+# 5080 can collide with an unrelated process. Pinned through the SOURCE zone at
+# init (see _write_port_override), because the compose file is rendered by the
+# build; the container still listens on 5080 inside.
 OO_HOST_PORT = 15080
 OO_BASE_URL = f"http://localhost:{OO_HOST_PORT}"
-# The project the fixture builds; feeds both the build arg and the derived
-# container name (compose renders container_name as ``<project>-openobserve``,
-# per the per-project namespacing convention). Mirrors the deploy-e2e pattern of
-# deriving container targets from the project rather than hardcoding a
-# host-global literal.
+# The deployment repo the fixture creates; its DIRECTORY NAME is the deployment's
+# name, which is what the derived container name follows (compose renders
+# container_name as ``<project>-openobserve``, per the per-project namespacing
+# convention). Mirrors the deploy-e2e pattern of deriving container targets from
+# the deployment rather than hardcoding a host-global literal.
 OO_PROJECT = "proj"
 OO_CONTAINER = f"{OO_PROJECT}-openobserve"  # matches the rendered container_name
 
 # The named volume OpenObserve pins its root credentials into on FIRST init.
-# Its name is ``<COMPOSE_PROJECT_NAME>_openobserve_data``; ``osprey deploy``
+# Its name is ``<COMPOSE_PROJECT_NAME>_openobserve_data``; ``osprey up``
 # pins ``COMPOSE_PROJECT_NAME`` to the project name (see
 # ``runtime_helper.runtime_env``), so this test's volume is
 # ``proj_openobserve_data``. Because OpenObserve ignores new root creds once a
 # volume is initialized, a surviving volume from an earlier attempt (the
-# fixture's own reruns included — ``deploy down`` keeps volumes) would pin
+# fixture's own reruns included — ``osprey down`` keeps volumes) would pin
 # whatever creds that attempt initialized with. The fixture removes it before
 # deploy and on teardown so the store always initializes with THIS test's
 # credentials. The pre-project-pinning deploys derived the compose project from
@@ -74,7 +74,7 @@ OO_LEGACY_DATA_VOLUME = "services_openobserve_data"
 OO_ORG = "default"
 
 # Credentials the compose service and the telemetry resolver BOTH read from the
-# project .env — the single source of truth this feature is built around. The
+# repo's .env — the single source of truth this feature is built around. The
 # e2e writes these into .env so the deployed container and the computed Basic
 # header agree.
 OO_EMAIL = "e2e@osprey.local"
@@ -112,7 +112,7 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     # the SAME credentials the computed Basic header uses, no matter what the
     # inherited process env carries. An earlier test in the same pytest process
     # can legitimately leave a foreign ZO_ROOT_USER_PASSWORD in os.environ
-    # (``inject_provider_env`` copies every project-.env key into os.environ by
+    # (``inject_provider_env`` copies every .env key into os.environ by
     # contract), and compose versions differ on whether the process env or the
     # ``--env-file`` wins ${VAR} interpolation — pinning here makes first-init
     # deterministic under either precedence.
@@ -152,22 +152,56 @@ def _remove_oo_data_volume() -> None:
         )
 
 
-def _enable_openobserve(project_dir: Path) -> None:
-    """Opt the generated project into the openobserve add-on and pin its host port."""
-    config_path = project_dir / "config.yml"
-    assert config_path.is_file(), f"generated config.yml missing at {config_path}"
+def _write_port_override(base: Path) -> Path:
+    """Pin the openobserve host port in the SOURCE zone, for ``osprey init``.
+
+    The service's compose file is rendered by ``osprey build`` and ``osprey up``
+    deploys it as built, so the port has to be set on the profile the build
+    reads — an edit to ``build/config.yml`` after the build never reaches the
+    rendered compose. A dotted LEAF key on purpose: it sets only the port and
+    leaves the preset's sibling ``services.openobserve`` settings (path,
+    retention_days) intact, whereas a nested mapping would replace the subtree.
+    """
+    override_path = base / "override.yml"
+    override_path.write_text(
+        f"config:\n  services.openobserve.port: {OO_HOST_PORT}\n", encoding="utf-8"
+    )
+    return override_path
+
+
+def _assert_render_deploys_openobserve(repo: Path) -> None:
+    """Assert the build rendered the add-on this test probes, on the pinned port.
+
+    The preset ships openobserve deployed by default, so the fixture opts into
+    nothing — but a preset that stopped shipping it would otherwise deploy an
+    empty stack and fail as an opaque health-wait timeout.
+
+    ``pytest.fail``, not ``assert``: a render that does not carry the add-on is
+    deterministic, and the rerun filter must not burn two more deploys on it.
+    """
+    config_path = repo / "build" / "config.yml"
+    if not config_path.is_file():
+        pytest.fail(f"rendered config.yml missing at {config_path}")
     config = yaml.safe_load(config_path.read_text())
+    if "openobserve" not in (config.get("deployed_services") or []):
+        pytest.fail(f"render does not deploy openobserve: {config.get('deployed_services')!r}")
 
-    services = config.setdefault("services", {})
-    oo = services.setdefault("openobserve", {"path": "./services/openobserve"})
-    oo["port"] = OO_HOST_PORT
-    config["deployed_services"] = ["openobserve"]
+    compose_path = repo / "build" / "services" / "openobserve" / "docker-compose.yml"
+    if not compose_path.is_file():
+        pytest.fail(f"rendered openobserve compose missing at {compose_path}")
+    ports = yaml.safe_load(compose_path.read_text())["services"]["openobserve"]["ports"]
+    if not any(f":{OO_HOST_PORT}:" in str(port) for port in ports):
+        pytest.fail(
+            f"rendered compose does not publish the pinned host port {OO_HOST_PORT}: {ports!r}"
+        )
 
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
 
-    # Credentials: single source of truth in .env, read by BOTH the compose
-    # service and the computed Basic header.
-    env_path = project_dir / ".env"
+def _write_credentials(repo: Path) -> None:
+    """Write the OpenObserve root credentials to the repo's ``.env``."""
+    # Credentials: single source of truth in the repo root's .env, read by BOTH
+    # the compose service and the computed Basic header. Writing it here also
+    # satisfies `osprey up`, which refuses to start a repo that has none.
+    env_path = repo / ".env"
     existing = env_path.read_text() if env_path.is_file() else ""
     env_path.write_text(
         existing.rstrip("\n")
@@ -177,24 +211,33 @@ def _enable_openobserve(project_dir: Path) -> None:
 
 @pytest.fixture(scope="module")
 def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Build + ``osprey deploy up`` an openobserve-enabled project; tear down after."""
+    """Init + build + ``osprey up`` an openobserve-enabled repo; tear down after."""
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("openobserve_e2e")
-    project_dir = base / OO_PROJECT
+    repo = base / OO_PROJECT
 
-    build = _run(
+    init = _run(
         [
             str(osprey_bin),
-            "build",
-            OO_PROJECT,
+            "init",
+            str(repo),
             "--preset",
             "hello-world",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
+            "--no-git",
+            "--override",
+            str(_write_port_override(base)),
         ],
+        cwd=base,
+        timeout=300,
+    )
+    if init.returncode != 0:
+        pytest.fail(
+            f"osprey init failed (rc={init.returncode}):\n"
+            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
+        )
+
+    build = _run(
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
         cwd=base,
         timeout=300,
     )
@@ -204,34 +247,38 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
-    _enable_openobserve(project_dir)
+    _assert_render_deploys_openobserve(repo)
+    # The .env is the repo's own zone (the build never touches it) and `osprey
+    # up` refuses to start a repo that has none, so it only has to be in place
+    # before the deploy — compose interpolates it at up time.
+    _write_credentials(repo)
 
     # Guarantee a clean store: the data volume is host-global (see OO_DATA_VOLUME),
-    # so a volume left by another project's openobserve — common now that telemetry
-    # is on by default — would pin foreign credentials and 401 this test. Remove it
-    # before deploy so OpenObserve initializes with THIS test's credentials.
+    # so a volume left by another deployment's openobserve — common now that
+    # telemetry is on by default — would pin foreign credentials and 401 this test.
+    # Remove it before deploy so OpenObserve initializes with THIS test's credentials.
     _remove_oo_data_volume()
 
     try:
         up = _run(
-            [str(osprey_bin), "deploy", "up", "-d"],
-            cwd=project_dir,
+            [str(osprey_bin), "up", "-d"],
+            cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up failed (rc={up.returncode}):\n"
+                f"osprey up failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{OO_BASE_URL}/healthz", HEALTH_TIMEOUT_SEC)
-        yield project_dir
+        yield repo
     finally:
-        down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=300)
+        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
-        # ``deploy down`` keeps volumes; drop the host-global data volume so this
+        # ``osprey down`` keeps volumes; drop the host-global data volume so this
         # test never leaves foreign credentials pinned for a later deploy.
         _remove_oo_data_volume()
 
@@ -289,7 +336,7 @@ def _resolver_telemetry_env() -> dict[str, str]:
     The endpoint is set explicitly to the deployed host:port (the resolver's
     localhost/service-DNS derivation is unit-tested separately and would target
     :5080, not this test's pinned port). The Basic auth header, however, is the
-    genuine value the resolver computes from the project credentials — so a
+    genuine value the resolver computes from the deployment's credentials — so a
     successful ingest proves OSPREY's real header authenticates.
     """
     return _build_telemetry_env(
@@ -422,8 +469,8 @@ def test_synthetic_otlp_roundtrip_via_computed_header(deployed_openobserve: Path
     """Ingest a synthetic metric + event with the resolver's Basic header; assert both land."""
     auth = _auth_header_from_resolver()
     assert auth.startswith("Basic "), f"resolver did not produce a Basic header: {auth!r}"
-    # The header must decode back to the project credentials (proves it is the
-    # real computed value, not a placeholder).
+    # The header must decode back to the deployment's credentials (proves it is
+    # the real computed value, not a placeholder).
     decoded = base64.b64decode(auth.removeprefix("Basic ")).decode()
     assert decoded == f"{OO_EMAIL}:{OO_PASSWORD}"
 
@@ -506,13 +553,14 @@ def test_live_agent_metric_lands(deployed_openobserve: Path) -> None:
     true end-to-end path (agent launch -> native OTEL export -> OpenObserve)
     that the synthetic test deliberately stops short of.
     """
-    project_dir = deployed_openobserve
+    repo = deployed_openobserve
 
     # Enable telemetry against the deployed store (host-run agent -> localhost)
     # and point the turn at the als-apg provider (the CI-provisioned key), then
     # drive one turn through the console script. The fixture build defaults to
-    # provider: anthropic; this in-place edit switches only the live turn.
-    config_path = project_dir / "config.yml"
+    # provider: anthropic; this in-place edit to the render switches only the
+    # live turn (`osprey query` reads the render, not the profile).
+    config_path = repo / "build" / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["claude_code"]["provider"] = "als-apg"
     config["claude_code"]["default_model"] = "haiku"
@@ -531,7 +579,7 @@ def test_live_agent_metric_lands(deployed_openobserve: Path) -> None:
             "query",
             "Say 'telemetry-smoke-ok' and nothing else.",
         ],
-        cwd=project_dir,
+        cwd=repo,
         timeout=180,
     )
     if turn.returncode != 0:

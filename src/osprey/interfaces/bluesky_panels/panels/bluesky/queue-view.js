@@ -29,8 +29,8 @@
  * - No local copy of the bridge's arming policy. The panel never decides
  *   whether a deployment may execute; it asks, and when the bridge refuses it
  *   shows the bridge's own sentence VERBATIM — that sentence carries the
- *   remedy (which token is missing, or the `osprey config set-control-system`
- *   flip command for a browse-only deployment).
+ *   remedy (which token is missing, or the `osprey set connector=…` flip
+ *   command for a browse-only deployment).
  *
  * @module queue-view
  */

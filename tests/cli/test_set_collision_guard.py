@@ -24,7 +24,7 @@ from osprey.cli.build_profile_resolve import (
     merge_cli_overrides,
     resolve_build_profile,
 )
-from osprey.cli.profile_cmd import new as profile_new
+from osprey.cli.init_cmd import init
 from osprey.errors import BuildProfileError
 
 
@@ -243,15 +243,16 @@ def test_every_shipped_preset_still_resolves(preset: str) -> None:
 # ── the CLI surface ──────────────────────────────────────────────────────────
 
 
-def test_profile_new_exits_non_zero_on_a_collision(tmp_path: Path) -> None:
-    """The collision stops ``osprey profile new`` before anything is written."""
-    target = tmp_path / "my-profile"
+def test_init_exits_non_zero_on_a_collision(tmp_path: Path) -> None:
+    """The collision stops ``osprey init`` before the source zone is written."""
+    target = tmp_path / "my-deployment"
     result = CliRunner().invoke(
-        profile_new,
+        init,
         [
             str(target),
             "--preset",
             "control-assistant",
+            "--no-git",
             "--set",
             "config.control_system.type=epics",
         ],
@@ -259,4 +260,4 @@ def test_profile_new_exits_non_zero_on_a_collision(tmp_path: Path) -> None:
 
     assert result.exit_code != 0
     assert "--set connector=<type>" in _flat(result.output)
-    assert not target.exists()
+    assert not (target / "profile.yml").exists()

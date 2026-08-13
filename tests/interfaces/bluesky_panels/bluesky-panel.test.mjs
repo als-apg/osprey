@@ -565,8 +565,8 @@ describe('classifyQueueRefusal', () => {
 
   test('a browse-only refusal keeps its capability record and its flip command', () => {
     const sentence =
-      'This deployment uses the mock connector … run `osprey config set-control-system ' +
-      'virtual_accelerator` and redeploy.';
+      'This deployment uses the mock connector … run `osprey set ' +
+      'connector=virtual_accelerator` and redeploy.';
     const refusal = classifyQueueRefusal(409, {
       detail: {
         code: 'browse_only_connector',

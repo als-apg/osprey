@@ -186,37 +186,32 @@ def test_control_assistant_profile_validates() -> None:
 # The control-assistant preset now bakes the bluesky/virtual_accelerator/
 # bluesky_panels injector blocks in directly (no --set/--override flags needed),
 # so `osprey build` on the bare preset renders the full scan stack + the
-# BLUESKY scan panel turn-key. These tests build the preset in-process
-# (CliRunner, --skip-deps --skip-lifecycle -- Docker-free, mirroring
-# tests/cli/test_va_default_config.py's scaffolded_project fixture and
+# BLUESKY scan panel turn-key. These tests build a control-assistant deployment
+# repo in-process (CliRunner, --skip-deps --skip-lifecycle -- Docker-free,
+# mirroring tests/cli/test_va_default_config.py's scaffolded_project fixture and
 # tests/e2e/_orm_stack.py's build_via_cli_runner) and assert on the rendered
-# project's config.yml.
+# build/config.yml.
 
 
 @pytest.fixture(scope="module")
 def turnkey_scan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Build the bare control-assistant preset (no overrides) into a tmp dir.
+    """Build the bare control-assistant preset (no overrides) into a tmp repo.
 
-    Module-scoped: the build is the slow part (template render + service
-    template copies) and every test in this section only reads the resulting
-    config.yml, so one build is shared across assertions.
+    The exemplar repo (:func:`build_exemplar_repo`) is control-assistant's
+    profile.yml written out verbatim, so materializing it and building it is
+    the bare preset with no overrides. Module-scoped: the build is the slow
+    part (template render + service template copies) and every test in this
+    section only reads the resulting config.yml, so one build is shared
+    across assertions.
     """
+    from tests.fixtures.lifecycle_repo import build_exemplar_repo
+
     tmp_path = tmp_path_factory.mktemp("turnkey-scan")
+    repo = build_exemplar_repo(tmp_path / "turnkey-scan")
     runner = CliRunner()
-    result = runner.invoke(
-        build,
-        [
-            "turnkey-scan",
-            "--preset",
-            "control-assistant",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
-    project_dir = tmp_path / "turnkey-scan"
+    project_dir = repo / "build"
     assert (project_dir / "config.yml").exists()
     return project_dir
 

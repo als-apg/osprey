@@ -84,7 +84,7 @@ def _render_bridge_compose(project_path: Path) -> str:
     the project's own ``config.yml`` passed through ``_inject_project_metadata``
     (which is what supplies ``osprey_labels``/``osprey_version``/
     ``osprey_env_present``). Rendering the *project's* copy rather than the
-    packaged template is deliberate — it is the copy ``osprey deploy up``
+    packaged template is deliberate — it is the copy ``osprey up``
     renders, so this is the artifact the injector is responsible for.
     """
     config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
@@ -110,25 +110,17 @@ def _build_bridge_project(
     Returns the built project path (which may not exist, for the failure cases)
     and the click result.
     """
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    (profile_dir / "triggers.yml").write_text(_TRIGGERS_YAML, encoding="utf-8")
-    (profile_dir / "profile.yml").write_text(
+    repo_dir = tmp_path / "ncproj"
+    repo_dir.mkdir()
+    (repo_dir / "triggers.yml").write_text(_TRIGGERS_YAML, encoding="utf-8")
+    (repo_dir / "profile.yml").write_text(
         _PROFILE_YAML.format(nextcloud_bridge=nextcloud_bridge), encoding="utf-8"
     )
-    out_dir = tmp_path / "out"
     result = runner.invoke(
         build,
-        [
-            "ncproj",
-            str(profile_dir / "profile.yml"),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(out_dir),
-        ],
+        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
     )
-    return out_dir / "ncproj", result
+    return repo_dir / "build", result
 
 
 # ── injector unit behavior ───────────────────────────────────────────────────
@@ -315,7 +307,7 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     # Image falls back to the per-project local build tag (no pinned image).
     assert svc["image"] == "${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-ncproj-nextcloud-bridge:local}"
     assert svc["container_name"] == "ncproj-nextcloud-bridge"
-    assert svc["build"]["context"] == "./nextcloud_bridge"
+    assert svc["build"]["context"] == "./build/services/nextcloud_bridge"
     assert svc["build"]["args"]["OSPREY_PROJECT_NAME"] == "ncproj"
     env = svc["environment"]
     # The one variable with no template-side default.
@@ -398,9 +390,9 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     BuildProfileError it raises actually reaches an operator running
     `osprey build`, rather than being swallowed into a bare non-zero exit.
     """
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    (profile_dir / "profile.yml").write_text(
+    repo_dir = tmp_path / "ncproj"
+    repo_dir.mkdir()
+    (repo_dir / "profile.yml").write_text(
         "name: NcNoDispatch\ndata_bundle: hello_world\nprovider: anthropic\n"
         "model: haiku\nnextcloud_bridge: {}\n",
         encoding="utf-8",
@@ -408,21 +400,14 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     with caplog.at_level(logging.ERROR):
         result = runner.invoke(
             build,
-            [
-                "ncproj",
-                str(profile_dir / "profile.yml"),
-                "--skip-deps",
-                "--skip-lifecycle",
-                "--output-dir",
-                str(tmp_path / "out"),
-            ],
+            ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
         )
 
     assert result.exit_code != 0
     errors = _build_errors(caplog)
     assert "Build profile validation failed" in errors
     assert "nextcloud_bridge requires a 'dispatch:' block" in errors
-    assert not (tmp_path / "out" / "ncproj" / "services" / "nextcloud_bridge").exists()
+    assert not (repo_dir / "build" / "services" / "nextcloud_bridge").exists()
 
 
 def test_full_build_unknown_trigger_aborts(

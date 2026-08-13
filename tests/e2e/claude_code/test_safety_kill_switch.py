@@ -32,9 +32,10 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
 
     Why this test pattern is intentional (NOT a redundant tautology):
         The fixture ``safety_project_writes_off`` simulates the canonical
-        production action — an operator edits ``config.yml``, flips
-        ``writes_enabled: false``, and runs ``osprey claude regen``. The
-        regen step is load-bearing: it triggers the renderer's writes-aware
+        production action — an operator flips ``writes_enabled: false`` in
+        the render's ``config.yml`` and re-renders the Claude Code
+        artifacts. The re-render is load-bearing: it triggers the
+        renderer's writes-aware
         ``permissions.deny`` augmentation that moves pure-write tools out
         of ``permissions.ask``. The "fixture creates the condition;
         assertion verifies the kill switch fires" shape mirrors the real
@@ -115,8 +116,9 @@ async def test_python_write_denied_when_writes_disabled(safety_project_writes_of
         Extends Scenario 9's kill-switch coverage to ``execute(write)`` —
         the attack surface where an agent could try to bypass
         ``channel_write`` by writing through a Python script. The fixture
-        is the same canonical operator action (edit ``config.yml`` → flip
-        ``writes_enabled: false`` → regen). The fixture-creates /
+        is the same canonical operator action (edit the render's
+        ``config.yml`` → flip ``writes_enabled: false`` → re-render). The
+        fixture-creates /
         assertion-verifies shape mirrors the production scenario by
         design. Without this test, a Python-routed write would breach
         the kill switch silently.

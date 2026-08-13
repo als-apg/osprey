@@ -51,17 +51,25 @@ class LimitsValidator:
     def resolve_database_path(db_path: str, project_root: str | None) -> str:
         """Resolve a relative ``database_path`` the same way for every caller.
 
-        Resolves a relative path against the ``CONFIG_FILE`` env var's
-        directory when ``CONFIG_FILE`` is set, falling back to
-        ``project_root`` otherwise. CONFIG_FILE wins because it reflects
-        where the config actually lives at runtime: on a host/local run
-        config.yml sits at the project root, so this is a no-op
-        (``Path(CONFIG_FILE).parent == project_root``). In a container
-        deploy, CONFIG_FILE points at the config mounted inside the
-        container (e.g. /app/project/config.yml) while project_root is
-        flattened in as the HOST build path, which does not exist in the
-        container - so resolving against the CONFIG_FILE's directory is the
-        only base that yields a path the container can actually read.
+        The base is the directory holding the config that is actually in use:
+        ``Path(CONFIG_FILE).parent`` when ``CONFIG_FILE`` is set, and the
+        config's own ``project_root`` key otherwise.
+
+        CONFIG_FILE wins because a relative ``database_path`` is written
+        alongside the config it appears in, and that config is the RENDER. A
+        build copies the profile's ``data/`` tree into the same directory it
+        writes ``config.yml`` (``<repo>/build/``), so ``data/channel_limits.json``
+        resolves there; in a container deploy CONFIG_FILE names the config
+        mounted inside the container while ``project_root`` may record a host
+        path the container does not have.
+
+        These two bases are NOT the same directory. Under the three-zone repo
+        layout the rendered config lives at ``<repo>/build/config.yml`` while
+        ``project_root`` names ``<repo>`` — so the CONFIG_FILE branch is a real
+        choice of the build zone over the repo root, not the no-op it was back
+        when ``config.yml`` sat at the project root. Which root a relative
+        ``database_path`` *ought* to anchor on is a separate question from what
+        this function does today; nothing here decides it.
 
         Returns ``db_path`` unchanged if it is already absolute, or if
         neither ``CONFIG_FILE`` nor ``project_root`` is available.

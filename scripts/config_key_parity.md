@@ -52,7 +52,7 @@ one goes missing or drifts.
 | `approval.enabled` | `true` | |
 | `approval.default_policy` | `always` | fail-closed for hook-wired tools not listed |
 | `system.timezone` | `UTC` | pinned for reproducibility |
-| `agent_data.base_dir` | `./_agent_data` | the only key naming this dir (`utils/workspace.py:19-37`) |
+| `agent_data.base_dir` | `var/agent_data` | the only key naming this dir (`utils/workspace.py:41`, read at `:124-142`) |
 | `file_paths.api_calls_dir` | `api_calls` | absent → dir named after the key itself (`utils/config.py:689-694`) |
 | `file_paths.registry_exports_dir` | `registry_exports` | same fallback; also gates deploy-time pre-creation (`deployment/compose_generator.py:448-458`) |
 | `claude_code.provider` | `{{ default_provider }}` | |
@@ -195,8 +195,8 @@ altitudes, and a guard touching either surface should know which one it is on:
 
 The profile-altitude pass skips the two checks that need a rendered project —
 persona `project_path` existence and the `build_profile` delta shape, both
-inside `_check_persona_project_paths` — because `osprey profile new` only
-rewrites catalog entries into `personas/<name>.yml` deltas at materialization.
+inside `_check_persona_project_paths` — because `osprey init` only rewrites
+catalog entries into `personas/<name>.yml` deltas at materialization.
 Every shipped preset is pinned clean at that altitude by
 `tests/deployment/web_terminals/test_lint.py`.
 

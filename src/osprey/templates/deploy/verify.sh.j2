@@ -5,18 +5,22 @@
 # osprey-scaffold: deploy/verify
 # osprey-version: {{ ctx.osprey_version }}
 #
-# Emitted by `osprey deploy scaffold` into the profile's project/ mirror, which
-# carries it to <project>/scripts/verify.sh in every build. `osprey deploy up`
-# runs it there automatically once the containers are up; you can also run it
-# by hand from the project root:
+{% if ctx.runs_verify_on_up %}
+# Emitted by `osprey scaffold ci` into the repo's scripts/ directory. `osprey
+# up` runs it automatically once the containers are up; you can also run it by
+# hand from anywhere in the repo:
+{% else %}
+# Emitted by `osprey scaffold ci` into the repo's scripts/ directory. Nothing
+# runs it for you: `osprey up` runs this check only as part of the web tier's
+# post-up hook, and this deployment has no web tier. Run it by hand once the
+# containers are up, from anywhere in the repo:
+{% endif %}
 #
-#   {{ './scripts/verify.sh'.ljust(39) }}# every probe
-#   {{ ('./scripts/verify.sh ' ~ ctx.usage_group).ljust(39) }}# one group
+#   {{ ('./' ~ verify_path).ljust(39) }}# every probe
+#   {{ ('./' ~ verify_path ~ ' ' ~ ctx.usage_group).ljust(39) }}# one group
 #
 # ALWAYS exits 0. Verification is advisory: a failed probe tells an operator
 # where to look, and must never be the reason a deploy is reported as failed.
-# Do not add `exit 1` here — `osprey deploy up` ignores the exit code anyway,
-# so the only thing a nonzero exit buys is a misleading log line.
 #
 # No `set -e`: one probe timing out must not skip the ones after it.
 # =============================================================================
@@ -25,12 +29,8 @@ set -uo pipefail
 GREEN=$'\033[32m'; RED=$'\033[31m'; DIM=$'\033[90m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
 
 # Probe groups, selectable as arguments. Default is all of them. Not named
-# GROUPS: bash owns that name (the caller's group ids), and assigning to it
-# silently does nothing — a script that tried would run no probes at all and
-# still exit 0.
+# GROUPS: bash owns that name, and assigning to it silently does nothing.
 PROBE_GROUPS="${*:-{{ ctx.groups | map(attribute='id') | join(' ') }}}"
-
-{{ '# ── Probe helpers '.ljust(79, '─') }}
 
 # An HTTP endpoint that answers. Used for anything speaking HTTP.
 probe_http() {
@@ -41,6 +41,7 @@ probe_http() {
     printf '  %s✗%s %s — no response from %s\n' "$RED" "$RESET" "$label" "$url"
   fi
 }
+{% if ctx.has_tcp_probe %}
 
 # A TCP listener. The virtual accelerator serves EPICS Channel Access, not
 # HTTP, so a connect is as far as a probe can go without an EPICS client.
@@ -53,10 +54,16 @@ sys.exit(s.connect_ex(('$host', $port)))" 2>/dev/null; then
     printf '  %s✗%s %s — nothing listening on %s:%s\n' "$RED" "$RESET" "$label" "$host" "$port"
   fi
 }
+{% endif %}
 
 wants() { case " $PROBE_GROUPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 {% for group in ctx.groups %}
-{% set _width = (group.probes | map(attribute='label') | map('length') | max) + 3 %}
+{# Label column: quoted label (+2) plus two spaces where there is a column to
+   align, and a single space where there is not. A one-probe group has nothing
+   to line up with, and padding it to a column of one reads as a second probe
+   that failed to render. #}
+{% set _labels = group.probes | map(attribute='label') | map('length') | list %}
+{% set _width = (_labels | max) + (4 if _labels | length > 1 else 3) %}
 
 {{ ('# ── ' ~ group.divider ~ ' ').ljust(79, '─') }}
 {% for line in group.comment %}

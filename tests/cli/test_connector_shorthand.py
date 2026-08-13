@@ -27,7 +27,7 @@ from osprey.cli.build_profile_resolve import (
     merge_cli_overrides,
     resolve_build_profile,
 )
-from osprey.cli.profile_cmd import new as profile_new
+from osprey.cli.init_cmd import init
 from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
 from osprey.errors import BuildProfileError
 
@@ -275,30 +275,36 @@ def test_preset_resolution_rejects_an_invalid_connector() -> None:
         resolve_build_profile(None, "hello-world", set_pairs=("connector=epcis",))
 
 
-def test_profile_new_exits_non_zero_on_an_invalid_connector(tmp_path: Path) -> None:
-    """The CLI surfaces the misspelling as a usage error, writing nothing."""
-    target = tmp_path / "my-profile"
+def test_init_exits_non_zero_on_an_invalid_connector(tmp_path: Path) -> None:
+    """The CLI surfaces the misspelling as a usage error, materializing nothing."""
+    target = tmp_path / "my-deployment"
     result = CliRunner().invoke(
-        profile_new,
-        [str(target), "--preset", "hello-world", "--set", "connector=virtal_accelerator"],
+        init,
+        [
+            str(target),
+            "--preset",
+            "hello-world",
+            "--no-git",
+            "--set",
+            "connector=virtal_accelerator",
+        ],
     )
 
     assert result.exit_code != 0
     assert "did you mean 'virtual_accelerator'?" in _flat(result.output)
-    assert not target.exists()
+    assert not (target / "profile.yml").exists()
 
 
-def test_profile_new_bakes_the_literal_key(tmp_path: Path) -> None:
+def test_init_bakes_the_literal_key(tmp_path: Path) -> None:
     """The materialized profile states the connector at the key a reader edits."""
-    target = tmp_path / "my-profile"
+    target = tmp_path / "my-deployment"
     result = CliRunner().invoke(
-        profile_new,
-        [str(target), "--preset", "hello-world", "--set", "connector=doocs"],
+        init,
+        [str(target), "--preset", "hello-world", "--no-git", "--set", "connector=doocs"],
     )
 
     assert result.exit_code == 0, result.output
-    # `profile new` writes a facility repository; the profile lives one level
-    # down, in its `profile/` directory.
-    baked = yaml.safe_load((target / "profile" / "profile.yml").read_text(encoding="utf-8"))
+    # The repo IS the deployment: profile.yml sits at its root.
+    baked = yaml.safe_load((target / "profile.yml").read_text(encoding="utf-8"))
     assert CONNECTOR_PROFILE_KEY not in baked
     assert baked["config"][CONNECTOR_CONFIG_KEY] == "doocs"

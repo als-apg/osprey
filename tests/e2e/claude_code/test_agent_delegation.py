@@ -80,9 +80,9 @@ pytestmark = [
 
 @pytest.fixture(scope="module")
 def delegation_project(tmp_path_factory):
-    """Module-scoped initialized project for delegation tests.
+    """Module-scoped deployment repo for delegation tests.
 
-    Creates a control_assistant project once and reuses it across all tests.
+    Builds a control_assistant deployment once and reuses it across all tests.
     These agents are read-only search agents — no state leaks between tests.
     """
     tmp = tmp_path_factory.mktemp("delegation")
@@ -240,7 +240,7 @@ class TestAgentDelegation:
         tools (which means real channel database traversal happened).
 
         Channel-finder needs no external backend — its database ships with
-        the project — so this is an unconditional always-run test. The
+        the deployment — so this is an unconditional always-run test. The
         ``test_channel_finder_mcp_benchmarks.py`` suite covers retrieval
         accuracy; this one only validates the delegation handoff.
         """
@@ -308,7 +308,7 @@ class TestAgentDelegation:
         """Data-visualizer agent: sandboxed plot creation via workspace MCP tools.
 
         Unlike the logbook agents, this one needs no facility backend — the
-        workspace MCP server ships with the project itself and runs the
+        workspace MCP server ships with the deployment itself and runs the
         plotting subprocess locally.
 
         Delegation contract under test: a "create a plot of …" request must

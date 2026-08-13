@@ -1,9 +1,9 @@
 # The virtual-accelerator service owns the PyAT-backed EPICS soft-IOC (see
-# src/osprey/services/virtual_accelerator/). `osprey deploy up` builds its
+# src/osprey/services/virtual_accelerator/). `osprey up` builds its
 # image locally on first run; subsequent runs reuse the local tag. To use a
 # prebuilt/published image instead, set OSPREY_VA_IMAGE (e.g.
 # OSPREY_VA_IMAGE=my-registry/osprey-va:dev).
-# Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
+# Use `osprey build --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 #
 # ARCHITECTURE: linux/amd64, and on Apple Silicon that means emulation.
@@ -18,7 +18,7 @@
 # `platform:` below states that out loud rather than leaving it implicit. It
 # is what the build already produces; declaring it means compose stops warning
 # "the requested image's platform (linux/amd64) does not match the detected
-# host platform (linux/arm64/v8)" on every single `deploy up` from an arm64
+# host platform (linux/arm64/v8)" on every single `osprey up` from an arm64
 # machine — a warning that read as a defect when it was in fact the design.
 # The cost it names is real and unchanged: on Apple Silicon the virtual
 # accelerator runs under QEMU emulation and is correspondingly slower.
@@ -32,11 +32,12 @@ services:
     image: ${OSPREY_VA_IMAGE:-{{ services.virtual_accelerator.image | default(osprey_labels.project_name ~ '-va:local') }}}
     platform: ${OSPREY_VA_PLATFORM:-linux/amd64}
     build:
-      # With multiple `-f` compose files, ALL relative paths (build contexts and
-      # bind mounts alike) resolve against the FIRST file's dir — the compose
-      # project directory, build/services/ — not this file's own subdir. So the
-      # context is ./virtual_accelerator, matching the volume-path convention below.
-      context: ./virtual_accelerator
+      # EVERY relative path here resolves against the pinned compose project
+      # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd) — never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env).
+      context: ./build/services/virtual_accelerator
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
@@ -52,6 +53,7 @@ services:
     container_name: {{ osprey_labels.project_name }}-virtual-accelerator
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
@@ -85,20 +87,30 @@ services:
       # build-owned data dir.
       VA_STATE_DIR: /state/simulation
       TZ: {{ system.timezone }}
-    # Bind-mount sources are relative to the compose project directory
-    # (build/services/), not this file's own subdir — hence the ../../ prefix
-    # to reach the project root (see entrypoint.py's run contract: the IOC
-    # SystemExits without a machine.json in the data dir). Both read-only —
+    # Bind-mount sources are relative to the pinned compose project directory —
+    # the deployment repo root — so each is spelled from there. Both read-only:
     # the IOC only ever reads.
     #
-    # Two mounts because the two directories have different owners: the
-    # simulation model in data/ is build-owned (re-rendered and checksummed
-    # every build), while the active-scenario state under the agent-data root
-    # is written at run time by `osprey sim apply` on the host and polled here.
-    # That second source is rendered from agent_data.base_dir rather than
-    # hardcoded, so it follows a project that relocates its agent-data root.
+    # The simulation model comes from the OUTPUT zone, `build/data/simulation`,
+    # and not from a source `data/` tree, for two reasons. Only the rendered
+    # copy is the whole model: the build writes the generated channel manifest
+    # and its drive limits in beside machine.json, and points VA_CHANNELS_FILE
+    # above at that manifest — a pointer the source tree cannot satisfy, and
+    # the entrypoint RAISES on a manifest file it cannot find rather than
+    # falling back, so a container aimed at the source tree would not boot at
+    # all. And a source tree is not even guaranteed: a profile with no `data:`
+    # key takes the bundle's tree, which is copied into the render and exists
+    # nowhere else in the repo. See entrypoint.py's run contract: the IOC
+    # SystemExits without a machine.json in the data dir.
+    #
+    # Two mounts because the two directories have different owners: the model
+    # is build-owned (re-rendered and checksummed every build), while the
+    # active-scenario state under the agent-data root is written at run time by
+    # `osprey sim apply` on the host and polled here. That second source is
+    # rendered from agent_data.base_dir rather than hardcoded, so it follows a
+    # project that relocates its agent-data root.
     volumes:
-      - ../../data/simulation:/data/simulation:ro
+      - ./build/data/simulation:/data/simulation:ro
       - {{ osprey_state_mount_source }}:/state/simulation:ro
     networks:
       - osprey-network

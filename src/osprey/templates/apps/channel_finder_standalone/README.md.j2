@@ -30,24 +30,28 @@ the box with no external service.
 
 1. **Edit `.claude/rules/facility.md`** to describe your facility naming scheme.
    The default ships with placeholder content; it is auto-claimed as user-owned,
-   so `osprey claude regen` preserves your edits.
+   so `osprey build` preserves your edits.
 2. Set `ANTHROPIC_API_KEY` (or `CBORG_API_KEY` for the LBL proxy) in `.env`.
 3. Replace `data/channel_databases/hierarchical.json` with your own channel
-   database, or switch pipelines: materialize a profile from this preset and
+   database, or switch pipelines: create a deployment repo from this preset and
    set `channel_finder_mode: in_context|middle_layer` with the matching database.
 
-For deeper customization, materialize an editable build profile from this
-preset and rebuild from it:
+For deeper customization, create a deployment repo from this preset and
+rebuild from it:
 
 ```
-osprey profile new my-cf-profile --preset channel-finder-standalone
-# edit my-cf-profile/profile.yml, its data/ tree, and its convention dirs
-osprey build my-cf ./my-cf-profile/profile.yml
+osprey init my-cf --preset channel-finder-standalone
+cd my-cf
+# edit profile.yml, its data/ tree, and its convention dirs
+osprey build
 ```
+
+The repo root holds the editable source; `osprey build` renders `build/` from
+it, and every verb below works from anywhere inside the repo.
 
 ## Configuration Files
 
 - `config.yml` — project settings (channel-finder pipeline, providers, panel)
 - `.claude/` — agent rules, hooks, MCP server configuration
-- `CLAUDE.md` — agent persona (channel/PV address finder; regen overwrites unless
-  claimed as user-owned)
+- `CLAUDE.md` — agent persona (channel/PV address finder; `osprey build` overwrites
+  unless claimed as user-owned)

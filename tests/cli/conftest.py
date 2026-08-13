@@ -12,6 +12,14 @@ from pathlib import Path
 
 import pytest
 
+# The gold-standard three-zone deployment repo, re-exported so every lifecycle
+# test under tests/cli/ can ask for it by name. Defined in tests/fixtures/ with
+# the exemplar content it materializes.
+from tests.fixtures.lifecycle_repo import (  # noqa: F401
+    lifecycle_repo,
+    lifecycle_repo_factory,
+)
+
 
 @pytest.fixture(autouse=True)
 def _guard_os_exit(monkeypatch: pytest.MonkeyPatch) -> None:

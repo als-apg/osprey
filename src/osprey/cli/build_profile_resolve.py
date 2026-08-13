@@ -1,6 +1,7 @@
 """Multi-source profile resolution: preset / file + overlays + ``--set``.
 
-The entry point the ``build`` command actually calls. Picks the base layer
+The entry point ``osprey init``'s materialization and ``osprey validate`` call.
+Picks the base layer
 (bundled preset or on-disk file), deep-merges override files and ``--set``
 values over it, then hands the assembled raw dict to ``extends`` resolution and
 :func:`osprey.cli.build_profile_load._parse_profile`. Also owns the ``--set``
@@ -9,12 +10,11 @@ whose explicit use is recorded in the build manifest, and the guard that keeps
 a ``--set config.*`` path from quietly losing to — or quietly clobbering — the
 literal dotted key some other layer spells for the same place.
 
-Every build reads a profile directory, so this module also owns the two ways a
-CLI invocation gets one: :func:`materialize_or_reuse_profile`, which gives a
-``--preset`` build the profile it builds from, and
-:func:`write_back_cli_overrides`, which turns ``--set`` / ``-O`` / ``--tier`` on
-a build from an existing profile into an edit of that profile. The profile is
-the source of truth, so an explicit override *is* a profile edit.
+The profile is the source of truth, so an explicit override *is* a profile edit:
+:func:`write_back_cli_overrides` turns ``osprey set``'s pairs into a
+comment-preserving edit of the repo's own ``profile.yml``, which the ordinary
+resolution path then reads back like any other profile content. Nothing is
+layered at invocation time and thrown away afterwards.
 """
 
 from __future__ import annotations
@@ -41,12 +41,12 @@ from .build_profile_load import (
 )
 from .build_profile_merge import _deep_merge, _resolve_extends, resolve_profile_document
 from .build_profile_model import BuildProfile
-from .build_profile_presets import _load_preset_raw, _normalize_preset_name
+from .build_profile_presets import _load_preset_raw
 
 logger = get_logger("build")
 
 #: Refusal shared by the two places CLI layers reach a materialized profile —
-#: `osprey profile new` baking them in, and a build writing them back. One
+#: `osprey init` baking them in, and a build writing them back. One
 #: constant because the rule is one rule: a materialized profile is standalone,
 #: so nothing may give it an `extends:` parent. Two spellings of it would mean
 #: the same override file is refused on the build that materializes and accepted
@@ -94,17 +94,19 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
     return _normalize_profile_aliases(result, "--set")
 
 
-# The model-selection shorthand keys a user can override via `--set` whose
-# explicit use is recorded in the project manifest (extract_build_args) and
-# re-applied by persona auto-render, so one parent-build override retints
-# every derived persona project.
+# The model-selection shorthand keys a user can override via `--set`, whose
+# explicit use is recorded in the project manifest (extract_build_args). A
+# persona inherits them the same way it inherits everything else — `osprey set`
+# writes the override INTO profile.yml, and every delta in `personas/` merges
+# over that profile — so one repo-level override retints every persona the next
+# build renders, with nothing replayed from a build invocation.
 MODEL_SELECTION_OVERRIDE_KEYS = ("provider", "model", "channel_finder_mode")
 
 # Every top-level shorthand whose explicit ``--set`` use is forwarded that way.
 # `connector` joins the model-selection keys because it shapes the whole stack
 # in the same sense: which control system a project talks to is a property of
-# the deployment, not of one persona, so a persona render must not silently
-# fall back to its own preset's connector.
+# the deployment, not of one persona, so it belongs in profile.yml where every
+# persona delta inherits it rather than in any one persona's own file.
 SHORTHAND_OVERRIDE_KEYS = (*MODEL_SELECTION_OVERRIDE_KEYS, CONNECTOR_PROFILE_KEY)
 
 
@@ -287,11 +289,11 @@ def merge_cli_overrides(
 
     The shared CLI layering step: override files deep-merge in declaration
     order, then ``--set`` values merge on top. Used by the project-render path
-    (:func:`resolve_build_profile`) and by ``osprey profile new``, which bakes
+    (:func:`resolve_build_profile`) and by ``osprey init``, which bakes
     the merged result into the materialized ``profile.yml``.
 
     The ``connector`` shorthand is folded into ``config`` here rather than at
-    parse time alone, so the profile ``osprey profile new`` bakes states the
+    parse time alone, so the profile ``osprey init`` bakes states the
     connector at the one literal key a reader would edit
     (``control_system.type``) instead of carrying a shorthand that silently
     outranks the ``config:`` block printed beside it. The fold happens after
@@ -428,7 +430,7 @@ def resolve_build_document(
             raise BuildProfileError(
                 f"Profile key 'data' is not supported with --preset (got {raw['data']!r}). "
                 f"A preset carries no profile directory to resolve the data tree against. "
-                f"Materialize the preset first — 'osprey profile new DIR --preset {preset}' — "
+                f"Materialize the preset first — 'osprey init DIR --preset {preset}' — "
                 f"then build from that directory."
             )
     else:
@@ -470,292 +472,11 @@ def resolve_build_document(
 # The profile a build reads
 # ---------------------------------------------------------------------------
 
-#: Directory-name suffix a ``--preset`` build materializes its profile under,
-#: beside the project it builds. One constant so the create branch and the
-#: reuse branch cannot name different directories.
-PROFILE_DIR_SUFFIX = "-profile"
-
-#: The profile file inside a materialized profile directory.
+#: The profile file at a deployment repo's root. Kept here for
+#: :mod:`~osprey.cli.deploy_scaffold_templates`, which renders the name into the
+#: CI pipeline; :data:`osprey.cli.repo_resolver.PROFILE_FILENAME` is the same
+#: name in its role as the discovery marker.
 PROFILE_FILENAME = "profile.yml"
-
-
-def preset_profile_dir(output_dir: Path, project_name: str) -> Path:
-    """Where a ``--preset`` build keeps the profile it builds from."""
-    return output_dir / f"{project_name}{PROFILE_DIR_SUFFIX}"
-
-
-# ---------------------------------------------------------------------------
-# Where a build renders
-# ---------------------------------------------------------------------------
-
-#: The directory a facility repo keeps its profile in. Nesting the profile one
-#: level down is what lets the repo root hold anything else — the CI file, the
-#: rendered projects — without either being mistaken for profile content.
-FACILITY_PROFILE_DIRNAME = "profile"
-
-#: Where a facility repo keeps the projects rendered from that profile. Fixed
-#: rather than configurable: the repo gitignores this path, the CI pipeline
-#: names it, and the docs walk through it, so a second spelling would be three
-#: things quietly disagreeing.
-FACILITY_BUILD_DIRNAME = "build"
-
-
-def facility_repo_root(profile_dir: Path) -> Path | None:
-    """The facility repo *profile_dir* belongs to, if it belongs to one.
-
-    A facility repo keeps its profile in ``profile/`` at the repo root, so the
-    root is found by walking up to that directory and taking its parent.
-    Matching on the enclosing ``profile/`` rather than on any ancestor that
-    merely *contains* one keeps an unrelated sibling directory from being read
-    as a repo marker.
-
-    Args:
-        profile_dir: The profile ROOT, as resolution reports it — for a persona
-            delta, the directory above ``personas/``, so a persona and the
-            profile it lives under resolve to the same repo.
-
-    Returns:
-        The repo root, or ``None`` when the profile is a standalone directory
-        (a preset's bundled package dir, a ``<name>-profile/`` beside a
-        project, a hand-kept profile in ``~/profiles/``) rather than one nested
-        in a facility repo.
-    """
-    for candidate in (profile_dir, *profile_dir.parents):
-        if candidate.name == FACILITY_PROFILE_DIRNAME and candidate.is_dir():
-            return candidate.parent
-    return None
-
-
-def resolve_build_output_dir(explicit: str | Path | None, profile_dir: Path) -> Path:
-    """Decide where a build renders its project.
-
-    Three answers, in priority order: what the operator asked for, the facility
-    repo's own ``build/``, or the working directory. The middle one is what
-    makes ``osprey build`` position-independent inside a facility repo — the
-    same command run from the repo root, from inside ``profile/``, or from any
-    nested subdirectory renders to the same place, so a rebuild refreshes the
-    project rather than scattering copies of it wherever the operator happened
-    to be standing.
-
-    Args:
-        explicit: ``--output-dir`` as given, or ``None`` when it was omitted.
-        profile_dir: The profile ROOT this build resolved.
-
-    Returns:
-        An absolute directory the project directory is created under.
-    """
-    if explicit is not None:
-        return Path(explicit).resolve()
-    repo_root = facility_repo_root(profile_dir)
-    if repo_root is not None:
-        return repo_root / FACILITY_BUILD_DIRNAME
-    return Path.cwd().resolve()
-
-
-def materialize_or_reuse_profile(
-    preset: str,
-    output_dir: Path,
-    project_name: str,
-    overrides: tuple[Path, ...] = (),
-    set_pairs: tuple[str, ...] = (),
-    tier: int | None = None,
-) -> Path:
-    """Give a ``--preset`` build the profile directory it builds from.
-
-    Materialized on first use through the one materialization path ``osprey
-    profile new`` uses; reused verbatim afterwards, because from then on the
-    profile — not the preset — is what the project is built from. A preset that
-    has moved on since is *reported*, never re-applied, and a build naming a
-    *different* preset is refused outright (see
-    :func:`_check_preset_provenance`). ``--force`` on the build wipes the
-    project, never this directory: a profile is replaced only by ``osprey
-    profile new --force``.
-
-    The CLI overrides reach the profile either way, which is what makes the
-    profile a complete description of the project: baked in as layers at
-    materialization, written into the file on a reuse.
-
-    Args:
-        preset: Bundled preset name, in either spelling.
-        output_dir: Where the project is being built; the profile is its
-            sibling.
-        project_name: Names the profile directory (``<name>-profile``).
-        overrides: ``-O`` files.
-        set_pairs: ``--set`` pairs.
-        tier: ``--tier``, the profile's ``tier:`` key.
-
-    Returns:
-        Path to the profile's ``profile.yml``.
-
-    Raises:
-        click.UsageError: For anything the caller could have got wrong — an
-            unknown preset, or layers that produce an invalid profile.
-    """
-    # Imported here: the materialization verb lives with the `profile` command
-    # group, which imports this module.
-    from .profile_cmd import _materialize_profile_directory
-
-    target = preset_profile_dir(output_dir, project_name)
-    profile_path = target / PROFILE_FILENAME
-
-    if profile_path.is_file():
-        logger.info("  Profile: %s (reused)", target)
-        _check_preset_provenance(profile_path, preset)
-        write_back_cli_overrides(profile_path, overrides, set_pairs, tier)
-        return profile_path
-
-    logger.info("  Profile: %s (materializing from preset '%s')", target, preset)
-    if tier is not None:
-        set_pairs = (*set_pairs, f"tier={tier}")
-    try:
-        _materialize_profile_directory(target, preset, overrides, set_pairs)
-    except click.UsageError as e:
-        raise _rewrite_already_exists(e, target, preset) from e
-    return profile_path
-
-
-def _rewrite_already_exists(error: click.UsageError, target: Path, preset: str) -> click.UsageError:
-    """Give the "directory is in the way" refusal build-appropriate remediation.
-
-    ``osprey profile new`` tells the user to re-run *itself* with ``--force``,
-    which is right there and wrong here: a build reaches this only when a
-    ``<name>-profile/`` directory exists without a ``profile.yml`` in it (an
-    interrupted materialization), and ``osprey build --force`` replaces the
-    *project*, never the profile. Repeating that advice sends the user round a
-    loop that cannot terminate, so the message names the two things that do
-    clear it.
-
-    Anything else is that command's own refusal and is passed through unchanged.
-    """
-    from .profile_cmd import _ALREADY_EXISTS
-
-    if str(error) != _ALREADY_EXISTS.format(target=target.resolve()):
-        return error
-    return click.UsageError(
-        f"{target} already exists but holds no {PROFILE_FILENAME} — an interrupted "
-        f"materialization leaves that behind. `osprey build --force` replaces the "
-        f"project, never the profile, so it cannot clear this. Delete {target}, or "
-        f"materialize over it: osprey profile new {target} --preset {preset} --force"
-    )
-
-
-def _check_preset_provenance(profile_path: Path, preset: str) -> None:
-    """Vet a reused profile against the ``--preset`` the build named.
-
-    Two questions of the profile's ``provenance`` block, in the order that
-    matters. *Which preset is this?* — a different one than the build asked for
-    is a hard error (:func:`_require_matching_preset`), because the profile is
-    built verbatim and would quietly produce the other project. *Has that preset
-    moved on?* — advisory only (:func:`_report_preset_drift`).
-
-    Silent when the profile carries no provenance at all: hand-written and
-    not-preset-derived profiles answer neither question, and "cannot tell" must
-    never read as an answer.
-    """
-    provenance = _profile_provenance(profile_path)
-    if provenance is None:
-        return
-    _require_matching_preset(profile_path, preset, provenance)
-    _report_preset_drift(profile_path, preset, provenance)
-
-
-def _profile_provenance(profile_path: Path) -> dict[str, Any] | None:
-    """The profile's ``provenance:`` block, or ``None`` when it has none.
-
-    One reader for every question asked of that block, so "unreadable profile"
-    and "no provenance" cannot be answered one way by the build's preset check
-    and another by the manifest stamp. An unreadable profile answers ``None``
-    rather than raising: it is about to fail the build with a far better message
-    than any provenance question could give.
-    """
-    try:
-        raw = _read_profile_document(profile_path)
-    except BuildProfileError:
-        return None
-    provenance = raw.get("provenance") if isinstance(raw, dict) else None
-    return provenance if isinstance(provenance, dict) else None
-
-
-def _require_matching_preset(profile_path: Path, preset: str, provenance: dict[str, Any]) -> None:
-    """Refuse a ``--preset`` that is not the one this profile was made from.
-
-    A reused profile is built verbatim, so the preset named on the command line
-    selects nothing — accepting a different one would build the *stored*
-    preset's project while every artifact that records the build (the manifest's
-    ``preset``, its reproducible command) named the requested one. The two
-    presets are named in the message because which one the user meant is
-    exactly what the CLI cannot know.
-    """
-    stored = provenance.get("preset")
-    if not isinstance(stored, str) or not stored:
-        return
-    requested = _normalize_preset_name(preset)
-    if _normalize_preset_name(stored) == requested:
-        return
-    raise click.UsageError(
-        f"{profile_path} was materialized from preset {_normalize_preset_name(stored)!r}, "
-        f"but this build asks for {requested!r}. The profile is the source of truth and "
-        f"is never re-materialized, so building it now would build the "
-        f"{_normalize_preset_name(stored)!r} project under a {requested!r} label. "
-        f"Build {requested!r} under a different project name so it gets a profile of "
-        f"its own, or remove {profile_path.parent} and rebuild."
-    )
-
-
-def profile_provenance_preset(profile_path: Path) -> str | None:
-    """The normalized preset a profile records having been materialized from.
-
-    ``None`` when the profile is unreadable or carries no such record. What the
-    build stamps into the manifest: the profile is what was built, so the preset
-    it came from is the honest answer even where the CLI named one too.
-
-    For a caller that already resolved the profile, ``BuildProfile.provenance``
-    carries the same record without a second read of the file; this is the
-    answer for one holding only a path.
-    """
-    provenance = _profile_provenance(profile_path) or {}
-    stored = provenance.get("preset")
-    if not isinstance(stored, str) or not stored:
-        return None
-    return _normalize_preset_name(stored)
-
-
-def _report_preset_drift(profile_path: Path, preset: str, provenance: dict[str, Any]) -> None:
-    """Advise when the bundled preset moved on since the profile was written.
-
-    Advisory only, and deliberately narrow: the comparison is between the
-    ``provenance.preset_hash`` the materialization stamped and the installed
-    preset's hash today, both of which cover the preset's resolved YAML and
-    nothing else — not the packaged data tree the profile copied, and not the
-    framework artifacts it selects. So this can say the preset's *settings*
-    changed; it cannot say the profile is otherwise current.
-
-    Silent when either hash is unavailable: "cannot compare" must never read as
-    drift. Only reached once :func:`_require_matching_preset` has established
-    that the two hashes are of the same preset.
-    """
-    from .build_profile_merge import compute_preset_hash
-
-    stored = provenance.get("preset_hash")
-    current = compute_preset_hash(preset)
-    if not stored or not current or stored == current:
-        return
-
-    logger.warning(
-        "  ! Preset '%s' has changed since %s was materialized from it "
-        "(YAML settings only — this cannot see the data tree or framework artifacts).",
-        preset,
-        profile_path,
-    )
-    logger.warning(
-        "      The profile is the source of truth and is being built verbatim; "
-        "nothing from the preset is re-applied."
-    )
-    logger.warning(
-        "      To see what moved, materialize the current preset elsewhere: "
-        "osprey profile new <DIR> --preset %s",
-        preset,
-    )
 
 
 def write_back_cli_overrides(
@@ -764,20 +485,20 @@ def write_back_cli_overrides(
     set_pairs: tuple[str, ...] = (),
     tier: int | None = None,
 ) -> list[str]:
-    """Write ``-O`` / ``--set`` / ``--tier`` into the profile, before building.
+    """Write ``osprey set``'s pairs into the profile, before it is read back.
 
-    The profile is the source of truth, so an explicit override on a build from
-    an existing profile is an edit *of that profile* — made here, announced, and
-    then read back by the ordinary resolution path like any other profile
-    content. Nothing is layered at build time and thrown away afterwards.
+    The profile is the source of truth, so an explicit override is an edit *of
+    that profile* — made here and then read back by the ordinary resolution path
+    like any other profile content. Nothing is layered at invocation time and
+    thrown away afterwards. Reporting the edit is the caller's job: the keys are
+    returned rather than announced, so the command that asked for the edit
+    describes it in its own words.
 
-    The edit **replaces** the value at each dotted key path. That is a
-    deliberate change from the old build-time layering, where a list-valued
-    ``--set`` union-deduped with what the profile already had: a value written
+    The edit **replaces** the value at each dotted key path. A value written
     into a file has to be the value the file then holds, or the profile stops
-    describing the project. (A first materialization still bakes its layers in
-    through :func:`merge_cli_overrides`, so ``--set`` on a *fresh* preset build
-    keeps layering semantics.)
+    describing the deployment. (A first materialization still bakes its layers
+    in through :func:`merge_cli_overrides`, so ``osprey init -O``/``--set`` on a
+    *fresh* repo keeps layering semantics.)
 
     ``config:`` is written the way a profile spells it — one mapping key holding
     the whole dotted path (``control_system.type``) rather than a nested map, so
@@ -785,10 +506,15 @@ def write_back_cli_overrides(
     entries do instead of wholesale-replacing a config subtree.
 
     Args:
-        profile_path: The ``profile.yml`` (or persona delta) being built from.
-        overrides: ``-O`` files, deep-merged in declaration order.
-        set_pairs: ``--set`` pairs, merged on top of the ``-O`` layers.
-        tier: ``--tier``, written as the profile's ``tier:`` key.
+        profile_path: The ``profile.yml`` (or persona delta) being edited.
+        overrides: ``-O`` files, deep-merged in declaration order. Nothing in
+            the shipped CLI passes them: ``osprey init -O`` layers at
+            materialization instead (see :func:`merge_cli_overrides`), so this
+            is API surface, not a live path.
+        set_pairs: The ``osprey set`` pairs — the only argument its one
+            production caller passes.
+        tier: Written as the profile's ``tier:`` key. Caller-less for the same
+            reason as *overrides*.
 
     Returns:
         The dotted key paths written, in write order; empty when there was
@@ -814,8 +540,12 @@ def write_back_cli_overrides(
     updates = _flatten_override_layer(layer)
     _write_profile_values(profile_path, updates)
     written = [".".join(key_path) for key_path, _ in updates]
-    logger.info(
-        "  ✓ Wrote %d override(s) into %s: %s",
+    # Debug, not info: the two callers both report the write in their own words
+    # — ``osprey set`` prints the keys it wrote, and a build prints them as part
+    # of its render summary — from the list returned below. Announcing it here
+    # too put the same sentence on the operator's screen twice.
+    logger.debug(
+        "Wrote %d override(s) into %s: %s",
         len(written),
         profile_path,
         ", ".join(written),
@@ -915,141 +645,3 @@ def _atomic_write_bytes(path: Path, payload: bytes) -> None:
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
         raise
-
-
-class ProfileWriteBackGuard:
-    """Undo a build's write-back into a profile when that build then fails.
-
-    ``--set`` / ``-O`` / ``--tier`` are written into the profile *before* the
-    build resolves and validates it, because the profile is what the build then
-    reads. Without this, a value the profile cannot hold — ``--set
-    provider=nonexistent``, or a mistyped model — would stay in the file after
-    the build that introduced it failed, and so fail every later flag-free build
-    too, with a message that never mentions the edit: a typo turns into a stuck
-    project, recoverable only by hand-editing the profile. The edit is therefore
-    part of the build: it survives a build that completes and is undone by one
-    that does not.
-
-    Restores the exact bytes, so a profile that a build did not change is left
-    untouched (down to formatting) and one it did change is put back verbatim.
-    A restore that itself fails is reported rather than raised: the build's own
-    failure is the news, and burying it under an I/O error would cost the
-    operator the reason they are looking for. The report names the file and the
-    keys, which is what they need to repair it by hand.
-
-    Constructed *before* the write-back, whichever branch makes it, and the two
-    branches are symmetric because the principle is one principle — a failed
-    build leaves the facility as it found it. Where the profile already existed
-    the edit is rolled back; where *this invocation materialized it*
-    (``materializes_into``, a directory that did not exist at entry) there is no
-    earlier state to return to, so the directory goes: its ``profile.yml``
-    carries the same bad override baked in as a layer, and leaving it behind
-    turns the next flag-free build into the same stuck project by a different
-    route. Only ever the directory this invocation created — one that existed in
-    any form at entry is never touched, so an interrupted materialization still
-    meets the refusal that names it (see :func:`_rewrite_already_exists`).
-    """
-
-    def __init__(
-        self,
-        profile_path: Path | None,
-        overrides: tuple[Path, ...] = (),
-        set_pairs: tuple[str, ...] = (),
-        tier: int | None = None,
-        *,
-        materializes_into: Path | None = None,
-    ) -> None:
-        self._path = Path(profile_path) if profile_path is not None else None
-        self._overrides = overrides
-        self._set_pairs = set_pairs
-        self._tier = tier
-        self._snapshot: bytes | None = None
-        if self._path is not None and self._path.is_file():
-            try:
-                self._snapshot = self._path.read_bytes()
-            except OSError:
-                # Unreadable now means the build is about to fail on it anyway.
-                self._snapshot = None
-        # Recorded at entry, which is the only moment "this invocation created
-        # it" can be established: after materialization the two cases are
-        # indistinguishable from the directory alone.
-        self._created_dir: Path | None = None
-        if materializes_into is not None and not materializes_into.exists():
-            self._created_dir = materializes_into
-
-    def rollback(self) -> None:
-        """Undo what this build did to the profile: restore it, or remove it."""
-        if self._created_dir is not None:
-            self._remove_created_dir()
-            return
-        if self._path is None or self._snapshot is None:
-            return
-        try:
-            current = self._path.read_bytes() if self._path.is_file() else None
-            if current == self._snapshot:
-                return
-            _atomic_write_bytes(self._path, self._snapshot)
-        except OSError as e:
-            logger.error(
-                "✗ Could not restore %s after the failed build (%s). It still holds "
-                "this build's override(s): %s — remove or correct them before rebuilding.",
-                self._path,
-                e,
-                self._describe_edit(),
-            )
-            return
-        logger.warning(
-            "  ! Build failed — restored %s to its pre-build contents; "
-            "the override(s) it wrote (%s) were not kept.",
-            self._path,
-            self._describe_edit(),
-        )
-
-    def _remove_created_dir(self) -> None:
-        """Drop the profile directory this failed build materialized.
-
-        Mirrors :func:`_materialize_profile_directory`'s own cleanup of a
-        materialization that fails partway: the difference is only *when* the
-        build gave up, and an operator has no more use for a profile the build
-        that made it could not use either.
-        """
-        import shutil
-
-        assert self._created_dir is not None  # narrows for type-checkers
-        if not self._created_dir.is_dir():
-            return
-        carried = self._describe_edit()
-        try:
-            shutil.rmtree(self._created_dir)
-        except OSError as e:
-            logger.error(
-                "✗ Could not remove %s after the failed build (%s). It was materialized by "
-                "this build and bakes in the override(s) it died on: %s — remove the "
-                "directory, or correct them, before rebuilding.",
-                self._created_dir,
-                e,
-                carried,
-            )
-            return
-        logger.warning(
-            "  ! Build failed — removing %s: it was materialized by this build and "
-            "carries the override(s) the build died on (%s). Re-run without the bad "
-            "flag to materialize cleanly.",
-            self._created_dir,
-            carried,
-        )
-
-    def _describe_edit(self) -> str:
-        """The dotted key paths this invocation asked to write, for a message.
-
-        Re-derived from the CLI arguments rather than reported by the write-back
-        so the guard can also name them when the write-back is what failed.
-        """
-        try:
-            layer = merge_cli_overrides({}, self._overrides, self._set_pairs)
-        except BuildProfileError:
-            layer = {}
-        if self._tier is not None:
-            layer["tier"] = self._tier
-        keys = [".".join(key_path) for key_path, _ in _flatten_override_layer(layer)]
-        return ", ".join(keys) if keys else "(none)"

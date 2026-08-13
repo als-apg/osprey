@@ -350,7 +350,7 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     expect(downloadLink.textContent).toContain(HOSTILE.DQ_IMG);
 
     const pathText = qs(previewContent, '.preview-path-text');
-    expect(pathText.textContent).toBe(`_agent_data/artifacts/${HOSTILE.DQ_IMG}`);
+    expect(pathText.textContent).toBe(`var/agent_data/artifacts/${HOSTILE.DQ_IMG}`);
   });
 
   test('a hostile id is percent-encoded at both the "open in new tab" href and the download-link href', () => {

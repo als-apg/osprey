@@ -154,7 +154,7 @@ def runtime_env(
     rather than left for every operator to learn to ignore.
 
     It must stay opt-in because the single-stack paths are the mirror image:
-    plain ``deploy up`` reconciles with ``up --remove-orphans`` and ``clean``
+    plain ``osprey up`` reconciles with ``up --remove-orphans`` and ``clean``
     tears down with ``down --remove-orphans``, and docker compose hard-errors
     on the combination ("cannot combine COMPOSE_IGNORE_ORPHANS and
     --remove-orphans") rather than letting one win. A default-on env var

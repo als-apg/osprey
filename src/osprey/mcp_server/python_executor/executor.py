@@ -67,15 +67,20 @@ def _read_config() -> dict:
 
 
 def _resolve_project_root() -> Path:
-    """Resolve the project root directory (parent of workspace root).
+    """Resolve the deployment repo root.
 
-    This is the directory that contains ``_agent_data/``, ``config.yml``,
-    etc.  Used as the subprocess ``cwd`` so that relative workspace paths
-    (e.g. ``_agent_data/data/002_archiver_read.json``) resolve correctly.
+    This is the directory that contains ``var/agent_data/``, ``build/``, and
+    ``.env``. Used as the subprocess ``cwd`` so that relative workspace paths
+    (e.g. ``var/agent_data/data/002_archiver_read.json``) resolve correctly.
+
+    Resolved directly rather than by taking the parent of the agent-data root:
+    that only ever agreed with the repo root while the data directory sat
+    exactly one level below it, which stopped being true when it moved under
+    ``var/`` and was never true for a project that relocated it.
     """
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey.utils.workspace import load_osprey_config, resolve_project_root
 
-    return resolve_workspace_root().parent
+    return resolve_project_root(load_osprey_config())
 
 
 def resolve_agent_interpreter(project_root: Path | None = None) -> Path:

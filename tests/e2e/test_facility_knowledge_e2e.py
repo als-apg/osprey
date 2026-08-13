@@ -1,7 +1,7 @@
 """Agent e2e: facility knowledge MCP server in the control-assistant preset.
 
-The test boots a control-assistant project (with its example OKF bundle at
-``data/facility_knowledge/``), runs an operator-style query that requires the
+The test builds a control-assistant deployment (whose example OKF bundle is
+rendered to ``build/data/facility_knowledge/``), runs an operator-style query that requires the
 agent to consult the facility_knowledge MCP server, and asserts:
 
 - At least one ``mcp__osprey_facility_knowledge__*`` tool was called.
@@ -90,7 +90,7 @@ async def test_facility_knowledge_pss_reset(tmp_path: Path) -> None:
     discover the bundle contents, or ``read_concept``/``search`` to retrieve
     the procedure — before composing its answer.
     """
-    project = init_project(tmp_path, "fk_demo", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "fk_demo", template="control_assistant", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     query = (
         "A PSS fault is preventing beam injection.  Walk me through the "
@@ -98,7 +98,7 @@ async def test_facility_knowledge_pss_reset(tmp_path: Path) -> None:
         "search, and restore beam permits."
     )
 
-    result = await run_sdk_query(project, query, max_turns=6, max_budget_usd=0.25)
+    result = await run_sdk_query(repo, query, max_turns=6, max_budget_usd=0.25)
 
     fk_calls = [t for t in result.tool_traces if t.name.startswith(_FK_TOOL_PREFIX)]
     assert fk_calls, (
@@ -129,7 +129,7 @@ async def test_facility_knowledge_vacuum_recovery(tmp_path: Path) -> None:
     event.  An operator question about recovering from a pressure excursion
     should drive the agent to retrieve that content.
     """
-    project = init_project(tmp_path, "fk_vac", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "fk_vac", template="control_assistant", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     query = (
         "We had an uncontrolled pressure excursion in the storage ring. "
@@ -137,7 +137,7 @@ async def test_facility_knowledge_vacuum_recovery(tmp_path: Path) -> None:
         "conditions, and roughly how long should each stage take?"
     )
 
-    result = await run_sdk_query(project, query, max_turns=6, max_budget_usd=0.25)
+    result = await run_sdk_query(repo, query, max_turns=6, max_budget_usd=0.25)
 
     fk_calls = [t for t in result.tool_traces if t.name.startswith(_FK_TOOL_PREFIX)]
     assert fk_calls, (
@@ -180,7 +180,7 @@ async def test_facility_knowledge_delegation(tmp_path: Path) -> None:
     - The session completed without an SDK-level error.
     - Answer is grounded: the judge confirms the response addresses the question.
     """
-    project = init_project(tmp_path, "fk_del", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "fk_del", template="control_assistant", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     prompt = (
         "What quality flag states are defined for the beam position monitors at "
@@ -189,7 +189,7 @@ async def test_facility_knowledge_delegation(tmp_path: Path) -> None:
     )
 
     result = await run_sdk_query(
-        project,
+        repo,
         prompt,
         max_turns=20,
         max_budget_usd=1.0,

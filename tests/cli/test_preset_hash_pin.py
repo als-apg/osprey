@@ -32,7 +32,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     #
     # Re-pinned again when control-assistant's control_system.type default
     # flipped from "mock" to "virtual_accelerator" (mock is now the documented
-    # fallback via `osprey config set-control-system mock`) — both extends
+    # fallback via `osprey set connector=mock`) — both extends
     # children inherit the new default, so all three digests moved.
     #
     # Re-pinned again when the RESULTS panel became BLUESKY: the preset's
@@ -84,34 +84,35 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # signal. The archive work and the panel merge landed either side of this
     # merge, so as above the digests carry both at once. Both extends children
     # inherit it, so all three moved.
-    # Re-pinned again when setup-mode left the operator skills roster: it can
-    # patch config.yml/.mcp.json (setup_patch), which is admin work, so
-    # operator-tier terminals no longer render it. NOT behavior-neutral — a
-    # rebuilt project loses a skill directory — so the staleness advisory
-    # firing on already-deployed projects is the correct signal. The skill
-    # stays in the artifact catalog for admin profiles to opt into. Both
-    # extends children inherit the roster, so all three digests moved.
-    # Re-pinned again when the persona tiers were redesigned: the roster now
-    # maps alice→readwrite and bob→readonly (each with a `display_name` tab
-    # title), the base pins `web.theme: light`, both personas pin `web.ui_mode`
-    # (expert/simple), and the EVENTS/BLUESKY panel declarations — `config:`
-    # overrides AND `web_panels` entries — moved from the base into the
-    # readwrite persona so the readonly build is genuinely panel-free (a
-    # persona delta cannot subtract inherited config keys, `enabled: false` is
-    # inert for URL panels, and a panel id and its URL declaration travel
-    # together, the invariant tests/integration/test_preset_static.py holds
-    # every preset to). NOT behavior-neutral — a rebuilt readonly project
-    # loses two tabs, gains the simple surface, and the roster swaps which
-    # port is write-armed. The setup-mode removal and this redesign landed
-    # either side of the same merge, so the digests below carry both at once:
-    # re-pinning against either change alone would leave the other
-    # unaccounted for.
-    "control-assistant": "sha256:5cb998206e2108ca5efa6dadf765ffa401f8c2b7b3b2e35f4a3a23bb1c4b51ba",
+    #
+    # Re-pinned again for the lifecycle redesign. Comment rewrites cannot move
+    # this hash (`_hash_resolved_profile` hashes resolved canonical JSON and
+    # says so); the content change is the two persona `project_path` values,
+    # which moved from the retired sibling layout
+    # (`../control-assistant-<persona>`) into the render zone
+    # (`build/control-assistant-<persona>`). The digests below carry that AND
+    # every archive/panel change above at once — the redesign and the archiver
+    # work landed either side of one merge. Both extends children inherit it,
+    # so all three moved.
+    # Re-pinned again when the persona tiers were redesigned and setup-mode
+    # left the operator skills roster (it can patch config.yml/.mcp.json —
+    # admin work — and stays in the artifact catalog for admin profiles to opt
+    # into). The roster now maps alice→readwrite and bob→readonly (each with a
+    # `display_name` tab title), the base pins `web.theme: light`, both
+    # personas pin `web.ui_mode` (expert/simple), and the EVENTS/BLUESKY panel
+    # declarations — `config:` overrides AND `web_panels` entries — moved from
+    # the base into the readwrite persona so the readonly build is genuinely
+    # panel-free. NOT behavior-neutral: a rebuilt project loses a skill
+    # directory, a rebuilt readonly project loses two tabs and gains the
+    # simple surface, and the roster swaps which port is write-armed. The
+    # lifecycle redesign and this tier redesign landed either side of the same
+    # merge, so the digests below carry both at once.
+    "control-assistant": "sha256:6926cb0ac876d78035618a7fd2102b3bd7c32e409a4e89a1949ab84bc25ce172",
     "control-assistant-readonly": (
-        "sha256:c30526626c8cb4fef2d984e52ecb8897e089832ea584e3edf9d6df4189018682"
+        "sha256:d4f91684bc48b28f51997a32c997d08cb56a108b4acdd9a0a09863472660415a"
     ),
     "control-assistant-readwrite": (
-        "sha256:6ef38e2fe5ef3eaa5d7e4981801b7e1cdb4f75d6e1af2bb2a75d9139b8cf9189"
+        "sha256:be5b976fef2e50caffbc3c34bb1c6123582b3960cdc85d6d657be48cb6ace2dc"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

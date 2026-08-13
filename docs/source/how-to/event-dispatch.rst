@@ -48,13 +48,13 @@ Bring It Up
 ===========
 
 Both services are registered in ``deployed_services``, so they come up with the
-rest of the stack. ``osprey deploy up`` auto-generates both bearer tokens into
+rest of the stack. ``osprey up`` auto-generates both bearer tokens into
 the profile's ``.env`` when they are unset, then derives the project's ``.env``
 from it:
 
 .. code-block:: bash
 
-   osprey deploy up        # add --dev to bake in a local osprey checkout
+   osprey up        # add --dev to bake in a local osprey checkout
 
 The first build is slow: both images install Node and the agent CLI the
 worker runs on.
@@ -63,7 +63,7 @@ worker runs on.
    :icon: package
 
    The two services use two different images, both built locally on first
-   ``osprey deploy up``:
+   ``osprey up``:
 
    - the **dispatcher** gets its own small image
      (``<project>-dispatch:local``, from
@@ -84,7 +84,7 @@ worker runs on.
 
       OSPREY_DISPATCH_IMAGE=my-registry/osprey-dispatch:dev \
       OSPREY_WORKER_IMAGE=my-registry/my-project:dev \
-        osprey deploy up
+        osprey up
 
    Inside the compose network the worker is reachable as
    ``dispatch-worker-1:9190`` — the default ``dispatch_target`` in
@@ -259,7 +259,7 @@ Authoring Triggers
 Authentication
 ==============
 
-Two bearer tokens guard the stack. ``osprey deploy up`` auto-generates a strong
+Two bearer tokens guard the stack. ``osprey up`` auto-generates a strong
 random value for each when it is unset (and logs where it wrote it), so a
 containerized deploy needs no token editing. A generated value is written into
 the **profile's** ``.env`` and derived from there into the project's, so a
@@ -293,4 +293,4 @@ profile's ``.env`` and rebuild:
        Container deployment mechanics for all Osprey services.
 
    :doc:`../cli-reference/index`
-       Full ``osprey build`` and ``osprey deploy`` reference.
+       Full ``osprey build`` and lifecycle-verb reference.

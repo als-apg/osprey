@@ -1,9 +1,9 @@
 """Real-container end-to-end proof of the whole Bluesky *queue* stack.
 
 This is the acceptance instrument for the queue-backed scan stack: a fresh
-``osprey build`` of the shipped ``control-assistant`` preset, deployed with
-``osprey deploy up --dev``, driven through the surface an operator (or the
-agent, or a panel) actually uses -- ``PATCH /draft`` -> ``POST /queue/items``
+``osprey init`` + ``osprey build`` of the shipped ``control-assistant`` preset,
+deployed with ``osprey up --dev``, driven through the surface an operator (or
+the agent, or a panel) actually uses -- ``PATCH /draft`` -> ``POST /queue/items``
 -> ``POST /queue/start`` -> ``GET /runs`` -> ``GET /runs/{id}/data`` -- against
 real containers: the bluesky bridge, the ``bluesky-queueserver`` RE Manager,
 its Redis, the co-deployed Tiled catalog, the Virtual Accelerator soft-IOC,
@@ -44,7 +44,7 @@ Stages, in order, each an independently-reportable test:
 7. ``test_7_restart_*``          -- restarting ONLY the bridge preserves queue
    and history (they live in Redis, not in the bridge), and the completed runs'
    data now serves off the DURABLE Tiled path (``run_uid`` populated).
-8. ``test_8_mock_flip_*``        -- ``osprey config set-control-system mock`` +
+8. ``test_8_mock_flip_*``        -- ``osprey set connector=mock`` + rebuild +
    redeploy: every container still healthy, ``/health`` still 200 but
    ``can_execute: false`` / ``browse_only_connector``, and enqueue refused --
    a browse-only deployment never holds items it could never run.
@@ -84,7 +84,7 @@ a log line.
 CONTAINER SAFETY: every docker invocation below names an EXACT container,
 image, or network belonging to this test's own project. Never a wildcard,
 never ``system prune``, never ``volume rm``. Teardown goes through the shipped
-``osprey deploy down``.
+``osprey down``.
 
 Gating: needs Docker. Lives in ``tests/e2e/`` so the fast lane
 (``pytest tests/ --ignore=tests/e2e``) never collects this ~20-minute
@@ -110,6 +110,7 @@ from typing import Any
 import pytest
 
 from osprey.services.bluesky_bridge.queue_backend import (
+    FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
     REASON_EXECUTABLE,
 )
@@ -225,9 +226,9 @@ _S = _Shared()
 
 @dataclass
 class QueueStack:
-    """Everything the stages need about the one deployed project."""
+    """Everything the stages need about the one deployment repo."""
 
-    project_dir: Path
+    repo: Path
     osprey_bin: Path
     correctors: dict[str, tuple[str, str]]
     bpms: dict[str, str]
@@ -375,20 +376,20 @@ def _wait_for_container_health(container: str, timeout: float) -> None:
     )
 
 
-def _env_value(project_dir: Path, key: str) -> str:
+def _env_value(repo: Path, key: str) -> str:
     from osprey.utils.dotenv import parse_dotenv_file
 
-    env_path = project_dir / ".env"
+    env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path}"
     value = parse_dotenv_file(env_path).get(key)
-    assert value, f"{key} missing/empty in the project .env"
+    assert value, f"{key} missing/empty in the deployment repo's .env"
     return value
 
 
 def _parse_motors(value: str) -> dict[str, tuple[str, str]]:
     """Parse ``BLUESKY_EPICS_MOTORS`` (``name=SP|RB,...``) back into a mapping.
 
-    Read from the .env that ``osprey deploy up`` itself wrote rather than
+    Read from the .env that ``osprey up`` itself wrote rather than
     re-derived here: the device names this test composes plans against are then
     exactly the ones the deployed worker registered, by construction.
     """
@@ -588,9 +589,10 @@ def _drain_leftover_queue_items() -> None:
     """Empty the manager's PENDING queue before the stages start.
 
     The queue is Redis-backed, and that Redis lives in a compose NAMED VOLUME
-    keyed on the project name. ``osprey deploy down`` removes containers and
-    networks but NOT volumes, so a second run of this module against the same
-    project name inherits whatever the previous run left queued -- including,
+    keyed on the project name. ``osprey down`` removes containers and
+    networks but deliberately keeps every volume, so a second run of this module
+    against the same project name inherits whatever the previous run left
+    queued -- including,
     by design, the plan stage 6 aborted (upstream requeues an interrupted plan;
     see `runs._queue_status`). Stage 2 asserts the queue holds exactly the two
     items it enqueued, so inherited work would fail it for a reason that has
@@ -613,7 +615,7 @@ def _drain_leftover_queue_items() -> None:
         return
     print(  # noqa: T201 - surface inherited state in the run log
         f"[fixture] draining {len(leftovers)} queue item(s) left by an earlier run "
-        f"(the Redis volume outlives `deploy down`)"
+        f"(the Redis volume outlives `osprey down`)"
     )
     for item in leftovers:
         uid = item.get("item_uid")
@@ -628,21 +630,26 @@ def _drain_leftover_queue_items() -> None:
 
 @pytest.fixture(scope="module")
 def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
-    """Build + ``osprey deploy up --dev`` the whole queue stack; tear it down after."""
+    """Init + build + ``osprey up --dev`` the whole queue stack; tear it down after."""
     osprey_bin = _orm_stack.find_osprey_console_script()
     base = tmp_path_factory.mktemp("bluesky_queue_e2e")
-    project_dir = base / PROJECT_NAME
+    # The deployment repo. Its directory name IS the deployment name, so the
+    # container/image names derived above still hold.
+    repo = base / PROJECT_NAME
 
     override_path = base / "override.yml"
     override_path.write_text(_override_yaml(), encoding="utf-8")
 
-    build = _run(
+    # Two steps, because the surface has two: `init` writes the repo's source
+    # zone from the preset plus these overrides, `build` renders build/ from it.
+    init = _run(
         [
             str(osprey_bin),
-            "build",
-            PROJECT_NAME,
+            "init",
+            str(repo),
             "--preset",
             "control-assistant",
+            "--no-git",
             "--override",
             str(override_path),
             "--set",
@@ -653,12 +660,18 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             f"bluesky.tiled_port={TILED_PORT}",
             "--set",
             f"bluesky_panels.port={PANELS_PORT}",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
         ],
+        cwd=base,
+        timeout=BUILD_TIMEOUT_SEC,
+    )
+    if init.returncode != 0:
+        pytest.fail(
+            f"osprey init failed (rc={init.returncode}):\n"
+            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
+        )
+
+    build = _run(
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
@@ -668,9 +681,20 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
+    # The repo root's .env is the deployment's whole secret store and the file
+    # every compose invocation is pointed at, so `up` refuses to start without
+    # one. `osprey init` writes it only when the shell exports a key for this
+    # profile's provider, and nothing in this proof shells out to an LLM — this
+    # is the `cp .env.example .env` the CLI itself recommends, done for the
+    # operator. It is also where `up` mints BLUESKY_LAUNCH_TOKEN and derives
+    # BLUESKY_EPICS_MOTORS/_DETECTORS, both read back below.
+    env_path = repo / ".env"
+    if not env_path.exists():
+        shutil.copy(repo / ".env.example", env_path)
+
     # Force fresh --dev builds so the deployed containers run CURRENT source
-    # (`osprey deploy up` does not pass --build to compose, so it would
-    # otherwise reuse a stale cached image). Exact-named images only.
+    # (`osprey up` does not pass --build to compose, so it would otherwise
+    # reuse a stale cached image). Exact-named images only.
     # E2E_REUSE_IMAGES=1 skips this for fast local iteration on the test
     # itself; never set it in CI, where a source change must always rebuild.
     if not os.environ.get("E2E_REUSE_IMAGES"):
@@ -679,13 +703,13 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
 
     try:
         up = _run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=project_dir,
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
 
@@ -697,34 +721,38 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
 
         _drain_leftover_queue_items()
 
-        # Device names come from the .env `osprey deploy up` itself wrote
-        # (_ensure_bluesky_substrate_env derives them from the built project's
-        # own channel_limits.json) -- so the plans this test composes name
+        # Device names come from the .env `osprey up` itself wrote
+        # (_ensure_bluesky_substrate_env derives them from the render's own
+        # channel_limits.json) -- so the plans this test composes name
         # exactly the devices the deployed worker registered, and a change in
         # that derivation shows up here as a real failure rather than a
         # silently-diverging second copy of the same logic.
-        correctors = _parse_motors(_env_value(project_dir, "BLUESKY_EPICS_MOTORS"))
-        bpms = _parse_detectors(_env_value(project_dir, "BLUESKY_EPICS_DETECTORS"))
-        assert correctors, "deploy up wrote no BLUESKY_EPICS_MOTORS -- no device to scan"
-        assert bpms, "deploy up wrote no BLUESKY_EPICS_DETECTORS -- no device to read"
+        correctors = _parse_motors(_env_value(repo, "BLUESKY_EPICS_MOTORS"))
+        bpms = _parse_detectors(_env_value(repo, "BLUESKY_EPICS_DETECTORS"))
+        assert correctors, "osprey up wrote no BLUESKY_EPICS_MOTORS -- no device to scan"
+        assert bpms, "osprey up wrote no BLUESKY_EPICS_DETECTORS -- no device to read"
 
+        # The render's copy, not the operator-owned source under <repo>/data/:
+        # the limits database resolves against CONFIG_FILE's directory, which
+        # the render points at <repo>/build/config.yml, so this is the file
+        # whose channels the deployed containers see.
         limits = json.loads(
-            (project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8")
+            (repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
         )
 
         yield QueueStack(
-            project_dir=project_dir,
+            repo=repo,
             osprey_bin=osprey_bin,
             correctors=correctors,
             bpms=bpms,
             limits=limits,
-            token=_env_value(project_dir, "BLUESKY_LAUNCH_TOKEN"),
+            token=_env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
         )
     finally:
-        down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=600)
+        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=600)
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
@@ -781,7 +809,7 @@ def test_1_capability_never_leaks_the_control_socket_credential(stack: QueueStac
     docstring), so "public" is a misnomer: anything that reaches a panel or a
     log must not contain it.
     """
-    public_key = _env_value(stack.project_dir, "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY")
+    public_key = _env_value(stack.repo, "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY")
     for label, (_status, body) in (
         ("bridge /health", _get("/health")),
         ("sidecar /bridge/health", _sidecar_get("/bridge/health")),
@@ -1359,8 +1387,8 @@ def test_7_bridge_restart_preserves_queue_and_history(stack: QueueStack) -> None
     queue and history live in Redis. So a bridge that comes back must still see
     every run it saw before, without replaying anything.
 
-    Only the bridge container is restarted, by exact name: ``osprey deploy
-    restart`` would bounce Redis and the manager too and defeat the proof.
+    Only the bridge container is restarted, by exact name: ``osprey restart``
+    would bounce Redis and the manager too and defeat the proof.
     """
     known_runs = [r for r in (_S.run_live, _S.run_short, _S.run_session) if r]
     if not known_runs:
@@ -1435,7 +1463,7 @@ def test_7_completed_run_data_serves_from_tiled_after_the_restart(stack: QueueSt
 
 
 def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None:
-    """``set-control-system mock`` + redeploy -> healthy, but browse-only.
+    """``osprey set connector=mock`` + rebuild + redeploy -> healthy, but browse-only.
 
     Three claims, and the first is the one people get wrong: a browse-only
     deployment is a HEALTHY deployment. ``/health`` still answers 200 and every
@@ -1445,20 +1473,35 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
     queue items, because an item sitting in a queue reads as work that will
     happen.
 
+    The flip takes three commands rather than two, and that is the surface
+    telling the truth: ``osprey set`` writes ``profile.yml`` (the source), and
+    ``build/`` is the only thing ``osprey up`` starts. Without the rebuild in
+    between, ``up`` refuses outright -- it fingerprints the profile against the
+    render and will not quietly deploy an edit that was never built.
+
     Deliberately last among the functional stages: it leaves the deployment on
     the mock connector, and stage 9's probes do not care which connector is
     configured.
     """
     flip = _run(
-        [str(stack.osprey_bin), "config", "set-control-system", "mock"],
-        cwd=stack.project_dir,
+        [str(stack.osprey_bin), "set", "connector=mock"],
+        cwd=stack.repo,
         timeout=180,
     )
-    assert flip.returncode == 0, f"set-control-system mock failed: {flip.stdout}\n{flip.stderr}"
+    assert flip.returncode == 0, f"osprey set connector=mock failed: {flip.stdout}\n{flip.stderr}"
+
+    rebuild = _run(
+        [str(stack.osprey_bin), "build", "--skip-deps", "--skip-lifecycle", "--dev"],
+        cwd=stack.repo,
+        timeout=BUILD_TIMEOUT_SEC,
+    )
+    assert rebuild.returncode == 0, (
+        f"rebuild after the mock flip failed: {rebuild.stdout}\n{rebuild.stderr}"
+    )
 
     up = _run(
-        [str(stack.osprey_bin), "deploy", "up", "-d", "--dev"],
-        cwd=stack.project_dir,
+        [str(stack.osprey_bin), "up", "-d", "--dev"],
+        cwd=stack.repo,
         timeout=DEPLOY_UP_TIMEOUT_SEC,
     )
     assert up.returncode == 0, f"redeploy after the mock flip failed: {up.stdout}\n{up.stderr}"
@@ -1477,7 +1520,10 @@ def test_8_mock_flip_makes_the_deployment_browse_only(stack: QueueStack) -> None
     assert capability["reason"] == REASON_BROWSE_ONLY_CONNECTOR, (
         f"wrong capability reason on the mock connector: {capability}"
     )
-    assert "set-control-system virtual_accelerator" in capability["detail"], (
+    # Asserted against the bridge's own FLIP_COMMAND rather than a literal: the
+    # subject is that the detail NAMES the flip command, and a copy of its
+    # spelling here would pin whichever verb that constant happened to hold.
+    assert FLIP_COMMAND in capability["detail"], (
         f"the browse-only detail must name the command that flips it: {capability}"
     )
 
@@ -1531,7 +1577,7 @@ def _project_network(name: str) -> str:
     """The full docker network name for this project's ``osprey-network``.
 
     Compose prefixes networks with the project name, and the exact prefix
-    depends on how ``deploy up`` invoked compose -- so read it off a container
+    depends on how ``osprey up`` invoked compose -- so read it off a container
     that is only ever attached to that one network rather than guessing.
     """
     raw = _docker_inspect(name, "{{json .NetworkSettings.Networks}}")

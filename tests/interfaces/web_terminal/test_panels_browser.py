@@ -660,11 +660,37 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
         page = _open_page(chromium_browser, base_url)
         artifacts_rail = page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
         expect(artifacts_rail).to_be_visible(timeout=10_000)
+        # Wait for the panel to actually be DOCKED before closing it — the
+        # premise of this test is that a panel is open. `_open_page` only waits
+        # for the rail entry and the first dockview group, and the rail renders
+        # before the initial dock completes. Closing in that window closes
+        # nothing, the dock then lands, and the tab this test expects to
+        # disappear is instead created after the fact — so the assertion below
+        # sees 1 for its whole timeout and reads as a product regression. Every
+        # other test in this file asserts the same precondition first.
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=10_000)
 
         # Close the only panel via its rail "×" → terminal is the sole group.
+        #
+        # The click removes NOTHING by itself. `panel-commands.setPanelVisibility`
+        # is fire-and-forget: it POSTs /api/panel-visibility, returns immediately,
+        # and swallows failures — the DOM is driven by the server's
+        # panel_visibility SSE echo, so what these waits span is a full
+        # click → POST → broadcast → client-handler round trip, not a local
+        # re-render. A short fixed budget here fails under whole-suite load with
+        # the tile count pinned at 1 for the entire window and no error to show
+        # for it, which reads as a product regression.
+        #
+        # So: wait on the echo's OWN first effect. The handler removes the rail
+        # entry and then drops the tile (panel-manager.js's panel_visibility
+        # branch, removeEntry before hidePanel), so a vanished rail entry means
+        # the echo arrived and was applied; the tile assertion after it is then
+        # about the handler's work, not about the network. Both at the 10s budget
+        # this file already uses for round trips that must survive suite load.
         artifacts_rail.hover()
         page.locator('button[data-panel-id="artifacts"] .panel-rail-close').click()
-        expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=5_000)
+        expect(artifacts_rail).to_have_count(0, timeout=10_000)
+        expect(_service_tab(page, "WORKSPACE")).to_have_count(0, timeout=10_000)
         page.wait_for_function(
             "() => document.querySelectorAll('.dv-groupview').length === 1", timeout=5_000
         )
@@ -852,10 +878,16 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
 # onUnhandledDragOver (accepted by rail-drag.js) and then onDidDrop. The drop
 # only registers once a dragover has been PROCESSED — dockview settles its
 # overlay state asynchronously and needs more than one dragover to resolve a
-# target — so the sequence polls for dockview's own drop-target overlay rather
-# than sleeping a fixed budget. A drop dispatched before that overlay exists is
-# silently ignored, which is a no-op the assertions can only report as a
-# missing tab, so the wait is asserted here where it can name itself.
+# target — so each attempt polls for dockview's own drop-target overlay before
+# dropping rather than sleeping a fixed budget: a drop dispatched before that
+# overlay exists is silently ignored, a no-op the assertions can only report
+# as a missing tab. How long the whole gesture takes is load-dependent, so it
+# is also RETRIED until the dock actually happened. The landing signal is the
+# tile bar dock-tab.js stamps for the placeholder
+# (`.tile-tab[data-panel-id="iframe:<id>"]`), the same DOM the caller's tab
+# assertions read; the caller still owns WHERE the tile landed, so a drop that
+# settles in the wrong place fails there as a real regression rather than
+# being retried away.
 _RAIL_DRAG_DROP_JS = """async (panelId) => {
     const entry = document.querySelector(
         `button.panel-rail-button[data-panel-id="${panelId}"]`);
@@ -877,20 +909,43 @@ _RAIL_DRAG_DROP_JS = """async (panelId) => {
     const target = document.elementFromPoint(x, y) ?? content;
     // dockview paints .dv-drop-target-selection once it has resolved the drop
     // position; the '-bottom' modifier is the edge split this drag intends, so
-    // waiting on it also proves the geometry resolved the way the test claims.
+    // gating each drop on it proves the geometry resolved the way the test
+    // claims. 20 attempts with a 500ms overlay budget each — an unloaded
+    // machine lands on the first attempt in ~150ms, a loaded one gets an order
+    // of magnitude more slack than any single hardcoded wait could give it.
+    const ATTEMPTS = 20;
+    const OVERLAY_BUDGET_MS = 500;
+    const SETTLE_MS = 80;
     const overlay = () => document.querySelector(
         '.dv-drop-target-selection.dv-drop-target-bottom');
-    target.dispatchEvent(new DragEvent('dragenter', opts));
-    const deadline = performance.now() + 5000;
-    while (!overlay() && performance.now() < deadline) {
-        target.dispatchEvent(new DragEvent('dragover', opts));
-        await new Promise((res) => setTimeout(res, 50));
+    const landed = () => !!document.querySelector(
+        `.dv-groupview .dv-tab .tile-tab[data-panel-id="iframe:${panelId}"]`);
+    let tries = 0;
+    while (tries < ATTEMPTS && !landed()) {
+        tries += 1;
+        // dockview clears its drop target on drop, so each attempt re-arms it
+        // with a fresh dragenter, then holds the dragover until dockview has
+        // painted the bottom-edge overlay before dispatching the drop.
+        target.dispatchEvent(new DragEvent('dragenter', opts));
+        const deadline = performance.now() + OVERLAY_BUDGET_MS;
+        while (!overlay() && performance.now() < deadline) {
+            target.dispatchEvent(new DragEvent('dragover', opts));
+            await new Promise((res) => setTimeout(res, 50));
+        }
+        if (!overlay()) {
+            continue;  // never resolved this attempt; re-arm and try again
+        }
+        target.dispatchEvent(new DragEvent('drop', opts));
+        await new Promise((res) => setTimeout(res, SETTLE_MS));
     }
-    if (!overlay()) {
-        throw new Error('dockview never resolved a bottom-edge drop target');
-    }
-    target.dispatchEvent(new DragEvent('drop', opts));
     entry.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+    if (!landed()) {
+        throw new Error(
+            `RailDropNeverSettled: no tile appeared for 'iframe:${panelId}' after ` +
+            `${tries} overlay-gated drop attempts — the rail drop was never ` +
+            `accepted by dockview.`);
+    }
+    return tries;
 }"""
 
 

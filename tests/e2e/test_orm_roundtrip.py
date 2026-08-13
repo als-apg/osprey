@@ -30,14 +30,14 @@ agreement is therefore bounded only by AT numerical-solve reproducibility and
 the JSON/HTTP round trip, not a physical noise floor -- see ``MATCH_ATOL``.
 
 No preset channel names are hardcoded: correctors and BPMs are derived from
-the DEPLOYED project's own ``data/channel_limits.json`` via
-``_orm_stack.select_correctors``/``select_bpms`` (restricted to the
-pyat-coupled partition, exactly the class of device the ``orm`` plan and the
-model oracle both operate on).
+the render's own ``build/data/channel_limits.json`` -- the limits database the
+deployed containers actually read -- via ``_orm_stack.select_correctors``/
+``select_bpms`` (restricted to the pyat-coupled partition, exactly the class of
+device the ``orm`` plan and the model oracle both operate on).
 
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
-Teardown goes through ``osprey deploy down``, matching every other e2e in
+Teardown goes through ``osprey down``, matching every other e2e in
 this directory.
 
 Gating: needs Docker; the VA image builds natively for the host arch, so on
@@ -120,15 +120,15 @@ def _get(path: str) -> tuple[int, Any]:
 
 
 class DeployedOrmStack:
-    """Everything the round-trip test needs about the one co-deployed project."""
+    """Everything the round-trip test needs about the one deployment repo."""
 
     def __init__(
         self,
-        project_dir: Path,
+        repo: Path,
         correctors: dict[str, tuple[str, str]],
         bpms: dict[str, str],
     ):
-        self.project_dir = project_dir
+        self.repo = repo
         self.correctors = correctors
         self.bpms = bpms
 
@@ -136,14 +136,21 @@ class DeployedOrmStack:
 @pytest.fixture(scope="module")
 def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedOrmStack]:
     base = tmp_path_factory.mktemp("orm_roundtrip_build")
-    project_dir = _orm_stack.build_project_subprocess(
+    # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
+    # render `osprey build` produced is `<repo>/build`.
+    repo = _orm_stack.build_project_subprocess(
         PROJECT_NAME, output_dir=base, timeout=BUILD_TIMEOUT_SEC
     )
 
-    limits = _orm_stack.channel_limits(project_dir)
+    # The render's copy, not the operator-owned source under <repo>/data/:
+    # control_system.limits_checking.database_path resolves against the rendered
+    # config's directory, so build/data is the file the containers actually read.
+    limits = _orm_stack.channel_limits(repo / "build")
     correctors = _orm_stack.select_correctors(limits)
     bpms = _orm_stack.select_bpms(limits)
-    _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
+    # Writes the repo root's `.env` — the deployment's whole secret store, and
+    # the file `osprey up` refuses to start without.
+    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -153,8 +160,8 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
 
     try:
         up = subprocess.run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
@@ -162,7 +169,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
@@ -180,18 +187,18 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
             _queue_drive.wait_for_worker_environment(BRIDGE_URL)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
-        yield DeployedOrmStack(project_dir=project_dir, correctors=correctors, bpms=bpms)
+        yield DeployedOrmStack(repo=repo, correctors=correctors, bpms=bpms)
     finally:
         down = subprocess.run(
-            [str(osprey_bin), "deploy", "down"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "down"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=300,
         )
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
@@ -260,7 +267,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
         "num": NUM_POINTS,
     }
 
-    token = _orm_stack.minted_launch_token(deployed_orm_stack.project_dir)
+    token = _orm_stack.minted_launch_token(deployed_orm_stack.repo)
     run_id, status_body = _queue_drive.run_scan(
         BRIDGE_URL,
         "orm",

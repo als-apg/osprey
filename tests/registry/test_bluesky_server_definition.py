@@ -46,8 +46,8 @@ def test_bluesky_server_module():
 
 def test_bluesky_server_env():
     bluesky = _resolve_bluesky()
-    assert bluesky["env"]["OSPREY_CONFIG"] == "/tmp/test-project/config.yml"
-    assert bluesky["env"]["CONFIG_FILE"] == "/tmp/test-project/config.yml"
+    assert bluesky["env"]["OSPREY_CONFIG"] == "/tmp/test-project/build/config.yml"
+    assert bluesky["env"]["CONFIG_FILE"] == "/tmp/test-project/build/config.yml"
     # Shell variable references pass through untouched for runtime expansion.
     assert bluesky["env"]["BLUESKY_BRIDGE_URL"] == "${BLUESKY_BRIDGE_URL:-http://127.0.0.1:8090}"
     assert bluesky["env"]["BLUESKY_LAUNCH_TOKEN"] == "${BLUESKY_LAUNCH_TOKEN:-}"

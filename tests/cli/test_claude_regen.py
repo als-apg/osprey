@@ -1,8 +1,11 @@
 """Tests for Claude Code artifact regeneration.
 
-Tests that `osprey claude regen` correctly rebuilds Claude Code artifacts
-from config.yml, preserves user files, creates backups, and maintains
-safety hooks across regeneration cycles.
+``TemplateManager.regenerate_claude_code`` rebuilds a project's ``.claude/``
+tree, ``.mcp.json`` and ``CLAUDE.md`` from its ``config.yml``. It runs as a
+step of ``osprey build`` — there is no standalone regeneration verb — and these
+tests drive it directly, which is where its contract actually lives: the
+artifacts it produces, the user files it preserves, the backup it takes, and
+the safety hooks it must never drop between one render and the next.
 """
 
 import json
@@ -452,25 +455,6 @@ class TestSafetyPreservation:
 class TestUserFilePreservation:
     """Test that regeneration preserves user-maintained files."""
 
-    def test_creates_backup(self, tmp_path):
-        """Regen creates backup directory in _agent_data/backup/."""
-        manager = TemplateManager()
-        project_dir = manager.create_project(
-            project_name="backup-test",
-            output_dir=tmp_path,
-            data_bundle="control_assistant",
-            context={"channel_finder_mode": "hierarchical"},
-        )
-
-        result = manager.regenerate_claude_code(project_dir)
-
-        backup_dir = result["backup_dir"]
-        assert backup_dir is not None
-        assert os.path.exists(backup_dir)
-        # Backup should contain the original files
-        assert os.path.exists(os.path.join(backup_dir, ".mcp.json"))
-        assert os.path.exists(os.path.join(backup_dir, "CLAUDE.md"))
-
     def test_claude_md_has_generated_header(self, tmp_path):
         """CLAUDE.md has the generated-file header comment."""
         manager = TemplateManager()
@@ -509,9 +493,8 @@ class TestErrorHandling:
         # Record file mtimes
         mcp_mtime = (project_dir / ".mcp.json").stat().st_mtime
 
-        result = manager.regenerate_claude_code(project_dir, dry_run=True)
+        manager.regenerate_claude_code(project_dir, dry_run=True)
 
-        assert result["backup_dir"] is None
         # File should not be modified
         assert (project_dir / ".mcp.json").stat().st_mtime == mcp_mtime
 
@@ -522,7 +505,7 @@ class TestErrorHandling:
         never rewrites an existing copy, so the dry-run comparison must not
         report it as drift. A phantom diff here makes regen_if_drift perform a
         full regen (and churn a backup dir) on every web launch / config write,
-        and makes `osprey claude status` report permanent false drift.
+        and makes `osprey status` report permanent false drift.
         """
         manager = TemplateManager()
         project_dir = manager.create_project(
@@ -923,12 +906,18 @@ class TestDisableServers:
         assert {"controls", "osprey_workspace", "ariel"} <= ctx["enabled_servers"]
 
 
-class TestRegenRuntimeRoot:
-    """Test `osprey claude regen --runtime-root` path relocation.
+class TestRegenRelocation:
+    """Rendering a project's artifacts against a root it does not live at.
 
-    The flag rewrites recorded host paths in config.yml (comment-preserving)
-    and re-renders artifacts against the new root — the supported way to fix
-    up a project copied into a container image.
+    ``project_root_override`` is how a project built on a host renders the
+    artifacts a COPY of it will use somewhere else — inside a container image,
+    most of all. Everything below drives
+    :meth:`TemplateManager.regenerate_claude_code` directly, which is the whole
+    of that contract now: the standalone verb that used to wrap it is gone, and
+    rewriting the recorded ``project_root`` in config.yml went with it (the
+    container image's own path contract is Task 3.8's subject). What survives,
+    and is pinned here, is that an override reaches the RENDERED artifacts and
+    never writes to config.yml at all.
     """
 
     def _create(self, tmp_path, name):
@@ -940,66 +929,34 @@ class TestRegenRuntimeRoot:
             context={"channel_finder_mode": "hierarchical"},
         )
 
-    def _invoke(self, args):
-        from click.testing import CliRunner
+    def test_a_relocated_render_records_no_interpreter_path(self, tmp_path):
+        """A render for another machine must name no interpreter at all.
 
-        from osprey.cli.main import cli
-
-        return CliRunner().invoke(cli, args)
-
-    def test_project_root_rewritten_and_comments_preserved(self, tmp_path):
-        """config.yml project_root is rewritten; a known comment survives."""
-        project_dir = self._create(tmp_path, "rr-rewrite")
-        config_file = project_dir / "config.yml"
-        config_file.write_text("# KEEP-THIS-COMMENT\n" + config_file.read_text())
-
-        result = self._invoke(
-            ["claude", "regen", "--project", str(project_dir), "--runtime-root", "/app/rr-rewrite"]
-        )
-        assert result.exit_code == 0, result.output
-
-        text = config_file.read_text()
-        assert "# KEEP-THIS-COMMENT" in text, "ruamel rewrite must preserve comments"
-        config = yaml.safe_load(text)
-        assert config["project_root"] == "/app/rr-rewrite"
-
-    def test_relocation_records_no_interpreter_path(self, tmp_path):
-        """Relocation rewrites ``project_root`` and records no interpreter.
-
-        ``project_root`` is the only host path config.yml carries, so a
-        relocated project's config must name no interpreter at all — not the
-        one that ran the regen, not any other.
+        Not the one that ran the render, not any other: the interpreter is
+        resolved from the filesystem where the artifacts are USED, and a path
+        baked in here would be a host path that does not exist there.
         """
         import sys
 
         project_dir = self._create(tmp_path, "rr-no-interp")
         config_file = project_dir / "config.yml"
 
-        result = self._invoke(
-            [
-                "claude",
-                "regen",
-                "--project",
-                str(project_dir),
-                "--runtime-root",
-                "/app/rr-no-interp",
-            ]
+        TemplateManager().regenerate_claude_code(
+            project_dir, project_root_override="/app/rr-no-interp"
         )
-        assert result.exit_code == 0, result.output
 
         text = config_file.read_text()
         config = yaml.safe_load(text)
-        assert config["project_root"] == "/app/rr-no-interp"
         assert "python_env_path" not in config.get("execution", {})
         assert sys.executable not in text, (
-            "relocation must not write the regenerating interpreter into config.yml"
+            "a relocated render must not write the rendering interpreter into config.yml"
         )
 
-    def test_stale_interpreter_path_is_left_alone_and_stays_inert(self, tmp_path):
+    def test_a_stale_recorded_interpreter_is_left_alone_and_stays_inert(self, tmp_path):
         """A legacy config's recorded interpreter is neither healed nor honoured.
 
-        Older projects may still carry ``execution.python_env_path``. Relocation
-        no longer rewrites it — nothing reads it — and the artifacts it renders
+        Older projects may still carry ``execution.python_env_path``. The render
+        does not rewrite it — nothing reads it — and the artifacts it produces
         must not launch MCP servers with that stale path.
         """
         import sys
@@ -1011,14 +968,13 @@ class TestRegenRuntimeRoot:
         config_file = project_dir / "config.yml"
         config_update_fields(config_file, {"execution.python_env_path": stale})
 
-        result = self._invoke(
-            ["claude", "regen", "--project", str(project_dir), "--runtime-root", str(project_dir)]
+        TemplateManager().regenerate_claude_code(
+            project_dir, project_root_override=str(project_dir)
         )
-        assert result.exit_code == 0, result.output
 
         config = yaml.safe_load(config_file.read_text())
         assert config["execution"]["python_env_path"] == stale, (
-            "regen must leave the retired key untouched rather than healing it"
+            "the render must leave the retired key untouched rather than healing it"
         )
 
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
@@ -1031,21 +987,18 @@ class TestRegenRuntimeRoot:
             f"(this also proves the check above is not vacuous), got {commands}"
         )
 
-    def test_rendered_artifacts_reference_runtime_root(self, tmp_path):
-        """.mcp.json paths point at the runtime root after relocation."""
+    def test_rendered_artifacts_reference_the_override_root(self, tmp_path):
+        """The override has to reach the artifacts, or it changes nothing.
+
+        ``.mcp.json`` is where it shows: every server's ``OSPREY_CONFIG`` is
+        anchored on the project root, so an override that did not reach here
+        would leave a relocated copy pointing back at the build host.
+        """
         project_dir = self._create(tmp_path, "rr-artifacts")
 
-        result = self._invoke(
-            [
-                "claude",
-                "regen",
-                "--project",
-                str(project_dir),
-                "--runtime-root",
-                "/app/rr-artifacts",
-            ]
+        TemplateManager().regenerate_claude_code(
+            project_dir, project_root_override="/app/rr-artifacts"
         )
-        assert result.exit_code == 0, result.output
 
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
         controls = mcp_data["mcpServers"].get("controls", {})
@@ -1053,34 +1006,20 @@ class TestRegenRuntimeRoot:
             config_path = controls["env"].get("OSPREY_CONFIG", "")
             assert config_path.startswith("/app/rr-artifacts")
 
-    def test_dry_run_leaves_config_unchanged(self, tmp_path):
-        """--dry-run with --runtime-root must not rewrite config.yml."""
-        project_dir = self._create(tmp_path, "rr-dry-run")
+    def test_an_override_never_writes_to_config_yml(self, tmp_path):
+        """config.yml is an INPUT to the render, never an output of it.
+
+        This is what makes an override safe to run twice, and what keeps a
+        relocated render from silently editing the source it was derived from.
+        """
+        project_dir = self._create(tmp_path, "rr-no-write")
         config_file = project_dir / "config.yml"
         original = config_file.read_text()
 
-        result = self._invoke(
-            [
-                "claude",
-                "regen",
-                "--project",
-                str(project_dir),
-                "--runtime-root",
-                "/app/rr-dry-run",
-                "--dry-run",
-            ]
+        TemplateManager().regenerate_claude_code(
+            project_dir, project_root_override="/app/rr-no-write"
         )
-        assert result.exit_code == 0, result.output
-        assert config_file.read_text() == original
 
-    def test_regen_without_flag_is_unchanged_behavior(self, tmp_path):
-        """Plain regen (no --runtime-root) never rewrites config.yml."""
-        project_dir = self._create(tmp_path, "rr-no-flag")
-        config_file = project_dir / "config.yml"
-        original = config_file.read_text()
-
-        result = self._invoke(["claude", "regen", "--project", str(project_dir)])
-        assert result.exit_code == 0, result.output
         assert config_file.read_text() == original
 
 
@@ -1418,15 +1357,17 @@ class TestWritesToggleRegen:
         )
         manager.regenerate_claude_code(project_dir)
 
-        # Already in sync → no-op, and crucially NO real regen (no new backup dir).
-        backup_dir = project_dir / "_agent_data" / "backup"
-
-        def _backup_count():
-            return len(list(backup_dir.glob("claude-code-*"))) if backup_dir.exists() else 0
-
-        before = _backup_count()
+        # Already in sync → no-op, and crucially NO real regen. Observed on
+        # `.mcp.json`'s mtime: a real regen rewrites it (identical bytes, new
+        # mtime) while the in-sync path returns before writing anything, and
+        # only ever stamps `.claude/settings.json` — so settings.json cannot
+        # serve as this witness and .mcp.json can.
+        mcp_json = project_dir / ".mcp.json"
+        before = mcp_json.stat().st_mtime_ns
         assert manager.regen_if_drift(project_dir) == []
-        assert _backup_count() == before, "in-sync regen_if_drift must not create a backup"
+        assert mcp_json.stat().st_mtime_ns == before, (
+            "in-sync regen_if_drift must not re-render the Claude Code artifacts"
+        )
 
         # Drift the config by flipping writes_enabled → regen_if_drift reports the change.
         config_path = project_dir / "config.yml"
@@ -1434,6 +1375,10 @@ class TestWritesToggleRegen:
         current = bool(cfg.get("control_system", {}).get("writes_enabled", False))
         config_update_fields(config_path, {"control_system.writes_enabled": not current})
         changed = manager.regen_if_drift(project_dir)
+        # The other half of the witness above: a real regen DOES move that
+        # mtime, so the equality asserted for the in-sync path is a property of
+        # the no-op and not of the observable.
+        assert mcp_json.stat().st_mtime_ns != before
         assert any("settings.json" in f for f in changed)
 
     def test_regen_if_drift_stamps_settings_mtime_on_cosmetic_edit(self, tmp_path):
@@ -1443,7 +1388,7 @@ class TestWritesToggleRegen:
         settings.json's. A cosmetic edit (e.g. a YAML comment, or a runtime-read
         field) makes config.yml newer while regen_if_drift correctly finds nothing
         to regenerate — without an mtime stamp the hook would warn at every
-        session start until a full `osprey claude regen`, training operators to
+        session start until a full `osprey build`, training operators to
         ignore the warning.
         """
         manager = TemplateManager()

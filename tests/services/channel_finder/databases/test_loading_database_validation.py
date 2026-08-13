@@ -76,6 +76,20 @@ def _no_hierarchy_doc() -> dict:
     return {"tree": tree_only_doc()["tree"]}
 
 
+def _no_naming_pattern_doc() -> dict:
+    """A ``hierarchy`` section with its ``levels``, but no ``naming_pattern``."""
+    doc = tree_only_doc()
+    del doc["hierarchy"]["naming_pattern"]
+    return doc
+
+
+def _no_levels_doc() -> dict:
+    """A ``hierarchy`` section with its ``naming_pattern``, but no ``levels``."""
+    doc = tree_only_doc()
+    del doc["hierarchy"]["levels"]
+    return doc
+
+
 def _undefined_pattern_level_doc() -> dict:
     """Valid levels, but the pattern names a level that was never declared."""
     doc = tree_only_doc()
@@ -118,6 +132,16 @@ DOCUMENT_REJECTIONS = [
         _no_hierarchy_doc,
         "must contain 'hierarchy' section",
         id="missing-hierarchy-section",
+    ),
+    pytest.param(
+        _no_naming_pattern_doc,
+        "has no 'naming_pattern'",
+        id="missing-naming-pattern",
+    ),
+    pytest.param(
+        _no_levels_doc,
+        "has no 'levels'",
+        id="missing-levels",
     ),
     pytest.param(
         _undefined_pattern_level_doc,

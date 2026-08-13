@@ -22,7 +22,7 @@ Only the latter is ever handed to a container, so a plaintext password set for
 convenience never ships.
 
 Username validity is enforced *here* as a hard raise rather than left to lint:
-``osprey deploy`` never runs lint, and two usernames that normalize onto one
+``osprey up`` never runs lint, and two usernames that normalize onto one
 env-var suffix (``alice-b`` and ``alice_b``) would silently share a single hash
 — one operator's password opening the other's terminal, the exact isolation
 failure this feature exists to prevent.
@@ -169,7 +169,7 @@ def _append_entries(env_auth_path: Path, entries: dict[str, str], header: str) -
     truncated. That degrades fail-closed in every case — a truncated hash value
     no longer verifies any password, and a truncated variable name leaves its
     user with no hash at all (the next deploy re-mints one). Neither outcome
-    grants access, and an operator recovers either with ``osprey deploy passwd
+    grants access, and an operator recovers either with ``osprey users passwd
     <user>``. Entries written before the torn line are complete and unaffected,
     since each occupies its own line.
 
@@ -236,7 +236,7 @@ def raise_if_env_auth_would_be_interpolated(project_root: str | Path) -> None:
     accepts their password — the exact divergence those verbs exist to prevent,
     traded for an unrelated secret. Refusing *before* any mutation costs
     nothing, and a corrupt value left in place is still caught by the next
-    ``osprey deploy up``.
+    ``osprey up``.
     """
     env_auth = Path(project_root) / AUTH_ENV_FILENAME
     if not env_auth.is_file():
@@ -588,7 +588,7 @@ def _atomic_rewrite(env_auth_path: Path, lines: list[str]) -> None:
 def set_auth_password(username: str, password: str, project_root: str | Path) -> Path:
     """Replace ``username``'s stored hash with one derived from ``password``.
 
-    The rotation entry point behind ``osprey deploy passwd <user>``, and the only
+    The rotation entry point behind ``osprey users passwd <user>``, and the only
     operation in this module that deliberately overwrites an established
     credential — :func:`ensure_auth_credentials` exists precisely never to do
     that.

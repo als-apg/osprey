@@ -105,7 +105,7 @@ _BROWSE_ONLY = {
     "detail": (
         "This deployment uses the mock connector, which cannot move hardware, so scan "
         "plans can be composed and validated but not executed. To execute plans, run "
-        "`osprey config set-control-system virtual_accelerator` and redeploy."
+        "`osprey set connector=virtual_accelerator` and redeploy."
     ),
 }
 
@@ -141,7 +141,7 @@ async def test_queue_status_does_not_gate_liveness_on_can_execute(tmp_path, monk
     parsed = extract_response_dict(result)
     assert parsed["status"] == "ok"
     assert parsed["capability"]["can_execute"] is False
-    assert "set-control-system virtual_accelerator" in parsed["capability"]["detail"]
+    assert "osprey set connector=virtual_accelerator" in parsed["capability"]["detail"]
     assert "error" not in parsed
 
 

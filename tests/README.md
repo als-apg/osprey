@@ -242,7 +242,7 @@ This is the rule that catches people out, so it is worth stating flatly:
 
 ```python
 patch("subprocess.run")                        # obviously global
-patch("osprey.cli.claude_cmd.subprocess.run")  # equally global — just looks scoped
+patch("osprey.cli.chat_cmd.subprocess.run")   # equally global — just looks scoped
 ```
 
 After a module does `import subprocess`, `module.subprocess` **is** the stdlib
@@ -262,7 +262,7 @@ patch is global no matter how you spell the target. This is equally true for
 importing module's own `subprocess` *name* to a stand-in. Its docstring is the
 reference:
 
-> Patch `subprocess.run` for one module without touching the stdlib module.
+> Patch `subprocess` for one module without touching the stdlib module.
 >
 > A patch target that names the module under test is *not* automatically scoped
 > to it. After a module does `import subprocess`, `<module>.subprocess` **is**
@@ -270,7 +270,7 @@ reference:
 >
 > ```python
 > patch("subprocess.run")                       # obviously global
-> patch("osprey.cli.claude_cmd.subprocess.run") # equally global, looks scoped
+> patch("osprey.cli.chat_cmd.subprocess.run")   # equally global, looks scoped
 > ```
 >
 > While either is active the fake is visible to every daemon thread and
@@ -280,6 +280,13 @@ reference:
 > does. The stand-in carries the real exception classes across, so
 > `except subprocess.TimeoutExpired` in the code under test still catches.
 >
+> Both spawning entry points are covered. `run` is always a fresh `MagicMock`;
+> `Popen` becomes one only when the caller asks, via `popen=`. That default is
+> deliberate: a globally-patched `Popen` swallows the `git init` the exemplar
+> repo fixture runs — and anything else spawning in this worker — so a test
+> that needs a fake child process must get it scoped, but a test that only
+> cares about `run` must keep the real `Popen` working underneath it.
+>
 > This requires the module under test to import `subprocess` at module level. A
 > function-local `import subprocess` re-reads `sys.modules` on every call and
 > cannot be intercepted this way at all.
@@ -287,7 +294,7 @@ reference:
 > Usage — as a decorator, where the injected argument is the stand-in:
 >
 > ```python
-> @patch_subprocess("osprey.cli.claude_cmd", return_value=Mock(returncode=0))
+> @patch_subprocess("osprey.cli.chat_cmd", return_value=Mock(returncode=0))
 > def test_launch(self, fake_subprocess, ...):
 >     ...
 >     fake_subprocess.run.assert_called_once()
@@ -296,8 +303,18 @@ reference:
 > or as a context manager:
 >
 > ```python
-> with patch_subprocess("osprey.cli.interactive_menu", side_effect=[ps, inspect]) as fake:
+> with patch_subprocess("osprey.deployment.container_lifecycle", side_effect=[a, b]) as fake:
 >     ...
+> ```
+>
+> To fake a detached child, pass `popen=` — either a ready-made callable, or
+> `popen=True` for a plain `MagicMock` whose `return_value` you configure:
+>
+> ```python
+> with patch_subprocess("osprey.cli.web_cmd", popen=True) as fake:
+>     fake.Popen.return_value.pid = 4321
+>     ...
+>     assert fake.Popen.call_args.args[0] == [...]
 > ```
 
 ### Known debt
@@ -312,6 +329,20 @@ monkeypatch.setattr(runtime_helper.subprocess, "run", _fake_run)
 By the rule above these are unscoped — `runtime_helper.subprocess` is the stdlib
 module. They are recorded here as debt, not as an example. Do not copy them, and
 if you touch one of those tests, move it to `patch_subprocess()`.
+
+A handful of sites go one step further and patch the stdlib module itself:
+
+```python
+monkeypatch.setattr(subprocess, "run", no_git)          # tests/cli/test_init_verb.py
+monkeypatch.setattr("subprocess.run", ...)              # tests/cli/test_build_zero_arg.py
+```
+
+Same debt, wider blast radius: for the duration of that test EVERY importer of
+`subprocess` gets the fake, so a second, unrelated subprocess call inside the
+test is silently answered by it instead of failing. `monkeypatch` still restores
+the attribute afterwards, so the leak does not cross test boundaries — but
+within the test there is nothing to tell you the fake answered more than you
+aimed it at. Also `patch_subprocess()` when you touch one.
 
 ---
 

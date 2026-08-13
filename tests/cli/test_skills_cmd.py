@@ -74,7 +74,6 @@ def test_install_unknown_name_errors(fake_home: Path) -> None:
     assert "nonexistent-skill" in combined
     assert "osprey-build-interview" in combined
     assert "osprey-contribute" in combined
-    assert "osprey-deploy-ops" in combined
 
 
 def test_resource_path_resolves() -> None:
@@ -103,22 +102,20 @@ def test_install_design_philosophy_skill(fake_home: Path) -> None:
     assert (target / "SKILL.md").is_file()
 
 
-def test_resource_path_for_deploy_ops_skill_resolves() -> None:
-    """The deploy-ops runbook is discoverable under templates/skills/."""
+def test_no_bundled_skill_survives_the_retired_deploy_surface() -> None:
+    """The operate-time runbook was retired with the verbs it described.
+
+    Asserted as an absence rather than left out, because the failure it guards
+    is a re-add: a skill shipped again from a branch written against
+    ``osprey deploy`` would install cleanly and instruct its reader to run
+    commands the CLI no longer has.
+    """
     from importlib.resources import files
 
-    skill_md = files("osprey").joinpath("templates/skills/osprey-deploy-ops/SKILL.md")
-    assert skill_md.is_file()
+    from osprey.cli.skills_cmd import _SKILL_SOURCES
 
-
-def test_install_deploy_ops_skill(fake_home: Path) -> None:
-    """The deploy-ops runbook installs into the default global target."""
-    runner = CliRunner()
-    result = runner.invoke(skills, ["install", "osprey-deploy-ops"])
-
-    assert result.exit_code == 0, result.output
-    target = fake_home / ".claude" / "skills" / "osprey-deploy-ops"
-    assert (target / "SKILL.md").is_file()
+    assert "osprey-deploy-ops" not in _SKILL_SOURCES
+    assert not files("osprey").joinpath("templates/skills/osprey-deploy-ops").is_dir()
 
 
 def test_install_help_lists_every_bundled_skill() -> None:

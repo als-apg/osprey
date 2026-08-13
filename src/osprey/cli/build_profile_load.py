@@ -553,7 +553,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         if missing:
             raise BuildProfileError(
                 f"Profile 'provenance' is missing {', '.join(missing)}. It is written by "
-                f"`osprey profile new` and records what the profile was materialized from; "
+                f"`osprey init` and records what the profile was materialized from; "
                 f"drop the block rather than half-filling it."
             )
         provenance = ProfileProvenance(

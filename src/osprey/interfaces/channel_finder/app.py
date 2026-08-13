@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.utils.facility import resolve_facility_name
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -25,11 +26,16 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-#: Project-relative home of the feedback stores. Both are written while the
-#: agent runs, so they belong under the agent-data root: a project's ``data/``
-#: tree is build-owned, checksummed into the manifest, and cleared by
-#: ``osprey build --force``.
-FEEDBACK_DIR = "_agent_data/feedback"
+#: Repo-relative home of the feedback stores, used when the config names no
+#: ``store_path``. Both stores are written while the agent runs, so they belong
+#: in the durable STATE zone: ``data/`` is build-owned and checksummed into the
+#: manifest, and ``build/`` is wiped and re-rendered by every build.
+#:
+#: Derived from :data:`~osprey.utils.workspace.DEFAULT_AGENT_DATA_BASE_DIR`
+#: rather than spelled out, so this fallback cannot drift away from the root the
+#: rest of the framework resolves. It is only a fallback: a config that sets
+#: ``store_path`` wins, and the shipped templates set it.
+FEEDBACK_DIR = f"{DEFAULT_AGENT_DATA_BASE_DIR}/feedback"
 
 
 def _create_lifespan(project_cwd: str | None = None):
@@ -110,27 +116,32 @@ def _create_lifespan(project_cwd: str | None = None):
                 .get("feedback", {})
             )
             if feedback_config.get("enabled", False):
+                from osprey.mcp_server.channel_finder_common import resolve_cf_state_path
                 from osprey.services.channel_finder.feedback.store import FeedbackStore
 
                 store_path = feedback_config.get(
                     "store_path", f"{FEEDBACK_DIR}/hierarchical_feedback.json"
                 )
-                resolved = Path(store_path)
-                if not resolved.is_absolute():
-                    resolved = Path(app.state.project_cwd) / store_path
+                # Anchored on the deployment REPO root, not on this process's
+                # working directory. `project_cwd` defaults to `Path.cwd()`,
+                # which is wherever the operator happened to be standing — so
+                # the same deployment wrote its feedback to a different place
+                # depending on where the command was typed, and under `build/`
+                # it wrote into the zone the next build deletes.
+                resolved = Path(resolve_cf_state_path(str(store_path)))
                 app.state.feedback_store = FeedbackStore(str(resolved))
                 logger.info("Initialized feedback store at %s", resolved)
 
         # Initialize pending review store (unconditional — captures come from hook)
         app.state.pending_review_store = None
         try:
+            from osprey.mcp_server.channel_finder_common import resolve_cf_state_path
             from osprey.services.channel_finder.feedback.pending_store import (
                 PendingReviewStore,
             )
 
-            pr_path = Path(f"{FEEDBACK_DIR}/pending_reviews.json")
-            if not pr_path.is_absolute():
-                pr_path = Path(app.state.project_cwd) / pr_path
+            # Same anchor as the feedback store above, for the same reason.
+            pr_path = Path(resolve_cf_state_path(f"{FEEDBACK_DIR}/pending_reviews.json"))
             app.state.pending_review_store = PendingReviewStore(str(pr_path))
             logger.info("Initialized pending review store at %s", pr_path)
         except Exception:

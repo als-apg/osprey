@@ -10,7 +10,7 @@ connecting the two — so the fiction can never be caught by disagreeing with th
 machine it claims to describe.
 
 Refused at three independent moments, because a deployment can acquire the
-pairing at any of them: ``osprey build`` writes the config, ``osprey deploy``
+pairing at any of them: ``osprey build`` writes the config, ``osprey up``
 stands the services up, and the MCP server reads whatever ``config.yml`` it is
 pointed at — including one hand-edited long after the build. Each site raises in
 its own vocabulary and names its own fix. What they share, and what lives here,

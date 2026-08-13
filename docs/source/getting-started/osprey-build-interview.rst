@@ -29,7 +29,7 @@ questions.
    * **A container runtime (Docker or Podman)** — not needed for the interview
      itself, but your generated project will likely include containerized
      services (Jupyter, simulation IOCs, databases). Without one, ``osprey build``
-     still works but ``osprey deploy up`` won't. See the "Container Runtime"
+     still works but ``osprey up`` won't. See the "Container Runtime"
      dropdown in :doc:`installation` for install instructions.
    * **A list or spreadsheet of EPICS PV names** for your subsystem, if you have
      one. Not required — the interview can proceed without concrete PVs — but
@@ -121,7 +121,7 @@ Then:
 
    # skip-ci
    cd my-facility
-   osprey build my-project profile/
+   osprey build
 
 One command. OSPREY reads your profile, validates your selections, copies your
 channel database into the right place, and renders a ready-to-use project into
@@ -169,14 +169,14 @@ Second, one command turns those coordinates into files:
 .. code-block:: bash
 
    # skip-ci
-   osprey deploy scaffold
+   osprey scaffold ci
 
 That writes the CI pipeline at the repository root and a post-deploy health
 check inside the profile. Re-run it whenever the ``deploy:`` block changes — a
 file whose content already matches is left untouched, and a file you hand-edited
 is reported rather than overwritten.
 
-From there ``osprey deploy up`` brings the stack up and ``osprey deploy status``
+From there ``osprey up`` brings the stack up and ``osprey status``
 tells you what is running. The ``osprey-deploy-ops`` runbook covers everything
 past that point: triaging a service that is down, deciding when to re-scaffold,
 and reconciling a secret a container volume adopted at first start.

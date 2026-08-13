@@ -60,14 +60,17 @@ def _save(
 def _rooted_store(tmp_path: Path, monkeypatch) -> ArtifactStore:
     """Store rooted so ``resolve._get_store()`` reads the same place.
 
-    ``_get_store()`` roots at ``$OSPREY_PROJECT_DIR/_agent_data``; the byte/list/
-    describe surfaces all go through it, so tests must write there too.
+    ``_get_store()`` roots at the ``agent_data.base_dir`` of the config the
+    process was pointed at, anchored on ``$OSPREY_PROJECT_DIR`` — with no config
+    in reach that is the default ``var/agent_data``. The byte/list/describe
+    surfaces all go through it, so tests must write there too.
     """
     project = tmp_path / "project"
-    (project / "_agent_data").mkdir(parents=True)
+    (project / "var" / "agent_data").mkdir(parents=True)
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(project))
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-    return ArtifactStore(workspace_root=project / "_agent_data")
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    return ArtifactStore(workspace_root=project / "var" / "agent_data")
 
 
 # ---------------------------------------------------------------------------
@@ -202,13 +205,29 @@ class TestStoreRooting:
 
     def test_root_follows_project_dir_not_cwd(self, tmp_path, monkeypatch):
         project = tmp_path / "project"
-        (project / "_agent_data" / "artifacts").mkdir(parents=True)
+        (project / "var" / "agent_data" / "artifacts").mkdir(parents=True)
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
         monkeypatch.setenv("OSPREY_PROJECT_DIR", str(project))
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
         monkeypatch.chdir(elsewhere)
-        assert resolve_mod._get_store()._store_dir == project / "_agent_data" / "artifacts"
+        assert resolve_mod._get_store()._store_dir == project / "var" / "agent_data" / "artifacts"
+
+    def test_root_follows_the_configs_relocated_agent_data_dir(self, tmp_path, monkeypatch):
+        """A project that moved ``agent_data.base_dir`` moves the store with it.
+
+        The compose generator renders the worker's volume mount target from this
+        same key, so a resolver that ignored it would read a directory the mount
+        never covers.
+        """
+        project = tmp_path / "project"
+        (project / "build").mkdir(parents=True)
+        (project / "build" / "config.yml").write_text("agent_data:\n  base_dir: state/data\n")
+        monkeypatch.setenv("OSPREY_PROJECT_DIR", str(project))
+        monkeypatch.setenv("CONFIG_FILE", str(project / "build" / "config.yml"))
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        assert resolve_mod._get_store()._store_dir == project / "state" / "data" / "artifacts"
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +403,7 @@ class TestInjectionResistance:
         c, _, ids = client
         # Plant a persisted run record for run-1 whose results "reference" run-2's
         # artifact (as a prompt-injected agent might emit).
-        log_dir = tmp_path / "project" / "_agent_data" / "dispatch"
+        log_dir = tmp_path / "project" / "var" / "agent_data" / "dispatch"
         log_dir.mkdir(parents=True, exist_ok=True)
         (log_dir / "run-1.json").write_text(
             json.dumps(
@@ -469,7 +488,7 @@ class TestStatusBodyDiskFallback:
         from osprey.mcp_server.dispatch_worker import dispatch_api
 
         dispatch_api._runs.pop("run-1", None)  # evicted from memory
-        log_dir = tmp_path / "project" / "_agent_data" / "dispatch"
+        log_dir = tmp_path / "project" / "var" / "agent_data" / "dispatch"
         log_dir.mkdir(parents=True, exist_ok=True)
         (log_dir / "run-1.json").write_text(json.dumps({"status": "completed", "artifacts": []}))
         r = c.get("/dispatch/run-1", headers=_auth())

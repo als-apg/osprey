@@ -426,6 +426,7 @@ def inject_provider_env(
 def load_provider_spec(
     project_dir: Path,
     *,
+    env_dir: Path | None = None,
     provider: str | None = None,
     include_telemetry: bool = True,
     defer_unresolved_telemetry_creds: bool = False,
@@ -452,7 +453,13 @@ def load_provider_spec(
     ``benchmarks/backends/react_backend.py`` for the one genuine deferral.
 
     Args:
-        project_dir: Path to an initialized OSPREY project (contains config.yml).
+        project_dir: Directory holding the ``config.yml`` to resolve.
+        env_dir: Directory holding the deployment's ``.env``, when it is not the
+            one holding the config. A deployment repo keeps secrets at its root
+            and the rendered config under ``build/``, so a caller reading the
+            render has to name the repo root here or a ``base_url:
+            ${ARGO_PROD_URL}`` resolves to the literal placeholder. Defaults to
+            ``project_dir`` — the flat layout, where the two coincide.
         provider: When given, overrides ``claude_code.provider`` in the loaded
             config before resolving — used by cross-provider model sweeps.
 
@@ -469,7 +476,7 @@ def load_provider_spec(
     raw = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
 
     # Build an os.environ + .env overlay (.env wins) WITHOUT mutating os.environ.
-    lookup: dict[str, str] = _env_lookup(project_dir)
+    lookup: dict[str, str] = _env_lookup(Path(env_dir) if env_dir is not None else project_dir)
 
     cfg = resolve_env_vars(raw, environ=lookup)
     cc_config = cfg.get("claude_code", {})

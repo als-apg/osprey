@@ -71,7 +71,13 @@ from osprey.mcp_server.http import (
     phoebus_bridge_url,
 )
 from osprey.mcp_server.phoebus.server import mcp
-from osprey.utils.workspace import load_osprey_config, resolve_config_path
+from osprey.utils.workspace import (
+    agent_data_base_dir,
+    anchored_path,
+    load_osprey_config,
+    resolve_config_path,
+    resolve_project_root,
+)
 
 logger = logging.getLogger("osprey.mcp_server.tools.phoebus")
 
@@ -134,9 +140,19 @@ def _bridge_error_message(body: object, status: int) -> str:
 
 
 def _snapshot_dir() -> Path:
-    """Resolve the directory PNG snapshots are written to (config or default)."""
+    """Resolve the directory PNG snapshots are written to (config or default).
+
+    Runtime output, so it belongs under the deployment's agent-data root — read
+    from ``agent_data.base_dir`` rather than spelled here — and a configured
+    ``phoebus.snapshot_dir`` is anchored on the repo root the same way every
+    other configured path is. Both halves matter: the default used to name the
+    retired ``./_agent_data``, and either value used to resolve against the
+    working directory, which for an MCP server is whatever launched it.
+    """
     config = load_osprey_config()
-    out = Path(config.get("phoebus", {}).get("snapshot_dir", "./_agent_data/screenshots"))
+    configured = (config.get("phoebus", {}) or {}).get("snapshot_dir")
+    relative = str(configured or f"{agent_data_base_dir(config)}/screenshots")
+    out = anchored_path(relative, resolve_project_root(config))
     out.mkdir(parents=True, exist_ok=True)
     return out
 

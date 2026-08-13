@@ -1,8 +1,7 @@
 """Removal gate: ``osprey build --emit-profile`` is gone, with no alias.
 
-The verb that materializes a profile directory is ``osprey profile new``. The
-old flag was removed outright rather than aliased, so two things must hold and
-keep holding:
+The verb that materializes a deployment repo is ``osprey init``. The old flag was
+removed outright rather than aliased, so two things must hold and keep holding:
 
 * the CLI rejects ``--emit-profile`` as an unknown option, and
 * no shipped source or documentation page still tells someone to run it.
@@ -75,7 +74,7 @@ def test_no_live_reference_to_the_removed_flag() -> None:
         offenders.append(f"{path.relative_to(_REPO_ROOT)}\n  " + "\n  ".join(hits))
 
     assert not offenders, (
-        f"{REMOVED_FLAG} was removed — use `osprey profile new DIR --preset X`. "
+        f"{REMOVED_FLAG} was removed — use `osprey init DIR --preset X`. "
         "Stale references remain:\n" + "\n".join(offenders)
     )
 

@@ -101,12 +101,53 @@ def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
     return raw
 
 
+def _config_path() -> Path:
+    return Path(os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml"))))
+
+
 def resolve_cf_path(path_str: str) -> str:
-    """Resolve a path relative to the ``OSPREY_CONFIG`` file's directory."""
-    config_path = Path(
-        os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(Path.cwd() / "config.yml")))
-    )
+    """Resolve a BUILD-OWNED relative path against the rendered config's directory.
+
+    Use this for inputs the build produces — channel databases under ``data/``,
+    which are rendered into ``<repo>/build/data/`` from the profile. Anchoring
+    them on the render is right: the copy beside the config is the copy this
+    deployment was built with.
+
+    Do NOT use it for anything WRITTEN at run time. A relative path in a
+    deployment repo resolves against one of two roots, and which one is not a
+    detail:
+
+    * ``data/…`` is build-owned and exists under both anchors, so either
+      answer finds a real file — this function's anchor is the correct one.
+    * ``var/…`` exists ONLY at the repo root. Resolved here it would land in
+      ``<repo>/build/var/…``, inside the zone every ``osprey build`` wipes, and
+      the loss would be silent: the store would be re-created empty on the next
+      run with nothing to say it had ever held anything.
+
+    :func:`resolve_cf_state_path` is the anchor for the second kind.
+    """
     p = Path(path_str)
     if not p.is_absolute():
-        p = config_path.parent / p
+        p = _config_path().parent / p
+    return str(p.resolve())
+
+
+def resolve_cf_state_path(path_str: str) -> str:
+    """Resolve a RUNTIME-WRITTEN relative path against the deployment REPO root.
+
+    The counterpart to :func:`resolve_cf_path`, and the one to reach for
+    whenever the path names something this process writes rather than reads —
+    the feedback store, pending reviews, anything under ``var/``. The repo root
+    is the only anchor under which durable state survives a rebuild.
+
+    Falls back to the config's own directory when the config is not in a
+    ``build/`` zone, which is what a standalone or already-flat deployment
+    looks like; :func:`~osprey.utils.workspace.repo_root_for_config` makes that
+    same judgement everywhere else.
+    """
+    from osprey.utils.workspace import repo_root_for_config
+
+    p = Path(path_str)
+    if not p.is_absolute():
+        p = repo_root_for_config(_config_path()) / p
     return str(p.resolve())

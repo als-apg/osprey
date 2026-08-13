@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.cli.build_cmd import build
+from osprey.cli.init_cmd import init
 from osprey.interfaces.web_terminal.scaffold_gallery_service import ScaffoldGalleryService
 
 # Use an artifact known to exist after osprey build and backed by a .j2 template
@@ -18,24 +19,18 @@ SAFE_ARTIFACT = "rules/safety"
 
 @pytest.fixture()
 def project_dir(tmp_path):
-    """Create a real OSPREY project via ``osprey build --preset hello-world``."""
+    """A real hello-world render, which is what the gallery service reads."""
     from click.testing import CliRunner
 
     runner = CliRunner()
-    result = runner.invoke(
-        build,
-        [
-            "env-test",
-            "--preset",
-            "hello-world",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    repo = tmp_path / "env-test"
+
+    created = runner.invoke(init, [str(repo), "--preset", "hello-world", "--no-git"])
+    assert created.exit_code == 0, created.output
+
+    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
-    return tmp_path / "env-test"
+    return repo / "build"
 
 
 @pytest.fixture()

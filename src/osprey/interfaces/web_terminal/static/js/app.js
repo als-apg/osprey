@@ -432,7 +432,10 @@ async function initWelcomeModal() {
   const rightText = version ? `v${version}` : '';
   const innerWidth = 58; // matches box width (no Unicode offset needed — plain text line)
   const pad = 4; // padding from box edges
-  const gap = innerWidth - pad - leftText.length - rightText.length - pad;
+  // Clamped: dev builds carry long post-release versions (`v2026.6.2.post1058+g….d…`)
+  // that overflow the box; a negative gap would make repeat() throw and leave the
+  // overlay undismissable. A too-wide line just overhangs the border harmlessly.
+  const gap = Math.max(1, innerWidth - pad - leftText.length - rightText.length - pad);
   const versionLine = '    ║' + ' '.repeat(pad) + leftText + ' '.repeat(gap) + rightText + ' '.repeat(pad) + '║';
 
   // ASCII banner — uses the original OSPREY CLI banner art

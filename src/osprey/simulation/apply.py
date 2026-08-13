@@ -49,6 +49,23 @@ if TYPE_CHECKING:
 logger = get_logger("simulation_apply")
 
 
+def _config_file(project_dir: Path) -> Path:
+    """The ``config.yml`` belonging to *project_dir*, wherever the split put it.
+
+    A deployment repo keeps its render under ``build/``, so the config sits at
+    ``<repo>/build/config.yml`` while everything else this module resolves — the
+    ``data/simulation/`` model, the mutable state under ``var/agent_data/`` —
+    anchors at the repo root. A container's project directory *is* the render
+    and holds ``config.yml`` at its own root. One directory still identifies the
+    deployment either way; only the config moved, so only the config lookup
+    needs to know.
+    """
+    from osprey.utils.workspace import rendered_config_path
+
+    rendered = rendered_config_path(project_dir)
+    return rendered if rendered.is_file() else project_dir / "config.yml"
+
+
 def resolve_simulation_file(config: dict, project_dir: Path) -> tuple[Path | None, str, str, str]:
     """Resolve the simulation-model file for the active control-system type.
 
@@ -206,9 +223,9 @@ def apply_scenarios(
     """Compose and activate scenarios for a built project; optionally seed its logbook.
 
     Args:
-        project_dir: Root of the built project (holds ``config.yml``, the
-            build-owned ``data/simulation/`` model, and the scenario state
-            under ``_agent_data/simulation/``).
+        project_dir: The deployment repo root — it anchors the ``data/simulation/``
+            model and the scenario state under ``var/agent_data/simulation/``,
+            and its render supplies ``config.yml`` (see :func:`_config_file`).
         names: Scenario names to activate (``nominal`` is always implicit).
         seed_logbook: When True (and the project has an ``ariel`` config),
             purge and reseed the ARIEL logbook from the active scenarios'
@@ -229,7 +246,7 @@ def apply_scenarios(
             unknown, or the requested set does not compose (channel collision).
     """
     project_dir = Path(project_dir)
-    config = load_config(str(project_dir / "config.yml"))
+    config = load_config(str(_config_file(project_dir)))
 
     machine_path = _require_simulation_file(
         config,
@@ -683,7 +700,7 @@ def seed_archiver(
         manifest = collection.find_one({"_id": MANIFEST_ID})
         if manifest is None:
             return ArchiverSeedResult(
-                skipped="the archive has not been seeded yet — run 'osprey deploy up'"
+                skipped="the archive has not been seeded yet — run 'osprey up'"
             )
 
         anchor_s = anchor.timestamp()
@@ -747,7 +764,7 @@ def _missing_password_message(project_dir: Path, store: dict) -> str:
     return (
         f"The archive is configured but {store['password_env']} is not in "
         f"{project_dir / '.env'}, so its history cannot be rewritten and would "
-        f"contradict the scenario now active. Run 'osprey deploy up' to mint it."
+        f"contradict the scenario now active. Run 'osprey up' to mint it."
     )
 
 
@@ -1290,8 +1307,9 @@ def compute_scenario_physics_env(
     abort with zero writes anywhere (FR1).
 
     Args:
-        project_dir: Root of the built project (holds ``config.yml`` and
-            ``data/simulation/``).
+        project_dir: The deployment repo root — it anchors the
+            ``data/simulation/`` model, and its render supplies ``config.yml``
+            (see :func:`_config_file`).
         names: Scenario names to activate (``nominal`` is always implicit),
             resolved the same nominal-first, deduped way
             :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
@@ -1308,7 +1326,7 @@ def compute_scenario_physics_env(
             two active scenarios declare a physics fault on the same device.
     """
     project_dir = Path(project_dir)
-    config = load_config(str(project_dir / "config.yml"))
+    config = load_config(str(_config_file(project_dir)))
 
     machine_path = _require_simulation_file(
         config,
@@ -1333,15 +1351,17 @@ def write_scenario_physics_env(
     *,
     env_path: Path | None = None,
 ) -> bool:
-    """Write :func:`compute_scenario_physics_env`'s result into the project ``.env``.
+    """Write :func:`compute_scenario_physics_env`'s result into the repo's ``.env``.
 
     The write half of :func:`render_scenario_physics_env`, callable on its own
     so a caller can put every prompt and validation ahead of the first
     filesystem effect.
 
     Args:
-        project_dir: Root of the built project; supplies the default
-            ``.env`` location.
+        project_dir: The deployment repo root — it supplies the default
+            ``.env``, which is the file ``osprey up``'s compose reads as
+            ``--env-file``. Pointing this at the render writes the faults into
+            a file nothing interpolates, and the VA boots fault-free.
         rendered: The ``VA_*`` vars to reconcile the ``.env`` to, as returned
             by :func:`compute_scenario_physics_env`.
         env_path: ``.env`` path to write into (defaults to
@@ -1352,7 +1372,7 @@ def write_scenario_physics_env(
         new fault, or clearing a prior render's stale one, both count; a
         rewrite that reproduces the existing content byte for byte does not.
         Callers use this to decide whether the running VA is now out of date
-        with the file and needs an ``osprey deploy up`` (FR2).
+        with the file and needs an ``osprey up`` (FR2).
     """
     if env_path is None:
         env_path = Path(project_dir) / ".env"
@@ -1372,10 +1392,10 @@ def render_scenario_physics_env(
     :class:`~osprey.simulation.machine.PhysicsFault`) is deploy-time-only -- a
     physics fault applies once at VA container boot, and hot-swapping it needs
     a restart, unlike ``overrides``/``archiver`` -- so it is rendered here into
-    the project ``.env`` as ``VA_BPM_ERRORS``/
+    the repo's ``.env`` as ``VA_BPM_ERRORS``/
     ``VA_CORR_GAIN``, the exact env vars
     ``virtual_accelerator/entrypoint.py`` parses, rather than applied live.
-    Call this before ``deploy up`` so the VA container picks up the rendered
+    Call this before ``osprey up`` so the VA container picks up the rendered
     values at boot.
 
     Composes :func:`compute_scenario_physics_env` and
@@ -1383,9 +1403,10 @@ def render_scenario_physics_env(
     instead when something has to happen between validating and writing.
 
     Args:
-        project_dir: Root of the built project (holds ``config.yml``, the
-            build-owned ``data/simulation/`` model, and the scenario state
-            under ``_agent_data/simulation/``).
+        project_dir: The deployment repo root — it anchors the build-owned
+            ``data/simulation/`` model, the scenario state under the agent-data
+            root (``agent_data.base_dir``), and the ``.env`` written here; its
+            render supplies ``config.yml``.
         names: Scenario names to activate (``nominal`` is always implicit),
             resolved the same nominal-first, deduped way
             :meth:`~osprey.simulation.engine.SimulationEngine.set_active_scenarios`
@@ -1507,7 +1528,7 @@ _PHYSICS_ENV_VARS = ("VA_BPM_ERRORS", "VA_CORR_GAIN")
 # dropped on the way in and re-emitted only alongside a rendered value, so a
 # re-render reproduces the file byte for byte instead of stacking a fresh
 # header each time (which would make every rewrite look like a change).
-_PHYSICS_ENV_HEADER = "# Scenario physics fault (osprey sim apply / deploy up)"
+_PHYSICS_ENV_HEADER = "# Scenario physics fault (osprey sim apply / osprey up)"
 
 
 def _write_physics_env(env_path: Path, rendered: dict[str, str]) -> bool:

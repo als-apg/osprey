@@ -20,6 +20,17 @@
  *   exist, and the panel would be unnavigable without its own. The in-body
  *   strip is therefore hidden by CSS in exactly one case: embedded AND Expert.
  *
+ * - No `innerHTML`, anywhere. Plan names, parameter values, and refusal
+ *   sentences all originate off-panel (an agent's draft, the bridge, another
+ *   operator), and they reach the DOM only as text nodes. Row identity travels
+ *   in `data-*` attributes read by delegated listeners, never interpolated
+ *   into markup.
+ * - No local copy of the bridge's arming policy. The panel never decides
+ *   whether a deployment may execute; it asks, and when the bridge refuses it
+ *   shows the bridge's own sentence VERBATIM — that sentence carries the
+ *   remedy (which token is missing, or the `osprey set connector=…` flip
+ *   command for a browse-only deployment).
+ *
  * The persistent status strip (queue state, "Stop after current item", "Abort
  * running plan") is NEVER contributed, for the same reason read in reverse:
  * anything safety-bearing has to survive Simple mode, and the tile bar does

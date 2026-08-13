@@ -71,7 +71,7 @@ def test_inject_dispatch_bundled_triggers(tmp_path: Path) -> None:
     assert "hello-dispatch" in triggers.read_text(encoding="utf-8")
 
     # Compose templates copied, plus the shared Dockerfile (used to build the
-    # local dispatch image on `osprey deploy up`).
+    # local dispatch image on `osprey up`).
     assert (project_path / "services" / "event_dispatcher" / "docker-compose.yml.j2").is_file()
     assert (project_path / "services" / "dispatch_worker" / "docker-compose.yml.j2").is_file()
     assert (project_path / "services" / "event_dispatcher" / "Dockerfile").is_file()

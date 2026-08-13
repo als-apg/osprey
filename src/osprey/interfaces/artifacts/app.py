@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
 from osprey.utils.timeseries import (
@@ -510,8 +511,14 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     """Create the Artifact Gallery FastAPI application.
 
     Args:
-        workspace_root: Workspace root containing ``artifacts/`` dir.
-            Defaults to ``./_agent_data``.
+        workspace_root: Agent-data root containing the ``artifacts/`` dir.
+            REQUIRED in practice despite the ``None`` default: the store would
+            resolve the deployment's configured root on its own, but this
+            function also joins ``workspace_root`` directly (the focus file
+            below), so passing ``None`` raises ``TypeError`` rather than
+            defaulting. Every launch path passes it. Documented as-is rather
+            than papered over with a default that would change which directory
+            an existing caller's focus file lands in.
     """
     from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher
     from osprey.stores.artifact_store import (
@@ -526,9 +533,18 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     store = ArtifactStore(workspace_root=workspace_root)
 
-    # Prime config and load custom artifact categories (if available)
+    # Prime config and load custom artifact categories (if available).
+    #
+    # Resolved through the ordinary config rule, not by looking for a
+    # `config.yml` INSIDE the agent-data root — no layout has ever written one
+    # there, so the `exists()` gate below was always false and the gallery
+    # silently never loaded a custom category. `OSPREY_CONFIG` is set on every
+    # launch path that starts this app, and resolve_config_path falls back to
+    # the render zone beneath the cwd otherwise.
     try:
-        config_path = (workspace_root or Path("_agent_data")) / "config.yml"
+        from osprey.utils.workspace import resolve_config_path
+
+        config_path = resolve_config_path()
         if config_path.exists():
             from osprey.utils.config import get_config_builder
 
@@ -574,6 +590,15 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     )
 
     app.state.artifact_store = store
+    # The directory the AGENT ran in — where its Claude transcript lives.
+    # Resolved ONCE here rather than read from `Path.cwd()` per request: the
+    # in-process chat/web companion happens to be launched with that cwd, but
+    # the standalone `osprey artifacts` gallery is a uvicorn factory runnable
+    # from anywhere, and there the per-request read found no transcript and
+    # returned an empty audit trail — swallowed by the reader's own
+    # exception guard, so the /compose response was simply missing its
+    # provenance with nothing to say so.
+    app.state.agent_project_dir = deployed_render_dir()
     app.state.focused_artifact_id = None  # None = show latest
 
     focus_file = workspace_root / "focus_state.txt"
@@ -685,13 +710,14 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         filepath = Path(data_file)
         if not filepath.is_absolute():
-            # data_file may be (a) a project-CWD-relative path like
-            # "_agent_data/artifacts/foo.json" (current ArtifactStore format),
-            # (b) a bare filename (legacy entries written before the format
-            # change), or (c) some other workspace-relative path. Try each
-            # candidate; the legacy DataContext path used absolute strings
+            # data_file may be (a) a repo-root-relative path like
+            # "var/agent_data/artifacts/foo.json" (current ArtifactStore
+            # format), (b) a bare filename (legacy entries written before the
+            # format change), or (c) some other workspace-relative path. Try
+            # each candidate; the legacy DataContext path used absolute strings
             # which are handled by the is_absolute() branch above.
             candidates = [
+                store.repo_root / filepath,
                 store._workspace.parent / filepath,
                 store._store_dir / filepath,
                 store._workspace / filepath,

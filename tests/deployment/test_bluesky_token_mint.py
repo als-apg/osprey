@@ -125,12 +125,12 @@ def test_bluesky_process_env_token_not_written_to_dotenv(captured_argv, monkeypa
     assert "BLUESKY_LAUNCH_TOKEN" not in env
 
 
-def test_bluesky_expose_refuses_empty_token(captured_argv, monkeypatch, tmp_path):
-    # A token explicitly set empty must not be auto-overwritten, and --expose must
-    # refuse rather than bind a fail-open server to 0.0.0.0.
+def test_an_exposed_bluesky_deploy_refuses_an_empty_token(captured_argv, monkeypatch, tmp_path):
+    # A token explicitly set empty must not be auto-overwritten, and a deployment
+    # reachable off-host must refuse rather than bind a fail-open server to it.
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "")
 
-    with pytest.raises(RuntimeError, match="refusing to --expose"):
+    with pytest.raises(RuntimeError, match="reachable off-host with an empty token"):
         container_lifecycle.deploy_up(
             str(tmp_path / "config.yml"), detached=True, expose_network=True
         )
@@ -302,10 +302,10 @@ def test_deploy_up_routes_each_var_through_its_own_generator(
 # _VAR_VALIDATORS — deploy-boundary validation of the effective value (F1/F3)
 #
 # _ensure_service_tokens(config, expose_network=False, env_path=...) is the
-# DEFAULT loopback deploy path (deploy_up's default is --expose off). These
+# DEFAULT loopback deploy path: a build that publishes only on 127.0.0.1. These
 # tests call it directly, mirroring test_ensure_service_tokens_writes_an_
 # alphanumeric_tiled_key_every_time above, to prove the boundary check fires
-# on that path and not only under --expose.
+# on that path and not only on a deployment reachable off-host.
 # ---------------------------------------------------------------------------
 
 

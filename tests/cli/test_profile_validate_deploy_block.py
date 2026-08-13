@@ -367,7 +367,7 @@ def test_an_emitted_profile_offers_the_deploy_block_as_a_comment_only(preset: st
     the second silently winning. It must appear exactly once, commented."""
     from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 
-    text = emit_standalone_profile_yaml(preset, (), (), "Emitted", "profile.yml")
+    text = emit_standalone_profile_yaml(preset, (), (), "Emitted")
 
     assert "deploy" not in (yaml.safe_load(text) or {})
     assert [line for line in text.splitlines() if line.strip() == "# deploy:"] == ["# deploy:"]
@@ -379,7 +379,7 @@ def test_the_emitted_stub_is_a_block_the_schema_accepts() -> None:
     facility the wrong one, and it would only find out after uncommenting."""
     from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 
-    text = emit_standalone_profile_yaml("control-assistant", (), (), "Emitted", "profile.yml")
+    text = emit_standalone_profile_yaml("control-assistant", (), (), "Emitted")
     lines = text.splitlines()
     start = lines.index("# deploy:")
     stub = []

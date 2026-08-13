@@ -107,6 +107,46 @@ def test_decoy_is_not_the_running_interpreter():
     assert DECOY != sys.executable
 
 
+def _settings_commands(project_dir: Path) -> list[tuple[str, str]]:
+    """Every ``(where, command)`` settings.json asks the shell to run."""
+    settings = json.loads((project_dir / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    found: list[tuple[str, str]] = []
+    status_line = settings.get("statusLine") or {}
+    if status_line.get("command"):
+        found.append(("statusLine", status_line["command"]))
+    for event, entries in (settings.get("hooks") or {}).items():
+        for entry in entries:
+            for hook in entry.get("hooks", []):
+                if hook.get("command"):
+                    found.append((event, hook["command"]))
+    return found
+
+
+def test_no_settings_command_launches_a_bare_interpreter(tmp_path):
+    """EVERY command settings.json runs must name a resolved interpreter.
+
+    Enumerated from the rendered file rather than from a list of known sites,
+    because the list is exactly what failed: two rounds of this fix each swept
+    the sites someone thought of, and `statusLine` — the only launch site
+    outside the `hooks` block — was missed by both. A bare `python` dies on a
+    python3-only host, and it dies where nobody looks: the status line simply
+    does not render.
+    """
+    project_dir = _regenerated_project(tmp_path, "bare-interpreter-scan", {})
+
+    commands = _settings_commands(project_dir)
+    assert commands, "expected settings.json to declare at least one command"
+
+    offenders = [
+        f"{where}: {command}"
+        for where, command in commands
+        if command.split()[0].strip('"') in {"python", "python3"}
+    ]
+    assert offenders == [], (
+        "settings.json commands must not launch a bare interpreter:\n" + "\n".join(offenders)
+    )
+
+
 @pytest.mark.parametrize("variant", sorted(DECOY_EXECUTION_BLOCKS))
 class TestConfigCannotNameARuntimeInterpreter:
     """With config pointing elsewhere, every runtime launch site still derives."""
@@ -252,6 +292,76 @@ class TestAProjectVenvWinsOverTheGeneratingInterpreter:
         assert set(_mcp_server_commands(project_dir)) == {str(venv_python)}
 
 
+class TestAStagedRenderNamesTheVenvItWillRunFrom:
+    """A render written somewhere other than where it will run from.
+
+    ``osprey build`` renders into ``<repo>/build/.tmp/<repo>`` and swaps that
+    tree into ``<repo>/build`` by rename, but the venv is created at
+    ``<repo>/build/.venv`` — its final path, because a virtual environment
+    records its own absolute location — and only moves into the staged tree as
+    part of the swap. So at the moment the Claude Code artifacts are rendered
+    there is no ``.venv`` beside them, and the interpreter every MCP server
+    launches with has to be named from the output zone instead.
+
+    The render also carries a ``project_root`` override, because the repo root
+    is the project root under this layout and it is one level above the tree
+    being written. That override says nothing about *which machine* the render
+    is for, which is why the venv's home is stated separately.
+    """
+
+    @staticmethod
+    def _staged_repo(root: Path, name: str) -> tuple[Path, Path]:
+        """Render a project into a staging tree; return (output zone, stage)."""
+        manager = TemplateManager()
+        output_zone = root / "build"
+        stage = manager.create_project(
+            project_name=name,
+            output_dir=output_zone / ".tmp",
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        return output_zone, stage
+
+    def test_staged_render_points_at_the_output_zone_venv(self, tmp_path):
+        output_zone, stage = self._staged_repo(tmp_path, "staged-render")
+        venv_python = _fake_project_venv(output_zone)
+        assert not (stage / ".venv").exists(), "the staged tree must have no venv of its own"
+
+        TemplateManager().regenerate_claude_code(
+            stage,
+            project_root_override=str(tmp_path),
+            runtime_venv_dir=output_zone,
+        )
+
+        assert set(_mcp_server_commands(stage)) == {str(venv_python)}
+
+    def test_a_staged_render_for_a_container_still_uses_the_generating_interpreter(self, tmp_path):
+        """``--runtime-root`` names no local venv, so the fallback still applies."""
+        output_zone, stage = self._staged_repo(tmp_path, "staged-container")
+        venv_python = _fake_project_venv(output_zone)
+
+        TemplateManager().regenerate_claude_code(
+            stage,
+            project_root_override="/app/staged-container",
+        )
+
+        assert set(_mcp_server_commands(stage)) == {sys.executable}
+        assert str(venv_python) not in (stage / ".mcp.json").read_text(encoding="utf-8")
+
+    def test_a_staged_render_without_a_venv_falls_back(self, tmp_path):
+        """``--skip-deps`` builds no venv; the generating interpreter has osprey."""
+        output_zone, stage = self._staged_repo(tmp_path, "staged-no-venv")
+        assert not (output_zone / ".venv").exists()
+
+        TemplateManager().regenerate_claude_code(
+            stage,
+            project_root_override=str(tmp_path),
+            runtime_venv_dir=output_zone,
+        )
+
+        assert set(_mcp_server_commands(stage)) == {sys.executable}
+
+
 class TestRenderingForAContainerUsesTheGeneratingInterpreter:
     """With a runtime root elsewhere, the host's venv is not the right answer.
 
@@ -290,7 +400,7 @@ class TestAgentCodeResolvesAtRunTimeNotGenerationTime:
     but the runtime value is frozen into ``.mcp.json`` when the artifact is
     rendered, while agent code re-resolves on every call. A venv created after
     the build is therefore picked up by agent code and not by the generated
-    artifact, which is exactly why ``osprey claude regen`` exists.
+    artifact, which is exactly why ``osprey build`` exists.
     """
 
     @pytest.fixture(scope="class")

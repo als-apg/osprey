@@ -445,8 +445,8 @@ def log_api_call(
     - Respects development.api_calls.latest_only for file naming
     - Uses development.api_calls.include_stack_trace for detailed debugging
 
-    Files are saved to the api_calls directory within _agent_data with structured
-    naming based on the calling function and timestamp.
+    Files are saved to the ``api_calls`` directory under the agent-data root
+    (``agent_data.base_dir``), named from the calling function and a timestamp.
 
     :param message: Input message/prompt sent to the LLM
     :type message: str

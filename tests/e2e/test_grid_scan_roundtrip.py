@@ -35,7 +35,7 @@ logic.
 
 Container safety: every docker invocation below names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
-Teardown goes through ``osprey deploy down``, matching every other e2e in
+Teardown goes through ``osprey down``, matching every other e2e in
 this directory.
 
 Gating: needs Docker; the VA image builds natively for the host arch, so on
@@ -126,10 +126,10 @@ def _find_column(columns: list[str], device_name: str) -> str:
 
 
 class DeployedGridScanStack:
-    """Everything the round-trip test needs about the one co-deployed project."""
+    """Everything the round-trip test needs about the one deployment repo."""
 
-    def __init__(self, project_dir: Path, corrector_name: str, bpm_name: str):
-        self.project_dir = project_dir
+    def __init__(self, repo: Path, corrector_name: str, bpm_name: str):
+        self.repo = repo
         self.corrector_name = corrector_name
         self.bpm_name = bpm_name
 
@@ -139,18 +139,24 @@ def deployed_grid_scan_stack(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[DeployedGridScanStack]:
     base = tmp_path_factory.mktemp("grid_scan_roundtrip_build")
-    project_dir = _orm_stack.build_project_subprocess(
+    # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
+    # render `osprey build` produced is `<repo>/build`.
+    repo = _orm_stack.build_project_subprocess(
         PROJECT_NAME, output_dir=base, bridge_port=BRIDGE_PORT, timeout=BUILD_TIMEOUT_SEC
     )
 
-    limits = _orm_stack.channel_limits(project_dir)
+    # The render's copy, not the operator-owned source under <repo>/data/ —
+    # build/data is the file the deployed containers actually read.
+    limits = _orm_stack.channel_limits(repo / "build")
     # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
     # the orm plan, grid_scan doesn't sweep every named corrector against
     # every named detector, so there is no benefit to _orm_stack's usual
     # DEFAULT_CORRECTOR_COUNT/DEFAULT_BPM_COUNT of 4.
     correctors = _orm_stack.select_correctors(limits, count=1)
     bpms = _orm_stack.select_bpms(limits, count=1)
-    _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
+    # Writes the repo root's `.env` — the deployment's whole secret store, and
+    # the file `osprey up` refuses to start without.
+    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -160,8 +166,8 @@ def deployed_grid_scan_stack(
 
     try:
         up = subprocess.run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
@@ -169,7 +175,7 @@ def deployed_grid_scan_stack(
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
@@ -182,21 +188,21 @@ def deployed_grid_scan_stack(
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
         yield DeployedGridScanStack(
-            project_dir=project_dir,
+            repo=repo,
             corrector_name=next(iter(correctors)),
             bpm_name=next(iter(bpms)),
         )
     finally:
         down = subprocess.run(
-            [str(osprey_bin), "deploy", "down"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "down"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=300,
         )
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
@@ -233,7 +239,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
         "snake_axes": False,
     }
 
-    token = _orm_stack.minted_launch_token(deployed_grid_scan_stack.project_dir)
+    token = _orm_stack.minted_launch_token(deployed_grid_scan_stack.repo)
     run_id, status_body = _queue_drive.run_scan(
         BRIDGE_URL,
         "grid_scan",

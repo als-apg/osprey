@@ -46,14 +46,37 @@ if [[ ! -f "${DATA_DIR}/machine.json" ]]; then
     exit 1
 fi
 
-# `osprey sim apply` writes the active-scenario state under the project's
-# _agent_data/ (data/ is build-owned and re-rendered), so mount that too when
-# DATA_DIR really is a project's data/simulation. Without it the IOC falls back
-# to reading the state next to machine.json and never sees a scenario switch.
-STATE_DIR="$(cd "${DATA_DIR}/../.." >/dev/null 2>&1 && pwd)/_agent_data/simulation"
+# `osprey sim apply` writes the active-scenario state under the deployment's
+# DURABLE zone (`var/agent_data/simulation`) — never beside machine.json, since
+# `data/` is build-owned and re-rendered. Mount it so the IOC sees a scenario
+# switch; without it the IOC falls back to the state next to machine.json and
+# never does.
+#
+# Found by walking up to the repo root (the directory holding profile.yml)
+# rather than by counting `..` from DATA_DIR: the same data/simulation exists
+# both in the source zone (<repo>/data) and in the render (<repo>/build/data),
+# so a fixed number of parents is right for one and wrong for the other.
+STATE_DIR=""
+_search="$(cd "${DATA_DIR}" >/dev/null 2>&1 && pwd)"
+while [[ -n "${_search}" && "${_search}" != "/" ]]; do
+    if [[ -f "${_search}/profile.yml" ]]; then
+        STATE_DIR="${_search}/var/agent_data/simulation"
+        break
+    fi
+    _search="$(dirname "${_search}")"
+done
+
 STATE_MOUNT=()
-if [[ -d "${STATE_DIR}" ]]; then
+if [[ -n "${STATE_DIR}" && -d "${STATE_DIR}" ]]; then
     STATE_MOUNT=(-v "${STATE_DIR}:/state/simulation:ro" -e "VA_STATE_DIR=/state/simulation")
+else
+    # Say so. The old gate skipped the mount in silence, so a wrong path and a
+    # genuinely-absent state directory looked identical — and the symptom
+    # (scenario switches ignored by the IOC) shows up far from here.
+    echo "NOTE: no scenario-state directory mounted (${STATE_DIR:-no profile.yml above ${DATA_DIR}})." >&2
+    echo "      The IOC will read the state beside machine.json and will not see" >&2
+    echo "      \`osprey sim apply\` scenario switches. Run a scenario apply first," >&2
+    echo "      or pass a DATA_DIR inside a deployment repo." >&2
 fi
 
 RUNTIME="${OSPREY_VA_RUNTIME:-}"

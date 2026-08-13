@@ -35,6 +35,7 @@ import {
   formatDate,
   isNewThisSession,
   requestColorPass,
+  artifactPath,
 } from "./types.js";
 
 // ---- Gallery Card HTML (shared by both sidebar modes in gallery layout) ----
@@ -340,7 +341,7 @@ export function createSidebarRenderer(callbacks) {
         const id = /** @type {HTMLElement} */ (el).dataset.id;
         const a = getArtifacts().find((x) => x.id === id);
         if (!a) return;
-        const text = `Please have a look at _agent_data/artifacts/${a.filename}`;
+        const text = `Please have a look at ${artifactPath(a)}`;
         const dragEvent = /** @type {DragEvent} */ (e);
         /** @type {DataTransfer} */ (dragEvent.dataTransfer).setData("text/plain", text);
         /** @type {DataTransfer} */ (dragEvent.dataTransfer).effectAllowed = "copy";

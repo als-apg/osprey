@@ -121,7 +121,7 @@ These are the ones you create and set yourself.
         - The trigger to fire. Comes from the profile block above.
       * - ``EVENT_DISPATCHER_TOKEN``, ``DISPATCH_WORKER_TOKEN``
         - Shared secrets for talking to the dispatcher and the worker.
-          ``osprey deploy up`` generates them when unset.
+          ``osprey up`` generates them when unset.
       * - ``DISPATCHER_URL``, ``WORKER_URL``
         - Where the dispatcher and worker are — the bridge collects answers and
           files from the worker directly. Filled in for you when they run in the
@@ -206,7 +206,7 @@ it starts with everything else:
 
 .. code-block:: bash
 
-   osprey deploy up        # add --dev to bake in a local osprey checkout
+   osprey up        # add --dev to bake in a local osprey checkout
 
 Then mention the app in one of its spaces and ask it something. If nothing
 happens, check the service's logs first: a missing credential stops the bridge at

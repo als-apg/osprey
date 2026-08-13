@@ -5,7 +5,7 @@ ACROSS PROCESSES with a real Claude Agent SDK run, using the als-apg provider
 (the Bedrock proxy reachable from GitHub Actions runners). For each token
 trigger this:
 
-  1. Builds a real control-assistant project once (module-scoped fixture).
+  1. Builds a real control-assistant deployment repo once (module-scoped fixture).
   2. Loads the REAL shipped ``tutorial_triggers.yml`` and overrides ONLY
      ``dispatcher.dispatch_target`` to the local worker (the shipped value is a
      compose service name that does not resolve outside the deploy network).
@@ -155,47 +155,61 @@ def _find_osprey_console_script() -> Path:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Build a real als-apg control-assistant project once per module.
+def _run_osprey(argv: list[str], cwd: Path, timeout: int = 300) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [str(_find_osprey_console_script()), *argv],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env={**os.environ, "CLAUDECODE": ""},
+    )
 
-    ``--skip-deps`` keeps it fast (no project venv); the worker/dispatcher run
-    with this repo's interpreter, so the project venv is not needed.
+
+@pytest.fixture(scope="module")
+def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Init + build a real als-apg control-assistant deployment repo once per module.
+
+    Two steps because the surface has two: ``init`` writes the repo's source zone
+    from the preset, ``build`` renders ``build/`` from it. ``--skip-deps`` keeps
+    the build fast (no project venv); the worker/dispatcher run with this repo's
+    interpreter, so the project venv is not needed.
     """
     base = tmp_path_factory.mktemp("dispatch_tutorial_build")
-    project_dir = base / "proj"
-    osprey_bin = _find_osprey_console_script()
+    repo = base / "proj"
 
-    proc = subprocess.run(
+    init = _run_osprey(
         [
-            str(osprey_bin),
-            "build",
-            "proj",
+            "init",
+            str(repo),
             "--preset",
             "control-assistant",
+            "--no-git",
             "--set",
             "provider=als-apg",
             "--set",
             "model=haiku",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
         ],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        env={**os.environ, "CLAUDECODE": ""},
+        cwd=base,
     )
-    if proc.returncode != 0:
+    if init.returncode != 0:
         pytest.fail(
-            f"osprey build (als-apg) failed (rc={proc.returncode}):\n"
-            f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+            f"osprey init (als-apg) failed (rc={init.returncode}):\n"
+            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
         )
-    if not (project_dir / "config.yml").is_file():
-        pytest.fail(f"build succeeded but config.yml missing under {project_dir}")
-    return project_dir
+
+    build = _run_osprey(
+        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        cwd=base,
+    )
+    if build.returncode != 0:
+        pytest.fail(
+            f"osprey build failed (rc={build.returncode}):\n"
+            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
+        )
+    if not (repo / "build" / "config.yml").is_file():
+        pytest.fail(f"build succeeded but build/config.yml missing under {repo}")
+    return repo
 
 
 def _shipped_triggers_doc() -> dict:
@@ -216,7 +230,7 @@ def _write_local_triggers(dst: Path, worker_port: int) -> None:
 
 
 @pytest.fixture
-def dispatch_stack(built_project: Path, tmp_path: Path) -> Iterator[dict]:
+def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
     """Start a real worker + dispatcher as subprocesses; tear them down after."""
     worker_port = _free_port()
     dispatcher_port = _free_port()
@@ -230,14 +244,17 @@ def dispatch_stack(built_project: Path, tmp_path: Path) -> Iterator[dict]:
             **os.environ,
             "DISPATCH_WORKER_PORT": str(worker_port),
             "DISPATCH_WORKER_TOKEN": TOKEN,
-            "OSPREY_PROJECT_DIR": str(built_project),
+            # The repo root, exactly as the deployed worker gets it: the compose
+            # template sets OSPREY_PROJECT_DIR to the project root and CONFIG_FILE
+            # to the render's config.yml one level down, in build/.
+            "OSPREY_PROJECT_DIR": str(built_repo),
             # The spawned Claude CLI resolves OSPREY config from CWD / CONFIG_FILE.
-            "CONFIG_FILE": str(built_project / "config.yml"),
+            "CONFIG_FILE": str(built_repo / "build" / "config.yml"),
             "CLAUDECODE": "",
         }
         worker_proc = subprocess.Popen(
             [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-            cwd=str(built_project),
+            cwd=str(built_repo),
             env=worker_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -258,7 +275,7 @@ def dispatch_stack(built_project: Path, tmp_path: Path) -> Iterator[dict]:
         }
         dispatcher_proc = subprocess.Popen(
             [sys.executable, "-m", "osprey.dispatch"],
-            cwd=str(built_project),
+            cwd=str(built_repo),
             env=dispatcher_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -270,7 +287,7 @@ def dispatch_stack(built_project: Path, tmp_path: Path) -> Iterator[dict]:
         yield {
             "dispatcher_url": f"http://127.0.0.1:{dispatcher_port}",
             "worker_url": f"http://127.0.0.1:{worker_port}",
-            "project_dir": built_project,
+            "repo": built_repo,
             "worker_proc": worker_proc,
         }
     finally:
@@ -357,13 +374,14 @@ _DEMO_PAYLOAD = {
 )
 def test_tutorial_trigger_completes(dispatch_stack: dict, trigger: str, payload: dict) -> None:
     """Each token tutorial trigger runs end to end and produces its expected effect."""
-    project_dir: Path = dispatch_stack["project_dir"]
+    repo: Path = dispatch_stack["repo"]
 
-    # save-report persists via the workspace artifact tool, which writes to
-    # _agent_data/artifacts/ (the worker's mounted workspace volume). Snapshot
-    # the existing artifacts before firing so the assertion proves THIS run
-    # produced a new one (the build dir is shared module-scoped).
-    artifacts_dir = project_dir / "_agent_data" / "artifacts"
+    # save-report persists via the workspace artifact tool, which writes to the
+    # repo's durable state zone, var/agent_data/artifacts/ (the directory the
+    # deployed worker's workspace volume mounts over). Snapshot the existing
+    # artifacts before firing so the assertion proves THIS run produced a new one
+    # (the repo is shared module-scoped).
+    artifacts_dir = repo / "var" / "agent_data" / "artifacts"
     before = set(artifacts_dir.glob("*.md")) if artifacts_dir.is_dir() else set()
 
     dispatch_id = _fire_webhook(dispatch_stack["dispatcher_url"], trigger, payload)

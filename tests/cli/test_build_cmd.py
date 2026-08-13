@@ -1017,7 +1017,7 @@ class TestProjectPyproject:
         assert f"osprey-framework @ {checkout.as_uri()}" in data["project"]["dependencies"]
 
     def test_rewrites_rather_than_appends(self, monkeypatch, tmp_path: Path):
-        """`osprey build --force` must not stack duplicate dependency blocks.
+        """`osprey build` must not stack duplicate dependency blocks.
 
         An appended emission produces a second ``[project]`` table, which is a
         TOML redefinition error — so a successful parse on the second build is
@@ -1354,7 +1354,9 @@ class TestBuildCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["build", "--help"])
         assert result.exit_code == 0
-        assert "Build a facility-specific assistant" in result.output
+        # A fragment short enough that Click's help rewrapping cannot split it
+        # across a line break, whatever the terminal width.
+        assert "Render this deployment repo's" in result.output
 
     def test_build_command_missing_profile(self):
         """Build should fail if profile file doesn't exist."""
@@ -1851,6 +1853,38 @@ def _write_tier_profile(profile_dir: Path, paradigm: str, tier: int | None = Non
     return path
 
 
+def _tier_repo(tmp_path: Path, paradigm: str, tier: int | None = None) -> Path:
+    """A deployment repo whose profile pins one paradigm and, optionally, a tier.
+
+    The tier lives in ``profile.yml`` — it is a property of the deployment, not
+    of the invocation that renders it — so a test that wants tier 1 writes tier
+    1 into the source and builds. ``osprey set tier=N`` is the CLI spelling of
+    the same edit and is pinned in tests/cli/test_set_verb.py.
+    """
+    repo = tmp_path / f"tier-{paradigm}-{tier or 'default'}"
+    repo.mkdir(parents=True, exist_ok=True)
+    profile_data: dict = {
+        "name": "Tier Test",
+        "data_bundle": "control_assistant",
+        "provider": "cborg",
+        "model": "haiku",
+        "channel_finder_mode": paradigm,
+    }
+    if tier is not None:
+        profile_data["tier"] = tier
+    (repo / "profile.yml").write_text(yaml.dump(profile_data, default_flow_style=False))
+    return repo
+
+
+def _render(repo: Path):
+    """Render *repo*'s build zone through the real verb."""
+    from click.testing import CliRunner
+
+    from osprey.cli.build_cmd import build
+
+    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+
+
 _PARADIGMS_FOR_BUILD: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
 
 
@@ -1866,8 +1900,8 @@ _VALID_TIER_PARADIGMS: tuple[tuple[int, str], ...] = (
 
 @pytest.mark.parametrize("tier,paradigm", _VALID_TIER_PARADIGMS)
 def test_build_tier_flatten(tmp_path: Path, tier: int, paradigm: str) -> None:
-    """`osprey build --tier N` materializes the active paradigm's DB at the
-    flat path and removes the ``tiers/`` subtree.
+    """A build materializes the active paradigm's DB at the flat path and
+    removes the ``tiers/`` subtree.
 
     - rendered config.yml emits ``data/channel_databases/<paradigm>.json``
       (no ``tiers/`` segment).
@@ -1876,36 +1910,16 @@ def test_build_tier_flatten(tmp_path: Path, tier: int, paradigm: str) -> None:
     - the other paradigms' flat files are NOT created.
     - the ``tiers/`` subdirectory has been removed.
     """
-    from click.testing import CliRunner
+    repo = _tier_repo(tmp_path, paradigm, tier)
 
-    from osprey.cli.main import cli
-
-    profile_path = _write_tier_profile(tmp_path, paradigm)
-    output_dir = tmp_path / "out"
-    output_dir.mkdir()
-
-    runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        [
-            "build",
-            "tier-proj",
-            str(profile_path),
-            "--output-dir",
-            str(output_dir),
-            "--tier",
-            str(tier),
-            "--skip-deps",
-            "--skip-lifecycle",
-        ],
-    )
+    result = _render(repo)
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n"
         f"--- output ---\n{result.output}\n"
         f"--- exception ---\n{result.exception}"
     )
 
-    project_dir = output_dir / "tier-proj"
+    project_dir = repo / "build"
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     pipelines = config["channel_finder"]["pipelines"]
 
@@ -1941,93 +1955,52 @@ def test_build_tier_flatten(tmp_path: Path, tier: int, paradigm: str) -> None:
 
 # Re-tiering 1 → 3 only applies to in_context; tier 1 is in_context-only.
 @pytest.mark.parametrize("paradigm", ["in_context"])
-def test_build_force_retier(tmp_path: Path, paradigm: str) -> None:
-    """Rebuilding with --force --tier 3 over a tier-1 project re-materializes
-    the active paradigm's DB (byte-equals preset tier3 source)."""
+def test_build_retier(tmp_path: Path, paradigm: str) -> None:
+    """Changing the tier is a source edit followed by a rebuild.
+
+    This is the source/output split doing its job: nothing about the tier lives
+    in the invocation, so re-tiering is `osprey set tier=3` and then `osprey
+    build`, and the render that comes out is a tier-3 render with no trace of
+    the tier-1 one it replaced.
+    """
     from click.testing import CliRunner
 
-    from osprey.cli.main import cli
+    from osprey.cli.set_cmd import set as set_cmd
 
-    profile_path = _write_tier_profile(tmp_path, paradigm)
-    output_dir = tmp_path / "out"
-    output_dir.mkdir()
+    repo = _tier_repo(tmp_path, paradigm, 1)
 
-    runner = CliRunner()
+    first = _render(repo)
+    assert first.exit_code == 0, f"tier-1 build failed: {first.output}\n{first.exception}"
 
-    # First build: tier 1
-    result1 = runner.invoke(
-        cli,
-        [
-            "build",
-            "retier-proj",
-            str(profile_path),
-            "--output-dir",
-            str(output_dir),
-            "--tier",
-            "1",
-            "--skip-deps",
-            "--skip-lifecycle",
-        ],
-    )
-    assert result1.exit_code == 0, f"tier-1 build failed: {result1.output}\n{result1.exception}"
+    edited = CliRunner().invoke(set_cmd, ["--repo", str(repo), "tier=3"])
+    assert edited.exit_code == 0, edited.output
 
-    # Second build: tier 3, --force overwrites the same path.
-    result2 = runner.invoke(
-        cli,
-        [
-            "build",
-            "retier-proj",
-            str(profile_path),
-            "--output-dir",
-            str(output_dir),
-            "--tier",
-            "3",
-            "--force",
-            "--skip-deps",
-            "--skip-lifecycle",
-        ],
-    )
-    assert result2.exit_code == 0, f"tier-3 rebuild failed: {result2.output}\n{result2.exception}"
+    second = _render(repo)
+    assert second.exit_code == 0, f"tier-3 rebuild failed: {second.output}\n{second.exception}"
 
-    project_dir = output_dir / "retier-proj"
-    flat_path = project_dir / "data" / "channel_databases" / f"{paradigm}.json"
+    flat_path = repo / "build" / "data" / "channel_databases" / f"{paradigm}.json"
     src = _preset_tier_source(3, paradigm)
     assert flat_path.read_bytes() == src.read_bytes(), (
-        f"after --force --tier 3, {paradigm}.json does not byte-equal preset tier3 source"
+        f"after re-tiering to 3, {paradigm}.json does not byte-equal preset tier3 source"
     )
 
 
 @pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
 def test_build_profile_only_tier(tmp_path: Path, paradigm: str) -> None:
-    """When the profile sets ``tier: 3`` and no --tier is passed on the CLI,
-    the profile value drives materialization."""
-    from click.testing import CliRunner
+    """The profile's ``tier: 3`` is what drives materialization.
 
-    from osprey.cli.main import cli
+    There is no other source for it: the tier is a property of the deployment,
+    recorded where a facility can read and edit it, so a render can never
+    disagree with the profile it came from.
+    """
+    repo = _tier_repo(tmp_path, paradigm, 3)
 
-    profile_path = _write_tier_profile(tmp_path, paradigm, tier=3)
-    output_dir = tmp_path / "out"
-    output_dir.mkdir()
-
-    runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        [
-            "build",
-            "profile-tier-proj",
-            str(profile_path),
-            "--output-dir",
-            str(output_dir),
-            "--skip-deps",
-            "--skip-lifecycle",
-        ],
-    )
+    result = _render(repo)
     assert result.exit_code == 0, (
         f"profile-only-tier build failed: {result.output}\n{result.exception}"
     )
 
-    project_dir = output_dir / "profile-tier-proj"
-    flat_path = project_dir / "data" / "channel_databases" / f"{paradigm}.json"
+    flat_path = repo / "build" / "data" / "channel_databases" / f"{paradigm}.json"
     src = _preset_tier_source(3, paradigm)
     assert flat_path.read_bytes() == src.read_bytes(), (
         f"profile tier=3 not honored for {paradigm}.json"
@@ -2179,31 +2152,21 @@ def test_build_channel_finder_agent_requires_mode(tmp_path: Path, caplog) -> Non
     from osprey.cli.main import cli
 
     profile_data = {
-        "name": "no-mode",
+        "name": "no mode",
         "data_bundle": "control_assistant",
         "provider": "cborg",
         "model": "haiku",
         "agents": ["channel-finder"],
         # NOTE: channel_finder_mode intentionally omitted.
     }
-    profile_path = tmp_path / "no-mode.yml"
-    profile_path.write_text(yaml.dump(profile_data, default_flow_style=False))
-    output_dir = tmp_path / "out"
-    output_dir.mkdir()
+    repo = tmp_path / "no-mode"
+    repo.mkdir()
+    (repo / "profile.yml").write_text(yaml.dump(profile_data, default_flow_style=False))
 
     runner = CliRunner()
     with caplog.at_level(logging.WARNING):
         result = runner.invoke(
-            cli,
-            [
-                "build",
-                "no-mode-proj",
-                str(profile_path),
-                "--output-dir",
-                str(output_dir),
-                "--skip-deps",
-                "--skip-lifecycle",
-            ],
+            cli, ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
         )
     assert result.exit_code != 0, f"build should have failed; output:\n{result.output}"
     # The diagnostic is logged (stderr in a real terminal), not written to
@@ -2300,7 +2263,7 @@ class TestCopyServiceTemplates:
 
     A service merely DECLARED under `services:` (an opt-in add-on left out of
     `deployed_services`) must still have its package template bundled, so it can
-    be switched on later with a `deployed_services` edit + `osprey deploy up`
+    be switched on later with a `deployed_services` edit + `osprey up`
     without rebuilding.
     """
 
@@ -2390,7 +2353,7 @@ class TestCopyServiceTemplates:
 
     def test_deployed_service_without_package_template_warns(self, tmp_path: Path, caplog) -> None:
         """A *deployed* service missing its package template still warns —
-        that would break `osprey deploy up`, so the operator must be told."""
+        that would break `osprey up`, so the operator must be told."""
         import logging
 
         from osprey.cli.build_cmd import _copy_service_templates
@@ -2420,43 +2383,15 @@ class TestCopyServiceTemplates:
 
 
 class TestTierSelectionRules:
-    """Tier selection is restricted to {1, 3} on every configuration path, and
-    tier 1 is in_context-only. These rejected-combo cases pin the rule so a
-    tier-2 (retired) or tier1+non-in_context request fails with a rule-naming
-    error rather than an opaque downstream scaffolding FileNotFoundError.
+    """Tier selection is restricted to {1, 3}, and tier 1 is in_context-only.
+
+    The tier is a profile key, so the rule is enforced where the profile
+    resolves — these cases pin that a tier-2 or a tier1+non-in_context profile
+    fails with a rule-naming error rather than an opaque downstream scaffolding
+    FileNotFoundError.
     """
 
     @pytest.fixture()
-    def runner(self):
-        from click.testing import CliRunner
-
-        return CliRunner()
-
-    def test_cli_tier_2_rejected_by_choice(self, runner, tmp_path: Path) -> None:
-        """``--tier 2`` is no longer a valid choice — click rejects it at parse time."""
-        from osprey.cli.build_cmd import build
-
-        out = tmp_path / "out"
-        out.mkdir()
-        result = runner.invoke(
-            build,
-            [
-                "proj",
-                "--preset",
-                "hello-world",
-                "--tier",
-                "2",
-                "--skip-deps",
-                "--skip-lifecycle",
-                "--output-dir",
-                str(out),
-            ],
-        )
-        assert result.exit_code == 2, result.output
-        assert "--tier" in result.output
-        # click's invalid-choice message names the rejected value against {1,3}.
-        assert "'2' is not one of" in result.output
-
     def test_profile_tier_2_rejected(self, tmp_path: Path) -> None:
         """A profile YAML with ``tier: 2`` fails validation naming the {1,3} rule."""
         from osprey.cli.build_profile import resolve_build_profile
@@ -2488,53 +2423,20 @@ class TestTierSelectionRules:
         assert resolved.tier == 1
         assert resolved.resolved_tier() == 1
 
-    def test_cli_tier1_override_on_hierarchical_rejected(self, runner, tmp_path: Path) -> None:
-        """A CLI ``--tier 1`` override applied over a hierarchical profile is
-        caught by the post-override re-validation, so the build aborts on the
-        tier rule instead of reaching (and FileNotFound-ing in) scaffolding."""
-        from osprey.cli.build_cmd import build
-
-        prof = tmp_path / "profile.yml"
-        prof.write_text(
-            "name: t\n"
-            "data_bundle: hello_world\n"
-            "provider: anthropic\n"
-            "channel_finder_mode: hierarchical\n"
-        )
-        out = tmp_path / "out"
-        out.mkdir()
-        result = runner.invoke(
-            build,
-            [
-                "proj",
-                str(prof),
-                "--tier",
-                "1",
-                "--skip-deps",
-                "--skip-lifecycle",
-                "--output-dir",
-                str(out),
-            ],
-        )
-        # Aborts (exit 1) at validation; must not surface as an uncaught
-        # FileNotFoundError from materialize_tier_artifacts.
-        assert result.exit_code == 1, result.output
-        assert not isinstance(result.exception, FileNotFoundError)
-
 
 def test_preset_build_never_touches_the_presets_package_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A --preset build sources conventions from the materialized profile only.
+    """A build sources conventions from the deployment repo, never the wheel.
 
-    Under profile-always, every build resolves an operator-owned profile root
-    — for ``--preset`` that is the materialized ``<project>-profile/``, never
-    the shared presets package (reading there would pick up neighbouring
-    presets' files, and seeding per-user context would write into the wheel).
-    This pins where the conventions pass reads from and that no entry is
-    added to or removed from the package directory (the seeding risk this
-    guards — a stray ``web-terminal-context/`` at the package root — shows up
-    as a new entry).
+    The repo root IS the profile root, so the conventions pass has an
+    operator-owned directory to read by construction. What this still guards is
+    the consequence of getting that wrong: reading the shared presets package
+    would pick up neighbouring presets' files, and seeding per-user context
+    there would write into the installed wheel. Both show up here — the pass's
+    actual source directory, and the package directory being byte-for-byte
+    unchanged in its entry list (a stray ``web-terminal-context/`` at the
+    package root is exactly what a regression would leave).
     """
     from click.testing import CliRunner
 
@@ -2554,27 +2456,19 @@ def test_preset_build_never_touches_the_presets_package_dir(
 
     monkeypatch.setattr(build_cmd_module, "_apply_conventions", spy)
 
-    out = tmp_path / "out"
-    out.mkdir()
+    from osprey.cli.init_cmd import init
+
+    repo = tmp_path / "preset-proj"
     runner = CliRunner()
-    result = runner.invoke(
-        cli,
-        [
-            "build",
-            "preset-proj",
-            "--preset",
-            "hello-world",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(out),
-        ],
-    )
+    created = runner.invoke(init, [str(repo), "--preset", "hello-world", "--no-git"])
+    assert created.exit_code == 0, created.output
+
+    result = runner.invoke(cli, ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n{result.output}\n{result.exception}"
     )
 
-    assert profile_dirs, "the conventions pass should run for a --preset build"
+    assert profile_dirs, "the conventions pass should run for every build"
     for profile_dir in profile_dirs:
         assert not profile_dir.is_relative_to(presets_dir.resolve()), (
             f"conventions must never be sourced from the presets package: {profile_dir}"
@@ -2584,51 +2478,6 @@ def test_preset_build_never_touches_the_presets_package_dir(
         )
     entries_after = sorted(p.name for p in presets_dir.iterdir() if p.name != "__pycache__")
     assert entries_after == entries_before
-
-
-def test_profile_pointing_into_the_osprey_package_is_refused(tmp_path: Path, caplog) -> None:
-    """`osprey build X <installed-preset>.yml` must not treat the package as a profile root.
-
-    Passing the bundled preset file by path sidesteps --preset materialization,
-    so the resolved profile directory is the installed presets package. The
-    conventions pass refuses that by construction — the only protection on
-    this route.
-    """
-    import logging
-
-    from click.testing import CliRunner
-
-    import osprey.profiles.presets as presets_pkg
-    from osprey.cli.main import cli
-
-    preset_yml = Path(presets_pkg.__file__).parent / "hello-world.yml"
-    assert preset_yml.is_file()
-
-    out = tmp_path / "out"
-    out.mkdir()
-    runner = CliRunner()
-    with caplog.at_level(logging.ERROR):
-        result = runner.invoke(
-            cli,
-            [
-                "build",
-                "package-profile-proj",
-                str(preset_yml),
-                "--skip-deps",
-                "--skip-lifecycle",
-                "--output-dir",
-                str(out),
-            ],
-        )
-
-    assert result.exit_code != 0, result.output
-    # The refusal is logged, and the Rich handler wraps the rendered line to the
-    # console width. The message embeds the profile path, so where that break
-    # lands varies with the checkout location and can split the phrase itself —
-    # read the record, which carries the message whole.
-    reported = caplog.text + (str(result.exception) if result.exception else "")
-    assert "inside the installed osprey package" in reported
-    assert not (preset_yml.parent / "web-terminal-context").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -2803,28 +2652,26 @@ class TestVAArchiverConfigDerivation:
     """The `va_archiver:` block's keys reach a built project's config.yml."""
 
     def _build(self, tmp_path: Path, project_name: str, **profile_keys: object) -> Path:
-        """Build the hello-world preset with *profile_keys* layered on top."""
+        """Init the hello-world preset with *profile_keys* layered on top, build,
+        and return the RENDER — the directory whose config.yml the deploy reads."""
         from click.testing import CliRunner
 
         from osprey.cli.build_cmd import build
+        from osprey.cli.init_cmd import init
 
-        argv = [
-            project_name,
-            "--preset",
-            "hello-world",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ]
+        repo = tmp_path / project_name
+        argv = [str(repo), "--preset", "hello-world", "--no-git"]
         if profile_keys:
             override = tmp_path / f"{project_name}-override.yml"
             override.write_text(yaml.safe_dump(profile_keys, sort_keys=False), encoding="utf-8")
-            argv[1:1] = ["-O", str(override)]
+            argv += ["-O", str(override)]
 
-        result = CliRunner().invoke(build, argv)
+        runner = CliRunner()
+        result = runner.invoke(init, argv)
         assert result.exit_code == 0, result.output
-        return tmp_path / project_name
+        result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        assert result.exit_code == 0, result.output
+        return repo / "build"
 
     def _config(self, project_path: Path) -> dict:
         return yaml.safe_load((project_path / "config.yml").read_text()) or {}

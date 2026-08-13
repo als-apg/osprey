@@ -40,7 +40,7 @@ async def facility_description() -> str:
                 "not_found",
                 "Facility description file not found at .claude/rules/facility.md",
                 [
-                    "Run `osprey claude regen` to create the file.",
+                    "Run `osprey build` to render the file.",
                     "Or create .claude/rules/facility.md manually.",
                     "The file should describe your facility's identity, "
                     "systems, terminology, and operational context.",

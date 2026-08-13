@@ -83,7 +83,17 @@ async def artifact_save(
         if file_path:
             source = Path(file_path)
             if not source.is_absolute():
-                source = Path.cwd() / source
+                # Anchored on the deployment repo root, NOT this server's cwd.
+                # The two are different processes with different working
+                # directories: the agent CLI is spawned with cwd `build/` on a
+                # host launch and this server inherits it, while the agent's own
+                # code runs with cwd at the repo root and the artifact store
+                # hands out repo-root-relative pointers. A relative path the
+                # agent produced therefore resolved one zone too deep here —
+                # and only in containers, where the two coincide, did it work.
+                from osprey.utils.workspace import load_osprey_config, resolve_project_root
+
+                source = resolve_project_root(load_osprey_config()) / source
             entry = store.save_from_path(
                 source_path=source,
                 title=title,

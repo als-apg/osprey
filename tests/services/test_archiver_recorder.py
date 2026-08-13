@@ -571,24 +571,30 @@ def test_the_template_mounts_the_live_project_not_a_staged_config_copy() -> None
     Every other service mounts the flattened config.yml the compose generator
     stages into its build dir, and returning this one to that convention is the
     obvious tidy-up for someone who has not read why it deviates. It would also
-    be silent: the poll would keep running against a file rewritten once per
-    `deploy up`, so a flip would need a redeploy while the service went on
+    be silent: the poll would keep running against a copy rewritten once per
+    `osprey build`, so a flip would need a rebuild while the service went on
     logging that it does not — the exact dishonesty this feature removes.
+
+    The mount source is `.` — bind sources resolve against the pinned compose
+    project directory, which is the deployment REPO ROOT — and CONFIG_FILE
+    names the as-built render inside it, reached through the directory mount so
+    a host edit is seen on the next poll.
     """
     template = _recorder_template_text()
 
-    assert "- ../..:/app/project:ro" in template, (
-        "the recorder must mount the live project directory; a staged copy is "
-        "rewritten only by `deploy up`, so the enablement poll would re-read a "
-        "build artifact and the documented no-redeploy flip would never arrive"
+    assert "- .:/app/project:ro" in template, (
+        "the recorder must mount the deployment repo; a staged copy is "
+        "rewritten only by `osprey build`, so the enablement poll would re-read "
+        "a stale copy and the documented no-rebuild flip would never arrive"
     )
-    assert "./archiver_recorder/config.yml:/app/project/config.yml" not in template, (
-        "the staged-copy mount is back; see the mount comment for why this "
-        "service deviates from the convention the bluesky bridge follows"
+    assert ":/app/project/config.yml" not in template, (
+        "a single-file config.yml mount is the staged-copy pattern returning; "
+        "see the mount comment for why this service deviates from the "
+        "convention the bluesky bridge follows"
     )
-    assert "CONFIG_FILE: /app/project/config.yml" in template, (
-        "CONFIG_FILE must keep naming the path the project directory mount now "
-        "makes live, or the service reads nothing"
+    assert "CONFIG_FILE: /app/project/build/config.yml" in template, (
+        "CONFIG_FILE must keep naming the path the repo mount now makes live, "
+        "or the service reads nothing"
     )
 
 

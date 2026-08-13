@@ -463,6 +463,104 @@ class TestProjectResolution:
         assert str(project) in config_row["message"]
 
 
+class TestThreeZoneAnchors:
+    """Config and ``.env`` are anchored separately, so either stance answers fully.
+
+    The bug: one directory was resolved for both, so from a repo root the config
+    (in ``build/``) was reported missing, and from the render the ``.env`` (at the
+    repo root, the single secret store) was never loaded — the checks then ran
+    keyless against credentials that were sitting right there.
+    """
+
+    @staticmethod
+    def _repo(tmp_path: Path) -> Path:
+        """A three-zone repo: ``profile.yml`` + ``.env`` at the root, config in ``build/``."""
+        repo = tmp_path / "repo"
+        (repo / "build").mkdir(parents=True)
+        (repo / "profile.yml").write_text("name: canary\n")
+        (repo / "build" / "config.yml").write_text(
+            "project_name: canary\n"
+            "models:\n"
+            "  python_code_generator:\n"
+            "    provider: mock\n"
+            "    model_id: ${OSPREY_HEALTH_ZONE_CANARY}\n"
+        )
+        (repo / ".env").write_text("OSPREY_HEALTH_ZONE_CANARY=resolved-from-repo-root-env\n")
+        return repo
+
+    def _configuration_rows(self, cli_runner, stance: Path) -> list[dict]:
+        with _no_container_runtime():
+            result = cli_runner.invoke(
+                health, ["--project", str(stance), "--json", "--category", "configuration"]
+            )
+        return json.loads(result.stdout)["results"]
+
+    def test_repo_root_stance_finds_the_rendered_config(self, cli_runner, tmp_path):
+        repo = self._repo(tmp_path)
+        assert "OSPREY_HEALTH_ZONE_CANARY" not in os.environ
+
+        rows = self._configuration_rows(cli_runner, repo)
+
+        config_row = _find(rows, "config_file_exists")
+        assert config_row is not None and config_row["status"] == "ok"
+        assert str(repo / "build" / "config.yml") in config_row["message"]
+        env_row = _find(rows, "environment_variables")
+        assert env_row is not None and env_row["status"] == "ok"
+
+    @pytest.mark.parametrize("stance", ["repo", "build"])
+    def test_channel_finder_reads_the_render_not_the_source_zone(
+        self, cli_runner, tmp_path, stance
+    ):
+        """A build-owned database is read from the render, whatever the stance.
+
+        The two categories used to share one anchor. The repo root is right for
+        ``file_system`` and wrong here: a channel database is build output, and
+        the rendered config states its path relative to the config's own
+        directory. Both zones hold a file at the configured relative path here,
+        with DIFFERENT sizes — identical copies would pass under either anchor
+        and prove nothing — so the reported size names which one was read.
+        """
+        repo = tmp_path / "repo"
+        (repo / "build").mkdir(parents=True)
+        (repo / "build" / "config.yml").write_text(
+            "project_name: cf_stance\n"
+            "channel_finder:\n"
+            "  pipeline_mode: hierarchical\n"
+            "  pipelines:\n"
+            "    hierarchical:\n"
+            "      database:\n"
+            "        path: data/channels.json\n"
+        )
+        render_db = repo / "build" / "data" / "channels.json"
+        render_db.parent.mkdir(parents=True)
+        render_db.write_text("r" * 11)  # 11 B — the build's output
+        source_db = repo / "data" / "channels.json"
+        source_db.parent.mkdir(parents=True)
+        source_db.write_text("s" * 999)  # 999 B — the source tree it was built from
+
+        project = repo if stance == "repo" else repo / "build"
+        with _no_container_runtime():
+            result = cli_runner.invoke(
+                health, ["--project", str(project), "--json", "--category", "channel_finder"]
+            )
+        rows = json.loads(result.stdout)["results"]
+
+        db_row = _find(rows, "channel_finder_database")
+        assert db_row is not None and db_row["status"] == "ok", db_row
+        assert db_row["value"] == "11 B", db_row  # the render's file, not the source's
+
+    def test_render_stance_still_reads_the_repo_root_env(self, cli_runner, tmp_path):
+        # Pointing at the render is the stance that used to look for `.env` inside
+        # `build/`, which no build ever writes.
+        repo = self._repo(tmp_path)
+        assert "OSPREY_HEALTH_ZONE_CANARY" not in os.environ
+
+        rows = self._configuration_rows(cli_runner, repo / "build")
+
+        env_row = _find(rows, "environment_variables")
+        assert env_row is not None and env_row["status"] == "ok"
+
+
 # --------------------------------------------------------------------------- #
 # --json machine-clean wire contract
 # --------------------------------------------------------------------------- #

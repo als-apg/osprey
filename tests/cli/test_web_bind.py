@@ -24,6 +24,7 @@ from osprey.cli.web_cmd import (
     resolve_web_port,
     web,
 )
+from tests.cli._lifecycle_build import stub_build
 
 
 @pytest.fixture
@@ -45,23 +46,28 @@ def _isolate_bind_and_port_env(monkeypatch):
     state (present or absent) at teardown, regardless of what the app wrote
     in between.
     """
-    for _key in ("OSPREY_WEB_PORT", DECLARED_BIND_ENV, DECLARED_WEB_PORT_ENV):
+    for _key in ("OSPREY_CONFIG", "OSPREY_WEB_PORT", DECLARED_BIND_ENV, DECLARED_WEB_PORT_ENV):
         monkeypatch.setenv(_key, "__unset_by_test_fixture__")
         monkeypatch.delenv(_key)
 
 
 @pytest.fixture(autouse=True)
-def _project_config(tmp_path, monkeypatch):
-    """Satisfy `web()`'s project resolution for every launch-path test here.
+def _inside_a_deployment(lifecycle_repo, monkeypatch):
+    """Satisfy `web()`'s deployment resolution for every launch-path test here.
 
-    `osprey web` refuses to start without a resolvable config.yml (a configless
-    launch silently serves a panel-less terminal). These tests exercise bind
-    and port resolution, not project resolution, so point OSPREY_CONFIG at a
-    minimal config to get past the launch gate.
+    `osprey web` refuses to start outside a deployment repo, or inside one with
+    nothing rendered (a configless launch silently serves a panel-less
+    terminal). These tests exercise bind and port resolution, not discovery, so
+    they stand in a repo with a minimal render and let the walk-up rule do its
+    normal thing.
+
+    The env var is deliberately NOT how this is arranged: `OSPREY_CONFIG` is a
+    publication `web` makes for its children, not a way of telling it where to
+    look, and a test that set it would be pinning a contract that no longer
+    exists.
     """
-    cfg = tmp_path / "config.yml"
-    cfg.write_text("web: {}\n")
-    monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
+    stub_build(lifecycle_repo, config="web: {}\n")
+    monkeypatch.chdir(lifecycle_repo)
 
 
 def _free_port() -> int:

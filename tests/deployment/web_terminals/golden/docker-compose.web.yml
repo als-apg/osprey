@@ -6,11 +6,13 @@ services:
     container_name: dls-nginx
     restart: unless-stopped
     network_mode: host
+    labels:
+      com.osprey.repo-id: "@REPO_ID@"
     environment:
       - TZ=America/Los_Angeles
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./nginx/landing.html:/usr/share/nginx/html/landing.html:ro
+      - ./build/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./build/nginx/landing.html:/usr/share/nginx/html/landing.html:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9080/ || exit 1"]
       interval: 15s
@@ -25,6 +27,8 @@ services:
     container_name: dls-web-alice
     restart: unless-stopped
     network_mode: host
+    labels:
+      com.osprey.repo-id: "@REPO_ID@"
     env_file: .env.production
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
@@ -43,7 +47,7 @@ services:
       - OSPREY_HEALTH_PORT=9791
     volumes:
       - alice-claude-config:/data/claude-config
-      - alice-agent-data:/app/dls-assistant/_agent_data
+      - alice-agent-data:/app/dls-assistant/var/agent_data
     healthcheck:
       # osprey web's own default listen port is the fixed constant 8087
       # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
@@ -65,6 +69,8 @@ services:
     container_name: dls-web-bob
     restart: unless-stopped
     network_mode: host
+    labels:
+      com.osprey.repo-id: "@REPO_ID@"
     env_file: .env.production
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
@@ -83,7 +89,7 @@ services:
       - OSPREY_HEALTH_PORT=9792
     volumes:
       - bob-claude-config:/data/claude-config
-      - bob-agent-data:/app/dls-assistant/_agent_data
+      - bob-agent-data:/app/dls-assistant/var/agent_data
     healthcheck:
       # osprey web's own default listen port is the fixed constant 8087
       # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
@@ -103,8 +109,16 @@ services:
 volumes:
 
   alice-claude-config:
+    labels:
+      com.osprey.repo-id: "@REPO_ID@"
   alice-agent-data:
+    labels:
+      com.osprey.repo-id: "@REPO_ID@"
 
   bob-claude-config:
+    labels:
+      com.osprey.repo-id: "@REPO_ID@"
   bob-agent-data:
+    labels:
+      com.osprey.repo-id: "@REPO_ID@"
 

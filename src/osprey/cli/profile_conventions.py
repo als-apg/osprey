@@ -33,6 +33,7 @@ from pathlib import Path, PurePosixPath
 
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
+from osprey.utils.workspace import BUILD_DIR_NAME, STATE_DIR_NAME
 
 logger = get_logger("build")
 
@@ -164,7 +165,7 @@ _BY_SOURCE: dict[str, ConventionDir] = {c.source: c for c in CONVENTION_DIRS}
 _PER_USER_CONVENTION: ConventionDir = next(c for c in CONVENTION_DIRS if c.per_user)
 
 #: Profile-root directory holding one subdirectory of context per web-terminal
-#: user. Public because ``osprey profile new`` seeds those subdirectories from
+#: user. Public because ``osprey init`` seeds those subdirectories from
 #: the roster and must name the same directory this table maps.
 PER_USER_CONTEXT_DIRNAME: str = _PER_USER_CONVENTION.source
 
@@ -172,10 +173,46 @@ CONVENTION_SOURCES: tuple[str, ...] = tuple(c.source for c in CONVENTION_DIRS)
 
 PROJECT_MIRROR_DIR = "project"
 
-#: Profile-root entries that are neither convention directories nor typos.
-KNOWN_ROOT_ENTRIES: frozenset[str] = frozenset(
-    {"profile.yml", ".env", ".env.example", "triggers.yml", "data", "personas"}
-) | set(CONVENTION_SOURCES)
+#: The disposable output zone. Every ``osprey build`` wipes and re-renders it,
+#: so nothing durable may live there. Spelled here under this module's own name
+#: — the repo root it judges is the directory the zone sits in — but ALIASED to
+#: :data:`osprey.utils.workspace.BUILD_DIR_NAME` rather than restated. Three
+#: modules named this directory with three independent string literals, which
+#: is three chances for the zone layout to disagree with itself; there is now
+#: one literal and two names for it.
+BUILD_OUTPUT_DIR = BUILD_DIR_NAME
+
+#: The durable state zone (``var/agent_data``, ``var/audit``) — git-ignored,
+#: never rendered, and never wiped by a build. Aliased for the same reason.
+STATE_DIR = STATE_DIR_NAME
+
+#: SOURCE zone: tracked, user-edited. ``profile.yml`` plus the material it
+#: names, and the CI files a deployment ships (``scripts/verify.sh`` beside
+#: ``ci-extra.yml``; ``.gitlab-ci.yml`` is dot-prefixed and exempt already).
+_SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
+    {"profile.yml", "triggers.yml", "data", "personas", "scripts", "ci-extra.yml"}
+)
+
+#: SECRETS zone: git-ignored, durable. Dot-prefixed, so already exempt from the
+#: warning — listed anyway so this table reads as the whole layout rather than
+#: leaving one zone to the dotfile exemption by coincidence.
+_SECRETS_ZONE_ENTRIES: frozenset[str] = frozenset({".env", ".env.example"})
+
+#: OUTPUT and STATE zones: git-ignored and generated. Both sit at the repo root
+#: the profile is read from, so the warning must not read them as typos of a
+#: convention directory — a build would otherwise flag its own output.
+_GENERATED_ZONE_ENTRIES: frozenset[str] = frozenset({BUILD_OUTPUT_DIR, STATE_DIR})
+
+#: Repo-root entries that are neither convention directories nor typos — the
+#: three-zone layout in full, plus every convention source. The repo root *is*
+#: the profile root, so a deployment's own generated zones are entries this
+#: module has to recognize rather than warn about (SC-9).
+KNOWN_ROOT_ENTRIES: frozenset[str] = (
+    _SOURCE_ZONE_ENTRIES
+    | _SECRETS_ZONE_ENTRIES
+    | _GENERATED_ZONE_ENTRIES
+    | frozenset(CONVENTION_SOURCES)
+)
 
 #: Name prefixes exempt from the unknown-root-entry warning. Dot-prefixed
 #: entries (``.git/``, ``.DS_Store``) and ``docs/`` are exempt too — a profile
@@ -726,36 +763,41 @@ def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> 
 
 
 def warn_unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> list[str]:
-    """Warn about unrecognized profile-root entries and return their names.
+    """Warn about unrecognized repo-root entries and return their names.
 
     A misspelled convention directory (``rule/`` for ``rules/``) is otherwise
     silent: nothing reads it, so nothing complains, and the artifacts simply
-    never reach the project.
+    never reach the build.
 
-    The warning also names the nested facility-repo layout, because the other
-    way to arrive here is not a typo at all: a facility whose own directories
-    (``ioc/``, ``nginx/``, ``tests/``) sit beside ``profile.yml`` at one level
-    gets every one of them reported as unrecognized, and the remedy is to move
-    the profile into its own ``profile/`` directory below them. A repo already
-    laid out that way never reaches this warning — its root holds no
-    ``profile.yml``, so a build pointed there is refused outright, with a
-    pointer to ``osprey profile new``, before any entry is scanned. The two
-    causes read identically from here — one entry or twenty, all unknown — so
-    the message names both remedies rather than guessing which one applies.
+    The other way to arrive here is not a typo at all: a facility's own
+    directory (``ioc/``, ``nginx/``) sitting beside ``profile.yml``. Under the
+    three-zone layout the repo root *is* the profile root, so there is nowhere
+    to nest such a directory away to — the remedy is to move it into the
+    channel that carries it, or to accept that nothing copies it, which for
+    repo-local material is the correct outcome. The two causes read identically
+    from here — one entry or twenty, all unknown — so the message names both
+    remedies rather than guessing which one applies.
     """
     unknown = unknown_root_entries(profile_dir, extra_known)
     if unknown:
         logger.warning(
-            "  Profile has %d unrecognized top-level entry/entries: %s\n"
-            "     Nothing copies them into the project — check for a typo.\n"
+            "  Repo root has %d unrecognized top-level entry/entries: %s\n"
+            "     Nothing copies them into the build — check for a typo.\n"
             "     Convention directories: %s\n"
-            "     If %s is a facility repo rather than a profile, the profile is the\n"
-            "     nested profile/ directory — build from profile/profile.yml, and the\n"
-            "     repo's own directories stay invisible to the build. Run\n"
-            "     /osprey-build-interview to lay out that structure.",
+            "     %s is the repo root and the profile root at once: profile.yml and\n"
+            "     the material it names sit here, beside the generated %s/ and %s/\n"
+            "     zones. Nothing nests — there is no profile/ subdirectory to move\n"
+            "     them into.\n"
+            "     If an entry is meant to reach the deployment, move it into the\n"
+            "     channel that carries it — a convention directory above, or %s/ for\n"
+            "     a verbatim copy. If it is repo-local material the deployment does\n"
+            "     not need, leaving it here costs nothing but this warning.",
             len(unknown),
             ", ".join(unknown),
             ", ".join(f"{name}/" for name in CONVENTION_SOURCES),
             profile_dir,
+            BUILD_OUTPUT_DIR,
+            STATE_DIR,
+            PROJECT_MIRROR_DIR,
         )
     return unknown

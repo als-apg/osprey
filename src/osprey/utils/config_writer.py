@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 _yaml = YAML(typ="rt")
 _yaml.preserve_quotes = True
 _yaml.width = 4096  # prevent aggressive line-wrapping
+# Emit block sequences indented under their key, which is how every YAML this
+# framework generates is written. ruamel's default (offset 0) would pull each
+# list item back to its parent's column on the first write, so a one-key
+# `osprey set` reflowed ~80 lines of a hand-formatted, git-tracked profile —
+# comments preserved, but every list in the file re-indented around them.
+_yaml.indent(mapping=2, sequence=4, offset=2)
 
 
 # =============================================================================
@@ -542,21 +548,6 @@ def _set_nested_value(data: dict, path: str, value: Any, root: Any = None) -> No
 
 
 # =============================================================================
-# Config File Discovery
-# =============================================================================
-
-
-def find_config_file() -> Path | None:
-    """Find the config.yml file in current directory.
-
-    Returns:
-        Path to config.yml or None if not found
-    """
-    config_path = Path.cwd() / "config.yml"
-    return config_path if config_path.exists() else None
-
-
-# =============================================================================
 # Control System Type Configuration
 # =============================================================================
 
@@ -593,9 +584,12 @@ def set_control_system_type(
     control_type: str,
     archiver_type: str | None = None,
     create_backup: bool = True,
-    archiver_settings: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     """Update control system and optionally archiver type in config.yml.
+
+    Retained as the config-side write path; the live CLI writes through the
+    profile (``osprey set`` + ``osprey build``), so this is currently
+    test-only.
 
     Uses comment-preserving YAML update via update_yaml_file().
 
@@ -604,12 +598,6 @@ def set_control_system_type(
         control_type: 'mock', 'epics', or 'virtual_accelerator'
         archiver_type: Optional archiver type ('mock_archiver', 'epics_archiver')
         create_backup: If True, creates a .bak file before modifying
-        archiver_settings: Optional dotted keys the selected archiver needs to
-            be constructible at all — ``archiver.mongodb_archiver.host`` and
-            its siblings. Written the same way every other key here is: split
-            into nested sections, because a rendered config.yml is read as
-            nested sections and a top-level dotted line in it configures
-            nothing.
 
     Returns:
         Tuple of (updated_content, preview) where updated_content is the new file content
@@ -618,9 +606,6 @@ def set_control_system_type(
 
     if archiver_type:
         updates["archiver.type"] = archiver_type
-
-    if archiver_settings:
-        updates.update(archiver_settings)
 
     update_yaml_file(config_path, updates, create_backup=create_backup)
 
@@ -633,9 +618,6 @@ def set_control_system_type(
 
     if archiver_type:
         preview_lines.append(f"archiver.type: {archiver_type}")
-
-    for key, value in (archiver_settings or {}).items():
-        preview_lines.append(f"{key}: {value}")
 
     preview_lines.append("\n[dim]Updated config.yml[/dim]")
 

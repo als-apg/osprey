@@ -247,3 +247,48 @@ def test_project_containers_match_the_normalized_project_name(runtime_calls):
 
     assert "demo_project-service" in output
     assert "Other Osprey Containers" not in output
+
+
+# ---------------------------------------------------------------------------
+# Agent section: the provider spec is read from the render, resolved from .env
+# ---------------------------------------------------------------------------
+
+
+def test_agent_section_expands_provider_placeholders_from_the_repo_env(tmp_path, monkeypatch):
+    """A ``${VAR}`` in the render's provider block resolves from ``<repo>/.env``.
+
+    The render is disposable and holds no secrets; the deployment keeps them at
+    its root, which is where ``_auth_availability`` already looks. Resolving
+    the spec against the render instead would report a facility gateway as the
+    literal ``${FACILITY_GATEWAY_URL}`` — a status line no operator can act on.
+    """
+    monkeypatch.delenv("FACILITY_GATEWAY_URL", raising=False)
+    monkeypatch.setattr(status_display, "_artifact_drift", lambda *a, **k: None)
+
+    repo_root = tmp_path / "facility"
+    build_dir = repo_root / "build"
+    build_dir.mkdir(parents=True)
+    (build_dir / "config.yml").write_text(
+        "api:\n"
+        "  providers:\n"
+        "    cborg:\n"
+        "      base_url: ${FACILITY_GATEWAY_URL}\n"
+        "claude_code:\n"
+        "  provider: cborg\n",
+        encoding="utf-8",
+    )
+    (repo_root / ".env").write_text("FACILITY_GATEWAY_URL=https://gw.test/v1\n", encoding="utf-8")
+
+    console = Console(record=True, width=200)
+    status_display._print_agent_section(
+        repo_root,
+        build_dir,
+        {"claude_code": {"provider": "cborg"}},
+        console,
+        status_display._DefaultStyles,
+        show_agents=False,
+    )
+    output = console.export_text()
+
+    assert "ANTHROPIC_BASE_URL = https://gw.test" in output
+    assert "${FACILITY_GATEWAY_URL}" not in output

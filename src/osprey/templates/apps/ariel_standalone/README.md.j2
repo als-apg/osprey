@@ -6,7 +6,7 @@ service. Postgres+pgvector is provisioned; the control-system runtime is not.
 ## Quick Start
 
 ```bash
-osprey deploy up          # Bring up Postgres+pgvector
+osprey up          # Bring up Postgres+pgvector
 osprey ariel quickstart   # Run migrations and ingest the bundled demo logbook
 osprey web                # Open the web terminal — ARIEL panel + agent chat
 ```
@@ -32,7 +32,7 @@ osprey web                # Open the web terminal — ARIEL panel + agent chat
 
 1. **Edit `.claude/rules/facility.md`** to describe your facility. The default
    ships with placeholder content ("Example Research Facility"). The file is
-   auto-claimed as user-owned, so `osprey claude regen` will preserve your
+   auto-claimed as user-owned, so `osprey build` will preserve your
    edits.
 2. Set `ANTHROPIC_API_KEY` (or `CBORG_API_KEY` for the LBL proxy) in `.env`.
 3. Replace `data/logbook_seed/demo_logbook.json` with a dump from your real
@@ -40,18 +40,19 @@ osprey web                # Open the web terminal — ARIEL panel + agent chat
    your facility's logbook system.
 
 For deeper customization — adding custom skills/rules/agents, overriding
-config, wiring real ingestion — materialize an editable build profile from
-this preset and rebuild from it:
+config, wiring real ingestion — create a deployment repo from this preset and
+rebuild from it:
 
 ```
-osprey profile new my-ariel-profile --preset ariel-standalone
-# edit my-ariel-profile/profile.yml, its data/ tree, and its convention dirs
-osprey build my-ariel ./my-ariel-profile/profile.yml
+osprey init my-ariel --preset ariel-standalone
+cd my-ariel
+# edit profile.yml, its data/ tree, and its convention dirs
+osprey build
 ```
 
-The profile directory is your facility's source of truth; this rendered
-project is a regenerable artifact. See the `build-profiles` how-to for the
-full schema.
+The repo's `profile.yml` and the trees beside it are your facility's source of
+truth; `build/` is a regenerable artifact. See the `build-profiles` how-to for
+the full schema.
 
 ## REST API
 
@@ -65,4 +66,4 @@ details.
 - `config.yml` — project settings (DB URI, search modules, providers)
 - `.claude/` — agent rules, hooks, MCP server configuration
 - `CLAUDE.md` — agent persona (logbook research assistant; do not edit unless
-  customizing — regen overwrites unless you claim it as user-owned)
+  customizing — `osprey build` overwrites unless you claim it as user-owned)

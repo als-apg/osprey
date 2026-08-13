@@ -118,310 +118,31 @@ def _dotenv_raw_lines(text: str) -> dict[str, str]:
     return raw
 
 
-# Keys the build derives from the project's own content rather than from the
-# user's environment, and therefore owns outright: preserving them across a
-# re-render would latch them on. A build that can no longer generate a
-# virtual-accelerator manifest must be able to un-write the keys pointing at
-# one -- keeping a stale VA_CHANNELS_FILE would leave the IOC serving a
-# manifest with no drive limits beside it.
-BUILD_DERIVED_KEYS = frozenset({"VA_CHANNELS_FILE", "VA_LATTICE"})
-
-
-# Keys written into the *project* ``.env`` by something other than the build --
-# a running scenario, a deploy, an operator arming a service -- and whose value
-# is therefore pinned to live state the profile cannot reproduce: a docker
-# volume initialized with a minted password, a container already trusting a
-# token, the physics fault a scenario is currently applying. Re-deriving them
-# from the profile would silently break the running stack, so a value already
-# in the project ``.env`` always wins, and a key present ONLY there (a
-# degraded-topology mint, when deploy could not write back to the profile)
-# survives verbatim.
+# Keys whose value the build derives from the project's own content rather than
+# from the user's environment: the pointers at the virtual-accelerator channel
+# manifest `osprey build` generates into the output zone. They are named here,
+# once, because two places need the same answer to "which keys does the build
+# speak for?" -- the build appends them when it generates a manifest, and it
+# scans for them to report a pointer left over from a build that no longer can
+# (`osprey.cli.build_cmd`). Their VALUES are not here: they come from the
+# virtual-accelerator manifest module, and this module is deliberately the
+# bottom of the import graph.
 #
-# Enumerated rather than imported: this module is the bottom of the import
-# graph (``deployment.container_lifecycle`` imports *from* here). The names are
-# cross-checked against their owning definitions in
-# ``tests/utils/test_dotenv_derivation.py`` so the two cannot drift.
-RUNTIME_WRITER_KEYS = frozenset(
-    {
-        # osprey.simulation.apply._PHYSICS_ENV_VARS -- the active scenario's
-        # physics fault, reconciled per scenario switch.
-        "VA_BPM_ERRORS",
-        "VA_CORR_GAIN",
-        # bluesky bridge substrate wiring, derived at deploy time
-        # (osprey.services.bluesky_bridge.substrate_devices).
-        "BLUESKY_EPICS_SUBSTRATE",
-        "BLUESKY_EPICS_MOTORS",
-        "BLUESKY_EPICS_DETECTORS",
-        # osprey.deployment.container_lifecycle._SERVICE_TOKEN_VARS -- minted
-        # once, then pinned by the volumes/containers that adopted them.
-        "EVENT_DISPATCHER_TOKEN",
-        "DISPATCH_WORKER_TOKEN",
-        "BLUESKY_LAUNCH_TOKEN",
-        "BLUESKY_TILED_API_KEY",
-        "ZO_ROOT_USER_PASSWORD",
-        "ARIEL_DB_PASSWORD",
-        "MONGO_ROOT_PASSWORD",
-    }
-)
-
-#: Banner introducing profile-carried keys the render itself did not emit.
-PROFILE_CARRIED_BANNER = "# ── Carried from the profile .env ──"
-
-#: Banner introducing runtime-written keys preserved from the project ``.env``.
-RUNTIME_PRESERVED_BANNER = "# ── Preserved from the project .env (runtime-written) ──"
-
-
-def derive_project_env(
-    profile_text: str,
-    rendered_text: str,
-    existing_text: str,
-    mode: str,
-    *,
-    build_derived_keys: frozenset[str] = BUILD_DERIVED_KEYS,
-    runtime_writer_keys: frozenset[str] = RUNTIME_WRITER_KEYS,
-) -> str:
-    """Derive a project ``.env`` from the profile, the render, and what is there.
-
-    The profile ``.env`` is the source of truth for facility secrets; the render
-    supplies structure, comments, and build-computed values; the existing
-    project ``.env`` contributes only what a runtime writer put there. Each key
-    resolves through one of three classes, in this precedence:
-
-    1. ``build_derived_keys`` -- the build owns them outright: the rendered
-       value wins, and a key the render no longer emits is *un-written* rather
-       than preserved (a stale ``VA_CHANNELS_FILE`` would point the IOC at a
-       manifest the build can no longer regenerate).
-    2. ``runtime_writer_keys`` -- an existing project value wins over both the
-       profile and the render, whether or not the render emits the key, and a
-       key present only in the project survives verbatim (see
-       :data:`RUNTIME_WRITER_KEYS`). A profile value is therefore never carried
-       in over one the project owns; when the two disagree, the divergence is
-       warned about by name. An *empty* project value still owns the key: it
-       means "no token", which the deploy layer treats as a deliberate
-       fail-closed setting rather than a blank.
-    3. profile-carried -- any key the profile ``.env`` sets wins over the
-       render; profile keys the render does not emit are appended.
-
-    Anything else falls back to the rendered value.
-
-    ``mode`` selects how far the derivation goes:
-
-    ``"build"``
-        Full semantics. The render provides the file's shape and a key that
-        survives in none of the three classes is *dropped* -- a project ``.env``
-        rebuilt from a profile carries no facility state the profile cannot
-        regenerate.
-    ``"deploy"``
-        Overlay only. The existing file provides the shape, profile-carried
-        values are updated in place, missing keys are appended, and nothing is
-        ever deleted -- a deploy refreshing secrets must not prune a project it
-        did not build.
-    """
-    if mode not in ("build", "deploy"):
-        raise ValueError(f"unknown derivation mode {mode!r} (expected 'build' or 'deploy')")
-
-    profile = _dotenv_raw_lines(profile_text)
-    existing = _dotenv_raw_lines(existing_text)
-    rendered = _dotenv_raw_lines(rendered_text)
-
-    if mode == "deploy":
-        return _overlay_project_env(
-            profile, rendered, existing_text, build_derived_keys, runtime_writer_keys
-        )
-    return _rebuild_project_env(
-        profile,
-        rendered,
-        existing,
-        rendered_text,
-        parse_dotenv_text(profile_text),
-        parse_dotenv_text(existing_text),
-        build_derived_keys,
-        runtime_writer_keys,
-    )
-
-
-def _rebuild_project_env(
-    profile: dict[str, str],
-    rendered: dict[str, str],
-    existing: dict[str, str],
-    rendered_text: str,
-    profile_values: Mapping[str, str],
-    existing_values: Mapping[str, str],
-    build_derived_keys: frozenset[str],
-    runtime_writer_keys: frozenset[str],
-) -> str:
-    """Build-mode derivation: the render supplies the shape, three classes decide.
-
-    The other half of :func:`derive_project_env`, whose docstring carries the
-    contract this implements. Split out for the same reason
-    :func:`_overlay_project_env` is: the two modes share only their inputs, and
-    reading either one should not mean stepping over the other.
-
-    ``profile``/``rendered``/``existing`` are the raw ``KEY=VALUE`` lines (so a
-    kept value keeps its quoting); ``profile_values``/``existing_values`` are the
-    same two files parsed, which is what the divergence warning compares.
-    """
-    # The class-2 rule, decided ONCE. :func:`resolve` and the appended sections
-    # below both read this set, so they cannot answer "does the project own
-    # this key?" differently -- a divergence between those two answers is
-    # exactly the seam the profile-carried append opened before.
-    #
-    # PRESENCE, not a non-empty value, is deliberately the test. An empty
-    # class-2 value is a meaningful setting rather than a blank: an empty
-    # service token means "no token", which
-    # `container_lifecycle._ensure_service_tokens` explicitly declines to mint
-    # over ("generating would silently override a deliberate value") and which
-    # makes the service fail closed -- for an exposed deploy it refuses to bind
-    # rather than fail open. Treating an empty line as absent would let a
-    # rebuild re-arm a service the operator deliberately disarmed. Pinned by
-    # test_an_empty_project_value_still_outranks_the_profile.
-    project_owned = frozenset(key for key in runtime_writer_keys if key in existing)
-
-    def resolve(key: str) -> str | None:
-        """The line ``key`` should carry, or ``None`` if it is un-written."""
-        if key in build_derived_keys:
-            return rendered.get(key)
-        if key in project_owned:
-            return existing[key]
-        if key in profile:
-            return profile[key]
-        return rendered.get(key)
-
-    _warn_class2_divergence(project_owned, profile_values, existing_values, build_derived_keys)
-
-    consumed: set[str] = set()
-    out_lines: list[str] = []
-    for line in rendered_text.splitlines():
-        key = dotenv_line_var(line)
-        if key is None:
-            out_lines.append(line)
-            continue
-        consumed.add(key)
-        resolved = resolve(key)
-        if resolved is not None:
-            out_lines.append(resolved)
-
-    carried_keys = [
-        key
-        for key in profile
-        if key not in consumed and key not in build_derived_keys and key not in project_owned
-    ]
-    if carried_keys:
-        out_lines.extend(["", PROFILE_CARRIED_BANNER, *(profile[key] for key in carried_keys)])
-    # Only what was actually carried. Marking every profile key consumed would
-    # swallow the class-2 keys deliberately left out just above, and the
-    # preserved section below -- the one place a project-pinned secret survives
-    # a render that does not emit it -- would then drop them.
-    consumed.update(carried_keys)
-
-    preserved = [
-        existing[key]
-        for key in existing
-        if key in project_owned and key not in consumed and key not in build_derived_keys
-    ]
-    if preserved:
-        out_lines.extend(["", RUNTIME_PRESERVED_BANNER, *preserved])
-
-    return "\n".join(out_lines) + "\n"
-
-
-def _warn_class2_divergence(
-    project_owned: frozenset[str],
-    profile_values: Mapping[str, str],
-    existing_values: Mapping[str, str],
-    build_derived_keys: frozenset[str],
-) -> None:
-    """Warn for each owned key whose profile copy disagrees with the project's.
-
-    Scoped to ``project_owned`` — the same set the derivation resolves with —
-    so the warning fires exactly when the project's value is the one KEPT. A
-    class-2 key the profile wins (because the project's line is empty, so the
-    project does not own it) is an ordinary profile-carried value, not a
-    conflict, and saying otherwise would train an operator to ignore the log.
-
-    The disagreement itself is what they need told: it means the profile can no
-    longer reproduce this project's secrets, so a project built from that
-    profile elsewhere would come up on a value the running containers do not
-    trust.
-
-    Values are compared parsed, not as raw lines, so a difference in quoting
-    alone is not a disagreement. Neither value is ever logged — which variable
-    diverged is the information; what either side holds is a secret. This is the
-    build-side twin of the write-back's own conflict warning
-    (``osprey.deployment.container_lifecycle``); deploy mode does not come
-    through here, because that path has already reported the same fact.
-    """
-    diverged = sorted(
-        key
-        for key in project_owned
-        if key not in build_derived_keys
-        and key in profile_values
-        and profile_values[key] != existing_values[key]
-    )
-    if not diverged:
-        return
-
-    # Imported here rather than at module scope, and below the guard rather
-    # than above it: this module is deliberately dependency-light so the layers
-    # that import it (deployment, the build CLI) can do so from anywhere, and
-    # the logger pulls in rich and the config loader. Every build runs this
-    # function; almost none of them have anything to say, and those pay nothing.
-    from osprey.utils.logger import get_logger
-
-    logger = get_logger("build")
-    for key in diverged:
-        logger.warning(
-            "  %s differs between this project's .env and the profile's. The project's "
-            "value was kept — a runtime-written secret is pinned by the volumes and "
-            "containers that adopted it, and this build must not replace it. The profile "
-            "therefore cannot reproduce this project's secrets; reconcile the two by hand "
-            "if they are meant to match.",
-            key,
-        )
-
-
-def _overlay_project_env(
-    profile: dict[str, str],
-    rendered: dict[str, str],
-    existing_text: str,
-    build_derived_keys: frozenset[str],
-    runtime_writer_keys: frozenset[str],
-) -> str:
-    """Deploy-mode derivation: update in place, append missing, never delete."""
-    seen: set[str] = set()
-    out_lines: list[str] = []
-    for line in existing_text.splitlines():
-        key = dotenv_line_var(line)
-        if key is None:
-            out_lines.append(line)
-            continue
-        seen.add(key)
-        if key in build_derived_keys:
-            out_lines.append(rendered.get(key, line.strip()))
-        elif key in runtime_writer_keys:
-            out_lines.append(line)
-        elif key in profile:
-            out_lines.append(profile[key])
-        else:
-            out_lines.append(line)
-
-    appended = [profile[key] for key in profile if key not in seen]
-    appended += [rendered[key] for key in rendered if key not in seen and key not in profile]
-    if appended:
-        # Unlike build mode, this derivation runs on its own previous output --
-        # every deploy re-reads the file it last wrote -- so an unconditional
-        # header stacks another banner each time the profile gains a key. Emit
-        # it only when the file does not already carry one, the same guard
-        # ``append_profile_env`` applies to its minted section.
-        if PROFILE_CARRIED_BANNER not in out_lines:
-            out_lines.extend(["", PROFILE_CARRIED_BANNER])
-        out_lines.extend(appended)
-
-    return "\n".join(out_lines) + "\n"
+# Owning a key does not mean overwriting it. The repo `.env` is the
+# deployment's one secret store -- hand-edited, and written back to by
+# `osprey up` -- so the build appends through `append_profile_env` like every
+# other writer of that file, and a value already on file always wins.
+BUILD_DERIVED_KEYS = frozenset({"VA_CHANNELS_FILE", "VA_LATTICE"})
 
 
 #: Section header the deploy write-back groups its minted secrets under.
 DEPLOY_MINTED_BANNER = "# ── Minted by deploy ──"
+
+#: Section header the build groups :data:`BUILD_DERIVED_KEYS` under. A separate
+#: banner from the deploy's, because the two sections answer different questions
+#: for whoever opens the file: one holds secrets no rebuild can reproduce, this
+#: one holds pointers at artifacts in ``build/`` that every build regenerates.
+BUILD_DERIVED_BANNER = "# ── Derived by build ──"
 
 #: Permission bits a ``.env`` this module creates is born with (and tightened
 #: to on every rewrite): the profile ``.env`` holds facility secrets.
@@ -453,7 +174,7 @@ def append_profile_env(
 ) -> ProfileEnvAppendResult:
     """Append ``entries`` to a profile ``.env`` -- atomically, and append-only.
 
-    Used by ``deploy up`` to persist the secrets it minted back into the
+    Used by ``osprey up`` to persist the secrets it minted back into the
     profile that owns them. **A key already in the file is never rewritten**: a
     minted password is pinned by the docker volume that was initialized with it
     and by every container already trusting it, so the value on file always
@@ -571,7 +292,7 @@ def merge_env_preserving_existing(
 ) -> str:
     """Merge a freshly rendered ``.env`` with an existing one; existing wins.
 
-    Used when a build re-renders a project in place (``osprey build --force``)
+    Used when a build re-renders a project in place
     or a profile ships a template ``.env``: the rendered text provides the
     structure, comments, and any newly introduced variables, while every value
     the user already has keeps its existing setting (their secrets, and the

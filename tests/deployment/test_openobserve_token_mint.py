@@ -1,7 +1,7 @@
 """Unit tests for the OpenObserve root-password entry in the token-mint map.
 
 control_assistant ships telemetry LIVE against a co-deployed OpenObserve store,
-so ``osprey deploy up`` must self-provision a ``ZO_ROOT_USER_PASSWORD`` into the
+so ``osprey up`` must self-provision a ``ZO_ROOT_USER_PASSWORD`` into the
 project ``.env`` (``_SERVICE_TOKEN_VARS["openobserve"]``). Two properties make
 this entry different from every other minted token and are pinned here:
 
@@ -217,3 +217,94 @@ def test_ensure_service_tokens_accepts_a_strong_operator_password(tmp_path, monk
 def test_service_token_vars_map_includes_openobserve():
     """Lock in the map shape: only the password, not the email."""
     assert container_lifecycle._SERVICE_TOKEN_VARS["openobserve"] == ("ZO_ROOT_USER_PASSWORD",)
+
+
+# ---------------------------------------------------------------------------
+# Volume-continuity warning — the one thing a re-mint cannot fix by itself
+# ---------------------------------------------------------------------------
+
+
+class TestVolumeContinuityWarning:
+    """A re-minted password is silently rejected by a volume that already exists.
+
+    OpenObserve and Postgres read their root credential ONLY when they
+    initialize a fresh data volume. Every other minted token takes effect on the
+    next restart; these two do not. So the dangerous moment is an operator who
+    lost ``.env`` — or just deleted its minted section — while the volumes
+    lived: the next deploy mints a NEW secret, the surviving volume keeps
+    ignoring it, and the failure surfaces as "I cannot log in" with nothing
+    anywhere connecting that to the mint.
+
+    Neither variable can be guarded by compose. Both are interpolated with a
+    ``:-`` DEFAULT in their templates, so unlike the ``:?``-guarded tokens
+    there is no version of this that aborts the deploy and says why. This
+    warning is the only thing that names it, which is why it is pinned.
+    """
+
+    def test_a_minted_password_warns_that_an_existing_volume_will_reject_it(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
+        config = {"deployed_services": ["openobserve"]}
+
+        with caplog.at_level("WARNING"):
+            container_lifecycle._ensure_service_tokens(
+                config, expose_network=False, env_path=tmp_path / ".env"
+            )
+
+        assert "ZO_ROOT_USER_PASSWORD" in caplog.text
+        assert "openobserve" in caplog.text
+        assert "fresh data volume" in caplog.text
+
+    def test_the_warning_never_prints_the_value(self, tmp_path, monkeypatch, caplog):
+        """Names only, never values — the same rule every other line here follows."""
+        monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
+        env_path = tmp_path / ".env"
+
+        with caplog.at_level("WARNING"):
+            container_lifecycle._ensure_service_tokens(
+                {"deployed_services": ["openobserve"]}, expose_network=False, env_path=env_path
+            )
+
+        secret = _parse_dotenv(env_path)["ZO_ROOT_USER_PASSWORD"]
+        assert secret
+        assert secret not in caplog.text
+
+    def test_a_password_that_was_already_there_draws_no_warning(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """The warning is about the MINT, not about the variable.
+
+        A deploy that finds an existing value changes nothing, so there is
+        nothing for a volume to disagree with. Warning here would train the
+        operator to ignore it on every single deploy, which is the same as not
+        having it.
+        """
+        monkeypatch.setenv("ZO_ROOT_USER_PASSWORD", "Alr3ady#Set!")
+
+        with caplog.at_level("WARNING"):
+            container_lifecycle._ensure_service_tokens(
+                {"deployed_services": ["openobserve"]},
+                expose_network=False,
+                env_path=tmp_path / ".env",
+            )
+
+        assert "fresh data volume" not in caplog.text
+
+    def test_an_ordinary_token_draws_no_volume_warning(self, tmp_path, monkeypatch, caplog):
+        """Only the two volume-initialized vars qualify.
+
+        A dispatch token is read from the environment on every start, so a
+        re-mint takes effect immediately and there is nothing to warn about.
+        """
+        for var in ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"):
+            monkeypatch.delenv(var, raising=False)
+
+        with caplog.at_level("WARNING"):
+            container_lifecycle._ensure_service_tokens(
+                {"deployed_services": ["event_dispatcher"]},
+                expose_network=False,
+                env_path=tmp_path / ".env",
+            )
+
+        assert "fresh data volume" not in caplog.text

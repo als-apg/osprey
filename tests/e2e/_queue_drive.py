@@ -24,7 +24,7 @@ WHY EACH STEP IS SHAPED THE WAY IT IS:
   first makes every stage a genuine plan-change, so the revision always moves.
 * The pending queue is DRAINED before staging. ``POST /queue/start`` starts the
   whole queue, not one item, and the queue lives in a Redis named volume that
-  outlives ``osprey deploy down`` -- so a previous run's leftovers would go
+  ``osprey down`` deliberately keeps -- so a previous run's leftovers would go
   back on the hardware under this run's start. Removal goes through the
   bridge's own ``DELETE /queue/items/{uid}``, never into Redis.
 * The enqueue is UNARMED (no token). The queue is idle at that point, so an

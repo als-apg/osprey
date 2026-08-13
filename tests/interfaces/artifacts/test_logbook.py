@@ -853,3 +853,88 @@ class TestUserPromptContent:
         assert "Conversation log" not in user_msg
         assert "Recent session activity" not in user_msg
         mock_reader_cls.assert_not_called()
+
+
+class TestTranscriptDirIsResolvedOnce:
+    """``/compose`` reads the agent's project dir from app state, never from cwd.
+
+    The bug this guards: the route resolved the transcript directory with
+    ``Path.cwd()`` on every request. That happens to be right for the in-process
+    chat companion, whose cwd IS the agent's Claude project dir, and wrong for
+    the standalone ``osprey artifacts`` gallery, which is a uvicorn factory
+    launchable from anywhere. The failure was silent — the reader's own
+    exception guard swallowed it, so the composed entry simply came back with no
+    audit trail and no chat history, and nothing said why.
+    """
+
+    def _get_user_prompt(self, mock_llm) -> str:
+        return mock_llm.call_args.kwargs["chat_request"].messages[1].content
+
+    @pytest.mark.unit
+    def test_create_app_resolves_the_agent_project_dir_up_front(self, tmp_path):
+        from osprey.interfaces.artifacts.app import create_app
+
+        app = create_app(workspace_root=tmp_path)
+
+        assert getattr(app.state, "agent_project_dir", None) is not None
+
+    @pytest.mark.unit
+    def test_compose_reads_the_transcript_from_app_state_not_cwd(self, tmp_path, monkeypatch):
+        from pathlib import Path
+
+        from fastapi.testclient import TestClient
+
+        from osprey.interfaces.artifacts.app import create_app
+
+        agent_project_dir = tmp_path / "agent-project"
+        agent_project_dir.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+
+        app = create_app(workspace_root=tmp_path / "workspace")
+        app.state.agent_project_dir = agent_project_dir
+        client = TestClient(app)
+        entry = _make_artifact(app.state.artifact_store)
+
+        # The gallery process is launched from an unrelated directory, which is
+        # what the standalone `osprey artifacts` launch actually does.
+        monkeypatch.chdir(elsewhere)
+
+        seen: list[Path] = []
+
+        class _DirRecordingReader:
+            """Yields a transcript only for the directory it was pointed at."""
+
+            def __init__(self, project_dir):
+                self.project_dir = Path(project_dir)
+                seen.append(self.project_dir)
+
+            def read_current_session(self):
+                if self.project_dir != agent_project_dir:
+                    return []
+                return [{"tool": "channel_read", "timestamp": "2026-02-22T10:00:00"}]
+
+            def read_current_chat_history(self):
+                return []
+
+        mock_llm = AsyncMock(return_value=_llm_json_response())
+        p1, p2 = _patch_model_resolution()
+        with (
+            p1,
+            p2,
+            patch("osprey.models.completion.aget_chat_completion", mock_llm),
+            patch(
+                "osprey.mcp_server.workspace.transcript_reader.TranscriptReader",
+                _DirRecordingReader,
+            ),
+        ):
+            resp = client.post(
+                "/api/logbook/compose",
+                json={"artifact_id": entry.id},
+            )
+
+        assert resp.status_code == 200, resp.text
+        # The trail resolved, from the state-held directory rather than the cwd.
+        assert seen == [agent_project_dir]
+        assert Path.cwd() not in seen
+        assert "channel_read" in self._get_user_prompt(mock_llm)

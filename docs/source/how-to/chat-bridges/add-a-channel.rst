@@ -107,7 +107,7 @@ Wiring It Into a Build
 
 A new bridge is not a drop-in folder. Alongside the adapter package itself, it
 has to be taught to the build system so that a profile can switch it on and
-``osprey deploy up`` can start it.
+``osprey up`` can start it.
 
 .. dropdown:: The files a new channel touches
    :icon: file-directory

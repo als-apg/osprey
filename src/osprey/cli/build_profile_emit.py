@@ -1,4 +1,4 @@
-"""Standalone profile emission for ``osprey profile new``.
+"""Standalone profile emission for ``osprey init``.
 
 Materializes a bundled preset into a fully explicit, self-contained
 ``profile.yml`` — no ``extends:`` — so a facility profile shows every knob
@@ -95,7 +95,7 @@ _EXPLICIT_KEYS: frozenset[str] = frozenset(
 # entry in _COMMENTED_TEMPLATES (guard-tested).
 _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
     {
-        "data",  # profile-carried data tree; active once `profile new` writes one
+        "data",  # profile-carried data tree; active once `osprey init` writes one
         "provider",  # every bundled preset sets these two, so they emit active
         "model",  # today; the template only covers a preset that omits them
         "channel_finder_mode",
@@ -194,7 +194,7 @@ _yaml.indent(mapping=2, sequence=4, offset=2)
 # facility's own tool servers, which bundled presets never carry.
 _MCP_SERVERS_APPENDIX = """
 # --- Facility MCP servers ----------------------------------------------------
-# Your own MCP servers, injected into the project's .mcp.json next to the
+# Your own MCP servers, injected into the build's .mcp.json next to the
 # framework ones. An entry is either stdio (command/args/env) or remote (url,
 # or just port to derive http://localhost:<port>/mcp). transport defaults to
 # "http"; "sse" is the legacy event-stream wire and needs an explicit url.
@@ -241,7 +241,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
     "data": """
 # --- Facility data tree ------------------------------------------------------
 # Path (relative to this profile) of the data tree the build copies in place of
-# the bundled apps/<app_template>/data/. `osprey profile new` materializes one
+# the bundled apps/<app_template>/data/. `osprey init` materializes one
 # and sets this key; a persona delta under personas/ inherits it and resolves it
 # against this profile's directory. Full replacement, not a fallback.
 #
@@ -329,7 +329,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # twice. Selecting the archiver stays a separate decision: set
 # `archiver.type: mongodb_archiver` in `config:` to read from this store.
 #
-# The password is never written here: `osprey deploy up` mints it into the
+# The password is never written here: `osprey up` mints it into the
 # deployment's .env under the name password_env gives.
 #
 # An attached project (deploy_services: false) deploys no store of its own and
@@ -382,11 +382,11 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 """,
     "deploy": """
 # --- Deployment coordinates --------------------------------------------------
-# Where this project is built, pushed, and run. Needed only once the project
-# leaves the laptop; `osprey deploy scaffold` renders the pipeline from it.
+# Where this deployment is built, pushed, and run. Needed only once it leaves
+# the laptop; `osprey scaffold ci` renders the pipeline from it.
 #
 # Credentials are named here, never written here: declare each variable under
-# `env.required` and put its value in the deployment's .env.
+# `env.required` and put its value in the deploy host's .env.
 #
 # deploy:
 #   ci: gitlab
@@ -503,7 +503,7 @@ def _collapse_config_prefixes(config: dict[str, Any]) -> dict[str, Any]:
 
 # The ``config:`` subtree the multi-user web-terminal stack lives under. A
 # profile that turns this module on with a non-empty persona catalog owns its
-# personas too, so ``osprey profile new`` materializes a sibling profile per
+# personas too, so ``osprey init`` materializes a sibling profile per
 # catalog entry (D7a) instead of leaving the catalog pointed at bundled preset
 # names that would ignore the facility's own data tree.
 _WEB_TERMINALS_PATH: tuple[str, ...] = ("modules", "web_terminals")
@@ -864,7 +864,7 @@ def emit_persona_delta_yaml(
     Callers must only pass a ``preset_name`` whose ``extends`` names the host
     profile's source preset: the emitted delta drops every layer between the
     two, so a preset that sits anywhere else would resolve to something the
-    caller never asked for. ``osprey profile new`` rejects such catalog entries
+    caller never asked for. ``osprey init`` rejects such catalog entries
     outright rather than emitting an approximation.
 
     The ``extends`` removal is line surgery on the preset's raw text — that is
@@ -936,11 +936,11 @@ def emit_persona_delta_yaml(
     header = (
         f"# {profile_name} — persona profile, a delta over {host_ref}\n"
         f"#\n"
-        f"# Sitting in personas/ beside {host_filename} IS the inheritance: the\n"
-        f"# build merges this file over that profile — including any edit you\n"
-        f"# make there — so the keys below are this persona's only differences\n"
-        f"# and there is no `extends:` to write. See the resolved whole with:\n"
-        f"#   osprey profile validate {profile_filename}\n"
+        f"# Sitting in personas/ beside {host_filename} IS the inheritance: the build merges\n"
+        f"# this file over that profile — including any edit you make there — so the keys\n"
+        f"# below are this persona's only differences and there is no `extends:` to\n"
+        f"# write. See the resolved whole with:\n"
+        f"#   osprey validate {profile_filename}\n"
         f"#\n"
         f"# Provenance — what this persona was materialized from:\n"
         f"#   source preset: {preset_name}\n"
@@ -954,29 +954,35 @@ def emit_persona_delta_yaml(
     return text.rstrip("\n") + "\n\n" + f"name: {profile_name}\n"
 
 
-# The lifecycle picture at the top of a materialized profile: what the user
-# owns, what the build regenerates from it, and what deploy turns that into.
-# Plain ASCII (no box-drawing glyphs) and <= 80 columns, so it survives any
-# editor a facility opens config files in. Emitted only into the main
-# profile.yml — persona siblings share the mental model and repeating the
-# picture three times per profile directory would just be noise.
-_FLOW_DIAGRAM = """\
-#  YOU EDIT THIS                IS RENDERED INTO             WHICH RUNS AS
+# The zone map at the top of a materialized profile: what the repo holds, which
+# parts of it are the operator's and which the build owns, and the loop between
+# them. No box-drawing glyphs and <= 80 columns, so it survives any editor a
+# facility opens config files in. Emitted only into the main profile.yml —
+# persona siblings share the mental model and repeating the picture three times
+# per repo would just be noise.
+_ZONE_MAP = """\
+# This repository IS the deployment. One directory, four zones:
 #
-#  +----------------+  osprey   +----------------+  osprey   +-----------------+
-#  |    PROFILE     |  build    |    PROJECT     |  deploy   |   DEPLOYMENT    |
-#  |                |           |                |           |                 |
-#  |  profile.yml   +---------->|  config.yml    +---------->|  agent CLI/web  |
-#  |  data/         |           |  services/     |  up -d    |  + service      |
-#  |  rules/ …      |           |  .mcp.json     |           |    containers   |
-#  |  personas/     |           |  .env  ...     |           | (docker/podman) |
-#  +----------------+           +----------------+           +-----------------+
-#   durable source of            regenerable — a              osprey deploy down
-#   truth; keep + edit           --force rebuild              stops it; deploy
-#                                overwrites it                up recreates it
+#   SOURCE   tracked, yours to edit — profile.yml, data/, personas/,
+#            triggers.yml, web-terminal-context/, scripts/, the CI files
+#   SECRETS  .env — git-ignored, durable: provider keys you set, plus the
+#            service tokens `osprey up` mints
+#   OUTPUT   build/ — git-ignored, 100% disposable. Every `osprey build`
+#            wipes and re-renders it; `rm -rf build/` loses nothing, ever
+#   STATE    var/ — git-ignored, durable: var/agent_data holds the agent's
+#            memory and sessions, var/audit the audit log. No build touches it
 #
-#        ^                                                          |
-#        +--- the loop: edit profile -> rebuild -> redeploy --------+"""
+#   +--------------+  osprey   +--------------+  osprey  +----------------+
+#   |    SOURCE    |  build    |    build/    |    up    |   DEPLOYMENT   |
+#   | profile.yml  +---------->| config.yml   +--------->| agent CLI/web  |
+#   | data/  ...   |           | .mcp.json  … |          | + containers   |
+#   +--------------+           +--------------+          +----------------+
+#          ^                                                     |
+#          +---- edit -> osprey build -> osprey up --------------+
+#
+# `osprey up` starts strictly from build/ as it was built — it never renders
+# from this file. Edit profile.yml and `up` refuses until you re-run
+# `osprey build`, so a half-finished edit can never reach a running stack."""
 
 
 def emit_standalone_profile_yaml(
@@ -984,28 +990,25 @@ def emit_standalone_profile_yaml(
     overrides: tuple[Path, ...],
     set_pairs: tuple[str, ...],
     profile_name: str,
-    profile_filename: str,
     extra_layers: tuple[Mapping[str, Any], ...] = (),
     include_flow_diagram: bool = False,
 ) -> str:
-    """Render the standalone ``profile.yml`` text for ``osprey profile new``.
+    """Render the standalone ``profile.yml`` text for ``osprey init``.
 
     Args:
         preset_name: Bundled preset to materialize (any CLI spelling).
         overrides: ``-O`` override files, layered in declaration order.
         set_pairs: ``--set KEY=VALUE`` pairs, layered on top.
         profile_name: Display name written to the profile's ``name:`` key.
-        profile_filename: Profile path relative to the user's cwd, for the
-            rebuild hint in the generated header.
         extra_layers: Raw profile fragments merged after the user's layers,
             through the same :func:`_deep_merge` channel a trailing ``-O`` file
             would use — so they win over the user's, and so nothing here is a
-            second path into the resolved content. ``osprey profile new`` uses
+            second path into the resolved content. ``osprey init`` uses
             this to repoint the emitted persona catalog at the sibling profiles
             it is about to write: those values are derived from the resolved
             catalog, so they cannot come from a file the caller passes.
-        include_flow_diagram: Embed the profile → build → deploy lifecycle
-            diagram in the generated header. Set for the main ``profile.yml``
+        include_flow_diagram: Embed the four-zone map and the edit → build → up
+            loop in the generated header. Set for the main ``profile.yml``
             only; persona siblings keep the compact header.
 
     Returns:
@@ -1089,28 +1092,19 @@ def emit_standalone_profile_yaml(
     _yaml.dump(doc, buffer)
     text = buffer.getvalue()
 
-    flow_block = f"{_FLOW_DIAGRAM}\n#\n" if include_flow_diagram else ""
+    zone_block = f"{_ZONE_MAP}\n#\n" if include_flow_diagram else ""
     header = (
-        f"# {profile_name} — OSPREY build profile\n"
+        f"# {profile_name} — OSPREY deployment repo\n"
         f"#\n"
+        f"{zone_block}"
         f"# Emitted from the bundled `{normalized}` preset as a fully explicit,\n"
-        f"# standalone profile: everything the preset configures is written out\n"
-        f"# below and is yours to edit. Nothing is inherited at build time.\n"
+        f"# standalone profile: everything the preset configures is written out below and\n"
+        f"# is yours to edit. Nothing is inherited at build time.\n"
         f"#\n"
-        f"{flow_block}"
         f"# Provenance — what this profile was materialized from:\n"
         f"#   source preset: {normalized}\n"
         f"#   preset content hash: {preset_hash}\n"
-        f"#   emitted by OSPREY {__version__}\n"
-        f"#\n"
-        f"# Build mechanics — how the build runs, rather than what gets deployed.\n"
-        f"# These keys are never added for you; one appears below only where the\n"
-        f"# source preset set it:\n"
-        f"#   {', '.join(sorted(_BUILD_MECHANICS_KEYS))}\n"
-        f"#\n"
-        f"# Build a project from this profile, then deploy it:\n"
-        f"#   osprey build <PROJECT_NAME> {profile_filename}\n"
-        f"#   cd <PROJECT_NAME> && osprey deploy up -d"
+        f"#   emitted by OSPREY {__version__}"
     )
     text = _replace_header(text, header)
 

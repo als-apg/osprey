@@ -169,7 +169,7 @@ container_runtime: auto
 # ============================================================
 # PostgreSQL backs ARIEL logbook search; OpenObserve is the local telemetry
 # store. Declare a service here and add its name to `deployed_services:` to
-# launch it with `osprey deploy up`.
+# launch it with `osprey up`.
 
 {% if deploy_services | default(true) %}
 services:
@@ -178,7 +178,7 @@ services:
     database_name: ariel
     username: ariel
     # No password key: the Postgres password lives in the project .env as
-    # ARIEL_DB_PASSWORD (minted by `osprey deploy up`), read by both the
+    # ARIEL_DB_PASSWORD (minted by `osprey up`), read by both the
     # container and the agent's ARIEL DSN — which is derived from the keys in
     # this block rather than written out, so this is the single source of
     # truth for both. Mirrors the openobserve credentials convention.
@@ -187,9 +187,9 @@ services:
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
   # logs/metrics store (see docs/how-to/monitor-agent.rst). This reference
   # facility ships it LIVE: it is deployed below and the agent emits to it (see
-  # the `telemetry:` block under `claude_code:`), so `osprey deploy up` +
+  # the `telemetry:` block under `claude_code:`), so `osprey up` +
   # `osprey web` gives you a working, production-shaped observability wiring to
-  # copy. `osprey deploy up` mints a strong ZO_ROOT_USER_PASSWORD into .env.
+  # copy. `osprey up` mints a strong ZO_ROOT_USER_PASSWORD into .env.
   openobserve:
     path: ./services/openobserve
     port: 5080          # Host port for the OpenObserve UI + OTLP ingest
@@ -199,7 +199,7 @@ services:
                         # `osprey health` reports this and warns if the backing
                         # disk fills.
 
-# Services to deploy with `osprey deploy up`
+# Services to deploy with `osprey up`
 deployed_services:
   - postgresql
   - openobserve
@@ -207,7 +207,7 @@ deployed_services:
 # Attached project (deploy_services: false): this project connects to a
 # services stack another OSPREY project deployed on the same host, so it
 # scaffolds no services of its own. The empty `deployed_services` list is
-# explicit so `osprey deploy` finds it and launches nothing.
+# explicit so `osprey up` finds it and launches nothing.
 services: {}
 
 deployed_services: []
@@ -268,7 +268,7 @@ control_system:
   #   - mock: Development mode (accepts any channel names, no hardware) — DEFAULT
   #   - virtual_accelerator: Containerized PyAT-backed soft-IOC over real EPICS
   #     Channel Access. Requires the VA service running first — add
-  #     virtual_accelerator to deployed_services and run `osprey deploy up`
+  #     virtual_accelerator to deployed_services and run `osprey up`
   #     (see the "Use the Virtual Accelerator" how-to in the OSPREY docs).
   #   - epics: Production EPICS control system (ALS values below — untouched)
   type: mock  # <-- Change to 'virtual_accelerator' or 'epics' for other modes
@@ -367,7 +367,7 @@ control_system:
     # Access via VirtualAcceleratorConnector (an EPICSConnector subclass, so
     # the gateway shape below is identical to the `epics` block's). Requires
     # the VA service running first: add virtual_accelerator to
-    # deployed_services and run `osprey deploy up` (see the "Use the Virtual
+    # deployed_services and run `osprey up` (see the "Use the Virtual
     # Accelerator" how-to in the OSPREY docs).
     #
     # simulation_file: same simulation machine model as the mock connector
@@ -461,7 +461,7 @@ archiver:
   # Every key here except port and timeout is required; the connector raises on
   # the first one missing. The password itself is never stored here — it is read
   # at connect time from the environment variable named by password_env, which
-  # `osprey deploy up` mints into the project's .env.
+  # `osprey up` mints into the project's .env.
   #
   # A project whose build profile declares a `va_archiver:` block has these
   # written from it at build time, so they describe the store this project
@@ -530,7 +530,7 @@ archiver:
 # The opposite pairing is refused outright, in all three places it can appear: a
 # 'virtual_accelerator' control system whose archiver is 'mock_archiver' — or
 # unset, which the connector factory resolves to the mock — is rejected by
-# `osprey build`, by `osprey deploy up`, and by the MCP server at startup. A
+# `osprey build`, by `osprey up`, and by the MCP server at startup. A
 # simulated machine whose history is synthesized at read time reports a past that
 # never happened, and nothing can catch it. Each refusal names the way out:
 # declare a `va_archiver:` block and select 'mongodb_archiver' (what this project
@@ -604,12 +604,13 @@ channel_finder:
       # Injects prior paths as hints so the LLM can resolve repeated queries faster
       feedback:
         enabled: true
-        store_path: _agent_data/feedback/hierarchical_feedback.json
+        store_path: var/agent_data/feedback/hierarchical_feedback.json
                                       # Written at run time, so it lives under
-                                      # _agent_data/ — everything in data/ is
-                                      # rebuilt from the profile and checksummed
-                                      # into the manifest, and `osprey build
-                                      # --force` clears it.
+                                      # the var/ STATE zone alongside
+                                      # agent_data.base_dir — everything in
+                                      # data/ is rebuilt from the profile and
+                                      # checksummed into the manifest, and
+                                      # every build clears build/.
 {% endif %}
 {% if enable_middle_layer %}
     # Middle Layer Pipeline (React Agent with MML Database)
@@ -634,7 +635,7 @@ channel_finder:
   # Benchmarking configuration
   # All paradigms share a single benchmark query set, tier-resolved at build
   # time per channel_finder_mode (in_context → tier 1, hierarchical/middle_layer
-  # → tier 3; override with `osprey build --tier N`).  Query file is
+  # → tier 3; override with `osprey set tier=N`, then rebuild).  Query file is
   # materialized to data/benchmarks/queries.json by the scaffolder.
   benchmark:
     # Single source of truth — all paradigms read the same query set.
@@ -721,7 +722,7 @@ ariel:
   # renaming the database stays a one-place edit. Password reads
   # ARIEL_DB_PASSWORD from the project .env — the SAME value the postgresql
   # compose service reads as POSTGRES_PASSWORD, so container and agent auth
-  # stay in sync (single source of truth). `osprey deploy up` mints a strong
+  # stay in sync (single source of truth). `osprey up` mints a strong
   # ARIEL_DB_PASSWORD into .env; the fallback password `ariel` keeps the agent
   # launchable before the first deploy. NOTE: an existing Postgres data volume
   # keeps the password it was initialized with — see the postgresql compose
@@ -844,10 +845,14 @@ facility_knowledge:
 # AGENT DATA & ARTIFACT GALLERY
 # ============================================================
 # Working directory for artifacts, data context, screenshots, etc.
-# Resolved relative to this config file's directory (project root).
+# Resolved relative to `project_root` above — the deployment repo's root, not
+# this file's directory. It belongs under var/, the durable STATE zone: build/
+# is wiped and re-rendered by every build, and the repo's .gitignore keeps var/
+# out of git. A path outside var/ would land the agent's memory in the tracked
+# source zone and dirty `git status` on first run.
 
 agent_data:
-  base_dir: "./_agent_data"
+  base_dir: "var/agent_data"
 
 # ============================================================
 # COMPANION WEB SERVERS (PANEL PORTS)
@@ -917,7 +922,7 @@ artifact_server:
 # ============================================================
 # CLAUDE CODE INTEGRATION
 # ============================================================
-# Controls which MCP servers and agents are generated by `osprey claude regen`.
+# Controls which MCP servers and agents `osprey build` generates.
 #
 # Auto-derived servers (always present unless disabled):
 #   controls               (core)
@@ -953,7 +958,7 @@ claude_code:
   #   Anthropic-native, add `api_protocol: anthropic` to its api.providers
   #   entry to skip that hop:
   #     api.providers.my-proxy.api_protocol: anthropic
-  # When set, `osprey claude regen` injects env vars into .claude/settings.json.
+  # When set, `osprey build` injects env vars into .claude/settings.json.
   # permissions:              # Override Claude Code permission policies
   #   allow: []               # Additional tools to auto-allow
   #   deny: []                # Additional tools to deny
@@ -973,8 +978,8 @@ claude_code:
   #   logbook-deep-research: sonnet
   #
   # ── Telemetry / Observability (on by default, local + loopback-bound) ──
-  # Like every OSPREY template, this facility ships telemetry ON: `osprey deploy
-  # up` + `osprey web` produces a working, production-shaped wiring where the
+  # Like every OSPREY template, this facility ships telemetry ON: `osprey up`
+  # + `osprey web` produces a working, production-shaped wiring where the
   # agent emits OTLP logs + metrics to the co-deployed OpenObserve store
   # (declared in `services:` and listed in `deployed_services:` above; UI at
   # http://localhost:5080). On by default: the underlying harness already records
@@ -995,7 +1000,7 @@ claude_code:
     # OpenObserve auth + org routing. user/password read the OpenObserve root
     # credentials from the project .env — the SAME values the openobserve
     # service reads — so container and agent auth stay in sync (single source of
-    # truth). `osprey deploy up` mints a strong ZO_ROOT_USER_PASSWORD into .env;
+    # truth). `osprey up` mints a strong ZO_ROOT_USER_PASSWORD into .env;
     # the ${VAR:-default} fallbacks (mirroring the openobserve compose defaults)
     # keep the agent launchable before the first deploy.
     openobserve:
@@ -1028,12 +1033,12 @@ claude_code:
 #                        # launcher, so it also defeats the
 #                        # claude_code.cli_version pin above.
 #   max_background_sessions: 5
-#   watch_dir: ./_agent_data
-#                        # Directory the Workspace file watcher follows. Unset,
-#                        # it falls back to ./_agent_data relative to the
-#                        # launch directory — it does NOT read
-#                        # agent_data.base_dir, so if you moved that, set this
-#                        # to match.
+#   watch_dir: var/agent_data
+#                        # Directory the Workspace file watcher follows.
+#                        # Unset, it falls back to `agent_data.base_dir`
+#                        # anchored on `project_root` — the same directory
+#                        # this config already names — so set it only to
+#                        # watch somewhere else deliberately.
 
 # ============================================================
 # WEB PANEL CONFIGURATION
@@ -1116,7 +1121,7 @@ web:
 # User-Owned Build Artifacts
 # ──────────────────────────────────────────────────────────────────────
 # Claim framework-managed build artifacts for in-place editing.
-# Regen skips user-owned files, preserving your customizations.
+# A rebuild skips user-owned files, preserving your customizations.
 # Run `osprey scaffold list` to see all available artifacts.
 # Run `osprey scaffold claim <name>` to claim an artifact for editing.
 #

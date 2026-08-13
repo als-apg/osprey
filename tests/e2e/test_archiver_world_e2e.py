@@ -7,7 +7,7 @@ just did to the machine show up in it, and does it admit what it does not know.
 
 Eight claims, in the order a deployment makes them true:
 
-* **The seed is affordable.** A first ``deploy up`` seeds the base series inside
+* **The seed is affordable.** A first ``osprey up`` seeds the base series inside
   a measured budget and says so while it works. This lane keeps DEFAULT
   ``va_archiver`` knobs precisely so the numbers mean something: the CI lanes
   that shrink retention to run fast cannot own a budget nobody would deploy.
@@ -50,7 +50,7 @@ CI lane carries no provider secret.
 Container safety: every docker invocation names an exact container, image or
 volume — never a wildcard, never ``system prune``, never ``down --volumes``
 (which would reach every volume in the project). Teardown goes through
-``osprey deploy down``, matching every other e2e in this directory, plus the
+``osprey down``, matching every other e2e in this directory, plus the
 removal of the store's one named volume — see ``_discard_store_volume`` for why
 a fresh store is a precondition of these assertions rather than housekeeping.
 
@@ -153,7 +153,7 @@ SEAM_SAMPLES_PER_PARTITION = 3
 SEAM_LEAD_TIME = timedelta(minutes=5)
 
 # `seeded 1,234 documents x 2,908 channels (... ) in 12.3s` -- the seeder's own
-# report line. Parsed rather than timing `deploy up` as a whole, which would
+# report line. Parsed rather than timing `osprey up` as a whole, which would
 # fold in a multi-minute image build and measure the wrong thing entirely.
 #
 # Matched against NORMALIZED output, never the raw capture. The deploy logs
@@ -233,10 +233,17 @@ def _override_yaml() -> str:
 
 
 def _build_project(output_dir: Path) -> Path:
-    """``osprey build`` the opt-in project, out of process.
+    """``osprey init`` + ``osprey build`` the opt-in repo, out of process.
 
     Out of process (not ``CliRunner``) because the deploy that follows needs a
-    project on disk built by the same console script an operator would run.
+    repo on disk built by the same console script an operator would run.
+    Returns the deployment REPO root; the render it starts from is
+    ``<repo>/build``.
+
+    ``--dev`` is a property of the RENDER, not of the start: the deploy below
+    runs ``up --dev`` so the recorder under test is this checkout, and ``up``
+    never re-renders — a pinned render would be refused there rather than
+    quietly deploying the published release.
     """
     from tests.e2e import _orm_stack
 
@@ -244,57 +251,74 @@ def _build_project(output_dir: Path) -> Path:
     override_path.write_text(_override_yaml(), encoding="utf-8")
     osprey_bin = _orm_stack.find_osprey_console_script()
 
-    result = subprocess.run(
-        [
-            str(osprey_bin),
-            "build",
-            PROJECT_NAME,
-            "--preset",
-            "control-assistant",
-            "--override",
-            str(override_path),
-            "--set",
-            f"virtual_accelerator.port={VA_CA_PORT}",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(output_dir),
-            "--force",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=BUILD_TIMEOUT_SEC,
-    )
-    if result.returncode != 0:
-        raise AssertionError(
-            f"osprey build failed (rc={result.returncode}):\n"
-            f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
+    repo = output_dir / PROJECT_NAME
+    for label, argv in (
+        (
+            "osprey init",
+            [
+                str(osprey_bin),
+                "init",
+                str(repo),
+                "--preset",
+                "control-assistant",
+                "--no-git",
+                "--override",
+                str(override_path),
+                "--set",
+                f"virtual_accelerator.port={VA_CA_PORT}",
+            ],
+        ),
+        (
+            "osprey build",
+            [
+                str(osprey_bin),
+                "build",
+                "--repo",
+                str(repo),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--dev",
+            ],
+        ),
+    ):
+        result = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=BUILD_TIMEOUT_SEC,
+            env={**os.environ, "CLAUDECODE": ""},
         )
-    return output_dir / PROJECT_NAME
+        if result.returncode != 0:
+            raise AssertionError(
+                f"{label} failed (rc={result.returncode}):\n"
+                f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
+            )
+    return repo
 
 
 class DeployedArchiverWorld:
-    """The deployed project, plus what the seed reported on its way up."""
+    """The deployed repo, plus what the seed reported on its way up."""
 
-    def __init__(self, project_dir: Path, deploy_output: str):
-        self.project_dir = project_dir
+    def __init__(self, repo: Path, deploy_output: str):
+        self.repo = repo
         self.deploy_output = deploy_output
-        self.config = _load_config(project_dir)
+        self.config = _load_config(repo)
 
     @property
     def store(self) -> dict[str, Any]:
         """Connection parameters, resolved exactly as the deploy resolves them."""
         from osprey.simulation.apply import archiver_store_config
 
-        store = archiver_store_config(self.config, self.project_dir)
+        store = archiver_store_config(self.config, self.repo)
         assert store is not None, "deployed project declares no mongodb_archiver block"
         return store
 
 
-def _load_config(project_dir: Path) -> dict[str, Any]:
+def _load_config(repo: Path) -> dict[str, Any]:
+    """The as-built config the deploy runs on — the render, never the source."""
     from osprey.utils.config import load_project_config
 
-    return load_project_config(str(project_dir / "config.yml"), wrap_errors=True)
+    return load_project_config(str(repo / "build" / "config.yml"), wrap_errors=True)
 
 
 @pytest.fixture(scope="module")
@@ -319,7 +343,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
         Not housekeeping — a correctness precondition. Every run mints a NEW
         MONGO_ROOT_PASSWORD into its own temporary project, but the named volume
-        is per-compose-project and survives `deploy down`. A volume left by a
+        is per-compose-project and survives `osprey down`. A volume left by a
         previous run therefore keeps the credentials it was initialized with, and
         the next deploy is refused by its own store: exactly the stale-volume
         case the deploy reports, arriving here as a self-inflicted one.
@@ -332,7 +356,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         subprocess.run(["docker", "volume", "rm", "-f", store_volume], capture_output=True)
 
     base = tmp_path_factory.mktemp("archiver_world_build")
-    project_dir = _build_project(base)
+    repo = _build_project(base)
 
     # The trim `_override_yaml` describes, checked in the BUILT config before
     # anything is deployed rather than taken on trust. The essential members are
@@ -341,7 +365,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # failure that costs an afternoon: it lands on a fixed host port a developer
     # box is already holding and the deploy aborts on a preflight that has
     # nothing to do with archiving.
-    built_services = sorted(_load_config(project_dir).get("deployed_services") or [])
+    built_services = sorted(_load_config(repo).get("deployed_services") or [])
     assert built_services == ["archiver_recorder", "mongodb", "virtual_accelerator"], (
         f"the built project deploys {built_services}, not the archiver world this lane "
         "trims to; config overrides run BEFORE the service injectors, so an emptied "
@@ -367,8 +391,8 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     try:
         up = subprocess.run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
@@ -376,15 +400,15 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
                 f"--- containers that are not running ---\n{_dead_containers()}"
             )
-        yield DeployedArchiverWorld(project_dir, up.stdout + up.stderr)
+        yield DeployedArchiverWorld(repo, up.stdout + up.stderr)
     finally:
         down = subprocess.run(
-            [str(osprey_bin), "deploy", "down"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "down"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=300,
@@ -392,7 +416,7 @@ def archiver_world(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         _discard_store_volume()
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
@@ -545,7 +569,7 @@ def _seed_anchor(world: DeployedArchiverWorld) -> datetime:
 
 
 def _manifest_channels(world: DeployedArchiverWorld) -> list[dict[str, Any]]:
-    path = world.project_dir / "data" / "simulation" / "channel_manifest.json"
+    path = world.repo / "build" / "data" / "simulation" / "channel_manifest.json"
     return json.loads(path.read_text(encoding="utf-8"))["channels"]
 
 
@@ -573,7 +597,7 @@ def test_base_seed_completes_within_budget_and_reports_progress(archiver_world):
     """A first deploy seeds inside the measured budget, and says so while it works.
 
     The duration is the seeder's OWN reported elapsed time, not the wall time of
-    ``deploy up``: that call also builds an image, and folding a cold image cache
+    ``osprey up``: that call also builds an image, and folding a cold image cache
     into an archive budget would measure the runner, not the feature.
 
     Progress is asserted too, and is not cosmetic. A silent multi-minute step is
@@ -583,7 +607,7 @@ def test_base_seed_completes_within_budget_and_reports_progress(archiver_world):
     output = _normalize(archiver_world.deploy_output)
     report = _SEED_REPORT_RE.search(output)
     assert report, (
-        "no seed report in `deploy up` output -- the staged bring-up did not seed.\n"
+        "no seed report in `osprey up` output -- the staged bring-up did not seed.\n"
         # The whole capture, not a tail slice: the seed happens EARLY in the
         # deploy and the compose build that follows is far longer, so a tail
         # would cut away exactly the evidence this assertion is about.
@@ -675,12 +699,12 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     # config.yml already declares the posture; the singletons are reset so the
     # new CONFIG_FILE is the one that gets loaded. `monkeypatch` restores all
     # three, and the autouse fixture in conftest clears them again after.
-    monkeypatch.setenv("CONFIG_FILE", str(archiver_world.project_dir / "config.yml"))
+    monkeypatch.setenv("CONFIG_FILE", str(archiver_world.repo / "build" / "config.yml"))
     monkeypatch.setattr(config_module, "_default_config", None)
     monkeypatch.setattr(config_module, "_default_configurable", None)
 
     limits = json.loads(
-        (archiver_world.project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8")
+        (archiver_world.repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
     )
     setpoint = next(name for name in sorted(limits) if name.endswith(":SP"))
 
@@ -765,7 +789,7 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     # claims, and only the second one closes the gap this feature is about.
     from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
-    monkeypatch.chdir(archiver_world.project_dir)
+    monkeypatch.chdir(archiver_world.repo)
     from osprey.mcp_server.control_system.server_context import initialize_server_context
 
     initialize_server_context()
@@ -887,7 +911,7 @@ def test_applying_a_scenario_rewrites_windows_not_the_whole_archive(archiver_wor
     with _collection(archiver_world) as collection:
         before = collection.count_documents({})
 
-    result = apply_scenarios(archiver_world.project_dir, ["vacuum-burst"], seed_logbook=False)
+    result = apply_scenarios(archiver_world.repo, ["vacuum-burst"], seed_logbook=False)
 
     with _collection(archiver_world) as collection:
         after = collection.count_documents({})
@@ -901,7 +925,7 @@ def test_applying_a_scenario_rewrites_windows_not_the_whole_archive(archiver_wor
     # zero would reintroduce a flake that only shows up on the wrong clock:
     #
     # `vacuum-burst` fires at a fixed time of day, so its window recurs once per
-    # retained day. The archive ends at the seed anchor — the moment `deploy up`
+    # retained day. The archive ends at the seed anchor — the moment `osprey up`
     # ran — so whenever the most recent occurrence falls AFTER that anchor, part
     # of its window lies past the end of coverage and cannot be densified. The
     # seeder refusing to manufacture coverage there is the honest behavior this
@@ -951,7 +975,7 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
     from tests.e2e import _orm_stack
 
     limits = json.loads(
-        (archiver_world.project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8")
+        (archiver_world.repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
     )
     assert FRESHNESS_CANARY in limits, (
         f"{FRESHNESS_CANARY} is not a channel this machine model serves, so the derived "
@@ -962,7 +986,7 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
     store = archiver_world.store
     env = {
         **os.environ,
-        "CONFIG_FILE": str(archiver_world.project_dir / "config.yml"),
+        "CONFIG_FILE": str(archiver_world.repo / "build" / "config.yml"),
         store["password_env"]: store["password"],
     }
     result = subprocess.run(
@@ -973,7 +997,7 @@ def test_health_reports_the_archive_fresh_while_the_recorder_writes(archiver_wor
             "archiver",
             "--json",
         ],
-        cwd=str(archiver_world.project_dir),
+        cwd=str(archiver_world.repo),
         capture_output=True,
         text=True,
         timeout=HEALTH_TIMEOUT_SEC,
@@ -1034,7 +1058,7 @@ def test_recorder_idles_on_mock_control_system_and_resumes_after_the_flip(archiv
     """
     from ruamel.yaml import YAML
 
-    config_path = archiver_world.project_dir / "config.yml"
+    config_path = archiver_world.repo / "build" / "config.yml"
     yaml = YAML()
     yaml.preserve_quotes = True
 

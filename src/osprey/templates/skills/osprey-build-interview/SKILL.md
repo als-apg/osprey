@@ -35,8 +35,7 @@ version and the files in front of you are the evidence; there is nothing else.
 
 ## What you produce
 
-A **facility repo**: a git repository whose nested `profile/` directory holds the
-`profile.yml` (started from a bundled preset and then edited — the map has the command
+A **facility repo**: a git repository whose root holds the `profile.yml` (started from a bundled preset and then edited — the map has the command
 that emits one), a plain-language `README.md`, and a channel database plus channel
 limits when the person gave you signal details. One command lays the whole repo out; the
 CI pipeline is emitted once the `deploy:` block is filled in. Generation is covered in
@@ -233,22 +232,23 @@ sensible default when nothing else stands out.
 Then lay out the facility repo:
 
 ```
-osprey profile new <facility-name> --preset <closest-preset>
+osprey init <facility-name> --preset <closest-preset>
 ```
 
-`--preset` is required. The command refuses if that directory already exists, which a
-second pass through the interview will hit — move the old one aside or write into a
-fresh name, and tell the person which you did.
+`--preset` is required. The command refuses to write into a directory that already holds
+a deployment, which a second pass through the interview will hit — move the old one aside
+or write into a fresh name, and tell the person which you did.
 
-What you get back is a git repository rather than a loose directory: the profile itself
-lives in the nested `profile/` subdirectory, the repo root is where the CI pipeline lands
-once the `deploy:` block is filled in — beside a facility-owned file for the facility's
-own jobs — and built projects land in `build/`. The map records the layout and what each
-part is for. Two consequences run through everything below: you build from
-`profile/profile.yml` and never from the repo root, and every path you edit is a path
-inside `profile/`.
+What you get back is a git repository rather than a loose directory, laid out in three
+zones. The repo ROOT is the editable source: `profile.yml` sits directly at the top,
+beside its `data/` tree, its convention directories, and the CI pipeline that lands there
+once the `deploy:` block is filled in. `build/` holds what `osprey build` renders and is
+kept out of git. `var/` holds runtime state. The map records the layout and what each
+part is for. One consequence runs through everything below: every path you edit is a path
+at the repo root, and no command needs to be told where the repo is — they all find it by
+walking up from wherever you are standing.
 
-`profile/profile.yml` is standalone and self-documenting: the preset's full
+`profile.yml` is standalone and self-documenting: the preset's full
 configuration written out explicitly — no `extends:` — with the preset's own comments,
 next to a `data/` tree copied from the preset and the convention directories its
 `README.md` walks through. Read it before you edit it. It is the current, authoritative
@@ -300,13 +300,14 @@ a number.
 Build the profile yourself before you tell anyone it works:
 
 ```
-osprey build <project-name> <facility-name>/profile/profile.yml --skip-deps
+osprey build --repo <facility-name> --skip-deps
 ```
 
 Exit 0 is required. `--skip-deps` keeps it quick — you are checking that the profile
-renders, not installing anything. The rendered project lands under the repo's `build/`
-directory, which is where built projects belong and is kept out of git, so there is
-nothing to clean up afterwards.
+renders, not installing anything. The render lands in the repo's `build/` zone, which is
+kept out of git, so there is nothing to clean up afterwards. `--repo` is only needed
+because you are standing outside the repo; from inside it, plain `osprey build` does the
+same thing.
 
 If it exits non-zero, read the actual error, correct the profile, and run it again.
 Never hand over a profile that does not build, and never describe a failed build as a
@@ -351,22 +352,15 @@ avoid an imperfect preset costs far more than it saves.
 They rebuild their project from the finished profile at any time with:
 
 ```
-osprey build <project-name> <facility-name>/profile/profile.yml
+osprey build
 ```
 
-Run it from anywhere in the repo; the project lands in `build/` either way. Drop
+Run it from anywhere in the repo; the render lands in `build/` either way. Drop
 `--skip-deps` for a project that actually runs — that is the difference between the
 verification build above and a usable one.
 
-If the profile carries deployment coordinates, hand the operate-time work to the other
-skill rather than explaining it here:
-
-```
-osprey skills install osprey-deploy-ops
-```
-
-This skill settles *what* to build. `osprey-deploy-ops` covers *running what was
-built* — emitting the CI and health-check files from the profile's `deploy:` block,
-bringing the stack up on the host, and triaging it when a service is down. The
-`osprey deploy` command group is where all of that happens, and the runbook is the
-judgment that goes with it.
+This skill settles *what* to build. Running what was built is the CLI's own job and
+has no skill of its own: `osprey scaffold ci` emits the pipeline and health check
+from the profile's `deploy:` block, `osprey up` brings the stack up, and `osprey
+status` / `osprey logs` are where triage starts. Each verb's `--help` is the current
+catalog; do not reproduce it here.

@@ -13,6 +13,13 @@ so its hash is meaningless without the root it merges over: the hash resolves th
 same implicit merge the build does, anchored at the profile root, which is what
 makes an edit to the root — its YAML, its data tree, or its convention
 directories — mark every persona's project stale too.
+
+That relationship runs both ways: the deltas in ``personas/`` are folded into
+the ROOT profile's hash as well, so editing one is drift for the deployment
+that hosts those personas. It has to be, because a persona's rendered project
+is re-rendered only when it is absent — a build wiping ``build/`` is what
+re-arms it, and nothing would call for that build if the delta were outside the
+fingerprint.
 """
 
 from __future__ import annotations
@@ -156,6 +163,78 @@ def test_bundled_presets_do_not_fold_their_shared_directory(tmp_path, monkeypatc
 
 
 # ── Persona deltas ───────────────────────────────────────────────────────────
+
+
+def test_editing_a_delta_marks_the_ROOT_profile_stale(profile, persona):
+    """The gap this closes: a persona edit that no verb ever noticed.
+
+    ``personas/`` is source zone, and a persona's rendered project is build
+    output — but ``up`` re-renders one only when its directory is *absent*, and
+    what re-arms that is a build wiping ``build/``. If the delta were outside
+    the fingerprint, editing it would leave the deploy-side check calling the
+    build clean, so nothing would refuse, nothing would rebuild, and the
+    superseded render would keep going into that persona's image.
+    """
+    before = compute_profile_hash(profile / "profile.yml")
+
+    persona.write_text("name: Reader\ntier: 3\n", encoding="utf-8")
+
+    assert compute_profile_hash(profile / "profile.yml") != before
+
+
+@pytest.mark.parametrize("change", ["added", "removed"])
+def test_the_set_of_deltas_is_part_of_the_root_hash(profile, persona, change):
+    """A persona the catalog can reference is build input the moment it exists."""
+    other = profile / "personas" / "writer.yml"
+    if change == "removed":
+        other.write_text("name: Writer\n", encoding="utf-8")
+    before = compute_profile_hash(profile / "profile.yml")
+
+    if change == "removed":
+        other.unlink()
+    else:
+        other.write_text("name: Writer\n", encoding="utf-8")
+
+    assert compute_profile_hash(profile / "profile.yml") != before
+
+
+def test_a_profile_with_no_deltas_hashes_as_it_did_before_personas_were_folded(profile):
+    """Backward compatibility, stated as the property that guarantees it.
+
+    A repo with no ``personas/`` must keep the hash its build stamped, or every
+    such deployment would read as drifted the moment it upgraded. The fold
+    contributes exactly nothing unless a delta is there to fold — an absent
+    directory, an empty one, and one holding only material that cannot be built
+    all leave the digest identical — so "no deltas" is byte-for-byte the
+    pre-fold hash.
+    """
+    before = compute_profile_hash(profile / "profile.yml")
+    assert not (profile / "personas").exists()
+
+    (profile / "personas").mkdir()
+    assert compute_profile_hash(profile / "profile.yml") == before
+
+    _write(profile / "personas" / ".DS_Store", "editor noise\n")
+    assert compute_profile_hash(profile / "profile.yml") == before
+
+    _write(profile / "personas" / "nested" / "notes.md", "not a delta\n")
+    assert compute_profile_hash(profile / "profile.yml") == before
+
+
+def test_a_sibling_delta_moves_a_personas_own_hash(profile, persona):
+    """The accepted over-report, pinned so it is a decision rather than a drift.
+
+    A delta anchors at the profile root, so the root's whole persona set is its
+    material too. Editing one delta therefore marks its siblings stale — an
+    idempotent rebuild, deliberately preferred over subtracting siblings and
+    risking a persona that no longer matches its source.
+    """
+    sibling = _write(profile / "personas" / "writer.yml", "name: Writer\ntier: 1\n")
+    before = compute_profile_hash(persona)
+
+    sibling.write_text("name: Writer\ntier: 3\n", encoding="utf-8")
+
+    assert compute_profile_hash(persona) != before
 
 
 def test_persona_hash_differs_from_its_root(profile, persona):

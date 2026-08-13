@@ -495,7 +495,8 @@ async def compose(req: ComposeRequest, request: Request):
         )
 
     store = request.app.state.artifact_store
-    project_dir = Path.cwd()
+    # Resolved at app creation (see `create_app`), not per request.
+    project_dir = Path(getattr(request.app.state, "agent_project_dir", None) or Path.cwd())
 
     # Resolve "all" sentinel → load every artifact from store
     effective_artifact_ids = req.artifact_ids

@@ -1,23 +1,29 @@
-"""The deploy-scaffolding templates, held to the hand-built goldens.
+"""The deploy-scaffolding templates, rendered against a registry deployment.
 
-``tests/deployment/goldens/`` holds a reference deployment that was written by
-hand and validated with ``gitlab-ci-local`` before any template existed. It is
-the specification: the templates under ``src/osprey/templates/deploy/`` must
-reproduce it byte for byte when rendered against ``goldens/exemplar-profile/``.
-Only one value cannot be reproduced — the ``osprey-version:`` provenance line,
-which moves with every release — so the renders here pass the literal
-``OSPREY_VERSION`` in its place, exactly as the goldens freeze it.
+``goldens/exemplar-profile/`` is a second reference deployment, and it earns its
+place by being the one the feature's own exemplar is not: it names a registry,
+declares a service with a Dockerfile, and therefore exercises the images stage
+and the registry credential that the exemplar's ``image_source: local`` never
+reaches.
 
-The security assertions at the bottom are the surviving half of the old
-``.gitlab-ci.yml`` template tests. The legacy pipeline assembled
-``.env.production`` itself, from a heredoc of masked CI variables, and those
-tests policed which tokens the heredoc was allowed to name. This pipeline
-assembles nothing: the deploy host runs ``osprey deploy render-env-production``
-against its own ``profile/.env``, and the single allowlist in
-``osprey.deployment.web_terminals.env_production`` is the only thing that
-decides what lands in that file. What carries over is therefore the absence
-half — no secret may reach a file, or the deploy host's command line, from
-here.
+The byte specification moved. It used to live beside this file as
+``goldens/gitlab-ci.yml`` and ``goldens/verify.sh``, hand-built for the retired
+``profile/`` layout; it is now the three-zone exemplar in
+``tests/fixtures/lifecycle_repo.py``, and ``tests/cli/test_emitted_artifacts_clean.py``
+holds the templates to it byte for byte. Keeping two hand-built reference
+deployments meant keeping two specifications, which is one more than a
+specification can be.
+
+So what is asserted here is behaviour rather than bytes: the branches a
+registry turns on, and the security properties that hold whatever the profile
+says. The security half is the surviving part of the old ``.gitlab-ci.yml``
+template tests. The legacy pipeline assembled ``.env.production`` itself, from a
+heredoc of masked CI variables, and those tests policed which tokens the heredoc
+was allowed to name. This pipeline assembles nothing: the deploy host runs
+``osprey users env-production`` against its own ``.env``, and the single
+allowlist in ``osprey.deployment.web_terminals.env_production`` decides what
+lands in that file. What carries over is the absence half — no secret may reach
+a file, or the deploy host's command line, from here.
 """
 
 from __future__ import annotations
@@ -48,13 +54,13 @@ from osprey.cli.deploy_scaffold_templates import (
 GOLDENS = Path(__file__).parent / "goldens"
 EXEMPLAR_DIR = GOLDENS / "exemplar-profile"
 
-#: The goldens freeze the version token as this literal, so renders compared
-#: against them pass it in place of the installed version.
+#: Passed in place of the installed version so a render does not change with the
+#: release the test happens to run under.
 FROZEN_VERSION = "OSPREY_VERSION"
 
-#: The facility repo's directory name — an emission-time input, not a profile
-#: key, and the value every path in the pipeline is keyed off.
-PROJECT_NAME = "demo-facility"
+#: The deployment repo's directory name. It is the deployment's name, and the
+#: pipeline's title falls back to it; no emitted path keys off it any more.
+REPO_NAME = "demo-facility"
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +84,7 @@ def render_ci(
     version: str = FROZEN_VERSION,
 ) -> str:
     """Render the pipeline for a profile."""
-    context = build_ci_context(profile, deploy, profile_dir, PROJECT_NAME, version)
+    context = build_ci_context(profile, deploy, profile_dir, REPO_NAME, version)
     return render(CI_TEMPLATES[deploy.ci], context)
 
 
@@ -108,43 +114,50 @@ def remote_script(rendered_ci: str) -> str:
     return match.group(1)
 
 
-# ── The goldens ──────────────────────────────────────────────────────────────
+# ── The provenance stamp ─────────────────────────────────────────────────────
 
 
-def test_gitlab_ci_reproduces_the_golden(rendered_ci: str) -> None:
-    """The pipeline template renders the hand-built pipeline exactly."""
-    assert rendered_ci == (GOLDENS / "gitlab-ci.yml").read_text(encoding="utf-8")
-
-
-def test_verify_sh_reproduces_the_golden(rendered_verify: str) -> None:
-    """The health-check template renders the hand-built script exactly."""
-    assert rendered_verify == (GOLDENS / "verify.sh").read_text(encoding="utf-8")
-
-
-def test_installed_version_is_the_only_unfrozen_value(
-    exemplar: dict[str, Any], exemplar_deploy: DeployConfig
+def test_installed_version_is_the_only_value_that_moves_with_a_release(
+    exemplar: dict[str, Any], exemplar_deploy: DeployConfig, rendered_ci: str, rendered_verify: str
 ) -> None:
-    """Rendering with the real version differs from the golden in one line.
+    """Two renders of one profile differ in exactly the ``osprey-version:`` line.
 
-    Guards the masking itself: if a second value ever moved with the release,
-    normalizing the version token would quietly hide it.
+    The scaffolder normalizes that line away before deciding whether a re-emit
+    would change anything, so an upgrade rewrites neither file. A second
+    release-dependent value anywhere in either template would be masked by that
+    same normalization and would silently stop re-emission from noticing a real
+    change.
     """
-    for rendered, name in (
-        (render_ci(exemplar, exemplar_deploy, version=osprey.__version__), "gitlab-ci.yml"),
+    live = (
+        (rendered_ci, render_ci(exemplar, exemplar_deploy, version=osprey.__version__)),
         (
+            rendered_verify,
             render(VERIFY_TEMPLATE, build_verify_context(exemplar, osprey.__version__)),
-            "verify.sh",
         ),
-    ):
-        golden = (GOLDENS / name).read_text(encoding="utf-8").splitlines()
+    )
+    for frozen, current in live:
         differing = [
             (left, right)
-            for left, right in zip(golden, rendered.splitlines(), strict=True)
+            for left, right in zip(frozen.splitlines(), current.splitlines(), strict=True)
             if left != right
         ]
         assert differing == [
             (f"# osprey-version: {FROZEN_VERSION}", f"# osprey-version: {osprey.__version__}")
-        ], f"{name} has a value other than the version that moves with the release"
+        ]
+
+
+def test_the_byte_specification_lives_with_the_exemplar() -> None:
+    """The hand-built goldens are gone, and must not come back here.
+
+    They were written for the retired ``profile/`` layout, and a repo carrying
+    both them and the three-zone exemplar would carry two specifications free to
+    disagree. The bytes are pinned in ``tests/cli/test_emitted_artifacts_clean.py``
+    against ``tests/fixtures/lifecycle_repo.py``; this asserts the old pair did
+    not quietly reappear beside a suite that no longer reads it.
+    """
+    assert not (GOLDENS / "gitlab-ci.yml").exists()
+    assert not (GOLDENS / "verify.sh").exists()
+    assert EXEMPLAR_DIR.is_dir(), "the registry-flavoured profile is still read here"
 
 
 # ── Template lookup ──────────────────────────────────────────────────────────
@@ -163,7 +176,10 @@ def test_profile_owned_service_gets_an_image_job(rendered_ci: str) -> None:
     """The facility's own Dockerfile-carrying service earns a build job."""
     assert "image:facility-mcp:" in rendered_ci
     assert "extends: .service-image" in rendered_ci
-    assert '"profile/services/$SERVICE"' in rendered_ci
+    # The build context is the source zone's own services/, at the repo root —
+    # not a copy under build/, which the render would have to succeed first to
+    # produce.
+    assert '"services/$SERVICE"' in rendered_ci
 
 
 def test_packaged_service_directory_gets_no_image_job(
@@ -194,18 +210,18 @@ def test_packaged_service_directory_gets_no_image_job(
 def test_pipeline_runs_the_expected_osprey_commands(rendered_ci: str) -> None:
     """The ``osprey`` invocations are the ones the deployment story promises.
 
-    ``osprey build`` takes no ``-o``: the project lands in ``build/<name>/`` on
-    its own, and both the artifact path and the deploy host's ``--project``
-    resolve to that same directory.
+    Every one is bare. The repo IS the deployment, so each verb walks up to the
+    profile from wherever it is run and needs no argument to say which one it
+    means — which is also what makes the pipeline and a laptop run the same
+    commands.
     """
     invocations = re.findall(r"^\s*(?:- )?(osprey .+)$", rendered_ci, re.MULTILINE)
     assert invocations == [
-        "osprey profile validate $OSPREY_PROFILE",
-        "osprey build $OSPREY_PROJECT_NAME $OSPREY_PROFILE --force --skip-lifecycle --skip-deps",
-        "osprey build $OSPREY_PROJECT_NAME $OSPREY_PROFILE --force",
-        "osprey deploy render-env-production --project $OSPREY_BUILD_DIR "
-        "--output $OSPREY_BUILD_DIR/.env.production",
-        "osprey deploy up -d --project $OSPREY_BUILD_DIR",
+        "osprey validate",
+        "osprey build --skip-lifecycle --skip-deps",
+        "osprey build",
+        "osprey users env-production --output .env.production",
+        "osprey up -d",
     ]
     assert " -o " not in rendered_ci
 
@@ -269,7 +285,7 @@ def test_probe_group_filter_is_not_named_groups(rendered_verify: str) -> None:
 
 def test_health_check_probes_every_deployed_service(rendered_verify: str) -> None:
     """The three services this facility runs each get a probe."""
-    assert "probe_tcp  'virtual-accelerator: Channel Access on 5064' 127.0.0.1 5064" in (
+    assert "probe_tcp  'virtual-accelerator: Channel Access on 5064'  localhost 5064" in (
         rendered_verify
     )
     assert "'openobserve: telemetry store on 5080'" in rendered_verify
@@ -306,7 +322,7 @@ def test_pipeline_never_assembles_env_production(rendered_ci: str, remote_script
     The legacy pipeline built ``.env.production`` from a heredoc of masked CI
     variables and COPYed the result into the runtime image. Nothing here may
     do that again: the only thing that produces the file is the deploy host,
-    running ``render-env-production`` against its own ``profile/.env``.
+    running ``osprey users env-production`` against its own ``.env``.
 
     The file is therefore *named* exactly once, as that command's destination
     on the host, and nowhere else — no CI-side assembly, no artifact, no COPY.
@@ -315,15 +331,12 @@ def test_pipeline_never_assembles_env_production(rendered_ci: str, remote_script
     assert "cat > .env.production" not in rendered_ci
 
     mentions = [line.strip() for line in rendered_ci.splitlines() if ".env.production" in line]
-    assert mentions == [
-        "osprey deploy render-env-production --project $OSPREY_BUILD_DIR "
-        "--output $OSPREY_BUILD_DIR/.env.production"
-    ]
+    assert mentions == ["osprey users env-production --output .env.production"]
     assert mentions[0] in remote_script
 
 
 def test_the_host_render_never_streams_secrets_to_the_job_log(remote_script: str) -> None:
-    """``render-env-production`` must write to a file, not to stdout.
+    """``users env-production`` must write to a file, not to stdout.
 
     Without ``--output`` the command echoes the assembled subset — every
     credential the deployment runs on — and in this job stdout is the CI log,
@@ -338,16 +351,17 @@ def test_the_host_render_never_streams_secrets_to_the_job_log(remote_script: str
     render_lines = [
         line.strip()
         for line in remote_script.splitlines()
-        if "render-env-production" in line and "osprey" in line
+        if "env-production" in line and "osprey" in line
     ]
     assert len(render_lines) == 1, render_lines
-    assert "--output $OSPREY_BUILD_DIR/.env.production" in render_lines[0]
+    assert "--output .env.production" in render_lines[0]
     assert ">" not in render_lines[0]
 
-    # The written file must be the one `osprey deploy up` then reads: that verb
-    # resolves .env.production against its --project directory, so any other
-    # destination deploys a stack whose containers have no environment.
-    assert "osprey deploy up -d --project $OSPREY_BUILD_DIR" in remote_script
+    # The written file must be the one `osprey up` then reads: both resolve it
+    # against the repo root they are run in, so the render has to happen in the
+    # same directory — any other destination deploys a stack whose containers
+    # have no environment.
+    assert "osprey up -d" in remote_script
 
 
 def test_registry_token_is_never_written_to_a_file(
@@ -366,7 +380,7 @@ def test_no_secret_is_expanded_into_the_remote_command_line(
 
     The heredoc is unquoted, so a ``$NAME`` here would be expanded by the
     runner and land in the deploy host's process arguments — visible to every
-    user on the box. The host reads its own ``profile/.env`` instead.
+    user on the box. The host reads its own repo-root ``.env`` instead.
     """
     declared = exemplar["env"]["required"]
     # A profile that declared nothing would pass this loop without checking
@@ -390,7 +404,7 @@ def test_native_service_tokens_are_absent(rendered_ci: str) -> None:
 
 def test_ssh_key_is_ci_only_and_lands_outside_the_project(rendered_ci: str) -> None:
     """The deploy key authenticates the job; it is not deployment environment."""
-    assert '- cp "$OSPREY_DEPLOY_SSH_KEY" ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519' in (
+    assert '- cp "$DEPLOY_SSH_KEY" ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519' in (
         rendered_ci
     )
-    assert "OSPREY_DEPLOY_SSH_KEY" not in yaml.safe_load(rendered_ci)["variables"]
+    assert "DEPLOY_SSH_KEY" not in yaml.safe_load(rendered_ci)["variables"]

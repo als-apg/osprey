@@ -1,6 +1,6 @@
 """Tests for the post-deploy endpoint summary.
 
-Every ``osprey deploy up`` ends with a summary of what is reachable where,
+Every ``osprey up`` ends with a summary of what is reachable where,
 derived from the rendered compose files' published host ports — plus an
 unconditional web-terminal line, so a project *without* a web tier says so
 explicitly instead of silently binding nothing.

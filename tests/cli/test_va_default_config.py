@@ -11,8 +11,12 @@ A freshly scaffolded Control Assistant project must:
   3. Leave the epics block's production values untouched by that switch.
 
 Complements tests/templates/test_preset_va_block.py (which renders the raw
-.j2 template in isolation) by exercising the actual `osprey build` scaffolder
-and the `osprey config set-control-system` CLI path end to end.
+.j2 template in isolation) by exercising the real lifecycle end to end:
+`osprey init` materializes the source zone, `osprey build` renders it, and
+`osprey set connector=mock` performs the flip — which, because `osprey set`
+writes the profile and never the render, means the flip is only visible in
+`build/config.yml` after a second build. That sequencing IS the contract, so
+the tests below run it rather than short-circuiting it.
 """
 
 from __future__ import annotations
@@ -24,7 +28,8 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
-from osprey.cli.config_cmd import set_control_system
+from osprey.cli.init_cmd import init
+from osprey.cli.set_cmd import set as set_cmd
 from osprey.connectors.control_system.mock_connector import MockConnector
 from osprey.connectors.factory import (
     ConnectorFactory,
@@ -57,29 +62,37 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-@pytest.fixture
-def scaffolded_project(runner: CliRunner, tmp_path: Path) -> Path:
-    """Scaffold a fresh Control Assistant project into a tmp dir."""
-    result = runner.invoke(
-        build,
-        [
-            "smoke",
-            "--preset",
-            "control-assistant",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+def _build(runner: CliRunner, repo: Path) -> None:
+    """Render *repo*'s build/ zone, failing the test if it does not."""
+    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
-    project_dir = tmp_path / "smoke"
-    assert (project_dir / "config.yml").exists()
-    return project_dir
 
 
-def _load_config(project_dir: Path) -> dict:
-    return yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
+@pytest.fixture
+def scaffolded_repo(runner: CliRunner, tmp_path: Path) -> Path:
+    """A fresh Control Assistant deployment repo, built once."""
+    repo = tmp_path / "smoke"
+    result = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    assert result.exit_code == 0, result.output
+    _build(runner, repo)
+    assert (repo / "build" / "config.yml").exists()
+    return repo
+
+
+def _switch_to_mock(runner: CliRunner, repo: Path) -> None:
+    """The documented flip: edit the profile, then re-render it.
+
+    Both halves, deliberately. `osprey set` writes profile.yml and leaves the
+    render alone, so a test that stopped after the set would assert against the
+    build the flip has not reached yet.
+    """
+    result = runner.invoke(set_cmd, ["--repo", str(repo), "connector=mock"])
+    assert result.exit_code == 0, result.output
+    _build(runner, repo)
+
+
+def _load_config(repo: Path) -> dict:
+    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(autouse=True)
@@ -98,16 +111,14 @@ class TestFreshProjectDefaultsToVirtualAccelerator:
     """State 1: a freshly scaffolded project uses the Virtual Accelerator by
     default."""
 
-    def test_default_control_system_type_is_virtual_accelerator(self, scaffolded_project: Path):
-        config = _load_config(scaffolded_project)
+    def test_default_control_system_type_is_virtual_accelerator(self, scaffolded_repo: Path):
+        config = _load_config(scaffolded_repo)
         assert config["control_system"]["type"] == "virtual_accelerator"
 
-    def test_mock_and_virtual_accelerator_and_epics_blocks_all_present(
-        self, scaffolded_project: Path
-    ):
+    def test_mock_and_virtual_accelerator_and_epics_blocks_all_present(self, scaffolded_repo: Path):
         """The three-state switch is fully materialized even though only
         'mock' is active — the other two blocks are ready to flip to."""
-        connector = _load_config(scaffolded_project)["control_system"]["connector"]
+        connector = _load_config(scaffolded_repo)["control_system"]["connector"]
         assert "mock" in connector
         assert "virtual_accelerator" in connector
         assert "epics" in connector
@@ -118,36 +129,48 @@ class TestSwitchingToMockEngagesTheConnector:
     documented fallback flip for environments with no containers to depend
     on."""
 
-    def test_cli_switch_updates_config_type(self, runner: CliRunner, scaffolded_project: Path):
-        result = runner.invoke(set_control_system, ["mock", "--project", str(scaffolded_project)])
+    def test_cli_switch_updates_config_type(self, runner: CliRunner, scaffolded_repo: Path):
+        _switch_to_mock(runner, scaffolded_repo)
+
+        config = _load_config(scaffolded_repo)
+        assert config["control_system"]["type"] == "mock"
+
+    def test_the_set_alone_does_not_move_the_render(self, runner: CliRunner, scaffolded_repo: Path):
+        """`osprey set` edits the source and nothing else: until a build runs,
+        the deployment still answers as the Virtual Accelerator. This is the
+        property the flip test above depends on, so it is asserted rather than
+        assumed."""
+        result = runner.invoke(set_cmd, ["--repo", str(scaffolded_repo), "connector=mock"])
         assert result.exit_code == 0, result.output
 
-        config = _load_config(scaffolded_project)
-        assert config["control_system"]["type"] == "mock"
+        assert "control_system.type: mock" in (scaffolded_repo / "profile.yml").read_text(
+            encoding="utf-8"
+        )
+        assert _load_config(scaffolded_repo)["control_system"]["type"] == "virtual_accelerator"
 
     @pytest.mark.asyncio
     async def test_scaffolded_mock_config_block_resolves_to_mock_connector(
-        self, runner: CliRunner, scaffolded_project: Path, monkeypatch
+        self, runner: CliRunner, scaffolded_repo: Path, monkeypatch
     ):
         """The actual connector.mock block from the scaffolded project, fed
         through the real ConnectorFactory, produces a MockConnector instance —
         not just a config string. Unlike the VA/epics connectors, MockConnector
         has no real network I/O in connect(), so no stubbing is needed.
 
-        chdir into the scaffolded project first: the mock block's
-        ``simulation_file`` is a path relative to the project root (resolved
-        against the ``project_root`` config value in production; this test
-        reads config.yml directly rather than going through the app's config
-        loader, so CWD is the fallback resolution root instead).
+        chdir into the repo root first: the mock block's ``simulation_file`` is
+        a path relative to the project root (resolved against the
+        ``project_root`` config value in production, which for a three-zone
+        deployment IS the repo root; this test reads build/config.yml directly
+        rather than going through the app's config loader, so CWD is the
+        fallback resolution root instead).
         """
-        result = runner.invoke(set_control_system, ["mock", "--project", str(scaffolded_project)])
-        assert result.exit_code == 0, result.output
+        _switch_to_mock(runner, scaffolded_repo)
 
         register_builtin_connectors()
-        cs_config = _load_config(scaffolded_project)["control_system"]
+        cs_config = _load_config(scaffolded_repo)["control_system"]
         assert cs_config["type"] == "mock"
 
-        monkeypatch.chdir(scaffolded_project)
+        monkeypatch.chdir(scaffolded_repo)
         connector = await ConnectorFactory.create_control_system_connector(cs_config)
         try:
             assert isinstance(connector, MockConnector)
@@ -159,17 +182,17 @@ class TestSwitchingToMockEngagesTheConnector:
 class TestEpicsBlockRemainsUntouched:
     """State 3: the epics block still holds untouched production values."""
 
-    def test_epics_block_unchanged_before_switch(self, scaffolded_project: Path):
-        epics = _load_config(scaffolded_project)["control_system"]["connector"]["epics"]
+    def test_epics_block_unchanged_before_switch(self, scaffolded_repo: Path):
+        epics = _load_config(scaffolded_repo)["control_system"]["connector"]["epics"]
         assert epics == ORIGINAL_EPICS_BLOCK
 
     def test_epics_block_unchanged_after_switching_to_mock(
-        self, runner: CliRunner, scaffolded_project: Path
+        self, runner: CliRunner, scaffolded_repo: Path
     ):
-        """Switching control_system.type must not perturb the epics block —
-        `set_control_system_type` only ever touches the `type` field."""
-        result = runner.invoke(set_control_system, ["mock", "--project", str(scaffolded_project)])
-        assert result.exit_code == 0, result.output
+        """Switching the connector must not perturb the epics block — the write
+        reaches exactly one key, and the re-render carries the rest through
+        unchanged."""
+        _switch_to_mock(runner, scaffolded_repo)
 
-        epics = _load_config(scaffolded_project)["control_system"]["connector"]["epics"]
+        epics = _load_config(scaffolded_repo)["control_system"]["connector"]["epics"]
         assert epics == ORIGINAL_EPICS_BLOCK

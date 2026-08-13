@@ -1,9 +1,9 @@
 """Full-stack Docker proof of the MINIMUM bluesky deploy: bridge + RE manager
 + Redis, and nothing else.
 
-Mirrors ``tests/e2e/test_dispatch_deploy.py``'s shape (real ``osprey build`` +
-``osprey deploy up --dev``, real containers, real HTTP calls against the
-shipped artifacts). Unlike the dispatch worker, nothing here shells out to an
+Mirrors ``tests/e2e/test_dispatch_deploy.py``'s shape (real ``osprey init`` +
+``osprey build`` + ``osprey up --dev``, real containers, real HTTP calls
+against the shipped artifacts). Unlike the dispatch worker, nothing here shells out to an
 LLM, so this test needs no provider API key — ``hello-world``'s bundled
 ``provider``/``model`` defaults are enough for the build to succeed.
 
@@ -40,7 +40,7 @@ this test.
 Asserts, against the REAL deployed containers:
   * the bridge binds to 127.0.0.1 (never 0.0.0.0) — ``docker port`` inspection.
   * BLUESKY_LAUNCH_TOKEN and the queueserver control-plane keypair were minted
-    into the project ``.env``, and the manager's control socket answers.
+    into the repo's ``.env``, and the manager's control socket answers.
   * the built image contains the unreleased bluesky modules — NOT merely that
     the image builds, since a PyPI-based build would silently lack them and
     this must fail loudly rather than pass on stale code. Importing them also
@@ -50,8 +50,8 @@ Asserts, against the REAL deployed containers:
 
 CONTAINER SAFETY: every docker/podman invocation below names an exact
 container/image — never a wildcard, never ``system prune``/``--volumes``.
-Teardown goes through ``osprey deploy down`` (the shipped compose teardown
-path), not a raw ``docker rm``/``rmi`` sweep.
+Teardown goes through ``osprey down`` (the shipped compose teardown path), not
+a raw ``docker rm``/``rmi`` sweep.
 
 Gating: needs Docker. Skipped entirely if unavailable. Lives in ``tests/e2e/``
 (not ``tests/integration/``) so the fast lane (``pytest tests/ --ignore=tests/e2e``,
@@ -78,7 +78,10 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
-from osprey.services.bluesky_bridge.queue_backend import REASON_BROWSE_ONLY_CONNECTOR
+from osprey.services.bluesky_bridge.queue_backend import (
+    FLIP_COMMAND,
+    REASON_BROWSE_ONLY_CONNECTOR,
+)
 
 # Deliberately NOT the bluesky-bridge default (8090): this is a shared dev
 # machine with other long-running services, and 8090 was observed colliding
@@ -89,9 +92,9 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 # ``hello-world`` deploys OpenObserve unconditionally (it is baked into
 # ``deployed_services``, with no profile knob to drop it) on host port 5080,
 # which a locally-running tutorial stack routinely holds — and a bound-port
-# collision aborts `deploy up` before the bluesky containers it creates
-# alongside it ever start. Moved to a high, unassigned port, same defensive
-# convention as BRIDGE_PORT above. Nothing in this proof touches telemetry.
+# collision aborts `up` before the bluesky containers it creates alongside it
+# ever start. Moved to a high, unassigned port, same defensive convention as
+# BRIDGE_PORT above. Nothing in this proof touches telemetry.
 OPENOBSERVE_PORT = 25081
 # The fixture builds/deploys under this project name; the compose template
 # renders each container_name AND the bridge's locally-built image as
@@ -128,7 +131,7 @@ _BLUESKY_BRIDGE_ONLY_MODULES = (
 # Rerun only on AssertionError, which is what the genuinely-flaky failures raise
 # (the container-startup health-wait in the fixture, and the HTTP-timing checks
 # in the test bodies). Deterministic setup errors — a failed `osprey build`, a
-# failed `deploy up`, a bound-port collision — surface via ``pytest.fail()`` as
+# failed `up`, a bound-port collision — surface via ``pytest.fail()`` as
 # ``Failed``, not ``AssertionError``, so they now fail fast instead of burning a
 # retry on a multi-minute rebuild that would deterministically fail again.
 pytestmark = [
@@ -160,12 +163,26 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
+def _seed_repo_env(repo: Path) -> None:
+    """Give the repo the ``.env`` ``osprey up`` refuses to start without.
+
+    The repo root's ``.env`` is the deployment's whole secret store and the file
+    every compose invocation is pointed at, so ``up`` aborts when it is absent.
+    ``osprey init`` writes one only when the shell exports a key for the
+    profile's provider, which no bluesky lane has — this is the ``cp
+    .env.example .env`` the CLI itself recommends, done for the operator.
+    """
+    env_path = repo / ".env"
+    if not env_path.exists():
+        shutil.copy(repo / ".env.example", env_path)
+
+
 @pytest.fixture(scope="module")
 def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Build + ``osprey deploy up --dev`` a bluesky-only project; tear down after."""
+    """Init + build + ``osprey up --dev`` a bluesky-only repo; tear down after."""
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("scan_deploy_build")
-    project_dir = base / PROJECT_NAME
+    repo = base / PROJECT_NAME
 
     # Only top-level PROFILE keys go through `--set`; a `config.`-scoped key
     # needs an override file (a dotted `--set` would build a nested dict for
@@ -175,25 +192,35 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         f"config:\n  services.openobserve.port: {OPENOBSERVE_PORT}\n", encoding="utf-8"
     )
 
-    build = _run(
+    # Two steps, because the surface has two: `init` writes the repo's source
+    # zone from the preset, `build` renders build/ from it. The repo directory
+    # name IS the deployment name, so the container names above still hold.
+    init = _run(
         [
             str(osprey_bin),
-            "build",
-            PROJECT_NAME,
+            "init",
+            str(repo),
             "--preset",
             "hello-world",
+            "--no-git",
             "--override",
             str(override_path),
             # The one --set is what opts this project into the bluesky stack at
             # all: a `bluesky:` profile block is what `_inject_bluesky` keys on.
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
         ],
+        cwd=base,
+        timeout=300,
+    )
+    if init.returncode != 0:
+        pytest.fail(
+            f"osprey init failed (rc={init.returncode}):\n"
+            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
+        )
+
+    build = _run(
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )
@@ -202,32 +229,33 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
+    _seed_repo_env(repo)
 
     # Force a fresh image build so the deployed bridge runs CURRENT source —
-    # `osprey deploy up` does not pass --build to compose, so it would
-    # otherwise silently reuse a stale cached <project>-bluesky-bridge:local.
+    # `osprey up` does not pass --build to compose, so it would otherwise
+    # silently reuse a stale cached <project>-bluesky-bridge:local.
     # Exact-named image only. (The queueserver deliberately has no `build:`
     # block and runs this same image, so one rmi covers both services.)
     subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
 
     try:
         up = _run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=project_dir,
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up --dev failed (rc={up.returncode}):\n"
+                f"osprey up --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-        yield project_dir
+        yield repo
     finally:
-        down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=300)
+        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
@@ -277,13 +305,13 @@ def _wait_for_container_health(container: str, timeout: float) -> None:
     )
 
 
-def _env_value(project_dir: Path, key: str) -> str:
+def _env_value(repo: Path, key: str) -> str:
     from osprey.utils.dotenv import parse_dotenv_file
 
-    env_path = project_dir / ".env"
+    env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — nothing was minted"
     value = parse_dotenv_file(env_path).get(key)
-    assert value, f"{key} missing/empty in the project .env"
+    assert value, f"{key} missing/empty in the deployment repo's .env"
     return value
 
 
@@ -432,7 +460,10 @@ def test_browse_only_deployment_is_healthy_and_says_so(deployed_bridge: Path) ->
         f"the mock connector cannot execute plans: {capability}"
     )
     assert capability["reason"] == REASON_BROWSE_ONLY_CONNECTOR, f"wrong reason: {capability}"
-    assert "set-control-system virtual_accelerator" in capability["detail"], (
+    # Asserted against the bridge's own FLIP_COMMAND rather than a literal: the
+    # subject is that the detail NAMES the flip command, and a copy of its
+    # spelling here would pin whichever verb that constant happened to hold.
+    assert FLIP_COMMAND in capability["detail"], (
         f"the browse-only detail must name the command that flips it: {capability}"
     )
 

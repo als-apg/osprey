@@ -31,8 +31,8 @@ logger = get_logger("build")
 class CredentialStatus:
     """Whether one provider's API-key env var is available to the built project.
 
-    ``source`` is a human-readable origin (``"project .env"``, ``"profile
-    .env"``, ``"shell environment"``) and is ``None`` when the key is not set.
+    ``source`` is a human-readable origin (``"repo .env"``, ``"build/.env"``,
+    ``"shell environment"``) and is ``None`` when the key is not set.
     The key's *value* is deliberately never carried — this record is built to
     be logged.
     """
@@ -67,50 +67,53 @@ def detect_provider_credentials(
 ) -> list[CredentialStatus]:
     """Resolve every keyed provider's API-key env var to a found/not-found status.
 
+    A deployment keeps its secrets in ONE file, the ``.env`` at its repo root.
     Sources are checked in the order that actually determines whether the built
-    project can authenticate:
+    deployment can authenticate:
 
-    1. the built project's ``.env`` — what ships with the project;
-    2. the build profile's ``.env`` — the durable facility record the project's
-       own ``.env`` is derived from, so a key present there reaches the project
-       on the next build even when this one has not written it yet;
+    1. an ``.env`` inside the build zone — nothing writes one, so this fires
+       only on a file placed there by hand, and it is reported under its own
+       name because the next build takes it away with the zone it lives in;
+    2. the repo's ``.env`` — the deployment's secret store, and the file
+       ``osprey up`` hands compose as ``--env-file``;
     3. the shell environment.
 
     The directory the build was *invoked* from is deliberately not a source: an
-    ambient ``.env`` beside the working directory is not something the built
-    project carries, and reporting it as a found credential described the build
-    host rather than the project.
+    ambient ``.env`` beside the working directory is not something the
+    deployment carries, and reporting it as a found credential described the
+    build host rather than the deployment.
 
     Keyless providers (ollama, vllm, ds4, asksage) are excluded — they have no
     API-key env var to report on.
 
     Args:
-        project_path: Root of the built project.
-        profile_dir: Directory of the build profile, whose ``.env`` acts as
-            source 2. ``None`` (or a profile with no ``.env``) skips it.
+        project_path: The build zone, whose own ``.env`` is source 1.
+        profile_dir: The deployment repo root, whose ``.env`` is source 2 and
+            the store a missing key should be added to. ``None`` (or a repo
+            with no ``.env``) skips it.
 
     Returns:
         One :class:`CredentialStatus` per keyed provider, in registry order.
     """
     from osprey.models.provider_registry import PROVIDER_API_KEYS
 
-    project_env_path = project_path / ".env"
-    project_env = _dotenv_keys(project_env_path)
-    profile_env: dict[str, str] = {}
+    build_env_path = project_path / ".env"
+    build_env = _dotenv_keys(build_env_path)
+    repo_env: dict[str, str] = {}
     if profile_dir is not None:
-        profile_env_path = profile_dir / ".env"
-        # Skip when the profile's .env *is* the project's: same file, already read.
-        if profile_env_path.resolve() != project_env_path.resolve():
-            profile_env = _dotenv_keys(profile_env_path)
+        repo_env_path = profile_dir / ".env"
+        # Skip when the repo's .env *is* the build zone's: same file, already read.
+        if repo_env_path.resolve() != build_env_path.resolve():
+            repo_env = _dotenv_keys(repo_env_path)
 
     statuses: list[CredentialStatus] = []
     for provider, var in PROVIDER_API_KEYS.items():
         if var is None:
             continue
-        if var in project_env:
-            source: str | None = "project .env"
-        elif var in profile_env:
-            source = "profile .env"
+        if var in build_env:
+            source: str | None = "build/.env"
+        elif var in repo_env:
+            source = "repo .env"
         elif os.environ.get(var):
             source = "shell environment"
         else:
@@ -122,7 +125,7 @@ def detect_provider_credentials(
 
 
 def report_provider_credentials(
-    project_path: Path, provider: str, *, profile_dir: Path | None = None
+    project_path: Path, provider: str, *, profile_dir: Path
 ) -> list[CredentialStatus]:
     """Log a provider-credentials summary, leading with the selected provider.
 
@@ -136,9 +139,14 @@ def report_provider_credentials(
     and the key can be filled into ``.env`` afterwards.
 
     Args:
-        project_path: Root of the built project.
-        provider: The provider this project was built for.
-        profile_dir: Passed through to :func:`detect_provider_credentials`.
+        project_path: The build zone this render produced.
+        provider: The provider this deployment was built for.
+        profile_dir: The deployment repo — the directory holding the ``.env``
+            this build reads. Required, not optional: a build is always run
+            from a repo (``find_repo_root`` refuses otherwise), so there is no
+            caller that has no directory to name, and an optional parameter
+            here invited a fallback branch naming the render's ``.env`` — a
+            file the next build replaces.
 
     Returns:
         The statuses that were reported.
@@ -159,24 +167,19 @@ def report_provider_credentials(
     else:
         logger.warning("  ✗ Provider: %s — %s NOT SET", provider, selected.var)
         logger.warning("      The build will complete, but the agent cannot reach the model.")
-        # Name the PROFILE .env, not the project's. A key hand-added to the
-        # project .env is dropped by the next build: derive_project_env(
-        # mode="build") keeps only build-derived, runtime-written, and
-        # profile-carried keys, and a project-only key is none of those. This
-        # is the one message an operator sees when a key is missing, so
-        # pointing it at the project .env would steer them to the fastest way
-        # to silently lose the secret. Exporting is offered only as what it
-        # actually is — a host-local run, not something the build records.
-        if profile_dir is not None:
-            logger.warning(
-                "      Add %s to %s — the profile owns this project's secrets — "
-                "or export it for a host-local run.",
-                selected.var,
-                profile_dir / ".env",
-            )
-        else:
-            # No profile to name (legacy preset-built project).
-            logger.warning("      Add %s to %s.", selected.var, project_path / ".env")
+        # Name the PROFILE .env, not the render's. `build/` is output — wiped
+        # and re-rendered whole by every build — so a key hand-added to a file
+        # inside it is gone at the next one. This is the one message an
+        # operator sees when a key is missing, so pointing it at the render
+        # would steer them to the fastest way to silently lose the secret.
+        # Exporting is offered only as what it actually is — a host-local run,
+        # not something the build records.
+        logger.warning(
+            "      Add %s to %s — the repo owns this deployment's secrets — "
+            "or export it for a host-local run.",
+            selected.var,
+            profile_dir / ".env",
+        )
 
     others = [s for s in statuses if s is not selected]
     found_others = [s.var for s in others if s.found]
@@ -187,33 +190,6 @@ def report_provider_credentials(
         logger.info("      Not set:             %s", ", ".join(missing_others))
 
     return statuses
-
-
-def _copy_env_file(profile_dir: Path, project_path: Path, env_file: str) -> None:
-    """Copy a profile-provided .env file to the built project.
-
-    An existing project ``.env`` is merged, not clobbered: its values win and
-    keys it alone carries are appended (see
-    :func:`osprey.utils.dotenv.merge_env_preserving_existing`), so a --force
-    re-render never resets user secrets to template defaults.
-    """
-    src = (profile_dir / env_file).resolve()
-    dst = project_path / ".env"
-    if dst.exists():
-        from osprey.utils.dotenv import merge_env_preserving_existing
-
-        merged = merge_env_preserving_existing(
-            src.read_text(encoding="utf-8"),
-            dst.read_text(encoding="utf-8"),
-            # The rendered side here is a profile fragment, not the build's own
-            # render, so it cannot un-write the build-derived keys.
-            build_derived_keys=frozenset(),
-        )
-        dst.write_text(merged, encoding="utf-8")
-        logger.info("  ✓ Merged %s → .env (existing values preserved)", env_file)
-        return
-    shutil.copy2(src, dst)
-    logger.info("  ✓ Copied %s → .env", env_file)
 
 
 def _resolve_osprey_spec(osprey_install: str) -> tuple[str, str]:
@@ -413,8 +389,8 @@ def _write_project_pyproject(
     it: the environment on the host and the record that rebuilds it elsewhere
     cannot disagree, because there is only one list.
 
-    Written whole on every build — never appended — so ``osprey build --force``
-    cannot stack duplicate dependency blocks.
+    Written whole on every build — never appended — so a rebuild over an
+    existing render cannot stack duplicate dependency blocks.
 
     Only called when a venv is created; ``--skip-deps`` leaves no environment
     for the file to describe, and emitting one would invite ``uv run`` to

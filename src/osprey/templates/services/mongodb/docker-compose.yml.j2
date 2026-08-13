@@ -9,7 +9,7 @@
 # Neither the database nor the collection is created here: the seeder creates
 # them, together with the `{date: 1}` index the connector's sort needs and the
 # TTL index that expires per-document `expireAt` stamps. That ordering is
-# deliberate — `osprey deploy up` stages this service first, seeds, and only
+# deliberate — `osprey up` stages this service first, seeds, and only
 # then starts the recorder, so nothing races the collection into existence
 # with the wrong options.
 
@@ -29,6 +29,7 @@ services:
     container_name: {{ osprey_labels.project_name }}-archiver-mongodb
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
@@ -51,14 +52,14 @@ services:
     command: ["--wiredTigerCollectionBlockCompressor", "{{ (services.mongodb | default({})).compression | default('zstd', true) }}"]
     ports:
       # Published for the HOST side of the archiver: the agent's connector, the
-      # base seeder inside `osprey deploy up`, and `osprey sim apply`'s event
+      # base seeder inside `osprey up`, and `osprey sim apply`'s event
       # rewrite all reach the store this way (bind_address defaults to
       # loopback, so it is not exposed off-box). In-network consumers use the
       # `archiver-mongodb` alias below instead and never this port mapping.
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services.mongodb | default({})).port_host | default(27017, true) }}:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: {{ (services.mongodb | default({})).username | default('osprey', true) }}
-      # Sourced from the project .env: `osprey deploy up` mints a strong
+      # Sourced from the project .env: `osprey up` mints a strong
       # MONGO_ROOT_PASSWORD when unset, and the agent-side connector block
       # (`archiver.mongodb_archiver.password_env: MONGO_ROOT_PASSWORD`), the
       # seeder and the recorder all read that SAME variable, so container and
@@ -73,13 +74,13 @@ services:
       # initializing a FRESH data volume; a pre-existing volume keeps its
       # original credentials until recreated. Rotating the minted password
       # therefore requires removing the volume below — which also discards the
-      # seeded and recorded history, so `deploy up` warns before it comes to
+      # seeded and recorded history, so `osprey up` warns before it comes to
       # that rather than leaving the store silently unauthenticatable.
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-osprey}
       TZ: {{ system.timezone }}
     volumes:
       # The store itself. Named (not a bind mount) so it is namespaced per
-      # compose project and survives `deploy down`: a base seed costs minutes,
+      # compose project and survives `osprey down`: a base seed costs minutes,
       # and re-seeding on every restart would make the archiver's history
       # younger than the machine it claims to describe.
       - archiver_mongodb_data:/data/db
@@ -112,6 +113,8 @@ services:
 
 volumes:
   archiver_mongodb_data:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
 
 networks:
   osprey-network:

@@ -2,7 +2,7 @@
 
 Mirrors ``test_postgres_password_mint.py``'s coverage for the ``mongodb``
 deployed-service entry in ``_SERVICE_TOKEN_VARS`` (container_lifecycle.py):
-``osprey deploy up`` mints a strong ``MONGO_ROOT_PASSWORD`` into the project
+``osprey up`` mints a strong ``MONGO_ROOT_PASSWORD`` into the project
 ``.env``, which the mongodb compose template reads as
 MONGO_INITDB_ROOT_PASSWORD and the agent's archiver connector block names
 (``archiver.mongodb_archiver.password_env``) rather than carrying a value.
@@ -131,19 +131,23 @@ class TestRegistryAgreement:
         (var,) = _SERVICE_TOKEN_VARS["mongodb"]
         assert f"${{{var}:-" in template
 
-    def test_the_state_volume_matches_what_the_compose_template_declares(self):
-        """A wrong bare name makes the continuity preflight silently never fire.
+    def test_the_minted_var_is_registered_as_volume_initialized(self):
+        """A missing entry makes the fresh-mint warning silently never fire.
 
-        It reports on volume *existence*, so a name no template declares simply
-        never matches and the check degrades to a no-op — passing tests, no
-        warning, and an operator who learns about the stranded secret when a
-        rebuilt project cannot open the store.
+        The store adopts ``MONGO_ROOT_PASSWORD`` only when it initializes a
+        fresh data volume, so a newly minted value beside a surviving volume is
+        a credential mismatch nothing else names — the registry entry is what
+        makes ``_ensure_service_tokens`` warn at the mint. The template
+        declaring a named volume is the fact that earns the entry its place.
         """
-        from osprey.deployment.container_lifecycle import _SERVICE_STATE_VOLUMES
+        from osprey.deployment.container_lifecycle import _VOLUME_INITIALIZED_VARS
 
+        assert _VOLUME_INITIALIZED_VARS.get("MONGO_ROOT_PASSWORD") == "mongodb"
         declared = _declared_top_level_volumes(_mongodb_template_text())
-        assert declared, "no top-level volumes: block found in the mongodb template"
-        assert set(_SERVICE_STATE_VOLUMES["mongodb"]) <= declared
+        assert "archiver_mongodb_data" in declared, (
+            "the volume the store initializes /data/db on must be a declared "
+            "named volume, or the fresh-mint warning guards nothing"
+        )
 
     def test_the_port_remedy_names_the_knob_the_profile_block_emits(self):
         """The generic fallback would be ``services.mongodb.port``, which is wrong."""

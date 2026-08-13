@@ -63,7 +63,7 @@ Present findings as a structured diagnostic report:
 For each issue found, propose a specific fix. Classify each as:
 - **Auto-fixable**: Can be resolved with `setup_patch`
 - **Manual**: Requires operator action (e.g., setting environment variables, restarting services)
-- **Regen**: Requires `osprey claude regen` to regenerate from templates
+- **Rebuild**: Requires `osprey build` to re-render the artifact from its template
 
 Ask the operator which fixes to apply before proceeding.
 
@@ -76,11 +76,12 @@ For approved auto-fixes:
 
 For cold changes, remind the operator: "These changes require an MCP server restart to take effect."
 
-### Step 6 — Regen (if needed)
+### Step 6 — Rebuild (if needed)
 
-If any issues require template regeneration, instruct the operator to run:
+If any issues require re-rendering an artifact, instruct the operator to run this
+from the deployment repo:
 ```
-osprey claude regen
+osprey build
 ```
 Then re-enter `/setup-mode` to verify the fix.
 
@@ -109,7 +110,7 @@ Then re-enter `/setup-mode` to verify the fix.
 
 ### Workspace Structure
 
-Expected subdirectories in `_agent_data/`:
+Expected subdirectories in `{{ agent_data_root }}/`:
 - `data/` — Data context entries
 - `plots/` — Generated static/interactive plots
 - `memory/` — Persistent memory store
@@ -123,7 +124,7 @@ Expected subdirectories in `_agent_data/`:
 
 | Change | Type | Effect |
 |--------|------|--------|
-| `control_system.writes_enabled` | Cold | Hooks re-read on each call, but the connector caches it at launch and `permissions.deny` is not regenerated — needs `osprey claude regen` + restart |
+| `control_system.writes_enabled` | Cold | Hooks re-read on each call, but the connector caches it at launch and `permissions.deny` is not regenerated — needs `osprey build` + restart |
 | `control_system.limits_checking.enabled` | Hot | Hooks re-read on each call |
 | `control_system.limits_checking.allow_unlisted_channels` | Hot | Hooks re-read on each call |
 | `approval.mode` | Hot | Hooks re-read on each call |
@@ -145,22 +146,22 @@ Expected subdirectories in `_agent_data/`:
 ### 2. Writes Blocked
 **Symptoms**: `channel_write` rejected.
 **Check**: `setup_inspect` → `config.control_system.writes_enabled`.
-**Fix**: `setup_patch config.yml control_system.writes_enabled true`, then `osprey claude regen` and restart the agent. The patch alone only un-gates the hook — the connector and the enforced `permissions.deny` list still refuse writes until the regen and restart (cold change).
+**Fix**: `setup_patch config.yml control_system.writes_enabled true`, then `osprey build` and restart the agent. The patch alone only un-gates the hook — the connector and the enforced `permissions.deny` list still refuse writes until the rebuild and restart (cold change).
 
 ### 3. Missing Safety Hooks
 **Symptoms**: Writes proceed without approval prompts.
 **Check**: `setup_inspect` → `hooks.PreToolUse`. Look for `osprey_approval.py` matcher.
-**Fix**: Run `osprey claude regen` to regenerate hooks from template.
+**Fix**: Run `osprey build` to regenerate hooks from template.
 
 ### 4. Permission Denied on Tools
 **Symptoms**: Tools blocked by settings.
 **Check**: `setup_inspect` → `settings.permissions`. Verify tool is in `allow` or `ask` list.
-**Fix**: Run `osprey claude regen` or manually add to settings.json (cold change).
+**Fix**: Run `osprey build` or manually add to settings.json (cold change).
 
 ### 5. Workspace Not Found
 **Symptoms**: Artifact/memory tools fail.
 **Check**: `setup_inspect` → `workspace.exists`.
-**Fix**: Create workspace directory: `mkdir -p _agent_data/{data,plots,memory,artifacts,screenshots,results}`.
+**Fix**: Create workspace directory: `mkdir -p {{ agent_data_root }}/{data,plots,memory,artifacts,screenshots,results}`.
 
 ### 6. Environment Variables Missing
 **Symptoms**: Config not found, wrong project root.
@@ -176,7 +177,7 @@ Expected subdirectories in `_agent_data/`:
 - Network connectivity problems
 - Missing Python dependencies
 - Corrupted config files (invalid YAML/JSON)
-- Issues requiring changes to `.claude/settings.json` or hook scripts (use `osprey claude regen`)
+- Issues requiring changes to `.claude/settings.json` or hook scripts (use `osprey build`)
 
 **Always confirm before**:
 - Changing `control_system.writes_enabled` (safety-critical)

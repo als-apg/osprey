@@ -95,78 +95,40 @@ class TestFrameworkRegistryEntries:
 
 
 class TestCliSurface:
-    """Both CLI entry points offer the type, so they cannot disagree."""
+    """The CLI can select the type, so a registered connector is reachable.
 
-    def test_set_control_system_choice_includes_doocs(self):
-        from osprey.cli.config_cmd import set_control_system
+    Registration alone does not make a connector usable: an operator turns one
+    on with ``osprey set connector=doocs``, which folds the shorthand into
+    ``config.control_system.type`` in the deployment's own profile. A type the
+    registry knows and the CLI refuses is a connector nobody can select.
+    """
 
-        param = next(p for p in set_control_system.params if p.name == "system_type")
-        assert types.DOOCS in param.type.choices
+    def test_the_shorthand_reads_the_registered_type_list(self):
+        """``CLI_CONTROL_SYSTEM_TYPES`` is what the shorthand validates against,
+        so a connector missing from it cannot be selected however well it is
+        registered underneath."""
+        from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
 
-    def test_set_control_system_accepts_doocs(self, cli_runner, tmp_path):
-        from osprey.cli.config_cmd import set_control_system
+        assert types.DOOCS in CLI_CONTROL_SYSTEM_TYPES
 
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("control_system:\n  type: mock\n")
+    def test_set_connector_writes_doocs_into_the_profile(self, cli_runner, tmp_path):
+        """End to end through the verb: the shorthand lands as the dotted config
+        key a build renders from, in the source the facility owns."""
+        from osprey.cli.set_cmd import set as set_command
 
-        with (
-            patch("osprey.cli.project_utils.resolve_config_path") as mock_resolve,
-            patch("osprey.utils.config_writer.set_control_system_type") as mock_update,
-        ):
-            mock_resolve.return_value = str(config_file)
-            mock_update.return_value = ("new content", "preview")
+        repo = tmp_path / "doocs-deployment"
+        repo.mkdir()
+        (repo / "profile.yml").write_text(
+            "name: DOOCS Test\ndata_bundle: hello_world\nprovider: anthropic\n",
+            encoding="utf-8",
+        )
 
-            result = cli_runner.invoke(set_control_system, [types.DOOCS])
+        result = cli_runner.invoke(
+            set_command,
+            ["--repo", str(repo), f"connector={types.DOOCS}"],
+            catch_exceptions=False,
+        )
 
-            assert result.exit_code == 0
-            assert mock_update.call_args.args[1] == types.DOOCS
-
-    def test_interactive_menu_offers_doocs(self, tmp_path):
-        """The wizard's control-system menu lists DOOCS alongside EPICS."""
-        from osprey.cli import project_actions
-
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("control_system:\n  type: mock\n")
-
-        with (
-            patch.object(project_actions.questionary, "select") as mock_select,
-            patch.object(project_actions, "console"),
-        ):
-            # Backing out of the menu ends the flow before any prompt or write.
-            mock_select.return_value.ask.return_value = "back"
-
-            project_actions.handle_set_control_system(tmp_path)
-
-        choices = mock_select.call_args.kwargs["choices"]
-        assert types.DOOCS in [c.value for c in choices]
-
-    def test_doocs_control_system_pairs_with_doocs_archiver(self, tmp_path):
-        """Picking DOOCS must not offer EPICS Archiver Appliance or MongoDB.
-
-        The DOOCS archiver reads DOOCS *local histories*, so it is the only
-        archiver that pairs with a DOOCS control system. The wizard therefore
-        selects it directly instead of prompting.
-        """
-        from osprey.cli import project_actions
-
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("control_system:\n  type: mock\n")
-
-        with (
-            patch.object(project_actions.questionary, "select") as mock_select,
-            patch.object(project_actions.questionary, "confirm") as mock_confirm,
-            patch.object(project_actions, "console"),
-            patch("builtins.input", return_value=""),
-            patch(
-                "osprey.utils.config_writer.set_control_system_type",
-                return_value=("new content", "preview"),
-            ) as mock_set,
-        ):
-            mock_select.return_value.ask.return_value = types.DOOCS
-            mock_confirm.return_value.ask.return_value = False
-
-            project_actions.handle_set_control_system(tmp_path)
-
-            # Exactly one prompt: the control-system menu. No archiver prompt.
-            assert mock_select.call_count == 1
-            assert mock_set.call_args.args[2] == types.DOOCS_ARCHIVER
+        assert result.exit_code == 0, result.output
+        profile = (repo / "profile.yml").read_text(encoding="utf-8")
+        assert f"control_system.type: {types.DOOCS}" in profile

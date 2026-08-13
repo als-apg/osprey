@@ -3,7 +3,7 @@
 Scenario 1: Verify that channel_read succeeds for a valid channel.
 
 Uses run_sdk_query_with_hooks to exercise the full hook chain. The
-``safety_project`` fixture builds the DEFAULT control_assistant project, which
+``safety_project`` fixture builds the DEFAULT control_assistant deployment, which
 ships ``approval.tools.channel_read: skip``. Under a ``skip`` policy the
 approval hook auto-approves the read (no human prompt) by emitting
 ``permissionDecision: 'allow'``. The safety-relevant invariant is therefore

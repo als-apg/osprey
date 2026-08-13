@@ -4,7 +4,7 @@ Disabled by default. Set the ``RETENTION_DAYS`` env var to a positive integer to
 enable it; unset, empty, ``0``, or a non-integer all mean *disabled* (nothing is
 ever deleted). When enabled, a periodic background task deletes:
 
-  * persisted dispatch run records (``_agent_data/dispatch/{run_id}.json``), and
+  * persisted dispatch run records (``<agent-data root>/dispatch/{run_id}.json``), and
   * ``ArtifactStore`` entries (index row + on-disk file),
 
 whose age exceeds the threshold. Age is measured from a record's completion (a
@@ -205,13 +205,21 @@ def run_sweep(
 
 
 async def retention_loop(
-    log_dir: str | Path,
+    log_dir: str | Path | Callable[[], str | Path],
     store_factory: Callable[[], ArtifactStore],
     retention_days: int,
     in_flight_run_ids: Callable[[], Iterable[str]],
     interval_sec: float = DEFAULT_SWEEP_INTERVAL_SEC,
 ) -> None:
     """Periodically run :func:`run_sweep` every ``interval_sec`` seconds.
+
+    ``log_dir`` may be a callable, and the worker passes one: the record
+    directory is derived from the config the worker was pointed at, and this
+    loop starts during application lifespan — before anything has established
+    that the config is readable yet. Resolving once at startup would let a
+    config that arrives moments later leave the sweep pointed at the fallback
+    root for the life of the process, quietly aging out nothing while the writer
+    filled a different directory. Re-resolved each cycle, that self-corrects.
 
     ``store_factory`` builds a fresh ``ArtifactStore`` each cycle (the worker's
     module singleton is rooted at the wrong CWD — see
@@ -232,7 +240,7 @@ async def retention_loop(
         await asyncio.sleep(interval_sec)
         try:
             run_sweep(
-                log_dir,
+                log_dir() if callable(log_dir) else log_dir,
                 store_factory(),
                 retention_days,
                 in_flight_run_ids=in_flight_run_ids(),

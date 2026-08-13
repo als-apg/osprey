@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 
 from tests.e2e.sdk_helpers import (
+    agent_data_dir,
     e2e_budget_scale,
     find_html_files,
     init_project,
@@ -54,7 +55,7 @@ class TestDataVisualizerAgent:
 
         Pipeline: archiver_read → data-visualizer → create_interactive_plot
         """
-        project_dir = init_project(tmp_path, "e2e-viz-data-source", provider="als-apg")
+        repo = init_project(tmp_path, "e2e-viz-data-source", provider="als-apg")
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
@@ -69,7 +70,7 @@ class TestDataVisualizerAgent:
         )
 
         result = await run_sdk_query(
-            project_dir,
+            repo,
             prompt,
             max_turns=25,
             max_budget_usd=2.0,
@@ -139,9 +140,9 @@ class TestDataVisualizerAgent:
         )
 
         # HTML artifact exists in the workspace
-        html_files = find_html_files(project_dir / "_agent_data")
+        html_files = find_html_files(agent_data_dir(repo))
         assert len(html_files) > 0, (
-            "No HTML artifact found in _agent_data — "
+            "No HTML artifact found in var/agent_data — "
             "create_interactive_plot may not have produced a Plotly chart."
         )
 
@@ -180,7 +181,7 @@ class TestDataVisualizerAgent:
         data_source resolver (artifact-ID round-trip, file-path passthrough)
         are pinned by unit tests in tests/mcp_server/data_visualizer/.
         """
-        project_dir = init_project(tmp_path, "e2e-viz-archiver-to-plot", provider="als-apg")
+        repo = init_project(tmp_path, "e2e-viz-archiver-to-plot", provider="als-apg")
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
@@ -191,7 +192,7 @@ class TestDataVisualizerAgent:
         )
 
         result = await run_sdk_query(
-            project_dir,
+            repo,
             prompt,
             max_turns=25,
             max_budget_usd=2.0,
@@ -239,7 +240,7 @@ class TestDataVisualizerAgent:
         )
 
         # HTML artifact produced
-        html_files = find_html_files(project_dir / "_agent_data")
+        html_files = find_html_files(agent_data_dir(repo))
         assert len(html_files) > 0, "No HTML artifact found — interactive plot not produced."
 
         if result.cost_usd is not None:

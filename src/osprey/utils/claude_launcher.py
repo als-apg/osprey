@@ -30,8 +30,8 @@ def build_claude_launch_argv(cc_config: dict, *, no_pin: bool = False) -> list[s
     Args:
         cc_config: The ``claude_code`` block from ``config.yml`` (may be empty).
         no_pin: When ``True``, ignore any ``cli_version`` pin and launch the
-            globally installed ``claude`` (mirrors ``osprey claude chat
-            --no-pin``). The ``--setting-sources`` restriction is applied
+            globally installed ``claude`` (mirrors ``osprey chat --no-pin``).
+            The ``--setting-sources`` restriction is applied
             regardless, so provider isolation cannot be opted out of.
 
     Returns:

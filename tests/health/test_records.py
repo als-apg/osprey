@@ -207,7 +207,15 @@ class TestBuildRecords:
         state, expanded, settings, config_ok = load_config(project / "config.yml", project)
         assert config_ok is False
 
-        records, extra_rows = build_records(state, expanded, settings, config_ok, project, 30.0)
+        records, extra_rows = build_records(
+            state,
+            expanded,
+            settings,
+            config_ok,
+            project,
+            30.0,
+            render_path=state.config_path.parent,
+        )
         by_name = {r.name: r for r in records}
 
         # configuration is always present.
@@ -228,7 +236,15 @@ class TestBuildRecords:
         state, expanded, settings, config_ok = load_config(config_path, project)
         assert config_ok is True
 
-        records, extra_rows = build_records(state, expanded, settings, config_ok, project, 30.0)
+        records, extra_rows = build_records(
+            state,
+            expanded,
+            settings,
+            config_ok,
+            project,
+            30.0,
+            render_path=state.config_path.parent,
+        )
         names = {r.name for r in records}
         # Every core category is present when the config is healthy.
         assert set(CORE_CATEGORY_NAMES) <= names
@@ -240,10 +256,80 @@ class TestBuildRecords:
         config_path = _write_config(project, _VALID_CONFIG)
         state, expanded, settings, config_ok = load_config(config_path, project)
 
-        records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+        records, _ = build_records(
+            state,
+            expanded,
+            settings,
+            config_ok,
+            project,
+            30.0,
+            render_path=state.config_path.parent,
+        )
         by_name = {r.name: r for r in records}
         for name in ON_DEMAND_CORE:
             assert by_name[name].cost is Cost.ON_DEMAND
+
+    def test_channel_finder_and_file_system_anchor_in_different_zones(self, tmp_path):
+        """A build-owned database is looked for in the render, not at the repo root.
+
+        The two categories were handed ONE directory. The repo root is right for
+        ``file_system`` (the ``.env``, ``project_root``-relative paths, the disk)
+        and wrong for ``channel_finder``: a channel database is build output and
+        the rendered config states its path relative to the config's own
+        directory. Sharing the anchor made a database that IS there report as
+        missing — a red row for a healthy deployment.
+
+        Written as the discriminating case: the database exists ONLY under the
+        render, so a repo-root anchor cannot find it.
+        """
+        import asyncio
+
+        repo = tmp_path / "repo"
+        build = repo / "build"
+        config_path = _write_config(
+            build,
+            "project_name: cf_zone\n"
+            "channel_finder:\n"
+            "  pipeline_mode: hierarchical\n"
+            "  pipelines:\n"
+            "    hierarchical:\n"
+            "      database:\n"
+            "        path: data/channels.json\n",
+        )
+        # Build-owned output: present in the render, absent at the repo root.
+        db = build / "data" / "channels.json"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_text("{}")
+        assert not (repo / "data" / "channels.json").exists()
+
+        state, expanded, settings, config_ok = load_config(config_path, repo)
+        records, _ = build_records(
+            state, expanded, settings, config_ok, repo, 30.0, render_path=state.config_path.parent
+        )
+        by_name = {r.name: r for r in records}
+
+        rows = asyncio.run(by_name["channel_finder"].func())
+        database_row = next(r for r in rows if r.name == "channel_finder_database")
+        assert database_row.status is Status.OK, database_row.message
+
+        # The discrimination, in the same test: anchored at the repo root — the
+        # shared anchor this split replaced — the identical config reports the
+        # database missing, naming a path in the wrong zone.
+        from osprey.health.core import get_core_category_factory
+
+        repo_anchored = get_core_category_factory("channel_finder")(
+            expanded, context=None, cwd=repo
+        )
+        repo_db_row = next(
+            r for r in asyncio.run(repo_anchored()) if r.name == "channel_finder_database"
+        )
+        assert repo_db_row.status is Status.ERROR
+        assert str(repo / "data" / "channels.json") in repo_db_row.message
+
+        # And file_system still answers from the repo root, where the `.env` and
+        # the disk live — the two anchors are genuinely different.
+        env_row = next(r for r in by_name["file_system"].func() if r.name == "env_file")
+        assert env_row.status is Status.WARNING  # no .env at the repo root
 
 
 # --------------------------------------------------------------------------- #
@@ -286,7 +372,15 @@ class TestBuildRecordsMcpServers:
         state, expanded, settings, config_ok = load_config(config_path, project)
         assert config_ok is True
 
-        records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+        records, _ = build_records(
+            state,
+            expanded,
+            settings,
+            config_ok,
+            project,
+            30.0,
+            render_path=state.config_path.parent,
+        )
         by_name = {r.name: r for r in records}
         assert "mcp_servers" in by_name
 
@@ -314,7 +408,15 @@ class TestBuildRecordsMcpServers:
         state, expanded, settings, config_ok = load_config(config_path, project)
         assert config_ok is True
 
-        records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+        records, _ = build_records(
+            state,
+            expanded,
+            settings,
+            config_ok,
+            project,
+            30.0,
+            render_path=state.config_path.parent,
+        )
         assert "mcp_servers" not in {r.name for r in records}
 
     def test_vanilla_config_yields_empty_category(self, tmp_path):
@@ -324,7 +426,15 @@ class TestBuildRecordsMcpServers:
         config_path = _write_config(project, _VALID_CONFIG)
         state, expanded, settings, config_ok = load_config(config_path, project)
 
-        records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+        records, _ = build_records(
+            state,
+            expanded,
+            settings,
+            config_ok,
+            project,
+            30.0,
+            render_path=state.config_path.parent,
+        )
         by_name = {r.name: r for r in records}
         assert "mcp_servers" in by_name
         assert by_name["mcp_servers"].checks == []
@@ -348,7 +458,15 @@ health:
         assert config_ok is True
 
         with caplog.at_level(logging.WARNING, logger="osprey.health.records"):
-            records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+            records, _ = build_records(
+                state,
+                expanded,
+                settings,
+                config_ok,
+                project,
+                30.0,
+                render_path=state.config_path.parent,
+            )
 
         mcp_recs = [r for r in records if r.name == "mcp_servers"]
         assert len(mcp_recs) == 1
@@ -375,7 +493,15 @@ health:
         state, expanded, settings, config_ok = load_config(config_path, project)
         assert config_ok is True
 
-        records, _ = build_records(state, expanded, settings, config_ok, project, 30.0)
+        records, _ = build_records(
+            state,
+            expanded,
+            settings,
+            config_ok,
+            project,
+            30.0,
+            render_path=state.config_path.parent,
+        )
         by_name = {r.name: r for r in records}
         assert "mcp_servers" in by_name
         rec = by_name["mcp_servers"]

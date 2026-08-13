@@ -1,619 +1,708 @@
-"""Service deployment CLI commands wrapping osprey.deployment.container_manager.
+"""The lifecycle verbs that act on a running deployment.
 
-``osprey deploy`` is a Click group: one subcommand per verb, each carrying only
-the options it acts on. A flag that a verb ignores is a parse error rather than
-a silent no-op, and ``osprey deploy VERB --help`` documents exactly that verb.
+Five top-level commands live here: ``up``, ``down``, ``restart``, ``status`` and
+``logs``. Each takes a deployment repo and nothing else — it is found by walking
+up from the working directory, or named with ``--repo`` — and each acts on
+``build/`` as the last ``osprey build`` rendered it. None of them renders.
+
+``up`` and ``restart`` share one gate, :func:`gate_start_from_build`: a start
+verb must never quietly deploy a profile edit that was never built.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, NoReturn, TypeVar
+from typing import Any, NoReturn
 
 import click
 
 from osprey.cli.styles import Styles, console
-from osprey.deployment.container_manager import (
-    clean_deployment,
-    deploy_down,
-    deploy_restart,
-    deploy_up,
-    prepare_compose_files,
-    rebuild_deployment,
-    show_status,
-)
 from osprey.deployment.errors import DevModeUnavailableError
 from osprey.utils.config import load_project_config
 from osprey.utils.logger import get_logger
 
-from .project_utils import resolve_config_path, resolve_project_path
+from .repo_resolver import repo_option
 
 logger = get_logger("deploy")
 
-F = TypeVar("F", bound=Callable[..., Any])
+# ---------------------------------------------------------------------------
+# osprey up — the three-zone start verb
+# ---------------------------------------------------------------------------
 
-# Shared option surfaces. ``click.option`` builds a fresh Option per
-# application, so these decorators can be reused across subcommands.
-_config_option = click.option(
-    "--config",
-    "-c",
-    type=click.Path(),
-    default="config.yml",
-    help="Configuration file (default: config.yml in project directory)",
-)
-_project_option = click.option(
-    "--project",
-    "-p",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
-)
-_detached_option = click.option(
-    "--detached",
-    "-d",
-    is_flag=True,
-    help="Run services in detached mode",
-)
-_dev_option = click.option(
+#: Section header the ``.env`` preflight writes its harvested keys under. Says
+#: the verb that actually wrote them: a file claiming to have been seeded by a
+#: command the operator never ran is the kind of small lie that costs an hour
+#: when someone goes looking for where a key came from.
+_UP_SEEDED_ENV_BANNER = "# ── Seeded by `osprey up` from your shell ──"
+
+
+def _abort(message: str) -> NoReturn:
+    """Log a refusal and stop, with no traceback and exit code 1."""
+    logger.error(message)
+    raise click.Abort()
+
+
+def _stdin_is_a_terminal() -> bool:
+    """Whether there is a person here to answer a question.
+
+    Its own function so that "can this prompt?" is one decision with one seam,
+    rather than an ``isatty`` call buried in a branch — and because ``sys.stdin``
+    is itself replaced during a Click test run, so the object to ask has to be
+    looked up when the question is asked, not captured at import.
+    """
+    import sys
+
+    try:
+        return bool(sys.stdin.isatty())
+    except (AttributeError, ValueError):
+        # A closed or exotic stream. "Nobody is here" is the safe reading: it
+        # refuses with a remedy instead of blocking on a prompt no one sees.
+        return False
+
+
+def gate_start_from_build(
+    ctx: click.Context,
+    repo_root: Path,
+    *,
+    chain_build: bool,
+    as_built: bool,
+    verb: str,
+    dev: bool = False,
+) -> None:
+    """Decide whether a start verb may start this repo's ``build/``.
+
+    The gate behind ``up`` and ``restart``: a start verb must never quietly
+    deploy a profile edit that was never built. It reads ``profile.yml`` for
+    exactly one purpose — the drift fingerprint — and starts ``build/``
+    unchanged either way.
+
+    Both start verbs call it, and gate identically (CC-5); it is parameterised
+    on the verb name so each refusal names the command the operator actually
+    typed. For ``restart`` the gate matters more than it does for ``up``,
+    because a refusal there also means the running stack is left alone: the
+    check happens before anything is stopped.
+
+    Four outcomes, from :func:`~osprey.deployment.staleness.check_drift`:
+
+    * ``CLEAN`` — proceed.
+    * ``DRIFT`` — refuse, naming the keys that moved, with both exits.
+    * ``UNRESOLVABLE`` — refuse; ``--as-built`` is the way through, because
+      ``build/`` is self-contained and starting it as rendered stays a knowing,
+      valid choice even when nothing can vouch for it.
+    * ``NO_BUILD`` — refuse. ``--as-built`` is NOT an escape here and saying so
+      is the point: there is no build to start as-built. ``--build`` is, because
+      it makes one.
+
+    Version skew warns on every outcome and blocks none: a framework upgrade
+    must not stand between an operator and the stack they already have.
+
+    Args:
+        ctx: The invoking command's context, used to chain ``osprey build``
+            through the same command object an operator would type.
+        repo_root: The deployment repo.
+        chain_build: ``--build`` — re-render, then start.
+        as_built: ``--as-built`` — start the existing render regardless.
+        verb: The verb spelling the refusal's remedies use (``"up"`` or
+            ``"restart"``).
+        dev: ``--dev`` on the start verb, forwarded to the chained build so
+            ``--build --dev`` renders the dev build the start then demands.
+
+    Raises:
+        click.Abort: On any refusal. Nothing has been started.
+        click.UsageError: When both flags were passed.
+    """
+    from osprey.deployment.staleness import DriftState, check_drift
+
+    if chain_build and as_built:
+        raise click.UsageError(
+            "--build and --as-built are opposites: one re-renders build/ from "
+            "profile.yml before starting, the other starts build/ without "
+            "re-rendering. Pass at most one."
+        )
+
+    if chain_build:
+        # Re-rendering settles the question the gate exists to ask, so it runs
+        # instead of the check rather than after it. Through the root group's
+        # own `build` command: chaining anything else would be a second way to
+        # render a deployment, which is exactly what this feature removes.
+        _chain_build(ctx, repo_root, dev=dev)
+        return
+
+    report = check_drift(repo_root)
+    if report.version_skew:
+        logger.warning(report.version_skew.message)
+
+    if report.state is DriftState.NO_BUILD:
+        note = ""
+        if as_built:
+            note = "\n--as-built starts a build that already exists; this repo has none to start."
+        _abort(
+            f"No build found in {report.build_dir}. Run `osprey build` first — "
+            f"`osprey {verb}` starts what a build rendered and never renders it "
+            f"itself.{note}\nNothing was started."
+        )
+
+    if not report.refuses:
+        return
+
+    if as_built:
+        # Two different facts, so two different sentences. On DRIFT the mismatch
+        # is established, and saying so is the warning. On UNRESOLVABLE nothing
+        # is known either way — the build may match the profile perfectly — and
+        # claiming a mismatch there would be inventing a finding out of a failed
+        # comparison.
+        consequence = (
+            "The running stack will not match profile.yml until the next `osprey build`."
+            if report.state is DriftState.DRIFT
+            else "Whether the running stack matches profile.yml is unknown, and stays "
+            "unknown until the comparison can be made."
+        )
+        logger.warning(
+            "Starting build/ as it was rendered (--as-built). %s %s", report.message, consequence
+        )
+        return
+
+    _abort(
+        f"{report.message}\n"
+        f"  osprey {verb} --build      re-render build/ from profile.yml, then start it\n"
+        f"  osprey {verb} --as-built   start build/ as it was rendered, leaving the "
+        f"change unbuilt\n"
+        "Nothing was started."
+    )
+
+
+def _chain_build(ctx: click.Context, repo_root: Path, *, dev: bool = False) -> None:
+    """Run ``osprey build`` for *repo_root*, as ``--build`` promises.
+
+    Looked up on the root group by name rather than imported, so this is one
+    call into the same command an operator would type — there is no second code
+    path that renders a deployment.
+
+    Args:
+        ctx: The invoking command's context.
+        repo_root: The deployment repo.
+        dev: Whether the start verb was given ``--dev``. Forwarded to the
+            chained build so the render it produces is the dev render the
+            start is about to demand — a chain that dropped it would render a
+            pinned build and then refuse to start it.
+
+    Raises:
+        click.ClickException: When the verb is unavailable in this installation,
+            which is a framework problem rather than an operator mistake.
+        click.Abort: Propagated from the build itself. ``build/`` is left as the
+            previous render, and nothing is started.
+    """
+    group = ctx.find_root().command
+    build_cmd = group.get_command(ctx, "build") if isinstance(group, click.Group) else None
+    if build_cmd is None:
+        raise click.ClickException(
+            "--build cannot run: `osprey build` is not available in this "
+            "installation. Nothing was started."
+        )
+    ctx.invoke(build_cmd, repo=repo_root, dev=dev)
+
+
+def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
+    """Refuse to start a deployment repo that has no ``.env``, offering to seed one.
+
+    ``.env`` at the repo root is the deployment's whole secret store and the
+    file every compose invocation is pointed at with ``--env-file``. Without it
+    every ``${VAR}`` in every rendered compose file substitutes to empty and the
+    stack comes up authenticating with nothing — services that fail closed
+    refuse, services that do not come up wide open. Compose says nothing about
+    it, which is why this is a refusal rather than the warning it used to be.
+
+    On an interactive terminal the operator is offered ``osprey init``'s
+    shell-harvest instead: the auth variable this deployment's own provider
+    authenticates with, taken from the exported environment and written to
+    ``.env`` through the same append-only 0600 writer every other secret path
+    uses. Values are never echoed — only the variable name.
+
+    Only the deployment's own provider, deliberately. A persona that
+    authenticates elsewhere needs its key in the same file, but that gap belongs
+    to ``.env.production`` generation further down the deploy, which names the
+    persona and the variable it is missing; anticipating it here would mean
+    re-deriving the persona sweep for a prompt whose whole job is to get the
+    file into existence.
+
+    Args:
+        repo_root: The deployment repo.
+        config: The rendered ``build/config.yml``, which names the provider.
+
+    Raises:
+        click.Abort: When there is no ``.env`` and none was seeded.
+    """
+    import os
+
+    env_path = repo_root / ".env"
+    if env_path.exists():
+        return
+
+    from osprey.build.claude_code_resolver import provider_auth_secret_env
+
+    provider = (config.get("claude_code") or {}).get("provider")
+    api_providers = (config.get("api") or {}).get("providers")
+    secret_var = (
+        provider_auth_secret_env(
+            provider, api_providers if isinstance(api_providers, dict) else None
+        )
+        if isinstance(provider, str) and provider
+        else None
+    )
+    exported = os.environ.get(secret_var) if secret_var else None
+
+    if exported and _stdin_is_a_terminal():
+        if click.confirm(
+            f"No .env in {repo_root}. Seed one from your shell ({secret_var})?", default=True
+        ):
+            from osprey.utils.dotenv import append_profile_env
+
+            append_profile_env(env_path, {secret_var: exported}, _UP_SEEDED_ENV_BANNER)
+            logger.key_info("Seeded %s (mode 0600) with %s", env_path, secret_var)
+            return
+
+    needed = f" It needs {secret_var} for provider {provider!r}." if secret_var else ""
+    # The remedy is only "copy the example" when there is one. A repo whose
+    # .env.example has been removed would otherwise be told to copy a file that
+    # is not there — a small lie that costs an operator a minute of hunting.
+    remedy = (
+        "    cp .env.example .env\nthen fill it in and re-run."
+        if (repo_root / ".env.example").is_file()
+        else f"Create {env_path} with that variable in it and re-run."
+    )
+    _abort(
+        f"No .env in {repo_root}. It is this deployment's only secret store, and every "
+        f"compose invocation reads it — without it the stack starts with every "
+        f"credential empty.{needed}\n{remedy} Nothing was started."
+    )
+
+
+@click.command("up")
+@repo_option
+@click.option("--detached", "-d", is_flag=True, help="Run services in the background.")
+@click.option(
     "--dev",
     is_flag=True,
-    help="Development mode: copy local osprey package to containers instead of using PyPI version. Use this when testing local osprey changes.",
+    help="Start the dev render with freshly built images running the local osprey "
+    "checkout. Needs a dev build (osprey build --dev), or --build to chain one.",
 )
-_expose_option = click.option(
-    "--expose",
+@click.option(
+    "--build",
+    "chain_build",
     is_flag=True,
-    help="Expose services to all network interfaces (0.0.0.0). WARNING: This exposes services to the network! Only use with proper authentication configured.",
+    help="Re-render build/ from profile.yml first, then start it.",
 )
-_keep_archiver_base_option = click.option(
+@click.option(
+    "--as-built",
+    "as_built",
+    is_flag=True,
+    help="Start build/ as it was rendered, even though profile.yml has moved on.",
+)
+@click.option(
     "--keep-archiver-base",
     is_flag=True,
     help="Keep the existing archiver history even when the profile's retention/cadence knobs no longer match it. Without this, changed knobs rebuild the base series and discard recorded samples.",
 )
-_archive_option = click.option(
-    "--archive",
-    is_flag=True,
-    help="Archive a user's workspace before removing it.",
-)
-_purge_option = click.option(
-    "--purge",
-    is_flag=True,
-    help="Permanently delete a user's workspace without archiving it.",
-)
-_yes_option = click.option(
-    "--yes",
-    "-y",
-    is_flag=True,
-    help="Assume yes to confirmation prompts.",
-)
+@click.pass_context
+def up_verb(
+    ctx: click.Context,
+    repo: Path | None,
+    detached: bool,
+    dev: bool,
+    chain_build: bool,
+    as_built: bool,
+    keep_archiver_base: bool,
+) -> None:
+    """Start this deployment from build/, as built.
 
+    Run with no arguments, anywhere inside a deployment repo. It starts what the
+    last `osprey build` rendered, and re-renders nothing from profile.yml — so
+    the services that come up are always the ones you can read on disk.
 
-def _project_options(f: F) -> F:
-    """Attach the ``--project``/``--config`` pair every deploy verb shares."""
-    return _project_option(_config_option(f))
+    One exception, by design: a deployment with web terminals re-renders that
+    stack at every start (its compose file, nginx config, landing page, and any
+    persona whose project is missing). Those follow the user roster rather than
+    the build, so a roster edit takes effect on the next start.
 
+    It reads profile.yml for one thing: a fingerprint. If the profile has
+    changed since the build, up refuses and says what moved, because starting
+    would deploy something other than what the profile now describes. Pass
+    --build to re-render first, or --as-built to start the old render knowingly.
 
-def _check_archive_purge(archive: bool, purge: bool) -> None:
-    """Reject ``--archive --purge``: a workspace is either kept or it isn't."""
-    if archive and purge:
-        raise click.UsageError("--archive and --purge are mutually exclusive.")
+    Whether this deployment is reachable off-host is a property of the build,
+    not of this command: the bind address is rendered into every published port.
+    Change it with `osprey set deployment.bind_address=0.0.0.0`, then rebuild.
+    The fail-closed service-token rules read what the build actually publishes,
+    so an exposed deployment is treated as exposed either way.
 
+    Examples:
 
-def _abort_missing_config(config_path: str, action: str) -> NoReturn:
-    """Explain a missing config file, pointing at any project dirs nearby."""
-    console.print(
-        f"\n✗ Configuration file not found: [accent]{config_path}[/accent]",
-        style=Styles.ERROR,
-    )
-    console.print("\nHint: Are you in a project directory?", style=Styles.WARNING)
-    console.print(f"   Current directory: [dim]{Path.cwd()}[/dim]\n")
+    \b
+      # Start it, in the background
+      $ osprey up -d
 
-    # Look for nearby project directories with config.yml
-    # Exclude common non-project directories
-    excluded_dirs = {
-        "docs",
-        "tests",
-        "test",
-        "build",
-        "dist",
-        "venv",
-        ".venv",
-        "node_modules",
-        ".git",
-        "__pycache__",
-        "src",
-        "lib",
-    }
-    nearby_projects = []
-    try:
-        for item in Path.cwd().iterdir():
-            if (
-                item.is_dir()
-                and item.name not in excluded_dirs
-                and not item.name.startswith(".")
-                and (item / "config.yml").exists()
-            ):
-                nearby_projects.append(item.name)
-    except PermissionError:
-        pass  # Skip if can't read directory
+    \b
+      # Pick up a profile edit, then start
+      $ osprey up --build -d
 
-    if nearby_projects:
-        console.print("   Found project(s) in current directory:", style=Styles.WARNING)
-        for proj in nearby_projects[:5]:  # Limit to 5 suggestions
-            console.print(f"     • [command]cd {proj} && osprey deploy {action}[/command] or: ")
-            console.print(f"       [command]osprey deploy {action} --project {proj}[/command]")
-    else:
-        console.print("   Try:", style=Styles.WARNING)
-        console.print("     • Navigate to your project directory first")
-        console.print("     • Use [command]--project[/command] flag to specify project location")
+    \b
+      # Start the existing render anyway
+      $ osprey up --as-built -d
 
-    console.print("\n   Or use interactive menu: [command]osprey[/command]\n")
-    raise click.Abort()
-
-
-@contextmanager
-def _deploy_session(project: str | None, config: str, *, announce: bool = True) -> Iterator[str]:
-    """Resolve the project and config file, then run one deploy verb in it.
-
-    Changes into the project directory so that all CWD-relative operations
-    (template loading, .env lookup, build/ output) resolve against the project
-    root, and renders the failures every verb shares — a cancelled run, an
-    unusable ``--dev``, and anything else the deployment layer raises.
-
-    Args:
-        project: Value of ``--project``, or None to fall back to OSPREY_PROJECT
-            / the current directory.
-        config: Value of ``--config``.
-        announce: Print the "Service management: VERB" banner. Off for verbs
-            whose own output arrives immediately, such as ``status``.
-
-    Yields:
-        Path to the project's configuration file, guaranteed to exist.
+    \b
+      # Test local osprey changes in the containers (dev render + start)
+      $ osprey up --build --dev
     """
-    action = click.get_current_context().info_name or "deploy"
-    if announce:
-        console.print(f"Service management: [bold]{action}[/bold]")
+    from osprey.cli.repo_resolver import find_repo_root
+    from osprey.deployment.container_lifecycle import (
+        NoBuildError,
+        as_built_config_path,
+        up_as_built,
+    )
 
+    repo_root = find_repo_root(repo)
+    gate_start_from_build(
+        ctx, repo_root, chain_build=chain_build, as_built=as_built, verb="up", dev=dev
+    )
+
+    config_path = as_built_config_path(repo_root)
+    if not config_path.is_file():
+        _abort(
+            f"No build found at {config_path.parent}. Run `osprey build` to render it. "
+            "Nothing was started."
+        )
+    ensure_repo_env(repo_root, load_project_config(str(config_path), wrap_errors=True))
+
+    # Into the repo for the duration: the compose-file lookup and the runtime's
+    # own relative-path handling both resolve against the working directory, and
+    # a start verb has to be correct from any directory inside the repo. Restored
+    # on the detached path; the attached one os.execvpe-replaces this process.
+    previous = Path.cwd()
+    os.chdir(repo_root)
     try:
-        # Both paths are resolved against the directory the operator typed them
-        # in, BEFORE the chdir. Resolving the config afterwards would resolve
-        # --project a second time against the project it already selected, so a
-        # relative `--project build/my-agent` would look for its config under
-        # `build/my-agent/build/my-agent/` and abort — which is exactly the
-        # spelling the emitted CI pipeline and the missing-config hint both use.
-        project_dir = resolve_project_path(project)
-        config_path = resolve_config_path(project, config)
-        os.chdir(project_dir)
-
-        if not Path(config_path).exists():
-            _abort_missing_config(config_path, action)
-
-        yield config_path
-    except (click.Abort, click.ClickException):
-        raise
-    except KeyboardInterrupt:
-        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
-        raise click.Abort() from None
+        up_as_built(
+            repo_root, detached=detached, dev_mode=dev, keep_archiver_base=keep_archiver_base
+        )
+    except NoBuildError as e:
+        _abort(f"{e} Nothing was started.")
     except DevModeUnavailableError as e:
-        # Rendered ahead of the generic handler: the reason alone is not
-        # actionable, and this failure is precisely the one that used to be a
-        # warning nobody saw. Print the remedy and say plainly that nothing was
-        # deployed, so it cannot be mistaken for a partial success.
         console.print(f"\n✗ --dev cannot be honored: {e.reason}\n", style=Styles.ERROR)
         for line in e.remedy.splitlines():
             console.print(f"  {line}" if line else "")
         console.print("\n  Nothing was deployed.\n", style=Styles.WARNING)
         raise click.Abort() from None
-    except Exception as e:
-        console.print(f"✗ Deployment failed: {e}", style=Styles.ERROR)
-        # Show more details in verbose mode
-        if os.environ.get("DEBUG"):
-            import traceback
-
-            console.print(traceback.format_exc(), style=Styles.DIM)
+    except KeyboardInterrupt:
+        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
         raise click.Abort() from None
+    except (click.Abort, click.ClickException):
+        raise
+    except Exception as e:
+        _abort(f"Deployment failed: {e}")
+    finally:
+        os.chdir(previous)
 
 
-@click.group()
-def deploy() -> None:
-    """Manage Docker/Podman services for Osprey projects.
+@click.command("down")
+@repo_option
+def down_verb(repo: Path | None) -> None:
+    """Stop this deployment, keeping all data.
 
-    Controls service deployment, status and cleanup, plus per-user
-    web-terminal lifecycle management. The services to deploy are defined in
-    your config.yml under the 'deployed_services' key.
+    Run with no arguments, anywhere inside a deployment repo. It stops what the
+    last build rendered, in the order that leaves nothing behind: a deployment
+    with web terminals has that stack stopped first, because it is a separate
+    compose invocation whose containers take host-global names that the next web
+    deployment on this machine would otherwise collide with.
 
-    Every verb acts on one project: run it from the project directory, pass
-    --project, or set the OSPREY_PROJECT environment variable. The exception is
-    'scaffold', which emits a facility repo's deployment files and therefore
-    acts on the repo rather than on a project built from it.
+    Volumes are kept. Every one of them: the databases, the artifact store, the
+    per-user terminal workspaces. Stopping a deployment is not a way to lose its
+    data, and destroying data is `osprey reset`, which asks first.
+
+    It renders nothing. If build/ is gone or was never rendered, down does not
+    re-derive the compose files from profile.yml to stop with -- those files
+    describe what would be started now, not what is running. Instead it stops the
+    containers this repo labelled as its own, which is the recovery path for a
+    build/ deleted while the stack was up.
+
+    That fallback has one honest limit. Containers are labelled when they are
+    CREATED, so a stack started before this version of OSPREY carries no label
+    and cannot be found this way. Run `osprey build` to restore build/, and down
+    works normally again.
 
     Examples:
 
     \b
-      # Everyday service control
-      $ osprey deploy up -d
-      $ osprey deploy up --dev --project ~/projects/my-agent
-      $ osprey deploy down
-      $ osprey deploy status
-      $ osprey deploy rebuild --dev
+      # Stop it
+      $ osprey down
 
     \b
-      # Web-terminal workspaces: one user, the stale ones, the whole stack
-      $ osprey deploy decommission alice --archive
-      $ osprey deploy prune --dry-run
-      $ osprey deploy prune --purge --yes
-      $ osprey deploy nuke --yes
-      $ osprey deploy seed alice
-
-    \b
-      # Re-emit the facility repo's CI pipeline and health check
-      $ osprey deploy scaffold
-
-    Run 'osprey deploy VERB --help' for the options a single verb takes.
+      # Stop a deployment you are not standing in
+      $ osprey down --repo ~/deployments/my-agent
     """
+    from osprey.cli.repo_resolver import find_repo_root
+    from osprey.deployment.container_lifecycle import down_deployment
+
+    repo_root = find_repo_root(repo)
+
+    # Into the repo for the duration, for the same reason `up` does it: compose
+    # resolves relative paths against the working directory, and a repo-scoped
+    # verb has to be correct from any directory inside the repo. The restore in
+    # the `finally` actually runs here, unlike on the attached `up` path, which
+    # os.execvpe-replaces this process before it can.
+    previous = Path.cwd()
+    os.chdir(repo_root)
+    try:
+        down_deployment(repo_root)
+    except KeyboardInterrupt:
+        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+        raise click.Abort() from None
+    except (click.Abort, click.ClickException):
+        raise
+    except Exception as e:
+        _abort(f"Could not stop this deployment: {e}")
+    finally:
+        os.chdir(previous)
 
 
-@deploy.command()
-@_project_options
-@_detached_option
-@_dev_option
-@_expose_option
-@_keep_archiver_base_option
-def up(
-    project: str | None,
-    config: str,
+@click.command("restart")
+@repo_option
+@click.option("--detached", "-d", is_flag=True, help="Run services in the background.")
+@click.option(
+    "--dev",
+    is_flag=True,
+    help="Start the dev render with freshly built images running the local osprey "
+    "checkout. Needs a dev build (osprey build --dev), or --build to chain one.",
+)
+@click.option(
+    "--build",
+    "chain_build",
+    is_flag=True,
+    help="Re-render build/ from profile.yml first, then stop and start.",
+)
+@click.option(
+    "--as-built",
+    "as_built",
+    is_flag=True,
+    help="Restart build/ as it was rendered, even though profile.yml has moved on.",
+)
+@click.option(
+    "--keep-archiver-base",
+    is_flag=True,
+    help="Keep the existing archiver history even when the profile's retention/cadence knobs no longer match it. Without this, changed knobs rebuild the base series and discard recorded samples.",
+)
+@click.pass_context
+def restart_verb(
+    ctx: click.Context,
+    repo: Path | None,
     detached: bool,
     dev: bool,
-    expose: bool,
+    chain_build: bool,
+    as_built: bool,
     keep_archiver_base: bool,
 ) -> None:
-    """Start all configured services."""
-    with _deploy_session(project, config) as config_path:
-        deploy_up(
-            config_path,
-            detached=detached,
-            dev_mode=dev,
-            expose_network=expose,
-            keep_archiver_base=keep_archiver_base,
-        )
+    """Stop and start this deployment again.
 
+    Run with no arguments, anywhere inside a deployment repo. It is a stop
+    followed by a start, not a container restart: the containers are recreated,
+    so a rebuilt image, an edited compose file or a freshly minted token is
+    actually picked up. Restarting containers in place would leave every one of
+    those changes on the floor.
 
-@deploy.command()
-@_project_options
-@_dev_option
-def down(project: str | None, config: str, dev: bool) -> None:
-    """Stop all services."""
-    with _deploy_session(project, config) as config_path:
-        deploy_down(config_path, dev_mode=dev)
+    Because it ends in a start, it obeys the same rule as `osprey up`. It starts
+    what the last build rendered and re-renders nothing from profile.yml, and if
+    profile.yml or a file it points at has changed since the build it refuses and
+    says what moved, rather than stopping a running stack to bring up something
+    you did not build.
+    Pass --build to re-render first, or --as-built to restart the old render
+    knowingly. Web terminals are the same documented exception they are for up:
+    that stack's compose file, nginx config and landing page are re-rendered at
+    start, because those three follow the user roster.
 
+    Nothing is stopped until the start is known to be possible. A refused drift
+    check, a build with nothing in it, a --dev that cannot stage a wheel: each of
+    those leaves the running stack exactly as it was.
 
-@deploy.command()
-@_project_options
-@_detached_option
-@_expose_option
-def restart(project: str | None, config: str, detached: bool, expose: bool) -> None:
-    """Restart all services."""
-    with _deploy_session(project, config) as config_path:
-        deploy_restart(config_path, detached=detached, expose_network=expose)
+    Volumes survive, as they do for down. Service tokens are minted again on the
+    way back up, into this repo's .env.
 
-
-@deploy.command()
-@_project_options
-def status(project: str | None, config: str) -> None:
-    """Show service status."""
-    # No banner: the status table is the output, and announcing the verb that
-    # produced it only pushes the table down the screen.
-    with _deploy_session(project, config, announce=False) as config_path:
-        show_status(config_path, console=console, styles=Styles)
-
-
-@deploy.command()
-@_project_options
-@_dev_option
-@_expose_option
-def build(project: str | None, config: str, dev: bool, expose: bool) -> None:
-    """Build/prepare compose files without starting services."""
-    with _deploy_session(project, config) as config_path:
-        console.print("Building compose files...")
-        _, compose_files = prepare_compose_files(config_path, dev_mode=dev, expose_network=expose)
-        console.print("\n✓ Compose files built successfully:")
-        for compose_file in compose_files:
-            console.print(f"  • {compose_file}")
-
-
-@deploy.command()
-@_project_options
-@_dev_option
-@_expose_option
-def clean(project: str | None, config: str, dev: bool, expose: bool) -> None:
-    """Remove containers and volumes (WARNING: destructive)."""
-    with _deploy_session(project, config) as config_path:
-        # clean_deployment expects compose_files list, so prepare them first.
-        # Keep the loaded config and pass it through so cleanup runs under
-        # this deploy's COMPOSE_PROJECT_NAME (resolve_project_name(config))
-        # rather than the shared "unnamed-project" default.
-        cfg, compose_files = prepare_compose_files(config_path, dev_mode=dev, expose_network=expose)
-        clean_deployment(compose_files, cfg)
-
-
-@deploy.command()
-@_project_options
-@_detached_option
-@_dev_option
-@_expose_option
-def rebuild(project: str | None, config: str, detached: bool, dev: bool, expose: bool) -> None:
-    """Clean, rebuild, and restart services."""
-    with _deploy_session(project, config) as config_path:
-        rebuild_deployment(config_path, detached=detached, dev_mode=dev, expose_network=expose)
-
-
-@deploy.command()
-@click.argument("user")
-@_project_options
-@_archive_option
-@_purge_option
-@_yes_option
-def decommission(
-    user: str, project: str | None, config: str, archive: bool, purge: bool, yes: bool
-) -> None:
-    """Remove a single user's web-terminal workspace."""
-    # Validated before the session so the check fires without a project,
-    # a config file, or the web_terminals package being importable.
-    _check_archive_purge(archive, purge)
-
-    with _deploy_session(project, config) as config_path:
-        from osprey.deployment.web_terminals.lifecycle import decommission_user
-
-        decommission_user(config_path, user, archive=archive, purge=purge, assume_yes=yes)
-
-
-@deploy.command()
-@_project_options
-@_archive_option
-@_purge_option
-@_yes_option
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    help="Show what would happen without making changes.",
-)
-def prune(
-    project: str | None, config: str, archive: bool, purge: bool, yes: bool, dry_run: bool
-) -> None:
-    """Remove workspaces for users no longer in the user index."""
-    _check_archive_purge(archive, purge)
-
-    with _deploy_session(project, config) as config_path:
-        from osprey.deployment.web_terminals.lifecycle import prune_users
-
-        prune_users(config_path, dry_run=dry_run, archive=archive, purge=purge, assume_yes=yes)
-
-
-@deploy.command()
-@_project_options
-@_yes_option
-def nuke(project: str | None, config: str, yes: bool) -> None:
-    """Tear down the whole multi-user web-terminal stack.
-
-    WARNING: destructive — this removes every user's workspace, not just the
-    stale ones. Use 'prune' to remove only users who left the index.
-    """
-    with _deploy_session(project, config) as config_path:
-        from osprey.deployment.web_terminals.lifecycle import nuke_stack
-
-        nuke_stack(config_path, assume_yes=yes)
-
-
-@deploy.command()
-@click.argument("user", required=False)
-@_project_options
-def seed(user: str | None, project: str | None, config: str) -> None:
-    """(Re)seed web-terminal workspaces from the user index.
-
-    USER targets one user; omit it to reseed every user in the index.
-    """
-    with _deploy_session(project, config) as config_path:
-        from osprey.deployment.web_terminals.seeding import seed_web_terminals
-
-        seed_web_terminals(config_path, user)
-
-
-@deploy.command()
-@click.argument("user")
-@_project_options
-def passwd(user: str, project: str | None, config: str) -> None:
-    """Change one web-terminal user's login password.
-
-    Prompts for the new password and ends that user's sessions.
-    """
-    with _deploy_session(project, config) as config_path:
-        from osprey.deployment.web_terminals.lifecycle import rotate_user_password
-
-        # hide_input: the password is never echoed to the terminal, never
-        # placed on the argv (where it would land in shell history and in
-        # every `ps` listing on the host), and never logged.
-        # confirmation_prompt: a mistyped password would otherwise lock the
-        # user out of a terminal that was working a moment ago.
-        password = click.prompt(
-            f"New web-terminal password for {user}",
-            hide_input=True,
-            confirmation_prompt=True,
-        )
-        rotate_user_password(config_path, user, password)
-        # Deliberately does not claim the old sessions are already dead:
-        # when nothing has been deployed from this root yet, the recreate
-        # is skipped (with its own warning) and the change takes effect at
-        # the next `deploy up`. Stating the consequence without asserting
-        # the timing keeps this true on both paths.
-        console.print(
-            f"\n✓ Password changed for [accent]{user}[/accent]. Any session they "
-            "still hold stops working as soon as the sidecar is running this change."
-        )
-
-
-@deploy.command()
-@click.option(
-    "--repo",
-    type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Facility repo to emit into (default: the one the current directory is in)",
-)
-@click.option(
-    "--force",
-    is_flag=True,
-    help="Replace an existing file that the scaffolder did not write.",
-)
-def scaffold(repo: str | None, force: bool) -> None:
-    """Emit this facility repo's deployment files.
-
-    Renders two files from the profile's 'deploy:' block: the CI pipeline at
-    the repo root, and the post-deploy health check inside the profile's
-    project/ mirror, which every build copies to scripts/verify.sh. Run it
-    again whenever the block changes.
-
-    Unlike the other deploy verbs this one acts on a facility repo rather than
-    on a built project, so it takes --repo instead of --project. Run from
-    anywhere inside the repo and it finds the root on its own.
-
-    Re-running is safe. A file whose content already matches is left untouched,
-    stamp included, so an OSPREY upgrade alone produces no diff. A file the
-    scaffolder did not write is reported and left alone; --force replaces it.
+    With --build the stop uses the newly rendered compose files, so a service you
+    deleted from profile.yml in that same edit is no longer named in them and
+    keeps running. Run `osprey down` before `osprey build` when an edit removes a
+    service.
 
     Examples:
 
     \b
-      $ osprey deploy scaffold
-      $ osprey deploy scaffold --repo ~/facility/demo-facility
-      $ osprey deploy scaffold --force
+      # Restart it, in the background
+      $ osprey restart -d
+
+    \b
+      # Pick up a profile edit, then restart
+      $ osprey restart --build -d
+
+    \b
+      # Restart the existing render anyway
+      $ osprey restart --as-built -d
     """
-    # Resolved before anything is emitted: an unfindable repo is a mistake in
-    # where the command was run, not a deployment failure.
-    from osprey.errors import ConfigurationError
+    from osprey.cli.repo_resolver import find_repo_root
+    from osprey.deployment.container_lifecycle import (
+        NoBuildError,
+        as_built_config_path,
+        restart_deployment,
+    )
 
-    from .deploy_scaffold import find_facility_repo_root, scaffold_deploy_files
+    repo_root = find_repo_root(repo)
+    gate_start_from_build(
+        ctx, repo_root, chain_build=chain_build, as_built=as_built, verb="restart", dev=dev
+    )
 
-    repo_root = Path(repo).resolve() if repo else find_facility_repo_root(Path.cwd())
-    if repo_root is None:
-        logger.error(
-            "No facility repo found from %s. 'osprey deploy scaffold' emits into "
-            "a repo holding profile/profile.yml -- run it from inside one, or "
-            "point --repo at it.",
-            Path.cwd(),
+    config_path = as_built_config_path(repo_root)
+    if not config_path.is_file():
+        _abort(
+            f"No build found at {config_path.parent}. Run `osprey build` to render it. "
+            "Nothing was stopped."
         )
-        raise click.Abort()
+    ensure_repo_env(repo_root, load_project_config(str(config_path), wrap_errors=True))
 
+    previous = Path.cwd()
+    os.chdir(repo_root)
     try:
-        emitted = scaffold_deploy_files(repo_root, force=force)
-    except ConfigurationError as e:
-        logger.error("Cannot scaffold %s: %s", repo_root, e)
+        restart_deployment(
+            repo_root, detached=detached, dev_mode=dev, keep_archiver_base=keep_archiver_base
+        )
+    except NoBuildError as e:
+        _abort(f"{e} Nothing was stopped.")
+    except DevModeUnavailableError as e:
+        console.print(f"\n✗ --dev cannot be honored: {e.reason}\n", style=Styles.ERROR)
+        for line in e.remedy.splitlines():
+            console.print(f"  {line}" if line else "")
+        console.print("\n  Nothing was stopped.\n", style=Styles.WARNING)
         raise click.Abort() from None
-
-    for result in emitted:
-        shown = result.path.relative_to(repo_root)
-        if result.action == "unchanged":
-            logger.info("Unchanged: %s", shown)
-        elif result.refused:
-            logger.error("Left alone: %s %s", shown, result.reason)
-        else:
-            logger.key_info("%s: %s", result.action.capitalize(), shown)
-
-    if any(result.refused for result in emitted):
-        raise click.Abort()
+    except KeyboardInterrupt:
+        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+        raise click.Abort() from None
+    except (click.Abort, click.ClickException):
+        raise
+    except Exception as e:
+        _abort(f"Restart failed: {e}")
+    finally:
+        os.chdir(previous)
 
 
-@deploy.command("render-env-production")
-@_project_options
+@click.command("status")
+@repo_option
 @click.option(
-    "--env-file",
-    type=click.Path(),
-    help="Secrets file to render from (default: .env in the project directory)",
+    "--agents",
+    "show_agents",
+    is_flag=True,
+    help="Also list which model each of the agent's subagents resolves to.",
 )
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(),
-    help="Write the result here (mode 0600) instead of to stdout",
-)
-def render_env_production(
-    project: str | None, config: str, env_file: str | None, output: str | None
-) -> None:
-    """Render .env.production to stdout or a file.
+def status_verb(repo: Path | None, show_agents: bool) -> None:
+    """Show what this deployment is doing.
 
-    .env.production is the env file every per-user web-terminal container runs
-    with. This renders the same subset a deploy would generate, from the same
-    two inputs: the deploy config, and one secrets file. It applies no rule of
-    its own, so a file rendered here and one generated by 'osprey deploy up'
-    cannot disagree.
+    Run with no arguments, anywhere inside a deployment repo. It reads and
+    reports; it starts nothing, stops nothing and renders nothing, so it is safe
+    to run against a live stack at any time.
 
-    Secret values come only from the secrets file, never from the surrounding
-    environment, so the result depends on the named file and nothing else.
-    Unlike a deploy, which never overwrites an existing .env.production, an
-    explicit --output is taken as an instruction and replaces what is there.
+    Four sections. Build says whether build/ still matches profile.yml -- the
+    same check `osprey up` refuses on, so a refusal there is never a surprise
+    here -- and which version of osprey rendered it. Containers is what the
+    container runtime reports, not what compose thinks should exist. Endpoints
+    is where the services are declared to answer. Agent is the provider, whether
+    its credential can be found, and whether the rendered agent files still
+    match the config.
+
+    Containers are matched by the label a build bakes into them, so a second
+    checkout of the same deployment on this host is reported as a second
+    checkout instead of being folded in. One limit, stated where it matters: a
+    container created before this labelling existed carries no label and can
+    only be matched by project name. Status says which rows those are.
 
     Examples:
 
     \b
-      $ osprey deploy render-env-production > .env.production
-      $ osprey deploy render-env-production --output .env.production
-      $ osprey deploy render-env-production --env-file ../secrets/prod.env
+      # What is this deployment doing?
+      $ osprey status
+
+    \b
+      # Same, plus the per-subagent model assignments
+      $ osprey status --agents
+
+    \b
+      # A deployment you are not standing in
+      $ osprey status --repo ~/deployments/my-agent
     """
-    # Resolve caller-supplied paths BEFORE the session chdirs into the project:
-    # a relative path means what the operator typed it against, not whatever
-    # the project directory happens to hold.
-    env_file_path = Path(env_file).resolve() if env_file else None
-    output_path = Path(output).resolve() if output else None
+    from osprey.cli.repo_resolver import find_repo_root
+    from osprey.deployment.status_display import show_repo_status
 
-    # No banner: in the default mode stdout IS the rendered file, so anything
-    # else printed there would corrupt a `> .env.production` redirect.
-    with _deploy_session(project, config, announce=False) as config_path:
-        from osprey.deployment.web_terminals.env_production import (
-            _build_env_production_subset,
-            _claude_code_auth_secret_vars,
-        )
-        from osprey.utils.dotenv import parse_dotenv_file
+    repo_root = find_repo_root(repo)
+    try:
+        show_repo_status(repo_root, console=console, styles=Styles, show_agents=show_agents)
+    except KeyboardInterrupt:
+        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+        raise click.Abort() from None
+    except (click.Abort, click.ClickException):
+        raise
+    except Exception as e:
+        _abort(f"Could not report this deployment's status: {e}")
 
-        project_root = Path.cwd()
-        env_path = env_file_path or project_root / ".env"
-        if not env_path.is_file():
-            logger.error(
-                f"Cannot render .env.production: {env_path} does not exist. Point "
-                "--env-file at the secrets file to render from, or create .env in "
-                "the project directory."
-            )
-            raise click.Abort()
 
-        deploy_config = load_project_config(config_path)
-        dotenv = parse_dotenv_file(env_path)
+@click.command("logs")
+@repo_option
+@click.argument("service", required=False)
+@click.option(
+    "--follow",
+    "-f",
+    is_flag=True,
+    help="Keep streaming new output until interrupted.",
+)
+@click.option(
+    "--tail",
+    type=int,
+    default=None,
+    help="Show only the last N lines per container. Default: the runtime's own (all of them).",
+)
+def logs_verb(repo: Path | None, service: str | None, follow: bool, tail: int | None) -> None:
+    """Show this deployment's container logs.
 
-        required_vars, extra_vars = _claude_code_auth_secret_vars(deploy_config, project_root)
-        missing = {var: origin for var, origin in required_vars.items() if var not in dotenv}
-        if missing:
-            # Warn rather than refuse: whether an absent auth secret is fatal is
-            # the deploy path's call (see ensure_env_production, which does
-            # refuse). Rendering anyway is what lets an operator SEE the gap.
-            needs = "; ".join(f"{origin} needs {var}" for var, origin in missing.items())
-            logger.warning(
-                f"Rendering without provider auth secret(s) absent from {env_path}: "
-                f"{needs}. Web terminals started with this file will fail "
-                "authentication unless they authenticate another way."
-            )
+    Run with no arguments, anywhere inside a deployment repo, to see every
+    container's output; name a service to see just that one. The service names
+    are the ones in the Containers table of `osprey status`.
 
-        subset = _build_env_production_subset(
-            deploy_config, dotenv, {**required_vars, **extra_vars}
-        )
-        rendered = "".join(f"{key}={value}\n" for key, value in subset.items())
+    This is a thin wrapper: it hands the invocation to your container runtime
+    and steps out of the way, so -f streams, Ctrl-C stops it, piping into other
+    commands works, and the exit code is the runtime's own.
 
-        if output_path is None:
-            # click.echo, not the Rich console: these are file bytes, and Rich
-            # would wrap a long secret across lines.
-            click.echo(rendered, nl=False)
-            return
+    Both halves of a deployment are covered -- the services and, when there is
+    one, the web-terminal stack -- because they are one compose project even
+    though starting them takes two separate invocations.
 
-        # Create at 0600 from the first byte on disk rather than write-then-chmod,
-        # the same convention ensure_env_production uses for this file: there is
-        # no instant at which the secrets exist at a wider mode.
-        fd = os.open(output_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(rendered)
-        os.chmod(output_path, 0o600)
-        logger.key_info("Rendered %s (mode 0600): %s", output_path, ", ".join(subset))
+    Examples:
+
+    \b
+      # Everything, from the beginning
+      $ osprey logs
+
+    \b
+      # Follow one service
+      $ osprey logs event-dispatcher -f
+
+    \b
+      # The last 50 lines of each container
+      $ osprey logs --tail 50
+    """
+    from osprey.cli.repo_resolver import find_repo_root
+    from osprey.deployment.status_display import NoComposeFilesError, follow_logs
+
+    repo_root = find_repo_root(repo)
+    try:
+        follow_logs(repo_root, service=service, follow=follow, tail=tail)
+    except NoComposeFilesError as e:
+        _abort(str(e))
+    except KeyboardInterrupt:
+        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+        raise click.Abort() from None
+    except (click.Abort, click.ClickException):
+        raise
+    except Exception as e:
+        _abort(f"Could not read this deployment's logs: {e}")

@@ -121,6 +121,48 @@ def test_explicit_load_overrides_an_existing_value(tmp_path):
     assert seen == "leaked"
 
 
+def test_explicit_load_records_what_it_overrode(tmp_path, monkeypatch):
+    """The shell's own differing value survives the override, by name and value.
+
+    The deploy path needs it: compose gives a shell export precedence over
+    ``--env-file``, so the shadow preflight and the env handed to compose both
+    reconstruct the shell from this record. A key the shell never set, or set
+    to the file's own value, is not recorded — nothing was shadowed.
+    """
+    import osprey.utils.config as config
+
+    (tmp_path / ".env").write_text(
+        "OSPREY_HYGIENE_DIFFERS=from-the-file\n"
+        "OSPREY_HYGIENE_AGREES=same-both-sides\n"
+        "OSPREY_HYGIENE_FILE_ONLY=file-only\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OSPREY_HYGIENE_DIFFERS", "from-the-shell")
+    monkeypatch.setenv("OSPREY_HYGIENE_AGREES", "same-both-sides")
+    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.chdir(tmp_path)
+
+    import os
+
+    try:
+        config.load_project_dotenv()
+
+        assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
+        # The override itself still happened — .env stays the in-process winner.
+        assert os.environ["OSPREY_HYGIENE_DIFFERS"] == "from-the-file"
+
+        # The load runs more than once per process; after the first, the
+        # environment already matches the file — the record of what the SHELL
+        # held must survive the repeat, not be erased by it.
+        config.load_project_dotenv()
+        assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
+    finally:
+        # load_dotenv wrote the file-only key straight into os.environ, outside
+        # monkeypatch's bookkeeping; the differing/agreeing keys are restored by
+        # the setenv registrations above.
+        os.environ.pop("OSPREY_HYGIENE_FILE_ONLY", None)
+
+
 # ===================================================================
 # Importing publishes nothing
 # ===================================================================

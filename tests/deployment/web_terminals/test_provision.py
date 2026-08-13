@@ -50,14 +50,14 @@ class _FakeCompletedProcess:
 
 
 def test_deploy_down_web_terminals_runs_compose_down_on_web_file(monkeypatch, tmp_path):
-    """With a rendered docker-compose.web.yml at the project root, the web
-    stack gets its own `compose -f docker-compose.web.yml down` under the
-    pinned compose project — the mirror of deploy_up_web_terminals' second
-    invocation. Without it the fixed-name `<prefix>-web-<user>`/`<prefix>-nginx`
-    containers outlive every `osprey deploy down` and the next web-terminals
-    deploy on the host dies at `up` with a container-name Conflict."""
+    """With a rendered build/docker-compose.web.yml, the web stack gets its own
+    `compose ... down` under the pinned compose project — the mirror of
+    deploy_up_web_terminals' second invocation. Without it the fixed-name
+    `<prefix>-web-<user>`/`<prefix>-nginx` containers outlive every
+    `osprey down` and the next web-terminals deploy on the host dies at `up`
+    with a container-name Conflict."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    _write_web_compose(tmp_path, "services: {}\n")
 
     recorded: dict = {}
 
@@ -80,8 +80,12 @@ def test_deploy_down_web_terminals_runs_compose_down_on_web_file(monkeypatch, tm
         # runtime_helper.with_plain_progress).
         "--progress",
         "plain",
+        # The pinned base — repo root as project directory, the rendered file
+        # addressed under build/ (compose_generator.compose_base_cmd).
+        "--project-directory",
+        str(tmp_path),
         "-f",
-        "docker-compose.web.yml",
+        str(tmp_path / "build" / "docker-compose.web.yml"),
         "--env-file",
         ".env",
         "down",
@@ -123,8 +127,11 @@ _WEB_CMD = ["podman", "compose", "-f", "docker-compose.web.yml"]
 _RUN_ENV = {"COMPOSE_PROJECT_NAME": "als"}
 
 
-def _write_web_compose(tmp_path):
-    (tmp_path / "docker-compose.web.yml").write_text(_WEB_COMPOSE, encoding="utf-8")
+def _write_web_compose(tmp_path, body: str = _WEB_COMPOSE):
+    """Render a web compose file where every invocation addresses it: build/."""
+    build = tmp_path / "build"
+    build.mkdir(parents=True, exist_ok=True)
+    (build / "docker-compose.web.yml").write_text(body, encoding="utf-8")
 
 
 def _patch_ids(monkeypatch, image_ids, container_ids):
@@ -302,7 +309,7 @@ def _run_preflight(monkeypatch, project_root: Path, config: dict):
     """
     monkeypatch.chdir(project_root)
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
-    return provision.preflight_web_terminals(config, {})
+    return provision.preflight_web_terminals(config)
 
 
 def _credentials_result(
@@ -365,10 +372,10 @@ def test_preflight_mints_credentials_then_secrets_for_the_roster(
 
     monkeypatch.setattr(provision, "ensure_auth_credentials", _fake_credentials)
     monkeypatch.setattr(provision, "ensure_auth_session_secrets", _fake_secrets)
-    # Local mode resolves personas and may auto-render; neither is this test's
-    # subject, and local mode needs no auth.image.
+    # Local mode resolves personas and verifies their renders; neither is this
+    # test's subject, and local mode needs no auth.image.
     monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
-    monkeypatch.setattr(provision, "auto_render_missing_personas", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "verify_persona_renders", lambda *a, **kw: None)
 
     config = _auth_config("password", users=["alice", {"name": "bob-2", "index": 4}])
     config["modules"]["web_terminals"]["image_source"] = image_source
@@ -581,7 +588,7 @@ def test_registry_mode_with_auth_image_passes_preflight(monkeypatch, tmp_path):
 def test_local_mode_needs_no_auth_image_at_preflight(monkeypatch, tmp_path):
     """Local mode produces the tag itself, so the key is optional there."""
     _stub_clean_provisioning(monkeypatch, tmp_path)
-    monkeypatch.setattr(provision, "auto_render_missing_personas", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "verify_persona_renders", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
 
     _run_preflight(monkeypatch, tmp_path, _sidecar_config("local"))
@@ -694,7 +701,7 @@ def _stub_web_stack(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
     monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
-    monkeypatch.setattr(provision, "auto_render_missing_personas", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "verify_persona_renders", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "build_persona_images", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "build_auth_sidecar_image", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "_reconcile_web_stack_recreates", lambda *a, **kw: None)
@@ -756,7 +763,7 @@ def test_force_recreate_auth_sidecar_targets_only_the_sidecar_service(monkeypatc
     puts a changed .env.auth in force — scoped to the `auth` service, because
     recreating the whole stack would bounce every live terminal."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    _write_web_compose(tmp_path, "services: {}\n")
     recorded: list[dict] = []
 
     def _fake_run(cmd, **kwargs):
@@ -777,8 +784,11 @@ def test_force_recreate_auth_sidecar_targets_only_the_sidecar_service(monkeypatc
     assert recorded[0]["cmd"] == [
         "podman",
         "compose",
+        # The pinned base, identical to the `up` that created the stack.
+        "--project-directory",
+        str(tmp_path),
         "-f",
-        "docker-compose.web.yml",
+        str(tmp_path / "build" / "docker-compose.web.yml"),
         "--env-file",
         ".env",
         "up",
@@ -799,7 +809,7 @@ def test_force_recreate_auth_sidecar_rerenders_before_the_recreate(monkeypatch, 
     that is not the digest of the env it baked — costing a spurious bounce at
     the next deploy, and masking a byte-exact revert from the label diff."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    _write_web_compose(tmp_path, "services: {}\n")
     order: list[str] = []
     monkeypatch.setattr(
         provision,
@@ -826,7 +836,7 @@ def test_force_recreate_auth_sidecar_still_recreates_when_the_render_fails(
     (it puts a credential purge into force). A render failure must degrade to
     a warning + stale label, never to a skipped recreate."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    _write_web_compose(tmp_path, "services: {}\n")
     recreated: list[list[str]] = []
 
     def _failing_render(config, dest_dir="."):

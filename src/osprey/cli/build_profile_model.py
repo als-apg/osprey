@@ -172,7 +172,7 @@ class BuildProfile:
     :mod:`osprey.cli.build_profile_archiver`).
     """
     provenance: ProfileProvenance | None = None
-    """What ``osprey profile new`` materialized this profile from (``provenance:``).
+    """What ``osprey init`` materialized this profile from (``provenance:``).
 
     ``None`` for a bundled preset and for a hand-written profile, neither of
     which was materialized from anything. Carried through resolution unchanged:

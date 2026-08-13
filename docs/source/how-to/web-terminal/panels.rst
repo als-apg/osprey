@@ -81,7 +81,7 @@ do.
 
    In the ``control-assistant`` preset both changes are already made. They
    change the preset's resolved content, so an **already-deployed project will
-   report staleness** on its next ``osprey deploy up``. That advisory is
+   report staleness** on its next ``osprey up``. That advisory is
    correct rather than noise — unlike a cosmetic re-pin, this one changes the
    tabs a user sees — and the remedy is the rebuild the advisory prints.
 

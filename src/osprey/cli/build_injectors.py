@@ -96,10 +96,10 @@ def _copy_service_templates(project_path: Path) -> int:
     Copies each service's compose template directory from the package to the
     project's ``services/`` tree for the UNION of ``deployed_services`` and
     every service merely DECLARED under ``services:`` that ships a package
-    template.  This makes the project self-contained so that ``osprey deploy
-    up`` works directly from the project directory, and — crucially — bundles
+    template.  This makes the project self-contained so that ``osprey up``
+    works directly from the deployment repo, and — crucially — bundles
     opt-in add-ons (declared but not deployed) so they can be switched on later
-    via a ``deployed_services`` edit + ``osprey deploy up`` without rebuilding.
+    via a ``deployed_services`` edit + ``osprey up`` without rebuilding.
     A bundled-but-not-deployed template is inert until deployed.
 
     Returns:
@@ -125,7 +125,7 @@ def _copy_service_templates(project_path: Path) -> int:
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
 
-    # Always copy the root compose template so `osprey deploy up` works even
+    # Always copy the root compose template so `osprey up` works even
     # for presets with no deployed_services (the renderer references it
     # unconditionally; without it deploy fails with TemplateNotFound).
     root_template = pkg_services / "docker-compose.yml.j2"
@@ -139,7 +139,7 @@ def _copy_service_templates(project_path: Path) -> int:
     # behavior exactly), then any declared key not already present.  Bundling a
     # declared-but-not-deployed template keeps it inert until deployed, so
     # opt-in add-ons (e.g. the openobserve telemetry backend) can be turned on
-    # later via a `deployed_services` edit + `osprey deploy up`, no rebuild.
+    # later via a `deployed_services` edit + `osprey up`, no rebuild.
     deployed = [str(s) for s in config.get("deployed_services", [])]
     names = list(deployed)
     for declared in services_config:
@@ -169,7 +169,7 @@ def _copy_service_templates(project_path: Path) -> int:
             # A declared-but-not-deployed service may legitimately ship no
             # package template (e.g. facility-injected elsewhere) — skip it
             # silently.  Only warn when a *deployed* service is missing its
-            # template, which would break `osprey deploy up`.
+            # template, which would break `osprey up`.
             if name in deployed_set:
                 logger.warning("No package template for service %r at %s", name, src_dir)
             continue
@@ -344,7 +344,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     # No ``image`` key on either service, so each falls to its compose default:
     # the event-dispatcher builds the project's <project>-dispatch:local image (its
     # own compose ``build:`` block), and the dispatch worker runs <project>:local —
-    # the project image ``osprey deploy up`` builds from the project Dockerfile
+    # the project image ``osprey up`` builds from the project Dockerfile
     # (the worker has no build block of its own, to avoid racing the dispatcher).
     # Override with OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE, or set
     # ``services.<name>.image`` here, to use a prebuilt/published image.
@@ -420,7 +420,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     )
     logger.info("    Dashboard:  http://localhost:%d/dashboard", dispatch.dispatcher_port)
     logger.info(
-        "    Token:      `osprey deploy up` writes EVENT_DISPATCHER_TOKEN to .env; "
+        "    Token:      `osprey up` writes EVENT_DISPATCHER_TOKEN to .env; "
         "load it with: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)"
     )
     logger.info(
@@ -430,7 +430,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         dispatch.dispatcher_port,
     )
     logger.info(
-        "    Images:     `osprey deploy up` builds the dispatch image and the "
+        "    Images:     `osprey up` builds the dispatch image and the "
         "worker's project image locally (first run is slow). Use `--dev` to bake "
         "in your local osprey checkout; set OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE "
         "to use a published image."
@@ -483,7 +483,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         config = yaml.load(fh)
 
     # No ``image`` key: the service builds the local bluesky-bridge image on
-    # first ``osprey deploy up``. Override with OSPREY_BLUESKY_BRIDGE_IMAGE, or
+    # first ``osprey up``. Override with OSPREY_BLUESKY_BRIDGE_IMAGE, or
     # set ``services.bluesky.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
     svc_config: dict[str, Any] = {
@@ -518,13 +518,13 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     # 3. Post-build hint.
     logger.info("  ✓ Injected Bluesky scan bridge (port %d)", bluesky.port)
     logger.info(
-        "    Token:      `osprey deploy up` writes BLUESKY_LAUNCH_TOKEN to .env; "
+        "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "a host-run agent's queue tools read it automatically. Deployed web "
         "terminals never receive it — their agents file a start request the "
         "operator confirms in the BLUESKY queue panel."
     )
     logger.info(
-        "    Images:     `osprey deploy up` builds the bluesky-bridge image locally "
+        "    Images:     `osprey up` builds the bluesky-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_BLUESKY_BRIDGE_IMAGE to use a published image."
     )
@@ -583,18 +583,16 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     with open(config_path) as fh:
         config = yaml.load(fh)
 
-    # The compose file bind-mounts the scenario state directory read-only. It is
-    # otherwise created lazily at run time (by `osprey sim apply`), so create it
-    # here too: a missing bind source makes the container runtime materialize it
-    # itself, root-owned, which then locks the host writer out of its own
-    # project. Resolved from the config so it follows a relocated agent-data
-    # root — the same path the compose mount source is rendered from.
-    from osprey.utils.workspace import resolve_simulation_state_dir
-
-    resolve_simulation_state_dir(config, project_path).mkdir(parents=True, exist_ok=True)
+    # No scenario-state directory is created here. This used to pre-create the
+    # compose bind source so the container runtime could not materialize it
+    # root-owned — but it created it under the RENDER root, and the render root
+    # is `build/`, which the next build wipes. The path compose actually binds
+    # is anchored on the repo's own `var/agent_data`, and
+    # `compose_generator._ensure_agent_data_structure` pre-creates it there,
+    # which is the copy that survives long enough to be a mount source.
 
     # No ``image`` key: the service builds the local VA image on first
-    # ``osprey deploy up``. Override with OSPREY_VA_IMAGE, or set
+    # ``osprey up``. Override with OSPREY_VA_IMAGE, or set
     # ``services.virtual_accelerator.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
     anchored_put(
@@ -620,7 +618,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
         "(the simulation preset provisions this; without it the IOC SystemExits)."
     )
     logger.info(
-        "    Images:     `osprey deploy up` builds the virtual-accelerator image "
+        "    Images:     `osprey up` builds the virtual-accelerator image "
         "locally for your native architecture (first run is slow — the native deps "
         "are compiled from source, so no prebuilt aarch64 wheels are "
         "needed). Use `--dev` to bake in your local osprey checkout; "
@@ -727,7 +725,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
         config = yaml.load(fh)
 
     # No ``image`` key: the service builds the local bluesky-panels image on
-    # first ``osprey deploy up``. Override with OSPREY_BLUESKY_PANELS_IMAGE, or
+    # first ``osprey up``. Override with OSPREY_BLUESKY_PANELS_IMAGE, or
     # set ``services.bluesky_panels.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
     anchored_put(
@@ -793,7 +791,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
         "web-terminal proxy at /panel/bluesky."
     )
     logger.info(
-        "    Images:     `osprey deploy up` builds the bluesky-panels image locally "
+        "    Images:     `osprey up` builds the bluesky-panels image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_BLUESKY_PANELS_IMAGE to use a published image."
     )
@@ -857,7 +855,7 @@ def _inject_nextcloud_bridge(
     # — it renders DISPATCH_TRIGGER straight from here, so a missing key must
     # break the render loudly rather than silently firing another facility's
     # trigger. No ``image`` key: the service builds the local
-    # <project>-nextcloud-bridge image on first ``osprey deploy up`` (the
+    # <project>-nextcloud-bridge image on first ``osprey up`` (the
     # template's own ``| default`` supplies that tag). Override with
     # OSPREY_NEXTCLOUD_BRIDGE_IMAGE, or set ``services.nextcloud_bridge.image``
     # here, to use a prebuilt/published image.
@@ -883,7 +881,7 @@ def _inject_nextcloud_bridge(
     logger.info(
         "    Credentials: set NEXTCLOUD_BASE_URL, NEXTCLOUD_BOT_ACCOUNT, "
         "NEXTCLOUD_APP_PASSWORD and NEXTCLOUD_ROOMS in the project .env before "
-        "`osprey deploy up`. These are user-supplied — unlike the dispatch "
+        "`osprey up`. These are user-supplied — unlike the dispatch "
         "tokens, deploy does not mint them, and the bridge aborts at boot "
         "naming whichever is missing."
     )
@@ -893,7 +891,7 @@ def _inject_nextcloud_bridge(
         "listed room can reach the agent."
     )
     logger.info(
-        "    Images:     `osprey deploy up` builds the nextcloud-bridge image locally "
+        "    Images:     `osprey up` builds the nextcloud-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_NEXTCLOUD_BRIDGE_IMAGE to use a published image."
     )
@@ -955,7 +953,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
     # — it renders DISPATCH_TRIGGER straight from here, so a missing key must
     # break the render loudly rather than silently firing another facility's
     # trigger. No ``image`` key: the service builds the local
-    # <project>-gchat-bridge image on first ``osprey deploy up`` (the template's
+    # <project>-gchat-bridge image on first ``osprey up`` (the template's
     # own ``| default`` supplies that tag). Override with
     # OSPREY_GCHAT_BRIDGE_IMAGE, or set ``services.gchat_bridge.image`` here, to
     # use a prebuilt/published image.
@@ -978,7 +976,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         "    Credentials: set GCHAT_SA_KEY (host path to the service-account JSON "
         "key, mounted read-only at the same path in the container), "
         "GCHAT_SUBSCRIPTION and GCHAT_APP_ID in the project .env before "
-        "`osprey deploy up`. These are user-supplied — unlike the dispatch "
+        "`osprey up`. These are user-supplied — unlike the dispatch "
         "tokens, deploy does not mint them, and the bridge aborts at boot "
         "naming whichever is missing."
     )
@@ -990,7 +988,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         "deployment its own subscription on the topic."
     )
     logger.info(
-        "    Images:     `osprey deploy up` builds the gchat-bridge image locally "
+        "    Images:     `osprey up` builds the gchat-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_GCHAT_BRIDGE_IMAGE to use a published image."
     )
@@ -1100,13 +1098,13 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
         va_archiver.retention_days,
     )
     logger.info(
-        "    History:    `osprey deploy up` seeds the base series before the "
+        "    History:    `osprey up` seeds the base series before the "
         "stack starts (minutes on a first deploy, skipped when the knobs have "
         "not changed). Until then the archive is empty and archiver reads "
         "honestly return nothing."
     )
     logger.info(
-        "    Password:   `osprey deploy up` mints %s into .env; the store, the "
+        "    Password:   `osprey up` mints %s into .env; the store, the "
         "recorder and the agent all authenticate with that one value.",
         va_archiver.password_env,
     )

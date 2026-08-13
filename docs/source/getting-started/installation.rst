@@ -85,12 +85,12 @@ project's ``config.yml``:
    claude_code:
      cli_version: "2.1.146"   # exact version, no semver ranges
 
-When set, ``osprey claude chat`` and the web terminal launch the pinned
+When set, ``osprey chat`` and the web terminal launch the pinned
 version via ``npx -y @anthropic-ai/claude-code@<version>`` instead of the
 globally-installed ``claude`` binary. The first run downloads the package;
 subsequent runs hit the npx cache. Use ``osprey health`` to confirm the pin
 is being honored. To temporarily bypass the pin for debugging, run
-``osprey claude chat --no-pin``.
+``osprey chat --no-pin``.
 
 
 Step 3: Install Python tools
@@ -171,18 +171,17 @@ project you build. Its durable home comes later — see the note below.
 .. note::
    Using ``bash`` instead of ``zsh``? Replace ``~/.zshrc`` with ``~/.bashrc``.
 
-.. admonition:: Where the key lives once you build a project
+.. admonition:: Where the key lives once you create a deployment
    :class: important
 
-   A shell export reaches a **build profile** once: when the profile is created,
-   either by ``osprey profile new`` or by your first ``--preset`` build. From then
-   on the profile's own ``.env`` is the key's home — ``osprey build`` derives each
-   project's ``.env`` from it and never re-reads your shell, so a key exported
-   *after* the profile exists does not get in.
+   A shell export reaches a **deployment repository** once: when ``osprey init``
+   creates it. From then on the repository's own ``.env`` is the key's home —
+   builds and deploys read it and never re-read your shell, so a key exported
+   *after* the repository exists does not get in.
 
-   Keep the export for host-local runs and for seeding that first build; put the
-   key in the profile's own ``.env`` — ``profile/.env`` in a facility repository
-   — for anything you want to survive a rebuild. See :ref:`profile-secrets`.
+   Keep the export for host-local runs and for seeding that first repository;
+   put the key in the repository's ``.env`` for anything you want to survive a
+   rebuild. See :ref:`profile-secrets`.
 
 
 Step 5: Install OSPREY

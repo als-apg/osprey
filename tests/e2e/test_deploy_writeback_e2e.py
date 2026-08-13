@@ -1,68 +1,67 @@
-"""Real-container e2e for deploy-time secret write-back into the owning profile.
+"""Real-container e2e for the durability of the secrets a deploy mints.
 
-``tests/deployment/test_service_tokens_writeback.py`` pins the write-back rules
+``tests/deployment/test_service_tokens_writeback.py`` pins the minting rules
 against hand-built directory trees and a directly-called
 ``_ensure_service_tokens``. What it cannot show is the property the feature
-exists for: that a facility can **wipe and rebuild its project** and the stack
-comes back up on the secrets its *already-initialized docker volumes* were
-created with. That claim only holds if the whole chain holds at once — ``osprey
-build`` materializing a profile, ``osprey deploy up`` minting into that
-profile's ``.env``, the containers adopting those values, ``osprey build
---force`` re-deriving the project ``.env`` from the profile, and the redeployed
-containers still authenticating against the *same* volumes. Every link is a
-different module, and a break in any one of them is invisible to a unit test
-that owns only its own link.
+exists for: that a facility can **wipe and rebuild its deployment** and the
+stack comes back up on the secrets its *already-initialized docker volumes*
+were created with. That claim only holds if the whole chain holds at once —
+``osprey init`` writing the repo, ``osprey build`` rendering ``build/`` from
+it, ``osprey up`` minting into the repo's ``.env``, the containers adopting
+those values, a rebuild that replaces ``build/`` whole leaving those values
+alone, and the redeployed containers still authenticating against the *same*
+volumes. Every link is a different module, and a break in any one of them is
+invisible to a unit test that owns only its own link.
 
-So this file drives the real CLI against a real container runtime, over the
-topologies the feature has to survive:
+The layout is what makes that survivable, and it is the thing under test: a
+deployment repo keeps ``.env`` at its root, beside ``profile.yml``, while
+``build/`` is derived in full and disposable. A minted secret therefore lives
+outside everything a build replaces — and if it did not, every rebuild would
+lock the facility out of its own volumes.
 
-* **profile present** (:func:`test_profile_topology_survives_a_forced_rebuild`)
-  — the intended shape. A ``--preset`` build materializes
-  ``<project>-profile/``; ``deploy up`` mints ``ZO_ROOT_USER_PASSWORD`` and
-  ``ARIEL_DB_PASSWORD`` into that profile's ``.env`` under its own section, the
-  project derives them, and OpenObserve and Postgres both actually
-  authenticate with them. The project ``.env`` is then deleted outright (an
-  operator wipe, or a fresh clone of a project whose ``.env`` was never
-  committed), ``osprey build --force`` re-renders, the containers are dropped
-  while their volumes are kept, and the redeploy has to bring *fresh*
-  containers up on the *identical* secrets against the *same* volumes — proven
-  by a row written into Postgres before the rebuild still being readable after
-  it. These are exactly the two keys that would otherwise degrade the topology
-  silently: both compose templates carry an insecure ``${VAR:-default}``, and
-  both stores read their password only when *initializing* a fresh volume, so a
-  re-minted secret does not fail loudly — it locks the facility out of a store
-  that is still happily running on the old one.
+So this file drives the real CLI against a real container runtime:
 
-* **profile present, contradicted**
-  (:func:`test_divergent_shell_export_warns_and_never_overwrites_the_profile`)
-  — the same topology with an exported secret that disagrees with the profile.
-  Append-only means the profile's copy wins: the disagreement is reported by
-  variable name (never by value), the profile file is left byte-identical, the
-  project ``.env`` comes back on the profile's value, and the manifest flag
-  drops to ``false``.
+* **rebuild** (:func:`test_minted_secrets_survive_a_rebuild_and_a_redeploy`)
+  — ``osprey up`` mints ``ZO_ROOT_USER_PASSWORD`` and ``ARIEL_DB_PASSWORD``
+  into ``<repo>/.env`` under their own minted section, and OpenObserve and
+  Postgres both actually authenticate with them. ``build/`` is then deleted
+  outright and re-rendered, the containers are dropped while their volumes are
+  kept, and the redeploy has to bring *fresh* containers up on the *identical*
+  secrets against the *same* volumes — proven by a row written into Postgres
+  before the rebuild still being readable after it. These are exactly the two
+  keys that would otherwise degrade the deployment silently: both compose
+  templates carry an insecure ``${VAR:-default}``, and both stores read their
+  password only when *initializing* a fresh volume, so a re-minted secret does
+  not fail loudly — it locks the facility out of a store that is still happily
+  running on the old one.
 
-* **profile absent** (:func:`test_degraded_topology_deploys_and_flags_itself`)
-  — a project tree carried somewhere its profile did not follow. The deploy
-  must still work: mint into the project ``.env``, warn while naming the
-  profile path it could not write, and stamp ``secrets_synced_to_profile:
-  false`` so a later ``build --force`` knows the project holds the only copy.
+* **contradicted by the shell**
+  (:func:`test_divergent_shell_export_never_overwrites_the_pinned_secret`)
+  — the same deployment, with a secret exported into the shell that disagrees
+  with the one in ``.env``. Minting is append-only and never rewrites a value
+  that is already there, so the file stays byte-identical: the value the
+  running volumes were initialized with remains recoverable, and neither value
+  is ever printed.
 
-* **persona stack** (:func:`test_persona_autorender_resolves_from_the_profile`)
-  — ``deploy up`` auto-renders each persona from a delta in the *parent
-  profile's* ``personas/`` directory, which is what gives every persona the
-  host's data tree and the host's secrets. The proof is that the freshly
-  minted deploy secrets appear in each rendered persona's own ``.env``, and
-  that no persona materialized a profile directory of its own.
+* **persona stack**
+  (:func:`test_personas_are_rendered_by_the_build_from_this_repos_own_deltas`)
+  — the same repo layout seen from the persona side. ``osprey build`` renders
+  each persona project from a delta in this repo's own ``personas/``, into
+  ``build/`` where the rest of the render lives, so a persona is as disposable
+  as everything else a build produces and a start has one to verify. This case
+  needs no container: the render is the subject.
 
 ----------------------------------------------------------------------------
 CONTAINER-OPS SAFETY (every runtime-mutating call in this file honors this)
 ----------------------------------------------------------------------------
-Every container and volume here is exact-named off a ``project_name`` this file
-owns (``osprey-e2e-wb-*``), so nothing it removes can belong to another stack:
+Every container and volume here is exact-named off a deployment name this file
+owns (``osprey-e2e-wb-*`` — the repo DIRECTORY name, which is what the render
+records as ``project_name`` and what compose scopes its resources by), so
+nothing it removes can belong to another stack:
 
   * containers: ``osprey-e2e-wb-<case>-openobserve`` /
     ``osprey-e2e-wb-<case>-ariel-postgres``
-  * volumes: ``osprey-e2e-wb-<case>_openobserve_data`` /
+  * volumes:    ``osprey-e2e-wb-<case>_openobserve_data`` /
     ``osprey-e2e-wb-<case>_ariel_postgres_data``
 
 Nothing here ever runs ``system prune``, ``volume prune``, ``container
@@ -99,8 +98,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.cli.templates.manifest import read_secrets_synced_to_profile
-from osprey.utils.dotenv import DEPLOY_MINTED_BANNER, parse_dotenv_text
+from osprey.deployment.reset import MINTED_ENV_BANNERS
+from osprey.utils.dotenv import parse_dotenv_text
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
 
@@ -118,22 +117,21 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
     )
 
 # ---------------------------------------------------------------------------
-# Identity. One project_name per case so the three tests can run in any order —
-# or concurrently with anything else on the host — without sharing a container
-# name, a volume namespace, or a host port.
+# Identity. One deployment name per case — the repo DIRECTORY name, which the
+# render records as `project_name` and compose scopes its resources by — so the
+# tests can run in any order, or concurrently with anything else on the host,
+# without sharing a container name, a volume namespace, or a host port.
 #
 # Ports sit in a band disjoint from every other e2e file's (test_deploy_lifecycle
 # spans 19081-20601, test_dispatch_deploy publishes 8020) AND from the ports a
 # developer's own demo stack conventionally holds (5064/5080/5432).
 # ---------------------------------------------------------------------------
-PROJECT_PROFILE = "osprey-e2e-wb-profile"
+PROJECT_REBUILD = "osprey-e2e-wb-rebuild"
 PROJECT_DIVERGENT = "osprey-e2e-wb-divergent"
-PROJECT_ORPHAN = "osprey-e2e-wb-orphan"
 PROJECT_PERSONA = "osprey-e2e-wb-persona"
 
-PORTS_PROFILE = {"postgres": 21432, "openobserve": 21482}
+PORTS_REBUILD = {"postgres": 21432, "openobserve": 21482}
 PORTS_DIVERGENT = {"postgres": 21433, "openobserve": 21483}
-PORTS_ORPHAN = {"postgres": 21434, "openobserve": 21484}
 PORTS_PERSONA = {"postgres": 21435, "openobserve": 21485}
 # Per-user web-terminal port families for the persona case. Never bound: the
 # persona deploy is driven only as far as its preflight (see that test), so
@@ -150,7 +148,7 @@ PORTS_PERSONA_WEB = {
 # The two secrets under test. Both are *volume-pinned*: OpenObserve and Postgres
 # read their password only when initializing a fresh data volume, so a re-minted
 # value locks the operator out of a store that keeps running on the old one —
-# which is precisely why the profile has to carry them across a rebuild.
+# which is precisely why `.env` has to sit outside everything a build replaces.
 ZO_PASSWORD_VAR = "ZO_ROOT_USER_PASSWORD"
 DB_PASSWORD_VAR = "ARIEL_DB_PASSWORD"
 OPENOBSERVE_USER = "root@example.com"  # the compose template's non-secret default
@@ -264,7 +262,7 @@ def _needle(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Project construction
+# Deployment-repo construction
 # ---------------------------------------------------------------------------
 
 
@@ -272,8 +270,8 @@ def _services_override(ports: dict[str, int]) -> str:
     """A ``-O`` overlay adding a Postgres service beside the preset's OpenObserve.
 
     Two services, deliberately: they are the two ``_SERVICE_TOKEN_VARS`` entries
-    whose secret initializes a docker volume, and covering both proves the
-    write-back is not special-casing one recipe (``ARIEL_DB_PASSWORD`` is hex,
+    whose secret initializes a docker volume, and covering both proves the mint
+    is not special-casing one recipe (``ARIEL_DB_PASSWORD`` is hex,
     ``ZO_ROOT_USER_PASSWORD`` is the four-character-class OpenObserve policy).
 
     Dotted leaf keys under ``config:``, the one spelling the profile's config
@@ -293,50 +291,73 @@ def _services_override(ports: dict[str, int]) -> str:
     )
 
 
-def _build_from_preset(
-    output_dir: Path, project_name: str, preset: str, override_text: str
-) -> Path:
-    """``osprey build <name> --preset <preset> -O <overlay>``; returns the project dir.
+def _init_and_build(base_dir: Path, name: str, preset: str, override_text: str) -> Path:
+    """``osprey init <dir> --preset P -O F`` then ``osprey build --repo <dir>``.
+
+    Two commands, because the surface has two: ``init`` writes the repo's source
+    zone from the preset, ``build`` renders ``build/`` from it. The repo
+    DIRECTORY name is the deployment name, so ``name`` is what every container,
+    volume and image tag below is derived from.
 
     ``--skip-deps``/``--skip-lifecycle`` keep the render network-free and quick:
-    nothing here runs the project's own venv, only its compose stack.
+    nothing here runs the deployment's own venv, only its compose stack.
+    ``--no-git`` because no test reads the history.
+
+    Returns the repo root.
     """
-    override_path = output_dir / f"{project_name}-override.yml"
+    override_path = base_dir / f"{name}-override.yml"
     override_path.write_text(override_text, encoding="utf-8")
-    result = _run_osprey(
+    repo = base_dir / name
+
+    init = _run_osprey(
         [
-            "build",
-            project_name,
+            "init",
+            str(repo),
             "--preset",
             preset,
+            "--no-git",
             "--override",
             str(override_path),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(output_dir),
         ],
-        cwd=output_dir,
+        cwd=base_dir,
         timeout=BUILD_TIMEOUT_SEC,
     )
-    assert result.returncode == 0, _fmt(f"osprey build {project_name}", result)
-    project_dir = output_dir / project_name
-    assert project_dir.is_dir(), f"osprey build did not create {project_dir}"
-    return project_dir
+    assert init.returncode == 0, _fmt(f"osprey init {name}", init)
+
+    build = _run_osprey(
+        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        cwd=base_dir,
+        timeout=BUILD_TIMEOUT_SEC,
+    )
+    assert build.returncode == 0, _fmt(f"osprey build {name}", build)
+    assert (repo / "build" / "config.yml").is_file(), f"osprey build rendered nothing in {repo}"
+
+    _seed_repo_env(repo)
+    return repo
 
 
-def _profile_dir(output_dir: Path, project_name: str) -> Path:
-    """Where a ``--preset`` build materializes the profile it then builds from."""
-    return output_dir / f"{project_name}-profile"
+def _seed_repo_env(repo: Path) -> None:
+    """Give the repo the ``.env`` ``osprey up`` refuses to start without.
+
+    The repo root's ``.env`` is the deployment's whole secret store and the file
+    every compose invocation is pointed at, so ``up`` aborts when it is absent.
+    ``osprey init`` writes one only when the shell exports a key for the
+    profile's provider, and these cases deliberately run with every relevant
+    variable stripped (see :func:`_child_env`) — this is the ``cp .env.example
+    .env`` the CLI itself recommends, done for the operator.
+    """
+    env_path = repo / ".env"
+    if not env_path.exists():
+        shutil.copy(repo / ".env.example", env_path)
 
 
 def _env_of(path: Path) -> dict[str, str]:
     return parse_dotenv_text(path.read_text(encoding="utf-8"))
 
 
-def _persona_catalog(project_dir: Path) -> dict[str, dict]:
-    """``modules.web_terminals.personas`` as rendered into the project config."""
-    config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
+def _persona_catalog(repo: Path) -> dict[str, dict]:
+    """``modules.web_terminals.personas`` as rendered into ``build/config.yml``."""
+    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     return web_terminals.get("personas") or {}
 
@@ -504,79 +525,67 @@ def _require_container_runtime() -> None:
 
 
 # =============================================================================
-# (a) Profile-present topology
+# (a) A rebuild is not a way to lose a secret
 # =============================================================================
 
 
-def test_profile_topology_survives_a_forced_rebuild(tmp_path: Path) -> None:
-    """Mint into the profile, wipe the project, rebuild, redeploy on the same volumes.
+def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None:
+    """Mint, wipe build/, rebuild, redeploy on the same volumes.
 
     The sequence, and what each step is there to prove:
 
-    1. ``osprey build --preset`` materializes ``<project>-profile/``. Its
-       ``.env`` does not exist yet — the deploy is what brings these secrets
-       into existence, so a profile that already carried them would prove
-       nothing.
-    2. ``osprey deploy up`` mints both secrets into the *profile* ``.env``
-       under the deploy section, the project ``.env`` carries the same values,
-       the manifest records the sync, and both containers authenticate with
-       them (and reject a wrong password).
-    3. A row is written into Postgres — the witness that step 5 is talking to
+    1. ``osprey init`` + ``osprey build`` produce the deployment. Its ``.env``
+       carries no service secret yet — the deploy is what brings these into
+       existence, so a repo that already carried them would prove nothing.
+    2. ``osprey up`` mints both secrets into ``<repo>/.env`` under their own
+       minted section, and both containers authenticate with them (and reject a
+       wrong password).
+    3. A row is written into Postgres — the witness that step 6 is talking to
        the same volume, not a fresh one that happens to accept the password.
-    4. The project ``.env`` is deleted and ``osprey build --force`` re-renders.
-       The overlay is deliberately NOT passed again: everything it configured
-       lives in the profile now, so a project that comes back with the same
-       ports and the same secrets is the profile being the source of truth.
-    5. ``osprey deploy down`` removes the containers and keeps both volumes, so
-       what follows cannot be the step-2 processes still running on the secret
-       they were started with.
-    6. ``osprey deploy up`` again: FRESH containers, the same volumes, the same
+    4. ``build/`` is deleted outright and ``osprey build`` re-renders it. That
+       is the whole claim of the layout: the render zone is disposable, the
+       secrets zone is not, and the overlay is deliberately NOT passed again —
+       everything it configured lives in ``profile.yml`` now, so a deployment
+       that comes back with the same ports is the source zone doing its job.
+    5. ``osprey down`` removes the containers and keeps both volumes, so what
+       follows cannot be the step-2 processes still running on the secret they
+       were started with.
+    6. ``osprey up`` again: FRESH containers, the same volumes, the same
        secrets, and the row from step 3 still readable.
     """
-    project_name = PROJECT_PROFILE
-    ports = PORTS_PROFILE
-    profile_dir = _profile_dir(tmp_path, project_name)
-    profile_env = profile_dir / ".env"
+    project_name = PROJECT_REBUILD
+    ports = PORTS_REBUILD
 
     try:
-        project_dir = _build_from_preset(
-            tmp_path, project_name, "hello-world", _services_override(ports)
-        )
-        assert (profile_dir / "profile.yml").is_file(), (
-            f"--preset build did not materialize a profile at {profile_dir}"
-        )
-        assert not profile_env.exists(), (
-            "the profile already carries a .env before any deploy — this test cannot "
-            "then show that the deploy is what put the secrets there"
-        )
-
-        # -- 2. first deploy: mint -> profile -> project -> containers --------
-        up1 = _run_osprey(["deploy", "up", "-d"], project_dir)
-        assert up1.returncode == 0, _fmt("osprey deploy up (first)", up1)
-
-        assert profile_env.is_file(), (
-            f"deploy did not create the profile .env at {profile_env}:\n{up1.stdout}"
-        )
-        assert profile_env.stat().st_mode & 0o777 == 0o600, (
-            "the profile .env holds facility secrets and must be created private"
-        )
-        profile_text = profile_env.read_text(encoding="utf-8")
-        assert DEPLOY_MINTED_BANNER in profile_text, (
-            f"minted secrets landed in the profile .env without their own section:\n{profile_text}"
-        )
-
-        minted = _env_of(profile_env)
+        repo = _init_and_build(tmp_path, project_name, "hello-world", _services_override(ports))
+        env_path = repo / ".env"
+        pre_deploy = _env_of(env_path)
         for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR):
-            assert minted.get(var), f"{var} was not persisted to the profile .env"
-        project_env = _env_of(project_dir / ".env")
-        assert {var: project_env.get(var) for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR)} == {
-            var: minted[var] for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR)
-        }, "the project .env and the profile .env disagree on the freshly minted secrets"
-        assert read_secrets_synced_to_profile(project_dir) is True
+            assert not pre_deploy.get(var), (
+                f"{var} is already in {env_path} before any deploy — this test cannot "
+                "then show that the deploy is what put it there"
+            )
+
+        # -- 2. first deploy: mint -> .env -> containers ----------------------
+        up1 = _run_osprey(["up", "-d"], repo)
+        assert up1.returncode == 0, _fmt("osprey up (first)", up1)
+
+        assert env_path.stat().st_mode & 0o777 == 0o600, (
+            "the repo .env holds this deployment's secrets and must be kept private"
+        )
+        env_text = env_path.read_text(encoding="utf-8")
+        assert MINTED_ENV_BANNERS[0] in env_text, (
+            "minted secrets landed in .env without the banner that marks them as "
+            f"deploy-minted, which is what `osprey reset` strips them by:\n{env_text}"
+        )
+
+        minted = _env_of(env_path)
+        for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR):
+            assert minted.get(var), f"{var} was not minted into {env_path}"
 
         _assert_stores_authenticate(project_name, ports, minted)
 
-        # -- 3. a witness row, so step 5 proves SAME VOLUME, not just same password
+        # -- 3. a witness row, so step 6 proves SAME VOLUME, not just same password
         seeded = _psql(
             project_name,
             minted[DB_PASSWORD_VAR],
@@ -589,65 +598,58 @@ def test_profile_topology_survives_a_forced_rebuild(tmp_path: Path) -> None:
             f"expected both named volumes to exist after the first deploy: {volumes}"
         )
 
-        # -- 4. wipe the project .env, then rebuild from the profile alone ----
-        (project_dir / ".env").unlink()
+        # -- 4. delete the whole render, then rebuild it ----------------------
+        # `rm -rf build/` is the operator gesture the layout promises costs
+        # nothing. Deleting it rather than rebuilding over it is what makes the
+        # assertion below about the ZONE rather than about this build happening
+        # to leave the file alone.
+        shutil.rmtree(repo / "build")
         rebuild = _run_osprey(
-            [
-                "build",
-                project_name,
-                "--preset",
-                "hello-world",
-                "--skip-deps",
-                "--skip-lifecycle",
-                "--output-dir",
-                str(tmp_path),
-                "--force",
-            ],
+            ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
             cwd=tmp_path,
             timeout=BUILD_TIMEOUT_SEC,
         )
-        assert rebuild.returncode == 0, _fmt("osprey build --force", rebuild)
+        assert rebuild.returncode == 0, _fmt("osprey build (re-render)", rebuild)
+        assert (repo / "build" / "config.yml").is_file(), "the rebuild rendered nothing"
 
-        rebuilt_env = _env_of(project_dir / ".env")
+        rebuilt_env = _env_of(env_path)
         for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR):
             assert rebuilt_env.get(var) == minted[var], (
-                f"{var} did not survive the rebuild: the project .env came back with a "
-                "different value, so the redeployed stack would be locked out of the "
-                "volume it initialized"
+                f"{var} did not survive the rebuild: .env came back with a different "
+                "value, so the redeployed stack would be locked out of the volume it "
+                "initialized"
             )
 
         # -- 5. drop the containers, KEEP the volumes -------------------------
         # Without this the redeploy below can be a no-op: compose recreates a
         # container only when its definition changed, and after a rebuild that
-        # re-derived the same values nothing has. The step-2 processes would
+        # re-rendered the same values nothing has. The step-2 processes would
         # still be running, still holding the secret they were STARTED with,
         # and the authentication assertion in step 6 would re-confirm them
-        # rather than prove that a fresh container adopted the re-derived
-        # value. `osprey deploy down` is compose `down` with no ``-v``, so it
-        # removes this project's containers and network and leaves both named
-        # volumes — exactly the "same volumes, new containers" state the claim
-        # needs.
-        down = _run_osprey(["deploy", "down"], project_dir)
-        assert down.returncode == 0, _fmt("osprey deploy down (between rebuild and redeploy)", down)
+        # rather than prove that a fresh container adopted the re-read value.
+        # `osprey down` is compose `down` with no ``-v``, so it removes this
+        # deployment's containers and network and leaves both named volumes —
+        # exactly the "same volumes, new containers" state the claim needs.
+        down = _run_osprey(["down"], repo)
+        assert down.returncode == 0, _fmt("osprey down (between rebuild and redeploy)", down)
         assert all(_volume_exists(volume) for volume in volumes), (
-            "`osprey deploy down` removed a named volume — it must tear down "
-            "containers only, or the redeploy below would meet a fresh store and "
-            "prove nothing about the secret surviving"
+            "`osprey down` removed a named volume — it must tear down containers "
+            "only, or the redeploy below would meet a fresh store and prove nothing "
+            "about the secret surviving"
         )
         for container in (_pg_container(project_name), _openobserve_container(project_name)):
             assert not _container_exists(container), (
-                f"{container} survived `osprey deploy down`, so the redeploy below "
-                "would reuse the process started in step 2 and the authentication "
-                "assertion would say nothing about the re-derived secret"
+                f"{container} survived `osprey down`, so the redeploy below would "
+                "reuse the process started in step 2 and the authentication assertion "
+                "would say nothing about the re-read secret"
             )
 
         # -- 6. redeploy: same volumes, new containers, same secrets ----------
-        up2 = _run_osprey(["deploy", "up", "-d"], project_dir)
-        assert up2.returncode == 0, _fmt("osprey deploy up (after rebuild)", up2)
+        up2 = _run_osprey(["up", "-d"], repo)
+        assert up2.returncode == 0, _fmt("osprey up (after rebuild)", up2)
         assert all(_volume_exists(volume) for volume in volumes), (
             "the redeploy did not run against the volumes the first deploy created"
         )
-        assert read_secrets_synced_to_profile(project_dir) is True
 
         _assert_stores_authenticate(project_name, ports, minted)
 
@@ -662,134 +664,104 @@ def test_profile_topology_survives_a_forced_rebuild(tmp_path: Path) -> None:
         _teardown_project(project_name)
 
 
-def test_divergent_shell_export_warns_and_never_overwrites_the_profile(tmp_path: Path) -> None:
-    """An exported secret that disagrees with the profile is reported, not written.
+def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Path) -> None:
+    """An exported secret that disagrees with ``.env`` is warned about, not written in.
 
     A minted secret is pinned by the volume that was initialized with it and by
-    every container already trusting it, so the profile's copy is authoritative
-    and the write-back is append-only. What a disagreement earns is a warning
-    naming the *variable* — never either value — and
-    ``secrets_synced_to_profile: false``, because the deploy is now running on
-    something the profile does not account for.
+    every container already trusting it, so the copy in ``.env`` is the one that
+    can still open those volumes. Minting is append-only and skips any variable
+    that already has a value, whether the value came from the file or from the
+    shell — so an operator who exports a different value gets a deployment whose
+    secret store is left exactly as it was, and the pinned value stays
+    recoverable rather than being silently replaced by one no volume accepts.
 
-    The export only becomes the effective value once the key is absent from the
-    project ``.env``: the config loader reads that file over ``os.environ``
-    (``load_dotenv(..., override=True)``), so with the key present the export
-    never reaches the write-back at all. Removing it first is what makes this
-    the divergence the test is named for rather than a no-op.
+    But compose gives the *shell* precedence over ``--env-file`` when it
+    substitutes the compose document, so the export is not inert: it reaches the
+    containers. The stack then runs on a credential its volumes never adopted —
+    the store still answers to the value in ``.env`` and to nothing else, which
+    is asserted below rather than assumed. That is the divergence the deploy has
+    to *say* out loud, by variable name, before the operator meets it as an
+    unexplained authentication failure days later.
+
+    Neither value may reach the output either. A deploy prints where secrets
+    went, which variables it wrote, and which ones the shell is shadowing —
+    never what any of them holds.
     """
     project_name = PROJECT_DIVERGENT  # own identity; see the module docstring
     ports = PORTS_DIVERGENT
-    profile_env = _profile_dir(tmp_path, project_name) / ".env"
-    divergent = "d1vergentexportvaluenotfromthisprofile"
+    divergent = "d1vergentexportvaluenotfromthisrepo"
 
     try:
-        project_dir = _build_from_preset(
-            tmp_path, project_name, "hello-world", _services_override(ports)
-        )
-        up1 = _run_osprey(["deploy", "up", "-d"], project_dir)
-        assert up1.returncode == 0, _fmt("osprey deploy up (baseline)", up1)
-        pinned = _env_of(profile_env)[DB_PASSWORD_VAR]
+        repo = _init_and_build(tmp_path, project_name, "hello-world", _services_override(ports))
+        env_path = repo / ".env"
+
+        up1 = _run_osprey(["up", "-d"], repo)
+        assert up1.returncode == 0, _fmt("osprey up (baseline)", up1)
+        minted = _env_of(env_path)
+        pinned = minted[DB_PASSWORD_VAR]
         assert pinned != divergent
+        env_before = env_path.read_text(encoding="utf-8")
 
-        project_env_path = project_dir / ".env"
-        kept = [
-            line
-            for line in project_env_path.read_text(encoding="utf-8").splitlines(keepends=True)
-            if not line.startswith(f"{DB_PASSWORD_VAR}=")
-        ]
-        project_env_path.write_text("".join(kept), encoding="utf-8")
-
-        profile_before = profile_env.read_text(encoding="utf-8")
-        up2 = _run_osprey(
-            ["deploy", "up", "-d"], project_dir, extra_env={DB_PASSWORD_VAR: divergent}
-        )
-        assert up2.returncode == 0, _fmt("osprey deploy up (divergent export)", up2)
-
-        assert profile_env.read_text(encoding="utf-8") == profile_before, (
-            "the divergent export overwrote the profile .env — the value the running "
-            "stack's volume was initialized with is now unrecoverable"
-        )
-        output = _squash(up2)
-        assert _needle(f"{DB_PASSWORD_VAR} differs") in output, (
-            f"the conflict was not reported by variable name:\n{up2.stdout}\n{up2.stderr}"
-        )
-        assert divergent not in output, (
-            "the deploy printed the conflicting secret VALUE; a warning names the "
-            "variable, never what either side holds"
-        )
-        assert pinned not in output, "the deploy printed the profile's secret value"
-        assert read_secrets_synced_to_profile(project_dir) is False, (
-            "the project is running on a secret the profile does not carry, so the "
-            "manifest must not claim the two are in sync"
-        )
-
-        # "The profile was not overwritten" is only half the claim: the profile
-        # also has to WIN. The deploy-mode derivation runs after the conflict is
-        # reported, and the key it re-derives here is the one the export tried to
-        # displace — so the project .env must come back holding the profile's
-        # value, not the exported one. Without this a future change that quietly
-        # let the export through would still pass every assertion above.
-        assert _env_of(project_dir / ".env")[DB_PASSWORD_VAR] == pinned, (
-            "the project .env did not come back on the profile's value — the "
-            "divergent export won the round trip, so the next rebuild would carry "
-            "a secret the profile cannot reproduce"
-        )
-
-    finally:
-        _teardown_project(project_name)
-
-
-# =============================================================================
-# (b) Profile-absent topology
-# =============================================================================
-
-
-def test_degraded_topology_deploys_and_flags_itself(tmp_path: Path) -> None:
-    """A project tree carried away from its profile still deploys — loudly.
-
-    The project is built in one directory and then copied to another, and the
-    original (profile included) is removed entirely: the manifest's
-    ``profile_path_abs`` now names a path that does not exist, which is exactly
-    what an operator sees after moving a project to another host, or cloning a
-    repo whose profile lives elsewhere. The deploy must not fail over it — but
-    it must also not pretend: the warning names the profile ``.env`` it could
-    not write, and the manifest flag records that the project ``.env`` is the
-    only copy of these secrets.
-    """
-    project_name = PROJECT_ORPHAN
-    ports = PORTS_ORPHAN
-    origin = tmp_path / "origin"
-    elsewhere = tmp_path / "elsewhere"
-    origin.mkdir()
-    elsewhere.mkdir()
-
-    try:
-        built = _build_from_preset(origin, project_name, "hello-world", _services_override(ports))
-        orphaned_profile_env = _profile_dir(origin, project_name) / ".env"
-
-        project_dir = elsewhere / project_name
-        shutil.copytree(built, project_dir)
-        shutil.rmtree(origin)
-        assert not orphaned_profile_env.parent.exists()
-
-        up = _run_osprey(["deploy", "up", "-d"], project_dir)
-        assert up.returncode == 0, _fmt("osprey deploy up (no reachable profile)", up)
-
-        output = _squash(up)
-        assert _needle(str(orphaned_profile_env)) in output, (
-            "the degraded deploy did not name the profile .env it could not write, so "
-            f"an operator cannot tell where the secrets were supposed to go:\n{up.stdout}"
-        )
-        assert read_secrets_synced_to_profile(project_dir) is False, (
-            "the project .env now holds the only copy of these secrets; the manifest "
-            "flag is what warns `build --force` before it wipes them"
-        )
-
-        minted = _env_of(project_dir / ".env")
-        for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR):
-            assert minted.get(var), f"{var} was not minted into the project .env"
+        # The volumes exist and answer to the pinned value BEFORE the divergent
+        # export, so everything asserted after it is about the export rather
+        # than about a store that was never initialized in the first place.
         _assert_stores_authenticate(project_name, ports, minted)
+
+        up2 = _run_osprey(["up", "-d"], repo, extra_env={DB_PASSWORD_VAR: divergent})
+        assert up2.returncode == 0, _fmt("osprey up (divergent export)", up2)
+
+        output = _squash(up2)
+
+        # ANTI-VACUITY, and the point of the whole test. The two `.env`
+        # assertions below are true by construction if the export never got far
+        # enough to matter: minting skips a variable that already has a value,
+        # so "the file did not change" is what a completely ignored export looks
+        # like too. The preflight warning is the evidence that the deploy SAW
+        # the divergence — it fires only when a compose file interpolates the
+        # name, the store pins it, and the shell disagrees, which is precisely
+        # the state this test set up. Without it, a regression that dropped the
+        # export on the floor would leave every other assertion here green.
+        assert _needle(DB_PASSWORD_VAR) in output, (
+            f"the deploy never named {DB_PASSWORD_VAR} as shadowed by the shell — either "
+            "the divergence preflight is gone, or the export did not reach the deploy "
+            "at all, in which case the .env assertions below prove nothing:\n"
+            f"{up2.stdout}\n{up2.stderr}"
+        )
+        assert _needle("Shellexportshadows") in output, (
+            "the deploy named the variable but not what is happening to it; an "
+            "operator has to be told the shell's value is the one compose will "
+            f"substitute:\n{up2.stdout}\n{up2.stderr}"
+        )
+
+        assert env_path.read_text(encoding="utf-8") == env_before, (
+            "the divergent export rewrote the deployment's .env — the value the "
+            "running stack's volume was initialized with is now unrecoverable"
+        )
+        assert _env_of(env_path)[DB_PASSWORD_VAR] == pinned, (
+            f"{DB_PASSWORD_VAR} in {env_path} is no longer the value the volumes were "
+            "initialized with, so the next deploy from this repo would be locked out"
+        )
+
+        # The store is still the pinned value's, and the exported one opens
+        # nothing: the warning above describes a real hazard rather than a
+        # theoretical one. `_assert_stores_authenticate` re-waits for postgres,
+        # which is what covers the container compose recreated on the changed
+        # interpolation.
+        _assert_stores_authenticate(project_name, ports, minted)
+        rejected = _psql(project_name, divergent, "select 1")
+        assert rejected.returncode != 0, (
+            "postgres accepted the exported value — the divergence would be harmless, "
+            "and this test would not be about anything"
+        )
+        assert "password authentication failed" in rejected.stderr, (
+            f"postgres refused the exported value for the wrong reason:\n{rejected.stderr}"
+        )
+
+        assert divergent not in output, (
+            "the deploy printed the exported secret VALUE; it may name a variable, "
+            "never what either side holds"
+        )
+        assert pinned not in output, "the deploy printed the value in its own .env"
 
     finally:
         _teardown_project(project_name)
@@ -800,23 +772,28 @@ def test_degraded_topology_deploys_and_flags_itself(tmp_path: Path) -> None:
 # =============================================================================
 
 
-def test_persona_autorender_resolves_from_the_profile(tmp_path: Path) -> None:
-    """Personas are rendered from the parent profile's ``personas/`` — and only there.
+def test_personas_are_rendered_by_the_build_from_this_repos_own_deltas(tmp_path: Path) -> None:
+    """Personas are rendered by the BUILD, from the repo's own ``personas/``.
 
-    ``control-assistant`` is the shipped two-persona stack. Materializing its
-    profile writes a delta per persona into ``<profile>/personas/`` and rewrites
-    the catalog's ``build_profile`` to point at those files; ``deploy up`` then
-    auto-renders each persona project from its delta. That anchoring is the
-    whole feature: a delta merges over the profile the deployed project was
-    built from, which is what gives every persona the host's data tree, its
-    convention artifacts, and its secrets.
+    ``control-assistant`` is the shipped two-persona stack. ``osprey init``
+    writes a delta per persona into ``<repo>/personas/`` and rewrites the
+    catalog's ``build_profile`` to point at those files; ``osprey build`` then
+    renders each persona project into ``build/`` beside the deployment's own
+    render. That anchoring is the whole feature: a delta merges over the profile
+    the deployment was built from, which is what gives every persona the host's
+    data tree and its convention artifacts.
 
-    The deploy is driven only as far as its web-terminal preflight. Personas
-    auto-render there, and the fail-closed credential gate immediately after
-    stops the run — before the persona image builds, which take tens of minutes
-    and prove nothing about profile resolution. The stop point is asserted
-    explicitly, so a future reordering that moved the render behind the gate
-    fails this test instead of silently emptying it.
+    Rendering at build time is what makes ``build/`` a complete account of what
+    a start will run — a start renders nothing and refuses when a referenced
+    persona has no project — so this drives ``init`` and ``build`` only. No
+    container is created and no persona IMAGE is built: those take tens of
+    minutes and prove nothing about profile resolution.
+
+    A persona's ``.env`` is deliberately NOT asserted against the deployment's
+    minted secrets. Minting happens at ``up``, after the render, so a persona's
+    copy could only ever hold what existed when the build ran; the secrets that
+    reach a persona container come from the repo ``.env`` the deploy mounts,
+    which the rebuild case above is the proof of.
     """
     project_name = PROJECT_PERSONA
     web = PORTS_PERSONA_WEB
@@ -831,71 +808,56 @@ def test_persona_autorender_resolves_from_the_profile(tmp_path: Path) -> None:
         f"  modules.web_terminals.lattice_base_port: {web['lattice']}\n"
         f"  modules.web_terminals.channel_finder_base_port: {web['channel_finder']}\n"
     )
-    profile_dir = _profile_dir(tmp_path, project_name)
 
     try:
-        project_dir = _build_from_preset(tmp_path, project_name, "control-assistant", override)
+        # The repo root IS the profile root: profile.yml, personas/ and the
+        # deltas the catalog points at all live here.
+        repo = _init_and_build(tmp_path, project_name, "control-assistant", override)
 
-        catalog = _persona_catalog(project_dir)
+        catalog = _persona_catalog(repo)
         assert catalog, "the control-assistant build produced no persona catalog"
+
         for persona, entry in catalog.items():
-            delta = profile_dir / "personas" / f"{persona}.yml"
+            delta = repo / "personas" / f"{persona}.yml"
             assert entry.get("build_profile") == f"personas/{persona}.yml", (
-                f"persona {persona!r} does not point at a delta in the profile: "
+                f"persona {persona!r} does not point at a delta in this repo: "
                 f"{entry.get('build_profile')!r}"
             )
-            assert delta.is_file(), f"profile materialization did not write {delta}"
+            assert delta.is_file(), f"osprey init did not write {delta}"
 
-        # The deploy mints the stack's secrets into the profile .env first, so
-        # every persona rendered a moment later derives the SAME values — the
-        # observable consequence of "a delta anchors at the profile root".
-        up = _run_osprey(["deploy", "up", "-d"], project_dir)
-        assert up.returncode != 0, (
-            "the persona deploy was expected to stop at its fail-closed credential "
-            "gate (no provider key is set anywhere), but it went on to build persona "
-            f"images:\n{up.stdout}\n{up.stderr}"
-        )
-        output = _squash(up)
-        assert _needle("would leave web terminals unauthenticated") in output, (
-            "the deploy did not stop where this test expects (the credential gate "
-            f"immediately after the persona auto-render):\n{up.stdout}\n{up.stderr}"
-        )
-
-        minted = _env_of(profile_dir / ".env")
-        for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR):
-            assert minted.get(var), f"{var} was not minted into the profile .env"
-
-        for persona, entry in catalog.items():
-            persona_dir = (project_dir / entry["project_path"]).resolve()
+            # The catalog's project_path is repo-relative and lands inside the
+            # render, which is what makes a persona disposable with the rest of
+            # build/ and what a start verifies before it builds any image.
+            persona_dir = (repo / entry["project_path"]).resolve()
+            assert persona_dir.is_relative_to(repo / "build"), (
+                f"persona {persona!r} was rendered at {persona_dir}, outside build/ — "
+                "a persona project is build output and must not outlive a rebuild"
+            )
             assert (persona_dir / "config.yml").is_file(), (
-                f"persona {persona!r} was not auto-rendered at {persona_dir}"
+                f"persona {persona!r} was not rendered at {persona_dir}"
+            )
+            assert (persona_dir / "Dockerfile").is_file(), (
+                f"persona {persona!r} render has no Dockerfile, so a start would "
+                f"refuse it as partial: {persona_dir}"
             )
 
             manifest = json.loads(
                 (persona_dir / ".osprey-manifest.json").read_text(encoding="utf-8")
             )
             rendered_from = Path(manifest["build_args"]["profile_path_abs"]).resolve()
-            assert rendered_from == (profile_dir / "personas" / f"{persona}.yml").resolve(), (
+            assert rendered_from == delta.resolve(), (
                 f"persona {persona!r} was rendered from {rendered_from}, not from the "
-                "delta in the deployed project's own profile — it would carry a "
-                "different facility's data, conventions and secrets"
+                "delta in this deployment's own repo — it would carry a different "
+                "facility's data, conventions and secrets"
             )
 
-            persona_env = _env_of(persona_dir / ".env")
-            for var in (ZO_PASSWORD_VAR, DB_PASSWORD_VAR):
-                assert persona_env.get(var) == minted[var], (
-                    f"persona {persona!r} did not inherit {var} from the parent "
-                    "profile, so its containers would not trust the host's stores"
-                )
-
-            orphan_profile = persona_dir.parent / f"{persona_dir.name}-profile"
-            assert not orphan_profile.exists(), (
-                f"auto-rendering persona {persona!r} materialized a profile of its own "
-                f"at {orphan_profile}; a persona is a delta over its host's profile and "
-                "must never own one"
+            # No persona materializes a source zone of its own: there is exactly
+            # one profile in a deployment repo, and it is the one at the root.
+            assert not (persona_dir / "profile.yml").exists(), (
+                f"persona {persona!r} materialized its own profile at {persona_dir}"
             )
 
     finally:
-        # The preflight aborts before any compose invocation, so nothing should
-        # exist — the exact-named sweep runs anyway, in case it ever does.
+        # Nothing is started here — the exact-named sweep runs anyway, in case a
+        # future change to the build ever reaches the runtime.
         _teardown_project(project_name)

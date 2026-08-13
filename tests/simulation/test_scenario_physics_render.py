@@ -378,7 +378,7 @@ class TestChangedSignal:
     """The writer reports whether ``.env`` *content* changed, not that it wrote.
 
     It reconciles unconditionally, so "a write happened" would be true on every
-    call. ``osprey sim apply`` gates its "run osprey deploy up" notice on this
+    call. ``osprey sim apply`` gates its "run osprey up" notice on this
     signal, so re-applying the same scenario must stay quiet while clearing a
     stale fault must not.
     """

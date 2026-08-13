@@ -47,7 +47,7 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   simulation model — `machine.json` and its `scenarios/` bundles — re-rendered
   from the project's profile on every build. Read-only; the IOC never writes
   it.
-- **Bind-mount the project's `_agent_data/simulation/`** to `/state/simulation`
+- **Bind-mount the repo's `var/agent_data/simulation/`** to `/state/simulation`
   and point `VA_STATE_DIR` at it. It holds `active_scenarios`, which
   `osprey sim apply NAME` rewrites on the host while the system runs — hence a
   mount separate from the build-owned `data/` tree. **Mount the directory,

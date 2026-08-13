@@ -227,10 +227,14 @@ file_paths:
 # AGENT DATA & ARTIFACT GALLERY
 # ============================================================
 # Working directory for artifacts, data context, screenshots, etc.
-# Resolved relative to this config file's directory (project root).
+# Resolved relative to `project_root` above — the deployment repo's root, not
+# this file's directory. It belongs under var/, the durable STATE zone: build/
+# is wiped and re-rendered by every build, and the repo's .gitignore keeps var/
+# out of git. A path outside var/ would land the agent's memory in the tracked
+# source zone and dirty `git status` on first run.
 
 agent_data:
-  base_dir: "./_agent_data"
+  base_dir: "var/agent_data"
 
 # osprey:panel-port artifact
 # WORKSPACE tab. Universal: under `osprey web` it is launched at startup
@@ -259,7 +263,7 @@ container_runtime: auto
 # ============================================================
 # Containerized companion services. Declare a service under `services:` (so
 # `osprey health` recognizes it) and add its name to `deployed_services:` to
-# actually launch it with `osprey deploy up`.
+# actually launch it with `osprey up`.
 
 # ── Deployment ──────────────────────────────────────────────────────
 # Host interface the deployed services publish their ports on. The default
@@ -274,9 +278,9 @@ services:
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
   # logs/metrics store (see the `telemetry:` block under `claude_code:` below
   # and docs/how-to/monitor-agent.rst). Deployed by default: the agent emits its
-  # telemetry here, so `osprey deploy up` + `osprey web` gives you a working,
+  # telemetry here, so `osprey up` + `osprey web` gives you a working,
   # queryable observability store out of the box. Bound to localhost. This is the
-  # only container this minimal template deploys, so `osprey deploy up` needs a
+  # only container this minimal template deploys, so `osprey up` needs a
   # container runtime (Docker/podman) running.
   openobserve:
     path: ./services/openobserve
@@ -284,7 +288,7 @@ services:
     retention_days: 14  # Growth bound: drop data older than N days (min 3). A
                         # named volume has no size cap, so age is the size knob.
 
-# Services to deploy with `osprey deploy up`
+# Services to deploy with `osprey up`
 deployed_services:
   - openobserve
 {% else %}
@@ -326,7 +330,7 @@ claude_code:
     # backend: openobserve auto-derives the endpoint per network context, so
     # `endpoint` is intentionally OMITTED. OpenObserve auth reads the root
     # credentials from the project .env — the SAME values the openobserve service
-    # reads — so container and agent auth stay in sync. `osprey deploy up` mints a
+    # reads — so container and agent auth stay in sync. `osprey up` mints a
     # strong ZO_ROOT_USER_PASSWORD into .env; the ${VAR:-default} fallbacks keep
     # the agent launchable before the first deploy.
     openobserve:

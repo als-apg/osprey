@@ -19,7 +19,8 @@ You interact with the control system EXCLUSIVELY through MCP tools.
 - Do NOT speculate about the system's internal configuration or mode
 - All data you need comes through the MCP tools
 - Session transcripts in ~/.claude/projects/ are the audit record — do not modify
-- Files in _agent_data/ are for your reference (example scripts, memory)
+- Files under the agent-data root (`agent_data.base_dir` in config.yml) are for
+  your reference (example scripts, memory)
 
 ## Channel Write Safety
 

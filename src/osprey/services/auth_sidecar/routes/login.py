@@ -587,7 +587,7 @@ async def login_submit(
     On success the user joins — rather than replaces — the browser's unlocked
     set, carrying an expiry stamped from the codec's clock and the
     credential-generation tag of the hash it was checked against. The tag is
-    what makes a later ``osprey deploy passwd`` retire this session: verify
+    what makes a later ``osprey users passwd`` retire this session: verify
     recomputes it from the *current* stored hash and refuses when they differ.
     The username goes into the entry exactly as submitted, because verify
     exact-matches it against the roster — normalising it here would open the

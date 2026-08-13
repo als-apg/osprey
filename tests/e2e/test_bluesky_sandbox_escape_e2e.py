@@ -46,7 +46,7 @@ actually guarantees.
 
 Container safety: every docker invocation here names an exact
 container/image -- never a wildcard, never ``system prune``/``--volumes``.
-Teardown goes through ``osprey deploy down``, matching every other e2e in
+Teardown goes through ``osprey down``, matching every other e2e in
 this directory. ``BRIDGE_PORT`` below is distinct from every sibling e2e
 module's pinned port; the VA's Channel Access port is NOT freely overridable
 (see ``_orm_stack.VA_CA_PORT``'s docstring) so this test shares that fixed
@@ -385,19 +385,26 @@ def _wait_for_health(url: str, timeout: float) -> None:
     raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
-def _minted_token(project_dir: Path) -> str:
+def _minted_token(repo: Path) -> str:
     from osprey.utils.dotenv import parse_dotenv_file
 
-    env_path = project_dir / ".env"
+    env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
     token = env.get("BLUESKY_LAUNCH_TOKEN")
-    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env"
+    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the deployment repo's .env"
     return token
 
 
-def _channel_limits(project_dir: Path) -> dict[str, Any]:
-    return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+def _channel_limits(repo: Path) -> dict[str, Any]:
+    """The limits database the deployed containers actually read.
+
+    ``control_system.limits_checking.database_path`` resolves against
+    ``CONFIG_FILE``'s directory, and the render points that at
+    ``<repo>/build/config.yml`` -- so the render's copy, not the operator-owned
+    source under ``<repo>/data/``, is the file whose channels the containers see.
+    """
+    return json.loads((repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -440,7 +447,7 @@ def _caget(address: str, *, timeout: float = 5.0) -> float | None:
 # ---------------------------------------------------------------------------
 @dataclass
 class DeployedSandboxStack:
-    project_dir: Path
+    repo: Path
     escape_target_sp: str
     escape_target_rb: str
     positive_correctors: dict[str, tuple[str, str]]
@@ -452,22 +459,26 @@ def deployed_sandbox_stack(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[DeployedSandboxStack]:
     base = tmp_path_factory.mktemp("sandbox_escape_build")
-    project_dir = _orm_stack.build_project_subprocess(
+    # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
+    # render `osprey build` produced is `<repo>/build`.
+    repo = _orm_stack.build_project_subprocess(
         PROJECT_NAME, output_dir=base, bridge_port=BRIDGE_PORT, timeout=BUILD_TIMEOUT_SEC
     )
 
-    limits = _channel_limits(project_dir)
+    limits = _channel_limits(repo)
     correctors = _orm_stack.select_correctors(limits, count=CORRECTOR_COUNT)
     bpms = _orm_stack.select_bpms(limits, count=BPM_COUNT)
     escape_name, (escape_sp, escape_rb) = sorted(correctors.items())[0]
     positive_correctors = {name: pair for name, pair in correctors.items() if name != escape_name}
-    _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
+    # Writes the repo root's `.env` — the deployment's whole secret store, and
+    # the file `osprey up` refuses to start without.
+    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
-    # (osprey deploy up does not pass --build to compose, so it would
-    # otherwise reuse a stale cached image). Exact-named images only.
+    # (osprey up does not pass --build to compose, so it would otherwise
+    # reuse a stale cached image). Exact-named images only.
     if not os.environ.get("E2E_REUSE_IMAGES"):
         subprocess.run(
             ["docker", "rmi", "-f", _orm_stack.va_image("sandbox-escape")],
@@ -482,8 +493,8 @@ def deployed_sandbox_stack(
 
     try:
         up = subprocess.run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
@@ -491,7 +502,7 @@ def deployed_sandbox_stack(
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
@@ -504,7 +515,7 @@ def deployed_sandbox_stack(
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
         yield DeployedSandboxStack(
-            project_dir=project_dir,
+            repo=repo,
             escape_target_sp=escape_sp,
             escape_target_rb=escape_rb,
             positive_correctors=positive_correctors,
@@ -512,15 +523,15 @@ def deployed_sandbox_stack(
         )
     finally:
         down = subprocess.run(
-            [str(osprey_bin), "deploy", "down"],
-            cwd=str(project_dir),
+            [str(osprey_bin), "down"],
+            cwd=str(repo),
             capture_output=True,
             text=True,
             timeout=300,
         )
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
@@ -580,7 +591,7 @@ def test_sandbox_escape_is_caught_and_no_write_reaches_the_ioc(
     # to the queue server, so this asserts BOTH halves of that move: the retired
     # direct-execute route is gone and says so machine-readably, and the path
     # that replaced it refuses the same plan for the same reason.
-    token = _minted_token(deployed_sandbox_stack.project_dir)
+    token = _minted_token(deployed_sandbox_stack.repo)
 
     # (c1) the retired route is an unconditional 410 -- never a silent 404, and
     # never something a caller could mistake for "this run does not exist".
@@ -748,7 +759,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
     assert status == 200, f"POST /queue/items failed: {status} {body}"
     run_id = body["run_id"]
 
-    token = _minted_token(deployed_sandbox_stack.project_dir)
+    token = _minted_token(deployed_sandbox_stack.repo)
     status, body = _post("/queue/start", {}, headers={"X-Launch-Token": token})
     assert status == 200, f"POST /queue/start failed: {status} {body}"
 

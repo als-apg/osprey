@@ -1051,11 +1051,11 @@ async def test_judge_rejects_a_failing_grid_scan_conclusion(control: str) -> Non
 # CONTAINER SAFETY: every docker invocation below names an EXACT image
 # (``<project>-bluesky-bridge:local`` / ``-va:local`` / ``-bluesky-panels:local``,
 # all derived from ``PROJECT_NAME``) — never a wildcard, never a prune, never a
-# volume operation. Teardown goes through ``osprey deploy down``.
+# volume operation. Teardown goes through ``osprey down``.
 # ===========================================================================
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
-# Cold-cache `deploy up` budget. This stack is the FULL queue shape — VA +
+# Cold-cache `osprey up` budget. This stack is the FULL queue shape — VA +
 # bridge + queueserver + Redis + Tiled + the panels sidecar — so it is sized
 # against test_bluesky_queue_e2e.py's 2400 s (same service set), not against
 # test_orm_roundtrip.py's 1200 s (no queueserver/panels images to build).
@@ -1080,7 +1080,7 @@ VA_IMAGE = _orm_stack.va_image(PROJECT_NAME)
 PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 
 #: Everything this module deep-merges into ``_orm_stack.override_yaml()``:
-#: host-port moves ``build_args`` has no ``--set`` hook for, plus the approval
+#: host-port moves ``init_args`` has no ``--set`` hook for, plus the approval
 #: policy the headless agent needs. Note the two ALTITUDES, which is the
 #: whole reason this is one dict and not sibling entries:
 #:
@@ -1096,7 +1096,7 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #:   speaks.
 #:
 #: The ``bluesky`` block here carries ONLY ``tiled_port``: ``bluesky.port`` and
-#: ``bluesky.tiled_enabled`` come from ``build_args``' own ``--set`` flags, so
+#: ``bluesky.tiled_enabled`` come from ``init_args``' own ``--set`` flags, so
 #: dropping those flags there would silently take the Tiled sidecar out of this
 #: stack rather than fail loudly.
 #:
@@ -1158,7 +1158,7 @@ class DeployedScanStack:
     devices the deployed worker registered.
     """
 
-    project_dir: Path
+    repo: Path
     correctors: dict[str, tuple[str, str]]
     bpms: dict[str, str]
     limits: dict[str, Any]
@@ -1189,7 +1189,7 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
 
 @pytest.fixture(scope="module")
 def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedScanStack]:
-    """Build and ``osprey deploy up --dev`` the scan stack; tear it down after.
+    """Build and ``osprey up --dev`` the scan stack; tear it down after.
 
     One stack for the whole module: nothing here is per-test state (the queue
     is, and that is what ``clean_queue`` below handles), and the VA image build
@@ -1203,7 +1203,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     ``sdk_helpers._default_opus_model`` reads) is written regardless.
     """
     base = tmp_path_factory.mktemp("scan_stack_agentic_build")
-    project_dir = _orm_stack.build_project_subprocess(
+    repo = _orm_stack.build_project_subprocess(
         PROJECT_NAME,
         output_dir=base,
         bridge_port=BRIDGE_PORT,
@@ -1218,10 +1218,12 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # these scenarios ask for a measurement on a healthy stack, so no particular
     # device has to be in range, and a small device count keeps a real scan to
     # seconds rather than minutes.
-    limits = _orm_stack.channel_limits(project_dir)
+    # The render's copy, not the operator-owned source under <repo>/data/ —
+    # build/data is the file the deployed containers actually read.
+    limits = _orm_stack.channel_limits(repo / "build")
     correctors = _orm_stack.select_correctors(limits)
     bpms = _orm_stack.select_bpms(limits)
-    _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
+    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
 
     _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 
@@ -1229,8 +1231,8 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     try:
         try:
             up = _run(
-                [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-                cwd=project_dir,
+                [str(osprey_bin), "up", "-d", "--dev"],
+                cwd=repo,
                 timeout=DEPLOY_UP_TIMEOUT_SEC,
             )
         except subprocess.TimeoutExpired as exc:
@@ -1248,7 +1250,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
                 exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr
             )
             pytest.fail(
-                f"osprey deploy up -d --dev timed out after {DEPLOY_UP_TIMEOUT_SEC}s "
+                f"osprey up -d --dev timed out after {DEPLOY_UP_TIMEOUT_SEC}s "
                 "(a cold-cache image build that did not finish in budget, or a service "
                 "whose health chain never settled):\n"
                 f"--- stdout so far ---\n{stdout}\n--- stderr so far ---\n{stderr}\n"
@@ -1256,7 +1258,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
             )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}\n"
                 f"--- containers that are not running ---\n{_dead_container_logs()}"
             )
@@ -1275,34 +1277,32 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
 
-        # AFTER `deploy up`, never before: the deploy path re-renders the Claude
+        # AFTER `osprey up`, never before: the deploy path can re-render the Claude
         # Code artifacts and would discard an earlier edit to settings.json.
-        promote_ask_to_allow(project_dir, *_REQUIRED_TOOLS)
+        promote_ask_to_allow(repo, *_REQUIRED_TOOLS)
 
         yield DeployedScanStack(
-            project_dir=project_dir,
+            repo=repo,
             correctors=correctors,
             bpms=bpms,
             limits=limits,
-            token=_orm_stack.minted_launch_token(project_dir),
+            token=_orm_stack.minted_launch_token(repo),
         )
     finally:
         # Best-effort by construction: this runs on the failure path too, where
         # an exception is already propagating. A teardown that raised here would
-        # REPLACE that exception -- the fixture would report "deploy down timed
+        # REPLACE that exception -- the fixture would report "osprey down timed
         # out" for a run that actually failed on a health timeout, hiding the
         # real cause. So every teardown failure is reported and swallowed.
         try:
-            down = _run(
-                [str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=DOWN_TIMEOUT_SEC
-            )
+            down = _run([str(osprey_bin), "down"], cwd=repo, timeout=DOWN_TIMEOUT_SEC)
             if down.returncode != 0:
                 print(  # noqa: T201 - surface teardown issues in CI logs
-                    f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                    f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
                 )
         except (OSError, subprocess.SubprocessError) as exc:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down could not complete ({type(exc).__name__}: {exc}) -- "
+                f"osprey down could not complete ({type(exc).__name__}: {exc}) -- "
                 f"containers of project {PROJECT_NAME!r} may still be running"
             )
 
@@ -1348,7 +1348,7 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
 
     Why per-test rather than once per module. The queue is Redis-backed and
     that Redis lives in a compose NAMED VOLUME keyed on the project name, which
-    ``osprey deploy down`` does NOT remove — so a rerun inherits whatever the
+    ``osprey down`` does NOT remove — so a rerun inherits whatever the
     previous attempt left queued. And these tests are agentic: a rerun (each
     live test carries ``flaky``) follows an attempt that may have left a scan
     mid-flight. An agent that then queues its own work and arms the queue would
@@ -1366,7 +1366,7 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
        slate this fixture promises.
     3. ``DELETE /draft`` — clear the shared plan draft. The draft is bridge
        state, not queue state, so nothing above touches it, and it outlives
-       both a finished test and a whole ``deploy down``/``up`` of nothing.
+       both a finished test and a whole ``osprey down``/``up`` of nothing.
        Left standing it breaks the floor's central assumption: the accumulator
        replays the draft from EMPTY, so a run whose agent patched only the
        keys the leftover draft was missing would be graded against a state
@@ -1495,23 +1495,23 @@ async def test_agent_measures_orbit_response_on_a_healthy_stack(
     whether the prose delivers the result rather than stopping at a plan or
     inventing findings the healthy stack cannot support.
     """
-    project_dir = deployed_scan_stack.project_dir
+    repo = deployed_scan_stack.repo
     # The bluesky MCP server runs host-side in the agent's session and reaches
     # the deployed bridge over these two: the URL is this module's own pinned
-    # port, and the token is the one `deploy up` minted — the arming step on
+    # port, and the token is the one `osprey up` minted — the arming step on
     # the queue is gated by exactly that value, so without it the agent could
     # stage and queue a scan but never start one.
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
 
     result = await run_sdk_query(
-        project_dir,
+        repo,
         ORM_OPERATOR_REQUEST,
         max_turns=60,
         max_budget_usd=10.0,
         # Opus-tier: composing a scan, waiting it out, and then committing to a
         # reading of the data is the multi-step reasoning this lane measures.
-        model=_default_opus_model(project_dir),
+        model=_default_opus_model(repo),
         # No Bash/Glob/Grep. The agent's compute path is the sanctioned python
         # executor; shell and filesystem search would let it inspect the
         # deployed project instead of measuring the machine it was asked about.
@@ -1562,16 +1562,16 @@ async def test_agent_maps_a_two_axis_grid_on_a_healthy_stack(
     so neither test can be satisfied by the other's run, and ``clean_queue``
     leaves this one an empty queue no matter what the earlier test left behind.
     """
-    project_dir = deployed_scan_stack.project_dir
+    repo = deployed_scan_stack.repo
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
 
     result = await run_sdk_query(
-        project_dir,
+        repo,
         GRID_OPERATOR_REQUEST,
         max_turns=60,
         max_budget_usd=10.0,
-        model=_default_opus_model(project_dir),
+        model=_default_opus_model(repo),
         disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     )
 

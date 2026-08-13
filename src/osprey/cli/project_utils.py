@@ -1,11 +1,16 @@
-"""Utilities for project path resolution and management.
+"""Project-path resolution for the commands that take ``--project``.
 
-This module provides helper functions for resolving project directories
-across all CLI commands, supporting the --project flag and environment
-variable for flexible project location specification.
+Not the deployment-repo discovery rule — that is
+:mod:`osprey.cli.repo_resolver`, which every repo-scoped verb uses. What is
+left here serves the handful of commands that resolve their own inputs and
+carry a ``--project`` flag instead (``channel-finder``, ``health``).
+
+:func:`_clear_claude_code_project_state` lost its last caller with the legacy
+command surface and is kept only because removing it would also remove this
+module's re-export of ``encode_claude_project_path``, which a test still
+imports from here. Both belong to the post-deletion sweep, not to this module.
 """
 
-import os
 from pathlib import Path
 
 from osprey.agent_runner.project_paths import encode_claude_project_path
@@ -52,12 +57,19 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
 
 
 def resolve_project_path(project_arg: str | None = None) -> Path:
-    """Resolve project directory from multiple sources.
+    """Resolve project directory from the flag, else the working directory.
 
-    Resolution priority:
-    1. --project CLI argument (if provided)
-    2. OSPREY_PROJECT environment variable (if set)
-    3. Current working directory (default)
+    Two answers, in priority order: what ``--project`` named, or where the
+    command was typed.
+
+    An environment variable naming a project directory used to sit between the
+    two. It is gone, and deliberately not replaced: a variable that silently
+    redirects a command to another directory means the same command line acts on
+    different deployments depending on a shell the operator cannot see in the
+    invocation. Discovery is now one rule
+    (:func:`osprey.cli.repo_resolver.find_repo_root`), with ``--repo`` as its
+    only override; the commands still calling this function are the ones that
+    resolve their own inputs and take ``--project`` instead.
 
     Args:
         project_arg: Project directory from --project flag (optional)
@@ -70,25 +82,13 @@ def resolve_project_path(project_arg: str | None = None) -> Path:
         >>> resolve_project_path("~/projects/my-agent")
         Path('/Users/user/projects/my-agent')
 
-        >>> # Using environment variable
-        >>> os.environ['OSPREY_PROJECT'] = '/tmp/test-project'
-        >>> resolve_project_path()
-        Path('/tmp/test-project')
-
         >>> # Default to current directory
         >>> resolve_project_path()
         Path('/current/working/directory')
     """
-    # Priority 1: --project CLI argument
     if project_arg:
         return Path(project_arg).expanduser().resolve()
 
-    # Priority 2: OSPREY_PROJECT environment variable
-    env_project = os.environ.get("OSPREY_PROJECT")
-    if env_project:
-        return Path(env_project).expanduser().resolve()
-
-    # Priority 3: Current working directory
     return Path.cwd()
 
 

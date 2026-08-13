@@ -132,7 +132,7 @@ def _e2e_translation_proxy():
     """Start the OSPREY translation proxy for the whole session when targeting
     an OpenAI-protocol (open) CBORG model — issue #259 model matrix.
 
-    The SDK e2e path does not start the proxy on its own (only ``osprey claude``
+    The SDK e2e path does not start the proxy on its own (only ``osprey chat``
     does), so open models would otherwise route an Anthropic request straight at
     CBORG's OpenAI endpoint and fail. When ``OSPREY_E2E_PROXY_UPSTREAM`` is set
     (by ``scripts/run_e2e_for_model.sh`` for non-``claude-*`` models), we start

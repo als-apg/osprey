@@ -72,7 +72,18 @@ class BaseStore(Generic[T]):
         cls._delete_listeners = []
 
     def __init__(self, workspace_root: Path | None = None) -> None:
-        self._workspace = workspace_root or (Path.cwd() / "_agent_data")
+        # Resolved from the config, not from the CWD. The daemons that own a
+        # store pass an explicit root, but two live constructions do not: the
+        # shipped approval hook builds one, and `get_artifact_store()` falls
+        # back to a bare `ArtifactStore()` when nothing initialized it. Both run
+        # with a cwd of the agent's Claude project directory — `build/` on a
+        # host launch — so a cwd anchor pointed the store at `build/var/agent_data`,
+        # inside the zone every build replaces, while every other reader used
+        # the durable one. Shared (not session-isolated) because a store's data
+        # must stay visible to the long-lived gallery and ARIEL daemons.
+        from osprey.utils.workspace import resolve_shared_data_root
+
+        self._workspace = workspace_root or resolve_shared_data_root()
         self._store_dir = self._workspace / self._subdir if self._subdir else self._workspace
         self._index_file = self._store_dir / self._index_filename
         self._entries: list[T] = []
@@ -83,6 +94,26 @@ class BaseStore(Generic[T]):
         # ``_entries`` out from under a same-process mutation.
         self._thread_lock = threading.RLock()
         self._load_index()
+
+    @property
+    def repo_root(self) -> Path:
+        """The repo root this store's *relative* pointers are anchored at.
+
+        Agent code runs with its working directory at the repo root, so a
+        pointer a store hands out has to be relative to that same directory —
+        which means stripping the configured ``agent_data.base_dir`` off the
+        workspace root, not just taking its parent. The base directory is read
+        here rather than passed by each caller so the write side (the pointer
+        an entry records) and the read side (the gallery resolving one) cannot
+        answer differently.
+        """
+        from osprey.utils.workspace import (
+            agent_data_base_dir,
+            load_osprey_config,
+            repo_root_for_agent_data,
+        )
+
+        return repo_root_for_agent_data(self._workspace, agent_data_base_dir(load_osprey_config()))
 
     def _entry_from_dict(self, d: dict) -> T:
         raise NotImplementedError

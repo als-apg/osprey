@@ -1,16 +1,27 @@
-"""CLI subcommands for managing build artifact ownership.
+"""CLI subcommands for the generated half of a deployment repo.
 
-Provides ``osprey scaffold list|claim|diff|unclaim`` commands
-for inspecting and customizing the Claude Code build artifacts
-that OSPREY generates during ``osprey build`` / ``osprey claude regen``.
+Two jobs, one group, because both are about material a deployment repo
+generates rather than authors:
 
-Claiming is a *move into the profile*: the profile is the source of truth for
-the project it builds, so an artifact an operator wants to own is moved into
-the profile convention directory that owns its destination, and the next
-build's convention scan registers it (see
+* ``osprey scaffold ci`` emits the repo's CI pipeline and post-deploy health
+  check from the profile's ``deploy:`` block — the same engine
+  ``osprey init`` runs at creation, so a repo scaffolded years apart carries
+  the same two files.
+* ``osprey scaffold list|claim|diff|unclaim`` inspect and take over the build
+  artifacts a build renders into ``build/``.
+
+Claiming is a *move into the source zone*: the profile is the source of truth
+for what it builds, so an artifact an operator wants to own is moved out of the
+disposable build zone and into the profile convention directory that owns its
+destination, where the next build's convention scan registers it (see
 :func:`osprey.cli.build_persistence._register_convention_artifacts`). Nothing
-here writes ``scaffold.user_owned`` — a claim that edited the project's YAML
-would be the second source of truth this design removes.
+here writes ``scaffold.user_owned`` — a claim that edited the built config.yml
+would be the second source of truth this design removes, and the next build
+would wipe it with the zone it lives in.
+
+Every verb here is repo-scoped: it takes the shared ``--repo`` and resolves
+through :func:`osprey.cli.repo_resolver.find_repo_root`, so all of them act on
+the repo the operator is standing in, whichever subdirectory that is.
 """
 
 from __future__ import annotations
@@ -23,7 +34,13 @@ from typing import Any
 
 import click
 
-from osprey.cli.profile_conventions import CONVENTION_DIRS, ConventionDir, EntryShape
+from osprey.cli.profile_conventions import (
+    BUILD_OUTPUT_DIR,
+    CONVENTION_DIRS,
+    ConventionDir,
+    EntryShape,
+)
+from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
 from osprey.errors import ConfigurationError
@@ -38,6 +55,36 @@ from osprey.utils.logger import get_logger
 
 logger = get_logger("scaffold")
 
+#: The command that renders the build zone again, copying a claimed artifact
+#: back into it. One string, no arguments and no ``--force``: the repo IS the
+#: deployment, and a build replaces its own build zone wholesale.
+_REBUILD_HINT = "osprey build"
+
+
+def _build_zone(repo: Path | None) -> Path:
+    """The build zone of the repo *repo* selects, whether or not it was built.
+
+    The one translation from the resolver's answer — a deployment repo — to what
+    the ownership verbs read, which is what the last ``osprey build`` rendered.
+    Kept in one function so ``list``, ``claim``, ``diff``, ``unclaim`` and the
+    web-terminal verbs cannot end up reading different directories of the same
+    repo.
+
+    Existence is deliberately not checked here: ``list`` has something to say
+    about a repo that has never been built, and each caller that does need the
+    build reports its absence in its own words (see :func:`_load_config`).
+
+    Args:
+        repo: The ``--repo`` value, or ``None`` for the working directory.
+
+    Returns:
+        ``<repo root>/build``, absolute.
+
+    Raises:
+        RepoNotFoundError: If no deployment repo encloses the search path.
+    """
+    return find_repo_root(repo) / BUILD_OUTPUT_DIR
+
 
 def _load_config(project_dir: Path) -> dict[str, Any]:
     """Load ``config.yml`` from ``project_dir`` through the shared project loader.
@@ -49,12 +96,12 @@ def _load_config(project_dir: Path) -> dict[str, Any]:
 
     The existence check stays ahead of the load, which is this call site's one
     divergence from the shared loader: callers catch ``ClickException`` to mean
-    "no project here", and ``ConfigBuilder``'s own ``FileNotFoundError`` advises
-    setting ``CONFIG_FILE``, which is the wrong instruction for a verb that takes
-    ``--project``.
+    "nothing built here", and ``ConfigBuilder``'s own ``FileNotFoundError``
+    advises setting ``CONFIG_FILE``, which is the wrong instruction for a verb
+    that resolves its own repo.
 
     Args:
-        project_dir: Root of a built project.
+        project_dir: The repo's build zone.
 
     Returns:
         The env-var-expanded config mapping.
@@ -65,7 +112,9 @@ def _load_config(project_dir: Path) -> dict[str, Any]:
     config_file = project_dir / "config.yml"
     if not config_file.exists():
         raise click.ClickException(
-            f"No config.yml found in {project_dir}. Are you in an OSPREY project directory?"
+            f"No build at {project_dir}.\n\n"
+            "The build zone is disposable, so this repo has either never been built "
+            "or was reset. Run 'osprey build' to render it."
         )
 
     return load_project_config(config_file)
@@ -390,10 +439,9 @@ def _no_profile_message(project_dir: Path) -> str:
         f"{project_dir} names no profile, so there is nowhere to claim into.\n\n"
         f"{OWNERSHIP_LIVES_IN_THE_PROFILE}\n\n"
         "  Its manifest records no build_args.profile_path_abs — it was built by an\n"
-        "  older OSPREY, or is not a built project at all.\n\n"
-        "  Rebuild it from a profile, then claim again:\n"
-        "    osprey build <name> --preset <preset>      # materializes a profile\n"
-        "    osprey build <name> <path>/profile.yml     # uses one you already have"
+        "  older OSPREY, or is not a build zone at all.\n\n"
+        "  Render it from this repo's profile, then claim again:\n"
+        f"    {_REBUILD_HINT}"
     )
 
 
@@ -457,8 +505,8 @@ def _project_profile_root(project_dir: Path) -> tuple[Path, bool]:
         # inside the installed wheel, at that.
         raise ScaffoldClaimError(
             f"The profile root {profile_root} is inside the installed osprey package. "
-            "Materialize an operator-owned profile first: "
-            "osprey profile new <dir> --preset <name>."
+            "Materialize an operator-owned deployment repo first: "
+            "osprey init <name> --preset <preset>."
         )
 
     return profile_root, is_delta
@@ -717,29 +765,21 @@ def profile_slot_for(project_dir: Path, name: str) -> Path | None:
     return profile_root / target.profile_rel
 
 
-def _rebuild_hint(project_dir: Path) -> str:
-    """The command that copies the profile back into the project."""
-    from osprey.cli.templates.manifest import load_project_manifest
-
-    manifest = load_project_manifest(project_dir) or {}
-    command = manifest.get("reproducible_command")
-    if isinstance(command, str) and command.strip():
-        return f"{command.strip()} --force"
-    return "osprey build <name> <profile> --force"
-
-
 @click.group(name="scaffold", invoke_without_command=True)
 @click.pass_context
 def scaffold(ctx):
-    """Manage build artifact ownership.
+    """Emit CI files and manage artifact ownership.
 
-    Framework-managed build artifacts can be claimed per-facility: claiming
-    moves the artifact into the profile the project was built from, which is
-    where you then edit it. Every build copies it back and marks it yours.
+    The ci verb regenerates the repo's pipeline and health check from the
+    profile's deploy: block. The other verbs cover build artifacts, which can
+    be claimed per-facility: claiming moves the artifact out of the build zone
+    and into the profile beside it, which is where you then edit it. Every
+    build copies it back and marks it yours.
 
     Examples:
 
     \b
+      osprey scaffold ci                          # Re-emit the CI files
       osprey scaffold list                        # Show all artifacts
       osprey scaffold claim agents/channel-finder # Move it into the profile
       osprey scaffold diff agents/channel-finder  # Compare yours vs framework
@@ -747,6 +787,62 @@ def scaffold(ctx):
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
+
+
+@scaffold.command(name="ci")
+@repo_option
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Replace an existing file that the scaffolder did not write.",
+)
+def ci(repo: Path | None, force: bool) -> None:
+    """Emit this repo's CI pipeline and health check.
+
+    Renders two files from the profile's 'deploy:' block: the CI pipeline at
+    the repo root, and the post-deploy health check at scripts/verify.sh. Run
+    it again whenever the block changes. Each emitted file says in its own
+    header when it runs and what it needs.
+
+    Re-running is safe. A file whose content already matches is left untouched,
+    stamp included, so an OSPREY upgrade alone produces no diff. A file the
+    scaffolder did not write is reported and left alone; --force replaces it.
+    ci-extra.yml is never touched: it is yours, and the pipeline includes it.
+
+    Examples:
+
+    \b
+      $ osprey scaffold ci
+      $ osprey scaffold ci --repo ~/deployments/als-exemplar
+      $ osprey scaffold ci --force
+    """
+    # Imported here rather than at module scope: it pulls the whole
+    # build-profile chain in behind it, and every other verb in this group
+    # runs without any of it.
+    from .deploy_scaffold import scaffold_deploy_files
+
+    # Resolved before anything is emitted: standing outside a repo is a mistake
+    # about where the command was run, not a scaffolding failure.
+    repo_root = find_repo_root(repo)
+
+    try:
+        emitted = scaffold_deploy_files(repo_root, force=force)
+    except ConfigurationError as exc:
+        raise click.ClickException(str(exc)) from None
+
+    for result in emitted:
+        shown = result.path.relative_to(repo_root)
+        if result.refused:
+            console.print(f"  [error]✗[/error] {shown} — NOT written: {result.reason}")
+        elif result.action == "unchanged":
+            console.print(f"  [dim]= {shown} (unchanged)[/dim]")
+        else:
+            console.print(f"  [success]✓[/success] {shown} ({result.action})")
+
+    if any(result.refused for result in emitted):
+        # Non-zero, because an operator who asked for a re-emission did not get
+        # one. The reason above already names the flag that overrides it.
+        raise SystemExit(1)
 
 
 def _owned_row(profile_root: Path | None, name: str) -> tuple[str, str, str]:
@@ -788,16 +884,10 @@ def _owned_row(profile_root: Path | None, name: str) -> tuple[str, str, str]:
 
 
 @scaffold.command(name="list")
-@click.option(
-    "--project",
-    "-p",
-    type=click.Path(exists=True, file_okay=False, resolve_path=True),
-    default=None,
-    help="Project directory (default: current directory)",
-)
-def list_artifacts(project):
+@repo_option
+def list_artifacts(repo):
     """List all build artifacts and their ownership status."""
-    project_dir = Path(project) if project else Path.cwd()
+    project_dir = _build_zone(repo)
 
     try:
         config = _load_config(project_dir)
@@ -840,28 +930,20 @@ def list_artifacts(project):
 
 @scaffold.command(name="claim")
 @click.argument("name")
-@click.option(
-    "--project",
-    "-p",
-    type=click.Path(exists=True, file_okay=False, resolve_path=True),
-    default=None,
-    help="Project directory (default: current directory)",
-)
-def claim(name, project):
-    """Move an artifact into the profile this project was built from.
+@repo_option
+def claim(name, repo):
+    """Move an artifact from the build zone to the profile.
 
     The profile is the source of truth, so claiming an artifact means putting it
-    where the profile keeps that kind of artifact — ``rules/safety.md``,
-    ``skills/orbit-check/``, ``services/postgresql/``. A file moves as a file;
+    where the profile keeps that kind of artifact — rules/safety.md,
+    skills/orbit-check/, services/postgresql/. A file moves as a file;
     skills and services move as whole directories. The next build copies it back
-    into the project and registers it as user-owned, so regen never overwrites it
-    and prune never unlinks it.
+    into the build zone and registers it as user-owned, so a rebuild never
+    overwrites it and prune never unlinks it.
 
-    The project copy is *moved*, not copied: after a claim the artifact lives in
-    one place only, until the next ``osprey build ... --force`` deploys it again.
-
-    A project with no resolvable profile cannot be claimed into — nothing would
-    keep the edit, and the next build would overwrite it.
+    The built copy is *moved*, not copied: after a claim the artifact lives in
+    one place only — the source zone, which is the tracked one — until the next
+    build renders it again.
 
     Examples:
 
@@ -871,7 +953,7 @@ def claim(name, project):
       osprey scaffold claim skills/orbit-check
       osprey scaffold claim services/postgresql
     """
-    project_dir = Path(project) if project else Path.cwd()
+    project_dir = _build_zone(repo)
 
     try:
         outcome = claim_into_profile(project_dir, name)
@@ -892,21 +974,15 @@ def claim(name, project):
     console.print(
         "\n  Edit it in the profile — every build registers "
         f"[bold]{outcome.target.name}[/bold] as user-owned when it copies it in.\n"
-        "  Redeploy it into the project with:\n"
-        f"    {_rebuild_hint(project_dir)}\n"
+        "  Render it into the build zone again with:\n"
+        f"    {_REBUILD_HINT}\n"
     )
 
 
 @scaffold.command(name="diff")
 @click.argument("name")
-@click.option(
-    "--project",
-    "-p",
-    type=click.Path(exists=True, file_okay=False, resolve_path=True),
-    default=None,
-    help="Project directory (default: current directory)",
-)
-def diff(name, project):
+@repo_option
+def diff(name, repo):
     """Show diff between a framework template and your file.
 
     Renders the current framework template and compares it against
@@ -918,7 +994,7 @@ def diff(name, project):
       osprey scaffold diff agents/channel-finder
       osprey scaffold diff rules/facility
     """
-    project_dir = Path(project) if project else Path.cwd()
+    project_dir = _build_zone(repo)
     config = _load_config(project_dir)
     user_owned = get_user_owned(config)
 
@@ -1033,18 +1109,12 @@ def diff(name, project):
 
 @scaffold.command(name="unclaim")
 @click.argument("name")
-@click.option(
-    "--project",
-    "-p",
-    type=click.Path(exists=True, file_okay=False, resolve_path=True),
-    default=None,
-    help="Project directory (default: current directory)",
-)
-def unclaim(name, project):
+@repo_option
+def unclaim(name, repo):
     """Release ownership and restore framework management.
 
     Removes the artifact from the user_owned list in config.yml and
-    .osprey-manifest.json. The next ``osprey claude regen`` will
+    .osprey-manifest.json. The next `osprey build` will
     overwrite the file with the framework template.
 
     Ownership that a build derived from the profile is re-registered by the
@@ -1058,7 +1128,7 @@ def unclaim(name, project):
       osprey scaffold unclaim agents/channel-finder
       osprey scaffold unclaim rules/safety
     """
-    project_dir = Path(project) if project else Path.cwd()
+    project_dir = _build_zone(repo)
     config = _load_config(project_dir)
     user_owned = get_user_owned(config)
 
@@ -1096,40 +1166,27 @@ def unclaim(name, project):
     if artifact is not None and artifact.is_directory:
         console.print("\n  Next `osprey build` will refresh it from the framework template.\n")
     else:
-        console.print(
-            "\n  Next `osprey claude regen` will overwrite with the framework template.\n"
-        )
+        console.print("\n  Next `osprey build` will overwrite it with the framework template.\n")
 
 
 @scaffold.group(name="web-terminals", invoke_without_command=True)
 @click.pass_context
 def web_terminals(ctx):
-    """Validate and render the modules.web_terminals deployment stanza.
+    """Validate and render the web_terminals stanza.
 
-    Reads the stanza from the project's own config.yml, which the profile's
-    config: block produces. Point at a project with --project, or run from
-    inside one.
+    Reads the stanza from the repo's built config.yml, which the profile's
+    config: block produces. Point at a repo with --repo, or run from inside
+    one.
 
     Examples:
 
     \b
       osprey scaffold web-terminals lint
-      osprey scaffold web-terminals render --project my-project -o deploy/
+      osprey scaffold web-terminals render --repo ~/deployments/demo -o deploy/
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
-
-#: ``--project DIR`` for the web-terminals verbs, matching the surface the other
-#: ``osprey scaffold`` verbs already expose. ``click.option`` builds a fresh
-#: Option per application, so one decorator can serve both subcommands.
-_web_terminals_project_option = click.option(
-    "--project",
-    "-p",
-    type=click.Path(exists=True, file_okay=False, resolve_path=True),
-    default=None,
-    help="Project directory (default: current directory)",
-)
 
 #: The retired ``--config PATH`` surface. Deliberately untyped and without
 #: ``exists=True``: the option no longer names anything the CLI can read, and
@@ -1140,7 +1197,7 @@ _web_terminals_retired_config_option = click.option(
     "--config",
     "config_path",
     default=None,
-    help="Removed. The stanza comes from the project's config.yml; see --project.",
+    help="Removed. The stanza comes from the repo's built config.yml; see --repo.",
 )
 
 
@@ -1149,9 +1206,9 @@ def _reject_retired_config_option(config_path: str | None) -> None:
 
     ``--config`` pointed at a standalone facility-config.yml, a second source of
     truth for facts the profile already owns. That file is gone: the
-    ``modules.web_terminals`` stanza now reaches a project through the profile's
-    ``config:`` block, and the deployment artifacts around it through
-    ``osprey deploy scaffold`` and the profile's ``deploy:`` block. The option is
+    ``modules.web_terminals`` stanza now reaches the build zone through the
+    profile's ``config:`` block, and the deployment artifacts around it through
+    ``osprey scaffold ci`` and the profile's ``deploy:`` block. The option is
     kept for one release so an operator running the old command line is told
     where each half went instead of meeting an unknown-option error.
 
@@ -1159,21 +1216,26 @@ def _reject_retired_config_option(config_path: str | None) -> None:
         config_path: Whatever ``--config`` received, or ``None`` if unused.
 
     Raises:
-        ConfigurationError: Whenever ``--config`` was supplied at all — valid
-            path, missing path, or empty string.
+        SystemExit: Whenever ``--config`` was supplied at all — valid path,
+            missing path, or empty string. A bare exit rather than an exception
+            carrying the text, because the message has already been reported on
+            the operator's error channel by the line above; raising a
+            :class:`~osprey.errors.ConfigurationError` here printed the refusal
+            and then a traceback on top of it, which reads as a crash rather
+            than as the deliberate tombstone it is.
     """
     if config_path is None:
         return
     message = (
         "--config is no longer supported: there is no facility-config.yml. "
-        "The modules.web_terminals stanza now lives in the project's own "
+        "The modules.web_terminals stanza now lives in the repo's built "
         "config.yml, emitted from the profile's `config:` block — run this verb "
-        "with --project DIR, or from inside the project. Its deployment "
-        "artifacts come from `osprey deploy scaffold`, driven by the profile's "
-        "`deploy:` block. Run /osprey-build-interview to author both blocks."
+        "with --repo DIR, or from inside the repo. Its deployment artifacts "
+        "come from `osprey scaffold ci`, driven by the profile's `deploy:` "
+        "block. Run /osprey-build-interview to author both blocks."
     )
     logger.error("%s", message)
-    raise ConfigurationError(message)
+    raise SystemExit(1)
 
 
 def _print_web_terminals_lint_errors(errors: list[Any]) -> None:
@@ -1190,10 +1252,10 @@ def _print_web_terminals_lint_errors(errors: list[Any]) -> None:
 
 
 @web_terminals.command(name="lint")
-@_web_terminals_project_option
+@repo_option
 @_web_terminals_retired_config_option
-def web_terminals_lint(project, config_path):
-    """Validate a project's modules.web_terminals stanza.
+def web_terminals_lint(repo, config_path):
+    """Validate this repo's modules.web_terminals stanza.
 
     Checks port-family allocation, reserved service names, and duplicate
     users. Exits non-zero if any error-severity finding is reported;
@@ -1204,13 +1266,13 @@ def web_terminals_lint(project, config_path):
 
     \b
       osprey scaffold web-terminals lint
-      osprey scaffold web-terminals lint --project my-project
+      osprey scaffold web-terminals lint --repo ~/deployments/demo
     """
     _reject_retired_config_option(config_path)
 
     from osprey.deployment.web_terminals.lint import lint_web_terminals
 
-    config = _load_config(Path(project) if project else Path.cwd())
+    config = _load_config(_build_zone(repo))
     findings = lint_web_terminals(config)
 
     if not findings:
@@ -1237,7 +1299,7 @@ def web_terminals_lint(project, config_path):
 
 
 @web_terminals.command(name="render")
-@_web_terminals_project_option
+@repo_option
 @_web_terminals_retired_config_option
 @click.option(
     "--output",
@@ -1253,8 +1315,8 @@ def web_terminals_lint(project, config_path):
     default=False,
     help="Skip the lint pre-check (by default, lint errors abort the render).",
 )
-def web_terminals_render(project, config_path, output_dir, no_lint):
-    """Render a project's modules.web_terminals deployment artifacts.
+def web_terminals_render(repo, config_path, output_dir, no_lint):
+    """Render this repo's modules.web_terminals deployment artifacts.
 
     Writes the docker-compose overlay, nginx routing fragment, and static landing
     page into --output, creating the directory (and its nginx/ subdirectory) as
@@ -1265,13 +1327,13 @@ def web_terminals_render(project, config_path, output_dir, no_lint):
 
     \b
       osprey scaffold web-terminals render -o deploy/
-      osprey scaffold web-terminals render --project my-project -o deploy/
+      osprey scaffold web-terminals render --repo ~/deployments/demo -o deploy/
     """
     _reject_retired_config_option(config_path)
 
     from osprey.deployment.web_terminals.render import render_web_terminals
 
-    config = _load_config(Path(project) if project else Path.cwd())
+    config = _load_config(_build_zone(repo))
 
     if not no_lint:
         from osprey.deployment.web_terminals.lint import lint_web_terminals

@@ -9,8 +9,8 @@ Two surfaces call in, at different altitudes:
 
 * :func:`lint_web_terminals` reads a **rendered project ``config.yml``** — the
   deploy-time view, where the ``services:`` block names every published host port
-  and every persona project either exists on disk or is auto-renderable.
-  ``osprey scaffold web-terminals lint|render`` runs this one.
+  and every persona project either exists on disk or is one ``osprey build``
+  away. ``osprey scaffold web-terminals lint|render`` runs this one.
 * :func:`lint_profile_config` reads a **build profile's ``config:`` block** — the
   authoring-time view, before anything is materialized. It runs the same checks
   minus the ones that can only be answered against a rendered project (see that
@@ -67,13 +67,18 @@ _PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
 class Finding:
     """A single lint result.
 
-    ``severity`` is one of ``"error"`` (a config that must be rejected),
-    ``"warn"`` (worth flagging, does not fail the check), or ``"info"`` (a
-    non-blocking note — e.g. a persona whose ``project_path`` does not exist
-    yet but is auto-renderable at deploy time).
+    ``severity`` is ``"error"`` (a config that must be rejected) or ``"warn"``
+    (worth flagging, does not fail the check — e.g. a persona whose
+    ``project_path`` has not been rendered yet, which no start will run past but
+    an ``osprey build`` clears).
+
+    There is deliberately no third, purely informational level. Every check here
+    answers "will this config deploy", so a finding either blocks or names work
+    the operator has to do; a level that meant neither would be a way to report
+    a problem without owning whether it is one.
     """
 
-    severity: Literal["error", "warn", "info"]
+    severity: Literal["error", "warn"]
     code: str
     message: str
 
@@ -151,7 +156,7 @@ def lint_profile_config(config: Mapping[str, Any]) -> list[Finding]:
     * **Persona project paths.** ``project_path`` resolves against the rendered
       project's directory, which does not exist at authoring time.
     * **``build_profile`` shape**, which rides on the same check.
-      ``osprey profile new`` rewrites each catalog entry's preset name into the
+      ``osprey init`` rewrites each catalog entry's preset name into the
       ``personas/<name>.yml`` delta it materializes beside the profile, so the
       value is only in its final form once that has happened.
 
@@ -161,7 +166,7 @@ def lint_profile_config(config: Mapping[str, Any]) -> list[Finding]:
     level joins the collision set once the project is rendered.
 
     Call this from a COMMAND, never from ``BuildProfile.validate()``. That
-    method also runs during profile *resolution*, which ``osprey profile new``
+    method also runs during profile *resolution*, which ``osprey init``
     goes through, and these findings would then pre-empt that command's own
     persona validator — which reports every unusable catalog entry at once and
     names the file-name rule a persona name really has to meet. The engine
@@ -701,7 +706,7 @@ def _check_empty_facility_prefix(
     ``<prefix>-nginx`` and ``<prefix>-web-<user>`` (see the compose template /
     :mod:`osprey.deployment.web_terminals.seeding`). An empty prefix renders
     leading-dash names like ``-nginx``, which Docker rejects — and only at
-    ``deploy up``, which never runs this lint pass. This check pulls that
+    ``osprey up``, which never runs this lint pass. This check pulls that
     failure forward to lint/build time.
 
     The effective prefix is derived exactly as ``render.py`` derives it
@@ -721,7 +726,7 @@ def _check_empty_facility_prefix(
             message=(
                 "modules.web_terminals has users configured but the effective "
                 "facility.prefix is empty; web container names render as "
-                "'-nginx'/'-web-<user>', which Docker rejects at deploy up"
+                "'-nginx'/'-web-<user>', which Docker rejects at `osprey up`"
             ),
         )
     ]
@@ -757,7 +762,7 @@ def _check_image_tag_empty(web_terminals: dict[str, Any]) -> list[Finding]:
     ``${VAR}`` that is unset at lint/render time (or is otherwise empty), it
     resolves to an empty string and the ref degrades to a tagless
     ``web-terminal:`` no registry can pull. Warn so the misconfiguration
-    surfaces here rather than at ``deploy up``. Scoped to registry mode — local
+    surfaces here rather than at ``osprey up``. Scoped to registry mode — local
     mode builds ``:local`` images and never reads ``image_tag``."""
     if effective_image_source(web_terminals) != "registry":
         return []
@@ -824,7 +829,7 @@ def _check_registry_url_coherence(
 def _check_local_mode_requires_catalog(web_terminals: dict[str, Any]) -> list[Finding]:
     """The lint-side mirror of
     :func:`~osprey.deployment.web_terminals.personas.resolve_personas`'s
-    ``strict=True`` ``ValueError`` guard. ``deploy up`` never runs the lint
+    ``strict=True`` ``ValueError`` guard. ``osprey up`` never runs the lint
     pass, so both guards must independently fail closed on ``image_source:
     local`` without a catalog + ``default_persona``."""
     if effective_image_source(web_terminals) != "local":
@@ -884,14 +889,14 @@ def _read_project_name(config_yml_path: Path) -> str | None:
 def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
     """Local mode: validate every referenced persona's ``project_path``.
 
-    ``project_path`` names the directory ``osprey deploy up`` builds a persona's
+    ``project_path`` names the directory ``osprey up`` builds a persona's
     image from. Two invariants are enforced here:
 
     * **Name invariant.** When ``project_path`` is set, its basename must equal
-      the catalog entry's ``project``. Persona auto-render derives its output
-      directory as ``<output_dir>/<project>`` (``build_cmd`` resolves
-      ``output_path / project_name``), so a basename that disagrees with
-      ``project`` would render into one directory while the catalog builds/mounts
+      the catalog entry's ``project``. ``osprey build`` names each persona render
+      ``<repo>-<delta stem>`` and writes it into ``build/``, so a basename that
+      disagrees with ``project`` would leave the render in one directory while
+      the catalog builds/mounts
       another — a dead path at runtime. A mismatch is an ERROR regardless of
       whether the directory exists yet.
     * **Existence.** The directory must exist and hold a ``Dockerfile`` and a
@@ -900,12 +905,15 @@ def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]
       ``container_project_dir`` derivation is keyed on the catalog's ``project``,
       not on anything read from the persona's own ``config.yml``).
 
-    Existence is relaxed for auto-render: a ``project_path`` that does not exist
-    yet but whose entry carries a usable ``build_profile`` is only an
-    informational finding ("missing but auto-renderable"), since ``deploy up``
-    renders it from that profile before building. A *partially* rendered
-    directory that exists but is missing its ``Dockerfile``/``config.yml`` stays
-    an ERROR — auto-render never overwrites an existing directory.
+    Existence is relaxed to a WARNING — never waived — for a ``project_path``
+    that does not exist yet but whose entry carries a usable ``build_profile``.
+    That is the ordinary state of a persona added since the last build, and the
+    ordinary command clears it: ``osprey build`` renders one project per delta.
+    It is not an error because nothing is misconfigured; it is not merely
+    informational because ``osprey up`` refuses to start until the render is
+    there. A *partially* rendered directory that exists but is missing its
+    ``Dockerfile``/``config.yml`` stays an ERROR — a half-written render is a
+    broken build rather than an absent one.
     """
     if effective_image_source(web_terminals) != "local":
         return []
@@ -946,8 +954,9 @@ def _check_one_persona_project_path(persona_name: str, entry: dict[str, Any]) ->
 
     project_path = Path(project_path_raw)
 
-    # Name invariant: auto-render writes into <output_dir>/<project>, so
-    # project_path's basename must equal the catalog `project`. A
+    # Name invariant: the build writes each persona render at a path whose
+    # basename is the catalog `project`, so project_path's basename must equal
+    # it. A
     # disagreement is a hard config error regardless of whether the
     # directory exists yet, and supersedes every existence check below —
     # there is nothing else about this persona worth reporting on top of it.
@@ -959,23 +968,23 @@ def _check_one_persona_project_path(persona_name: str, entry: dict[str, Any]) ->
                 message=(
                     f"modules.web_terminals.personas[{persona_name!r}].project_path "
                     f"{project_path_raw!r} has basename {project_path.name!r}, which "
-                    f"does not match its project {catalog_project!r}; auto-render "
-                    "derives the output directory from project, so the two must agree"
+                    f"does not match its project {catalog_project!r}; the render "
+                    "`osprey build` writes is found by project, so the two must agree"
                 ),
             )
         ]
 
     # Shape of build_profile, enforced through the SAME predicate the deploy-time
-    # resolver uses, so this gate cannot bless a value `osprey deploy up` will
-    # reject — the failure mode that matters here, since `deploy up` never runs
+    # resolver uses, so this gate cannot bless a value `osprey up` will
+    # reject — the failure mode that matters here, since `osprey up` never runs
     # lint and an operator who lints clean would otherwise meet a hard deploy
     # error the gate promised away.
     #
     # Checked regardless of whether project_path exists: a rendered directory
     # makes an unusable value harmless only until someone removes it, and a
     # verdict that depended on local filesystem state would not be a gate. Like
-    # the name mismatch above it supersedes the existence findings — an entry
-    # that can never be auto-rendered has nothing to add about being missing.
+    # the name mismatch above it supersedes the existence findings — an entry no
+    # build could ever render has nothing to add about being missing.
     if has_build_profile:
         problem = persona_build_profile_shape_problem(cast(str, build_profile))
         if problem is not None:
@@ -986,28 +995,30 @@ def _check_one_persona_project_path(persona_name: str, entry: dict[str, Any]) ->
                     message=(
                         f"modules.web_terminals.personas[{persona_name!r}].build_profile "
                         f"{problem} Set it to {f'personas/{persona_name}.yml'!r} — the "
-                        "delta `osprey profile new` writes beside the profile this "
-                        "project is built from — or render the persona project yourself "
-                        "with `osprey build`. A variant build that predates the delta "
-                        "layout has no such file to point at yet; run "
-                        "/osprey-build-interview to convert it into one"
+                        "delta `osprey init` writes in this repo's personas/ directory, "
+                        "which is what `osprey build` renders the persona project from. "
+                        "A variant build that predates the delta layout has no such file "
+                        "to point at yet; run /osprey-build-interview to convert it into one"
                     ),
                 )
             ]
 
     if not project_path.is_dir():
-        # Missing directory: only auto-renderable (info) when a build_profile
-        # can render it, otherwise the pre-existing hard error.
+        # Missing directory: a warning rather than the hard error when a
+        # build_profile names the delta a build would render it from, because
+        # that is the ordinary state of a persona added since the last build and
+        # the ordinary command clears it. It is not merely informational: no
+        # start will run until it is cleared.
         if has_build_profile:
             return [
                 Finding(
-                    severity="info",
-                    code="web_terminals.persona_project_path_auto_renderable",
+                    severity="warn",
+                    code="web_terminals.persona_project_path_not_rendered_yet",
                     message=(
                         f"modules.web_terminals.personas[{persona_name!r}].project_path "
-                        f"{project_path_raw!r} does not exist yet, but the entry has a "
-                        f"build_profile {build_profile!r}; deploy up will render it "
-                        "before building"
+                        f"{project_path_raw!r} does not exist. `osprey build` renders it "
+                        f"from the delta its build_profile names ({build_profile!r}); "
+                        "`osprey up` REFUSES to start until it is there. Run `osprey build`"
                     ),
                 )
             ]
@@ -1223,7 +1234,7 @@ def _check_nginx_image(web_terminals: dict[str, Any]) -> list[Finding]:
 # These are scaffold-time feedback only. The authoritative deploy-path gates
 # live elsewhere and fail closed on their own: render.py raises on an unknown
 # `auth.method` and on auth-without-TLS, and `auth_credentials.py` raises on a
-# roster it cannot key credentials for. `osprey deploy` never runs this module,
+# roster it cannot key credentials for. `osprey up` never runs this module,
 # so nothing here may be the only thing standing between a bad config and a
 # deployment — every check below mirrors a gate that also exists downstream,
 # except where the downstream path *cannot* see the mistake (see

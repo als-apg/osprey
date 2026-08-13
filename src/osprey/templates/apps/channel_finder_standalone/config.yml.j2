@@ -110,7 +110,7 @@ system:
 # ============================================================
 # The channel finder is file-backed (a channel database read directly by the
 # panel server and the MCP tools); it needs no Postgres, Typesense, or other
-# standing service. `osprey web` runs it with zero `osprey deploy up`.
+# standing service. `osprey web` runs it with zero `osprey up`.
 deployed_services: []
 
 # ============================================================
@@ -202,9 +202,12 @@ channel_finder:
       # Feedback loop: records successful navigation paths for identical queries.
       feedback:
         enabled: true
-        store_path: _agent_data/feedback/hierarchical_feedback.json
-                                      # Runtime state — data/ is build-owned
-                                      # and cleared by `osprey build --force`.
+        store_path: var/agent_data/feedback/hierarchical_feedback.json
+                                      # Runtime state, so it sits in the var/
+                                      # STATE zone alongside
+                                      # agent_data.base_dir — data/ is
+                                      # build-owned and every build clears
+                                      # build/.
 {% endif %}
 {% if enable_middle_layer %}
     # Middle Layer Pipeline (React Agent with MML Database) — best for
@@ -236,12 +239,17 @@ channel_finder:
 # ============================================================
 # AGENT DATA & ARTIFACT GALLERY
 # ============================================================
+# Resolved relative to `project_root` above — the deployment repo's root, not
+# this file's directory. It belongs under var/, the durable STATE zone: build/
+# is wiped and re-rendered by every build, and the repo's .gitignore keeps var/
+# out of git. A path outside var/ would land the agent's memory in the tracked
+# source zone and dirty `git status` on first run.
 agent_data:
-  base_dir: "./_agent_data"
+  base_dir: "var/agent_data"
 
 # Subdirectory names within the agent data directory above. A subdirectory key
 # absent from this block falls back to the key's own name, so without it the
-# registry export lands in `_agent_data/registry_exports_dir/`.
+# registry export lands in `<agent_data.base_dir>/registry_exports_dir/`.
 file_paths:
   api_calls_dir: api_calls
   registry_exports_dir: registry_exports

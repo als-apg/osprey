@@ -110,9 +110,12 @@ def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant")
     So this applies the same rewrite, through the same function the
     materializer calls and over the same catalog it derives, keeping the lint
     tests below a unit-cost check of the real output rather than a pin on an
-    intermediate. (The end-to-end proof that these agree lives in
-    ``tests/cli/test_persona_profile_emission.py``, which drives
-    ``profile new`` → ``build`` for every persona-bearing preset.)
+    intermediate. ``repo_name`` is *preset*: a repo named after the preset is
+    exactly what a real ``osprey init --preset control-assistant`` produces, so
+    the rewritten ``project``/``project_path`` values match what materialization
+    would actually emit. (The end-to-end proof that these agree lives in
+    ``tests/cli/test_persona_profile_emission.py``, which drives ``osprey
+    init`` → ``osprey build`` for every persona-bearing preset.)
     """
     from osprey.cli.build_profile_emit import persona_catalog
     from osprey.cli.profile_cmd import _persona_catalog_layer
@@ -123,7 +126,8 @@ def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant")
         yaml.safe_dump({"system": {}}, fh)
     config_update_fields(config_path, resolved.config)
     config_update_fields(
-        config_path, _persona_catalog_layer(persona_catalog(resolved.config))["config"]
+        config_path,
+        _persona_catalog_layer(persona_catalog(resolved.config), repo_name=preset)["config"],
     )
     with config_path.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
@@ -269,9 +273,9 @@ class TestControlAssistantWebTier:
         zero ERROR findings pre-deploy.
 
         The referenced persona projects do not exist yet at build time; the lint
-        demotes those missing-but-auto-renderable paths to informational findings
-        (they carry a ``build_profile`` deploy up renders from), so the gate is
-        clean before any project is rendered.
+        demotes those not-yet-rendered paths to WARNINGS (they carry a
+        ``build_profile`` naming the delta ``osprey build`` renders them from),
+        so the gate is clean before any project is rendered.
 
         Linted through :func:`_render_deployable_config`, i.e. after the catalog
         rewrite every build performs — the preset's own ``build_profile`` values
@@ -296,7 +300,7 @@ class TestControlAssistantWebTier:
         ``<prefix>-nginx`` and ``<prefix>-web-<user>`` for the tutorial roster
         — all match the Docker name grammar (start alphanumeric, no leading
         dash). An empty prefix renders leading-dash names like ``-nginx``,
-        which Docker rejects and ``osprey deploy up`` fails the web stack on.
+        which Docker rejects and ``osprey up`` fails the web stack on.
         """
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         prefix = rendered["facility"]["prefix"]
@@ -305,9 +309,9 @@ class TestControlAssistantWebTier:
             assert DOCKER_NAME_RE.match(name), f"invalid Docker container name: {name!r}"
 
     def test_rendered_config_satisfies_landing_url(self, tmp_path: Path) -> None:
-        """The rendered config passes the exact check ``deploy up`` runs —
-        ``_landing_url`` raises without ``deploy.fqdn``, aborting
-        ``osprey deploy up`` for the otherwise zero-config tutorial."""
+        """The rendered config passes the exact check ``osprey up`` runs —
+        ``_landing_url`` raises without ``deploy.fqdn``, aborting ``osprey up``
+        for the otherwise zero-config tutorial."""
         from osprey.deployment.web_terminals.render import _landing_url
 
         rendered = _render_config_overrides(tmp_path, {"system": {}})
@@ -424,8 +428,13 @@ class TestWebTerminalContextShipped:
     carries the ``docker/web-terminal-context/base.md`` that seeding
     requires. base.md is framework-layer: any project that seeds a web
     terminal user needs it, so it ships from the framework template root
-    rather than from one bundle. Without it, ``osprey deploy up`` brings up
-    the whole stack and then aborts at the seed step."""
+    rather than from one bundle. Without it, ``osprey up`` brings up the whole
+    stack and then aborts at the seed step.
+
+    The path is PROJECT-relative (``seeding._CONTEXT_RELPATH``), and in a
+    deployment repo the rendered project is the ``build/`` zone — which is why
+    the seeding test below places the render there rather than treating it as
+    the repo root."""
 
     def test_built_project_ships_base_md(self, tmp_path: Path) -> None:
         from osprey.cli.templates.manager import TemplateManager
@@ -437,7 +446,7 @@ class TestWebTerminalContextShipped:
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
         )
-        base_md = project_dir / seeding._CONTEXT_DIR / "base.md"
+        base_md = project_dir / seeding._CONTEXT_RELPATH / "base.md"
         assert base_md.is_file()
         assert base_md.read_text(encoding="utf-8").strip() != ""
 
@@ -462,7 +471,7 @@ class TestWebTerminalContextShipped:
             output_dir=tmp_path,
             data_bundle="hello_world",
         )
-        base_md = project_dir / seeding._CONTEXT_DIR / "base.md"
+        base_md = project_dir / seeding._CONTEXT_RELPATH / "base.md"
         assert base_md.is_file()
         assert base_md.read_text(encoding="utf-8").strip() != ""
 
@@ -472,18 +481,32 @@ class TestWebTerminalContextShipped:
         """A seeded roster on a non-control_assistant bundle reaches the
         CLAUDE.md write instead of aborting on a missing base.md — the
         pre-flight ``RuntimeError`` such a project hit before base.md became
-        framework-layer."""
+        framework-layer.
+
+        The render is placed where a deployment repo keeps it — as the repo's
+        ``build/`` zone — because that is where seeding resolves the overlay
+        tree. Seeding from the repo root is the deploy verbs' working
+        directory, so this exercises the real pairing rather than a bare
+        project directory no deployment has.
+        """
+        import shutil
         import subprocess
 
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        project_dir = TemplateManager().create_project(
+        rendered = TemplateManager().create_project(
             project_name="ctx-seed-hello",
             output_dir=tmp_path,
             data_bundle="hello_world",
         )
-        base_content = (project_dir / seeding._CONTEXT_DIR / "base.md").read_text(encoding="utf-8")
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        project_dir = repo / "build"
+        shutil.move(str(rendered), str(project_dir))
+        base_content = (project_dir / seeding._CONTEXT_RELPATH / "base.md").read_text(
+            encoding="utf-8"
+        )
 
         container = "dls-web-alice"
         seeded: list[bytes | None] = []
@@ -503,7 +526,7 @@ class TestWebTerminalContextShipped:
         monkeypatch.setattr(seeding.subprocess, "run", _fake_run)
         monkeypatch.setattr(seeding, "get_runtime_command", lambda config=None: ["docker"])
         monkeypatch.setattr(seeding, "runtime_env", lambda config, base_env=None, **kw: {})
-        monkeypatch.chdir(project_dir)
+        monkeypatch.chdir(repo)
 
         seeding.seed_user_containers(
             {

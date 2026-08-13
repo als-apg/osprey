@@ -31,10 +31,10 @@ def _config(users):
     }
 
 
-def test_write_web_terminal_artifacts_writes_three_files_under_dest(tmp_path):
+def test_write_web_terminal_artifacts_writes_three_files_under_the_build_zone(tmp_path):
     written = write_web_terminal_artifacts(_config(["alice", "bob"]), tmp_path)
 
-    names = {p.relative_to(tmp_path).as_posix() for p in written}
+    names = {p.relative_to(tmp_path / "build").as_posix() for p in written}
     assert names == {
         "docker-compose.web.yml",
         "nginx/nginx.conf",
@@ -47,16 +47,24 @@ def test_write_web_terminal_artifacts_writes_three_files_under_dest(tmp_path):
 
 def test_write_web_terminal_artifacts_creates_nginx_parent_dir(tmp_path):
     write_web_terminal_artifacts(_config(["alice"]), tmp_path)
-    assert (tmp_path / "nginx").is_dir()
-    assert (tmp_path / "nginx" / "nginx.conf").is_file()
+    assert (tmp_path / "build" / "nginx").is_dir()
+    assert (tmp_path / "build" / "nginx" / "nginx.conf").is_file()
 
 
-def test_write_web_terminal_artifacts_defaults_to_cwd(tmp_path, monkeypatch):
+def test_write_web_terminal_artifacts_defaults_to_the_repos_build_zone(tmp_path, monkeypatch):
+    """With no destination given, the artifacts land in the repo's build/ zone.
+
+    Never at the repo root: they are render output, and a compose file or an
+    nginx/ tree at the root would be untracked clutter in the source zone that
+    the next `rm -rf build/` would not clean up — while the running stack kept
+    reading the copy it was started from.
+    """
     monkeypatch.chdir(tmp_path)
     written = write_web_terminal_artifacts(_config(["alice"]))
-    assert (tmp_path / "docker-compose.web.yml").is_file()
-    # Written paths are relative to the CWD default.
-    assert any(p.name == "docker-compose.web.yml" for p in written)
+    assert (tmp_path / "build" / "docker-compose.web.yml").is_file()
+    assert not (tmp_path / "docker-compose.web.yml").exists()
+    assert not (tmp_path / "nginx").exists()
+    assert {p.parent for p in written} <= {tmp_path / "build", tmp_path / "build" / "nginx"}
 
 
 def test_write_web_terminal_artifacts_reflects_object_form_users(tmp_path):
@@ -64,7 +72,7 @@ def test_write_web_terminal_artifacts_reflects_object_form_users(tmp_path):
     write_web_terminal_artifacts(
         _config([{"name": "alice", "index": 0}, {"name": "bob", "index": 1}]), tmp_path
     )
-    compose = (tmp_path / "docker-compose.web.yml").read_text(encoding="utf-8")
+    compose = (tmp_path / "build" / "docker-compose.web.yml").read_text(encoding="utf-8")
     assert "web-alice" in compose
     assert "web-bob" in compose
 
@@ -100,15 +108,16 @@ def _rendered_auth_service(dest) -> dict:
 
 
 def test_write_stamps_the_auth_sidecar_with_the_env_auth_content_digest(tmp_path):
-    """The label is the sha256 of the file's exact bytes under dest_dir — the
-    same directory compose resolves `env_file: .env.auth` against, so the
-    digest is a faithful stand-in for what the sidecar will actually read."""
+    """The label is the sha256 of the file's exact bytes at the REPO ROOT — the
+    directory compose resolves `env_file: .env.auth` against once the project
+    directory is pinned there, so the digest is a faithful stand-in for what the
+    sidecar will actually read. The artifacts themselves land in build/."""
     content = b"OSPREY_AUTH_SESSION_SECRET=abc123\n"
     (tmp_path / AUTH_ENV_FILENAME).write_bytes(content)
 
-    write_web_terminal_artifacts(_auth_config(["alice"]), tmp_path)
+    write_web_terminal_artifacts(_auth_config(["alice"]), repo_root=tmp_path)
 
-    auth = _rendered_auth_service(tmp_path)
+    auth = _rendered_auth_service(tmp_path / "build")
     assert auth["labels"][AUTH_ENV_DIGEST_LABEL] == hashlib.sha256(content).hexdigest()
 
 
@@ -123,20 +132,21 @@ def test_hand_edit_of_env_auth_changes_the_rendered_sidecar_definition(tmp_path)
     config = _auth_config(["alice"])
     env_auth = tmp_path / AUTH_ENV_FILENAME
     env_auth.write_text("OSPREY_AUTH_SESSION_SECRET=abc123\n", encoding="utf-8")
+    build = tmp_path / "build"
 
-    write_web_terminal_artifacts(config, tmp_path)
-    before = _rendered_auth_service(tmp_path)
-    compose_before = (tmp_path / "docker-compose.web.yml").read_bytes()
+    write_web_terminal_artifacts(config, repo_root=tmp_path)
+    before = _rendered_auth_service(build)
+    compose_before = (build / "docker-compose.web.yml").read_bytes()
 
     # No-op redeploy first: same file, byte-identical render.
-    write_web_terminal_artifacts(config, tmp_path)
-    assert (tmp_path / "docker-compose.web.yml").read_bytes() == compose_before
+    write_web_terminal_artifacts(config, repo_root=tmp_path)
+    assert (build / "docker-compose.web.yml").read_bytes() == compose_before
 
     # The hand-edit, exactly as documented for OIDC deployments.
     with env_auth.open("a", encoding="utf-8") as handle:
         handle.write("OSPREY_AUTH_OIDC_CLIENT_SECRET=idp-issued-secret\n")
-    write_web_terminal_artifacts(config, tmp_path)
-    after = _rendered_auth_service(tmp_path)
+    write_web_terminal_artifacts(config, repo_root=tmp_path)
+    after = _rendered_auth_service(build)
 
     assert before != after
     assert before["labels"][AUTH_ENV_DIGEST_LABEL] != after["labels"][AUTH_ENV_DIGEST_LABEL]
@@ -148,7 +158,7 @@ def test_missing_env_auth_digests_the_empty_string_instead_of_crashing(tmp_path)
     content, which the first real deploy's re-render then supersedes."""
     write_web_terminal_artifacts(_auth_config(["alice"]), tmp_path)
 
-    auth = _rendered_auth_service(tmp_path)
+    auth = _rendered_auth_service(tmp_path / "build")
     assert auth["labels"][AUTH_ENV_DIGEST_LABEL] == hashlib.sha256(b"").hexdigest()
 
 

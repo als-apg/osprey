@@ -9,14 +9,13 @@ import pytest
 @pytest.fixture()
 def fake_project(tmp_path, monkeypatch):
     """Set up a fake project directory with workspace and transcript."""
-    # Create workspace structure so resolve_workspace_root().parent works
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
+    (tmp_path / "var" / "agent_data").mkdir(parents=True)
 
-    # Patch resolve_workspace_root to return our fake workspace
+    # The metadata gatherer resolves the repo root directly — it no longer
+    # infers it from the agent-data root's position — so that is the seam.
     monkeypatch.setattr(
-        "osprey.utils.workspace.resolve_workspace_root",
-        lambda: workspace,
+        "osprey.utils.workspace.resolve_project_root",
+        lambda config=None: tmp_path,
     )
 
     return tmp_path

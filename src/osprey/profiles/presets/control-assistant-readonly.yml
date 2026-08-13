@@ -15,21 +15,18 @@ name: Control Assistant (Read-Only)
 
 extends: control-assistant
 
-# Attached project: the persona builds per-user terminal images only and
-# connects to the shared web tier + scan services the hosting control-assistant
-# project deploys on the same host. No services are scaffolded (empty
-# `deployed_services`, no services/) — the bluesky/VA/panels/dispatch injector
-# blocks inherited from the base are all gated on this flag and skip cleanly.
+# Attached render: this persona builds per-user terminal images only and
+# connects to the shared web tier the hosting deployment runs on the same host.
+# No services are scaffolded — the injector blocks inherited from the base are
+# all gated on this flag and skip cleanly.
 deploy_services: false
 
 # ── Config overrides ─────────────────────────────────────────────────────────
-# Dotted keys ONLY: each entry is a literal `key.path` written into config.yml
-# after the template renders. Nested YAML under `config:` would deep-merge into
-# and clobber the base's rendered config subtree, so keep every override flat.
+# Dotted keys ONLY — see the base profile's block.
 config:
-  # The tier boundary. The tutorial base arms writes for its own single-user
-  # agent, so this MUST be pinned explicitly here — it is what makes the
-  # read-only terminal read-only.
+  # The single axis this persona hard-pins: this key IS the tier boundary, so
+  # it must not drift if the base's default ever changes — it is what makes
+  # the read-only terminal read-only.
   control_system.writes_enabled: false
   # Pared-down operator layout: chat only, workspace hidden until the agent
   # puts something in it. Pinned on both sides of the tier boundary (readwrite
@@ -39,8 +36,7 @@ config:
   # because their declarations live in the readwrite persona delta and never
   # reach this build (see the note in the base's config: block).
   web.ui_mode: simple
-  # Attached persona: the hosting project owns the web-terminal tier (nginx,
-  # landing, per-user containers). Without this override the inherited roster
-  # would make a persona-dir deploy try to host a second web tier on the same
-  # host ports.
+  # The hosting deployment owns the web-terminal tier (nginx, landing,
+  # per-user containers). Without this override the inherited roster would
+  # make this render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false

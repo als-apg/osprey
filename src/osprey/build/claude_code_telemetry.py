@@ -90,11 +90,29 @@ def _running_in_container() -> bool:
     """Best-effort detection of whether this process runs inside a container.
 
     Consulted once per :meth:`ClaudeCodeModelResolver.resolve` call to pick the
-    OpenObserve default host (``openobserve`` service name vs ``localhost``).
-    This is the single place container/filesystem/env state is read; the pure
+    OpenObserve default host (``openobserve`` service name vs ``localhost``),
+    and only when :func:`_openobserve_host_override` named none. This is the
+    single place container/filesystem/env state is read; the pure
     :func:`_build_telemetry_env` helper never touches ``os``.
+
+    The signal is the runtime's own marker file — ``/.dockerenv`` under
+    Docker, ``/run/.containerenv`` under Podman; probing only the Docker one
+    answered ``False`` inside every Podman container. ``OSPREY_IN_CONTAINER``
+    is an operator override on top of that, which the shipped compose
+    deliberately does not set.
+
+    None of it decides network topology, which is why
+    :func:`_openobserve_host_override` is consulted first and wins: whether the
+    ``openobserve`` service name resolves depends on the network mode, and only
+    the compose author knows it. Kept identical to
+    :func:`osprey.health.derive._in_container`, which is the same question asked
+    by a package that must not import this one.
     """
-    return os.path.exists("/.dockerenv") or bool(os.environ.get("OSPREY_IN_CONTAINER"))
+    return (
+        os.path.exists("/.dockerenv")
+        or os.path.exists("/run/.containerenv")
+        or bool(os.environ.get("OSPREY_IN_CONTAINER"))
+    )
 
 
 def _openobserve_host_override() -> str | None:

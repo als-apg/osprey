@@ -1,10 +1,16 @@
 """Tests for the osprey_focus_validate hook.
 
-This UserPromptSubmit hook reads ``_agent_data/focus_state.txt``, drops
-lines that reference deleted artifact IDs (by cross-checking
-``_agent_data/artifacts/artifacts.json``), and prints the cleaned content
-to stdout. It is defensive — never blocks a prompt — so all error paths
+This UserPromptSubmit hook reads ``focus_state.txt`` from the agent-data root,
+drops lines that reference deleted artifact IDs (by cross-checking
+``artifacts/artifacts.json`` under the same root), and prints the cleaned
+content to stdout. It is defensive — never blocks a prompt — so all error paths
 fail open with exit code 0.
+
+The root is seeded from :data:`~osprey.utils.workspace.DEFAULT_AGENT_DATA_BASE_DIR`
+rather than spelled out, because that is what the hook itself resolves: a test
+seeding a literal would silently stop putting the files where the hook looks,
+and a hook that finds no focus file strips nothing and still exits 0 — the
+failure would read as a pass.
 
 The hook has a contract no other hook in the payload shares: stdin is
 ignored entirely, and stdout is *raw text* that Claude Code injects into
@@ -15,6 +21,8 @@ behavioural tests below pin both halves of that.
 import json
 
 import pytest
+
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 HOOK_NAME = "osprey_focus_validate.py"
 
@@ -35,7 +43,7 @@ def _run(hook_runner_raw, monkeypatch, project_dir, stdin=None):
 
 
 def _seed(project_dir, focus, entries):
-    agent_data = project_dir / "_agent_data"
+    agent_data = project_dir / DEFAULT_AGENT_DATA_BASE_DIR
     (agent_data / "artifacts").mkdir(parents=True, exist_ok=True)
     (agent_data / "focus_state.txt").write_text(focus)
     if entries is not None:
@@ -88,7 +96,9 @@ def test_focus_validator_fails_open_on_malformed_index(hook_runner_raw, monkeypa
     """Malformed artifacts.json is treated as 'unknown' → fail open."""
     focus = '[Gallery Focus]\n  artifact: "Anything" (id=whatever)\n'
     _seed(tmp_path, focus, entries=None)
-    (tmp_path / "_agent_data" / "artifacts" / "artifacts.json").write_text("not json {{{")
+    (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "artifacts" / "artifacts.json").write_text(
+        "not json {{{"
+    )
 
     rc, stdout, _ = _run(hook_runner_raw, monkeypatch, tmp_path)
     assert rc == 0
@@ -108,8 +118,8 @@ def test_focus_validator_empty_focus_file(hook_runner_raw, monkeypatch, tmp_path
 @pytest.mark.unit
 def test_focus_validator_missing_focus_file(hook_runner_raw, monkeypatch, tmp_path):
     """No focus_state.txt at all yields empty output, exit 0."""
-    (tmp_path / "_agent_data" / "artifacts").mkdir(parents=True)
-    (tmp_path / "_agent_data" / "artifacts" / "artifacts.json").write_text(
+    (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "artifacts").mkdir(parents=True)
+    (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "artifacts" / "artifacts.json").write_text(
         json.dumps({"entries": []})
     )
 
