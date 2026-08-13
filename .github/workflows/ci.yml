@@ -70,9 +70,19 @@ jobs:
   test:
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # The slowest cell (macOS) finishes in ~11 min; without a bound, a single
-    # wedged xdist worker holds the lane at 99% for the 6-hour default.
-    timeout-minutes: 30
+    # Without a bound, a single wedged xdist worker holds the lane at 99% for
+    # the 6-hour default.
+    #
+    # 45 rather than 30, and the cells are no longer close to it. A healthy run
+    # is ~11 min (ubuntu 3.12) to ~22 min (ubuntu 3.11, which also measures
+    # coverage); macOS finishes in ~9-14. What forces the headroom is a known
+    # intermittent tail worth ~12 minutes: a worker wedges mid-test and its
+    # share has to be redistributed to a replacement, or the session hangs
+    # after the last test on non-daemon threads that outlive it. Both are
+    # visible in this lane's uploaded diagnostics, and neither is bounded by
+    # anything the suite controls, so a cap tight enough to catch them also
+    # reds the runs where they merely cost time.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -112,20 +122,19 @@ jobs:
       run: uv sync --extra dev --extra virtual-accelerator
 
     - name: Run unit tests
-      # timeout-minutes is deliberately below the job's 30-minute cap. A JOB
-      # timeout is a hard cancel: the runner stops the job outright, and the
-      # collection steps below never get a dependable chance to run, so a
-      # wedged lane is recorded as `cancelled` with nothing to read. Failing
-      # the STEP instead costs the same wall clock and leaves the summary and
-      # upload steps room to run.
+      # timeout-minutes is deliberately below the job's cap. A JOB timeout is a
+      # hard cancel: the runner stops the job outright, and the collection steps
+      # below never get a dependable chance to run, so a wedged lane is recorded
+      # as `cancelled` with nothing to read. Failing the STEP instead costs the
+      # same wall clock and leaves the summary and upload steps room to run.
       #
-      # The margin is sized to what collection actually costs, which is two
-      # seconds — measured, both steps together. It is NOT slack for the test
-      # run: the ubuntu cells legitimately reach ~22min (they carry the whole
-      # suite; macOS finishes in ~12), so a margin generous enough to feel safe
-      # reds a healthy lane, which is exactly what a 22-minute cap did here.
-      # Two minutes is sixty times what the collection needs.
-      timeout-minutes: 28
+      # The 5-minute margin is not sized to the collection steps, which take two
+      # seconds between them — it is there so this cap sits clear of the ~12
+      # minute intermittent tail described on the job cap above. A cap set just
+      # above the healthy runtime kills the runs that hit that tail and would
+      # have passed anyway; the value is deliberately loose for that reason, and
+      # tightening it is how this lane starts flaking.
+      timeout-minutes: 40
       env:
         # Switches on tests/ci_diagnostics.py: a continuously flushed event log
         # and stack-dump file per xdist worker, written here and uploaded below.
