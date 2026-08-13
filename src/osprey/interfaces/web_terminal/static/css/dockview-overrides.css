@@ -564,6 +564,11 @@
 html[data-ui-mode="simple"] .dock-root .dv-tabs-and-actions-container:not(:has(.tile-tab-terminal)) {
   height: 0;
   overflow: hidden;
+  /* The seated bar's closing hairline must go too. `height: 0` zeroes the
+   * CONTENT box; a border is not content, so under border-box the border
+   * still paints and the "collapsed" strip measures 1px — a stray rule over
+   * the panel, and one the simple-mode geometry assertion catches. */
+  border-bottom: none;
 }
 
 html[data-ui-mode="simple"] .dv-tab .tile-tab-close,
