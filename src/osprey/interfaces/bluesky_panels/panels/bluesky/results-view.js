@@ -2,29 +2,38 @@
 /**
  * BLUESKY panel — the Results view.
  *
- * Follows ONE run: polls `GET /runs/{id}` for its record and
- * `GET /runs/{id}/data` for a bounded rows/columns window, both through the
- * sidecar's read proxy, and renders a table plus an inline SVG trace. Read
- * only — nothing in this file issues a write verb.
+ * Follows ONE run through three reads per tick, all on the sidecar's read
+ * proxy: `GET /runs/{id}` for its record, `GET /runs/{id}/data` for a bounded
+ * rows/columns window, and `GET /runs/{id}/figure` for the plan's own view of
+ * itself. The first two feed the raw table; the third is handed to
+ * `figure-renderer.js` to draw. Read only — nothing in this file issues a
+ * write verb.
  *
- * Cadence: ~1 s while the run is non-terminal or its data still reports
- * `partial: true`; polling stops once the run is terminal and its data is
- * settled, so a finished run costs nothing.
+ * Cadence: ~1 s while the run is non-terminal or either the data or the figure
+ * still reports `partial: true`; polling stops once the run is terminal and
+ * both halves are settled, so a finished run costs nothing.
  *
  * Two shapes of "gone" are distinguished, because they mean opposite things:
  * `GET /runs/{id}` 404s once the manager has rotated the run out of its
- * history, while `GET /runs/{id}/data` keeps serving it from Tiled long
+ * history, while `/data` and `/figure` keep serving it from Tiled long
  * afterwards. A record 404 therefore does NOT clear the results — the data is
  * shown with a note, because the durable record is the one an operator came
  * for.
  *
- * Colors come from the theme-manager computed-style bridges, re-read inside a
- * `subscribe()` callback so the chart re-themes live rather than caching a
- * resolved token value.
+ * A figure that carries a `reason` is a DEFAULT view, not an error: the bridge
+ * could not run the plan's own `render()` and fell back to plotting the raw
+ * columns. It is drawn like any other, and the renderer's note line says why.
+ * A transient figure fetch failure keeps the last good figure on screen rather
+ * than blanking it, exactly as the table does with its last good rows.
+ *
+ * Colors live in the renderer, which re-reads the theme bridges on every call;
+ * this file re-renders the retained figure from a `subscribe()` callback so a
+ * settled run re-themes without waiting for a poll tick that will never come.
  */
 
-import { chartSeries, chartTheme, subscribe } from '/design-system/js/theme-manager.js';
+import { subscribe } from '/design-system/js/theme-manager.js';
 
+import { renderFigure } from './figure-renderer.js';
 import { describeProgress } from './queue-client.js';
 
 /** @typedef {{
@@ -46,16 +55,15 @@ import { describeProgress } from './queue-client.js';
  *   partial?: boolean,
  * }} RunData */
 
+/** The bridge's figure wire shape, owned by the renderer that draws it. */
+/** @typedef {import('./figure-renderer.js').Figure} Figure */
+
 /** @typedef {{ok: true, data: RunRecord} | {ok: false, notFound: boolean, message: string}} RecordFetch */
 /** @typedef {{ok: true, data: RunData} | {ok: false, notFound: boolean, notStarted: boolean, message: string}} DataFetch */
+/** @typedef {{ok: true, data: Figure} | {ok: false, notFound: boolean, message: string}} FigureFetch */
 
 const POLL_INTERVAL_MS = 1000;
 const TERMINAL_STATUSES = ['completed', 'stopped', 'error'];
-
-const CHART_WIDTH = 640;
-const CHART_HEIGHT = 220;
-const CHART_PADDING = 24;
-const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**
  * Badge tone for a run status. `pending`/`running` read as in-flight, a clean
@@ -106,30 +114,13 @@ export function formatCell(value) {
 }
 
 /**
- * Columns whose value is a finite number in every row of this window — the
- * only columns plotted. Non-numeric columns still appear in the table.
- *
- * @param {RunData} data
- * @returns {number[]}
- */
-export function numericColumnIndices(data) {
-  if (data.rows.length === 0) return [];
-  const indices = [];
-  for (let col = 0; col < data.columns.length; col++) {
-    const allNumeric = data.rows.every(
-      (row) => typeof row[col] === 'number' && Number.isFinite(row[col])
-    );
-    if (allNumeric) indices.push(col);
-  }
-  return indices;
-}
-
-/**
  * Whether following `run` should keep polling.
  *
  * Partial data outranks a terminal status: the run's stop document can land
  * before the last events are recorded, and stopping the poll there would
- * freeze the table one row short of the truth.
+ * freeze the table one row short of the truth. `partial` is the OR of what the
+ * two data-bearing reads report — either one still filling in is reason enough
+ * to look again.
  *
  * @param {string} status
  * @param {boolean} partial
@@ -148,10 +139,14 @@ export function shouldKeepPolling(status, partial) {
  *   tableNote: HTMLElement,
  *   tableHeadRow: HTMLTableRowElement,
  *   tableBody: HTMLTableSectionElement,
- *   chartCard: HTMLElement,
- *   chartSvg: SVGSVGElement,
- *   chartLegend: HTMLElement,
- * }} ResultsElements */
+ *   figureCard: HTMLElement,
+ *   figurePanels: HTMLElement,
+ *   figureNote: HTMLElement,
+ * }} ResultsElements `figurePanels` is handed straight to the renderer, which
+ *   empties and refills it; nothing else in this file writes to it.
+ *   `figureNote` takes the renderer's provenance line (source, partial,
+ *   reason) — it is a separate element from `note`, which carries this view's
+ *   own message about the run RECORD. */
 
 /**
  * @param {{
@@ -166,8 +161,14 @@ export function shouldKeepPolling(status, partial) {
  * @returns {{follow: (runId: string|null) => void, currentRunId: () => string|null, destroy: () => void}}
  */
 export function createResultsView({ api, elements, onPollingChange }) {
-  /** @type {{runId: string|null, timer: ReturnType<typeof setTimeout>|null, lastData: RunData|null}} */
-  const state = { runId: null, timer: null, lastData: null };
+  /** @type {{
+   *   runId: string|null,
+   *   timer: ReturnType<typeof setTimeout>|null,
+   *   lastFigure: Figure|null,
+   * }} `lastFigure` is the last figure that had something to draw. It is what a
+   *   theme change re-renders from, and what a transient figure fetch failure
+   *   leaves on screen. */
+  const state = { runId: null, timer: null, lastFigure: null };
 
   /**
    * Announce a change in whether the view is polling. Derived from the timer
@@ -213,7 +214,22 @@ export function createResultsView({ api, elements, onPollingChange }) {
     show(elements.note);
   }
 
+  // All three reads below check the SHAPE of a 200 before reporting success,
+  // and treat an unrecognizable body as a transient failure.
+  //
+  // This is not defensive habit, it is what keeps the panel alive: the three
+  // reads share one tick, so anything that throws between the `await` and
+  // `scheduleNextPoll` abandons the tick without rescheduling it. Because
+  // `state.timer` is never rewritten, the view then stops polling for good AND
+  // leaves the Results tab's activity marker stuck on, with nothing on screen
+  // to say so. And an unparseable 200 is not hypothetical: the read proxy's
+  // `safe_json` relays a null body on a 200, so any of these can arrive as
+  // 200 + `null`.
+
   /**
+   * The run's record. `status` is the field the whole tick turns on, so a body
+   * without one is not a record.
+   *
    * @param {string} runId
    * @returns {Promise<RecordFetch>}
    */
@@ -224,13 +240,21 @@ export function createResultsView({ api, elements, onPollingChange }) {
       if (!response.ok) {
         return { ok: false, notFound: false, message: `record HTTP ${response.status}` };
       }
-      return { ok: true, data: /** @type {RunRecord} */ (await response.json()) };
+      const body = await response.json();
+      if (!body || typeof body.status !== 'string') {
+        return { ok: false, notFound: false, message: 'record response was not a run record' };
+      }
+      return { ok: true, data: /** @type {RunRecord} */ (body) };
     } catch {
       return { ok: false, notFound: false, message: 'network error' };
     }
   }
 
   /**
+   * A bounded window of the run's rows. `columns` and `rows` are both checked
+   * because `renderTable` walks both, so a body carrying one without the other
+   * would throw downstream.
+   *
    * @param {string} runId
    * @returns {Promise<DataFetch>}
    */
@@ -246,9 +270,50 @@ export function createResultsView({ api, elements, onPollingChange }) {
       if (!response.ok) {
         return { ok: false, notFound: false, notStarted: false, message: `data HTTP ${response.status}` };
       }
-      return { ok: true, data: /** @type {RunData} */ (await response.json()) };
+      const body = await response.json();
+      if (!body || !Array.isArray(body.columns) || !Array.isArray(body.rows)) {
+        return {
+          ok: false,
+          notFound: false,
+          notStarted: false,
+          message: 'data response was not a data window',
+        };
+      }
+      return { ok: true, data: /** @type {RunData} */ (body) };
     } catch {
       return { ok: false, notFound: false, notStarted: false, message: 'network error' };
+    }
+  }
+
+  /**
+   * The plan's own view of the run.
+   *
+   * There is no "not started" shape here: the bridge answers 200 for any run
+   * either its live buffer or Tiled knows, and 404 — byte-identical to
+   * `/data`'s — only for a run neither source has heard of. A 502 (the sidecar
+   * cannot reach the bridge at all) lands in the transient bucket alongside a
+   * network error, which is what keeps the last good figure on screen.
+   *
+   * A 200 carrying something that is not a figure is treated the same way, per
+   * the shape rule above.
+   *
+   * @param {string} runId
+   * @returns {Promise<FigureFetch>}
+   */
+  async function fetchFigure(runId) {
+    try {
+      const response = await fetch(api(`/runs/${encodeURIComponent(runId)}/figure`));
+      if (response.status === 404) return { ok: false, notFound: true, message: 'run not found' };
+      if (!response.ok) {
+        return { ok: false, notFound: false, message: `figure HTTP ${response.status}` };
+      }
+      const body = await response.json();
+      if (!body || !Array.isArray(body.panels)) {
+        return { ok: false, notFound: false, message: 'figure response was not a figure' };
+      }
+      return { ok: true, data: /** @type {Figure} */ (body) };
+    } catch {
+      return { ok: false, notFound: false, message: 'network error' };
     }
   }
 
@@ -280,7 +345,11 @@ export function createResultsView({ api, elements, onPollingChange }) {
     const runId = state.runId;
     if (!runId) return;
 
-    const [recordFetch, dataFetch] = await Promise.all([fetchRecord(runId), fetchData(runId)]);
+    const [recordFetch, dataFetch, figureFetch] = await Promise.all([
+      fetchRecord(runId),
+      fetchData(runId),
+      fetchFigure(runId),
+    ]);
     // The selection changed while these were in flight — drop the stale
     // response; the newer follow() already issued its own poll.
     if (state.runId !== runId) return;
@@ -303,38 +372,72 @@ export function createResultsView({ api, elements, onPollingChange }) {
       setNote(`Could not load the run record: ${recordFetch.message}`);
     }
 
-    let partial = false;
+    let dataPartial = false;
+    // Neither half of the run exists — the one case where there is nothing
+    // left to wait for. Decided here, acted on below, so the figure still gets
+    // its turn to clear itself before the poll shuts down.
+    let nothingLeft = false;
     if (dataFetch.ok) {
-      partial = dataFetch.data.partial === true;
+      dataPartial = dataFetch.data.partial === true;
       renderTable(dataFetch.data);
-      renderChart(dataFetch.data);
-      state.lastData = dataFetch.data;
       setEmptyState(dataFetch.data.columns.length === 0 ? 'No data columns yet.' : null);
     } else if (dataFetch.notStarted) {
       hide(elements.tableCard);
-      hide(elements.chartCard);
       setEmptyState('This run has not started — no data yet.');
     } else if (dataFetch.notFound && !recordFetch.ok) {
       hide(elements.tableCard);
-      hide(elements.chartCard);
       setEmptyState('No record and no data for this run.', true);
-      stopPolling();
-      return;
+      nothingLeft = true;
     } else if (dataFetch.notFound) {
       hide(elements.tableCard);
-      hide(elements.chartCard);
       setEmptyState('No data recorded for this run yet.');
     } else {
-      // Transient data error: keep the last good table/chart on screen rather
-      // than clearing it out from under the operator.
+      // Transient data error: keep the last good table on screen rather than
+      // clearing it out from under the operator.
       setEmptyState(null);
     }
 
+    let figurePartial = false;
+    if (figureFetch.ok) {
+      figurePartial = figureFetch.data.partial === true;
+      if (figureFetch.data.panels.length > 0) {
+        // Retained only once it has actually been drawn — a figure the
+        // renderer choked on is not a figure worth re-rendering on every
+        // theme change for the rest of the session.
+        if (drawFigure(figureFetch.data)) state.lastFigure = figureFetch.data;
+      } else if (state.lastFigure === null) {
+        // Nothing to draw and nothing drawn before. An empty figure means the
+        // run has no plottable columns yet, or the bridge could not read the
+        // store this tick (`source_unavailable`) — in both cases the empty
+        // state above is already telling the operator where things stand, so
+        // an empty card would only add noise.
+        hide(elements.figureCard);
+      }
+      // An empty figure NEVER replaces a good one: a Tiled read that failed
+      // this tick says nothing about the figure it served last tick.
+    } else if (figureFetch.notFound) {
+      state.lastFigure = null;
+      hide(elements.figureCard);
+    }
+    // Any other figure failure is transient (a 502 while the bridge restarts,
+    // a dropped connection): leave the retained figure exactly where it is.
+
+    if (nothingLeft) {
+      // Neither source has this run any more, so anything still on screen is a
+      // plot of a run that no longer exists. Clearing it is what keeps the
+      // "No record and no data" banner from sitting over a drawn figure and
+      // contradicting it.
+      state.lastFigure = null;
+      hide(elements.figureCard);
+      stopPolling();
+      return;
+    }
+
     // `shouldKeepPolling` is the whole decision. In particular a run the
-    // manager has rotated away (record 404) whose data still reports
+    // manager has rotated away (record 404) whose data or figure still reports
     // `partial: true` keeps polling — the durable store is still filling in,
     // and the record's absence says nothing about that.
-    if (shouldKeepPolling(status, partial)) scheduleNextPoll(POLL_INTERVAL_MS);
+    if (shouldKeepPolling(status, dataPartial || figurePartial)) scheduleNextPoll(POLL_INTERVAL_MS);
   }
 
   /** @param {RunRecord} run */
@@ -389,93 +492,42 @@ export function createResultsView({ api, elements, onPollingChange }) {
     else show(elements.tableCard);
   }
 
-  /** @param {RunData} data */
-  function renderChart(data) {
-    const columnIndices = numericColumnIndices(data);
-    if (columnIndices.length === 0) {
-      hide(elements.chartCard);
-      return;
-    }
-    show(elements.chartCard);
-    drawChart(data, columnIndices);
-  }
-
   /**
-   * @param {RunData} data
-   * @param {number[]} columnIndices
+   * Hand a figure to the renderer and reveal the card.
+   *
+   * The renderer owns everything below `figurePanels` — it empties and refills
+   * that element, writes the provenance line into `figureNote`, and re-reads
+   * the theme on every call. This function exists so the poll path and the
+   * theme path draw through exactly the same door.
+   *
+   * A throwing renderer is contained here for the same reason a bad body is
+   * contained in `fetchFigure`: this runs inside the shared poll tick, so an
+   * escaping error would abandon the tick before it could reschedule itself,
+   * freezing the record and table reads too and leaving the tab's activity
+   * marker stuck on. A 200 whose `panels` array is well-formed but whose
+   * contents are not is the case that gets here.
+   *
+   * @param {Figure} figure
+   * @returns {boolean} Whether the figure actually reached the screen.
    */
-  function drawChart(data, columnIndices) {
-    const theme = chartTheme();
-    const seriesColors = chartSeries();
-    const svg = elements.chartSvg;
-
-    svg.replaceChildren();
-    elements.chartLegend.replaceChildren();
-
-    const background = document.createElementNS(SVG_NS, 'rect');
-    background.setAttribute('x', '0');
-    background.setAttribute('y', '0');
-    background.setAttribute('width', String(CHART_WIDTH));
-    background.setAttribute('height', String(CHART_HEIGHT));
-    background.setAttribute('fill', theme.plot_bgcolor || 'transparent');
-    svg.appendChild(background);
-
-    const gridColor = theme.xaxis.gridcolor || theme.yaxis.gridcolor;
-    for (let i = 0; i <= 4; i++) {
-      const y = CHART_PADDING + (i / 4) * (CHART_HEIGHT - 2 * CHART_PADDING);
-      const line = document.createElementNS(SVG_NS, 'line');
-      line.setAttribute('x1', String(CHART_PADDING));
-      line.setAttribute('x2', String(CHART_WIDTH - CHART_PADDING));
-      line.setAttribute('y1', String(y));
-      line.setAttribute('y2', String(y));
-      line.setAttribute('stroke', gridColor || 'currentColor');
-      line.setAttribute('stroke-width', '1');
-      line.setAttribute('opacity', '0.5');
-      svg.appendChild(line);
+  function drawFigure(figure) {
+    try {
+      renderFigure({ panels: elements.figurePanels, note: elements.figureNote }, figure);
+    } catch (error) {
+      console.error('osprey bluesky results: the figure renderer threw', error);
+      return false;
     }
-
-    const xDenominator = Math.max(1, data.rows.length - 1);
-
-    columnIndices.forEach((col, seriesIndex) => {
-      const values = data.rows.map((row) => /** @type {number} */ (row[col]));
-      const min = Math.min(...values);
-      const max = Math.max(...values);
-      const span = max - min;
-
-      const points = values.map((value, rowIndex) => {
-        const x = CHART_PADDING + (rowIndex / xDenominator) * (CHART_WIDTH - 2 * CHART_PADDING);
-        const normalized = span === 0 ? 0.5 : (value - min) / span;
-        const y = CHART_PADDING + (1 - normalized) * (CHART_HEIGHT - 2 * CHART_PADDING);
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      });
-
-      const color =
-        seriesColors[seriesIndex % (seriesColors.length || 1)] || theme.font.color || 'currentColor';
-
-      const polyline = document.createElementNS(SVG_NS, 'polyline');
-      polyline.setAttribute('points', points.join(' '));
-      polyline.setAttribute('fill', 'none');
-      polyline.setAttribute('stroke', color);
-      polyline.setAttribute('stroke-width', '2');
-      polyline.setAttribute('stroke-linejoin', 'round');
-      polyline.setAttribute('stroke-linecap', 'round');
-      svg.appendChild(polyline);
-
-      const legendItem = document.createElement('li');
-      const swatch = document.createElement('span');
-      swatch.className = 'swatch';
-      swatch.style.backgroundColor = color;
-      const label = document.createElement('span');
-      label.textContent = data.columns[col];
-      legendItem.append(swatch, label);
-      elements.chartLegend.appendChild(legendItem);
-    });
+    show(elements.figureCard);
+    return true;
   }
 
-  // Any token-derived chart color must be re-read from getComputedStyle on
-  // every theme change, not cached.
+  // A theme change must re-draw from the retained figure, because a settled
+  // run has stopped polling: without this, flipping to light mode would leave
+  // a finished scan drawn in the dark palette until the operator picked
+  // another run. The renderer re-reads the color tokens itself, so there is
+  // nothing to invalidate here beyond calling it again.
   const unsubscribe = subscribe(() => {
-    if (state.lastData) renderChart(state.lastData);
+    if (state.lastFigure) drawFigure(state.lastFigure);
   });
 
   return {
@@ -483,9 +535,9 @@ export function createResultsView({ api, elements, onPollingChange }) {
     follow(runId) {
       stopPolling();
       state.runId = runId;
-      state.lastData = null;
+      state.lastFigure = null;
       hide(elements.tableCard);
-      hide(elements.chartCard);
+      hide(elements.figureCard);
       hide(elements.statusBadge);
       hide(elements.meta);
       setNote(null);

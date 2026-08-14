@@ -17,6 +17,7 @@ bridge-owned field. This mirrors the read side of the bridge contract at
 - ``GET /runs`` (``limit`` query param)
 - ``GET /runs/{run_id}``
 - ``GET /runs/{run_id}/data`` (``max_rows``/``offset``/``tail`` query params)
+- ``GET /runs/{run_id}/figure`` (no query params)
 
 Every path mirrors the bridge's own except the first: the sidecar serves its
 OWN ``GET /health`` (its container healthcheck, in
@@ -117,3 +118,16 @@ async def get_run(request: Request, run_id: str) -> JSONResponse:
 @router.get("/runs/{run_id}/data")
 async def get_run_data(request: Request, run_id: str) -> JSONResponse:
     return await _forward_get(request, f"/runs/{quote(run_id, safe='')}/data")
+
+
+@router.get("/runs/{run_id}/figure")
+async def get_run_figure(request: Request, run_id: str) -> JSONResponse:
+    """Relay the bridge's rendered figure for a run, body untouched.
+
+    The bridge answers 200 for any run it knows about -- a figure it could not
+    draw from the plan's own ``render`` still comes back as a figure carrying a
+    ``reason``, so a ``reason`` is a default view here, not an error. Only a run
+    neither the live buffer nor Tiled knows about 404s, with the same body
+    ``/data`` uses for an unknown run.
+    """
+    return await _forward_get(request, f"/runs/{quote(run_id, safe='')}/figure")

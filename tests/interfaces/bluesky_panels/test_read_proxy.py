@@ -37,7 +37,7 @@ def _json_response(status_code: int, body: object) -> httpx.Response:
 
 
 # ---------------------------------------------------------------------------
-# Round-trip passthrough for each of the 6 GET endpoints
+# Round-trip passthrough for each GET endpoint
 # ---------------------------------------------------------------------------
 
 
@@ -151,6 +151,97 @@ def test_get_run_data_round_trips() -> None:
     assert body["truncated"] is False
 
 
+def test_get_run_figure_round_trips() -> None:
+    """The figure body is the bridge's `Figure.model_dump()` and nothing else --
+    the proxy relays every field, panels and marks included, untouched."""
+    figure = {
+        "panels": [
+            {
+                "title": "COR1 vs BPM1",
+                "x_label": "COR1",
+                "y_label": "BPM1",
+                "x_units": "A",
+                "y_units": "mm",
+                "annotations": ["slope = 1.2 mm/A"],
+                "mark": {
+                    "kind": "lines",
+                    "series": [
+                        {
+                            "label": "BPM1",
+                            "points": [[0.0, 1.0], [1.0, 2.2]],
+                            "decimated": False,
+                            "source_points": 2,
+                        }
+                    ],
+                },
+            }
+        ],
+        "partial": False,
+        "source": "tiled",
+        "reason": None,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/runs/abc123/figure"
+        return _json_response(200, figure)
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        response = client.get("/runs/abc123/figure")
+
+    assert response.status_code == 200
+    assert response.json() == figure
+
+
+def test_get_run_figure_relays_reason_and_partial_unreshaped() -> None:
+    """A figure the plan's own `render` could not draw still comes back 200 with
+    a `reason` and empty panels -- the proxy must not turn that into an error or
+    invent panels for it."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _json_response(
+            200,
+            {
+                "panels": [],
+                "partial": True,
+                "source": "tiled",
+                "reason": "source_unavailable",
+            },
+        )
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        response = client.get("/runs/abc123/figure")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "panels": [],
+        "partial": True,
+        "source": "tiled",
+        "reason": "source_unavailable",
+    }
+
+
+def test_get_run_figure_quotes_run_id() -> None:
+    """Run ids reach the bridge escaped into a single path segment, exactly as
+    they do for `/data`. `#` is the sharp case: unquoted it would truncate the
+    outgoing URL to `/runs/a` and swallow the route entirely."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return _json_response(
+            200, {"panels": [], "partial": False, "source": "live", "reason": None}
+        )
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        response = client.get("/runs/a%23b/figure")
+
+    assert response.status_code == 200
+    assert seen[0].url.raw_path == b"/runs/a%23b/figure"
+
+
 # ---------------------------------------------------------------------------
 # Error passthrough (verbatim body + status, never recomputed)
 # ---------------------------------------------------------------------------
@@ -178,6 +269,22 @@ def test_run_data_409_passes_through_verbatim() -> None:
 
     assert response.status_code == 409
     assert response.json() == {"detail": "run 'abc123' has not started; no data yet"}
+
+
+def test_run_figure_404_passes_through_verbatim() -> None:
+    """The unknown-run 404 body must survive the relay unchanged: the MCP tool
+    maps it to `unknown_run` by the same string `/data`'s 404 carries."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/runs/nope/figure"
+        return _json_response(404, {"detail": "unknown run 'nope'"})
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        response = client.get("/runs/nope/figure")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "unknown run 'nope'"}
 
 
 def test_plan_source_404_passes_through_verbatim() -> None:
@@ -240,7 +347,14 @@ def test_get_run_data_forwards_max_rows_offset_tail_params() -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ["/plans", "/plans/grid_scan/source", "/runs", "/runs/abc123", "/runs/abc123/data"],
+    [
+        "/plans",
+        "/plans/grid_scan/source",
+        "/runs",
+        "/runs/abc123",
+        "/runs/abc123/data",
+        "/runs/abc123/figure",
+    ],
 )
 def test_bridge_unreachable_returns_502(path: str) -> None:
     def handler(request: httpx.Request) -> httpx.Response:

@@ -229,6 +229,7 @@ export const TOOL_PHRASES = Object.freeze({
   clear_draft: 'clearing the scan draft',
   get_run: 'reading a scan run',
   get_run_data: 'reading scan data',
+  get_run_figure: 'reading a scan figure',
 
   // Phoebus displays.
   phoebus_open_panel: 'opening a Phoebus display',

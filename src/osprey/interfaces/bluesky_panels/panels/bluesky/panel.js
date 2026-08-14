@@ -118,11 +118,9 @@ const resultsView = createResultsView({
     tableNote: byId('table-note'),
     tableHeadRow: /** @type {HTMLTableRowElement} */ (byId('table-head-row')),
     tableBody: /** @type {HTMLTableSectionElement} */ (byId('table-body')),
-    chartCard: byId('chart-card'),
-    chartSvg: /** @type {SVGSVGElement} */ (
-      /** @type {unknown} */ (document.getElementById('results-chart'))
-    ),
-    chartLegend: byId('chart-legend'),
+    figureCard: byId('figure-card'),
+    figurePanels: byId('figure-panels'),
+    figureNote: byId('figure-note'),
   },
   onPollingChange(polling) {
     if (polling === resultsPolling) return;
