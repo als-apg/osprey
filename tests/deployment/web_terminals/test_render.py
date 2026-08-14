@@ -3075,3 +3075,65 @@ def test_render_without_dispatcher_personas_emits_no_token_line() -> None:
     for service in ("web-alice", "web-bob"):
         env = compose["services"][service]["environment"]
         assert not any("EVENT_DISPATCHER_TOKEN" in line for line in env)
+
+
+# ---------------------------------------------------------------------------
+# ARIEL config -> per-user database password
+#
+# `osprey up` mints a strong ARIEL_DB_PASSWORD into the deploy `.env`, and
+# Postgres initializes its volume with it. Inside a web terminal, BOTH ARIEL
+# consumers -- the panel's own server and the `ariel` MCP server -- derive their
+# DSN through `resolve_ariel_dsn`, which reads that variable from the
+# environment and otherwise falls back to the shipped default. A container that
+# never receives it therefore authenticates with the wrong password and the
+# ARIEL tab reports the database as unavailable.
+#
+# Per-user, not `.env.production`, for the same reason as the dispatcher token:
+# that file is handed to every user alike and cannot express "the personas that
+# configure ARIEL".
+# ---------------------------------------------------------------------------
+
+_ARIEL_PASSWORD_LINE = "ARIEL_DB_PASSWORD=${ARIEL_DB_PASSWORD:-ariel}"
+
+
+def test_ariel_persona_gets_the_database_password() -> None:
+    """A user whose persona configures ARIEL gets the minted Postgres password in
+    its own `environment:` block, interpolated from the deploy `.env` at compose
+    time so the secret is never written into a rendered artifact."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), ariel_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    assert _ARIEL_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_persona_without_ariel_gets_no_database_password() -> None:
+    """A persona that configures no logbook needs no logbook credential."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), ariel_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("ARIEL_DB_PASSWORD" in line for line in bob_env)
+
+
+def test_render_without_ariel_personas_emits_no_password_line() -> None:
+    """The no-project-root render path passes no persona set and so emits no
+    credential, exactly as it does for the dispatcher token."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    )
+
+    # Assert
+    for service in ("web-alice", "web-bob"):
+        env = compose["services"][service]["environment"]
+        assert not any("ARIEL_DB_PASSWORD" in line for line in env)

@@ -429,6 +429,24 @@ services:
          rejects with a 401 — visible, rather than a silent half-auth. #}
       - EVENT_DISPATCHER_TOKEN=${EVENT_DISPATCHER_TOKEN:-}
 {%- endif %}
+{%- if svc.wants_ariel_db %}
+      {#- The ARIEL Postgres password, for a persona that configures ARIEL. Two
+         consumers in this container authenticate with it — the ARIEL panel's own
+         server and the `ariel` MCP server the agent calls — and both derive the
+         DSN the same way (services.ariel_search.config.resolve_ariel_dsn), from
+         `services.postgresql` plus this variable. Without it they fall back to
+         the shipped default while Postgres holds the password `osprey up` minted,
+         and the ARIEL tab reports the database as unavailable.
+
+         Per-user for the same reason as the dispatcher token above: a shared
+         `.env.production` cannot say "the personas that configure ARIEL".
+
+         `:-ariel` mirrors the postgresql service template's own default, so a
+         project deploying no minted password behaves here exactly as it does on
+         the host — an empty value would NOT, since `resolve_ariel_dsn` falls
+         back only on an unset variable, never on an empty one. #}
+      - ARIEL_DB_PASSWORD=${ARIEL_DB_PASSWORD:-ariel}
+{%- endif %}
     volumes:
       - {{ svc.user }}-claude-config:/data/claude-config
       {#- Mount target comes from render.py's _container_agent_data_dir, which

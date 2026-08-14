@@ -27,6 +27,7 @@ from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.personas import (
     EVENTS_PANEL_ID,
     personas_declaring_panel,
+    personas_using_ariel,
 )
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.utils.workspace import BUILD_DIR_NAME
@@ -123,14 +124,16 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
     from osprey.deployment.compose_generator import resolve_repo_root
 
     root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
-    # Both disk-derived inputs are resolved HERE and passed down, because
+    # Every disk-derived input is resolved HERE and passed down, because
     # render_web_terminals() reads no filesystem of its own (see its docstring):
-    # the .env.auth digest, and which personas declare the EVENTS panel and so
-    # need the dispatcher's bearer in their per-user environment block.
+    # the .env.auth digest, which personas declare the EVENTS panel and so need
+    # the dispatcher's bearer, and which configure ARIEL and so need its Postgres
+    # password — each in their own per-user environment block.
     artifacts = render_web_terminals(
         config,
         auth_env_digest=auth_env_digest(root),
         dispatcher_personas=personas_declaring_panel(config, root, EVENTS_PANEL_ID),
+        ariel_personas=personas_using_ariel(config, root),
     )
     dest = web_artifacts_dir(root)
     written: list[Path] = []

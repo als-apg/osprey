@@ -444,6 +444,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Per-user web terminals now receive ARIEL's database password. Without it, the
+  ARIEL tab reported the database as unavailable and the agent's logbook tools
+  failed, on a deployment whose database was running and healthy: the password
+  `osprey up` mints never reached the containers, so both authenticated with the
+  shipped default instead. Each user whose persona configures ARIEL is now given
+  it, and a persona that configures none is not.
 - A start that would generate store credentials a surviving data volume cannot
   accept now stops before it starts anything. Deleting a deployment directory
   leaves its volumes behind, so the next `osprey up` minted fresh passwords for
