@@ -1243,6 +1243,27 @@ html[data-rail-position="top"] .rail-hint {
   border-bottom: none;
 }
 
+/* In the bar, the session label is the tile's IDENTITY and renders exactly
+ * like every service tile's name (.tile-tab-title in dockview-overrides.css)
+ * — the green LED, selector and "+ New" are what keep the terminal
+ * recognizable, not a divergent type treatment. The un-scoped .terminal-label
+ * above stays the fallback-mode look. */
+.tile-tab .terminal-label {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+/* "+ New" joins the bar's 24px control geometry (its chip fill stays). */
+.tile-tab .new-session-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+}
+
 .session-led {
   width: 7px;
   height: 7px;

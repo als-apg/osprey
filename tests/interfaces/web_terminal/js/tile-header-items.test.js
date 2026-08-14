@@ -104,7 +104,9 @@ describe('search items', () => {
     expect(input).toBeTruthy();
     expect(input.placeholder).toBe('Filter plans…');
     expect(input.value).toBe('orm');
-    expect(host.querySelector('.contrib-search-icon')?.textContent).toBe('\u{1F50D}');
+    // The magnifier is an inline SVG on currentColor — not the old emoji,
+    // which rendered full-color on macOS/Windows.
+    expect(host.querySelector('.contrib-search-icon .bar-icon-search')).toBeTruthy();
   });
 
   test('report their text back to the panel, debounced to the trailing edge', () => {

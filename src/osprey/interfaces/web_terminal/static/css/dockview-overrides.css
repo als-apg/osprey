@@ -30,13 +30,17 @@
 .dock-root.dockview-theme-light,
 .dock-root .dv-shell.dockview-theme-dark,
 .dock-root .dv-shell.dockview-theme-light {
-  /* Surfaces */
+  /* Surfaces. The header bar is ONE seated surface: strip and tab share
+   * --bg-panel so there is no seam where the tab ends (--bg-secondary is
+   * only 3/255 from the body in the dark theme — a distinction that read as
+   * dirt, not structure). The active-tile signal is the bar's hairline and
+   * title color (below), not a background split. */
   --dv-group-view-background-color: var(--bg-primary);
-  --dv-tabs-and-actions-container-background-color: var(--bg-secondary);
-  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-primary);
-  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-secondary);
-  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-secondary);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-secondary);
+  --dv-tabs-and-actions-container-background-color: var(--bg-panel);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-panel);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-panel);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-panel);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-panel);
 
   /* Tab text: the active tab reads primary, everything backgrounded is dimmer. */
   --dv-activegroup-visiblepanel-tab-color: var(--text-primary);
@@ -142,13 +146,20 @@
 /* ---- Tile header bar: the single tab IS the host chrome ----
  * One panel per tile is a workspace invariant (both modes), so a tile's "tab"
  * can never have siblings; dock-tab.js renders it as the tile's header bar.
- * EVERY tile carries the same 36px bar with the same grammar — six-dot drag
- * grip on the left, the tile's identity beside it, close on the right — so
- * grabbing, naming and closing a tile is one gesture learned once:
+ * EVERY tile carries the same 36px bar with the same grammar — the tile's
+ * identity on the left, its actions right-anchored — so naming and closing a
+ * tile is one gesture learned once. There is no drag badge: the whole bar is
+ * the drag handle (cursor: grab below).
  *
- *   SERVICE tiles show grip + the panel's name (.tile-tab-title) + close.
- *   The TERMINAL tile shows grip + the adopted .terminal-header (session LED,
+ *   SERVICE tiles show the panel's name (.tile-tab-title) + contributed
+ *     controls + close.
+ *   The TERMINAL tile shows the adopted .terminal-header (session LED,
  *     session id, selector, "+ New") + close.
+ *
+ * SEATED CHROME: the bar is its own surface (--bg-panel, remapped above)
+ * closed by a hairline. The hairline turns accent on the ACTIVE tile — the
+ * tile receiving keystrokes — and inactive tiles dim their name to
+ * secondary, so focus is legible at a glance without a background split.
  *
  * Fixed height, no hover reveal: the bar never changes size, so tile content
  * never reflows on pointer movement.
@@ -163,12 +174,35 @@
  * specificity, deterministically, in either theme. */
 .dock-root .dv-tabs-and-actions-container {
   height: 36px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+/* The active tile's bar closes with the accent hairline. dv-active-group /
+ * dv-inactive-group are stamped by dockview on the group element (verified
+ * against the vendored 7.0.2 bundle); the container is box-sizing:border-box,
+ * so the hairline never changes the bar's outer height. */
+.dock-root .dv-groupview.dv-active-group > .dv-tabs-and-actions-container {
+  border-bottom-color: var(--color-accent);
+}
+
+/* Inactive tiles dim their identity to secondary; the active tile's name
+ * reads primary (set on .tile-tab-title below). The terminal's session label
+ * is the same identity element (see terminal.css), so it dims the same way. */
+.dock-root .dv-groupview.dv-inactive-group .tile-tab-title,
+.dock-root .dv-groupview.dv-inactive-group .tile-tab .terminal-label {
+  color: var(--text-secondary);
 }
 
 /* The lone tab fills the strip; the void container (dockview's empty-space
- * group drag surface) collapses to zero — the bar itself is the handle. */
+ * group drag surface) collapses to zero — the bar itself is the handle.
+ * singleTabMode:'fullwidth' (dock-workspace.js) does the stretching; the
+ * min-width:0 here is what makes the shrink side real — a flex item's
+ * default min-width:auto floors it at content width, which would silently
+ * disable both `flex-shrink` and the whole priority-hide/ellipsis path on
+ * narrow tiles. */
 .dock-root .dv-tab {
   flex: 1 1 auto;
+  min-width: 0;
   max-width: none;
   padding: 0;
 }
@@ -178,55 +212,46 @@
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  padding: 0 6px 0 10px;
+  padding: 0 6px 0 12px;
   width: 100%;
   height: 100%;
   min-width: 0;
   cursor: grab;
 }
 
-/* The drag grip: an upright 2×3 dot grid on every tile — the one mark that
- * means "grab here to move this tile", muted at rest and accent under the
- * pointer, matching the sash/splitter grip treatment above. */
-.dock-root .tile-tab-grip {
-  flex: 0 0 auto;
-  width: 10px;
-  height: 14px;
-  background-image:
-    radial-gradient(circle, var(--text-muted) 1.5px, transparent 1.6px);
-  background-size: 5px 5px;
-  background-position: 0 0;
-  opacity: 0.6;
-  transition: opacity var(--duration-fast) ease;
-}
-
-.dock-root .dv-tab:hover .tile-tab-grip,
-.dock-root .dv-tab:active .tile-tab-grip {
-  background-image:
-    radial-gradient(circle, var(--color-accent) 1.5px, transparent 1.6px);
-  opacity: 1;
-}
-
-/* Service tile name: display type at rail-label weight, ellipsized so a long
- * runtime-panel label can never push the close control off the bar. */
+/* Service tile name: the bar's identity anchor — display type at medium
+ * weight so it outranks the controls beside it (it was 10px/400, dimmer than
+ * the buttons it labels) — ellipsized so a long runtime-panel label can never
+ * push the close control off the bar. Primary on the active tile; the
+ * dv-inactive-group rule above dims it. */
 .dock-root .tile-tab-title {
-  flex: 0 1 auto;
+  /* Identity holds its ground: the name does not flex-shrink (a narrowing
+   * tile crowds the contrib region instead, which is what engages the
+   * overflow ladder), but a long runtime label caps at 40% of the bar and
+   * ellipsizes so it can never push the close control off the tile. */
+  flex: 0 0 auto;
+  max-width: 40%;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-family: var(--font-display);
-  font-size: var(--text-sm);
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
 }
 
-/* ---- Contribution region: the panel-controls slot ----
+/* ---- Contribution region: subtitle + the panel-controls slot ----
  * Rendered by tile-header-contrib.js from an embedded panel's
- * `osprey-header-contribution`. Sits between the tile name and the close
- * button, separated by a hairline when non-empty. min-width:0 + hidden
- * overflow let text items ellipsize before whole items are priority-hidden
- * (.contrib-hidden). */
+ * `osprey-header-contribution`. Fills the bar between the tile name and the
+ * close button, with no divider fence: inert `text` items are the tile's
+ * SUBTITLE and read left, beside the name (they are identity, not a
+ * control), while every interactive control right-anchors toward the
+ * actions. The split is pure CSS `order` around a flexible ::before spacer,
+ * so the reconcile in tile-header-contrib.js keeps one flat child list.
+ * min-width:0 + hidden overflow let text ellipsize before the overflow
+ * ladder folds whole controls (.contrib-hidden). */
 .dock-root .tile-tab-contrib {
   display: flex;
   align-items: center;
@@ -237,14 +262,27 @@
   overflow: hidden;
 }
 
-.dock-root .tile-tab-contrib.has-items {
-  border-left: 1px solid var(--border-default);
-  padding-left: 10px;
+.dock-root .tile-tab-contrib::before {
+  content: "";
+  flex: 1 1 0;
+  order: 1;
+  min-width: 0;
 }
 
+.dock-root .tile-tab-contrib > * {
+  order: 2;
+}
+
+.dock-root .tile-tab-contrib > .contrib-text {
+  order: 0;
+}
+
+/* Subtitle: the loaded-file-name idiom — quiet mono beside the display-type
+ * name. Its floor makes the region overflow (and the ladder fold controls)
+ * before the subtitle is squeezed past a stub. */
 .dock-root .contrib-text {
   flex: 0 1 auto;
-  min-width: 0;
+  min-width: 40px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -253,41 +291,56 @@
   color: var(--text-muted);
 }
 
-.dock-root .contrib-nav {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
-}
-
+/* ---- One control language ----
+ * Every interactive element the bar renders — contributed buttons, nav
+ * segments, the ⋯ menu, the tile's own close — is the same 24px ghost
+ * control: transparent at rest, elevated fill under the pointer, one
+ * radius, one type style. Icons are inline SVG on currentColor
+ * (svg-icons.js), so they take each control's own state color. */
+.dock-root .tile-tab-actions button,
+.dock-root .contrib-btn,
 .dock-root .contrib-nav-link,
-.dock-root .contrib-btn {
+.dock-root .contrib-menu-btn {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: 24px;
+  padding: 0 var(--space-2);
   border: none;
   background: transparent;
   font-family: var(--font-display);
   font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   line-height: var(--leading-none);
   color: var(--text-secondary);
-  padding: 4px 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 
+.dock-root .tile-tab-actions button:hover,
+.dock-root .contrib-btn:hover:not(:disabled),
 .dock-root .contrib-nav-link:hover,
-.dock-root .contrib-btn:hover:not(:disabled) {
+.dock-root .contrib-menu-btn:hover,
+.dock-root .contrib-menu-btn[aria-expanded='true'] {
   color: var(--text-primary);
   background: var(--bg-elevated);
 }
 
-.dock-root .contrib-nav-link.active {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
+/* Icon-only controls square off. */
+.dock-root .tile-tab-actions button,
+.dock-root .contrib-menu-btn {
+  width: 24px;
+  padding: 0;
 }
 
-.dock-root .contrib-btn {
-  border: 1px solid var(--border-default);
+.dock-root .bar-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .dock-root .contrib-btn:disabled {
@@ -297,14 +350,44 @@
 
 .dock-root .contrib-btn-accent {
   color: var(--color-accent);
-  border-color: var(--border-accent);
+}
+
+.dock-root .contrib-btn-accent:hover:not(:disabled) {
+  color: var(--color-accent);
+  background: var(--accent-tint-08);
+}
+
+/* Nav renders as a segmented control: one bordered track, the active view a
+ * filled segment — a view switcher should read as one control with N
+ * positions, not N sibling buttons. */
+.dock-root .contrib-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 2px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  flex: 0 0 auto;
+}
+
+.dock-root .contrib-nav-link {
+  height: 18px;
+  border-radius: var(--radius-xs);
+}
+
+.dock-root .contrib-nav-link.active {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
 }
 
 /* Search pill. Deliberately the same grammar as `.command-palette-trigger`
- * in palette.css — magnifier, muted placeholder, bordered panel field — so a
- * panel's filter and the hub's own search read as one affordance. Sized to
+ * in palette.css — magnifier, muted placeholder, bordered field — so a
+ * panel's filter and the hub's own search read as one affordance. Recessed
+ * to --bg-primary now that the bar itself sits on --bg-panel. Sized to
  * the 36px bar rather than the 28px header, and allowed to shrink to an
- * icon-plus-stub before the priority pass considers hiding it outright. */
+ * icon-plus-stub before the overflow ladder collapses it further. */
 .dock-root .contrib-search {
   display: inline-flex;
   align-items: center;
@@ -313,9 +396,9 @@
   min-width: 92px;
   height: 24px;
   padding: 0 var(--space-2);
-  background: var(--bg-panel);
+  background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
 
@@ -326,10 +409,15 @@
 }
 
 .dock-root .contrib-search-icon {
-  font-size: var(--text-sm);
-  line-height: var(--leading-none);
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
-  opacity: 0.8;
+  color: var(--text-muted);
+}
+
+.dock-root .contrib-search-icon .bar-icon {
+  width: 12px;
+  height: 12px;
 }
 
 .dock-root .contrib-search-input {
@@ -356,28 +444,42 @@
   display: none;
 }
 
-/* ⋯ overflow trigger. Quiet until hovered, like the tile's own actions. */
-.dock-root .contrib-menu-btn {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--text-lg);
-  line-height: var(--leading-none);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  flex: 0 0 auto;
-}
-
-.dock-root .contrib-menu-btn:hover,
-.dock-root .contrib-menu-btn[aria-expanded='true'] {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-}
-
+/* A control the overflow ladder folded into the bar's ⋯ menu. Folded, not
+ * lost: the menu keeps it reachable (see applyOverflowLadder). */
 .dock-root .contrib-hidden {
   display: none;
+}
+
+/* The bar-owned ⋯ fold target sits at the controls cluster's right edge,
+ * inside the region (order 3 > the controls' order 2). */
+.dock-root .tile-tab-contrib > .contrib-overflow-btn {
+  order: 3;
+}
+
+/* Ladder step 1: the search field down to its magnifier — a 24px ghost
+ * button (click / Enter re-expands it for typing). */
+.dock-root .contrib-search-collapsed {
+  flex: 0 0 auto;
+  width: 24px;
+  min-width: 24px;
+  padding: 0;
+  justify-content: center;
+  background: transparent;
+  border-color: transparent;
+  cursor: pointer;
+}
+
+.dock-root .contrib-search-collapsed:hover {
+  background: var(--bg-elevated);
+  border-color: transparent;
+}
+
+.dock-root .contrib-search-collapsed .contrib-search-input {
+  display: none;
+}
+
+.dock-root .contrib-search-collapsed .contrib-search-icon {
+  color: var(--text-secondary);
 }
 
 /* Menu popover. Body-level and fixed — the contribution region is
@@ -438,6 +540,8 @@
   color: var(--color-accent);
 }
 
+/* Actions cluster: right-anchored; its buttons take the unified ghost
+ * language above. */
 .dock-root .tile-tab-actions {
   margin-left: auto;
   display: flex;
@@ -445,30 +549,13 @@
   gap: 2px;
 }
 
-.dock-root .tile-tab-actions button {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--text-xl);
-  line-height: var(--leading-none);
-  padding: 4px 6px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.dock-root .tile-tab-actions button:hover {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-}
-
 /* Simple mode is a locked layout. dock-workspace.js disables drag/float
  * (disableDnd) and sash resize (api.locked) at runtime, so a service tile's
  * header bar is dead chrome there — it collapses away entirely and the panel
  * gets those pixels back. The terminal's bar stays (`:not(:has(...))` — it
- * carries live session controls, content rather than chrome), but its grip
- * and close are suppressed: moving or closing tiles is not a simple-mode
- * gesture.
+ * carries live session controls, content rather than chrome), but its close
+ * is suppressed: closing tiles is not a simple-mode gesture (drag is already
+ * off via disableDnd).
  * display:none overrides dockview's own visibility toggle on the active tab.
  *
  * A zero-height flex container does not clip its children on its own, and
@@ -477,10 +564,14 @@
 html[data-ui-mode="simple"] .dock-root .dv-tabs-and-actions-container:not(:has(.tile-tab-terminal)) {
   height: 0;
   overflow: hidden;
+  /* The seated bar's closing hairline must go too. `height: 0` zeroes the
+   * CONTENT box; a border is not content, so under border-box the border
+   * still paints and the "collapsed" strip measures 1px — a stray rule over
+   * the panel, and one the simple-mode geometry assertion catches. */
+  border-bottom: none;
 }
 
 html[data-ui-mode="simple"] .dv-tab .tile-tab-close,
-html[data-ui-mode="simple"] .dv-tab .tile-tab-grip,
 html[data-ui-mode="simple"] .dv-tab .dv-default-tab-action {
   display: none;
 }

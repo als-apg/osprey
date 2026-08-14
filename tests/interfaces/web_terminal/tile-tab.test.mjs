@@ -1,8 +1,9 @@
 /**
  * Contract tests for the tile-tab renderer (dock-tab.js): the custom dockview
- * tab that IS each tile's header bar. Every tile gets the same bar — drag
- * grip, identity, close. Service tiles carry a visible `.tile-tab-title`;
- * the terminal tile adopts the live .terminal-header instead. Run:
+ * tab that IS each tile's header bar. Every tile gets the same bar — identity
+ * on the left, actions right-anchored; the bar itself is the drag handle.
+ * Service tiles carry a visible `.tile-tab-title`; the terminal tile adopts
+ * the live .terminal-header instead. Run:
  *   npx vitest run tests/interfaces/web_terminal/tile-tab.test.mjs
  */
 import { test, expect, describe, beforeEach, vi } from 'vitest';
@@ -24,17 +25,19 @@ describe('tile-tab renderer', () => {
     vi.restoreAllMocks();
   });
 
-  test('service tab renders grip, visible title, and close', async () => {
+  test('service tab renders visible title and close, no drag badge', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
 
     expect(tab.element.classList.contains('tile-tab')).toBe(true);
-    expect(tab.element.querySelector('.tile-tab-grip')).toBeTruthy();
     // One header grammar for every tile: name on the bar, close on the bar.
     expect(tab.element.querySelector('.tile-tab-title')?.textContent).toBe('ARIEL');
     expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     expect(tab.element.querySelector('.tile-tab-actions')).toBeTruthy();
+    // Dragging by the bar is a learned convention — no grip badge spends
+    // bar pixels on it.
+    expect(tab.element.querySelector('.tile-tab-grip')).toBeNull();
     // Popout stays a rail-entry affordance — never on the tile.
     expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
   });
@@ -98,7 +101,7 @@ describe('tile-tab renderer', () => {
     const reachedRoot = vi.fn();
     tab.element.addEventListener('pointerdown', reachedRoot);
 
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-grip'))
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title'))
       .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
     expect(reachedRoot).toHaveBeenCalledTimes(1);
   });

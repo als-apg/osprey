@@ -14,7 +14,9 @@
  *
  * Item vocabulary (closed set; the hub ignores unknown kinds):
  *
- * - `{kind:'text', id, text}` — inert label (e.g. a loaded-file name).
+ * - `{kind:'text', id, text}` — inert label (e.g. a loaded-file name). The
+ *   hub renders it as the tile's SUBTITLE, beside the tile name — it is
+ *   identity, not a control — while interactive items right-anchor.
  * - `{kind:'nav', id, items:[{id, label, active}]}` — view switcher; the
  *   action's `value` is the clicked entry's id.
  * - `{kind:'button', id, label, title?, tone?:'default'|'accent', disabled?}`
