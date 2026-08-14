@@ -9,6 +9,22 @@
  * `figure-renderer.js` to draw. Read only — nothing in this file issues a
  * write verb.
  *
+ * The FIGURE leads and the table follows, collapsed. A run's figure is the
+ * plan's own answer to what the run meant; the table is the raw material behind
+ * it, and it can be thousands of rows. So the table renders inside a `<details>`
+ * that ships closed, and the view never touches its `open` state after that —
+ * an operator stepping through runs comparing rows keeps it open for as long as
+ * they want it, because nothing here closes it again.
+ *
+ * That makes the table a PREVIEW, and it is labelled as one. `/data` serves at
+ * most `max_rows` (100 by default) while reporting the run's true `row_count`
+ * separately, so a truncated window says how much it is withholding and points
+ * at the export. The export is the other half: it re-reads `/data` with
+ * `max_rows` set to the full count and writes a CSV through `csv-export.js`.
+ * If even that comes back short — `live_rows` caps stored rows per run — the
+ * file still saves and the note says exactly how short, because a partial
+ * export presented as complete is the one outcome worth preventing.
+ *
  * Cadence: ~1 s while the run is non-terminal or either the data or the figure
  * still reports `partial: true`; polling stops once the run is terminal and
  * both halves are settled, so a finished run costs nothing.
@@ -33,6 +49,7 @@
 
 import { subscribe } from '/design-system/js/theme-manager.js';
 
+import { exportFilename, saveCsv, toCsv } from './csv-export.js';
 import { renderFigure } from './figure-renderer.js';
 import { describeProgress } from './queue-client.js';
 
@@ -130,15 +147,31 @@ export function shouldKeepPolling(status, partial) {
   return partial || !TERMINAL_STATUSES.includes(status);
 }
 
+/**
+ * A count with thousands separators, pinned to `en-US` so the panel reads the
+ * same everywhere and so tests assert one string rather than the runner's
+ * locale.
+ *
+ * @param {number} value
+ * @returns {string}
+ */
+function count(value) {
+  return value.toLocaleString('en-US');
+}
+
 /** @typedef {{
  *   statusBadge: HTMLElement,
  *   meta: HTMLElement,
  *   note: HTMLElement,
  *   emptyState: HTMLElement,
  *   tableCard: HTMLElement,
+ *   tableDetails: HTMLDetailsElement,
+ *   tableSummaryCount: HTMLElement,
  *   tableNote: HTMLElement,
  *   tableHeadRow: HTMLTableRowElement,
  *   tableBody: HTMLTableSectionElement,
+ *   exportButton: HTMLButtonElement,
+ *   exportNote: HTMLElement,
  *   figureCard: HTMLElement,
  *   figurePanels: HTMLElement,
  *   figureNote: HTMLElement,
@@ -146,29 +179,54 @@ export function shouldKeepPolling(status, partial) {
  *   empties and refills it; nothing else in this file writes to it.
  *   `figureNote` takes the renderer's provenance line (source, partial,
  *   reason) — it is a separate element from `note`, which carries this view's
- *   own message about the run RECORD. */
+ *   own message about the run RECORD, and from `exportNote`, which carries the
+ *   outcome of the last save.
+ *
+ *   `tableCard` is the whole data section (disclosure + export). `tableDetails`
+ *   is the disclosure itself and this view READS its `open` state but never
+ *   writes it — see the module docstring. */
 
 /**
  * @param {{
  *   api: (path: string) => string,
  *   elements: ResultsElements,
  *   onPollingChange?: (polling: boolean) => void,
+ *   saveFile?: (filename: string, text: string) => Promise<{saved: boolean, method: 'picker'|'download'}>,
  * }} deps `onPollingChange` reports whether this view is currently polling for
  *   a run — i.e. whether data is still arriving. The panel shell turns that
  *   into the Results tab's activity marker when the operator is looking at
  *   another tab. It fires only on a transition, so a caller may re-render
  *   freely from it.
+ *
+ *   `saveFile` defaults to `csv-export.js`'s `saveCsv`. It is a seam rather
+ *   than a hard import so the three save outcomes (dialog, cancelled, download
+ *   fallback) are reachable under a DOM shim with no File System Access API.
  * @returns {{follow: (runId: string|null) => void, currentRunId: () => string|null, destroy: () => void}}
  */
-export function createResultsView({ api, elements, onPollingChange }) {
+export function createResultsView({ api, elements, onPollingChange, saveFile = saveCsv }) {
   /** @type {{
    *   runId: string|null,
    *   timer: ReturnType<typeof setTimeout>|null,
    *   lastFigure: Figure|null,
+   *   rowCount: number,
+   *   planName: string|null,
+   *   exporting: boolean,
    * }} `lastFigure` is the last figure that had something to draw. It is what a
    *   theme change re-renders from, and what a transient figure fetch failure
-   *   leaves on screen. */
-  const state = { runId: null, timer: null, lastFigure: null };
+   *   leaves on screen.
+   *
+   *   `rowCount` and `planName` are what the export needs and the click handler
+   *   cannot re-derive: the run's TRUE total (not the rendered window's length)
+   *   and the name the file is called after. `exporting` guards against a
+   *   second click while a large fetch is in flight. */
+  const state = {
+    runId: null,
+    timer: null,
+    lastFigure: null,
+    rowCount: 0,
+    planName: null,
+    exporting: false,
+  };
 
   /**
    * Announce a change in whether the view is polling. Derived from the timer
@@ -212,6 +270,24 @@ export function createResultsView({ api, elements, onPollingChange }) {
     }
     elements.note.textContent = message;
     show(elements.note);
+  }
+
+  /**
+   * The outcome of the last save. Cleared on every new export and on every
+   * `follow()`, so a "Saved orm-r1.csv" line can never end up sitting under a
+   * different run's figure, where it would read as a claim about that run.
+   *
+   * @param {string|null} message
+   * @param {boolean} [isError]
+   */
+  function setExportNote(message, isError = false) {
+    if (message === null) {
+      hide(elements.exportNote);
+      return;
+    }
+    elements.exportNote.textContent = message;
+    elements.exportNote.classList.toggle('error', isError);
+    show(elements.exportNote);
   }
 
   // All three reads below check the SHAPE of a 200 before reporting success,
@@ -442,6 +518,10 @@ export function createResultsView({ api, elements, onPollingChange }) {
 
   /** @param {RunRecord} run */
   function renderRecord(run) {
+    // Kept for the export filename. A run rotated out of the manager's history
+    // has no record at all, so this is the last name seen rather than a name
+    // the export can look up on demand.
+    state.planName = run.plan_name ?? null;
     elements.statusBadge.textContent = run.status;
     elements.statusBadge.className = `badge ${badgeToneForStatus(run.status)}`;
     show(elements.statusBadge);
@@ -483,14 +563,96 @@ export function createResultsView({ api, elements, onPollingChange }) {
 
     // row_count is the bridge's true total — the number of rows the run has
     // produced, which can exceed what is stored. Never recomputed from
-    // rows.length.
-    elements.tableNote.textContent = data.truncated
-      ? `showing ${data.rows.length} of ${data.row_count} (truncated)`
-      : `${data.row_count} row${data.row_count === 1 ? '' : 's'}`;
+    // rows.length. It is what the disclosure summary names (so the operator
+    // knows the size of the thing before opening it) and what the export asks
+    // the bridge for.
+    state.rowCount = data.row_count;
+    elements.tableSummaryCount.textContent = `${count(data.row_count)} row${
+      data.row_count === 1 ? '' : 's'
+    }`;
+
+    // The caveat is printed ONLY when something is actually being withheld.
+    // On a settled 12-row run the summary already says "12 rows", and a second
+    // line repeating it would be noise that trains the operator to skip the
+    // place the truncation warning appears.
+    if (data.truncated) {
+      elements.tableNote.textContent =
+        `preview — showing ${count(data.rows.length)} of ${count(data.row_count)}` +
+        ` · export for all rows`;
+      show(elements.tableNote);
+    } else {
+      hide(elements.tableNote);
+    }
+
+    elements.exportButton.disabled = state.exporting || data.row_count === 0;
 
     if (data.columns.length === 0) hide(elements.tableCard);
     else show(elements.tableCard);
   }
+
+  /**
+   * Export the run's data as a CSV.
+   *
+   * Deliberately re-fetches rather than serialising what is on screen: the
+   * table holds at most `max_rows` rows (100 by default) and the operator is
+   * asking for the RUN, not for the window. `max_rows` is set to the true
+   * `row_count`, which is the largest number the bridge could possibly honour.
+   *
+   * The bridge may still answer with fewer — `live_rows` caps stored rows per
+   * run, and a Tiled entry can be rotated. That file is still worth having, so
+   * it is saved; what must not happen is saving it silently, so the note names
+   * both numbers.
+   */
+  async function exportCsv() {
+    const runId = state.runId;
+    if (!runId || state.exporting) return;
+
+    state.exporting = true;
+    elements.exportButton.disabled = true;
+    setExportNote(null);
+
+    try {
+      const response = await fetch(
+        api(`/runs/${encodeURIComponent(runId)}/data?max_rows=${Math.max(1, state.rowCount)}`)
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.json();
+      if (!body || !Array.isArray(body.columns) || !Array.isArray(body.rows)) {
+        throw new Error('the response was not a data window');
+      }
+      // The selection moved while the fetch was in flight. Saving now would
+      // drop the previous run's file under the current run's figure.
+      if (state.runId !== runId) return;
+
+      const filename = exportFilename(state.planName, runId);
+      const result = await saveFile(filename, toCsv(body.columns, body.rows));
+      if (!result.saved) {
+        // Cancelled at the dialog. Nothing was written, so nothing is claimed.
+        setExportNote(null);
+        return;
+      }
+
+      const written = body.rows.length;
+      const total = typeof body.row_count === 'number' ? body.row_count : written;
+      const rows =
+        written < total
+          ? `${count(written)} of ${count(total)} rows — the rest is no longer stored`
+          : `${count(written)} row${written === 1 ? '' : 's'}`;
+      const where = result.method === 'download' ? ' to your Downloads folder' : '';
+      setExportNote(`Saved ${filename}${where} · ${rows}.`);
+    } catch (error) {
+      setExportNote(`Could not export: ${/** @type {Error} */ (error).message}`, true);
+    } finally {
+      state.exporting = false;
+      // Re-enabled even after a failure: a 502 while the bridge restarts says
+      // nothing about whether the next attempt will work, and a control that
+      // disarms itself on one bad tick is a control the operator has to reload
+      // the panel to get back.
+      elements.exportButton.disabled = state.rowCount === 0;
+    }
+  }
+
+  elements.exportButton.addEventListener('click', exportCsv);
 
   /**
    * Hand a figure to the renderer and reveal the card.
@@ -536,11 +698,17 @@ export function createResultsView({ api, elements, onPollingChange }) {
       stopPolling();
       state.runId = runId;
       state.lastFigure = null;
+      state.rowCount = 0;
+      state.planName = null;
       hide(elements.tableCard);
       hide(elements.figureCard);
       hide(elements.statusBadge);
       hide(elements.meta);
       setNote(null);
+      // `tableDetails.open` is deliberately NOT reset here — see the module
+      // docstring. The operator's choice to have the table open outlives any
+      // one run.
+      setExportNote(null);
       if (!runId) {
         setEmptyState('Select a queued or completed run to see its results.');
         return;
@@ -553,6 +721,7 @@ export function createResultsView({ api, elements, onPollingChange }) {
     },
     destroy() {
       stopPolling();
+      elements.exportButton.removeEventListener('click', exportCsv);
       if (typeof unsubscribe === 'function') unsubscribe();
     },
   };

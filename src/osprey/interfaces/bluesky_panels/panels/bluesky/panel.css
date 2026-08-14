@@ -33,12 +33,27 @@ body {
   line-height: 1.5;
 }
 
+/* `height`, NOT `min-height`.
+ *
+ * This column is the scroll container's parent. Under `min-height` it grows
+ * past the viewport whenever a view's content is tall, which takes `.view`
+ * (`flex: 1 1 auto`) with it — and a scroll container that has grown to fit its
+ * own content has nothing left to scroll. The overflow lands on `<body>`
+ * instead, which is `overflow-y: hidden` when embedded, so the excess is simply
+ * clipped and unreachable. A fixed height keeps the column at the viewport and
+ * hands the overflow to `.view-scroll`, where it belongs.
+ *
+ * The `- 28px` is `body`'s 14px padding, top and bottom. Embedded, that padding
+ * is dropped (the host frame supplies its own gutter), so the column is a full
+ * viewport — the two rules have to agree, or the panel is either short by the
+ * padding or overflowing by it. */
 .panel {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 28px);
+  height: calc(100vh - 28px);
 }
-body.embedded .panel { min-height: 100vh; }
+body.embedded { padding: 0; }
+body.embedded .panel { height: 100vh; }
 
 .panel-chrome {
   display: flex;
@@ -1353,15 +1368,109 @@ button.queue-label:focus-visible {
   border-color: var(--color-error);
 }
 
-.table-note {
-  margin: 0 0 10px;
+/* ---- Results: the data section ----
+ *
+ * Sits BELOW the figure and stays collapsed until asked for. The summary row
+ * carries the row count and the export side by side; the table itself only
+ * exists in the DOM's flow once the disclosure is open. */
+
+#data-card {
+  margin-top: 16px;
+  border-top: 1px solid var(--border-default);
+  padding-top: 12px;
+}
+
+/* The export is positioned OUT of the flow rather than laid beside the
+ * disclosure. As a flex sibling it would claim its own column, which narrows
+ * the expanded table by the button's width and leaves it visibly inset from
+ * the figure above it. Taking it out of the flow lets the disclosure — and so
+ * the table — run the full width of the card, with the button parked on the
+ * summary line where it reads as belonging to that row. */
+.data-head {
+  position: relative;
+}
+
+.export-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+.table-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  /* Reserves the button's lane so the summary text can never slide under it. */
+  padding: 5px 140px 5px 0;
+  cursor: pointer;
+  user-select: none;
+  /* Both are needed to retire the default disclosure triangle across engines;
+   * the one drawn below replaces it so it can sit on the text baseline. */
+  list-style: none;
+}
+.table-summary::-webkit-details-marker {
+  display: none;
+}
+
+.table-summary::before {
+  content: '';
+  flex: none;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--text-muted);
+  transition: transform 120ms ease;
+}
+.table-details[open] > .table-summary::before {
+  transform: rotate(90deg);
+}
+.table-summary:hover::before {
+  border-left-color: var(--text-secondary);
+}
+
+.table-summary-label {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.table-summary-count {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
 }
 
+/* The save outcome. Deliberately quiet — it reports a completed action, and
+ * `.error` is the only state that raises its voice. */
+.export-note {
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.export-note.error {
+  color: var(--color-error);
+}
+
+/* Prints only when the window is genuinely withholding rows, and sits BELOW
+ * the table it qualifies (hence the top margin) so it reads as a footnote to
+ * what was just shown rather than a header over it. */
+.table-note {
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Bounded height is what makes this a preview rather than a page-lengthening
+ * dump — and it is also what finally makes `#results-table thead th`'s
+ * `position: sticky` do anything, since sticky needs a scroll container with a
+ * height to stick within. */
 .table-scroll {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 42vh;
+  margin-top: 4px;
   border: 1px solid var(--border-default);
   border-radius: 6px;
 }

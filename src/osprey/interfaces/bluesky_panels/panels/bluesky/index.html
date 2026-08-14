@@ -301,19 +301,45 @@
         Select a queued or completed run to see its results.
       </div>
 
-      <div id="table-card" hidden>
-        <p id="table-note" class="table-note"></p>
-        <div class="table-scroll">
-          <table id="results-table">
-            <thead><tr id="table-head-row"></tr></thead>
-            <tbody id="table-body"></tbody>
-          </table>
-        </div>
-      </div>
-
+      <!--
+        The FIGURE leads. It is the plan's own answer to what the run meant,
+        and it is what an operator opens a finished scan to see. It must stay
+        ABOVE the data table in source order (guarded in bluesky-panel.test.mjs)
+        — with the table first, every scan opened onto a wall of numbers.
+      -->
       <div id="figure-card" hidden>
         <p id="figure-note" class="figure-note" hidden></p>
         <div id="figure-panels"></div>
+      </div>
+
+      <!--
+        The raw table, behind a disclosure that ships CLOSED. These tables run
+        to thousands of rows, so opening one is a deliberate act; the summary
+        names the row count first so the operator knows the size before they
+        ask for it. NEVER add an `open` attribute here — that restores exactly
+        the behaviour this replaces, and the markup test asserts its absence.
+
+        Export sits on the summary row rather than inside the disclosure, so a
+        4,000-row table never has to be opened just to be exported.
+      -->
+      <div id="data-card" hidden>
+        <div class="data-head">
+          <details id="table-details" class="table-details">
+            <summary class="table-summary">
+              <span class="table-summary-label">Data table</span>
+              <span id="table-summary-count" class="table-summary-count"></span>
+            </summary>
+            <div class="table-scroll">
+              <table id="results-table">
+                <thead><tr id="table-head-row"></tr></thead>
+                <tbody id="table-body"></tbody>
+              </table>
+            </div>
+            <p id="table-note" class="table-note" hidden></p>
+          </details>
+          <button type="button" id="export-btn" class="btn export-btn">Export CSV</button>
+        </div>
+        <p id="export-note" class="export-note" hidden></p>
       </div>
     </section>
   </div>
