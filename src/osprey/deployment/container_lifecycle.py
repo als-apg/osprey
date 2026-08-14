@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
@@ -2411,6 +2411,44 @@ def deploy_up(
         )
 
 
+#: One image's completion in BuildKit's plain-progress stream: ``naming to``
+#: is the export stage assigning the built image its tag, and only the line
+#: carrying ``done`` marks it finished — the bare form appears while the
+#: export is still running. The optional duration is BuildKit's own
+#: (``naming to <ref> 0.1s done``).
+_IMAGE_NAMED_LINE = re.compile(r"naming to (?P<ref>\S+?)(?: \d+(?:\.\d+)?s)? done\s*$")
+
+
+def compose_build_step_reporter() -> Callable[[str], None]:
+    """Per-image progress steps for a ``compose build``, from BuildKit's own stream.
+
+    ``compose build`` builds every service image in one parallel invocation —
+    the longest step of a dev deploy, half an hour cold — and a single step
+    line printed at the end reads as a hang for the whole build. Splitting the
+    build per service would give progress at the price of the parallelism, so
+    the steps are derived instead: fed to :func:`run_captured` as ``on_line``,
+    this watches the captured stream and reports each image the moment BuildKit
+    finishes it.
+
+    Deduplicated per image, because BuildKit repeats the ``naming to`` line
+    (bare, then with a duration). The implicit ``docker.io/library/`` prefix is
+    stripped as registry noise; a real registry in the tag is the operator's
+    own naming and stays.
+    """
+    seen: set[str] = set()
+
+    def report(line: str) -> None:
+        match = _IMAGE_NAMED_LINE.search(line)
+        if match is None:
+            return
+        ref = match.group("ref").removeprefix("docker.io/library/")
+        if ref not in seen:
+            seen.add(ref)
+            _report_step(f"service image {ref}")
+
+    return report
+
+
 def _start_stack(
     config: dict,
     compose_files: list[str],
@@ -2640,7 +2678,13 @@ def _start_stack(
         # service that has no published upstream tag to pull.
         build_cmd = base_cmd + ["build"]
         logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
-        run_captured(build_cmd, env=run_env, spool_name="compose-build", repo_root=repo_root)
+        run_captured(
+            build_cmd,
+            env=run_env,
+            spool_name="compose-build",
+            repo_root=repo_root,
+            on_line=compose_build_step_reporter(),
+        )
         _report_step("service images built")
 
     # --remove-orphans reconciles away containers whose service left the

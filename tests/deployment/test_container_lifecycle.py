@@ -21,6 +21,33 @@ from osprey.deployment import container_lifecycle
 from osprey.deployment.web_terminals import postup_hooks, provision
 
 
+def _fake_popen(record):
+    """A ``subprocess.Popen`` stand-in for the watched capture path.
+
+    The dev-mode ``compose build`` runs with an ``on_line`` watcher, which
+    routes it through ``Popen`` rather than ``subprocess.run`` — so a test that
+    fakes only ``run`` would let the build escape to a real child. The stand-in
+    records the argv through ``record(cmd, env)``, yields no output, and exits
+    0, keeping the argv assertions blind to which of the two paths ran a call.
+    """
+
+    class FakePopen:
+        def __init__(self, cmd, env=None, **kwargs):
+            record(list(cmd), env)
+            self.stdout = iter(())
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def wait(self):
+            return 0
+
+    return FakePopen
+
+
 @pytest.fixture
 def captured_argv(monkeypatch, tmp_path):
     """Patch deploy_up's collaborators and capture the compose argv.
@@ -47,6 +74,11 @@ def captured_argv(monkeypatch, tmp_path):
         return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: captured.update(cmd=cmd, env=env)),
+    )
     return captured
 
 
@@ -454,6 +486,11 @@ def captured_combined_runs(monkeypatch, tmp_path):
         return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: calls.append({"cmd": cmd, "env": env})),
+    )
     return {"calls": calls, "build_calls": build_calls, "token_calls": token_calls}
 
 
@@ -1299,6 +1336,11 @@ def test_deploy_up_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
         "run",
         lambda cmd, env=None, **k: runs.append(cmd) or _FakeCompletedProcess(),
     )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: runs.append(cmd)),
+    )
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=True)
 
     joined = [" ".join(c) for c in runs]
@@ -1330,6 +1372,11 @@ def test_rebuild_deployment_dev_mode_splits_build_from_up(monkeypatch, tmp_path)
         container_lifecycle.subprocess,
         "run",
         lambda cmd, env=None, **k: runs.append(cmd) or _FakeCompletedProcess(),
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: runs.append(cmd)),
     )
     execd: dict = {}
     monkeypatch.setattr(
@@ -1526,6 +1573,11 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
         return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: runs.append(cmd)),
+    )
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=True)
 
     # The services-stack invocations (the ones carrying the services compose file).

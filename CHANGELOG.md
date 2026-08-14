@@ -460,6 +460,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   survives the sweep, `init` stops and says so instead of starting: `reset`
   removes only what carries the checkout's own label, so a deployment created
   before that label existed has to be cleared by hand once.
+- Dev deploys now report each service image as it finishes building, instead
+  of one summary line after the whole `compose build` — the longest step of a
+  deploy, and previously silent for its entire duration.
 - `osprey health` now answers from either stance. It looks for the config where
   a build writes it (`build/config.yml`) and reads credentials from the repo's
   `.env`, so running it at the repo root no longer reports the config missing,

@@ -941,10 +941,19 @@ def deploy_up_web_terminals(
             # running the stale code from its first build. Build in its own step,
             # then `up --no-build`, to dodge the `up --build` containerd
             # image-store race.
+            # Function-level import, like `_env_file_args` below:
+            # container_lifecycle imports this module at its own top level, so
+            # the favour cannot be returned there.
+            from osprey.deployment.container_lifecycle import compose_build_step_reporter
+
             services_build = services_base + ["build"]
             logger.debug(f"Running command:\n    {' '.join(services_build)}")
             run_captured(
-                services_build, env=run_env, spool_name="build-services", repo_root=repo_root
+                services_build,
+                env=run_env,
+                spool_name="build-services",
+                repo_root=repo_root,
+                on_line=compose_build_step_reporter(),
             )
             _report_step("built service images")
         services_cmd = services_base + ["up"]
