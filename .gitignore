@@ -49,6 +49,11 @@ coverage.xml
 coverage.json
 *.cover
 .hypothesis/
+
+# CI diagnostics drop (per-worker event logs, stack dumps, container logs).
+# Written by tests/ci_diagnostics.py and .github/actions/capture-ci-diagnostics
+# whenever OSPREY_CI_DIAG_DIR is set; uploaded as an artifact, never committed.
+/ci-diag/
 .pytest_cache/
 
 # Jupyter Notebook

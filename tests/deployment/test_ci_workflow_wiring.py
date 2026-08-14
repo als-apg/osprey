@@ -2112,3 +2112,316 @@ def test_all_checks_passed_needs_archiver_world__mutation_drops_check_pr_lane_li
     assert ARCHIVER_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
     with pytest.raises(AssertionError):
         test_all_checks_passed_needs_archiver_world(mutated)
+
+
+# ---------------------------------------------------------------------------
+# CI diagnostics: the evidence a killed lane leaves behind
+# ---------------------------------------------------------------------------
+#
+# A lane that FAILS explains itself in the job log. A lane that is KILLED — job
+# timeout, runner OOM, a wedged xdist worker held to the cap — explains nothing,
+# because the signal lands while pytest's output is still buffered. Everything
+# pinned below exists to make that second case readable, and every piece of it
+# is silently droppable: removing a step, raising a timeout, or restoring an ini
+# option costs no test failure of its own. Hence these pins.
+
+CAPTURE_ACTION = "./.github/actions/capture-ci-diagnostics"
+CAPTURE_STEP = "Capture failure diagnostics"
+WRITEBACK_JOB = "deploy-writeback-e2e"
+PODMAN_LIFECYCLE_JOB = "multi-user-deploy-lifecycle-e2e-podman"
+#: Jobs that name a container engine without running one — the gate lists the
+#: Docker lanes in its human-readable status strings.
+NON_CONTAINER_JOBS = {GATE_JOB}
+
+
+def _container_jobs(wf: dict[str, Any]) -> set[str]:
+    """Jobs that touch a container engine, derived rather than listed.
+
+    Derived on purpose: a hand-maintained list is exactly what a newly added
+    Docker lane forgets to join. Comments cannot pollute the match because
+    ``yaml.safe_load`` has already dropped them.
+    """
+    pattern = re.compile(r"\b(docker|podman)\b")
+    return {
+        name
+        for name, job in _jobs(wf).items()
+        if name not in NON_CONTAINER_JOBS and pattern.search(json.dumps(job))
+    }
+
+
+def _capture_step_index(job: dict[str, Any]) -> int | None:
+    for index, step in enumerate(job.get("steps") or []):
+        if step.get("uses") == CAPTURE_ACTION:
+            return index
+    return None
+
+
+def test_every_container_job_captures_diagnostics(workflow: dict[str, Any]) -> None:
+    """No Docker lane may fail without leaving its container logs behind.
+
+    Before this action existed, the only ``if: always()`` steps on these lanes
+    were teardown blocks — so a red lane deleted the containers holding the
+    explanation and uploaded nothing at all.
+    """
+    missing = sorted(
+        name
+        for name in _container_jobs(workflow)
+        if _capture_step_index(_jobs(workflow)[name]) is None
+    )
+    assert missing == [], (
+        f"these jobs run containers but have no '{CAPTURE_STEP}' step: {missing}. "
+        f"Add `uses: {CAPTURE_ACTION}` with `if: failure()`, positioned before any "
+        f"teardown step — or add the job to NON_CONTAINER_JOBS if it only names an "
+        f"engine in a status string."
+    )
+
+
+def test_every_container_job_captures_diagnostics__mutation_drops_a_lane() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[TILED_JOB]
+    del job["steps"][_capture_step_index(job)]
+    with pytest.raises(AssertionError):
+        test_every_container_job_captures_diagnostics(mutated)
+
+
+def test_capture_runs_before_teardown(workflow: dict[str, Any]) -> None:
+    """Ordering is the whole point: the teardown blocks ``docker rm -f`` the very
+    containers whose logs are the diagnosis. Capture after cleanup captures
+    nothing."""
+    late = []
+    for name in sorted(_container_jobs(workflow)):
+        steps = _jobs(workflow)[name]["steps"]
+        capture = _capture_step_index(_jobs(workflow)[name])
+        teardown = [i for i, step in enumerate(steps) if step.get("if") == "always()"]
+        if capture is not None and teardown and capture > min(teardown):
+            late.append(name)
+    assert late == [], (
+        f"'{CAPTURE_STEP}' runs after an `if: always()` teardown step in {late} — "
+        f"by then the containers it reads have been removed."
+    )
+
+
+def test_capture_runs_before_teardown__mutation_moves_it_after_cleanup() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[WRITEBACK_JOB]["steps"]
+    steps.append(steps.pop(_capture_step_index(_jobs(mutated)[WRITEBACK_JOB])))
+    with pytest.raises(AssertionError):
+        test_capture_runs_before_teardown(mutated)
+
+
+def test_capture_steps_run_on_failure(workflow: dict[str, Any]) -> None:
+    """``if: failure()`` and not the default: a step with no condition is skipped
+    the moment anything upstream fails, which is the only time it matters."""
+    wrong = {}
+    for name in sorted(_container_jobs(workflow)):
+        index = _capture_step_index(_jobs(workflow)[name])
+        if index is None:
+            continue
+        condition = _jobs(workflow)[name]["steps"][index].get("if")
+        if condition != "failure()":
+            wrong[name] = condition
+    assert wrong == {}, f"capture steps must carry `if: failure()`; got {wrong}"
+
+
+def test_capture_steps_run_on_failure__mutation_drops_the_condition() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[TILED_JOB]
+    del job["steps"][_capture_step_index(job)]["if"]
+    with pytest.raises(AssertionError):
+        test_capture_steps_run_on_failure(mutated)
+
+
+def test_capture_artifact_names_are_unique(workflow: dict[str, Any]) -> None:
+    """Artifact names collide silently within a run — two lanes sharing one name
+    means one lane's evidence overwrites the other's."""
+    names = []
+    for name in sorted(_container_jobs(workflow)):
+        index = _capture_step_index(_jobs(workflow)[name])
+        if index is not None:
+            names.append(_jobs(workflow)[name]["steps"][index]["with"]["name"])
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    assert duplicates == [], f"duplicate capture artifact names: {duplicates}"
+
+
+def test_capture_artifact_names_are_unique__mutation_collides_two_lanes() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[TILED_JOB]
+    job["steps"][_capture_step_index(job)]["with"]["name"] = VA_JOB
+    with pytest.raises(AssertionError):
+        test_capture_artifact_names_are_unique(mutated)
+
+
+def test_podman_lane_captures_with_podman(workflow: dict[str, Any]) -> None:
+    """The podman lane has no ``docker`` binary; asking for one captures nothing."""
+    job = _jobs(workflow)[PODMAN_LIFECYCLE_JOB]
+    step = job["steps"][_capture_step_index(job)]
+    assert step["with"]["engine"] == "podman"
+
+
+def test_podman_lane_captures_with_podman__mutation_asks_for_docker() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[PODMAN_LIFECYCLE_JOB]
+    job["steps"][_capture_step_index(job)]["with"]["engine"] = "docker"
+    with pytest.raises(AssertionError):
+        test_podman_lane_captures_with_podman(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The unit lane's own survivability
+# ---------------------------------------------------------------------------
+
+
+def test_unit_test_step_timeout_is_below_the_job_cap(workflow: dict[str, Any]) -> None:
+    """A JOB timeout is a hard cancel — the collection steps never dependably
+    run, which is how a frozen lane ends up recorded as ``cancelled`` with
+    nothing to read. A STEP timeout fails cleanly and leaves the rest of the
+    job's time for the summary and upload steps."""
+    job = _jobs(workflow)[UNIT_TEST_JOB]
+    step = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests")
+    step_cap = step.get("timeout-minutes")
+    assert step_cap is not None, (
+        "the 'Run unit tests' step needs its own `timeout-minutes`; without one a "
+        "wedged worker is killed by the job cap and takes the evidence with it"
+    )
+    assert step_cap < job["timeout-minutes"], (
+        f"step cap ({step_cap}m) must leave headroom under the job cap "
+        f"({job['timeout-minutes']}m) for the diagnostics steps to run"
+    )
+
+
+def test_unit_test_step_timeout_is_below_the_job_cap__mutation_drops_it() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")["timeout-minutes"]
+    with pytest.raises(AssertionError):
+        test_unit_test_step_timeout_is_below_the_job_cap(mutated)
+
+
+def test_unit_test_step_timeout_is_below_the_job_cap__mutation_raises_it_to_the_cap() -> None:
+    """Equal is as bad as absent: no headroom means no collection phase."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[UNIT_TEST_JOB]
+    _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")["timeout-minutes"] = job[
+        "timeout-minutes"
+    ]
+    with pytest.raises(AssertionError):
+        test_unit_test_step_timeout_is_below_the_job_cap(mutated)
+
+
+def test_unit_lane_arms_the_diagnostics_recorder(workflow: dict[str, Any]) -> None:
+    """``tests/ci_diagnostics.py`` installs nothing unless this variable is set,
+    so without it the lane runs exactly as blind as before."""
+    step = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests")
+    assert step.get("env", {}).get("OSPREY_CI_DIAG_DIR"), (
+        "the unit lane must set OSPREY_CI_DIAG_DIR on the pytest step to enable the "
+        "per-worker event log and stack dumps"
+    )
+
+
+def test_unit_lane_arms_the_diagnostics_recorder__mutation_drops_the_env() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")["env"]["OSPREY_CI_DIAG_DIR"]
+    with pytest.raises(AssertionError):
+        test_unit_lane_arms_the_diagnostics_recorder(mutated)
+
+
+def test_unit_lane_uploads_its_diagnostics(workflow: dict[str, Any]) -> None:
+    """``always()``, not ``failure()``: a lane killed by the job cap is recorded
+    as ``cancelled``, and a ``failure()`` step would not run for it."""
+    upload = _find_named_step(workflow, UNIT_TEST_JOB, "Upload lane diagnostics")
+    assert upload["if"] == "always()"
+    assert upload["with"]["path"].rstrip("/") == "ci-diag"
+    summary = _find_named_step(workflow, UNIT_TEST_JOB, "Summarise lane diagnostics")
+    assert summary["if"] == "always()"
+
+
+def test_unit_lane_uploads_its_diagnostics__mutation_narrows_to_failure() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, UNIT_TEST_JOB, "Upload lane diagnostics")["if"] = "failure()"
+    with pytest.raises(AssertionError):
+        test_unit_lane_uploads_its_diagnostics(mutated)
+
+
+def test_unit_lane_does_not_set_faulthandler_timeout(workflow: dict[str, Any]) -> None:
+    """The subtle one: the ini option arms a watchdog that kills workers.
+
+    pytest implements ``faulthandler_timeout`` with
+    ``faulthandler.dump_traceback_later``, whose watchdog walks every thread's
+    frames without holding the GIL. A sample landing inside one of the parsers
+    this suite lives in — PyYAML, ruamel, Jinja2 — reads a frame that is being
+    freed and takes the worker down with it, which xdist reports only as ``node
+    down: Not properly terminated``. ``tests/ci_diagnostics.py`` samples from an
+    ordinary Python thread for that reason, and setting this option would put
+    the unsafe watchdog back, on a per-test timer.
+
+    Its dumps would also reach only the job log, which is exactly what a
+    cancelled job truncates.
+    """
+    line = _unit_test_pytest_line(workflow)
+    assert "faulthandler_timeout" not in line, (
+        "the unit lane must not pass `-o faulthandler_timeout`: pytest implements it "
+        "with faulthandler.dump_traceback_later, whose GIL-free watchdog segfaults "
+        "workers that are inside a YAML or Jinja parser. See the docstring of "
+        "tests/ci_diagnostics.py."
+    )
+
+
+def _sole_heavy_step(job: dict[str, Any]) -> dict[str, Any] | None:
+    """The lane's single pytest-running step, or None if there isn't exactly one.
+
+    Lanes with several heavy steps are excluded on purpose: capping them means
+    splitting one job budget between them, which is a per-lane runtime judgement
+    rather than something derivable, and a wrong split reds a healthy run.
+    """
+    heavy = [s for s in (job.get("steps") or []) if "uv run pytest" in str(s.get("run", ""))]
+    return heavy[0] if len(heavy) == 1 else None
+
+
+def test_capped_container_lanes_cap_their_heavy_step(workflow: dict[str, Any]) -> None:
+    """Same argument as the unit lane, applied to the e2e lanes.
+
+    Without a step cap the hang is killed by the JOB cap, which is a hard cancel
+    — and the capture step never runs, so the containers are torn down by the
+    runner with their logs unread. That is the exact blind spot the capture step
+    exists to close, so a capped lane must not leave it open.
+    """
+    missing = []
+    for name in sorted(_container_jobs(workflow)):
+        job = _jobs(workflow)[name]
+        job_cap = job.get("timeout-minutes")
+        step = _sole_heavy_step(job)
+        if not job_cap or step is None:
+            continue
+        step_cap = step.get("timeout-minutes")
+        if step_cap is None or step_cap >= job_cap:
+            missing.append((name, step.get("name"), step_cap, job_cap))
+    assert missing == [], (
+        "these lanes declare a job cap and have one heavy step, so that step needs its "
+        f"own smaller `timeout-minutes`: {missing}"
+    )
+
+
+def test_capped_container_lanes_cap_their_heavy_step__mutation_drops_a_step_cap() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _sole_heavy_step(_jobs(mutated)[TILED_JOB])["timeout-minutes"]
+    with pytest.raises(AssertionError):
+        test_capped_container_lanes_cap_their_heavy_step(mutated)
+
+
+def test_capped_container_lanes_cap_their_heavy_step__mutation_raises_it_to_the_job_cap() -> None:
+    """No headroom is the same as no cap — the capture step still never runs."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[TILED_JOB]
+    _sole_heavy_step(job)["timeout-minutes"] = job["timeout-minutes"]
+    with pytest.raises(AssertionError):
+        test_capped_container_lanes_cap_their_heavy_step(mutated)
+
+
+def test_unit_lane_does_not_set_faulthandler_timeout__mutation_restores_the_ini_option() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    step["run"] = step["run"].replace(
+        " --dist loadgroup $COV_ARGS",
+        " --dist loadgroup $COV_ARGS -o faulthandler_timeout=300",
+    )
+    with pytest.raises(AssertionError):
+        test_unit_lane_does_not_set_faulthandler_timeout(mutated)
