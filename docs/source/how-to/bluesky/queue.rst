@@ -55,6 +55,8 @@ One queue, three ways to drive it
       - ``queue_stop`` / ``stop_run`` — the two halts. Never switched off.
       - ``queue_list`` / ``queue_status`` / ``list_runs`` / ``get_run_data``
         — read what is queued, running, and measured.
+      - ``get_run_figure`` — read the same figure the BLUESKY panel is
+        drawing, so you and the agent are discussing one picture.
 
       A bundled skill (``operating-bluesky-scans``) teaches the agent this
       flow, so you rarely need to name a tool yourself.
@@ -72,7 +74,8 @@ One queue, three ways to drive it
          POST /queue/stop           stop after the running item
          POST /queue/abort          abort the running plan — never gated
          GET  /queue                what is queued and running
-         GET  /runs                 recent runs; /runs/<id>/data for the numbers
+         GET  /runs                 recent runs; /runs/<id>/data for the numbers,
+                                    /runs/<id>/figure for the plotted view
 
       Every refusal comes back with a ``detail`` object of the form
       ``{"code": ..., "detail": ...}`` — a stable code for software to

@@ -122,7 +122,8 @@ This queues exactly the draft the human can see in their plan panel at that
 revision — never anything you pass here — and then stops. It is the agent
 analog of the plan panel's *Add to queue* button. On success it returns
 `{run_id, revision, item}`: `run_id` is OSPREY's id for the eventual run (use
-it with `get_run` / `get_run_data`), and `item.item_uid` is the queue handle.
+it with `get_run` / `get_run_data` / `get_run_figure`), and `item.item_uid` is
+the queue handle.
 
 **A revision is consumable exactly once.** Queuing the same plan again — a
 repeat scan, a retry — needs a `set_draft` edit to mint a new revision first;
@@ -301,6 +302,17 @@ A running queue is live hardware — never fire-and-forget. Watch it:
   run's rows; `partial: true` means the run is still producing data. Never
   returns an unbounded table. A run rotated out of the manager's history still
   has its data, so a 404 from `get_run` is never a reason to skip reading here.
+- **`get_run_figure(run_id)`** — the run's figure: the plan's own view of what
+  it measured, as data rather than pixels. It comes back as panels, each with a
+  title, axis labels and units, `annotations` worth relaying, and exactly one
+  mark — `lines`, `bars`, `heatmap`, or a `heatmap_summary` standing in for a
+  grid too large to send as cells. The whole figure is point-bounded, so a
+  200k-row run and a 20-row run cost the same to read; **the tool's own
+  docstring states the bounds and the mark vocabulary in full** — read them
+  there rather than assuming numbers. This is the same figure the human's
+  BLUESKY panel is drawing, which is what lets you and them discuss one
+  picture. A run that has rotated out of the manager's history still has a
+  figure, so a 404 from `get_run` is never a reason to skip it.
 - **`list_runs()`** — recent runs, newest first, same record shape as
   `get_run`. It covers what OSPREY enqueued; an item queued by some other
   route has no OSPREY run id and is absent from it, so `queue_list` is the
@@ -312,6 +324,46 @@ far" — never as 0%.
 
 Results land in the queue panel as the run produces them, so the human watches
 alongside the agent.
+
+### Narrating a figure
+
+**A `reason` is a default view, never an error.** `reason: null` means the plan
+drew the figure itself. Any other value means the bridge drew its **default
+view** instead — every numeric column the run recorded, against the scan's own
+x axis. That is real data, honestly plotted, so say "the default view, because
+<the reason in plain words>" and never "the figure failed". `no_render` in
+particular means the plan declares no view of its own, so the default view **is**
+that plan's view — there is nothing wrong to report. The vocabulary is open:
+a reason you do not recognize is still a default view, so relay it verbatim
+rather than guessing at it.
+
+The rest of the reading rules:
+
+- **`source_unavailable` is the one reason that comes with empty panels**, and
+  it means "the rows could not be read", never "the run recorded nothing".
+  Offer `get_run_data` as the second opinion.
+- **`partial: true` means the run was still producing rows** when the figure
+  was drawn — read it again rather than calling it final.
+- **`source` says which store answered** — `live` (the bridge's own buffer) or
+  `tiled` (durable storage) — not how good the data is.
+- **A decimated series was thinned, not cut short.** Say "N of `source_points`
+  points shown"; never report the returned count as how many points the run
+  took.
+- **A `null` value is a gap, never a zero — and never a count.** On a thinned
+  series one null can stand for a whole stretch of missing readings, and it
+  sits where the gap was rather than spanning how long it lasted. Read nulls as
+  "there were gaps here" and never say how many readings were missed.
+- **`heatmap_summary` is lossy and says so.** Its `x_labels`/`y_labels` are
+  `{count, first, last}` objects — the axis vocabulary and its ends, not the
+  label lists a `heatmap` mark carries — and `largest_magnitude` holds the
+  cells with the biggest absolute value: the strongest readings, **not** an
+  outlier test. **Do not call them anomalies** — the `orm` plan draws its own
+  anomaly-score panels, scored against peer devices, and blurring the two
+  misreports the machine. Never state a cell value the summary does not
+  contain; if one specific cell matters, read it with `get_run_data`.
+- **Relay a panel's `annotations`.** They name what the panel does *not* show —
+  a cap, dropped rows, series left out — and are the honest half of the
+  picture.
 
 ---
 
@@ -389,7 +441,13 @@ know why it was requested.
 - **Never** call `queue_start` without reading `queue_list` first — start
   drains the whole queue, including items you did not add.
 - **Never** treat a started queue as fire-and-forget — it drives real
-  hardware; watch it with `queue_list`/`get_run`/`get_run_data`.
+  hardware; watch it with `queue_list`/`get_run`/`get_run_data`/`get_run_figure`.
+- **Never** report a figure's `reason` as a failure — it says the bridge drew
+  the default view, which is real data, and `no_render` means that view is the
+  plan's own.
+- **Never** call a `heatmap_summary`'s `largest_magnitude` cells anomalies —
+  they are the strongest readings, and the `orm` plan ships real anomaly-score
+  panels that would be contradicted by saying otherwise.
 - **Never** let "stop" cover both halts — `queue_stop` halts the queue after
   the running item, `stop_run` aborts the item already in motion. Name which
   one you mean.
