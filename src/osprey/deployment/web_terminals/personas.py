@@ -71,27 +71,33 @@ def config_declares_panel(config: Any, panel_id: str) -> bool:
     return panel.get("enabled", True) is not False
 
 
-def personas_declaring_panel(config: Any, project_root: Any, panel_id: str) -> set[str]:
-    """Names of catalog personas whose rendered project declares ``panel_id``.
+def config_uses_ariel(config: Any) -> bool:
+    """True if ``config`` carries a non-empty ``ariel:`` section.
 
-    Reads each referenced persona's ``config.yml`` off disk — which is why the
-    render takes the result as a parameter rather than calling this itself (see
-    :func:`osprey.deployment.web_terminals.render.render_web_terminals`'s
-    determinism note). Resolution mirrors
-    :func:`osprey.deployment.web_terminals.env_production._claude_code_auth_secret_vars`:
-    a persona whose ``project_path`` is unset, unrendered, or unreadable
-    contributes nothing, because a credential is never granted on a guess.
+    The ARIEL counterpart of :func:`config_declares_panel`, and deliberately not
+    expressed as one: a web terminal has TWO ARIEL consumers that authenticate
+    against the same Postgres — the panel's own server (``web.panels.ariel``)
+    and the ``ariel`` MCP server the agent calls, which is selected during the
+    build and appears nowhere in ``web.panels``. Gating the credential on the
+    panel would leave the agent's logbook tools broken in exactly the projects
+    that switched the tab off.
 
-    :param config: The parsed deploy config.
-    :param project_root: Deploy project root; relative ``project_path`` values
-        resolve against it.
-    :param panel_id: The panel whose declaration is being looked for.
-    :return: The subset of referenced persona names that declare it.
+    What both consumers do read is the ``ariel:`` section — it is the input to
+    :func:`osprey.services.ariel_search.config.resolve_ariel_dsn` — so its
+    presence is the entitlement. An absent or empty section configures no
+    logbook, and so entitles nothing.
     """
-    import yaml
+    return bool(as_dict(as_dict(config).get("ariel")))
 
-    web_terminals = as_dict(as_dict(config).get("modules")).get("web_terminals")
-    web_terminals = as_dict(web_terminals)
+
+def _referenced_personas(config: Any) -> tuple[dict[str, Any], set[str]]:
+    """The persona catalog and the names some roster entry actually resolves to.
+
+    ``default_persona`` counts alongside every entry's explicit ``persona``: a
+    roster entry that names none runs the default, so the default's project is
+    as deployed as any other.
+    """
+    web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
     catalog = as_dict(web_terminals.get("personas"))
 
     referenced: set[str] = set()
@@ -102,8 +108,27 @@ def personas_declaring_panel(config: Any, project_root: Any, panel_id: str) -> s
     for user in users if isinstance(users, list) else []:
         if isinstance(user, dict) and isinstance(user.get("persona"), str) and user["persona"]:
             referenced.add(user["persona"])
+    return catalog, referenced
 
-    declaring: set[str] = set()
+
+def _personas_whose_config(config: Any, project_root: Any, predicate) -> set[str]:
+    """Referenced personas whose rendered ``config.yml`` satisfies ``predicate``.
+
+    The one walk behind every per-persona credential grant, so two credentials
+    cannot disagree about which personas a roster deploys. Reads each persona's
+    ``config.yml`` off disk — which is why the render takes the result as a
+    parameter rather than calling this itself (see
+    :func:`osprey.deployment.web_terminals.render.render_web_terminals`'s
+    determinism note). Resolution mirrors
+    :func:`osprey.deployment.web_terminals.env_production._claude_code_auth_secret_vars`:
+    a persona whose ``project_path`` is unset, unrendered, or unreadable
+    contributes nothing, because a credential is never granted on a guess.
+    """
+    import yaml
+
+    catalog, referenced = _referenced_personas(config)
+
+    matching: set[str] = set()
     for persona_name in sorted(referenced):
         entry = as_dict(catalog.get(persona_name))
         project_path = entry.get("project_path")
@@ -117,9 +142,35 @@ def personas_declaring_panel(config: Any, project_root: Any, panel_id: str) -> s
                 persona_config = yaml.safe_load(fh)
         except (OSError, yaml.YAMLError):
             continue
-        if config_declares_panel(persona_config, panel_id):
-            declaring.add(persona_name)
-    return declaring
+        if predicate(persona_config):
+            matching.add(persona_name)
+    return matching
+
+
+def personas_declaring_panel(config: Any, project_root: Any, panel_id: str) -> set[str]:
+    """Names of catalog personas whose rendered project declares ``panel_id``.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :param panel_id: The panel whose declaration is being looked for.
+    :return: The subset of referenced persona names that declare it.
+    """
+    return _personas_whose_config(
+        config, project_root, lambda persona: config_declares_panel(persona, panel_id)
+    )
+
+
+def personas_using_ariel(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project configures ARIEL.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names entitled to
+        ``ARIEL_DB_PASSWORD`` (see :func:`config_uses_ariel`).
+    """
+    return _personas_whose_config(config, project_root, config_uses_ariel)
 
 
 def normalize_users(users_raw: Any) -> list[dict[str, Any]]:

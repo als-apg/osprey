@@ -8,11 +8,13 @@ import pytest
 from osprey.deployment.web_terminals.personas import (
     EVENTS_PANEL_ID,
     config_declares_panel,
+    config_uses_ariel,
     env_var_suffix,
     env_var_suffix_collisions,
     freeze_user_indices,
     normalize_users,
     personas_declaring_panel,
+    personas_using_ariel,
     resolve_personas,
 )
 
@@ -1321,3 +1323,86 @@ def test_personas_declaring_panel_skips_unrendered_persona_projects(tmp_path) ->
 
     # Act / Assert
     assert personas_declaring_panel(config, tmp_path, EVENTS_PANEL_ID) == set()
+
+
+# ---------------------------------------------------------------------------
+# ARIEL config -> per-user database credential
+#
+# ARIEL's Postgres password is not panel-gated the way the dispatcher token is:
+# two consumers inside a web terminal need it -- the ARIEL panel's own server
+# and the `ariel` MCP server the agent calls -- and only one of them is visible
+# in `web.panels`. The `ariel:` section is what BOTH read to resolve their DSN,
+# so its presence is the entitlement.
+# ---------------------------------------------------------------------------
+
+
+def _write_persona_project_config(tmp_path, name: str, config: dict) -> str:
+    """Render a persona project carrying an arbitrary config; return its project_path."""
+    import yaml
+
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump({"project_name": name, **config}), encoding="utf-8"
+    )
+    return name
+
+
+def test_config_uses_ariel_reads_the_ariel_section() -> None:
+    """A project carrying an `ariel:` section resolves a DSN and needs the password."""
+    # Assert
+    assert config_uses_ariel({"ariel": {"search_modules": {"keyword": {"enabled": True}}}}) is True
+    assert config_uses_ariel({}) is False
+
+
+def test_config_uses_ariel_ignores_an_empty_section() -> None:
+    """A key present but empty configures nothing, so it entitles nothing."""
+    # Assert
+    assert config_uses_ariel({"ariel": None}) is False
+    assert config_uses_ariel({"ariel": {}}) is False
+
+
+def test_personas_using_ariel_selects_only_the_ariel_persona(tmp_path) -> None:
+    """The entitlement set is exactly the personas whose rendered project configures
+    ARIEL -- a persona with no logbook gets no logbook credential."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_persona_project_config(
+                tmp_path, "rw", {"ariel": {"search_modules": {"keyword": {"enabled": True}}}}
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project_config(
+                tmp_path, "ro", {"web": {"panels": {"okf": {"enabled": True}}}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "readwrite"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+        ],
+    )
+
+    # Act
+    result = personas_using_ariel(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite"}
+
+
+def test_personas_using_ariel_skips_unrendered_persona_projects(tmp_path) -> None:
+    """A persona whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "persona": "ghost"}],
+    )
+
+    # Act / Assert
+    assert personas_using_ariel(config, tmp_path) == set()

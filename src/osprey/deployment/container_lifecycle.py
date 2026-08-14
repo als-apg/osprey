@@ -2342,6 +2342,186 @@ def _stage_archiver_store(config, compose_files, env, project_dir, *, keep_base=
     _reapply_active_scenarios(config, project_dir, engine)
 
 
+# ---------------------------------------------------------------------------
+# Staged ARIEL bring-up
+# ---------------------------------------------------------------------------
+
+# ARIEL's store, under both names it goes by: the compose service key and the
+# ``deployed_services`` entry are the same word here (unlike the archiver's
+# recorder), but naming it once keeps the two uses from drifting apart.
+_ARIEL_STORE_SERVICE = "postgresql"
+
+# How long the staged store gets to accept a connection. Shorter than the
+# archiver's budget because postgres does not open its port until the cluster is
+# initialized and ready — a first start of a fresh volume runs initdb behind a
+# closed socket, so what this waits out is a refusal, not a slow answer.
+_ARIEL_HEALTH_TIMEOUT_S = 90.0
+_ARIEL_HEALTH_POLL_S = 2.0
+
+# The one command that finishes the job by hand, named in every warning below.
+# `quickstart` rather than `migrate`: it runs the migration AND reports what it
+# found, so an operator following the message once ends up where this staging
+# would have left them.
+_ARIEL_RECOVERY_HINT = "osprey ariel quickstart"
+
+
+def _ariel_store_deployed(config: dict) -> bool:
+    """True when this deploy runs ARIEL's store itself, for a project that uses it.
+
+    Both halves matter. Membership in ``deployed_services`` keeps a project
+    pointed at a Postgres someone *else* runs from having its schema created or
+    its logbook written by a local deploy. An ``ariel:`` section is what makes a
+    deployed Postgres ARIEL's at all — the same store can be deployed for
+    something else entirely, and a deploy has no business migrating a database
+    whose schema it cannot claim to own.
+    """
+    return _ARIEL_STORE_SERVICE in (config.get("deployed_services") or []) and bool(
+        config.get("ariel")
+    )
+
+
+def _ariel_store_config(config: dict, project_dir: Path) -> dict:
+    """The project's ``ariel:`` section with its DSN resolved for THIS project.
+
+    The password is read from ``<project_dir>/.env`` by name, never from the
+    ambient environment — the same rule the archiver seeder follows, and for the
+    same reason: a deploy is routinely driven from another directory, where an
+    exported ``ARIEL_DB_PASSWORD`` belongs to somebody else's deployment.
+
+    Resolving it here (rather than letting each consumer derive its own) also
+    means the migration and the seed that follows are pinned to one DSN, so they
+    cannot disagree about which database this deploy is talking to.
+    """
+    from osprey.services.ariel_search.config import resolve_ariel_dsn
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    env_path = Path(project_dir) / ".env"
+    env = parse_dotenv_file(env_path) if env_path.is_file() else {}
+
+    ariel = dict(config.get("ariel") or {})
+    services = (config.get("services") or {}).get(_ARIEL_STORE_SERVICE) or {}
+    dsn = resolve_ariel_dsn(ariel, services, env=env)
+    ariel["database"] = {**(ariel.get("database") or {}), "uri": dsn}
+    return ariel
+
+
+def _wait_for_ariel_store(ariel_config: dict, deadline: float) -> None:
+    """Block until the staged store accepts these credentials, or give up.
+
+    Probes with the DSN the migration is about to use, so a wrong password
+    surfaces here — named, and beside the deploy step that owns it — rather than
+    as a migration error that reads like a schema problem.
+
+    :param ariel_config: ARIEL config with its DSN already resolved.
+    :param deadline: :func:`time.monotonic` instant to give up at.
+    :raises RuntimeError: if the store is still unreachable at ``deadline``.
+    """
+    import psycopg
+
+    dsn = str((ariel_config.get("database") or {}).get("uri"))
+    last: Exception | None = None
+    while True:
+        try:
+            with psycopg.connect(dsn, connect_timeout=5):
+                return
+        except Exception as exc:  # noqa: BLE001 — every failure here is "not yet"
+            last = exc
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"ARIEL's database did not accept a connection within "
+                    f"{_ARIEL_HEALTH_TIMEOUT_S:.0f}s: {last}"
+                ) from last
+            time.sleep(_ARIEL_HEALTH_POLL_S)
+
+
+def _migrate_ariel_store(ariel_config: dict) -> None:
+    """Create ARIEL's schema, idempotently.
+
+    Wrapped rather than called inline so the deploy has one seam for "the schema
+    now exists", and so the async boundary lives in exactly one place.
+    """
+    import asyncio
+
+    from osprey.services.ariel_search.cli_operations import run_migrate
+
+    asyncio.run(run_migrate(ariel_config))
+
+
+def _stage_ariel_store(config, compose_files, env, project_dir) -> None:
+    """Start ARIEL's store, create its schema, and seed a first narrative.
+
+    The logbook counterpart of :func:`_stage_archiver_store`, and staged ahead of
+    the full bring-up for the same kind of reason: everything that reads ARIEL —
+    the panel's own server and the ``ariel`` MCP server inside every web terminal
+    — connects at start-up and reports a database with no tables as no database
+    at all. Creating the schema after those consumers are running would leave a
+    stack that is only correct once somebody restarts it.
+
+    Three steps, each conditional on the one before:
+
+    * **migrate** — always, and idempotent: this is what a store this deploy
+      brought up owes the consumers it is about to start.
+    * **seed** — only into an EMPTY logbook, and only what the active scenarios
+      already narrate (see
+      :func:`osprey.simulation.apply.seed_active_logbook`). A deploy may fill a
+      blank; it may not rewrite history.
+
+    Failure here warns and returns rather than aborting the deploy. The logbook is
+    one panel among many, and a control room whose channels, scans and archive are
+    all up should not be denied them because its search tab could not be
+    provisioned — but the warning names the command that finishes the job, so the
+    gap is never silent.
+
+    :param config: Raw deploy config.
+    :param compose_files: Rendered compose file paths for this deploy.
+    :param env: The environment the deploy hands compose.
+    :param project_dir: Root of the built project (holds ``.env``).
+    """
+    if not _ariel_store_deployed(config):
+        return
+
+    from osprey.simulation import apply as simulation_apply
+
+    run_env = runtime_env(config, env)
+    base_cmd = compose_base_cmd(
+        get_runtime_command(config),
+        compose_files,
+        project_dir,
+        _env_file_args(project_dir),
+    )
+
+    up_cmd = base_cmd + ["up", "-d", _ARIEL_STORE_SERVICE]
+    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
+    run_captured(up_cmd, env=run_env, spool_name="ariel-store-up", repo_root=project_dir)
+    _report_step("ARIEL store started")
+
+    ariel_config = _ariel_store_config(config, project_dir)
+    try:
+        _wait_for_ariel_store(ariel_config, time.monotonic() + _ARIEL_HEALTH_TIMEOUT_S)
+        _migrate_ariel_store(ariel_config)
+    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+        logger.warning(
+            f"ARIEL's schema could not be created, so its panel and MCP tools will "
+            f"report the database as unavailable. Everything else in this deploy is "
+            f"unaffected. Run `{_ARIEL_RECOVERY_HINT}` from {project_dir} once the "
+            f"database is reachable. Cause: {exc}"
+        )
+        return
+    _report_step("ARIEL schema ready")
+
+    try:
+        seeded = simulation_apply.seed_active_logbook(config, project_dir, ariel_config)
+    except Exception as exc:  # noqa: BLE001 — reported, never fatal (see docstring)
+        logger.warning(
+            f"ARIEL's schema is in place but its logbook could not be seeded, so the "
+            f"panel will come up empty. Run `osprey sim apply` from {project_dir} to "
+            f"write the active scenarios' entries. Cause: {exc}"
+        )
+        return
+    if seeded:
+        logger.key_info(f"Seeded {seeded} logbook entries from the active scenarios")
+
+
 def deploy_up(
     config_path,
     detached=False,
@@ -2634,6 +2814,13 @@ def _start_stack(
         _stage_archiver_store(
             config, compose_files, env, Path(repo_root), keep_base=keep_archiver_base
         )
+
+    # Same placement and the same reason for ARIEL's store: the schema has to
+    # exist before the consumers that read it start, and both deploy paths need
+    # it. Ordered AFTER the archiver so the logbook is seeded against a machine
+    # whose history is already in place — the two halves of one narrative, in the
+    # order they document each other.
+    _stage_ariel_store(config, compose_files, env, Path(repo_root))
 
     if web_terminals_enabled:
         deploy_up_web_terminals(config, compose_files, dev_mode, env, _env_file_args(repo_root))

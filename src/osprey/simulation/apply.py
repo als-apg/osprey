@@ -318,6 +318,73 @@ _WRITE_CHUNK = 1000
 _SPIKE_WINDOW_SIGMAS = 4.0
 
 
+def active_logbook_entries(config: dict, project_dir: Path) -> list[EnhancedLogbookEntry]:
+    """The logbook entries the project's ALREADY-active scenarios narrate.
+
+    Read back from the project's own state rather than composed from an argument:
+    the caller here (a deploy) is not activating anything, it is writing down what
+    the running world already says it is. The anchor comes from the same state, so
+    the entries land where the telemetry that accompanies them already is — a
+    fresh anchor would slide the narrative to a T0 nobody asked for.
+
+    Args:
+        config: The project's loaded ``config.yml``.
+        project_dir: Root of the built project.
+
+    Returns:
+        The entries, or ``[]`` when the project is not simulation-backed — a
+        project with no machine model narrates nothing, which is a normal
+        configuration and not a fault.
+    """
+    machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
+    if machine_path is None or not machine_path.is_file():
+        return []
+
+    engine = SimulationEngine.from_file(
+        machine_path, state_dir=resolve_state_dir(config, project_dir)
+    )
+    anchor = persisted_scenario_anchor(config, project_dir) or datetime.now(get_facility_timezone())
+    return [_to_enhanced_entry(entry, anchor) for entry in engine.active_logbook()]
+
+
+def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> int:
+    """Write the active narrative into a logbook that has none. Returns entries seeded.
+
+    The counterpart of :func:`seed_archiver` for the other half of a simulated
+    world: a deployment whose archive is full while its logbook is empty documents
+    a machine nobody can read about. Called by the deploy, which is why it is
+    strictly additive where :func:`apply_scenarios`' own seeding purges first — an
+    operator asking for a scenario is asking for that narrative and no other, but
+    a deploy is asking for the stack to come up and has no licence to delete
+    entries anyone wrote.
+
+    So it writes only into an EMPTY logbook. A logbook with anything in it is left
+    exactly as it is; the operator's route to a clean reseed remains
+    ``osprey sim apply``.
+
+    Args:
+        config: The project's loaded ``config.yml``.
+        project_dir: Root of the built project.
+        ariel_config: ARIEL config section with its DSN already resolved.
+
+    Returns:
+        The number of entries seeded; ``0`` when the project narrates none, or
+        when the logbook already holds entries.
+    """
+    entries = active_logbook_entries(config, project_dir)
+    if not entries:
+        return 0
+
+    async def _seed_if_empty() -> int:
+        from osprey.services.ariel_search import cli_operations
+
+        if await cli_operations.logbook_entry_count(ariel_config) > 0:
+            return 0
+        return await cli_operations.seed_logbook_entries(ariel_config, entries)
+
+    return _run_coro(_seed_if_empty)
+
+
 def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
     """Connection parameters for the project's stored archive, if it has one.
 

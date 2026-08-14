@@ -24,6 +24,7 @@ from osprey.deployment.web_terminals.personas import (
     USERNAME_CHARSET_RE,
     as_dict,
     config_declares_panel,
+    config_uses_ariel,
     effective_image_source,
     env_var_suffix,
     env_var_suffix_collisions,
@@ -143,6 +144,7 @@ def render_web_terminals(
     config: Any,
     auth_env_digest: str | None = None,
     dispatcher_personas: set[str] | None = None,
+    ariel_personas: set[str] | None = None,
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -179,6 +181,18 @@ def render_web_terminals(
             credential that can fire triggers. ``None`` (the default, and the
             ``osprey scaffold web-terminals render`` path, which has no project
             root to resolve against) emits no token line at all.
+        ariel_personas: Persona names whose project configures ARIEL, and whose
+            users therefore need the Postgres password ``osprey up`` minted into
+            the deploy ``.env`` (see
+            :func:`osprey.deployment.web_terminals.personas.personas_using_ariel`).
+            Same placement and same reason as ``dispatcher_personas``: both ARIEL
+            consumers inside the container — the panel's server and the ``ariel``
+            MCP server — resolve their DSN through
+            :func:`osprey.services.ariel_search.config.resolve_ariel_dsn`, which
+            reads ``ARIEL_DB_PASSWORD`` from the environment and otherwise falls
+            back to the shipped default, so a container that never receives it
+            authenticates with the wrong password against a Postgres initialized
+            with the minted one. ``None`` emits no line.
 
     Returns:
         Mapping of output-relative-path to rendered content, for exactly three
@@ -290,6 +304,15 @@ def render_web_terminals(
                     entry["persona"] in (dispatcher_personas or set())
                     if entry.get("persona")
                     else config_declares_panel(root, EVENTS_PANEL_ID)
+                ),
+                # Whether this user's container gets the ARIEL Postgres password
+                # (see the `ariel_personas` arg). Persona-less entries are
+                # answered from this same config, with no disk read, exactly as
+                # above.
+                "wants_ariel_db": (
+                    entry["persona"] in (ariel_personas or set())
+                    if entry.get("persona")
+                    else config_uses_ariel(root)
                 ),
             }
         )
