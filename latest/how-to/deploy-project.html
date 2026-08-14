@@ -790,11 +790,10 @@ pinned by the docker volume that was initialized with it — and a deploy whose
 own value disagrees says so by variable name (never by value) and keeps using
 its own, leaving you to reconcile the two.</p>
 <p>If the profile cannot be reached — it has moved or been deleted, or the project
-was built before this mechanism existed — the deploy still succeeds. The secrets
-stay in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>, a warning names the path that failed, and the
-project records that its <code class="docutils literal notranslate"><span class="pre">.env</span></code> is the only copy; a later
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> repeats that warning before it touches the directory.
-Back that file up.</p>
+names none — the deploy still succeeds. The secrets stay in the project
+<code class="docutils literal notranslate"><span class="pre">.env</span></code>, a warning names the path that failed, and the project records that its
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> is the only copy; a later <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> repeats that warning before
+it touches the directory. Back that file up.</p>
 <p>Keep both <code class="docutils literal notranslate"><span class="pre">.env</span></code> files out of version control (the profile’s <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>
 does this for you).</p>
 <div class="admonition note">

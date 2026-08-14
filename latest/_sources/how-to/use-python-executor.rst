@@ -83,7 +83,7 @@ Where Code Runs
 ===============
 
 Agent-authored Python runs as a subprocess on the same host as the Osprey
-agent. This is the only execution backend, so there is nothing to choose
+agent. It is the only execution backend, so there is nothing to choose
 between:
 
 .. code-block:: yaml
@@ -92,11 +92,11 @@ between:
    execution:
      execution_method: subprocess
 
-``subprocess`` is the default and the key can be left out entirely. Two older
-values still load, so existing projects keep working: ``local`` is the former
-name for this same backend and is accepted silently, and ``container`` is
-treated as ``subprocess`` and logs a one-time warning naming the config file it
-came from. Any other value is a configuration error.
+``subprocess`` is the default and the key can be left out entirely. Two other
+spellings load: ``local`` is an alias for this same backend and is accepted
+silently, and ``container`` is treated as ``subprocess`` and logs a one-time
+warning naming the config file it came from. Any other value is a
+configuration error.
 
 The ``ExecutionWrapper`` wraps user code with safety monkeypatches (e.g.
 ``epics.caput()`` validation against the limits database), writes the wrapped

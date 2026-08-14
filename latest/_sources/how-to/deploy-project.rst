@@ -325,11 +325,10 @@ own value disagrees says so by variable name (never by value) and keeps using
 its own, leaving you to reconcile the two.
 
 If the profile cannot be reached — it has moved or been deleted, or the project
-was built before this mechanism existed — the deploy still succeeds. The secrets
-stay in the project ``.env``, a warning names the path that failed, and the
-project records that its ``.env`` is the only copy; a later
-``osprey build`` repeats that warning before it touches the directory.
-Back that file up.
+names none — the deploy still succeeds. The secrets stay in the project
+``.env``, a warning names the path that failed, and the project records that its
+``.env`` is the only copy; a later ``osprey build`` repeats that warning before
+it touches the directory. Back that file up.
 
 Keep both ``.env`` files out of version control (the profile's ``.gitignore``
 does this for you).

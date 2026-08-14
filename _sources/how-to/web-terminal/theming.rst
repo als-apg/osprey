@@ -29,8 +29,8 @@ Themes come in **families**. OSPREY ships four:
 - **desy** — the DESY corporate palette, in light and dark.
 - **high-contrast** — a stronger-contrast family for accessibility, also in
   light and dark.
-- **retro** — the navy-and-teal look of the pre-redesign web terminal,
-  kept for teams who prefer the familiar appearance.
+- **retro** — a navy-and-teal family, in light and dark, for teams who
+  prefer that look.
 
 In the terminal, click the sliders button at the top right to open the
 display menu — it holds the light/dark switch, the Expert/Simple view toggle,
@@ -99,17 +99,17 @@ The landing page that lists everyone's terminals uses the deployment-wide
 ``web.theme``. It is shown before anyone has said who they are, so there is no
 personal setting to apply yet.
 
-Restoring the pre-redesign look
--------------------------------
+A navy-and-teal terminal
+------------------------
 
-Deployments upgrading from the pre-redesign web terminal can bring back the
-familiar appearance with two settings in ``config.yml``:
+Two settings in ``config.yml`` give the terminal a navy-and-teal look with its
+panel buttons along the top:
 
 .. code-block:: yaml
 
    web:
-     theme: retro            # the original navy/teal palette
-     rail_position: top      # panel buttons along the top, like the old tabs
+     theme: retro            # the navy/teal palette
+     rail_position: top      # panel buttons along the top
 
 Each user can still override both from the interface: the theme from the
 theme switcher in the header, and the rail position from the panel "+" menu.

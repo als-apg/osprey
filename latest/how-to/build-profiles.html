@@ -1389,11 +1389,11 @@ holds no secrets, and every service reads them from here.</p>
 <p>The write-back is <strong>append-only</strong>. A key already in the profile keeps its value —
 it is pinned by the docker volume that was initialized with it — and a value that
 disagrees is reported by name (never by value) for you to resolve by hand.</p>
-<p>If the profile cannot be reached — it has moved, or the project was built before
-this mechanism existed — the deploy still works. The secrets stay in the project
-<code class="docutils literal notranslate"><span class="pre">.env</span></code>, a warning names the path that failed, and the project records that its
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> is the only copy. A later <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> repeats that warning
-before touching the directory.</p>
+<p>If the profile cannot be reached — it has moved or been deleted, or the project
+names none — the deploy still works. The secrets stay in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>, a
+warning names the path that failed, and the project records that its <code class="docutils literal notranslate"><span class="pre">.env</span></code> is
+the only copy. A later <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> repeats that warning before touching the
+directory.</p>
 </section>
 </section>
 <section id="profile-yaml-reference">
@@ -2132,7 +2132,7 @@ one exists.</p>
 <p><strong>“Profile has N unrecognized top-level entry/entries”</strong> — a warning, not an
 error: a directory in the profile that nothing copies. Usually a typo of a
 convention directory name.</p>
-<p><strong>“Unknown profile key(s): ‘overlay’”</strong> — profiles no longer have an overlay
+<p><strong>“Unknown profile key(s): ‘overlay’”</strong> — a profile has no <code class="docutils literal notranslate"><span class="pre">overlay</span></code>
 section. Move the files into the convention directory that matches what they
 are (see the table above), or into <code class="docutils literal notranslate"><span class="pre">project/</span></code> for anything without one.</p>
 <p><strong>“Directory ‘X’ already exists”</strong> — use <code class="docutils literal notranslate"><span class="pre">--force</span></code> to rebuild the project in

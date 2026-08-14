@@ -74,8 +74,8 @@ builds its container image from source (compiling PyAT and the soft-IOC), so
 expect it to take several minutes — it is building, not hanging. Later deploys
 reuse the image.
 
-If your deployment came from an older preset (or a profile that sets it),
-point it at the soft-IOC explicitly:
+If your deployment came from a preset or profile that selects a different
+connector, point it at the soft-IOC explicitly:
 
 .. code-block:: bash
 

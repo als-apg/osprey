@@ -560,8 +560,8 @@ rest of the stack starts. See <a class="reference internal" href="#the-archive">
 builds its container image from source (compiling PyAT and the soft-IOC), so
 expect it to take several minutes — it is building, not hanging. Later deploys
 reuse the image.</p>
-<p>If your deployment came from an older preset (or a profile that sets it),
-point it at the soft-IOC explicitly:</p>
+<p>If your deployment came from a preset or profile that selects a different
+connector, point it at the soft-IOC explicitly:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>virtual_accelerator
 osprey<span class="w"> </span>build
 osprey<span class="w"> </span>up

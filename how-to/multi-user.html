@@ -929,7 +929,7 @@ host, brought up with a single <code class="docutils literal notranslate"><span 
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p class="sd-card-text">Why the single-user <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> workflow is unchanged, and when each
+<li><p class="sd-card-text">How it sits beside the single-user <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> workflow, and when each
 mode is the right tool</p></li>
 <li><p class="sd-card-text">The three ideas behind the multi-user stack: one container per user,
 personas as capability tiers, and one nginx front door</p></li>
@@ -944,24 +944,23 @@ single sign-on</p></li>
 want Docker (or Podman) and your model-provider credentials — the
 <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships the whole block pre-wired.</p>
 </div>
-</details><section id="single-user-is-still-the-front-door">
-<h2>Single-user is still the front door<a class="headerlink" href="#single-user-is-still-the-front-door" title="Link to this heading">#</a></h2>
-<p>Nothing about multi-user changes the everyday workflow. From any project
-directory,</p>
+</details><section id="single-user-is-the-front-door">
+<h2>Single-user is the front door<a class="headerlink" href="#single-user-is-the-front-door" title="Link to this heading">#</a></h2>
+<p>The everyday workflow stands on its own. From any project directory,</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
 </pre></div>
 </div>
-<p>still launches the single-user Web Terminal as one local process — no
-containers, no proxy, ready in seconds at <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>. It remains
-the fastest way to try OSPREY and the right tool whenever one person sits in
-front of one machine; <a class="reference internal" href="web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> covers it.</p>
+<p>launches the single-user Web Terminal as one local process — no containers, no
+proxy, ready in seconds at <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>. It is the fastest way to
+try OSPREY and the right tool whenever one person sits in front of one machine;
+<a class="reference internal" href="web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> covers it.</p>
 <p>The multi-user stack is strictly opt-in. It lives in a
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block in the deployment’s built <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, read
 only by the lifecycle verbs (and validated by
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code>).
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> never looks at it — so a project that carries the block (the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships one) still runs single-user exactly as
-before. Reach for the multi-user stack when several people need their own
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships one) runs single-user exactly like one that
+does not. Reach for the multi-user stack when several people need their own
 terminal on a shared machine, and stay with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> for everything else.</p>
 </section>
 <section id="how-it-works">
@@ -1591,7 +1590,7 @@ and the service containers.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#single-user-is-still-the-front-door">Single-user is still the front door</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#single-user-is-the-front-door">Single-user is the front door</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">How it works</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-config-block">The config block</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#run-the-two-persona-stack">Run the two-persona stack</a><ul class="visible nav section-nav flex-column">

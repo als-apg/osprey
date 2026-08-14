@@ -110,7 +110,7 @@ stays on the deploy host.
 1. Check the service is enabled
 -------------------------------
 
-New projects ship with the ``openobserve`` service already declared in
+Projects ship with the ``openobserve`` service already declared in
 ``config.yml`` **and** listed under ``deployed_services`` — it deploys by
 default. If your project removed it, restore it:
 
