@@ -16,7 +16,8 @@ Document handling (bluesky's plain-dict document protocol):
 
 - ``start``: begins a new buffer for ``doc["uid"]`` — or for the recorder's
   explicit ``key``, when the caller keys buffers by something other than the
-  RunEngine's own uid (see :class:`LiveRowRecorder`) — marked partial.
+  RunEngine's own uid (see :class:`LiveRowRecorder`) — marked partial, and
+  stamped with the recorder's opaque ``plan`` value if it was given one.
 - ``event``: each event's ``doc["data"]`` becomes one row; columns are
   discovered incrementally in first-seen order across events. A key seen for
   the first time extends the column list and backfills every already-stored
@@ -66,12 +67,19 @@ _MAX_RUNS = 50
 _MAX_ROWS_PER_RUN = 10_000
 
 _lock = Lock()
-# run_uid -> {"columns": [...], "rows": [[...], ...], "partial": bool, "total_seen": int}
+# run_uid -> {"columns": [...], "rows": [[...], ...], "partial": bool,
+#             "total_seen": int, "plan": Any | None}
 _buffers: OrderedDict[str, dict[str, Any]] = OrderedDict()
 
 
 def get(run_uid: str) -> dict[str, Any] | None:
-    """A snapshot of the live buffer for *run_uid* (or None if unknown)."""
+    """A snapshot of the live buffer for *run_uid* (or None if unknown).
+
+    ``columns`` and ``rows`` are copies, so a caller cannot reach back into the
+    buffer through them. ``plan`` is whatever the recorder was handed and is
+    returned by reference — this module never inspects or mutates it, and
+    neither may a caller.
+    """
     with _lock:
         buf = _buffers.get(run_uid)
         if buf is None:
@@ -81,6 +89,7 @@ def get(run_uid: str) -> dict[str, Any] | None:
             "rows": [list(row) for row in buf["rows"]],
             "partial": buf["partial"],
             "total_seen": buf["total_seen"],
+            "plan": buf["plan"],
         }
 
 
@@ -105,10 +114,19 @@ class LiveRowRecorder:
             chose and cannot map back to the item an operator enqueued. Left
             ``None``, the run uid IS the identity the read path looks up —
             which is the honest key for a run that carries no OSPREY id.
+        plan: Which plan produced this run, carried alongside its rows so a
+            reader that has only a run id can tell what the columns mean. The
+            value is opaque here: this module stores it and hands it back in
+            :func:`get`, and never interprets, validates, or copies it. The
+            document plane extracts it from the start document (mirroring
+            ``key``), which keeps this module testable with synthetic
+            documents. ``None`` for a run whose start document carried no plan
+            stamp — an honest "not known", never a placeholder.
     """
 
-    def __init__(self, key: str | None = None) -> None:
+    def __init__(self, key: str | None = None, plan: Any | None = None) -> None:
         self._key = key
+        self._plan = plan
         self._uid: str | None = None
 
     def __call__(self, name: str, doc: dict[str, Any]) -> None:
@@ -129,7 +147,13 @@ class LiveRowRecorder:
             return
         self._uid = uid
         with _lock:
-            _buffers[uid] = {"columns": [], "rows": [], "partial": True, "total_seen": 0}
+            _buffers[uid] = {
+                "columns": [],
+                "rows": [],
+                "partial": True,
+                "total_seen": 0,
+                "plan": self._plan,
+            }
             _buffers.move_to_end(uid)
             while len(_buffers) > _MAX_RUNS:
                 _buffers.popitem(last=False)

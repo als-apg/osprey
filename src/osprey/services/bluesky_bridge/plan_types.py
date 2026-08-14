@@ -17,6 +17,10 @@ Any``, where ``devices`` is whatever ``get_devices()`` returned and ``params``
 is a validated instance of ``schema``. Neither this module nor callers need to
 know if the callable returns a real bluesky plan generator or, in a test
 double, something else entirely.
+
+A plan's optional ``render`` callable is the opposite — fully typed, because
+it is the seam the figure route serves to the panel and the agent. ``figure.py``
+is pydantic-only, so importing `Figure` here costs the loader nothing.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel
 
+from .figure import Figure
 from .plan_metadata import PlanMetadata
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
@@ -47,6 +52,15 @@ class PlanSpec(Generic[SchemaT]):
     callable can be typed against its own pydantic model (e.g. ``CountParams``)
     rather than the common ``BaseModel`` supertype — callers that don't care
     about a specific plan's schema can still hold these as ``PlanSpec[Any]``.
+
+    ``render`` is the plan's own view of a run: ``(rows, params) -> Figure``,
+    where ``rows`` are the run's data rows as plain dicts and ``params`` is a
+    validated ``schema`` instance — the *same* ``SchemaT``, so a plan whose
+    ``render`` takes anything other than its own PARAMS is a type error rather
+    than a runtime surprise at the first poll tick. ``None`` (the default)
+    means the plan has no view of its own and the bridge's default figure
+    stands in for it. The loader only ever populates this for operator-supplied
+    tiers; see ``plan_loader._resolve_render``.
     """
 
     name: str
@@ -55,6 +69,7 @@ class PlanSpec(Generic[SchemaT]):
     description: str = ""
     metadata: PlanMetadata | None = None
     provenance: Provenance = "shipped"
+    render: Callable[[list[dict[str, Any]], SchemaT], Figure] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for `GET /plans`: name, description, schema, metadata, provenance."""

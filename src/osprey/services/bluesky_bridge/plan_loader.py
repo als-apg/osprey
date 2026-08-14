@@ -5,7 +5,7 @@ Two kinds of plan source, both scanned into the same fail-closed registry:
 
 - **Directory layers** — ordered ``(directory, provenance)`` pairs, each
   scanned for ``.py`` files exposing ``PLAN_METADATA``/``build_plan``
-  (optionally ``PARAMS``). Device-agnostic: these files never define
+  (optionally ``PARAMS`` and ``render``). Device-agnostic: these files never define
   ``get_devices()``; their plans resolve device names against the bridge's
   own device map at launch.
 - **The legacy single-module contract** — a single ``.py`` file exposing
@@ -68,13 +68,14 @@ import importlib.util
 import logging
 import os
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
+from .figure import REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS, Figure
 from .plan_metadata import parse_plan_metadata
 from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body
@@ -336,6 +337,76 @@ def _register_plan(
         registry[name] = (provenance, source, spec)
 
 
+def _resolve_render(
+    module: Any,
+    path: Path,
+    provenance: Provenance,
+) -> Callable[[list[dict[str, Any]], Any], Figure] | None:
+    """Resolve a plan file's optional module-level ``render(rows, params)``.
+
+    Never raises, and never causes a quarantine: a plan whose ``render`` is
+    unusable is still a perfectly good plan to *launch*, and refusing to
+    register it would take the scan away over a drawing concern. The worst
+    outcome here is ``None``, which the figure route serves as the default
+    figure with a reason attached.
+
+    The rule, by tier:
+
+    - ``session``/``unreviewed`` — never resolved, even when the file defines
+      one. ``render()`` runs in the bridge API process on every poll tick of
+      every watching client, so an agent-authored one is an unbounded-work
+      denial-of-service seam that the validation gate (which checks the file
+      is a *plan*, not that its drawing code terminates) does not close. A
+      file that declares one warns at load time, quoting the route's
+      ``render_not_supported_for_session_plans`` reason so the author sees the
+      same words the panel will show them. A file that declares none is
+      silent — there is nothing to warn about.
+    - ``shipped``/``preset``/``facility`` — a callable module-level ``render``
+      is stored on the spec. A *missing* one is silent and ordinary (most
+      plans have no view of their own). A present-but-non-callable one warns:
+      it reads as an author mistake — a stray constant, or a name shadowed by
+      an import — not as a deliberate opt-out.
+
+    ``getattr`` itself is guarded because a module can define ``__getattr__``
+    (PEP 562) and raise from it; that must not become a quarantine either.
+    """
+    try:
+        render = getattr(module, "render", None)
+    except Exception as exc:  # PEP 562 module __getattr__ may raise
+        logger.warning(
+            "plan_loader: could not read render from %s (%s): %s — loading without a figure",
+            path,
+            provenance,
+            exc,
+        )
+        return None
+
+    if provenance in ("session", "unreviewed"):
+        if render is not None:
+            logger.warning(
+                "plan_loader: ignoring render() in %s-tier plan file %s (%s) — a "
+                "plan's render() runs in the bridge process on every poll tick, so "
+                "it is only honored for operator-supplied plans; this run will show "
+                "the default figure",
+                provenance,
+                path,
+                REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS,
+            )
+        return None
+
+    if render is None:
+        return None
+    if not callable(render):
+        logger.warning(
+            "plan_loader: ignoring non-callable render in %s (%s): %r — loading without a figure",
+            path,
+            provenance,
+            render,
+        )
+        return None
+    return render  # type: ignore[no-any-return]
+
+
 def _load_plan_file(
     path: Path,
     provenance: Provenance,
@@ -369,6 +440,11 @@ def _load_plan_file(
     provenance (not on "no metadata"/"no record" alone) matters: built-ins and
     the shipped exemplars carry no validation record either, and a broader
     gate would wrongly quarantine them too.
+
+    An optional module-level ``render`` is resolved onto the spec by
+    `_resolve_render`, which is total: no ``render`` attribute, an unusable
+    one, or an untrusted tier all yield ``render=None``, and the plan itself
+    still registers.
     """
     try:
         if provenance in ("session", "unreviewed"):
@@ -404,6 +480,7 @@ def _load_plan_file(
             description=meta.description,
             metadata=meta,
             provenance=provenance,
+            render=_resolve_render(module, path, provenance),
         )
     except (Exception, SystemExit) as exc:
         logger.warning("plan_loader: quarantining %s (%s): %s", path, provenance, exc)

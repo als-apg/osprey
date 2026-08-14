@@ -219,6 +219,16 @@ class TestStaticAllowlistCheck:
             "from logging import config",  # same submodule, "from X import Y" form
             "from logging import handlers",
             "from logging.config import dictConfig",
+            "import osprey",  # bare osprey, no submodule
+            "import osprey as o",
+            "from osprey.connectors import epics",  # the control-system surface itself
+            "from osprey.services.bluesky_bridge.queue_backend import QueueBackend",
+            "import osprey.services.bluesky_bridge.queue_backend",
+            "from osprey.services.python_executor import runner",
+            # The parent package of an allowed leaf is NOT itself allowed: this
+            # form binds the whole package, from which `figure` is one attribute
+            # among all its siblings.
+            "from osprey.services.bluesky_bridge import figure",
         ],
     )
     def test_rejects_disallowed_imports(self, code):
@@ -247,6 +257,10 @@ class TestStaticAllowlistCheck:
             "import typing",
             "import logging",
             "from logging import getLogger",
+            # The two inert modules a plan's `render()` needs to exist at all.
+            "from osprey.services.bluesky_bridge.figure import Figure, Panel",
+            "import osprey.services.bluesky_bridge.figure",
+            "from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix",
         ],
     )
     def test_accepts_allowed_imports(self, code):
@@ -269,6 +283,46 @@ class TestStaticAllowlistCheck:
     def test_submodule_granularity_plan_stubs_accept_some_other_reject(self):
         assert _static_allowlist_check("from bluesky import plan_stubs") == []
         assert _static_allowlist_check("from bluesky import some_other") != []
+
+    def test_osprey_is_two_leaf_modules_and_nothing_else(self):
+        """`osprey` is narrowed exactly as `bluesky` is: the top level is denied
+        and two fully-dotted leaves are allowed.
+
+        A plan file may declare a `render()`, and a `Figure` cannot be built
+        without importing the module that defines it -- but that is the whole
+        of the widening. `figure` is pydantic-only and `orm_analysis` is
+        numpy-only; the connector, config, queue, and executor packages next
+        door are precisely what this allowlist exists to keep out of an
+        agent-authored plan body, and admitting bare `osprey` would hand a plan
+        every one of them.
+        """
+        assert _static_allowlist_check("import osprey") != []
+        assert _static_allowlist_check("from osprey import connectors") != []
+        assert _static_allowlist_check("from osprey.services import bluesky_bridge") != []
+        assert _static_allowlist_check("from osprey.services.bluesky_bridge import app") != []
+        assert (
+            _static_allowlist_check("from osprey.services.bluesky_bridge.figure import Figure")
+            == []
+        )
+        assert (
+            _static_allowlist_check(
+                "from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix"
+            )
+            == []
+        )
+
+    def test_the_validator_top_level_set_never_admits_osprey_on_its_own(self):
+        """`_VALIDATOR_TOP_LEVEL_MODULES` carries `osprey` so
+        `validate_sandbox_code`'s coarser top-level check agrees with the walk
+        above -- but it is only ever safe paired with the submodule gate, and a
+        future edit that drops the gate while keeping the set would admit every
+        `osprey` submodule silently. Pin both halves together.
+        """
+        assert "osprey" in plan_validation._VALIDATOR_TOP_LEVEL_MODULES
+        assert "osprey" not in plan_validation._ALLOWED_TOP_LEVEL_MODULES
+        assert not plan_validation._is_allowed_import("osprey")
+        assert not plan_validation._is_allowed_import("osprey.connectors")
+        assert plan_validation._is_allowed_import("osprey.services.bluesky_bridge.figure")
 
     def test_dunder_import_variant_rejected(self):
         violations = _static_allowlist_check("x = __import__('epics')")

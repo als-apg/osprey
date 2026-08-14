@@ -86,6 +86,7 @@ from pydantic import BaseModel, Field
 
 from . import document_plane, draft, runs
 from .queue_backend import (
+    PLAN_META_KEY,
     REASON_MANAGER_NOT_CONFIGURED,
     REASON_MANAGER_UNREACHABLE,
     AbortPauseTimeoutError,
@@ -647,6 +648,30 @@ def _with_progress(running_item: Any) -> Any:
     return {**running_item, "progress": progress}
 
 
+def _public_item(item: Any) -> Any:
+    """One queue item as the bridge relays it: the plan-identity stamp removed.
+
+    The enqueue path stamps the plan's own name and kwargs into the item's
+    metadata (`queue_backend.PLAN_META_KEY`) so that a run's figure can be
+    rendered as the plan it was, from the run's start document alone. On a
+    queue READ that stamp is pure duplication — the item already carries its
+    ``name`` and ``kwargs`` at top level — and the queue is the one surface
+    panels both poll and stream continuously, so it is dropped here rather
+    than doubling every item's params on every frame.
+
+    Only that key goes. ``RUN_ID_META_KEY`` stays, because it is what joins a
+    queue row to its run (`itemRunId()` in `queue-client.js` reads it), and
+    any other metadata is somebody else's — an item enqueued out of band
+    passes through untouched.
+    """
+    if not isinstance(item, dict):
+        return item
+    meta = item.get("meta")
+    if not isinstance(meta, dict) or PLAN_META_KEY not in meta:
+        return item
+    return {**item, "meta": {key: value for key, value in meta.items() if key != PLAN_META_KEY}}
+
+
 async def _frame_from(summary: dict[str, Any], frame_type: str) -> dict[str, Any]:
     """A full snapshot frame: summary plus the current items, freshly fetched."""
     items: list[Any] = []
@@ -654,8 +679,8 @@ async def _frame_from(summary: dict[str, Any], frame_type: str) -> dict[str, Any
     if summary.get("available"):
         try:
             queue_state = await _get_backend().items()
-            items = list(queue_state.get("items") or [])
-            running_item = _with_progress(queue_state.get("running_item"))
+            items = [_public_item(item) for item in (queue_state.get("items") or [])]
+            running_item = _public_item(_with_progress(queue_state.get("running_item")))
         except QueueBackendError as exc:  # pragma: no cover - narrow race
             logger.debug("queue item fetch failed after a good status read: %s", exc)
     return {"type": frame_type, "status": summary, "items": items, "running_item": running_item}
@@ -802,7 +827,12 @@ class StartRequestBody(BaseModel):
 
 @router.get("/queue")
 async def get_queue() -> dict[str, Any]:
-    """The queue as the manager holds it: pending items, running item, status summary."""
+    """The queue as the manager holds it: pending items, running item, status summary.
+
+    Items are relayed through `_public_item`, which drops the enqueue path's
+    plan-identity stamp — it duplicates the item's own name and kwargs, and
+    the run id panels join on rides through untouched.
+    """
     backend = _get_backend()
     try:
         status = await backend.status()
@@ -811,8 +841,8 @@ async def get_queue() -> dict[str, Any]:
         raise _http_error(exc) from exc
     return {
         "status": _status_summary(status),
-        "items": list(queue_state.get("items") or []),
-        "running_item": _with_progress(queue_state.get("running_item")),
+        "items": [_public_item(item) for item in (queue_state.get("items") or [])],
+        "running_item": _public_item(_with_progress(queue_state.get("running_item"))),
     }
 
 

@@ -75,6 +75,28 @@ _ALLOWED_BLUESKY_SUBMODULES: frozenset[str] = frozenset(
     {"bluesky.plan_stubs", "bluesky.plans", "bluesky.preprocessors"}
 )
 
+# `osprey` is narrowed the same way, and for a narrower reason: a plan file may
+# declare a `render(rows, params)` returning a `Figure` (see `plan_types.py`),
+# and there is no way to build one without importing the module that defines it.
+# `plans_core/*.py` files are exec'd by `plan_loader` via
+# `spec_from_file_location` with no package, so a relative `from ..figure
+# import` would fail at load — the absolute path below is the only spelling
+# that works, which is what puts it in front of this allowlist at all.
+#
+# Both entries are inert by construction: `figure` is pydantic-only (models,
+# `decimate`, the row adapter) and `orm_analysis` is numpy-only, neither
+# performs I/O, spawns anything, or touches a control system. Nothing else
+# under `osprey` belongs here. In particular the connector, config, queue, and
+# executor packages are the capabilities this validator exists to keep out of
+# an agent-authored plan body, and admitting bare `osprey` would hand a plan
+# every one of them.
+_ALLOWED_OSPREY_SUBMODULES: frozenset[str] = frozenset(
+    {
+        "osprey.services.bluesky_bridge.figure",
+        "osprey.services.bluesky_bridge.orm_analysis",
+    }
+)
+
 # Everything else a plan body may import, checked top-level only (a plan body
 # doing numerical/stdlib bookkeeping around its bluesky calls has no reason to
 # reach past these). `pydantic` is a deliberate addition beyond the plain
@@ -118,11 +140,13 @@ _DENIED_LOGGING_SUBMODULES: frozenset[str] = frozenset({"logging.config", "loggi
 
 # Passed to `validate_sandbox_code`'s own (coarser, top-level-only) import
 # check so it never disagrees with `_check_import_allowlist` below: `bluesky`
-# is allowed at the top level here, then narrowed to the three submodules
-# above by the finer-grained walk. Every other name in this set is identical
-# to `_ALLOWED_TOP_LEVEL_MODULES`, so the two checks agree everywhere except
-# the bluesky narrowing `validate_sandbox_code` cannot itself express.
-_VALIDATOR_TOP_LEVEL_MODULES: frozenset[str] = _ALLOWED_TOP_LEVEL_MODULES | {"bluesky"}
+# and `osprey` are allowed at the top level here, then narrowed to the exact
+# submodules above by the finer-grained walk. Every other name in this set is
+# identical to `_ALLOWED_TOP_LEVEL_MODULES`, so the two checks agree everywhere
+# except those two narrowings, which `validate_sandbox_code` cannot itself
+# express. Widening THIS set alone would admit any `osprey` submodule at all —
+# it is only ever safe paired with the submodule gate in `_is_allowed_import`.
+_VALIDATOR_TOP_LEVEL_MODULES: frozenset[str] = _ALLOWED_TOP_LEVEL_MODULES | {"bluesky", "osprey"}
 
 
 def _is_allowed_import(dotted_name: str) -> bool:
@@ -130,6 +154,8 @@ def _is_allowed_import(dotted_name: str) -> bool:
     top = dotted_name.split(".")[0]
     if top == "bluesky":
         return dotted_name in _ALLOWED_BLUESKY_SUBMODULES
+    if top == "osprey":
+        return dotted_name in _ALLOWED_OSPREY_SUBMODULES
     if top == "logging":
         return dotted_name not in _DENIED_LOGGING_SUBMODULES
     return top in _ALLOWED_TOP_LEVEL_MODULES

@@ -7,9 +7,13 @@ live-buffer or Tiled-specific shape, so this module has no dependency on
 loading the bluesky stack (a core dependency, but heavier than this pure-numpy
 analysis needs).
 
-Three pieces:
+Four pieces:
 
 - `build_response_matrix`: per-(BPM, corrector) slope fit from swept rows.
+- `sliced_response_matrix`: the same fit, sliced by acquisition index and
+  vectorized — the entry point a plan's `render()` uses on every live tick,
+  where `build_response_matrix`'s per-pair `polyfit` over per-row dict scans
+  is orders of magnitude too slow.
 - `localize_kick`: `lstsq` fault localization against a measured orbit.
 - `column_anomaly`/`row_anomaly`: model-free structural fault detectors that
   use only the matrix's own peer/neighbour structure — no independent model
@@ -38,6 +42,7 @@ key first, then by `f"{name}-"` prefix.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -154,6 +159,226 @@ def build_response_matrix(
             matrix[i, j] = slope
 
     return matrix
+
+
+@dataclass(frozen=True)
+class SlicedResponseFit:
+    """What `sliced_response_matrix` recovers from one ORM run's rows.
+
+    Two groups of fields, because a plan's `render()` needs both: the raw
+    per-corrector sweep it can always draw as traces, and the fitted matrix
+    it can only draw once a sweep has actually finished.
+
+    Attributes:
+        correctors: The requested corrector names, in the order given —
+            `complete`, `currents` and `readings` are all aligned to this.
+        detectors: The requested detector names, in the order given — the
+            row axis of `matrix` and the column axis of every `readings`
+            block.
+        complete: One flag per requested corrector: `True` when that
+            corrector's slice was fitted into a `matrix` column. `False`
+            for a slice that is short (the sweep is still in flight, or the
+            row buffer ran out), that is missing a corrector current, or
+            whose currents never move (nothing to fit a slope against).
+        matrix: `[n_detectors, n_complete]` response slopes. Only complete
+            correctors get a column — an in-flight sweep has no slope yet,
+            and a zero column would read as a dead corrector. Use
+            `fitted_correctors` for its column labels; both are ordered as
+            `correctors` is.
+        fitted_correctors: The names of the correctors that produced a
+            `matrix` column, in column order. A subsequence of `correctors`.
+        currents: Per requested corrector, that corrector's own recorded
+            currents over its slice, `[k]` with `k <= num` — the x-axis of a
+            sweep trace. Present for incomplete correctors too.
+        readings: Per requested corrector, the detector block over its
+            slice, `[k, n_detectors]` — the y-axes of a sweep trace, one
+            column per detector. Present for incomplete correctors too.
+            A detector that did not report reads back as `nan` here (in
+            `matrix` it lands on `0.0`; see `sliced_response_matrix`).
+    """
+
+    correctors: tuple[str, ...]
+    detectors: tuple[str, ...]
+    complete: tuple[bool, ...]
+    matrix: np.ndarray
+    fitted_correctors: tuple[str, ...]
+    currents: tuple[np.ndarray, ...]
+    readings: tuple[np.ndarray, ...]
+
+
+def _resolve_key(row: Mapping[str, Any], device_name: str) -> str | None:
+    """The event-data *key* carrying *device_name* in *row*, or ``None``.
+
+    `_match_value`'s matching rules (exact key, then `f"{name}-"` prefix)
+    resolved to the key instead of the value, so a whole run's rows can be
+    read through one fixed key list rather than re-matching every row.
+    """
+    if device_name in row:
+        return device_name
+    prefix = f"{device_name}-"
+    for key in row:
+        if key.startswith(prefix):
+            return key
+    return None
+
+
+def sliced_response_matrix(
+    rows: Sequence[Mapping[str, Any]],
+    correctors: Sequence[str],
+    detectors: Sequence[str],
+    num: int,
+) -> SlicedResponseFit:
+    """Fit the response matrix by slicing *rows* into one sweep per corrector.
+
+    Same physics as `build_response_matrix`, different — and much stronger —
+    assumption about the input, which buys both correctness on inputs that
+    function cannot take and a fit fast enough to run on every live tick.
+
+    The `orm` plan sweeps its correctors strictly one at a time, `num`
+    points each, in the order they were requested (see `plans_core/orm.py`'s
+    `build_plan`), so corrector `j`'s samples are exactly
+    `rows[j * num : (j + 1) * num]` — no need to infer which rows belong to
+    which corrector from the data. Each corrector's slope is then fitted
+    against its OWN currents over its OWN slice only, which drops
+    `build_response_matrix`'s zero-mean-sweep requirement entirely: idle
+    correctors' rows are never in the slice to begin with, so a
+    `monodirectional` sweep over `[0, span_a]` (which that function rejects
+    with `DegenerateFitError`, its polyfit having no way to tell an
+    asymmetric sweep from a biased idle reading) fits correctly here.
+
+    The caller owes that slicing invariant: *rows* must be the run's events
+    in emission order, un-truncated at the front and with nothing dropped in
+    the middle. A truncated-from-the-front buffer silently misattributes
+    every sample, so a caller reading a capped live buffer must check its
+    completeness before calling (there is nothing in the rows themselves to
+    detect it from). Trailing truncation IS safe and expected — that is just
+    a run still in progress, and it shows up as trailing `complete=False`.
+
+    Speed comes from doing the two costly things once instead of per pair:
+    device names are resolved to event keys once for the whole run (rather
+    than `_match_value`-scanning every row for every device), and each
+    corrector's slopes are computed for the whole detector block at once
+    with the closed-form least-squares slope
+
+        slope = (dx @ (Y - Y_mean)) / (dx @ dx),    dx = x - x_mean
+
+    which is what a degree-1 `numpy.polyfit` solves, without building a
+    Vandermonde system per (detector, corrector) pair.
+
+    A slice that is short (the run is still going, or ended early), that is
+    missing its corrector's current, or whose currents never move produces
+    no matrix column and is flagged `complete=False`; its raw samples are
+    still returned for tracing. Inside a complete slice, a detector that
+    failed to report leaves its slope at `0.0` rather than `nan`, matching
+    `build_response_matrix` and keeping the matrix usable by
+    `column_anomaly`/`row_anomaly`; the `nan` survives in `readings` where a
+    trace can show the gap.
+
+    Args:
+        rows: The run's event `data` dicts in emission order.
+        correctors: Corrector device names, in the order the plan swept them.
+        detectors: Detector device names; the matrix's row axis.
+        num: Points per corrector sweep — the plan's `num` parameter.
+
+    Raises:
+        ValueError: *num* is below 2 (no slope is defined over fewer than
+            two points, and a non-positive *num* makes the slicing itself
+            meaningless).
+    """
+    if num < 2:
+        raise ValueError(f"num must be at least 2 to fit a slope per corrector, got {num}")
+
+    correctors = tuple(correctors)
+    detectors = tuple(detectors)
+    n_corr = len(correctors)
+    n_det = len(detectors)
+
+    # Only the rows the slicing can attribute to a corrector: a run carrying
+    # more than the sweep accounts for has extra rows at the END (nothing
+    # else preserves the invariant above), so they belong to no slice.
+    n_rows = min(len(rows), n_corr * num)
+    if n_corr == 0 or n_rows == 0:
+        empty = np.zeros((n_det, 0))
+        return SlicedResponseFit(
+            correctors=correctors,
+            detectors=detectors,
+            complete=(False,) * n_corr,
+            matrix=empty,
+            fitted_correctors=(),
+            currents=tuple(np.zeros(0) for _ in correctors),
+            readings=tuple(np.zeros((0, n_det)) for _ in correctors),
+        )
+
+    # Resolve every device to its event key once. The first row normally
+    # settles all of them (a bluesky stream's rows share one key set); the
+    # loop only runs on to cover a caller's hand-built ragged rows.
+    keys: list[str | None] = [None] * (n_corr + n_det)
+    unresolved = set(range(n_corr + n_det))
+    names = correctors + detectors
+    for row in rows[:n_rows]:
+        for position in tuple(unresolved):
+            key = _resolve_key(row, names[position])
+            if key is not None:
+                keys[position] = key
+                unresolved.discard(position)
+        if not unresolved:
+            break
+
+    # One pass over the rows through that fixed key list. A device that
+    # resolved to no key reads as `nan` everywhere, which is exactly how a
+    # missing device should behave downstream.
+    nan = float("nan")
+    table = np.array(
+        [[nan if key is None else row.get(key, nan) for key in keys] for row in rows[:n_rows]],
+        dtype=float,
+    )
+    currents_table = table[:, :n_corr]
+    readings_table = table[:, n_corr:]
+
+    complete: list[bool] = []
+    slice_currents: list[np.ndarray] = []
+    slice_readings: list[np.ndarray] = []
+    columns: list[np.ndarray] = []
+    fitted: list[str] = []
+
+    for j, corrector in enumerate(correctors):
+        start = j * num
+        stop = min(start + num, n_rows)
+        x = currents_table[start:stop, j]
+        block = readings_table[start:stop, :]
+        slice_currents.append(x)
+        slice_readings.append(block)
+
+        if x.shape[0] < num or not np.all(np.isfinite(x)):
+            complete.append(False)
+            continue
+
+        dx = x - x.mean()
+        denominator = float(dx @ dx)
+        if denominator <= 0.0:
+            # The corrector never moved over its own sweep: no slope exists,
+            # and dividing by zero would fill the column with inf/nan.
+            complete.append(False)
+            continue
+
+        slopes = (dx @ (block - block.mean(axis=0))) / denominator
+        # A detector that dropped out mid-slice poisons only its own entry.
+        slopes = np.where(np.isfinite(slopes), slopes, 0.0)
+        complete.append(True)
+        columns.append(slopes)
+        fitted.append(corrector)
+
+    matrix = np.column_stack(columns) if columns else np.zeros((n_det, 0))
+
+    return SlicedResponseFit(
+        correctors=correctors,
+        detectors=detectors,
+        complete=tuple(complete),
+        matrix=matrix,
+        fitted_correctors=tuple(fitted),
+        currents=tuple(slice_currents),
+        readings=tuple(slice_readings),
+    )
 
 
 def localize_kick(

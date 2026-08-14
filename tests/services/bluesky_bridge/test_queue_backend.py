@@ -181,7 +181,22 @@ async def test_add_item_threads_the_run_id_through_item_metadata() -> None:
     await QueueBackend(manager).add_item({"item_type": "plan", "name": "count"}, run_id="run-7")
 
     (kwargs,) = manager.kwargs_for("item_add")
-    assert kwargs["item"]["meta"] == {qb.RUN_ID_META_KEY: "run-7"}
+    assert kwargs["item"]["meta"] == {
+        qb.RUN_ID_META_KEY: "run-7",
+        qb.PLAN_META_KEY: {"name": "count", "kwargs": {}},
+    }
+
+
+async def test_add_item_stamps_the_plan_kwargs_as_enqueued() -> None:
+    manager = FakeManager()
+    item = {"item_type": "plan", "name": "grid_scan", "kwargs": {"num": 5, "detectors": ["det"]}}
+    await QueueBackend(manager).add_item(item, run_id="run-7")
+
+    (kwargs,) = manager.kwargs_for("item_add")
+    assert kwargs["item"]["meta"][qb.PLAN_META_KEY] == {
+        "name": "grid_scan",
+        "kwargs": {"num": 5, "detectors": ["det"]},
+    }
 
 
 async def test_add_item_preserves_existing_metadata() -> None:
@@ -190,7 +205,11 @@ async def test_add_item_preserves_existing_metadata() -> None:
     await QueueBackend(manager).add_item(item, run_id="run-7")
 
     (kwargs,) = manager.kwargs_for("item_add")
-    assert kwargs["item"]["meta"] == {"operator": "ada", qb.RUN_ID_META_KEY: "run-7"}
+    assert kwargs["item"]["meta"] == {
+        "operator": "ada",
+        qb.RUN_ID_META_KEY: "run-7",
+        qb.PLAN_META_KEY: {"name": "count", "kwargs": {}},
+    }
     # The caller's own dict is never mutated.
     assert item["meta"] == {"operator": "ada"}
 
@@ -202,7 +221,10 @@ async def test_add_item_accepts_a_bplan() -> None:
     (kwargs,) = manager.kwargs_for("item_add")
     assert kwargs["item"]["name"] == "count"
     assert kwargs["item"]["kwargs"] == {"num": 3}
-    assert kwargs["item"]["meta"][qb.RUN_ID_META_KEY] == "run-9"
+    assert kwargs["item"]["meta"] == {
+        qb.RUN_ID_META_KEY: "run-9",
+        qb.PLAN_META_KEY: {"name": "count", "kwargs": {"num": 3}},
+    }
 
 
 async def test_add_item_without_a_run_id_adds_no_metadata() -> None:
