@@ -6,14 +6,14 @@ exactly as the build profile declared it — so a build can be reproduced from t
 config alone.
 
 What it deliberately does **not** record is the interpreter that runs agent
-Python. That path used to be baked in as ``execution.python_env_path`` at build
-time, which made every generated config a snapshot of one machine's filesystem:
-move the project, mount it into a container, or rebuild the venv elsewhere and
-the recorded path pointed at nothing. The interpreter is now resolved at run
-time (the project's own ``.venv`` when it has one, else the interpreter running
-OSPREY), so no absolute interpreter path is written to config.yml at all. These
-tests assert that absence directly — it is what lets the heal-and-strip
-workarounds that existed to repair such stale paths be deleted.
+Python. Baking that path in as ``execution.python_env_path`` at build time would
+make every generated config a snapshot of one machine's filesystem: move the
+project, mount it into a container, or rebuild the venv elsewhere and the
+recorded path points at nothing. The interpreter is resolved at run time (the
+project's own ``.venv`` when it has one, else the interpreter running OSPREY),
+so no absolute interpreter path is written to config.yml at all. These tests
+assert that absence directly — it is what keeps heal-and-strip workarounds for
+stale paths out of the loader.
 
 Configs already deployed with the retired key must keep loading: it is ignored
 with a debug log, never an error.
@@ -246,7 +246,7 @@ class TestDeclaredEnvironmentIsRecordedVerbatim:
 
 
 class TestRetiredPythonEnvPathIsIgnored:
-    """Projects deployed with the old key must keep loading, unchanged."""
+    """Projects deployed with the retired key must keep loading, unchanged."""
 
     @staticmethod
     def _legacy_config(tmp_path: Path) -> Path:

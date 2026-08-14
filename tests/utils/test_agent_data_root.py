@@ -16,7 +16,7 @@ runtime resolver and the compose-time mkdir that has to pre-create the mount
 point — the interaction that makes ``registry_exports_dir`` land in
 ``registry_exports/`` instead of a directory named after its own config key.
 
-Anchoring is now unified on ``project_root`` — the deployment repo root, not the
+Anchoring is unified on ``project_root`` — the deployment repo root, not the
 directory holding ``config.yml``, which since the repo/render split is one level
 down in ``build/``.  Callers holding a config anchor on it directly; the ones
 with none in hand go through :func:`resolve_agent_data_root`, which loads the
@@ -84,7 +84,7 @@ class TestAgentDataBaseDir:
             {"agent_data": {}},
             {"agent_data": None},
             {"agent_data": {"base_dir": None}},
-            # The retired key names the same directory but no longer supplies it.
+            # The retired key names the same directory but does not supply it.
             {"file_paths": {"agent_data_dir": "_legacy_data"}},
         ],
         ids=["none", "empty", "empty-section", "null-section", "null-value", "retired-key-only"],
@@ -118,10 +118,10 @@ class TestGetAgentDir:
         monkeypatch.setenv("CONFIG_FILE", str(cfg))
         assert Path(get_agent_dir("api_calls_dir")) == project / "scratch-data" / "api_calls"
 
-    def test_retired_file_paths_key_no_longer_moves_the_root(
+    def test_retired_file_paths_key_does_not_move_the_root(
         self, project: Path, monkeypatch
     ) -> None:
-        """A legacy config keeps loading; its retired key just stops steering."""
+        """A legacy config keeps loading; its retired key does not steer."""
         cfg = _write_config(
             project,
             f"project_root: {project}\n"

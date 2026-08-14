@@ -30,7 +30,7 @@ def deployment(lifecycle_repo: Path) -> Path:
 
     ``sim`` resolves its deployment before it parses anything, so the anchor
     passthrough under test is only reachable from inside a real repo — a bare
-    directory with a ``config.yml`` in it is no longer a deployment.
+    directory with a ``config.yml`` in it is not a deployment.
     """
     stub_build(lifecycle_repo)
     return lifecycle_repo

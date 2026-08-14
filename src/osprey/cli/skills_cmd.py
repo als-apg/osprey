@@ -11,8 +11,7 @@ directory instead, scoping it to one repo.
 ``osprey-build-interview`` is the one skill covering a deployment's own
 lifetime: what the repo's ``profile.yml`` should say, its ``deploy:`` block
 included, and the build it feeds. There is deliberately no operate-time
-counterpart — the lifecycle verbs the old one was written against no longer
-exist, and a runbook is worth shipping only once it describes the verbs a
+counterpart: a runbook is worth shipping only once it describes the verbs a
 reader actually has.
 """
 
@@ -57,7 +56,7 @@ def install(name: str, target: Path | None) -> None:
     """Install a bundled skill into <target>/<name>/.
 
     \b
-    Currently supported skills:
+    Bundled skills:
       osprey-build-interview  Author OSPREY build profiles (global)
       osprey-contribute       Walk a contributor through the GitHub Flow journey
       osprey-pre-commit       Run quick / ci / premerge check scripts at the right gate

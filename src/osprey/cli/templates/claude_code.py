@@ -1262,7 +1262,7 @@ def regenerate_claude_code(
     )
 
     # Resolve allowed_outputs from .osprey-manifest.json artifact list.
-    # Fall back to loading the template's manifest.yml for legacy projects.
+    # Fall back to loading the template's manifest.yml for a project without one.
     template_name = ctx.get("template_name", "control_assistant")
     osprey_manifest_path = project_dir / manifest_mod.MANIFEST_FILENAME
     regen_manifest: dict | None = None
@@ -1361,11 +1361,9 @@ def regenerate_claude_code(
             summary = compute_regen_summary(ctx)
             return {"changed": changed, "unchanged": unchanged, **summary}
 
-    # No backup is taken here. This used to snapshot the artifacts it is about
-    # to overwrite into `<project>/_agent_data/backup/claude-code-<stamp>/` —
-    # inside the very tree it regenerates, under the retired agent-data
-    # spelling, so the next build discarded the snapshot along with the rest of
-    # `build/`. The surviving snapshot is
+    # No backup is taken here. A snapshot written inside the tree this
+    # regenerates would be discarded, along with the rest of `build/`, by the
+    # next build. The snapshot that counts is
     # `osprey.cli.build_cmd._backup_outgoing_claude_artifacts`, which writes the
     # same artifacts to the repo's own `var/agent_data/backup/` before the
     # atomic swap: the durable zone, which is the only place a snapshot taken to

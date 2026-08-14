@@ -114,7 +114,7 @@ async def gather_context(
             entry = artifact_store.get_entry(aid)
             if entry is not None:
                 artifacts_meta.append(entry.to_dict())
-        # Set artifact_meta to first for backward compat (artifact_ids in response)
+        # Single-artifact callers read artifact_meta; give them the first
         if artifacts_meta:
             artifact_meta = artifacts_meta[0]
     elif artifact_id is not None:
@@ -157,7 +157,7 @@ JSON_FORMAT_INSTRUCTIONS = (
     '- "tags": a list of 2-5 relevant tags (lowercase, no spaces)'
 )
 
-# Legacy fixed prompt (backward compatibility when no steering fields provided)
+# Fixed prompt, used when no steering fields are provided
 SYSTEM_PROMPT = (
     "You are a logbook entry composer for a particle accelerator control room. "
     "Write concise, technical logbook entries suitable for operator shift logs.\n\n"
@@ -414,8 +414,8 @@ async def compose_entry(
     :func:`_resolve_composition_model` from ``logbook.composition`` (or the
     project's ``claude_code.provider``) and ``api.providers`` tier mappings.
 
-    If *system_prompt* is provided it is used directly; otherwise the
-    legacy ``SYSTEM_PROMPT`` is used for backward compatibility.
+    If *system_prompt* is provided it is used directly; otherwise the fixed
+    ``SYSTEM_PROMPT`` is used.
 
     If *model* is a tier name (haiku/sonnet/opus) the corresponding model_id
     is looked up from the provider's models mapping.
@@ -511,7 +511,7 @@ async def compose(req: ComposeRequest, request: Request):
         include_session_log=req.include_session_log,
     )
 
-    # Resolve system prompt: custom_prompt > steering fields > legacy default
+    # Resolve system prompt: custom_prompt > steering fields > fixed default
     system_prompt: str | None = None
     if req.custom_prompt:
         system_prompt = req.custom_prompt

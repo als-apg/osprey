@@ -72,16 +72,16 @@ def _resolve_artifact(item: dict, project_cwd: str) -> dict | None:
     Returns ``{"id": ..., "title": ..., "filename": ...}`` or ``None``.
 
     The index is located the way the STORE derives it — the deployment's
-    agent-data root plus the store's own ``artifacts`` subdirectory — not by
-    joining a literal onto the app's working directory. The literal named the
-    retired ``_agent_data``, so this read never found the file the store had
-    written, and every failure here is swallowed by the ``except`` below: the
-    pending-review UI simply showed no artifact for any item, with nothing in
-    the log to say why. ``project_cwd`` no longer takes part in that
-    resolution; it stays on the signature because the route hands it in and its
-    meaning for the app is not this function's to redefine.
+    agent-data root plus the store's own ``artifacts`` subdirectory — never by
+    joining a literal onto the app's working directory. A literal that names a
+    different root reads a file the store never wrote, and every failure here is
+    swallowed by the ``except`` below: the pending-review UI would show no
+    artifact for any item, with nothing in the log to say why. ``project_cwd``
+    takes no part in that resolution; it stays on the signature because the
+    route hands it in and its meaning for the app is not this function's to
+    redefine.
     """
-    del project_cwd  # no longer part of the artifact location; see above
+    del project_cwd  # takes no part in the artifact location; see above
     try:
         artifacts_path = _artifacts_dir() / "artifacts.json"
         if not artifacts_path.is_file():

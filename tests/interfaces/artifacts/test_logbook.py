@@ -257,8 +257,8 @@ class TestLogbookSubmit:
         """Without ARIEL_WEB_URL, the submit URL must be a web-terminal-relative
         proxy path — not an absolute container-internal address.
 
-        Regression: the default used to be ``http://127.0.0.1:8085`` which is
-        unreachable from the user's browser. The panel embeds via /panel/ariel
+        Regression: a default of ``http://127.0.0.1:8085`` is unreachable
+        from the user's browser. The panel embeds via /panel/ariel
         and resolves the URL with ``new URL(url, origin)``, so it must be
         origin-relative to load through the proxy.
         """

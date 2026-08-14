@@ -188,9 +188,9 @@ async def session_log(
     # and `.mcp.json` it discovers there. That is what `deployed_render_dir`
     # answers, and the gallery resolves the same thing the same way.
     #
-    # Emphatically NOT derived from the agent-data root: this used to walk up
-    # from it, which is off by a zone (the render is not the repo root) AND
-    # unstable, because `resolve_workspace_root` is the session-ISOLATED alias —
+    # Emphatically NOT derived from the agent-data root: walking up from it is
+    # off by a zone (the render is not the repo root) AND unstable, because
+    # `resolve_workspace_root` is the session-ISOLATED alias —
     # with OSPREY_SESSION_ID set the root becomes
     # `<repo>/var/agent_data/sessions/<id>`, so any walk-up moves with it. A
     # wrong directory here is silent: find_transcript_dir returns None and the

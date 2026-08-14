@@ -51,7 +51,7 @@ WEB_TERMINALS: dict[str, Any] = {
 # The same stack, deployable in LOCAL mode. `image_source: local` builds each
 # persona's image, so it requires a catalog and a default to build them from —
 # `resolve_personas` raises without one at deploy time, and since the build's
-# lint now reads the deploy-propagated config (`deploy_aware_config_errors`) it
+# lint reads the deploy-propagated config (`deploy_aware_config_errors`) it
 # refuses the same profile earlier. Every end-to-end case below names a local
 # deploy block, so they all build from this one.
 WEB_TERMINALS_LOCAL: dict[str, Any] = {

@@ -33,11 +33,11 @@ def test_resolved_selection_values_are_recorded():
 
 
 def test_explicit_overrides_field_is_retired():
-    """The marker is gone even when a caller still stamps the old context key.
+    """No marker is emitted even when a caller stamps the context key.
 
-    Nothing produces ``explicit_set_keys`` any more — an override is written
-    into the profile now, not carried beside the project — so a stray one must
-    not resurrect a field readers would act on.
+    Nothing produces ``explicit_set_keys`` — an override is written into the
+    profile, not carried beside the project — so a stray one must not
+    resurrect a field readers would act on.
     """
     args = _args(
         {

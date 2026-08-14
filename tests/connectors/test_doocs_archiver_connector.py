@@ -280,7 +280,7 @@ class TestReadHistory:
 
         Regression: the removed ``max_points`` branch zero-order-held real
         samples onto an ``np.linspace`` grid of manufactured timestamps;
-        asking for it is now a TypeError.
+        asking for it is a TypeError.
         """
         chunk = _make_raw_chunk(n=100)
         mock_d4py = MagicMock()
@@ -861,8 +861,8 @@ class TestProcessingGenuineAggregation:
         """A 10 Hz and a 0.1 Hz channel queried together must each be aggregated
         over only their own samples.
 
-        Regression: the old shared grid floored the bin width at the sparsest
-        channel's cadence and forward-filled the dense channel onto it.
+        Regression: a shared grid would floor the bin width at the sparsest
+        channel's cadence and forward-fill the dense channel onto it.
         """
         fast_chunk = self._dense_chunk(n_bins=10, samples_per_bin=10)  # 10 Hz, 10 s
         slow_chunk = [(_START_TS + 5.0, 0, 0, 500.0)]  # 0.1 Hz: one real sample

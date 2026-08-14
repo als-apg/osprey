@@ -316,7 +316,7 @@ def _seed_one_user(
     ``seed_base`` (default ``True``) controls whether ``base_content`` is
     prepended ahead of the user's ``extra.md``. When ``False``, the user's
     ``CLAUDE.md`` payload is its ``extra.md`` alone — the per-persona base
-    opt-out. With ``seed_base=True`` the payload is byte-for-byte the historical
+    opt-out. With ``seed_base=True`` the payload is the byte-for-byte
     ``base_content + extra_content`` concatenation.
 
     Returns:

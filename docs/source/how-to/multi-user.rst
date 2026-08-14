@@ -13,7 +13,7 @@ host, brought up with a single ``osprey up``.
    :color: primary
    :icon: book
 
-   - Why the single-user ``osprey web`` workflow is unchanged, and when each
+   - How it sits beside the single-user ``osprey web`` workflow, and when each
      mode is the right tool
    - The three ideas behind the multi-user stack: one container per user,
      personas as capability tiers, and one nginx front door
@@ -28,28 +28,27 @@ host, brought up with a single ``osprey up``.
    want Docker (or Podman) and your model-provider credentials — the
    ``control-assistant`` preset ships the whole block pre-wired.
 
-Single-user is still the front door
-===================================
+Single-user is the front door
+=============================
 
-Nothing about multi-user changes the everyday workflow. From any project
-directory,
+The everyday workflow stands on its own. From any project directory,
 
 .. code-block:: bash
 
    osprey web
 
-still launches the single-user Web Terminal as one local process — no
-containers, no proxy, ready in seconds at ``http://127.0.0.1:8087``. It remains
-the fastest way to try OSPREY and the right tool whenever one person sits in
-front of one machine; :doc:`web-terminal/operate` covers it.
+launches the single-user Web Terminal as one local process — no containers, no
+proxy, ready in seconds at ``http://127.0.0.1:8087``. It is the fastest way to
+try OSPREY and the right tool whenever one person sits in front of one machine;
+:doc:`web-terminal/operate` covers it.
 
 The multi-user stack is strictly opt-in. It lives in a
 ``modules.web_terminals`` block in the deployment's built ``config.yml``, read
 only by the lifecycle verbs (and validated by
 ``osprey scaffold web-terminals lint``).
 ``osprey web`` never looks at it — so a project that carries the block (the
-``control-assistant`` preset ships one) still runs single-user exactly as
-before. Reach for the multi-user stack when several people need their own
+``control-assistant`` preset ships one) runs single-user exactly like one that
+does not. Reach for the multi-user stack when several people need their own
 terminal on a shared machine, and stay with ``osprey web`` for everything else.
 
 How it works

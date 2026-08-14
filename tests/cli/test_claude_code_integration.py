@@ -818,7 +818,7 @@ class TestUserOwnedSkipBehavior:
         assert (project_dir / ".mcp.json").read_text() == custom_content
 
     def test_no_user_owned_behaves_as_before(self, tmp_path):
-        """Project without prompts section behaves exactly as before."""
+        """A project without a prompts section renders unaffected."""
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="test-no-owned",

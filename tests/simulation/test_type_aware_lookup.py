@@ -82,7 +82,7 @@ def _stage_project(tmp_path: Path, control_system: dict) -> Path:
 def _stage_repo(tmp_path: Path, control_system: dict, *, with_model: bool = True) -> Path:
     """Stage a deployment repo the ``sim`` CLI can discover.
 
-    The CLI no longer takes a project directory: it walks up to the nearest
+    The CLI takes no project directory: it walks up to the nearest
     ``profile.yml`` and reads the render under ``build/``. So the same
     ``control_system`` block has to be placed the way a real deployment holds it
     — the rendered config in ``build/``, the simulation model in the source zone

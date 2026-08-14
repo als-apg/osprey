@@ -200,14 +200,14 @@ async def test_stop_run_falls_back_when_the_bridge_sends_no_structured_detail():
     assert "boom" in ctx["envelope"]["error_message"]
 
 
-def test_stop_run_docstring_matches_the_capability_it_now_has():
+def test_stop_run_docstring_matches_its_actual_capability():
     """Inverse drift, in the direction that costs the most.
 
-    This tool was documented as NOT FUNCTIONAL while its route was a retired
-    410. Leaving any of that wording next to a working abort tells an agent not
-    to reach for the only tool that stops a moving scan — worse than silence,
-    at the moment delay is most expensive. Positive halves pinned too, so a
-    docstring that is merely emptied of the old words fails as well.
+    Wording that documents this tool as NOT FUNCTIONAL, as it would be behind a
+    410 route, tells an agent not to reach for the only tool that stops a moving
+    scan — worse than silence, at the moment delay is most expensive. Positive
+    halves pinned too, so a docstring merely emptied of those words fails as
+    well.
     """
     doc = (stop.stop_run.__doc__ or "") + (stop.__doc__ or "")
     lowered = doc.lower()

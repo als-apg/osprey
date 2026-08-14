@@ -53,7 +53,7 @@ def _addresses(cmd: list[str], compose_filename: str) -> bool:
     """True when this argv's ``-f`` list names *compose_filename*.
 
     The pinned invocation contract spells every ``-f`` as a repo-anchored
-    absolute path, so the old ``filename in cmd`` membership no longer holds.
+    absolute path, so a plain ``filename in cmd`` membership does not hold.
     Matched on the trailing path segment, which keeps ``docker-compose.yml``
     from matching ``docker-compose.web.yml``.
     """

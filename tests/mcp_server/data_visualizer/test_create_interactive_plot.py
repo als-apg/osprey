@@ -264,7 +264,7 @@ class TestResolveDataSource:
             resolve_data_source("deadbeef0123")
 
     def test_numeric_string_treated_as_file_path(self):
-        """Numeric strings are no longer context entry IDs; treated as file paths."""
+        """Numeric strings are not context entry IDs; treated as file paths."""
         # Numeric strings don't match the 12-char hex pattern, so they
         # fall through to the "assume file path" branch and are returned as-is.
         result = resolve_data_source("42")

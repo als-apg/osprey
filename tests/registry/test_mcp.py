@@ -941,7 +941,7 @@ class TestTemplateRendering:
         `osprey.deployment.web_terminals.render`, a module that never reads
         `claude_code.servers` and is never invoked by this project-level `.mcp.json`
         pipeline. A project's own custom `url`-transport server must keep rendering
-        its `{type: "http", url: ...}` entry exactly as before, both on its own
+        its `{type: "http", url: ...}` entry verbatim, both on its own
         (this assertion) and with a sibling facility config that carries the
         default (or omitted) web-terminals topology present in the same overall
         config (the `render_web_terminals()` call below, which must not raise and

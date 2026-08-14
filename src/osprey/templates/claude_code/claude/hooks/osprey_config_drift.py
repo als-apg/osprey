@@ -29,7 +29,7 @@ SessionStart ──► stat config.yml & .claude/settings.json
 ``control_system.writes_enabled`` kill-switch, which bakes
 ``mcp__controls__channel_write`` into ``settings.json``'s ``permissions.deny``)
 only take effect once the artifacts are re-rendered by ``osprey build``. The web
-and CLI entry points now auto-regenerate, but a hand-edited config.yml launched
+and CLI entry points auto-regenerate, but a hand-edited config.yml launched
 via raw ``claude`` would otherwise run stale settings with no signal. This hook
 is that signal.
 

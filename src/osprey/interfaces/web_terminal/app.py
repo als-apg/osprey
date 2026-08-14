@@ -348,18 +348,16 @@ def resolve_ui_mode(configured: str) -> str:
     return DEFAULT_UI_MODE
 
 
-#: The two supported rail positions. ``left`` is the redesign's icon-rail
-#: column; ``top`` renders the same rail as a horizontal strip under the
-#: header — the arrangement operators know from the pre-redesign tab bar.
+#: The two supported rail positions. ``left`` is the icon-rail column;
+#: ``top`` renders the same rail as a horizontal strip under the header.
 RAIL_POSITIONS = ("left", "top")
 DEFAULT_RAIL_POSITION = "left"
 
 #: Per-theme-family rail defaults, applied only when ``web.rail_position``
-#: is absent from config. The ``retro`` family restores the pre-redesign
-#: look, and the horizontal tab strip under the header is part of that look
-#: — picking Retro without also moving the rail would hand back the old
-#: colors inside the new layout. Any family not listed here defaults to
-#: :data:`DEFAULT_RAIL_POSITION`.
+#: is absent from config. The ``retro`` family carries a horizontal tab strip
+#: under the header as part of its look — picking Retro without also moving
+#: the rail would give its colors a layout they were never drawn for. Any
+#: family not listed here defaults to :data:`DEFAULT_RAIL_POSITION`.
 #:
 #: This map is the single source of truth for the coupling: ``GET
 #: /api/panels`` echoes it to the browser so ``rail-position.js`` can follow
@@ -670,7 +668,7 @@ def _create_lifespan(
         max_bg = int(config.get("max_background_sessions", 5))
         app.state.pty_registry = PtyRegistry(max_background=max_bg)
 
-        # ── Simple-mode chat pool bounds (Task 1.7) ──
+        # ── Simple-mode chat pool bounds ──
         # Three knobs bound the operator-chat pool; each fails open to its
         # default so a missing/broken config never blocks startup. Read from
         # the top-level `web` section (same section as web.theme/web.ui_mode).
@@ -717,7 +715,7 @@ def _create_lifespan(
             or str(_load_web_ui_config(config_path).get("app_name") or "").strip()
         )
         # Per-user deployment identity for multi-user compose stacks. No
-        # config key exists for either of these today, so the config-side
+        # config key exists for either of these, so the config-side
         # fallback is always empty and ``OSPREY_TERMINAL_USER`` /
         # ``OSPREY_TERMINAL_LANDING_URL`` are the sole source. Empty ⇒ no
         # user badge / logout control is rendered.
@@ -763,10 +761,10 @@ def _create_lifespan(
                 break
         app.state.config_path = resolved_config_path
 
-        # ── Web theme (SSR no-FOUC attribute, Task 1.10) ──
+        # ── Web theme (SSR no-FOUC attribute) ──
         # Resolved once at startup and server-rendered onto <html data-theme>
-        # so the generated theme-boot.js first-paints with no flash (Task
-        # 1.8). Fails open on any load error — a missing/broken theme
+        # so the generated theme-boot.js first-paints with no
+        # flash. Fails open on any load error — a missing/broken theme
         # registry must never block server startup.
         try:
             from osprey.utils.config import get_config_value
@@ -807,9 +805,9 @@ def _create_lifespan(
             app.state.web_theme_mode = None
             app.state.web_theme_family = None
 
-        # ── Web UI mode (SSR no-flash attribute, Task 5.1) ──
+        # ── Web UI mode (SSR no-flash attribute) ──
         # Resolved once at startup and server-rendered onto <html data-ui-mode>
-        # so the pre-paint mode-boot script (Task 5.2) first-paints in the right
+        # so the pre-paint mode-boot script first-paints in the right
         # mode. GET /api/panels also carries ui_mode, but first paint must never
         # depend on that API field — this server-rendered attribute is the
         # authoritative first-paint rung. Read via load_osprey_config (the same
@@ -941,11 +939,10 @@ def _create_lifespan(
                     )
 
         # The watcher's default follows the deployment's CONFIGURED agent-data
-        # root, anchored on the repo. The literal it replaced — `./_agent_data`
-        # — was wrong twice over: it named a directory the three-zone layout
-        # retired (state lives under `var/`), and it anchored on the working
-        # directory, so a terminal started from anywhere but the repo root
-        # watched a path that did not exist and reported no sessions at all.
+        # root, anchored on the repo. Never a cwd-relative literal: state lives
+        # under `var/`, and a path anchored on the working directory means a
+        # terminal started from anywhere but the repo root watches a directory
+        # that does not exist and reports no sessions at all.
         #
         # Deliberately NOT resolve_agent_data_root(): that applies
         # OSPREY_SESSION_ID isolation, and this watcher's whole job is to see
@@ -983,9 +980,8 @@ def _create_lifespan(
         app.state.visible_panels = panel_runtime.visible_panels
 
         # Config-defined panel presets ("Layouts"): named sets of panel ids a
-        # human applies in one click. Immutable config-derived state — the only
-        # new server state this feature adds. Empty (the default) → the "+" menu
-        # renders exactly as before.
+        # human applies in one click. Immutable config-derived state. Empty
+        # (the default) → the "+" menu renders no presets section.
         app.state.panel_presets = _load_panel_presets(enabled_panels, custom_panels)
 
         if panel_runtime.allow_runtime_panels and not panel_runtime.runtime_panel_allowlist:
@@ -1038,7 +1034,7 @@ def _create_lifespan(
             trust_env=False,
         )
 
-        # ── Idle chat-session reaper (Task 1.7) ──
+        # ── Idle chat-session reaper ──
         # Periodically evicts idle chat sessions (per the registry's idle
         # predicate, which also collects zombie-busy sessions) so an abandoned
         # Simple-mode tab does not pin a pool slot indefinitely. Fail-open at

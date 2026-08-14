@@ -85,7 +85,7 @@ class TestRendersTheOutputZone:
         assert manifest_path.parent == lifecycle_repo / "build"
 
     def test_compose_files_are_rendered_by_the_same_build(self, runner, lifecycle_repo):
-        """Absorbed from the old second verb: build/ describes the whole deployment."""
+        """One build does it all: build/ describes the whole deployment."""
         _build(runner, lifecycle_repo)
 
         rendered = list((lifecycle_repo / "build").rglob("docker-compose*.yml"))

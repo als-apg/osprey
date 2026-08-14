@@ -346,14 +346,14 @@ class TestScaffoldCliDirectoryArtifacts:
         assert "scaffold" not in config
 
     def test_claim_of_a_catalog_only_service_refuses(self, tmp_path: Path):
-        """Claim no longer materializes a packaged template — it moves what exists.
+        """Claim moves what exists; it does not materialize a packaged template.
 
         ``services/openobserve`` is a real catalog artifact with a packaged
-        template, so the old claim would have copied it into the project and
-        marked it owned. That affordance was removed on purpose: under the
-        profile model an artifact the project does not have is authored in the
-        profile, and a claim that invented one would put a second copy of the
-        framework's template somewhere nothing reconciles.
+        template, so a claim that materialized it would copy it into the
+        project and mark it owned. That affordance is deliberately absent:
+        under the profile model an artifact the project does not have is
+        authored in the profile, and a claim that invented one would put a
+        second copy of the framework's template somewhere nothing reconciles.
         """
         from osprey.cli.scaffold_cmd import claim
 

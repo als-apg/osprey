@@ -3,12 +3,12 @@
 Reports whether each web panel the operator has enabled is actually reachable —
 one row per panel, all probed concurrently.
 
-This is the single home for panel liveness. The web terminal's rail used to
-carry a per-entry LED fed by a browser-side poll, which put a status board in a
-navigation surface and reported nothing at all when the terminal wasn't open.
-The rail now renders only the coarse enabled/disabled state; the detailed
-readout lives here, where it sits beside the other core categories, is reachable
-from ``osprey health`` and the MCP surface, and works with no browser involved.
+This is the single home for panel liveness. The web terminal's rail renders only
+the coarse enabled/disabled state — a browser-side poll would put a status board
+in a navigation surface and report nothing at all while the terminal is closed.
+The detailed readout lives here, where it sits beside the other core categories,
+is reachable from ``osprey health`` and the MCP surface, and works with no
+browser involved.
 
 Panels come from two places and are probed accordingly:
 
@@ -52,10 +52,9 @@ _PROBE_TIMEOUT_S = 5.0
 _DEFAULT_BIND = "127.0.0.1"
 
 #: Panel id (as it appears under ``web.panels``) → registry key in
-#: :data:`FRAMEWORK_WEB_SERVERS`. The two namespaces differ for the panels whose
-#: registry entry predates the panel id (``artifacts``/``artifact``,
-#: ``lattice``/``lattice_dashboard``), so the mapping is explicit rather than
-#: derived by string munging.
+#: :data:`FRAMEWORK_WEB_SERVERS`. The two namespaces differ for some panels
+#: (``artifacts``/``artifact``, ``lattice``/``lattice_dashboard``), so the
+#: mapping is explicit rather than derived by string munging.
 _PANEL_TO_REGISTRY_KEY: dict[str, str] = {
     "artifacts": "artifact",
     "ariel": "ariel",

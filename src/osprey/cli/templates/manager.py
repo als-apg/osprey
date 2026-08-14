@@ -165,12 +165,11 @@ class TemplateManager:
                 exists without ``force=True``.
 
         Note:
-            ``default_provider`` is no longer defaulted here — callers must
-            inject it via ``context``. ``osprey build`` enforces this at the
-            CLI boundary (``click.UsageError``); internal callers that omit
-            it produce an empty ``provider:`` in the rendered ``config.yml``,
-            which the config loader rejects at project runtime. See
-            plan-remove-implicit-synchronous-narwhal.
+            ``default_provider`` is not defaulted here — callers must inject
+            it via ``context``. ``osprey build`` enforces this at the CLI
+            boundary (``click.UsageError``); internal callers that omit it
+            produce an empty ``provider:`` in the rendered ``config.yml``,
+            which the config loader rejects at project runtime.
         """
         # 1. Validate data bundle exists
         bundle_dir = self.template_root / "apps" / data_bundle
@@ -201,8 +200,8 @@ class TemplateManager:
 
         current_python = sys.executable
 
-        # Fall back to preset profile artifacts when the caller didn't pass any
-        # (legacy code path). An explicit empty dict from `osprey build` means the
+        # Fall back to preset profile artifacts when the caller didn't pass any.
+        # An explicit empty dict from `osprey build` means the
         # profile deliberately selects nothing, and must not be overridden.
         if artifacts is None:
             tmpl_manifest = manifest.load_template_manifest(self.template_root, data_bundle)

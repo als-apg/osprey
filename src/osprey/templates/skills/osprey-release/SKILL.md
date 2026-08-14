@@ -71,8 +71,8 @@ when the tag is not on the commit being built, or when the checkout is shallow
 Open `CHANGELOG.md`, read the `## [Unreleased]` section, and answer three
 questions before doing anything else:
 
-1. **What is this release about?** Pick a short theme (e.g., "GitHub Flow
-   migration & branch-protection enforcement"). It goes into the release
+1. **What is this release about?** Pick a short theme (e.g., "scan-plan
+   authoring & branch-protection enforcement"). It goes into the release
    title, the README "Latest Release" line, and the GitHub Release body.
 2. **What is the version number?** Apply the CalVer rules above. Patch bump
    for fixes, month bump for feature batches, year bump only at January.
@@ -169,12 +169,13 @@ git push origin vYYYY.M.P
 The tag must point at the merge commit on `main`. The `release.yml` workflow
 triggers on `v*.*.*` and:
 
-1. Verifies the tag matches `__version__` in `src/osprey/__init__.py`.
-2. Builds the wheel and sdist.
+1. Builds the wheel and sdist.
+2. Verifies the built version matches the tag. A checkout without full history
+   builds `0.1.devN` instead of the tagged version; this gate catches that.
 3. Publishes to PyPI via trusted publishing (OIDC; no token needed).
 4. Creates a GitHub Release using the CHANGELOG section as the body.
 
-If step 1 fails, the publish aborts before any PyPI write — safe.
+If step 2 fails, the publish aborts before any PyPI write — safe.
 
 ## Step 5: Verify
 
@@ -216,7 +217,7 @@ This is a fallback. The default path is the automated workflow.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `release.yml` "Verify version matches tag" fails | `__version__` in `__init__.py` doesn't match the pushed tag | Tag the wrong commit, or the version-bump PR didn't actually update `__init__.py`. Delete the tag locally and on origin, fix, retag |
+| `release.yml` "Verify built version matches tag" fails | The wheel built from the tagged commit carries a different version | The tag points at the wrong commit, or the checkout lacked the history `hatch-vcs` needs. Delete the tag locally and on origin, fix, retag |
 | PyPI rejects the upload as a duplicate | This version was already published | CalVer means version numbers are unique; you cannot republish. Bump the patch counter and try again |
 | `gh pr merge --rebase` fails with "not mergeable" | Stale checks because `main` moved | `git rebase origin/main` on the release branch, force-push with lease, wait for CI to re-run |
 | GitHub Release body is empty or wrong | CHANGELOG section heading didn't match the regex `release.yml` uses | Make sure the CHANGELOG heading is exactly `## [YYYY.M.P] - YYYY-MM-DD` |

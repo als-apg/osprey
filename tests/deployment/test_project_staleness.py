@@ -117,9 +117,9 @@ def test_preset_content_drift_is_reported_when_no_profile_is_recorded(
 ):
     """Same installed version, changed preset — the --dev checkout incident.
 
-    The preset branch is the fallback now: it applies to a manifest carrying no
-    profile path at all (one written before profile-always builds, or one whose
-    profile path could not be recorded). A current build records the profile it
+    The preset branch is the fallback: it applies to a manifest carrying no
+    profile path at all (one written before builds always recorded a profile,
+    or one whose profile path could not be recorded). A build records the profile it
     rendered from and is judged by that instead — see
     :func:`test_an_edited_profile_reports_the_render_stale`.
     """

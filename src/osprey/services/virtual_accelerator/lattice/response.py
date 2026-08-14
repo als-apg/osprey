@@ -9,8 +9,8 @@ the closed orbit with the guarded :func:`~.solve.solve_orbit` helper, and
 returns every BPM's (x, y) reading in meters, keyed by its flat FamName (e.g.
 "BPM01"). Sharing both the ring source (`build_ring`) and the strength-map
 code path with the bridge is deliberate: it is what lets the ORM crosscheck
-(task 4.3) prove this oracle and the live IOC agree because they run the same
-model, not two independently-written ones.
+prove this oracle and the live IOC agree because they run the same model, not
+two independently-written ones.
 
 ``solve_orbit`` guards against the unstable-lattice failure mode described in
 `solve.py`'s docstring (non-finite/unstable closed orbit surfaces as

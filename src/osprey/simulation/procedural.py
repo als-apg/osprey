@@ -15,10 +15,9 @@ Three properties are contracts, not preferences:
   window, sample count or stream position enters the computation, so two
   archiver queries that share a timestamp return the same value at it, and a
   document written into a store now equals what a query synthesizes for that
-  timestamp later. The window-relative generator this replaces could not
-  satisfy either: its ``np.linspace(0, 1, n)`` axis made every value a function
-  of the query's shape, so materializing it produced history that contradicted
-  the next read.
+  timestamp later. A window-relative generator cannot satisfy either: an
+  ``np.linspace(0, 1, n)`` axis makes every value a function of the query's
+  shape, so materializing it produces history that contradicts the next read.
 
 * **Baselines come from one source, shared with the VA.** A channel's baseline
   is the value the VA boots it at: the ``machine.json`` seed for the ``:SP`` and

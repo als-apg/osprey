@@ -258,8 +258,8 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
     ``.mcp.json`` from a previous build can still launch the server
     (``enableAllProjectMcpServers: true``), so an unresolvable spec must block
     the whole server rather than contribute nothing. A spec with NONE of
-    extends/command/url (legacy form ``phoebus2: {enabled: true}``) fails
-    closed the same way.
+    extends/command/url (e.g. ``phoebus2: {enabled: true}``) fails closed the
+    same way.
 
     Returns an empty list when ``config.yml`` is absent or unreadable.
     """
@@ -294,8 +294,8 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
                 out.extend(_extra_side_effect_tools_for(name, spec["extends"]))
             continue
         if not spec.get("command") and not spec.get("url"):
-            # NONE of extends/command/url (legacy form 'phoebus2: {enabled:
-            # true}'): resolve_servers skips such a spec, so it never renders
+            # NONE of extends/command/url (e.g. 'phoebus2: {enabled: true}'):
+            # resolve_servers skips such a spec, so it never renders
             # into .mcp.json — but a stale .mcp.json from a previous build can
             # still launch a server by this name. Fail closed exactly like the
             # unresolvable-extends path above: block the whole server.

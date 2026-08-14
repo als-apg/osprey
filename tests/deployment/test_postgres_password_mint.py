@@ -75,7 +75,7 @@ def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
     ``execution`` section, so on its own it never exercises this combination —
     the one a since-deleted deploy-time guard used to withhold tokens under
     (``writes_enabled: true`` plus the ``local`` spelling of the subprocess
-    backend). Minting is now unconditional for every var a deployed service
+    backend). Minting is unconditional for every var a deployed service
     declares, and this password in particular is not an arming credential at
     all: it is the Postgres superuser secret the ARIEL store initializes with,
     and withholding it leaves the store on the shared ``ariel``/``ariel``

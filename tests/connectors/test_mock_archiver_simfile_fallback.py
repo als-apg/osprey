@@ -7,19 +7,19 @@ scenario change had to be made twice, and a project that updated only one of
 them got archived history that contradicted live reads with nothing said about
 it.
 
-So ``archiver.mock_archiver.simulation_file`` is now optional: unset, it is
+So ``archiver.mock_archiver.simulation_file`` is optional: unset, it is
 resolved from the control-system side through the same
 :func:`osprey.simulation.apply.resolve_simulation_file` the ``sim`` CLI uses
 (type-aware, so a virtual-accelerator project resolves its own key). An explicit
 archiver-side value still wins — pointing the archiver at a different model is
 legitimate — but the divergence is logged at WARNING.
 
-Both directions are covered here, plus the template that no longer ships the
-third copy of the path.
+Both directions are covered here, plus the template, which ships no third copy
+of the path.
 
 A note on the virtual-accelerator cases below, which would otherwise read as
 contradicting the honesty rule: pairing a ``virtual_accelerator`` control system
-with the mock archiver is now refused at build, at deploy and at MCP startup
+with the mock archiver is refused at build, at deploy and at MCP startup
 (see :mod:`osprey.connectors.honesty`), so no deployment can reach that
 configuration. These tests still exercise it, and legitimately — they construct
 the connector directly, below the level where any of those three refusals live,
@@ -283,7 +283,7 @@ class TestExplicitArchiverValueWins:
 
     @pytest.mark.asyncio
     async def test_matching_values_do_not_warn(self, project, caplog):
-        """A project that still declares the old duplicate is honoured silently."""
+        """A project that declares the duplicate, matching, is honoured silently."""
         project(
             control_system={
                 "type": "mock",
@@ -306,7 +306,7 @@ class TestExplicitArchiverValueWins:
 
 
 class TestTemplateDropsTheDuplicate:
-    def test_archiver_block_no_longer_declares_a_simulation_file(self):
+    def test_archiver_block_declares_no_simulation_file(self):
         archiver_section = TEMPLATE.read_text().split("\narchiver:\n", 1)[1]
 
         live_keys = [

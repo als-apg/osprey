@@ -12,9 +12,9 @@ project_name: "{{ project_name }}"
 # Facility identity — one block, two keys:
 #   name   — display name woven into the agent prompts (CLAUDE.md, subagents)
 #            and the web-terminal landing page. Keep it in sync with
-#            .claude/rules/facility.md. The older top-level `facility_name`
-#            is still honored as a fallback, but this is the canonical
-#            spelling and wins over it.
+#            .claude/rules/facility.md. A top-level `facility_name` is
+#            honored as a fallback, but this is the canonical spelling and
+#            wins over it.
 #   prefix — short abbreviation the deployed web stack uses for container
 #            names (`<prefix>-nginx`, `<prefix>-web-<user>`); must be a
 #            non-empty valid Docker name start ([a-zA-Z0-9]). Only the

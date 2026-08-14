@@ -163,7 +163,7 @@ class TestSessionFooter:
         # initLogoutButton() and the command palette both find it by id.
         assert 'id="logout-btn"' in body
         assert 'data-landing-url="https://facility.example/portal"' in body
-        # And it is no longer a header chip of its own.
+        # And it is not a header chip of its own.
         assert 'id="identity-menu"' not in body
 
     def test_footer_is_identity_free_for_a_single_user_deployment(self, client):

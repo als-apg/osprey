@@ -1228,7 +1228,7 @@ def _reject_retired_config_option(config_path: str | None) -> None:
         return
     message = (
         "--config is no longer supported: there is no facility-config.yml. "
-        "The modules.web_terminals stanza now lives in the repo's built "
+        "The modules.web_terminals stanza lives in the repo's built "
         "config.yml, emitted from the profile's `config:` block — run this verb "
         "with --repo DIR, or from inside the repo. Its deployment artifacts "
         "come from `osprey scaffold ci`, driven by the profile's `deploy:` "

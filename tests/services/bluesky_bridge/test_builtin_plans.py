@@ -1,8 +1,8 @@
 """Bluesky-marked coverage for the shipped `orm`/`grid_scan` plans'
 parameter schemas and the `orm` plan's abort-safe restore behavior.
 
-`plans.py`'s hand-built plan set is gone (the single-registry migration —
-see `plan_loader.get_facility_plans`); `orm`/`grid_scan` are now
+There is no hand-built plan set: a single registry owns them (see
+`plan_loader.get_facility_plans`), and `orm`/`grid_scan` are
 plain `plans_core/` files, discovered through the layered directory loader.
 Their end-to-end registration + RunEngine round trip (through the real
 loader, against mock devices) is `test_exemplar_plans.py`'s job — this file

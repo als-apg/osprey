@@ -11,7 +11,7 @@
   ----------------------------------------------------------------------------
 
     nginx_port: int, required
-    bind_host: str, required (Task 1.1's _LOOPBACK_BIND_HOST, "127.0.0.1")
+    bind_host: str, required (render.py's _LOOPBACK_BIND_HOST, "127.0.0.1")
       The loopback address every per-user app's `web` family binds (see
       docker-compose.web.yml.j2's OSPREY_TERMINAL_BIND_HOST). This is the
       `proxy_pass` upstream host below — nginx is the only process on the
@@ -38,8 +38,7 @@
       every proxied `/u/<user>/` location, the per-user internal target
       location each of them subrequests, and the public `/auth/` surface the
       sidecar serves the login flow from. When "none", nothing auth-related is
-      emitted and this template renders exactly what it rendered before
-      authentication existed.
+      emitted and the plain proxy config below is the whole render.
     auth_port: int, required when auth_method != "none" (defaults to 9070)
       The loopback port the auth sidecar listens on. Reached at bind_host, the
       same way every per-user app is: the sidecar shares the host network
@@ -69,26 +68,23 @@
   a syntactically-standalone fragment.
 
   ----------------------------------------------------------------------------
-  WHY A REAL REVERSE PROXY, NOT A REDIRECT
+  WHY A REAL REVERSE PROXY
 
   Every per-user app binds its `web` port on `bind_host` (127.0.0.1) only —
-  bind-per-user-apps-loopback moved it off the routable interface, so nginx
-  is now the only off-host path and can safely make the outbound connection
-  itself. Each configured user therefore gets a genuine `proxy_pass` upstream
-  under a shared single origin at `/u/<user>/`, instead of the earlier
-  redirect-to-distinct-origin scheme (nginx never made an outbound connection
-  then; it only told the browser a different host:port to go to next). The
-  `map` below and the `proxy_set_header` lines are what make that proxied
-  connection transparent to WebSocket traffic (`/ws/terminal`, the panel
-  WebSocket) — without them the Upgrade handshake never reaches the upstream
-  and every terminal connection would fail.
+  off the routable interface — so nginx is the only off-host path and is the
+  one process that makes the outbound connection to them. Each configured
+  user therefore gets a genuine `proxy_pass` upstream under a shared single
+  origin at `/u/<user>/`. The `map` below and the `proxy_set_header` lines
+  are what make that proxied connection transparent to WebSocket traffic
+  (`/ws/terminal`, the panel WebSocket) — without them the Upgrade handshake
+  never reaches the upstream and every terminal connection would fail.
 
   `location /u/<user>/ { proxy_pass http://<bind_host>:<web>/; }` — the
   trailing slash on BOTH the location and the proxy_pass target strips the
   `/u/<user>` prefix before the request reaches the upstream app, so the app
   itself never sees the prefix in its request path (it only needs to know its
   own prefix for constructing prefixed links/asset URLs, an app-side concern
-  handled by the Task 2.1 prefix contract, not by anything here).
+  handled by the app's own prefix contract, not by anything here).
 
   A no-trailing-slash `/u/<user>` request would otherwise fall through to
   `location /` (the landing page) instead of the user's app — the companion
@@ -96,12 +92,11 @@
   without the trailing slash still routes in.
 
   `proxy_buffering off` + a raised `proxy_read_timeout`: every request under
-  `/u/<user>/` now genuinely flows through nginx (Phase 1's redirect never put
-  nginx in the data path at all), which means nginx's DEFAULT buffering and
-  60s read timeout now apply to the app's Server-Sent-Events streams too
-  (`/api/files/events`, chat SSE) — not just the WebSocket traffic the Upgrade
-  headers above cover. Buffering ON would batch/delay SSE `data:` lines behind
-  nginx's proxy buffer instead of flushing them as the app emits them, and the
+  `/u/<user>/` genuinely flows through nginx, which means nginx's DEFAULT
+  buffering and 60s read timeout apply to the app's Server-Sent-Events streams
+  too (`/api/files/events`, chat SSE) — not just the WebSocket traffic the
+  Upgrade headers above cover. Buffering ON would batch/delay SSE `data:` lines
+  behind nginx's proxy buffer instead of flushing them as the app emits, and the
   60s default read timeout would tear down a heartbeat-less idle SSE stream
   every minute. Both directives are scoped to this proxied location only —
   WebSocket traffic bypasses proxy buffering entirely once the Upgrade
@@ -118,9 +113,9 @@
   AUTH/TLS, OFF BY DEFAULT
 
   A deployment that sets neither `web_terminals.auth` nor `web_terminals.tls`
-  renders exactly what this template rendered before either existed: plain
-  http, no `auth_request`, every `/u/<user>/` open to anyone who can reach the
-  port. Both features are opt-in, and each is gated independently:
+  renders plain http: no `auth_request`, every `/u/<user>/` open to anyone who
+  can reach the port. Both features are opt-in, and each is gated
+  independently:
 
   - `tls_enabled` (default False) emits nothing. When true, the plain port
     becomes a redirect-only server and a second `listen 443 ssl` server —
@@ -268,9 +263,9 @@ server {
   {{ 1 / 0 }}
 {% endif %}
     # Reverse proxy to {{ svc.user }}'s loopback upstream (the per-user app's
-    # `web` family, bound by bind-per-user-apps-loopback). Trailing slashes on
-    # both the location and proxy_pass target strip /u/{{ svc.user }} before
-    # the request reaches the upstream.
+    # `web` family, bound to loopback only). Trailing slashes on both the
+    # location and proxy_pass target strip /u/{{ svc.user }} before the
+    # request reaches the upstream.
     location /u/{{ svc.user }}/ {
 {% if auth_method != "none" %}
         # Authentication is on (web_terminals.auth.method is "{{ auth_method }}"):

@@ -704,7 +704,7 @@ def test_list_reads_the_build_zone_of_the_repo_it_is_standing_in(
 def test_a_claim_moves_the_artifact_from_the_build_zone_into_the_source_zone(
     runner: CliRunner, built_repo: Path
 ) -> None:
-    """The move this verb exists for, in the layout it now runs in.
+    """The move this verb exists for, in the layout it runs in.
 
     The build zone is disposable — the next build replaces it wholesale — so an
     artifact an operator wants to keep has to leave it. It lands beside the

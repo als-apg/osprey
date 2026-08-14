@@ -26,9 +26,9 @@ class RegistryManager:
     """Centralized registry for all Osprey Agentic Framework components.
 
     This class provides the single point of access for capabilities, context classes,
-    services, providers, and connectors throughout the framework. It replaces the
-    fragmented registry system with a unified approach that eliminates circular imports
-    through lazy loading and provides dependency-ordered initialization.
+    services, providers, and connectors throughout the framework. One unified
+    registry eliminates circular imports through lazy loading and provides
+    dependency-ordered initialization.
 
     The registry system follows a strict initialization order to handle dependencies:
     1. Context classes (required by capabilities)

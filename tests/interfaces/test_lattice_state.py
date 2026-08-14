@@ -53,7 +53,7 @@ class TestInitializeRefpts:
     """Verify that initialize() passes explicit refpts to get_optics."""
 
     def test_empty_beta_no_crash(self, state):
-        """Previously crashed with ValueError on np.max of empty array."""
+        """An empty beta array must not raise ValueError from np.max."""
         ring = _make_mock_ring()
         ld_empty = _make_lindata(0)
         rd = SimpleNamespace(tune=np.array([0.3, 0.2]), chromaticity=np.array([1.0, 1.5]))

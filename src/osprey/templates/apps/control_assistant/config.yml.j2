@@ -3,7 +3,7 @@
 # ============================================================
 # Accelerator Control System Assistant
 # Based on ALS Assistant deployment (arXiv:2509.17255)
-# Claude Code project — streamlined configuration.
+# Claude Code project configuration.
 # ============================================================
 
 # Project identity
@@ -11,8 +11,9 @@ project_name: "{{ project_name }}"
 
 # Facility identity — one block, two keys:
 #   name   — display name woven into the agent prompts (CLAUDE.md, subagents)
-#            and the web-terminal landing page. Falls back to the older
-#            top-level `facility_name`, then to the project name.
+#            and the web-terminal landing page. Preferred spelling, and it
+#            wins over a top-level `facility_name`, which is honored as a
+#            fallback; with neither set, the project name is used.
 #   prefix — short abbreviation the deployed web stack uses for container
 #            names (`<prefix>-nginx`, `<prefix>-web-<user>`); must be a
 #            non-empty valid Docker name start ([a-zA-Z0-9]).
@@ -252,12 +253,11 @@ hooks:
 
 # ============================================================
 # CONTROL SYSTEM & ARCHIVER CONFIGURATION
-# Issue #18 - Control System Abstraction
 # ============================================================
-# Unified configuration for control systems and archivers.
+# Configuration for control systems and archivers.
 # Supports mock mode (development) and production mode (EPICS, etc.)
 #
-# Development Mode: Works instantly with any channel names (no hardware required)
+# Development Mode: Works with any channel names (no hardware required)
 # Production Mode: Connects to real control system and archiver
 # Switch modes by changing 'type' field
 
@@ -270,7 +270,7 @@ control_system:
   #     Channel Access. Requires the VA service running first — add
   #     virtual_accelerator to deployed_services and run `osprey up`
   #     (see the "Use the Virtual Accelerator" how-to in the OSPREY docs).
-  #   - epics: Production EPICS control system (ALS values below — untouched)
+  #   - epics: Production EPICS control system (ALS values below)
   type: mock  # <-- Change to 'virtual_accelerator' or 'epics' for other modes
 
   # Write Access Control - Master safety switch for hardware control
@@ -399,7 +399,7 @@ control_system:
           # port: 5074
           use_name_server: true
 
-    # EPICS connector (production mode) — untouched ALS production values.
+    # EPICS connector (production mode) — ALS production values.
     epics:
       timeout: 5.0
       gateways:
@@ -859,8 +859,8 @@ agent_data:
 # ============================================================
 # Every panel tab in `osprey web` is served by its own small web server, and
 # each one takes host/port/auto_launch from its own config section. These six
-# are the complete set — five of them have never appeared in a template
-# (artifact_server is the only one that ever shipped), so this is the map:
+# are the complete set — artifact_server is the only one this file writes a
+# stanza for, and the other five run at their defaults, so this is the map:
 #
 #   tab        keys live under        default port   port env var
 #   WORKSPACE  artifact_server        8086           OSPREY_ARTIFACT_SERVER_PORT
@@ -1019,8 +1019,8 @@ claude_code:
 # WEB TERMINAL
 # ============================================================
 # The terminal process itself (`osprey web`) — a different section from `web:`
-# below, which configures the panel tabs it renders. Both are read; neither has
-# ever shipped in a template, so every key here is at its default.
+# below, which configures the panel tabs it renders. Both are read; no
+# `web_terminal:` block is written out here, so every key is at its default.
 # web_terminal:
 #   host: "127.0.0.1"    # Bind address. A deployment that DECLARES
 #                        # OSPREY_TERMINAL_BIND_HOST — the multi-user compose

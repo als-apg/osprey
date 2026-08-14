@@ -10,11 +10,10 @@
 # pattern matches nothing. Edit the list here; the spelling for that depth is
 # derived, never maintained twice.
 #
-# There is deliberately NO `build/` entry. It used to exclude the render zone,
-# back when a project directory held its own build output and the image
-# regenerated that output for itself. The render IS the deployment now, and the
-# project image's context is a deployment repo, so excluding `build/` would ship
-# an image with no config, no .mcp.json and no Claude Code artifacts at all.
+# There is deliberately NO `build/` entry. The project image's context is a
+# deployment repo whose render — the deployment itself — lives under `build/`,
+# so excluding it would ship an image with no config, no .mcp.json and no
+# Claude Code artifacts at all.
 
 # Secrets — must never enter the image (pass at runtime: --env-file .env).
 # Every variant is excluded, the deploy-generated .env.production included;

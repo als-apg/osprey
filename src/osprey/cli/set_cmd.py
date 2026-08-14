@@ -15,8 +15,8 @@ refusal of an ``extends:`` write that materialization makes. A second writer
 with its own spelling rules would mean ``osprey set connector=epics`` and
 ``osprey init --set connector=epics`` landing differently in the same file.
 
-Two shorthands from the retired ``osprey config set-*`` commands survive here
-as key spellings: ``connector=`` (folded into ``config.control_system.type`` by
+Two shorthands are accepted as key spellings:
+``connector=`` (folded into ``config.control_system.type`` by
 the shared layering step) and ``epics_gateway=`` (expanded below into the
 facility's gateway addresses). Both write the literal dotted keys a reader
 would otherwise type by hand, so nothing lands in the profile that only this

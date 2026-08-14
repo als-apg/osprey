@@ -304,7 +304,7 @@ class TestDeploymentResolution:
         runner,
         deployment,
     ):
-        """Both, because they are now different directories.
+        """Both, because they are different directories.
 
         An operator reading only "build/…" could not tell which deployment they
         are in; reading only the repo could not tell whether the render is the
@@ -1061,9 +1061,9 @@ class TestDetachSkipsPreflightInChild:
 # from the resolved repo: web_cmd's pre-lifespan `.env` load and the lifespan's
 # `app.state.config_path` (which gates provider env injection).
 #
-# The split makes this sharper than it was: the `.env` is at the repo root and
-# the config is in the render, so a launch that gets only one of them right is
-# now a visible failure rather than a coincidence.
+# The split makes this sharp: the `.env` is at the repo root and the config is
+# in the render, so a launch that gets only one of them right is a visible
+# failure rather than a coincidence.
 
 
 @pytest.fixture

@@ -961,9 +961,9 @@ def test_the_queue_relay_shadows_no_pre_existing_sidecar_route() -> None:
     ``/plans``, ``/runs*`` and ``/draft*``. A queue path that collided with one
     of those would silently take it over.
 
-    ``/runs/launch`` used to be on this list; it was removed with the launch
-    relay itself, since every bridge primitive it called is now an
-    unconditional 410."""
+    ``/runs/launch`` is deliberately not on this list: there is no launch
+    relay, and every bridge primitive it would call answers an unconditional
+    410."""
     from osprey.interfaces.bluesky_panels.app import app as composed_app
 
     paths = composed_app.openapi()["paths"]

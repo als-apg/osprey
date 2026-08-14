@@ -39,7 +39,7 @@ stdout breaks any assertion on error text.
 Concrete values
 ---------------
 
-The pipeline's invocations carry no arguments at all now: the repo IS the
+The pipeline's invocations carry no arguments at all: the repo IS the
 deployment, so every verb walks up to the profile from wherever it runs. The
 harness still expands any ``$NAME`` against the pipeline's own ``variables:``
 block — so the substitution is the pipeline's and not the test's opinion of it —

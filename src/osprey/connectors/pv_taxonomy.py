@@ -5,13 +5,12 @@ guess plausible defaults for PV names that the data-driven simulation engine
 does *not* serve. They classify a PV by substring conventions in its name and
 map it to a physical base value and engineering units.
 
-Historically each connector hard-coded its own copy of this keyword ladder,
-which had already drifted (e.g. the archiver lacked an ``energy`` branch and the
-control connector did not recognise ``dcct`` as a beam-current monitor). This
-module is the single source of truth: :func:`classify_pv` returns a
-:class:`PVKind`, and each connector layers its own behaviour on top — the
-archiver shapes a time series per :attr:`PVKind.name`, the control connector
-seeds an initial value and reports units.
+Neither connector may hold its own copy of this keyword ladder: two copies drift
+apart branch by branch, and the same PV name then classifies one way for live
+reads and another for archived ones. This module is the single source of truth:
+:func:`classify_pv` returns a :class:`PVKind`, and each connector layers its own
+behaviour on top — the archiver shapes a time series per :attr:`PVKind.name`,
+the control connector seeds an initial value and reports units.
 
 The kind also carries :attr:`PVKind.noise_scale`, the absolute floor under the
 otherwise purely relative sigma, so a kind whose base value is legitimately

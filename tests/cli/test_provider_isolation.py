@@ -350,7 +350,7 @@ class TestManagedListsAgree:
         )
 
 
-# ── inject_provider_env .env branch (previously blind) ───────────
+# ── inject_provider_env .env branch ──────────────────────────────
 
 
 class TestInjectDotenvPassthrough:

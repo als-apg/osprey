@@ -338,8 +338,8 @@ async def test_entry_create_draft_url_is_browser_resolvable(tmp_path, monkeypatc
     """Without ARIEL_WEB_URL, the draft URL must be a web-terminal-relative
     proxy path — not an absolute container-internal address.
 
-    Regression: the default used to be ``http://127.0.0.1:8085`` which is
-    unreachable from the user's browser (nothing listens on 8085 in the
+    Regression: a default of ``http://127.0.0.1:8085`` is unreachable from
+    the user's browser (nothing listens on 8085 in the
     deployed container, and 127.0.0.1 points at the user's own machine). The
     web terminal embeds the ARIEL panel via the relative proxy path
     ``/panel/ariel`` and resolves draft URLs with ``new URL(url, origin)``, so

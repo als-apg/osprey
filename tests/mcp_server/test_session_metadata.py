@@ -11,8 +11,8 @@ def fake_project(tmp_path, monkeypatch):
     """Set up a fake project directory with workspace and transcript."""
     (tmp_path / "var" / "agent_data").mkdir(parents=True)
 
-    # The metadata gatherer resolves the repo root directly — it no longer
-    # infers it from the agent-data root's position — so that is the seam.
+    # The metadata gatherer resolves the repo root directly, rather than
+    # inferring it from the agent-data root's position, so that is the seam.
     monkeypatch.setattr(
         "osprey.utils.workspace.resolve_project_root",
         lambda config=None: tmp_path,

@@ -1,6 +1,6 @@
 """The bridge's half of the document plane: a 0MQ proxy feeding the live-row buffer.
 
-Plans no longer run inside this process. The RunEngine lives in the
+No plan runs inside this process. The RunEngine lives in the
 ``queueserver`` container (``qserver_startup.py``), which subscribes a
 ``bluesky.callbacks.zmq`` ``Publisher`` to it; this module runs the other end —
 the ``Proxy`` that Publisher connects to, plus a ``RemoteDispatcher`` that

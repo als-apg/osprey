@@ -108,7 +108,7 @@ def _channel_finder_prompt(project_dir: Path) -> str:
 
 @pytest.fixture(scope="module")
 def channel_finder_project(tmp_path_factory) -> Path:
-    """A channel-finder build — the path where the config value used to be shadowed."""
+    """A channel-finder build — the path most at risk of shadowing the config value."""
     out_dir = tmp_path_factory.mktemp("cf_facility")
     return TemplateManager().create_project(
         project_name="cf-facility",

@@ -27,11 +27,10 @@ from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS
 
 logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 
-# scrub_sensitive_env (and its deny-list constants) used to be defined here.
-# The implementation now lives in osprey.mcp_server.sandbox_env (imported
-# above) so this module and the workspace sandbox
-# (osprey.mcp_server.workspace.execution.sandbox_executor) share one deny-list
-# instead of two that could drift.
+# scrub_sensitive_env and its deny-list constants live in
+# osprey.mcp_server.sandbox_env (imported above), never here: this module and
+# the workspace sandbox (osprey.mcp_server.workspace.execution.sandbox_executor)
+# must share one deny-list rather than two that can drift.
 
 
 @dataclass

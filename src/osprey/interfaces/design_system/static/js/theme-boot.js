@@ -93,7 +93,7 @@
 
   // The server-rendered rung (finding I4): whatever data-theme already
   // sits on <html> when this script runs, e.g. stamped by the web server
-  // from config (Task 1.10). Read once so both the resolution candidate
+  // from config. Read once so both the resolution candidate
   // below and the no-clobber check at the end use the exact same value.
   function readServerTheme() {
     try {

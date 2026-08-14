@@ -1,15 +1,15 @@
 """A provider that maps no models is refused, not filled with Anthropic's IDs.
 
-``resolve()`` used to ``setdefault`` every unmapped tier to the built-in
-Anthropic direct model IDs so the env block could always be built. The cost was
-a silent lie: selecting a provider that ships no ``models`` map launched the
-agent asking *that* provider for ``claude-opus-4-6`` — a 404 from a strict
-proxy, and a silently different model from a permissive one.
+``setdefault``-ing every unmapped tier to the built-in Anthropic direct model
+IDs, so the env block can always be built, costs a silent lie: selecting a
+provider that ships no ``models`` map would launch the agent asking *that*
+provider for ``claude-opus-4-6`` — a 404 from a strict proxy, and a silently
+different model from a permissive one.
 
-The map is now required. This module pins both halves of that contract: the
+The map is required. This module pins both halves of that contract: the
 refusal is actionable (it names ``api.providers.<name>.models``, the tiers, and
 the shape to write), and every provider stanza the shipped templates offer
-carries a real map, so the new error can never fire on a config OSPREY itself
+carries a real map, so the refusal can never fire on a config OSPREY itself
 generated.
 """
 
@@ -146,7 +146,7 @@ class TestMapLessProviderIsRefused:
 
 
 class TestShippedTemplatesCarryRealMaps:
-    """No shipped provider stanza can trip the new error."""
+    """No shipped provider stanza can trip the refusal."""
 
     @pytest.mark.parametrize("relative_path", SHIPPED_TEMPLATES)
     def test_every_provider_maps_all_tiers(self, relative_path):

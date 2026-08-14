@@ -101,8 +101,6 @@ class LazyGroup(click.Group):
         elif cmd_name in ("up", "down", "restart", "status", "logs"):
             # Every lifecycle verb in deploy_cmd is defined as `<name>_verb`,
             # so it is resolved by that name rather than by the bare one. The
-            # suffix is what kept them apart from the legacy `deploy` group's
-            # same-named subcommands while both existed; it stays because the
             # module has no bare `up`/`down`/`restart`/`status`/`logs` to fall
             # back to, and the generic getattr below would raise AttributeError.
             cmd_func = getattr(mod, f"{cmd_name}_verb")
@@ -210,11 +208,9 @@ def cli(ctx, verbose):
     initialize_theme_from_config()
 
     if ctx.invoked_subcommand is None:
-        # The bare command lists what there is to run. It used to launch an
-        # interactive menu, which existed because the legacy verbs took
-        # arguments nobody could remember (`--project`, `--config`, `--preset`);
-        # the surface it wrapped is gone and every verb it offered is now
-        # zero-argument, so the help IS the menu.
+        # The bare command lists what there is to run. Every verb is
+        # zero-argument, so the help is the menu — an interactive wrapper would
+        # be a surface with nothing to wrap.
         click.echo(ctx.get_help())
 
 

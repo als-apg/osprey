@@ -86,7 +86,7 @@ Gather the evidence first, before you ask a single migration question:
 - **What version is installed here** — `osprey --version`. Everything below is relative
   to it, and it is the only version whose behaviour you can check.
 - **What a current setup looks like** — materialize a profile into a scratch directory
-  from a bundled preset (the canonical modern one, unless something they said points
+  from a bundled preset (the canonical one, unless something they said points
   elsewhere) and read what it writes. That is the shape their setup is moving towards,
   defined by the installation in front of you rather than by memory. Delete it
   afterwards; it exists to be read, and the real one gets materialized later.
@@ -96,11 +96,11 @@ Gather the evidence first, before you ask a single migration question:
 
 Now derive your own questions by comparing the two. For each thing they have, the
 question is which of three things it is: a fact that belongs in the new profile, an
-artifact that carries across as a file the profile owns, or something the framework now
+artifact that carries across as a file the profile owns, or something the framework
 does natively and that should retire. Ask one at a time, in plain language, and say what
 each answer costs them — a thing that retires is work they no longer maintain, which is
 usually welcome news once it is put that way. Where you cannot tell whether the
-framework covers something now, check the installation instead of guessing; the map
+framework covers something, check the installation instead of guessing; the map
 lists the commands that answer that.
 
 Two cases are common enough to name, though neither gets a procedure here:
@@ -226,7 +226,7 @@ person* rather than guessing. Categories worth checking:
 Pick the starting preset first. `osprey profile presets` reports what this
 installation ships; open the ones that sound close — the map says where they live — and
 take the one whose privilege level and connection mode match what the interview
-established. The `control-assistant` family is the canonical modern example and a
+established. The `control-assistant` family is the canonical example and a
 sensible default when nothing else stands out.
 
 Then lay out the facility repo:
@@ -325,8 +325,8 @@ here depends on asking a live installation what exists, so without the CLI you c
 this honestly. Tell them exactly what to run — `pip install osprey-framework`, or
 whatever their facility's install instructions say — and then stop cleanly. Do not fall
 back to answering from memory and do not fabricate preset, config, or service names to
-keep the conversation moving; answering from recall is how the previous version of this
-skill went stale.
+keep the conversation moving; answering from recall is exactly how this skill goes
+stale.
 
 **They describe an existing setup you cannot open.** It is on another machine, or behind
 a login, or they only half remember it. Say so plainly and work from what you *can* see:

@@ -141,8 +141,8 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
 
 
 # OSPREY runs agent Python code in exactly one backend: a subprocess on the host.
-# ``local`` is the historical name for that same backend; ``container`` named a
-# Jupyter kernel gateway OSPREY never shipped.
+# ``local`` is an accepted alias for that same backend; ``container`` names a
+# Jupyter kernel gateway OSPREY does not ship.
 EXECUTION_METHOD_SUBPROCESS = "subprocess"
 
 # Module-level latch so the ``container`` deprecation is logged once per process
@@ -229,9 +229,9 @@ def resolve_execution_method(
     while the config file stops claiming a backend OSPREY does not ship:
 
     - ``subprocess`` — the honest name; returned as-is.
-    - ``local`` — historical name for the same subprocess backend; mapped silently.
-    - ``container`` — named a Jupyter kernel gateway that was never shipped, so it
-      failed outright at execution time. Mapped to ``subprocess`` with a one-time
+    - ``local`` — an alias for the same subprocess backend; mapped silently.
+    - ``container`` — names a Jupyter kernel gateway OSPREY does not ship, so it
+      fails outright at execution time. Mapped to ``subprocess`` with a one-time
       deprecation warning, because that value's behavior genuinely changes.
     - unset (missing, ``None``, or blank) — defaults to ``subprocess``.
 

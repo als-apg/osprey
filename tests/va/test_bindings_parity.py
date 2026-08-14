@@ -1,15 +1,15 @@
 """The bound catalog addresses the ring it was baked against.
 
-The model is now served from the bound catalog alone. The field-for-field
-parity check against ``build_variable_catalog`` retired with the migration
-it certified: with no second derivation left to compare against, comparing
-the bound catalog to a plain one rebuilt beside it only asserted that one
-function calls another. What survives are the properties that hold on their
-own terms -- the catalog's shape, and the baselines below.
+The model is served from the bound catalog alone. There is no field-for-field
+parity check against ``build_variable_catalog``: with no second derivation to
+compare against, comparing the bound catalog to a plain one rebuilt beside it
+would only assert that one function calls another. What this module pins are
+the properties that hold on their own terms -- the catalog's shape, and the
+baselines below.
 
 **Baked baselines (standing).** Every setpoint's element must be the one
 ``StrengthMap`` snapshotted its baked strength from, bit-for-bit. This is
-the check that outlives the migration: the ring, the map and these
+the standing check: the ring, the map and these
 variables are one set, and a change that rebuilt the ring after baking --
 or reordered construction so the map baked a lattice the variables do not
 write -- would leave every conversion scaled by a stale baseline while

@@ -594,8 +594,8 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
             # Custom server
             if not spec.get("command") and not spec.get("url"):
                 # Never emit a broken {"command": ""} entry into .mcp.json —
-                # e.g. a legacy 'phoebus2: {enabled: true}' spec left over from
-                # when phoebus2 was a framework server.
+                # e.g. a 'phoebus2: {enabled: true}' spec naming a server no
+                # framework entry defines.
                 logger.warning(
                     "Server %r has none of 'extends'/'command'/'url' — skipping "
                     "(a second framework-server instance is declared via "

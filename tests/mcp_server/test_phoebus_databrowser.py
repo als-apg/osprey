@@ -8,8 +8,8 @@ per Task 0.5, live behavior depends on the app-aware ``/open`` routing
 Gap-1 (content over path): the tool POSTs the generated ``.plt`` *content*
 to the bridge (not the local path), since the tool and the bridge may run in
 separate containers with no shared filesystem. ``plt_file`` in the result is
-still a locally-written copy — a shareable artifact — but is no longer what
-the bridge opens.
+a locally-written copy — a shareable artifact — but not what the bridge
+opens.
 """
 
 from pathlib import Path

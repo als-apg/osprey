@@ -493,7 +493,7 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
     assert status == 200, f"PATCH /draft failed: {status} {patched}"
 
     # --- 3. enqueue at the pinned revision, then arm the queue -------------
-    # The two halves of what used to be one direct launch: `POST /queue/items`
+    # The two halves of a launch: `POST /queue/items`
     # takes plan_name/plan_args from the server-side draft snapshot AT this
     # revision (never from the request body) and mints the OSPREY run id;
     # `POST /queue/start` is the token-gated arming action that drains it.

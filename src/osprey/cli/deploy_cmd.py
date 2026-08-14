@@ -211,7 +211,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
     every ``${VAR}`` in every rendered compose file substitutes to empty and the
     stack comes up authenticating with nothing — services that fail closed
     refuse, services that do not come up wide open. Compose says nothing about
-    it, which is why this is a refusal rather than the warning it used to be.
+    it, which is why this is a refusal rather than a warning.
 
     On an interactive terminal the operator is offered ``osprey init``'s
     shell-harvest instead: the auth variable this deployment's own provider

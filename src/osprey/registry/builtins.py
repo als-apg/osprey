@@ -51,7 +51,7 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     requires=[],
                 ),
             ],
-            # Framework AI model providers — built-in table now lives in
+            # Framework AI model providers — the built-in table lives in
             # osprey.models.provider_registry (single source of truth).
             # RegistryManager._initialize_providers() delegates to it.
             providers=[],

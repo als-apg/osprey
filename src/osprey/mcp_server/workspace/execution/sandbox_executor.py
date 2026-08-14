@@ -252,10 +252,10 @@ def _create_sandbox_wrapper(
     """
     exec_folder_str = str(execution_folder)
     workspace_str = str(workspace_root)
-    # Required, with no parent-of-workspace-root fallback: that fallback was the
-    # retired rule (it resolves to `<repo>/var` under the three-zone layout), and
-    # a default here would let a caller that forgot to resolve the root get the
-    # wrong answer silently rather than a TypeError.
+    # Required, with no parent-of-workspace-root fallback: that rule resolves to
+    # `<repo>/var` under the three-zone layout, and a default here would let a
+    # caller that forgot to resolve the root get the wrong answer silently
+    # rather than a TypeError.
     project_root_str = str(project_root)
 
     return f'''\

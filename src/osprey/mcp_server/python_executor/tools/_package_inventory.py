@@ -1,10 +1,10 @@
 """Live package inventory for the Python-executor tool descriptions.
 
-The ``execute`` tool description used to name a fixed set of packages
-(``numpy``, ``pandas``, ``scipy``, ``at``, ``matplotlib``, ``plotly``) whatever
-the deployment had actually installed, so the agent reasoned about an import
-set that did not exist — a package present on the host but missing inside the
-deployed container was described as available either way.
+The ``execute`` tool description must never name a fixed set of packages
+(``numpy``, ``pandas``, ``scipy``, ``at``, ``matplotlib``, ``plotly``): a fixed
+list makes the agent reason about an import set that may not exist — a package
+present on the host but missing inside the deployed container would be
+described as available either way.
 
 This module enumerates the environment that
 :func:`~osprey.mcp_server.python_executor.executor.resolve_agent_interpreter`

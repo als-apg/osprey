@@ -565,9 +565,9 @@ def resolve_profile_document(
 
     The one place that decides what a profile file *means*. A file under
     ``personas/`` beside a ``profile.yml`` carries only a delta: living there
-    IS its inheritance, so it is resolved against that root rather than on its
+    is its inheritance, so it is resolved against that root rather than on its
     own, and everything it names anchors at the root. Every other file resolves
-    standalone through its ``extends`` chain, as before.
+    standalone through its ``extends`` chain.
 
     Both the loader and the content hash go through here, which is what keeps a
     persona's built project and its staleness hash describing the same merge.

@@ -200,9 +200,8 @@ def warn_if_project_stale(project_dir: Path) -> None:
         remedy = manifest.get("reproducible_command")
         if remedy:
             # Printed verbatim. It is the manifest's own account of how this
-            # render is reproduced, and no suffix is appended to it: `--force`
-            # went with the legacy build surface, and a repo render is
-            # unconditional anyway.
+            # render is reproduced, and no suffix is appended to it: a repo
+            # render is unconditional, so there is no force flag to add.
             message += f" Re-render it with:\n    {remedy}\nthen re-run osprey up."
         logger.warning(message)
     except Exception as exc:  # advisory must never break a deploy

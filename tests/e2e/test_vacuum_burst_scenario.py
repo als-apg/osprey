@@ -21,7 +21,7 @@ shape, no "if any" hedging. The agent must do the discovery work:
      (ground truth: Pearson r ≈ -0.88 against DCCT; max|r| for the
      other 11 sectors ≤ 0.077).
 
-The ground truth now lives in the preset's simulation overlay,
+The ground truth lives in the preset's simulation overlay,
 ``data/simulation/machine.json`` (the ``vacuum-burst`` scenario): the SR07
 pressure spike + coincident DCCT dip are declared as an ``at_time`` event
 anchored daily at 14:32:08. The test activates that scenario after building

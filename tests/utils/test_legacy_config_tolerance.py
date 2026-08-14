@@ -1,7 +1,7 @@
 """Legacy-tolerance coverage for the config loader.
 
-Projects rendered before the config-honesty cleanup carry configuration keys
-that no longer have a reader.  Deleting a key from the templates and from the
+Projects rendered against an earlier template carry configuration keys that
+have no reader.  Deleting a key from the templates and from the
 code that consumed it must never break those projects: their on-disk
 ``config.yml`` still declares the key, and ``load_osprey_config`` has to keep
 accepting it silently — no exception, no ``WARNING``, no deprecation chatter.
@@ -34,8 +34,8 @@ from osprey.utils.workspace import load_osprey_config
 
 FIXTURE = Path(__file__).parent / "fixtures" / "legacy_config_all_deleted_keys.yml"
 
-# Every dotted path the fixture carries deliberately because the cleanup
-# retires it.  Grouped by the ledger section that dispositions it.  Deleting an
+# Every dotted path the fixture carries deliberately, because it is retired.
+# Grouped by the ledger section that dispositions it.  Deleting an
 # entry from this list — or from the fixture — silently drops the backwards
 # compatibility coverage for that key, so both halves are asserted against each
 # other by ``test_fixture_still_carries_every_retired_key``.

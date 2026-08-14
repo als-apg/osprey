@@ -571,7 +571,7 @@ def format_middle_layer(channels: list[dict], tier_spec: TierSpec) -> dict:
 # Paradigms published per tier. Tier 1 ships the flat ``in_context`` view only;
 # tier 3 ships all three cross-paradigm views. Query validation checks each
 # tier's targeted PVs against exactly the paradigms declared here, and callers
-# iterating "all tiers" iterate these keys (tier 2 is retired).
+# iterating "all tiers" iterate these keys — there is no tier 2.
 TIER_PARADIGMS: dict[int, tuple[str, ...]] = {
     1: ("in_context",),
     3: ("in_context", "hierarchical", "middle_layer"),

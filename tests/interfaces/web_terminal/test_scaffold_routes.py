@@ -196,7 +196,7 @@ class TestClaimAndOverride:
 class TestConflictHandlers:
     """The two shared refusals reach the browser as 409s from every write route.
 
-    The routes no longer name either exception, so what is pinned here is the
+    The routes name neither exception, so what is pinned here is the
     app-level translation — including that the operator-facing message survives
     into ``detail`` rather than being stripped by a bare 500.
     """

@@ -15,15 +15,15 @@ The content assertions pin the draft-first run surface: the skill choreographs
 Two assertions here are safety pins rather than documentation checks, and
 both fail in the direction that matters:
 
-* ``test_no_stale_tool_names`` now includes ``launch_run``. That tool and its
-  route are gone; prose naming it would send the agent at a dead surface.
+* ``test_no_stale_tool_names`` includes ``launch_run``. Neither that tool nor
+  its route exists; prose naming it would send the agent at a dead surface.
 * ``TestOperatingBlueskyScansStopHonesty`` pins that the skill tells the truth
   about halting — that a plain ``queue_stop`` halts the queue only after the
   running item finishes, that ``stop_run`` aborts the plan already in motion,
   what that abort costs, and that a failed abort is never reported as a halt.
-  Its last test is the inverse pin: the pre-abort wording ("no OSPREY surface
-  does", "out-of-band") must not survive next to the tool that now works,
-  because that combination tells an agent not to reach for a working halt.
+  Its last test is the inverse pin: wording that denies any abort ("no OSPREY
+  surface does", "out-of-band") must not sit next to the tool that performs
+  one, because that combination tells an agent not to reach for a working halt.
 """
 
 import re
@@ -209,7 +209,7 @@ class TestOperatingBlueskyScansSkillStructure:
 class TestOperatingBlueskyScansStopHonesty:
     """Safety pins: the skill must describe each halt as exactly what it is.
 
-    There are now two, and they are not interchangeable. ``queue_stop`` halts
+    There are two, and they are not interchangeable. ``queue_stop`` halts
     the queue only AFTER the running item finishes; ``stop_run`` aborts the
     plan already moving hardware, via ``POST /queue/abort``. Prose that blurs
     them is read by whoever is deciding whether a queue-halt is enough, at the
@@ -229,7 +229,7 @@ class TestOperatingBlueskyScansStopHonesty:
         return path.read_text(encoding="utf-8")
 
     def test_stop_is_after_the_running_item(self, skill_text):
-        """``queue_stop``'s limit must still be stated, now that a tool exists
+        """``queue_stop``'s limit must be stated, because a tool exists
         which does not share it -- otherwise the two read as synonyms."""
         prose = _prose(skill_text)
         assert "queue_stop" in prose

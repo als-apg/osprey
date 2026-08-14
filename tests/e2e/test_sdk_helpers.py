@@ -33,7 +33,7 @@ def test_override_rewrites_uri_when_env_set(tmp_path, monkeypatch):
 
     text = config_path.read_text(encoding="utf-8")
     assert _PER_CELL_URI in text
-    # The bare default must no longer stand alone as the configured uri.
+    # The bare default must not stand alone as the configured uri.
     assert f"uri: {_DEFAULT_ARIEL_DB_URI}\n" not in text
 
 

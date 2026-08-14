@@ -148,16 +148,15 @@ def test_every_source_path_the_exemplar_names_is_emitted(exemplar_repo: Path) ->
 # TR-4 / SC-8
 # ---------------------------------------------------------------------------
 #
-# Both tests below are the whole requirement, asserted in full. They were held
-# open as strict xfails while the prose in `profile.yml`, `personas/*.yml`,
-# `.env.example` and `triggers.yml` still described the retired command surface
-# — none of it init's own, all of it coming from the bundled preset's comments,
-# the header `build_profile_emit` renders, the project env template and the
-# bundled trigger file. That rewrite has landed, so both now assert.
+# Both tests below are the whole requirement, asserted in full. The prose they
+# police — `profile.yml`, `personas/*.yml`, `.env.example` and `triggers.yml` —
+# is none of it init's own: it comes from the bundled preset's comments, the
+# header `build_profile_emit` renders, the project env template and the bundled
+# trigger file, so any of those can reintroduce a retired verb.
 
-#: Strings naming a command the redesign retires. Any of them in an artifact a
-#: fresh deployment ships is an instruction to its operator to run something
-#: that no longer exists.
+#: Strings naming a retired command. Any of them in an artifact a fresh
+#: deployment ships is an instruction to its operator to run something
+#: that does not exist.
 RETIRED_VERB_STRINGS = (
     "osprey deploy ",
     "osprey profile ",
@@ -816,11 +815,10 @@ def test_the_chain_refuses_a_flag_the_target_verb_does_not_declare() -> None:
 def test_the_chain_finds_both_verbs_on_the_group() -> None:
     """``--up`` chains ``build`` then ``up`` through the CLI group, by name.
 
-    The lookup is the whole mechanism, so the lookup is what is asserted. It
-    used to be checked indirectly, through a run whose failure mode was "the
-    verb does not exist yet" — now that both verbs are registered, that run's
-    outcome depends on a full render succeeding, which is the acceptance walk's
-    question rather than a unit test's.
+    The lookup is the whole mechanism, so the lookup is what is asserted.
+    Checking it indirectly through a run would make the outcome depend on a
+    full render succeeding, which is the acceptance walk's question rather
+    than a unit test's.
     """
     import click as _click
 

@@ -262,16 +262,16 @@ class TestControlAssistantTurnkeyScanPanels:
     def test_control_assistant_ships_no_deprecated_results_panel(
         self, turnkey_scan_config: dict
     ) -> None:
-        """The shipped preset is the new-build path, so it carries only the new
-        id. The deprecated ``results`` entry is an accommodation for projects
-        built before the rename (kept working by the sidecar's alias mount);
-        re-emitting it here would put the old tab back on every rebuild."""
+        """A fresh build carries only the canonical id. The deprecated
+        ``results`` entry is an accommodation for projects built against the
+        earlier spelling (kept working by the sidecar's alias mount); emitting
+        it here would put that tab back on every rebuild."""
         assert "results" not in turnkey_scan_config["web"]["panels"]
 
     def test_control_assistant_ships_no_deprecated_plan_panel(
         self, turnkey_scan_config: dict
     ) -> None:
-        """Same rule for the PLAN panel, now the Plans tab of BLUESKY. Emitting
+        """Same rule for the PLAN panel, which is the Plans tab of BLUESKY. Emitting
         both ids would put two rail entries in front of the same panel."""
         assert "plan" not in turnkey_scan_config["web"]["panels"]
 

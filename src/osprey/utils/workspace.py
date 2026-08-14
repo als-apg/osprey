@@ -1,8 +1,8 @@
 """Cross-layer workspace and config resolution utilities.
 
-These functions were originally in ``mcp_server.common`` but are used across
-``interfaces/``, ``cli/``, ``services/``, and ``mcp_server/`` layers.
-Living in ``utils/`` eliminates layering violations.
+These functions are used across the ``interfaces/``, ``cli/``, ``services/``,
+and ``mcp_server/`` layers, so they live in ``utils/`` — below all of them —
+rather than inside any one layer.
 """
 
 import logging
@@ -73,8 +73,8 @@ def dotted_config_str(config: Mapping[str, Any] | None, key: str) -> str | None:
 
     The single reader for the path-shaped config keys, so the checks that
     *reject* a value and the resolvers that *use* it cannot disagree about what
-    the config says. They previously differed on ``dict`` versus ``Mapping``,
-    which is only invisible while every config arrives straight from the YAML
+    the config says — including on ``dict`` versus ``Mapping``, a difference
+    that stays invisible only while every config arrives straight from the YAML
     loader.
 
     Args:
@@ -260,8 +260,8 @@ def repo_root_for_config(config_path: Path | str) -> Path:
     render and holds ``config.yml`` at its root. One helper for both, so the
     "is this the build zone?" question is asked in exactly one place.
 
-    Known non-goal: a legacy FLAT project whose own directory is literally
-    named ``build`` is read as a render, and its parent is returned. Accepted
+    Known non-goal: a FLAT project whose own directory is literally named
+    ``build`` is read as a render, and its parent is returned. Accepted
     — every runtime path derives the root through this helper, so a regen or a
     status check agreeing with the runtime beats a special case that would make
     the two disagree.

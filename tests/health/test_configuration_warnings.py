@@ -87,7 +87,7 @@ class TestTimezoneRemediation:
         assert "config.yml" in row.details
 
     def test_advice_drops_the_unclearable_env_var_suggestion(self):
-        """``TZ`` in ``.env`` no longer feeds the literal the templates pin."""
+        """``TZ`` in ``.env`` does not feed the literal the templates pin."""
         row = _rows({"system": {"timezone": "UTC"}})["timezone"]
         assert "TZ in .env" not in row.details
         assert ".env" not in row.details

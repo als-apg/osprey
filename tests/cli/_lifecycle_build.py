@@ -1,6 +1,6 @@
 """Stub a ``build/`` inside a deployment repo, for CLI tests that need one.
 
-Every repo-scoped verb now reads the *render* — ``<repo>/build/config.yml`` —
+Every repo-scoped verb reads the *render* — ``<repo>/build/config.yml`` —
 rather than a directory it was handed, so a CLI test that used to write one
 ``config.yml`` into ``tmp_path`` now needs a repo with a render in it. The
 ``lifecycle_repo`` fixture supplies the repo (source zone, state zone, an

@@ -10,9 +10,9 @@ interface to duplicate an identical group.
 Both the validator (which fail-closed-checks the map) and the CSS emitter
 (which must emit the borrowed group into the opted-out theme's block) have to
 agree on where that map lives and what it means. Reading it in exactly one
-place is what stops them from drifting — the drift that previously left every
-high-contrast block emitting *no* interface tokens because the emitter never
-consulted ``inherits`` at all.
+place is what stops them from drifting: an emitter that does not consult
+``inherits`` emits *no* interface tokens into any high-contrast block, and the
+validator passes it anyway.
 """
 
 from __future__ import annotations

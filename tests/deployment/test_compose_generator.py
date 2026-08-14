@@ -116,7 +116,7 @@ def test_copy_service_templates_root_always_present_with_valid_pkg_services(
 # ``compose up`` outright.
 # ---------------------------------------------------------------------------
 
-# The worker container now runs the full PROJECT image, whose layout bakes the
+# The worker container runs the full PROJECT image, whose layout bakes the
 # project at /app/<project> (Dockerfile ``COPY . /app/{{ project_name }}/``). The
 # compose paths must track that same <project> name — resolved by the generator's
 # ``_inject_project_metadata`` into ``osprey_labels.project_name`` (and the
@@ -366,7 +366,7 @@ def test_worker_template_declares_openobserve_host() -> None:
 # ---------------------------------------------------------------------------
 # Task 1.3: the worker container layout must match the PROJECT image
 #
-# The worker now runs ``<project>:local`` (the project image built by
+# The worker runs ``<project>:local`` (the project image built by
 # ``osprey up``), which bakes the project at ``/app/<project>``
 # (Dockerfile ``COPY . /app/{{ project_name }}/``, ``WORKDIR /app/<project>``,
 # ``chown -R osprey:osprey /app/<project>``). Every worker path — OSPREY_PROJECT_DIR,
@@ -1118,11 +1118,11 @@ def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
 
 
 def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() -> None:
-    """Companion to the above: the M2 failure mode is now unreachable by design.
+    """Companion to the above: the M2 failure mode is unreachable by design.
 
-    A host-looking ``python_env_path`` that survived staging used to be baked
-    into every MCP server's ``command``. The generator no longer reads the key,
-    so even a config that still carries it — exactly what an already-deployed
+    Baking a host-looking ``python_env_path`` that survived staging into every
+    MCP server's ``command`` is the failure mode. The generator does not read
+    the key, so even a config that carries it — exactly what an already-deployed
     project looks like — yields the container's own interpreter. This is what
     lets ``setup_build_dir`` stage the config untouched: nothing stands between
     the host path and a broken container because nothing consumes the path.
@@ -2090,7 +2090,7 @@ def test_resolve_project_name_project_root_trailing_separator_normalized() -> No
 # (osprey-dispatch:local, osprey-va:local, ...). Service `:local` tags are
 # HOST-GLOBAL docker identifiers, so two OSPREY projects building the same
 # service on one host raced to tag ONE image — a sibling clean/rebuild could
-# delete or replace it mid-deploy. The defaults are now project-prefixed
+# delete or replace it mid-deploy. The defaults are project-prefixed
 # (`<project>-dispatch:local`, ...); the `${OSPREY_*_IMAGE:-...}` env override
 # wrappers are unchanged. The build args additionally carry
 # OSPREY_PROJECT_NAME (always) and OSPREY_DEV=1 (iff `osprey up --dev`,
@@ -2482,7 +2482,7 @@ def test_failed_wheel_staging_aborts_the_deploy(
     Rendering *without* OSPREY_DEV would keep the pinned install (fail-closed on
     the build arg) but still deploy successfully — containers up on released
     osprey under a flag that promises local code. The build-arg gate stays; the
-    deploy no longer reaches it.
+    deploy does not reach it.
     """
     from osprey.deployment import compose_generator
     from osprey.deployment.errors import DevModeUnavailableError

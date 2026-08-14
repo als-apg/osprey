@@ -113,8 +113,8 @@ class ManifestPaths:
         return [path for path in self.required_sources if not path.is_file()]
 
 
-# The bundled control-assistant tree: the historical (and container-runtime)
-# source, and the default for every loader in this package.
+# The bundled control-assistant tree: the container-runtime source, and the
+# default for every loader in this package.
 PACKAGE_PATHS = ManifestPaths(data_root=_CONTROL_ASSISTANT_DATA, tier=DEFAULT_TIER)
 
 MANIFEST_OUTPUT = Path(__file__).resolve().parent / "channel_manifest.json"

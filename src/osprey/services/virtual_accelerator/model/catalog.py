@@ -15,9 +15,9 @@ not model state, so it is not a model variable.
 ``default_validation_config='none'``, so ``LUMEModel.set()`` neither
 rejects nor clamps an out-of-band value -- and nothing in lume clamps
 anywhere. A standalone consumer of this catalog must not read
-``value_range`` as a guarantee. Real enforcement lives exactly where it
-lives today: DRVL/DRVH clamping on the EPICS record before the write hook
-runs, ``channel_limits.json`` at the control-assistant layer, and the
+``value_range`` as a guarantee. Real enforcement lives in three places:
+DRVL/DRVH clamping on the EPICS record before the write hook runs,
+``channel_limits.json`` at the control-assistant layer, and the
 fail-closed orbit solve that rolls the ring back when a setpoint destroys
 the closed orbit.
 

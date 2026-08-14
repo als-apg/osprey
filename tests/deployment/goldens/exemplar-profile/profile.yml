@@ -1,6 +1,6 @@
 # Demo Facility — OSPREY deployment repo
 #
-# This repository IS the deployment. One directory, four zones:
+# The repository is the deployment. One directory, four zones:
 #
 #   SOURCE   tracked, yours to edit — profile.yml, data/, personas/,
 #            triggers.yml, web-terminal-context/, scripts/, the CI files

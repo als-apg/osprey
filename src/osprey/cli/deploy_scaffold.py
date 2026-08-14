@@ -5,8 +5,8 @@ profile implies around it. Two of those surrounding files are generated from
 the profile rather than written by hand: the CI pipeline at the repo root, and
 the post-deploy health check at ``scripts/verify.sh``. This module turns a
 profile into both files and puts them where they belong — both paths
-repo-relative, because the repo IS the deployment and there is no project
-sibling to key them off.
+repo-relative, because the repo is the deployment: there is no project sibling
+to key them off.
 
 ``osprey scaffold ci`` re-emits them; ``osprey init`` emits them the first
 time. One engine, called twice, so a repo created today and a repo
@@ -66,7 +66,7 @@ CI_OUTPUT_NAMES: dict[str, str] = {"gitlab": ".gitlab-ci.yml"}
 
 #: Where the health check is emitted, as path segments relative to the repo
 #: root. It lands in the source zone, beside the profile that renders it, and
-#: nothing copies it anywhere else: the repo IS the deployment, so the path the
+#: nothing copies it anywhere else: the repo is the deployment, so the path the
 #: pipeline invokes and the path the file sits at are the same path.
 #:
 #: Split from the emitted files' own spelling of it rather than written out

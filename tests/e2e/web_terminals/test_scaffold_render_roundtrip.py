@@ -13,11 +13,9 @@ subprocess for a true operator-path check. That verb reads the stanza from a
 deployment repo's BUILT config, so the sample is written where a build would
 have put it.
 
-(A second part — a round-trip against als-profiles' hand-rolled
-``docker-compose.host.yml`` topology — was removed when als-profiles migrated
-to rendering its web stack from the profile: the external reference topology
-this generator was validated against no longer exists, because the generator
-replaced it.)
+(There is no second part checking a round-trip against an external hand-rolled
+``docker-compose.host.yml`` topology: als-profiles renders its web stack from
+the profile, so no such external reference topology exists to check against.)
 """
 
 from __future__ import annotations
@@ -177,8 +175,8 @@ def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
         assert f">{user}<" in landing_html
         assert f'href="/u/{user}/"' in landing_html
 
-        # Fixed per-service env var (Phase-1 contract, replaces the old
-        # `${prefix|upper}_TERMINAL_USER` convention for every facility).
+        # Fixed per-service env var (Phase-1 contract) — one name for every
+        # facility, not a `${prefix|upper}_TERMINAL_USER` convention.
         assert env["OSPREY_TERMINAL_USER"] == user
 
     assert len(seen_ports) == len(users) * len(_PORT_FAMILIES)

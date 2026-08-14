@@ -1,16 +1,16 @@
 """Multi-user persona parity, held across the deploy split.
 
 A facility with a persona catalog needs one web-terminal image per persona.
-That used to be a pipeline concern: the CI template carried a per-persona
-`osprey build` render and a per-persona `build-web-terminal-<persona>` job, and
-the guards on it were string assertions against the shipped template text.
+Building them in the pipeline would put a per-persona `osprey build` render and
+a per-persona `build-web-terminal-<persona>` job in the CI template, guarded
+only by string assertions against the shipped template text.
 
-The pipeline no longer builds web-terminal images at all — the deploy host
-does, from the persona catalog, when `osprey up` runs. This module holds
-both halves of that relocation to the exemplar profile, which declares two
-personas: the rendered pipeline must build no web-terminal image, and every
-referenced persona must still come out as its own host-side build unit. Losing
-either half loses multi-user support without any test going red.
+The pipeline builds no web-terminal images at all — the deploy host does, from
+the persona catalog, when `osprey up` runs. This module holds both halves of
+that split against the exemplar profile, which declares two personas: the
+rendered pipeline must build no web-terminal image, and every referenced
+persona must still come out as its own host-side build unit. Losing either
+half loses multi-user support without any test going red.
 
 The builder's own behavior (build args, dev wheels, the render check) is covered in
 ``tests/deployment/web_terminals/test_persona_images.py``; what is tested here

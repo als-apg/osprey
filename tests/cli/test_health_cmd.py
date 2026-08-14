@@ -1,6 +1,6 @@
 """Contract tests for the ``osprey health`` CLI command.
 
-The command was rebuilt as a thin Click wrapper over the ``osprey.health``
+The command is a thin Click wrapper over the ``osprey.health``
 framework (see ``.claude/plans/configurable-health-system-p1-core-cli/PROPOSAL.md``
 §CLI rebuild). This module pins the *CLI-level contracts* — the observable
 behaviors a caller (human, ``--json`` consumer, or CI) depends on — rather than
@@ -33,20 +33,19 @@ Contracts pinned here
   within the suite deadline with the correct code (the daemon-thread / ``os._exit``
   guarantee). This *must* be a real subprocess — in-process it would kill pytest.
 
-Deliberately dropped from the old 749-line suite
-------------------------------------------------
-The previous file tested a since-deleted ``HealthChecker`` class and its
-``HealthCheckResult`` value object. Those were implementation-detail unit tests of
-a class that no longer exists; the *behaviors* they approximated are now pinned
-either by the contract tests above or by the ``osprey.health.*`` module tests that
-own each check. Consciously dropped assertions, and why:
+Deliberately out of scope here
+------------------------------
+There is no ``HealthChecker`` class and no ``HealthCheckResult`` value object to
+unit-test. The behaviors such tests would approximate are pinned either by the
+contract tests above or by the ``osprey.health.*`` module tests that own each
+check. What this module deliberately does not assert, and why:
 
-* ``HealthCheckResult`` construction/repr/status — deleted type; replaced by
-  ``osprey.health.models.CheckResult`` (owned by the models tests).
+* ``HealthCheckResult`` construction/repr/status — no such type; the value object
+  is ``osprey.health.models.CheckResult`` (owned by the models tests).
 * ``HealthChecker`` init/options/``add_result``/``results``/``config`` state —
-  deleted class; the CLI no longer holds mutable checker state.
+  no such class; the CLI holds no mutable checker state.
 * ``check_configuration`` missing/valid/empty/invalid-YAML unit calls — the
-  configuration *rows* are now pinned here via ``--json`` (``config_file_exists``,
+  configuration *rows* are pinned here via ``--json`` (``config_file_exists``,
   ``yaml_valid``, ``health_config``); row-message internals belong to
   ``core/configuration`` tests.
 * ``check_file_system`` / ``check_python_environment`` per-row unit calls
@@ -63,14 +62,14 @@ own each check. Consciously dropped assertions, and why:
 * ``check_claude_cli_version`` pinned-match/mismatch/npx-missing/unpinned subprocess
   mocking — owned by ``core/claude_cli`` tests; here we pin only the CLI-visible
   unpinned-skip and ``--full`` gating contracts.
-* ``display_results`` all-passing/warnings/errors/verbose calls — rendering is now
-  ``osprey.health.render`` (owned by the render tests); the CLI wires it and we
+* ``display_results`` all-passing/warnings/errors/verbose calls — rendering belongs
+  to ``osprey.health.render`` (owned by the render tests); the CLI wires it and we
   assert the stdout/stderr split, not the glyph layout.
 * ``check_openobserve`` healthz/retention unit calls — owned by
   ``core/openobserve`` tests.
-* The old exit-code tests patched ``HealthChecker`` to inject results; the mapping
-  is now a property of ``CheckReport`` and is pinned here by injecting a report at
-  the ``_run_suite`` boundary.
+* Exit-code mapping is a property of ``CheckReport``, so it is pinned here by
+  injecting a report at the ``_run_suite`` boundary rather than by patching any
+  checker object.
 """
 
 from __future__ import annotations

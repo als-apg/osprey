@@ -6,10 +6,10 @@
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE.txt)
 [![DOI](https://img.shields.io/badge/DOI-10.1063%2F5.0306302-blue)](https://doi.org/10.1063/5.0306302)
 
-**An agentic interface and safety harness for safety-critical control systems.**
+**An agentic interface to scientific control systems.**
 
 Osprey addresses control-specific challenges: semantic addressing across large channel
-namespaces, protocol-agnostic integration with control stacks, intelligent logbook search
+namespaces, protocol-agnostic integration with control stacks, logbook search
 across facility electronic logbooks, and mandatory human oversight for every hardware write.
 
 Built for particle accelerators, fusion experiments, beamlines, and large scientific facilities.

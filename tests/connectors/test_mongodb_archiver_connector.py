@@ -602,7 +602,7 @@ class TestQueryShapeWithoutDocker:
             {"BEAM:CURRENT": {"$exists": True}},
             {"BEAM:LIFETIME": {"$exists": True}},
         ]
-        # The old shape ANDed a top-level key per PV; it must be gone.
+        # ANDing a top-level key per PV is wrong; none may appear.
         assert "BEAM:CURRENT" not in captured["query"]
 
     @pytest.mark.asyncio

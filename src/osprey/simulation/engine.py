@@ -661,7 +661,7 @@ class SimulationEngine:
                     try:
                         parsed = datetime.fromisoformat(value.strip())
                         # Anchors written by apply.py are UTC-aware; attach the
-                        # facility zone to a naive (hand-edited/legacy) anchor so
+                        # facility zone to a naive (hand-edited) anchor so
                         # ``.timestamp()`` does not silently fall back to box-local.
                         if parsed.tzinfo is None:
                             parsed = parsed.replace(tzinfo=get_facility_timezone())

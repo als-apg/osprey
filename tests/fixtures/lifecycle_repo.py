@@ -78,7 +78,7 @@ from pathlib import Path
 import pytest
 
 #: Directory name of the exemplar deployment. One repo is one deployment and the
-#: directory name IS the deployment name, so this is also the compose project
+#: directory name is the deployment name, so this is also the compose project
 #: name a test should expect.
 EXEMPLAR_DIRNAME = "als-exemplar"
 
@@ -110,7 +110,7 @@ EXECUTABLE_FILES: frozenset[str] = frozenset({"scripts/verify.sh"})
 PROFILE_YML = """\
 # Als Exemplar — OSPREY deployment repo
 #
-# This repository IS the deployment. One directory, four zones:
+# The repository is the deployment. One directory, four zones:
 #
 #   SOURCE   tracked, yours to edit — profile.yml, data/, personas/,
 #            triggers.yml, web-terminal-context/, scripts/, the CI files
@@ -618,7 +618,7 @@ WEB_TERMINALS_IMAGE_SOURCE_LINE = (
 PERSONA_READONLY_YML = """\
 # Als Exemplar (readonly) — persona profile, a delta over ../profile.yml
 #
-# Sitting in personas/ beside profile.yml IS the inheritance: the build merges
+# Sitting in personas/ beside profile.yml is the inheritance: the build merges
 # this file over that profile — including any edit you make there — so the keys
 # below are this persona's only differences and there is no `extends:` to
 # write. See the resolved whole with:
@@ -640,7 +640,7 @@ deploy_services: false
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona hard-pins: this key IS the tier boundary, so
+  # The single axis this persona hard-pins: this key is the tier boundary, so
   # it must not drift if the base's default ever changes — it is what makes
   # the read-only terminal read-only.
   control_system.writes_enabled: false
@@ -661,7 +661,7 @@ config:
 PERSONA_READWRITE_YML = """\
 # Als Exemplar (readwrite) — persona profile, a delta over ../profile.yml
 #
-# Sitting in personas/ beside profile.yml IS the inheritance: the build merges
+# Sitting in personas/ beside profile.yml is the inheritance: the build merges
 # this file over that profile — including any edit you make there — so the keys
 # below are this persona's only differences and there is no `extends:` to
 # write. See the resolved whole with:
@@ -688,7 +688,7 @@ web_panels:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona hard-pins: this key IS the tier boundary, so
+  # The single axis this persona hard-pins: this key is the tier boundary, so
   # it must not drift silently if the base's default ever changes.
   control_system.writes_enabled: true
   # Full split-pane terminal + workspace layout for the write-armed operator.
@@ -822,7 +822,7 @@ triggers:
 # ─────────────────────────────────────────────────────────────────────────────
 
 GITIGNORE = """\
-# This repo IS the deployment: the source zone is tracked, and the three
+# This repo is the deployment: the source zone is tracked, and the three
 # generated or secret zones below never are. A fresh deployment has a clean
 # `git status` from birth.
 
@@ -919,7 +919,7 @@ README_MD = """\
 This repository is an OSPREY deployment. Everything the assistant is made of
 lives here, and the directory name is the deployment's name.
 
-## The three zones
+## The four zones
 
 | Zone | Path | Tracked? | Survives? |
 | --- | --- | --- | --- |

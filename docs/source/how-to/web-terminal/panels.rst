@@ -21,12 +21,11 @@ Where the panel rail lives
 --------------------------
 
 Open panels line up in the **panel rail**, which sits along the left edge by
-default. If your team prefers the panel buttons along the top — where the
-tabs lived before the redesign — set ``web.rail_position: top`` in
-``config.yml``, or switch from the panel ``+`` menu (or the command palette)
-at any time. The choice is remembered per browser, and each user's own pick
-wins over the configured default. (For the full pre-redesign appearance, pair
-this with the retro theme — see :doc:`theming`.)
+default. If your team prefers the panel buttons along the top, set
+``web.rail_position: top`` in ``config.yml``, or switch from the panel ``+``
+menu (or the command palette) at any time. The choice is remembered per
+browser, and each user's own pick wins over the configured default. (Pair it
+with the retro theme for a navy-and-teal terminal — see :doc:`theming`.)
 
 Panels backed by a URL
 ----------------------

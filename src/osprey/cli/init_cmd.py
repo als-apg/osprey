@@ -1,7 +1,7 @@
 """``osprey init`` — create the deployment repo.
 
-This is the ONE way an OSPREY deployment comes into existence. It writes a git
-repository that IS the deployment: one directory, four zones.
+This is the one way an OSPREY deployment comes into existence. It writes a git
+repository that is the deployment: one directory, four zones.
 
     als-assistant/
     │  ═ SOURCE — tracked, user-edited ═══════════════
@@ -87,7 +87,7 @@ def _repo_gitignore() -> str:
     deliberate exception, being a name pattern rather than a path.
     """
     return f"""\
-# This repo IS the deployment: the source zone is tracked, and the three
+# This repo is the deployment: the source zone is tracked, and the three
 # generated or secret zones below never are. A fresh deployment has a clean
 # `git status` from birth.
 
@@ -136,7 +136,7 @@ def _repo_readme(name: str) -> str:
 This repository is an OSPREY deployment. Everything the assistant is made of
 lives here, and the directory name is the deployment's name.
 
-## The three zones
+## The four zones
 
 | Zone | Path | Tracked? | Survives? |
 | --- | --- | --- | --- |
@@ -560,9 +560,9 @@ def _replacing_source_zone(target: Path, *, active: bool) -> Iterator[None]:
 
     Delete-first could not offer that at any ordering. There is no point in the
     sequence where every way the materialization can fail is already behind it,
-    which is why a mistyped preset used to cost a facility its edited
-    ``profile.yml``: the clearing ran first because it had to run somewhere, and
-    everything that validates the operator's input ran after it.
+    so a mistyped preset would cost a facility its edited ``profile.yml``: the
+    clearing has to run somewhere, and everything that validates the operator's
+    input runs after it.
 
     Only the entries in :data:`~.profile_cmd.MATERIALIZED_SOURCE_ENTRIES` move.
     Everything else in the repo — :data:`PRESERVED_BY_FORCE` — this command
@@ -908,7 +908,7 @@ def init(
 ) -> None:
     """Create a deployment repo from a preset.
 
-    DIRECTORY is the repository the deployment lives in, and its name IS the
+    DIRECTORY is the repository the deployment lives in, and its name is the
     deployment's name. Omit it to initialize the current directory in place,
     which is how a repository cloned empty from a forge is filled in.
 

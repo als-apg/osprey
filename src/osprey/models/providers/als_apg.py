@@ -49,7 +49,6 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     is_openai_compatible = True
     # Note: intentionally leaves supports_native_structured_output at the None default
     # so structured-output support is auto-detected via litellm.supports_response_schema()
-    # on the resolved openai/<model> id — als-apg was never in the old native-json_schema
-    # whitelist, so this preserves its prior behavior.
+    # on the resolved openai/<model> id, which is what the proxy actually serves.
 
     # execute_completion / check_health inherited from LiteLLMDelegatingProvider.

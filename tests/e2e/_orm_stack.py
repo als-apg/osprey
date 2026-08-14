@@ -61,8 +61,7 @@ if TYPE_CHECKING:
 # Control Assistant preset deliberately leaves
 # `control_system.connector.virtual_accelerator.gateways.*.port` UNSET, so the
 # connector follows `services.virtual_accelerator.port` and moving the deployed
-# soft-IOC's port is a one-place edit that carries the connector with it. (This
-# note previously said the opposite, from when the preset hardcoded 5064.)
+# soft-IOC's port is a one-place edit that carries the connector with it.
 # Callers that must coexist with another VA deploy on the same host -- 5064 is
 # the tutorial's default and routinely held -- should pass an explicit
 # `va_port=` rather than assume this default is free.
@@ -268,38 +267,37 @@ def init_args(
     extra_config: dict[str, Any] | None = None,
 ) -> list[str]:
     """``osprey init`` CLI args (sans the leading ``init`` token) for FR11's
-        turn-key scan-stack deployment.
+    turn-key scan-stack deployment.
 
-        The stack is materialized in two steps now, because the surface has two:
-        ``osprey init`` writes the deployment repo's source zone from the preset
-        plus these overrides, and a later ``osprey build`` renders ``build/`` from
-        it. This function covers the first step only; both builders below run the
-        second. ``--no-git`` because every caller works in a throwaway directory
-        and none of them reads the history.
+    The stack is materialized in two steps, because the surface has two:
+    ``osprey init`` writes the deployment repo's source zone from the preset
+    plus these overrides, and a later ``osprey build`` renders ``build/`` from
+    it. This function covers the first step only; both builders below run the
+    second. ``--no-git`` because every caller works in a throwaway directory
+    and none of them reads the history.
 
-        Works both as ``CliRunner().invoke(init, init_args(...))`` (in-process, no
-        Docker -- see ``build_via_cli_runner``) and as
-        ``[osprey_bin, "init", *init_args(...)]`` (subprocess, for a real
-        ``osprey up`` afterward -- see ``build_project_subprocess``).
+    Works both as ``CliRunner().invoke(init, init_args(...))`` (in-process, no
+    Docker -- see ``build_via_cli_runner``) and as
+    ``[osprey_bin, "init", *init_args(...)]`` (subprocess, for a real
+    ``osprey up`` afterward -- see ``build_project_subprocess``).
 
-        ``provider``/``model``, when given, append ``--set provider=<provider>``
-        and/or ``--set model=<model>`` overrides -- e.g. an agentic-discovery
-        caller that must pin an explicit provider rather than let the
-        control-assistant preset's own default apply silently (this project's
-        "no default provider" convention). Left ``None`` by default: nothing is
-        appended and the preset's own provider/model apply unchanged, so the
-        default deploy shape is byte-identical to before these params existed.
+    ``provider``/``model``, when given, append ``--set provider=<provider>``
+    and/or ``--set model=<model>`` overrides -- e.g. an agentic-discovery
+    caller that must pin an explicit provider rather than let the
+    control-assistant preset's own default apply silently (this project's
+    "no default provider" convention). Left ``None`` by default: nothing is
+    appended and the preset's own provider/model apply unchanged, so the
+    default deploy shape is unaffected by these params.
 
-        ``extra_config``, when given, is deep-merged into ``override_yaml()`` and
-        the result REWRITES ``override_path`` -- the way to reach config keys that
-        have no ``--set`` hook here (postgres/openobserve/tiled/panels host ports).
-        Writing rather than appending another CLI flag keeps a single ``--override``
-        file, which is what ``osprey build`` wants. That rewrite OVERWRITES whatever
-        the caller previously wrote to ``override_path``, so a caller that hand-rolls
-        its own override text (as the bluesky-panels e2e does) must pass its
-        additions here rather than pre-writing them. Empty or ``None`` is a no-op:
-        ``override_path`` is left exactly as the caller wrote it, byte for byte.
-    >>>>>>> origin/main
+    ``extra_config``, when given, is deep-merged into ``override_yaml()`` and
+    the result REWRITES ``override_path`` -- the way to reach config keys that
+    have no ``--set`` hook here (postgres/openobserve/tiled/panels host ports).
+    Writing rather than appending another CLI flag keeps a single ``--override``
+    file, which is what ``osprey build`` wants. That rewrite OVERWRITES whatever
+    the caller previously wrote to ``override_path``, so a caller that hand-rolls
+    its own override text (as the bluesky-panels e2e does) must pass its
+    additions here rather than pre-writing them. Empty or ``None`` is a no-op:
+    ``override_path`` is left exactly as the caller wrote it, byte for byte.
     """
     if extra_config:
         override_path.write_text(merged_override_yaml(extra_config), encoding="utf-8")

@@ -370,10 +370,10 @@ def _refuse_manager_not_idle(running_item: dict[str, Any]) -> NoReturn:
     The reason it EXISTS, though, is `_refuse_interrupted_item`'s residual
     race. That gate reads one snapshot and asks whether any item in it carries
     a ``result`` from an earlier interruption. A RUNNING item never does — it
-    has not finished — so a snapshot holding one used to pass the check, and if
-    the plan then aborted or failed in the gap before ``backend.start()``,
-    upstream would requeue the result-bearing copy to the FRONT and the start
-    would drain exactly the item the gate exists to stop.
+    has not finished — so a snapshot holding one passes that check, and if the
+    plan then aborts or fails in the gap before ``backend.start()``, upstream
+    requeues the result-bearing copy to the FRONT and the start drains exactly
+    the item the gate exists to stop.
 
     Refusing every snapshot that holds a running item closes that structurally
     rather than by narrowing the window: after this check, no snapshot that

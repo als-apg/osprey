@@ -3,11 +3,11 @@
 This test module validates the provider registration feature that allows
 applications to register custom AI model providers through the registry system.
 
-Architecture note: Built-in providers (anthropic, openai, etc.) now live in
+Architecture note: Built-in providers (anthropic, openai, etc.) live in
 ``osprey.models.provider_registry`` as the single source of truth.
-``RegistryManager._initialize_providers()`` delegates to it. Tests that
-previously checked ``manager.config.providers`` for built-in entries now check
-``get_provider_registry()`` instead.
+``RegistryManager._initialize_providers()`` delegates to it, so built-in
+entries are checked against ``get_provider_registry()``, not against
+``manager.config.providers``.
 
 Tests cover:
 - Registering custom providers in application registries

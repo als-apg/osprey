@@ -254,7 +254,7 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
     _write_credentials(repo)
 
     # Guarantee a clean store: the data volume is host-global (see OO_DATA_VOLUME),
-    # so a volume left by another deployment's openobserve — common now that
+    # so a volume left by another deployment's openobserve — common because
     # telemetry is on by default — would pin foreign credentials and 401 this test.
     # Remove it before deploy so OpenObserve initializes with THIS test's credentials.
     _remove_oo_data_volume()

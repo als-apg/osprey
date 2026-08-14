@@ -14,8 +14,8 @@ from pathlib import Path
 
 # Claude Code derives the per-project transcript/memory directory name by
 # replacing every non-alphanumeric character of the absolute cwd with '-'.
-# Replacing only '/' (the old rule) is wrong for any path containing '_' or
-# other special characters — Claude writes to one dir and we look in another,
+# Every special character counts, not just '/': a path containing '_' that
+# normalizes only its slashes names a different directory than Claude writes to,
 # producing silent false-negative reads of transcripts, memory, and sessions.
 _CLAUDE_PROJECT_DIR_NORMALIZE = re.compile(r"[^A-Za-z0-9-]")
 

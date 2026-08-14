@@ -240,8 +240,8 @@ def _check_duplicate_users(users: list[Any]) -> list[Finding]:
 
     Users may be bare strings or object-form ``{"name": ..., "index": ...}`` dicts
     (dicts aren't hashable, so identity is compared on the resolved name, not the
-    raw entry — this only changes how object-form entries are compared, bare
-    strings behave exactly as before).
+    raw entry, so a bare string and an object entry naming the same user
+    collide, and an all-strings roster compares unchanged).
     """
     seen: set[Any] = set()
     duplicates: set[Any] = set()
@@ -790,9 +790,8 @@ def _check_registry_url_coherence(
     Only evaluated once a persona catalog is actually configured. A config
     with no ``personas:`` block at all resolves every user through
     :func:`~osprey.deployment.web_terminals.personas.resolve_personas`'s
-    zero-migration path exactly as it did before catalogs/mode-coherence
-    existed — this check does not retroactively demand a ``registry.url`` from
-    deployments that never opted into the persona system.
+    zero-migration path — this check never demands a ``registry.url`` from a
+    deployment that has not opted into the persona system.
     """
     if not _persona_catalog(web_terminals):
         return []
@@ -1087,8 +1086,8 @@ def _check_registry_mode_build_profile(
     """Registry mode only: every referenced non-default persona must set
     ``build_profile`` — the committed profile YAML that feeds its one
     ``.gitlab-ci.yml`` build job. The default persona is exempt: its image
-    stays the un-suffixed ``web-terminal:latest``, built by the pre-existing
-    core CI job, not a per-persona one."""
+    stays the un-suffixed ``web-terminal:latest``, built by the core CI job,
+    not a per-persona one."""
     if effective_image_source(web_terminals) != "registry":
         return []
     catalog = _persona_catalog(web_terminals)

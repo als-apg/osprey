@@ -1,14 +1,13 @@
 """Tests for the ``osprey users`` web-terminal roster group.
 
-The group is a relocation, not a redesign: the same engines in
-``osprey.deployment.web_terminals`` do the work, called with the same
-signatures. What changed is how the config reaches them — the verbs no longer
-take ``--project``/``--config``, they walk up to the enclosing deployment repo
-and act through its rendered ``build/config.yml``.
+The group is a thin CLI over ``osprey.deployment.web_terminals``: those engines
+do the work, called with their own signatures. The verbs take no
+``--project``/``--config`` — they walk up to the enclosing deployment repo and
+act through its rendered ``build/config.yml``.
 
 So these tests pin two things. First the seam: which file each verb hands the
 engine, what the engine is handed alongside it, and which directory it runs in.
-Second the gates the relocation must not have loosened — the typed
+Second the gates the CLI must not loosen — the typed
 confirmations guarding volume destruction are exercised through the CLI against
 the real lifecycle engine, with the container runtime mocked (no container or
 volume is ever created or removed here).
@@ -202,7 +201,7 @@ def _roster(repo_root: Path) -> list:
 
 
 class TestCommandSurface:
-    """What the group offers, and what it deliberately no longer accepts."""
+    """What the group offers, and what it deliberately does not accept."""
 
     def test_group_help_lists_every_verb(self, cli_runner):
         result = cli_runner.invoke(users, ["--help"])
@@ -228,7 +227,7 @@ class TestCommandSurface:
     @pytest.mark.parametrize("verb", sorted(VERB_OPTIONS))
     @pytest.mark.parametrize("retired", ["--project", "-p", "--config", "-c"])
     def test_retired_location_flags_are_rejected(self, cli_runner, tmp_path, verb, retired):
-        """Discovery is the repo walk; the old location flags are gone."""
+        """Discovery is the repo walk; there are no location flags."""
         argv = [verb, retired, str(tmp_path)]
         if verb in ("remove", "passwd"):
             argv.insert(1, "alice")
@@ -459,9 +458,9 @@ class TestPasswd:
 
 
 class TestTypedGates:
-    """The confirmations guarding destruction survive the relocation verbatim.
+    """The confirmations guarding destruction are pinned verbatim.
 
-    These run the real ``lifecycle`` engine through the new CLI with the
+    These run the real ``lifecycle`` engine through the CLI with the
     container runtime mocked, so what is pinned is the gate an operator
     actually meets: the exact word it demands, and that anything else is a
     true no-op.

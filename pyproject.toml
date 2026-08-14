@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "osprey-framework"
 dynamic = ["version"]
-description = "An agentic interface and safety harness for safety-critical control systems"
+description = "An agentic interface to scientific control systems"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "BSD-3-Clause"}

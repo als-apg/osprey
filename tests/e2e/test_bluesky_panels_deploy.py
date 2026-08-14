@@ -691,7 +691,7 @@ def test_sidecar_runs_surface_is_read_only(deployed_stack: DeployedStack) -> Non
     """Nothing under ``/runs`` is POSTable on the sidecar -- every write is a queue write.
 
     ``/runs`` used to carry the sidecar's one write (``POST /runs/launch``).
-    That route is gone: execution is now the queue's, so the whole ``/runs``
+    That route does not exist: execution is the queue's, so the whole ``/runs``
     surface is the read-proxy's and nothing else. Proving the ABSENCE of every
     verb here — rather than "the launch route is the only one" — is a stronger
     invariant AND a simpler one to keep true.

@@ -291,7 +291,7 @@ Multiple instance levels in a row (like SECTOR then DEVICE) create **combinatori
 ### Variable Subtrees
 Tree branches can define different child structures - not all paths through the hierarchy need to be identical.
 
-### Optional Levels (NEW!)
+### Optional Levels
 Hierarchy levels marked `"optional": true` can be skipped in some paths:
 - **Automatic leaf detection**: Nodes without children are automatically detected as leaves (no `_is_leaf` needed)
 - **Explicit leaf markers**: `"_is_leaf": true` ONLY needed for nodes that have children but are also complete channels

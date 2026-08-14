@@ -79,7 +79,7 @@ class TestV1StripSurvivesTheOverride:
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
     def test_shipped_template_urls_are_unchanged_by_the_override(self):
-        """cborg/als-apg templates ship the built-in URL + /v1 — same result as before."""
+        """cborg/als-apg templates ship the built-in URL + /v1 — the override is a no-op."""
         for provider, shipped, expected in (
             ("cborg", "https://api.cborg.lbl.gov/v1", "https://api.cborg.lbl.gov"),
             (

@@ -342,7 +342,7 @@ def test_decommission_purge_typed_username_confirms(tmp_path, monkeypatch, fake_
     assert len(volume_rm_calls) == 2
 
 
-def test_decommission_purge_generic_yes_no_longer_confirms(tmp_path, monkeypatch, fake_runtime):
+def test_decommission_purge_generic_yes_does_not_confirm(tmp_path, monkeypatch, fake_runtime):
     """A literal "yes" is deliberately NOT accepted — only the exact username is.
     Muscle-memory "yes" on an irreversible two-volume destroy defeats the point
     of a typed confirmation."""
@@ -1284,12 +1284,11 @@ def test_passwd_emits_no_runtime_argv_of_its_own(
 def _capture_recreate_argv(monkeypatch) -> list[list[str]]:
     """Record the argv the REAL recreate primitive emits.
 
-    The fragment used to be resolved at this call site and handed to the
-    primitive, so it could be asserted on the delegated call's arguments. It is
-    now resolved inside the primitive's own argv builder (one definition shared
-    with `up`/`down`), so the honest assertion is on the argv that reaches the
-    runtime — a stricter check than the old one, and one that cannot pass while
-    the fragment is dropped on the floor.
+    The fragment is resolved inside the primitive's own argv builder (one
+    definition shared with `up`/`down`), not at this call site, so the honest
+    assertion is on the argv that reaches the runtime rather than on a
+    delegated call's arguments — a stricter check, and one that cannot pass
+    while the fragment is dropped on the floor.
 
     CAUTION for anyone extending a test that uses this: `lifecycle`, `provision`
     and `postup_hooks` all do a plain `import subprocess`, so they share ONE

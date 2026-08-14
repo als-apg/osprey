@@ -1,8 +1,8 @@
 """Read Claude Code native transcripts to extract OSPREY tool-call and agent events.
 
-Replaces the former PostToolUse/SubagentStart audit hooks. Claude Code already
-logs every tool call to ``~/.claude/projects/<encoded>/`` as JSONL -- this
-module reads those transcripts on demand.
+No audit hook is needed for this: Claude Code already logs every tool call to
+``~/.claude/projects/<encoded>/`` as JSONL, and this module reads those
+transcripts on demand.
 """
 
 import json

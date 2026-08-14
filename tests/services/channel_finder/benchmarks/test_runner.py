@@ -84,7 +84,7 @@ def _make_project_dir(
 ) -> Path:
     """Create a fake project directory with config.yml and benchmark queries.
 
-    The runner no longer reads ``claude_code.provider`` (the model is passed
+    The runner does not read ``claude_code.provider`` (the model is passed
     in directly), so the config only needs the channel_finder section.
     """
     project_dir = tmp_path / "project"

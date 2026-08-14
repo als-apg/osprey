@@ -92,7 +92,7 @@ def test_injector_does_not_register_results_on_a_fresh_build(project_path: Path)
 
 
 def test_injector_does_not_register_plan_on_a_fresh_build(project_path: Path) -> None:
-    """Same rule for the PLAN panel, now the Plans tab of BLUESKY: registering
+    """Same rule for the PLAN panel, which is the Plans tab of BLUESKY: registering
     ``plan`` here would put two rail entries in front of the same panel, on
     every new project and on every rebuild."""
     _write_config(project_path)
@@ -174,7 +174,7 @@ def test_profile_listing_bluesky_validates_without_warning(tmp_path: Path) -> No
 def test_profile_listing_plan_warns_naming_the_merge_and_the_window(
     tmp_path: Path,
 ) -> None:
-    """Same contract for the PLAN panel, now the Plans tab of BLUESKY: the
+    """Same contract for the PLAN panel, which is the Plans tab of BLUESKY: the
     warning has to say what the id became and how long it keeps working."""
     profile = BuildProfile(
         name="legacy",

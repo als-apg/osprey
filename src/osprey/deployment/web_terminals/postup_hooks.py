@@ -105,14 +105,13 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
     ships that file as ``<project_root>/scripts/verify.sh`` (the profile's
     ``project/`` mirror copies it verbatim): a health-check script
     parameterized per-facility with a probe for each enabled module.
-    Historically it was operator-run-by-hand only; this makes ``osprey up``
-    run it automatically as the last step of the post-up hook, once
-    ``compose up -d`` has already succeeded and containers are running, so an
-    operator gets an immediate health signal without a separate manual step.
+    ``osprey up`` runs it automatically as the last step of the post-up hook,
+    once ``compose up -d`` has already succeeded and containers are running, so
+    an operator gets an immediate health signal without a separate manual step.
 
     Silently skipped (no log line at all) when ``<project_root>/scripts/
     verify.sh`` doesn't exist — a profile that carries no such script must
-    deploy exactly as before.
+    deploy without any mention of one.
 
     The script's own convention (see its header) is to ALWAYS exit 0 —
     verification is advisory, never deploy-blocking — but this runs it via

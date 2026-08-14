@@ -2,7 +2,7 @@
 host<->container CA configuration proven by the PyAT Virtual Accelerator
 probe (task 1.1's empirical finding): CA name-server mode over TCP, not
 broadcast discovery, which does not reliably cross the macOS<->container VM
-boundary. This is the shape `osprey config set-epics-gateway` hands out for
+boundary. This is the shape `osprey set epics_gateway=` hands out for
 the "Local Simulation" choice, so it must not mislead users into a broadcast
 configuration.
 """

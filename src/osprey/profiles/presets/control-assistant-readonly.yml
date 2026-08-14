@@ -24,7 +24,7 @@ deploy_services: false
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona hard-pins: this key IS the tier boundary, so
+  # The single axis this persona hard-pins: this key is the tier boundary, so
   # it must not drift if the base's default ever changes — it is what makes
   # the read-only terminal read-only.
   control_system.writes_enabled: false

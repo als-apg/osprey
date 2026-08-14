@@ -43,12 +43,11 @@ _MANIFEST_CATEGORY_PREFIX = {
 #: for the case where neither a project manifest nor a template manifest names a
 #: selection.
 #:
-#: DERIVED from the artifact catalog, not hand-listed. It used to be a literal
-#: list, and it had silently fallen three artifacts behind the catalog it was
-#: mirroring — which matters because an artifact missing here is an artifact
-#: whose drift is never detected. `resolve_manifest_outputs` above reads the
-#: same `output_path` from the same catalog, so the fallback and the selected
-#: path now cannot disagree about what an artifact is called.
+#: DERIVED from the artifact catalog, never hand-listed: a literal list falls
+#: silently behind the catalog it mirrors, and an artifact missing here is an
+#: artifact whose drift is never detected. `resolve_manifest_outputs` above
+#: reads the same `output_path` from the same catalog, so the fallback and the
+#: selected path cannot disagree about what an artifact is called.
 REGEN_TRACKED_FILES = sorted(
     {"CLAUDE.md", ".mcp.json", ".claude/settings.json", ".claude/statusline.py"}
     | {artifact.output_path for artifact in BuildArtifactCatalog.default().all_artifacts()}
@@ -342,7 +341,7 @@ def extract_build_args(
 
     Captures both the user-facing options (provider/model/etc.) and the
     invocation source (preset vs. positional profile path), as a record of what
-    this build resolved. Nothing renders a command line from it any more — the
+    this build resolved. Nothing renders a command line from it — the
     manifest's ``reproducible_command`` is the constant
     :data:`REPO_REPRODUCIBLE_COMMAND`, because the repo is the invocation.
 
@@ -395,16 +394,12 @@ def extract_build_args(
 
 
 #: What a manifest's ``reproducible_command`` says. A constant, because the
-#: command is one: the repo IS the invocation, so there is no project name to
+#: command is one: the repo is the invocation, so there is no project name to
 #: pass, no profile path to name and no output directory to choose.
 #:
-#: This replaced a generator that assembled the string from ``build_args`` —
-#: ``osprey build NAME --preset PRESET`` or ``osprey build NAME PROFILE_PATH``.
-#: Both forms are gone with the legacy command surface, so every string it could
-#: produce named an invocation that no longer parses. The one caller that
-#: mattered already overwrote its output with this constant afterwards, which
-#: made the generator invisible rather than harmless: a manifest written by any
-#: other path still carried the retired spelling.
+#: Written directly rather than assembled by a generator: a generator's output
+#: would have to be overwritten by this constant afterwards, and a manifest
+#: written by any path that skipped the overwrite would carry the wrong string.
 REPO_REPRODUCIBLE_COMMAND = "osprey build"
 
 
@@ -423,9 +418,9 @@ def calculate_file_checksums(project_dir: Path) -> dict[str, str]:
 
     Excluded:
     - ``.env`` (secrets, never rendered deterministically)
-    - ``_agent_data/`` — the runtime-state directory the retired flat layout put
-      INSIDE the project. Nothing creates it now, so the entry is vestigial; it
-      is kept because the cost of an exclusion that never matches is nothing,
+    - ``_agent_data/`` — a runtime-state directory inside the project. Nothing
+      creates it, so on a current deployment the entry never matches; it is
+      kept because the cost of an exclusion that never matches is nothing,
       while dropping it would silently start checksumming a directory left
       behind by an older release and report the result as project drift.
     - ``__pycache__/`` and ``.pyc`` files

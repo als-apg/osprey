@@ -282,7 +282,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     )
 
     # Force a fresh image build so the deployed services run CURRENT source. The
-    # dispatcher runs <project>-dispatch:local; the worker now runs the unified
+    # dispatcher runs <project>-dispatch:local; the worker runs the unified
     # project image <project>:local (built by `up --dev` from the repo root).
     # Both tags are project-prefixed, derived via resolve_project_name exactly as
     # the compose templates / project build do.

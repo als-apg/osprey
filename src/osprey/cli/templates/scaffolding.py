@@ -102,16 +102,15 @@ def create_project_structure(
 ):
     """Create base project files (config, README, Dockerfile, etc.).
 
-    No ``.env`` is written. The render used to derive one from the owning
-    profile, because a rendered project was a place a stack actually ran from.
-    It is not: the render is ``build/``, and the deployment's one secret store
-    is the ``.env`` at the repo root — the only file compose is pointed at
+    No ``.env`` is written. The render is ``build/``, and the deployment's one
+    secret store is the ``.env`` at the repo root — the only file compose is
+    pointed at
     (``--project-directory <repo>`` + ``--env-file <repo>/.env``), the file
     ``osprey up`` mints service tokens into, and the file a ``rm -rf build/`` is
     documented not to touch. A second copy inside the render would be a second
     thing to keep in step, and one that a build could silently rewrite.
 
-    ``.env.example`` is still rendered here: it carries no values, documents
+    ``.env.example`` is rendered here: it carries no values, documents
     what the repo's ``.env`` may hold, and is safe to commit.
 
     Args:
