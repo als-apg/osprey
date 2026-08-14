@@ -2419,18 +2419,23 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
 # bundle: the Tab's `createGhost` calls `_buildGhostElement()`, which clones the
 # element and inlines the computed style ON THE ROOT ONLY, then `addGhostImage`
 # appends the clone to document.body before `setDragImage`; the pointer-drag
-# path parents its ghost to document.body too). Every rule in
-# dockview-overrides.css is scoped under `.dock-root` to win the cascade against
-# the bundle's self-injected stylesheet, so none of them reach the clone's
-# descendants.
+# path parents its ghost to document.body too).
 #
-# That makes the bar's inline SVGs the load-bearing case. A viewBox alone gives
-# an SVG an intrinsic RATIO but no intrinsic SIZE, so once `.dock-root
-# .bar-icon` is out of scope, `width: auto` resolves to the containing block's
-# width and the 1:1 ratio squares it — the search icon paints as a ~400px
-# magnifying glass riding the cursor (the close × collapses to 0 instead, its
-# container being zero-width). The icons must carry their own intrinsic size so
-# they stay bar-sized wherever the ghost lands.
+# So a tile's drag image is styled by whatever still matches once the bar is out
+# of #dock-root. Two things keep that honest, and this test guards both:
+#
+#   * The tile-bar rules in dockview-overrides.css anchor on `.tile-tab` — a
+#     class the clone carries — not on `.dock-root`. Anchoring on the dock root
+#     leaves the ghost as unstyled DOM (the bar lays out `block`, controls fall
+#     back to intrinsic sizes).
+#   * svg-icons.js gives each icon an intrinsic width/height. A viewBox alone
+#     gives an SVG an intrinsic RATIO but no intrinsic SIZE, so `width: auto`
+#     resolves to the containing block's width and the 1:1 ratio squares it —
+#     the search icon painted as a ~400px magnifying glass riding the cursor
+#     (the close × collapsed to 0 instead, its container being zero-width).
+#
+# The two are independent: either one regressing alone still wrecks the drag
+# image, so the assertions below cover them separately.
 _GHOST_ICON_PROBE = """
 () => {
   // The tab under test is the one whose panel contributed the search box —
@@ -2440,6 +2445,9 @@ _GHOST_ICON_PROBE = """
   const liveIcon = tab.querySelector('.contrib-search-icon .bar-icon');
   if (!liveIcon) return { error: 'no search icon in the live bar' };
   const liveRect = liveIcon.getBoundingClientRect();
+  const liveCloseRect = tab.querySelector('.tile-tab-actions button')
+    ?.getBoundingClientRect();
+  if (!liveCloseRect) return { error: 'no close control in the live bar' };
   // Drive dockview's REAL html5 drag source. addGhostImage removes the ghost in
   // a setTimeout(0), so it is still attached when this synchronous dispatch
   // returns — measure before yielding to the event loop.
@@ -2458,24 +2466,28 @@ _GHOST_ICON_PROBE = """
     parent: el.parentElement.getAttribute('class') || el.parentElement.tagName,
     parentBox: box(el.parentElement),
   }));
+  const ghostBar = ghost.querySelector('.tile-tab');
+  const ghostClose = ghost.querySelector('.tile-tab-actions button');
   return {
     icons,
     ghost: box(ghost),
     parent: ghost.parentElement.tagName,
     live: { w: Math.round(liveRect.width), h: Math.round(liveRect.height) },
+    liveClose: { w: Math.round(liveCloseRect.width), h: Math.round(liveCloseRect.height) },
+    ghostClose: ghostClose ? box(ghostClose) : null,
+    ghostBarDisplay: ghostBar ? getComputedStyle(ghostBar).display : null,
   };
 }
 """
 
 
 def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
-    """A dragged tile's ghost must not blow its icons up to container width.
+    """A dragged tile's drag image must still look like the tile's header bar.
 
-    dockview parents the ghost to document.body, so the tile bar's clone loses
-    every `.dock-root`-scoped rule — including the one that sizes `.bar-icon`.
-    An inline SVG with only a viewBox has no intrinsic size, so what the
-    operator sees riding the cursor is a magnifying glass scaled to the width
-    of the whole bar, not a tile header.
+    dockview parents the ghost to document.body, so anything the bar's styling
+    hangs off #dock-root is gone the moment the operator picks the tile up.
+    What the ghost must keep: the bar's own layout, and icons at bar size
+    rather than a magnifying glass scaled to the width of the whole tile.
 
     Only a real browser settles this: it needs layout, the replaced-element
     sizing fallback, and dockview's own ghost-construction path.
@@ -2510,7 +2522,7 @@ def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
             assert "error" not in probe, probe
             assert probe["parent"] == "BODY", probe
 
-            # In the bar itself the icon keeps the 12px `.dock-root
+            # In the bar itself the icon keeps the 12px `.tile-tab
             # .contrib-search-icon .bar-icon` gives it: CSS beats the intrinsic
             # width/height attributes, so sizing the SVG for the ghost must not
             # have resized anything the operator actually looks at.
@@ -2524,5 +2536,13 @@ def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
 
             oversized = [i for i in icons if i["w"] > 24 or i["h"] > 24]
             assert not oversized, f"drag-ghost icons rendered oversized: {oversized}"
+
+            # …and the ghost is the BAR, not a pile of unstyled DOM: the tile-bar
+            # rules anchor on `.tile-tab`, a class the clone carries, so they
+            # travel with it out of #dock-root. An unstyled clone would lay the
+            # bar out as a block and leave the close control at its intrinsic
+            # size instead of the bar's 24px control language.
+            assert probe["ghostBarDisplay"] == "flex", probe["ghostBarDisplay"]
+            assert probe["ghostClose"] == probe["liveClose"], probe
 
             page.close()
