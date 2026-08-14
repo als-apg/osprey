@@ -1087,8 +1087,17 @@ function bearer() {
  * So: attempt the write, and let the server be the authority. This turns a
  * 401 into the same sentence the read path already shows, instead of a dialog.
  */
-const UNAUTHORIZED_HINT =
-  'Not authorised — open this panel from the terminal’s EVENTS tab.';
+/* True when this page is being served through the web terminal's panel proxy,
+ * which is the only path that injects a bearer server-side. Read off the URL
+ * because that is the one signal available to the standalone page too — and it
+ * decides which advice is honest. Telling an operator already sitting IN the
+ * EVENTS tab to "open it from the EVENTS tab" is the failure mode this guards:
+ * proxied means the token is missing from the terminal's environment, which is
+ * a deployment fact they can act on, not a navigation mistake. */
+const IN_TERMINAL_PROXY = window.location.pathname.includes('/panel/events/');
+const UNAUTHORIZED_HINT = IN_TERMINAL_PROXY
+  ? 'Not authorised to read the dispatcher — this terminal has no EVENT_DISPATCHER_TOKEN.'
+  : 'Not authorised — open this panel from the terminal’s EVENTS tab.';
 
 /** True when a response was rejected for auth; the caller explains rather than retries. */
 function explainIfUnauthorized(res) {
@@ -1306,6 +1315,13 @@ function renderLanes() {
   list.textContent = '';
   const triggers = state.triggers || [];
 
+  // Order matters: a 401 leaves state.triggers empty, so an unguarded
+  // length check below would report "none registered" — a claim about the
+  // dispatcher we have not been allowed to read. Say what actually happened.
+  if (authBlocked) {
+    list.appendChild(el('div', { className: 'empty-state', textContent: UNAUTHORIZED_HINT }));
+    return;
+  }
   if (triggers.length === 0) {
     list.appendChild(el('div', { className: 'empty-state', textContent: 'No triggers are registered.' }));
     return;
@@ -1426,7 +1442,13 @@ function renderRunList() {
   }
 
   if (authBlocked) {
-    host.appendChild(el('div', { className: 'empty-state' }, [
+    host.appendChild(el('div', { className: 'empty-state' }, IN_TERMINAL_PROXY ? [
+      // Already in the EVENTS tab: the proxy had no bearer to inject, so point
+      // at the deployment fact rather than repeating navigation advice the
+      // operator has manifestly already followed.
+      el('span', { textContent: 'Not authorised to read the dispatcher.' }),
+      el('span', { className: 'empty-hint', textContent: 'This terminal has no EVENT_DISPATCHER_TOKEN \u2014 its persona must declare the EVENTS panel, and `osprey up` must have minted the token into the deployment\u2019s .env.' }),
+    ] : [
       el('span', { textContent: 'This panel needs a token when opened directly.' }),
       el('span', { className: 'empty-hint', textContent: 'Open it from the terminal\u2019s EVENTS tab, which supplies one for you.' }),
     ]));
@@ -1491,6 +1513,13 @@ function renderTriggerList() {
   const host = $('#trigger-list');
   host.textContent = '';
 
+  // Same guard as renderLanes(): unread is not the same as empty, and the
+  // count above is 0 for both. Checked before the filter branch so a stale
+  // filter box cannot turn a 401 into "no triggers match that filter" either.
+  if (authBlocked) {
+    host.appendChild(el('div', { className: 'empty-state', textContent: UNAUTHORIZED_HINT }));
+    return;
+  }
   if (visible.length === 0) {
     host.appendChild(el('div', {
       className: 'empty-state',

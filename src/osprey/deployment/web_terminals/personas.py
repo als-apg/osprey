@@ -15,6 +15,7 @@ Port arithmetic lives separately in :mod:`osprey.deployment.web_terminals.ports`
 import os
 import re
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
@@ -46,6 +47,79 @@ USERNAME_CHARSET_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 def as_dict(value: Any) -> dict[str, Any]:
     """Read a config section defensively: anything not a dict becomes empty."""
     return value if isinstance(value, dict) else {}
+
+
+#: The in-terminal event-dispatcher dashboard's panel id. A persona that declares
+#: this panel is the one thing that entitles its containers to
+#: ``EVENT_DISPATCHER_TOKEN`` — the panel declaration IS the intent, so there is
+#: no separate config key to set (and to forget to set) alongside it.
+EVENTS_PANEL_ID = "events"
+
+
+def config_declares_panel(config: Any, panel_id: str) -> bool:
+    """True if ``config`` declares ``web.panels.<panel_id>`` and hasn't disabled it.
+
+    The one definition of "this project shows that panel", shared by the render
+    (for persona-less roster entries) and by :func:`personas_declaring_panel`
+    (for catalog personas), so the two cannot answer differently for the same
+    config. ``enabled: false`` counts as *not* declared: a panel switched off is
+    one whose credential is not needed.
+    """
+    panel = as_dict(as_dict(as_dict(config).get("web")).get("panels")).get(panel_id)
+    if not isinstance(panel, dict):
+        return False
+    return panel.get("enabled", True) is not False
+
+
+def personas_declaring_panel(config: Any, project_root: Any, panel_id: str) -> set[str]:
+    """Names of catalog personas whose rendered project declares ``panel_id``.
+
+    Reads each referenced persona's ``config.yml`` off disk — which is why the
+    render takes the result as a parameter rather than calling this itself (see
+    :func:`osprey.deployment.web_terminals.render.render_web_terminals`'s
+    determinism note). Resolution mirrors
+    :func:`osprey.deployment.web_terminals.env_production._claude_code_auth_secret_vars`:
+    a persona whose ``project_path`` is unset, unrendered, or unreadable
+    contributes nothing, because a credential is never granted on a guess.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :param panel_id: The panel whose declaration is being looked for.
+    :return: The subset of referenced persona names that declare it.
+    """
+    import yaml
+
+    web_terminals = as_dict(as_dict(config).get("modules")).get("web_terminals")
+    web_terminals = as_dict(web_terminals)
+    catalog = as_dict(web_terminals.get("personas"))
+
+    referenced: set[str] = set()
+    default_persona = web_terminals.get("default_persona")
+    if isinstance(default_persona, str) and default_persona:
+        referenced.add(default_persona)
+    users = web_terminals.get("users")
+    for user in users if isinstance(users, list) else []:
+        if isinstance(user, dict) and isinstance(user.get("persona"), str) and user["persona"]:
+            referenced.add(user["persona"])
+
+    declaring: set[str] = set()
+    for persona_name in sorted(referenced):
+        entry = as_dict(catalog.get(persona_name))
+        project_path = entry.get("project_path")
+        if not isinstance(project_path, str) or not project_path:
+            continue
+        config_yml = Path(project_root, project_path) / "config.yml"
+        if not config_yml.is_file():
+            continue
+        try:
+            with config_yml.open("r", encoding="utf-8") as fh:
+                persona_config = yaml.safe_load(fh)
+        except (OSError, yaml.YAMLError):
+            continue
+        if config_declares_panel(persona_config, panel_id):
+            declaring.add(persona_name)
+    return declaring
 
 
 def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
