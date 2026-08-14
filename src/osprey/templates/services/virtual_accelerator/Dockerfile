@@ -125,14 +125,16 @@ RUN [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is requi
 # wheel. The first wheel install carries the `[virtual-accelerator]` extra so a
 # dev wheel whose extra adds/bumps a dep resolves it (the primer only covers
 # the released extra set and `pip check` cannot detect missing extras); the
-# wheel is then force-reinstalled --no-deps (no extra) to guarantee its own
+# staged osprey-connectors wheel rides in the same call so the framework's
+# requirement on it resolves locally rather than from PyPI. The wheels are
+# then force-reinstalled --no-deps (no extra) to guarantee their own
 # modules win, and `pip check` guards against residual mismatches. No wheel
 # staged → no-op, image already complete after the deps layer.
 COPY .dockerignore *.wh[l] /tmp/ctx/
 RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
-        && whl="$(ls /tmp/ctx/*.whl)" \
-        && pip install --no-cache-dir "${whl}[virtual-accelerator]" --only-binary pcaspy \
+        && whl="$(ls /tmp/ctx/osprey_framework-*.whl)" \
+        && pip install --no-cache-dir "${whl}[virtual-accelerator]" /tmp/ctx/osprey_connectors-*.whl --only-binary pcaspy \
         && pip install --no-cache-dir --no-deps --force-reinstall /tmp/ctx/*.whl \
         && pip check ; \
     fi \
