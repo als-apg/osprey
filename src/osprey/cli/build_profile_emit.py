@@ -898,8 +898,6 @@ def emit_persona_delta_yaml(
             f"Preset {preset_name!r} declares no extends chain — it cannot be "
             f"emitted as a delta over a host profile."
         )
-    host_ref = f"../{host_filename}"
-
     body: list[str] = []
     titled = False
     dropped_extends = False
@@ -934,18 +932,17 @@ def emit_persona_delta_yaml(
 
     preset_hash = compute_preset_hash(preset_name) or "(unavailable)"
     header = (
-        f"# {profile_name} — persona profile, a delta over {host_ref}\n"
+        f"# {profile_name} — settings for one web login\n"
         f"#\n"
-        f"# Sitting in personas/ beside {host_filename} is the inheritance: the build merges\n"
-        f"# this file over that profile — including any edit you make there — so the keys\n"
-        f"# below are this persona's only differences and there is no `extends:` to\n"
-        f"# write. See the resolved whole with:\n"
+        f"# Only the differences from {host_filename} belong here. The build merges this\n"
+        f"# file over that one, picking up any edit you make there. To see the combined\n"
+        f"# result:\n"
         f"#   osprey validate {profile_filename}\n"
         f"#\n"
-        f"# Provenance — what this persona was materialized from:\n"
-        f"#   source preset: {preset_name}\n"
-        f"#   preset content hash: {preset_hash}\n"
-        f"#   emitted by OSPREY {__version__}"
+        f"# Made from the bundled `{preset_name}` preset.\n"
+        f"#\n"
+        f"#   emitted by OSPREY {__version__}\n"
+        f"#   preset content hash: {preset_hash}"
     )
     text = _replace_header(text, header)
 
@@ -961,16 +958,7 @@ def emit_persona_delta_yaml(
 # persona siblings share the mental model and repeating the picture three times
 # per repo would just be noise.
 _ZONE_MAP = """\
-# The repository is the deployment. One directory, four zones:
-#
-#   SOURCE   tracked, yours to edit — profile.yml, data/, personas/,
-#            triggers.yml, web-terminal-context/, scripts/, the CI files
-#   SECRETS  .env — git-ignored, durable: provider keys you set, plus the
-#            service tokens `osprey up` mints
-#   OUTPUT   build/ — git-ignored, 100% disposable. Every `osprey build`
-#            wipes and re-renders it; `rm -rf build/` loses nothing, ever
-#   STATE    var/ — git-ignored, durable: var/agent_data holds the agent's
-#            memory and sessions, var/audit the audit log. No build touches it
+# This file is your assistant's settings. Edit it, then run `osprey build`.
 #
 #   +--------------+  osprey   +--------------+  osprey  +----------------+
 #   |    SOURCE    |  build    |    build/    |    up    |   DEPLOYMENT   |
@@ -980,9 +968,10 @@ _ZONE_MAP = """\
 #          ^                                                     |
 #          +---- edit -> osprey build -> osprey up --------------+
 #
-# `osprey up` starts strictly from build/ as it was built — it never renders
-# from this file. Edit profile.yml and `up` refuses until you re-run
-# `osprey build`, so a half-finished edit can never reach a running stack."""
+#   SOURCE   yours to edit, kept in git: this file, data/, personas/
+#   SECRETS  .env, your API keys. Not in git. Rebuilds never touch it
+#   OUTPUT   build/, generated. Never edit it; deleting it is safe
+#   STATE    var/, the agent's memory and audit log. Not in git. Kept"""
 
 
 def emit_standalone_profile_yaml(
@@ -1097,14 +1086,11 @@ def emit_standalone_profile_yaml(
         f"# {profile_name} — OSPREY deployment repo\n"
         f"#\n"
         f"{zone_block}"
-        f"# Emitted from the bundled `{normalized}` preset as a fully explicit,\n"
-        f"# standalone profile: everything the preset configures is written out below and\n"
-        f"# is yours to edit. Nothing is inherited at build time.\n"
+        f"# Made from the bundled `{normalized}` preset. Everything it sets is written\n"
+        f"# out below and is yours to edit. Nothing is hidden or inherited.\n"
         f"#\n"
-        f"# Provenance — what this profile was materialized from:\n"
-        f"#   source preset: {normalized}\n"
-        f"#   preset content hash: {preset_hash}\n"
-        f"#   emitted by OSPREY {__version__}"
+        f"#   emitted by OSPREY {__version__}\n"
+        f"#   preset content hash: {preset_hash}"
     )
     text = _replace_header(text, header)
 

@@ -1001,7 +1001,7 @@ def create_claude_code_integration(
 
     if not claude_code_dir.exists():
         console.print(
-            "  [warning]⚠[/warning] Claude Code templates not found — skipping",
+            "  [warning]⚠[/warning] Claude Code templates not found. Skipping them.",
             style="yellow",
         )
         return

@@ -92,7 +92,7 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
     config_path = rendered_config_path(repo_root)
     if not config_path.is_file():
         click.echo(f"Error: no build found at {repo_root / BUILD_DIR_NAME}.", err=True)
-        click.echo("Run 'osprey build' first — the scenarios live in the render.", err=True)
+        click.echo("Run 'osprey build' first. The scenarios are created by the build.", err=True)
         raise SystemExit(1)
     click.get_current_context().with_resource(config_anchored_at(config_path))
     return repo_root, load_config(str(config_path))
@@ -145,8 +145,8 @@ def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
         click.echo("! Physics fault rendered to .env: " + ", ".join(sorted(rendered)) + ".")
     else:
         click.echo("! Cleared the previous scenario's physics fault from .env.")
-    click.echo("  The virtual accelerator reads this only at container boot — run")
-    click.echo("  'osprey up' to recreate it. A plain 'docker restart' keeps")
+    click.echo("  The virtual accelerator reads this only when its container is created,")
+    click.echo("  so run 'osprey up' to recreate it. A plain 'docker restart' keeps")
     click.echo("  the old environment.")
 
 
@@ -367,7 +367,7 @@ def apply_command(
     elif result.logbook_seeded:
         click.echo(f"✓ Seeded {result.logbook_seeded} logbook entries (purged and reseeded).")
     elif ariel_config is None:
-        click.echo("  (no ARIEL config — logbook not seeded)")
+        click.echo("  (no ARIEL configured, so the logbook was not seeded)")
 
     if not seed_archive:
         click.echo("  (stored archive unchanged)")

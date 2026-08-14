@@ -373,7 +373,7 @@ def ensure_auth_credentials(
                 )
             if minted:
                 echo(
-                    "Record these now — they are shown this once and cannot be "
+                    "Record these now. They are shown once and cannot be "
                     "recovered; only their hashes are stored."
                 )
 

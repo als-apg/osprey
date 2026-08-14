@@ -833,7 +833,7 @@ def ci(repo: Path | None, force: bool) -> None:
     for result in emitted:
         shown = result.path.relative_to(repo_root)
         if result.refused:
-            console.print(f"  [error]✗[/error] {shown} — NOT written: {result.reason}")
+            console.print(f"  [error]✗[/error] {shown} not written: {result.reason}")
         elif result.action == "unchanged":
             console.print(f"  [dim]= {shown} (unchanged)[/dim]")
         else:
@@ -972,7 +972,7 @@ def claim(name, repo):
             f"{outcome.target.entry_noun}.[/dim]"
         )
     console.print(
-        "\n  Edit it in the profile — every build registers "
+        "\n  Edit it in the profile. Every build registers "
         f"[bold]{outcome.target.name}[/bold] as user-owned when it copies it in.\n"
         "  Render it into the build zone again with:\n"
         f"    {_REBUILD_HINT}\n"
@@ -1063,7 +1063,7 @@ def diff(name, repo):
         else:
             console.print(
                 "[success]\u2713[/success] Your directory matches the current framework "
-                "template \u2014 no differences."
+                "template. There are no differences."
             )
         return
 
@@ -1102,8 +1102,8 @@ def diff(name, repo):
         click.echo(output)
     else:
         console.print(
-            "[success]\u2713[/success] Your file matches the current framework template "
-            "\u2014 no differences."
+            "[success]\u2713[/success] Your file matches the current framework template. "
+            "There are no differences."
         )
 
 

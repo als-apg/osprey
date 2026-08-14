@@ -909,7 +909,7 @@ def test_a_mint_prints_the_password_on_a_terminal(tmp_path, monkeypatch, capsys)
 
     printed = capsys.readouterr().out
     assert "Minted a login password for web-terminal user 'alice'" in printed
-    assert "shown this once" in printed
+    assert "shown once and cannot be recovered" in printed
 
 
 def test_a_mint_prints_no_password_when_stdout_is_not_a_terminal(

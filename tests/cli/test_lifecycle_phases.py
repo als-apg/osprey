@@ -490,7 +490,7 @@ class TestInitPhases:
 
         assert result.exit_code == 0, result.output
         assert titles(recorder) == ["→ Creating probe"]
-        assert "  · source zone from preset control-assistant" in [
+        assert "  · settings and data from preset control-assistant" in [
             line.split(" (")[0] for line in recorder.lines
         ]
         assert closed(recorder)[-1].startswith("✓ Creating probe")

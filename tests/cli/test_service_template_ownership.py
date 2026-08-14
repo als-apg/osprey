@@ -396,4 +396,5 @@ class TestScaffoldCliDirectoryArtifacts:
             diff, ["services/postgresql", "--repo", str(project_path.parent)]
         )
         assert result.exit_code == 0, result.output
-        assert "no differences" in result.output
+        # Collapse the console's line wrapping: the phrase may break mid-sentence.
+        assert "no differences" in " ".join(result.output.split())

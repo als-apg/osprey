@@ -320,7 +320,7 @@ def chat(
     else:
         if spec.auth_secret_env and not os.environ.get(spec.auth_secret_env):
             console.print(
-                f"[warning]⚠ ${spec.auth_secret_env} not found in environment — "
+                f"[warning]⚠ ${spec.auth_secret_env} is not set. "
                 f"provider '{spec.provider}' may not authenticate[/warning]"
             )
         # The repo root, not the render: `.env` is the durable SECRETS zone and

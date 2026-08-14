@@ -13,6 +13,15 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Onboarding output is now written for the people who run accelerators rather
+  than for the people who wrote OSPREY. `osprey init` prints the five entries
+  you edit instead of a forty-line tour; the generated `profile.yml`,
+  `README.md` and `.env.example` explain what each setting does and what
+  changes if you alter it, rather than why it is designed that way; and
+  `.env.example` now puts your provider's API key first and comments out the
+  rest. The advice about setting up a CI pipeline moved from `init`'s output to
+  the generated README, where it is relevant. No settings or defaults changed.
+
 - Generated deployment repos, bundled skills, agent instructions and the
   documentation now describe the system as it is, rather than as a set of
   differences from an earlier arrangement. Guidance for moving an existing
