@@ -596,13 +596,15 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     )
 
     # Panel order is part of the wire contract the JS renderer and the MCP
-    # projection both read: every swept corrector's traces, in sweep order,
-    # then the fit.
+    # projection both read: the fit leads, then every swept corrector's traces
+    # in sweep order, demoted below it into their own section.
     assert [panel["title"] for panel in settled["panels"]] == [
-        *sweep_titles,
         "Response matrix",
+        "Response by BPM",
         "Corrector anomaly score",
         "BPM anomaly score",
+        "Singular values",
+        *sweep_titles,
     ], f"unexpected panels on the settled figure: {_figure_summary(settled)}"
 
     # THE point of the oversized run: a full sweep on every panel. Read through
