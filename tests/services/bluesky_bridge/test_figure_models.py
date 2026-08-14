@@ -128,6 +128,8 @@ def test_dumped_field_names_are_the_wire_contract() -> None:
         "y_units",
         "annotations",
         "mark",
+        "section",
+        "series_picker",
     }
     assert set(dumped["panels"][0]["mark"]["series"][0]) == {
         "label",

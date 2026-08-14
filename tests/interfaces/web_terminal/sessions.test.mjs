@@ -86,16 +86,107 @@ afterEach(() => {
 });
 
 describe('initSessionSelector: dropdown shell', () => {
-  test('builds the picker button and dropdown structure inside the container', () => {
+  test('builds the picker button in the container, with no dropdown until it is opened', () => {
     sessions.initSessionSelector('session-selector');
 
     const container = /** @type {HTMLElement} */ (document.getElementById('session-selector'));
     expect(container.querySelector('#session-picker-btn')).not.toBeNull();
-    const dropdown = container.querySelector('#session-dropdown');
+    // The dropdown is built on demand, so nothing exists while closed.
+    expect(document.getElementById('session-dropdown')).toBeNull();
+    expect(container.getAttribute('aria-expanded')).toBeNull();
+    expect(
+      /** @type {HTMLElement} */ (container.querySelector('#session-picker-btn')).getAttribute(
+        'aria-expanded'
+      )
+    ).toBe('false');
+  });
+});
+
+/**
+ * The picker button is adopted into dockview's tab strip (dock-tab.js relocates
+ * the live `.terminal-header` there). That strip is `overflow: hidden` AND
+ * `transform: translate3d(...)`, which both clips an in-place dropdown and traps
+ * its `z-index` in a stacking context that paints under the terminal content
+ * pane -- the dropdown rendered *behind* the terminal. The dropdown therefore
+ * mounts at body level and is positioned from JS, matching `.contrib-menu-popover`.
+ */
+describe('dropdown portal: escaping the dockview tab strip', () => {
+  test('mounts the dropdown as a direct child of <body>, not inside the picker container', async () => {
+    stubSessions(RECORDS);
+    sessions.initSessionSelector('session-selector');
+    await openPicker();
+
+    const dropdown = /** @type {HTMLElement} */ (document.getElementById('session-dropdown'));
     expect(dropdown).not.toBeNull();
-    expect(container.querySelector('#session-dropdown-list')).not.toBeNull();
-    // Closed until the picker is opened.
-    expect(/** @type {Element} */ (dropdown).classList.contains('open')).toBe(false);
+    expect(dropdown.parentElement).toBe(document.body);
+
+    // Nothing of the dropdown is left inside the (clipped, transformed) container.
+    const container = /** @type {HTMLElement} */ (document.getElementById('session-selector'));
+    expect(container.querySelector('#session-dropdown')).toBeNull();
+    expect(container.querySelector('.session-dropdown')).toBeNull();
+    // The list still resolves globally, so rendering is unaffected.
+    expect(document.getElementById('session-dropdown-list')).not.toBeNull();
+  });
+
+  test('pins the dropdown with JS-computed viewport coordinates', async () => {
+    stubSessions(RECORDS);
+    sessions.initSessionSelector('session-selector');
+    await openPicker();
+
+    const dropdown = /** @type {HTMLElement} */ (document.getElementById('session-dropdown'));
+    // `position: fixed` placement is meaningless without both coordinates set.
+    expect(dropdown.style.left).not.toBe('');
+    expect(dropdown.style.top).not.toBe('');
+  });
+
+  test('closing removes the dropdown from the document entirely', async () => {
+    stubSessions(RECORDS);
+    sessions.initSessionSelector('session-selector');
+    await openPicker();
+    expect(document.getElementById('session-dropdown')).not.toBeNull();
+
+    // Second click on the picker toggles it shut.
+    await openPicker();
+    expect(document.getElementById('session-dropdown')).toBeNull();
+    const btn = /** @type {HTMLElement} */ (document.getElementById('session-picker-btn'));
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('Escape closes the dropdown', async () => {
+    stubSessions(RECORDS);
+    sessions.initSessionSelector('session-selector');
+    await openPicker();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.getElementById('session-dropdown')).toBeNull();
+  });
+
+  test('a scroll closes the dropdown rather than leaving it stranded off its anchor', async () => {
+    stubSessions(RECORDS);
+    sessions.initSessionSelector('session-selector');
+    await openPicker();
+
+    window.dispatchEvent(new Event('scroll'));
+    expect(document.getElementById('session-dropdown')).toBeNull();
+  });
+
+  test('a pointerdown outside the picker closes the dropdown', async () => {
+    stubSessions(RECORDS);
+    sessions.initSessionSelector('session-selector');
+    await openPicker();
+
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    expect(document.getElementById('session-dropdown')).toBeNull();
+  });
+
+  test('re-initializing the selector tears down a dropdown left open', async () => {
+    stubSessions(RECORDS);
+    sessions.initSessionSelector('session-selector');
+    await openPicker();
+    expect(document.getElementById('session-dropdown')).not.toBeNull();
+
+    sessions.initSessionSelector('session-selector');
+    expect(document.getElementById('session-dropdown')).toBeNull();
   });
 });
 
@@ -155,13 +246,12 @@ describe('session selection', () => {
     sessions.initSessionSelector('session-selector');
     await openPicker();
 
-    const dropdown = /** @type {HTMLElement} */ (document.getElementById('session-dropdown'));
-    expect(dropdown.classList.contains('open')).toBe(true);
+    expect(document.getElementById('session-dropdown')).not.toBeNull();
 
     const item = /** @type {HTMLElement} */ (document.querySelector('.session-item[data-session-id]'));
     item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-    expect(dropdown.classList.contains('open')).toBe(false);
+    expect(document.getElementById('session-dropdown')).toBeNull();
   });
 });
 

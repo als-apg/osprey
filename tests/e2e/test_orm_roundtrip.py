@@ -390,8 +390,19 @@ def _panel(figure: dict[str, Any], title: str) -> dict[str, Any]:
 
 
 def _sweep_panels(figure: dict[str, Any]) -> list[dict[str, Any]]:
-    """The corrector-sweep trace panels -- every panel drawn as lines."""
-    return [panel for panel in figure["panels"] if panel["mark"]["kind"] == "lines"]
+    """The corrector-sweep trace panels.
+
+    Keyed on the per-corrector title the plan builds (``f"{name} sweep"``) and
+    not on the lines mark alone: the fit draws its own lines panel, "Response
+    by BPM", whose series are correctors rather than BPMs. Matching every lines
+    panel would sweep that one into the per-sweep assertions below, where it
+    fails on a contract it was never meant to satisfy.
+    """
+    return [
+        panel
+        for panel in figure["panels"]
+        if panel["mark"]["kind"] == "lines" and panel["title"].endswith(" sweep")
+    ]
 
 
 def _is_number(value: Any) -> bool:
@@ -596,13 +607,15 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     )
 
     # Panel order is part of the wire contract the JS renderer and the MCP
-    # projection both read: every swept corrector's traces, in sweep order,
-    # then the fit.
+    # projection both read: the fit leads, then every swept corrector's traces
+    # in sweep order, demoted below it into their own section.
     assert [panel["title"] for panel in settled["panels"]] == [
-        *sweep_titles,
         "Response matrix",
+        "Response by BPM",
         "Corrector anomaly score",
         "BPM anomaly score",
+        "Singular values",
+        *sweep_titles,
     ], f"unexpected panels on the settled figure: {_figure_summary(settled)}"
 
     # THE point of the oversized run: a full sweep on every panel. Read through

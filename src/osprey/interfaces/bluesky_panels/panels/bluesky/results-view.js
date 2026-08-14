@@ -228,6 +228,9 @@ export function createResultsView({ api, elements, onPollingChange, saveFile = s
     exporting: false,
   };
 
+  /** @type {import('./figure-renderer.js').FigureSelection} */
+  const figureSelection = { series: {}, section: {}, open: {} };
+
   /**
    * Announce a change in whether the view is polling. Derived from the timer
    * alone — the single fact that decides it — so there is no second flag that
@@ -674,7 +677,11 @@ export function createResultsView({ api, elements, onPollingChange, saveFile = s
    */
   function drawFigure(figure) {
     try {
-      renderFigure({ panels: elements.figurePanels, note: elements.figureNote }, figure);
+      renderFigure(
+        { panels: elements.figurePanels, note: elements.figureNote },
+        figure,
+        { selection: figureSelection }
+      );
     } catch (error) {
       console.error('osprey bluesky results: the figure renderer threw', error);
       return false;
@@ -708,6 +715,14 @@ export function createResultsView({ api, elements, onPollingChange, saveFile = s
       // `tableDetails.open` is deliberately NOT reset here — see the module
       // docstring. The operator's choice to have the table open outlives any
       // one run.
+      //
+      // The figure's pickers follow the same split. `series`/`section` name
+      // devices and panels belonging to ONE run — re-applying "show hcm3" to
+      // the next run would silently pick a different magnet, or nothing — so
+      // they are cleared. `open` is a disclosure preference exactly like
+      // `tableDetails.open`, so it survives.
+      figureSelection.series = {};
+      figureSelection.section = {};
       setExportNote(null);
       if (!runId) {
         setEmptyState('Select a queued or completed run to see its results.');

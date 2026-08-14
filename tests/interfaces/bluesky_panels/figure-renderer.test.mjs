@@ -27,6 +27,7 @@ import {
   barGeometry,
   categoryTicks,
   decimationAnnotations,
+  divergingScale,
   figureNoteText,
   formatTickValue,
   gapAnnotations,
@@ -46,6 +47,11 @@ import {
   shownPointCount,
   splitSegments,
 } from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js';
+import {
+  groupPanels,
+  resolveSectionSelection,
+  resolveSeriesSelection,
+} from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-controls.js';
 
 /** @typedef {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').FigurePoint} FigurePoint */
 /** @typedef {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').FigureSeries} FigureSeries */
@@ -138,7 +144,7 @@ function barsMark(categories, values, extra = {}) {
 
 /**
  * @param {FigureMark} mark
- * @param {{title?: string, x_label?: string, y_label?: string, x_units?: string|null, y_units?: string|null, annotations?: string[]}} [extra]
+ * @param {{title?: string, x_label?: string, y_label?: string, x_units?: string|null, y_units?: string|null, annotations?: string[], section?: string|null, series_picker?: boolean}} [extra]
  * @returns {FigurePanel}
  */
 function panel(mark, extra = {}) {
@@ -150,6 +156,8 @@ function panel(mark, extra = {}) {
     y_units: extra.y_units ?? null,
     annotations: extra.annotations ?? [],
     mark,
+    section: extra.section ?? null,
+    series_picker: extra.series_picker ?? false,
   };
 }
 
@@ -375,6 +383,71 @@ describe('tick formatting and placement', () => {
   });
 });
 
+describe('panel grouping and selection', () => {
+  /**
+   * @param {string} title
+   * @param {string|null} [section]
+   */
+  const p = (title, section = null) =>
+    panel(linesMark([series('a', [[0, 1]])]), { title, section });
+
+  test('sections gather in first-appearance order, inline panels keep theirs', () => {
+    const grouped = groupPanels([
+      p('Matrix'),
+      p('Response by BPM'),
+      p('Spectrum', 'Singular values'),
+      p('c1 sweep', 'Sweeps'),
+      p('c2 sweep', 'Sweeps'),
+    ]);
+
+    expect(grouped.inline.map((panel) => panel.title)).toEqual(['Matrix', 'Response by BPM']);
+    expect(grouped.sections.map((group) => group.name)).toEqual(['Singular values', 'Sweeps']);
+    expect(grouped.sections[1].panels.map((panel) => panel.title)).toEqual([
+      'c1 sweep',
+      'c2 sweep',
+    ]);
+  });
+
+  test('a figure with no sections groups exactly as it always did', () => {
+    const grouped = groupPanels([p('one'), p('two')]);
+    expect(grouped.inline).toHaveLength(2);
+    expect(grouped.sections).toEqual([]);
+  });
+
+  test('a stored series selection is kept, minus anything no longer present', () => {
+    // A live run drops correctors past the payload cap; the selection must
+    // survive with what remains rather than resetting wholesale.
+    expect(resolveSeriesSelection(['c1', 'c9'], ['c1', 'c2', 'c3'])).toEqual(['c1']);
+  });
+
+  test('a selection with nothing left falls back to the default, never to empty', () => {
+    // An empty plot reads as "no data", which would be a lie about the run.
+    expect(resolveSeriesSelection(['gone'], ['c1', 'c2', 'c3', 'c4'])).toEqual([
+      'c1',
+      'c2',
+      'c3',
+    ]);
+    expect(resolveSeriesSelection(undefined, ['c1', 'c2'])).toEqual(['c1', 'c2']);
+    expect(resolveSeriesSelection(undefined, [])).toEqual([]);
+  });
+
+  test('a stored section choice survives only while its panel does', () => {
+    expect(resolveSectionSelection('c2 sweep', ['c1 sweep', 'c2 sweep'])).toBe('c2 sweep');
+    expect(resolveSectionSelection('gone', ['c1 sweep', 'c2 sweep'])).toBe('c1 sweep');
+    expect(resolveSectionSelection(undefined, [])).toBe('');
+  });
+});
+
+/**
+ * `divergingScale` for values known to hold a reading, typed as non-null.
+ * @param {Array<Array<number|null>>} values
+ */
+function scaleOf(values) {
+  const scale = divergingScale(values);
+  if (scale === null) throw new Error('expected a scale');
+  return scale;
+}
+
 describe('heatmap geometry', () => {
   const mark = heatmapMark(
     ['x0', 'x1', 'x2'],
@@ -394,6 +467,42 @@ describe('heatmap geometry', () => {
       rows: 3,
       cols: 2,
     });
+  });
+
+  test('the diverging scale anchors zero and takes a symmetric limit', () => {
+    // A signed matrix: an ORM's cells are responses either side of zero.
+    const scale = scaleOf([
+      [-4, 2],
+      [1, 3],
+    ]);
+
+    // The limit is max|value|, NOT the raw extent — so equal magnitudes of
+    // opposite sign are equally salient, and two runs stay comparable.
+    expect(scale.limit).toBe(4);
+
+    // Zero is the plot background, so an unresponsive BPM reads as dead
+    // rather than as the mid-tone a min→max ramp would give it.
+    expect(scale.opacityFor(0)).toBe(0);
+
+    // Equal magnitudes, opposite signs: same weight, different hue.
+    expect(scale.opacityFor(-4)).toBe(scale.opacityFor(4));
+    expect(scale.isNegative(-4)).toBe(true);
+    expect(scale.isNegative(4)).toBe(false);
+
+    // Magnitude scales linearly against the limit.
+    expect(scale.opacityFor(2)).toBeCloseTo(0.5, 10);
+    expect(scale.opacityFor(-2)).toBeCloseTo(0.5, 10);
+  });
+
+  test('an all-zero matrix paints nothing rather than inventing contrast', () => {
+    const scale = scaleOf([[0, 0]]);
+    expect(scale.limit).toBe(0);
+    expect(scale.opacityFor(0)).toBe(0);
+  });
+
+  test('the diverging scale is null when no cell holds a reading', () => {
+    expect(divergingScale([[null, null]])).toBeNull();
+    expect(divergingScale([])).toBeNull();
   });
 
   test('the extent ignores cells with no reading', () => {
@@ -634,6 +743,23 @@ function mount() {
 const textsOf = (root, selector) =>
   Array.from(root.querySelectorAll(selector)).map((node) => node.textContent ?? '');
 
+/**
+ * The figure's one section disclosure, typed as one.
+ * @param {Element} root
+ * @returns {HTMLDetailsElement}
+ */
+function disclosure(root) {
+  const found = root.querySelector('details.figure-section');
+  if (found === null) throw new Error('no section disclosure rendered');
+  return /** @type {HTMLDetailsElement} */ (found);
+}
+
+/** @param {Element|undefined} target */
+function click(target) {
+  if (!target) throw new Error('nothing to click');
+  target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}
+
 describe('renderFigure', () => {
   beforeEach(() => {
     applyTheme(LIGHT);
@@ -730,27 +856,191 @@ describe('renderFigure', () => {
         ])
       );
 
+      // Six slots, six rects: five readings plus the one with no reading,
+      // which is HATCHED rather than skipped — left unpainted it would be
+      // plot background, and background is what a zero reading now looks like.
       const cells = elements.panels.querySelectorAll('rect.figure-cell');
-      expect(cells, name).toHaveLength(5); // six slots, one with no reading
+      expect(cells, name).toHaveLength(6);
+      const missing = elements.panels.querySelectorAll('rect.figure-cell-missing');
+      expect(missing, name).toHaveLength(1);
+      expect(missing[0].getAttribute('fill'), name).toMatch(/^url\(#figure-hatch-/);
+
+      // All readings here are positive, so all take the positive hue.
       expect(cells[0].getAttribute('fill'), name).toBe(tokens['--chart-series-1']);
 
-      // Opacity carries the value: the smallest reading is the faintest.
-      const opacities = Array.from(cells).map((cell) =>
-        Number(cell.getAttribute('fill-opacity'))
-      );
+      // Opacity carries the magnitude: the smallest reading is the faintest.
+      const opacities = Array.from(cells)
+        .filter((cell) => cell.hasAttribute('fill-opacity'))
+        .map((cell) => Number(cell.getAttribute('fill-opacity')));
       expect(opacities[0], name).toBeLessThan(opacities[opacities.length - 1]);
 
       // Both label lists are rendered, and only from the mark's own labels.
       const ticks = textsOf(elements.panels, 'text.figure-tick');
       expect(ticks, name).toEqual(expect.arrayContaining(['ch1', 'ch2', 'ch3', 'bpm1', 'bpm2']));
-      expect(textsOf(elements.panels, 'ul.figure-legend li'), name).toEqual([
-        'response (mm/A)',
-      ]);
+
+      // A heatmap gets a colorbar carrying its numbers, not a flat legend chip.
+      expect(elements.panels.querySelectorAll('ul.figure-legend'), name).toHaveLength(0);
+      expect(
+        elements.panels.querySelector('.figure-colorbar-label')?.textContent,
+        name
+      ).toBe('response (mm/A)');
+      expect(textsOf(elements.panels, '.figure-colorbar-tick'), name).toEqual(['-6', '6', '0']);
       expect(
         elements.panels.querySelector('section.figure-panel')?.getAttribute('data-mark'),
         name
       ).toBe('heatmap');
     }
+  });
+
+  test('a negative reading takes the other hue, and zero is left as background', () => {
+    applyTheme(LIGHT);
+    const elements = mount();
+    renderFigure(
+      elements,
+      figure([
+        panel(
+          heatmapMark(
+            ['c1', 'c2'],
+            ['b1'],
+            [[-5, 0]],
+            { value_label: 'slope', value_units: 'mm/A' }
+          )
+        ),
+      ])
+    );
+
+    const cells = elements.panels.querySelectorAll('rect.figure-cell');
+    // Negative → the second palette slot, at full weight (it IS the limit).
+    expect(cells[0].getAttribute('fill')).toBe(LIGHT['--chart-series-2']);
+    expect(Number(cells[0].getAttribute('fill-opacity'))).toBe(1);
+    // Zero → painted at opacity 0, which is the plot background.
+    expect(Number(cells[1].getAttribute('fill-opacity'))).toBe(0);
+  });
+
+  test('a cell with no reading says so on hover, rather than reading as a zero', () => {
+    const elements = mount();
+    renderFigure(elements, figure([panel(heatmapMark(['x0'], ['y0'], [[null]]))]));
+    // Nothing is plottable, so the panel says that rather than drawing a grid.
+    expect(elements.panels.querySelector('.figure-empty')).not.toBeNull();
+
+    const mixed = mount();
+    renderFigure(mixed, figure([panel(heatmapMark(['x0', 'x1'], ['y0'], [[1, null]]))]));
+    expect(
+      mixed.panels.querySelector('rect.figure-cell-missing title')?.textContent
+    ).toBe('No reading');
+  });
+
+  test('a series picker filters what is drawn and remembers the choice across a redraw', () => {
+    const elements = mount();
+    const selection = {};
+    const fig = figure([
+      panel(
+        linesMark([
+          series('c1', [[0, 1]]),
+          series('c2', [[0, 2]]),
+          series('c3', [[0, 3]]),
+          series('c4', [[0, 4]]),
+        ]),
+        { title: 'Response by BPM', series_picker: true }
+      ),
+    ]);
+
+    renderFigure(elements, fig, { selection });
+
+    // Default: the first three of four, so the panel opens on something.
+    const chips = elements.panels.querySelectorAll('button.figure-chip');
+    expect(Array.from(chips).map((chip) => chip.textContent)).toEqual(['c1', 'c2', 'c3', 'c4']);
+    expect(textsOf(elements.panels, 'ul.figure-legend li')).toEqual(['c1', 'c2', 'c3']);
+
+    // Turning c4 on redraws with four lines...
+    chips[3].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(textsOf(elements.panels, 'ul.figure-legend li')).toEqual(['c1', 'c2', 'c3', 'c4']);
+
+    // ...and the choice survives the ~1s poll redrawing the whole subtree,
+    // which is the bug this state exists to prevent.
+    renderFigure(elements, fig, { selection });
+    expect(textsOf(elements.panels, 'ul.figure-legend li')).toEqual(['c1', 'c2', 'c3', 'c4']);
+  });
+
+  test('a series picker refuses to empty the plot', () => {
+    const elements = mount();
+    const selection = { series: { P: ['c1'] } };
+    const fig = figure([
+      panel(linesMark([series('c1', [[0, 1]]), series('c2', [[0, 2]])]), {
+        title: 'P',
+        series_picker: true,
+      }),
+    ]);
+    renderFigure(elements, fig, { selection });
+    expect(textsOf(elements.panels, 'ul.figure-legend li')).toEqual(['c1']);
+
+    // Clicking the only selected chip would leave nothing drawn.
+    click(elements.panels.querySelectorAll('button.figure-chip')[0]);
+    expect(textsOf(elements.panels, 'ul.figure-legend li')).toEqual(['c1']);
+  });
+
+  test('sectioned panels render closed, below the inline ones, one at a time', () => {
+    const elements = mount();
+    const selection = {};
+    const fig = figure([
+      panel(heatmapMark(['c1'], ['b1'], [[1]]), { title: 'Response matrix' }),
+      panel(linesMark([series('b1', [[0, 1]])]), { title: 'c1 sweep', section: 'Sweeps' }),
+      panel(linesMark([series('b1', [[0, 2]])]), { title: 'c2 sweep', section: 'Sweeps' }),
+    ]);
+
+    renderFigure(elements, fig, { selection });
+
+    // The inline finding comes first; the evidence is a closed disclosure.
+    const details = disclosure(elements.panels);
+    expect(details.open).toBe(false);
+    const inline = /** @type {Element} */ (
+      elements.panels.querySelector('section.figure-panel')
+    );
+    expect(details.compareDocumentPosition(inline)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
+    expect(elements.panels.querySelector('.figure-section-count')?.textContent).toBe('2 panels');
+
+    // One panel at a time, chosen by the picker.
+    expect(textsOf(details, 'h4.figure-panel-title')).toEqual(['c1 sweep']);
+
+    click(details.querySelectorAll('button.figure-chip')[1]);
+    expect(textsOf(elements.panels, 'h4.figure-panel-title')).toContain('c2 sweep');
+    expect(textsOf(elements.panels, 'h4.figure-panel-title')).not.toContain('c1 sweep');
+  });
+
+  test('an opened section stays open across a redraw', () => {
+    const elements = mount();
+    const selection = {};
+    const fig = figure([
+      panel(heatmapMark(['c1'], ['b1'], [[1]]), { title: 'Response matrix' }),
+      panel(linesMark([series('b1', [[0, 1]])]), { title: 'c1 sweep', section: 'Sweeps' }),
+    ]);
+
+    renderFigure(elements, fig, { selection });
+    const details = disclosure(elements.panels);
+    expect(details.open).toBe(false);
+
+    // happy-dom does not fire `toggle` for a property set, so drive the event
+    // the way a real disclosure click does.
+    details.open = true;
+    details.dispatchEvent(new Event('toggle'));
+
+    renderFigure(elements, fig, { selection });
+    expect(disclosure(elements.panels).open).toBe(true);
+  });
+
+  test('a figure with no sections renders exactly as it did before sections existed', () => {
+    const elements = mount();
+    renderFigure(
+      elements,
+      figure([
+        panel(linesMark([series('a', [[0, 1]])]), { title: 'one' }),
+        panel(linesMark([series('b', [[0, 2]])]), { title: 'two' }),
+      ])
+    );
+
+    expect(elements.panels.querySelectorAll('details.figure-section')).toHaveLength(0);
+    expect(elements.panels.querySelectorAll('.figure-picker')).toHaveLength(0);
+    expect(textsOf(elements.panels, 'h4.figure-panel-title')).toEqual(['one', 'two']);
   });
 
   test('heatmap cells carry their value as hover text', () => {

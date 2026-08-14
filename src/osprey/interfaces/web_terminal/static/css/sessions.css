@@ -24,18 +24,22 @@
   border-color: var(--border-accent);
 }
 
+/* Body-level and fixed. The picker button is adopted into dockview's tab strip
+ * (dock-tab.js), which is overflow:hidden and one bar tall AND carries a
+ * transform — that opens a stacking context, so an absolutely-positioned
+ * dropdown is both clipped away and pinned below the terminal content pane no
+ * matter how high its z-index. sessions.js appends this to <body> and sets
+ * left/top from the button's rect; everything here is appearance only. */
 .session-dropdown {
   display: none;
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  position: fixed;
+  z-index: var(--z-dropdown);
   min-width: 280px;
   max-height: 360px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-dropdown);
-  z-index: var(--z-dropdown);
   overflow: hidden;
 }
 

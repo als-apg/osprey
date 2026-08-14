@@ -194,21 +194,6 @@
   color: var(--text-muted);
 }
 
-/* Rides the secondary accent: the shell's three always-visible orientation
-   marks — what this is (here), which session (.terminal-label), which panel
-   (.panel-rail-button.active) — share one color, distinct from the primary
-   accent that means "you can act here". --color-accent-secondary-light is the
-   text-safe slot of the pair (the base is decorative-only and is not gated
-   for body text). */
-.header-title {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-regular);
-  color: var(--color-accent-secondary-light);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-}
-
 /* ---- Header action cluster (bordered chips, frame 2a) ---- */
 
 /* Any `.header-icon-btn` (base style in drawer.css) that lands in the header
@@ -1276,8 +1261,11 @@ html[data-rail-position="top"] .rail-hint {
   background: var(--color-success);
 }
 
-/* "SESSION <hex>" — the second of the shell's orientation marks (see
-   .header-title). */
+/* "SESSION <hex>" — one of the shell's two always-visible orientation marks;
+   the other is which panel is open (.panel-rail-button.active). Both ride the
+   secondary accent, distinct from the primary accent that means "you can act
+   here". --color-accent-secondary-light is the text-safe slot of the pair (the
+   base is decorative-only and is not gated for body text). */
 .terminal-label {
   font-family: var(--font-mono);
   font-size: var(--text-sm);

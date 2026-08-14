@@ -478,6 +478,29 @@ def row_anomaly(matrix: np.ndarray) -> np.ndarray:
     return scores
 
 
+def singular_values(matrix: np.ndarray) -> np.ndarray:
+    """The response matrix's singular value spectrum, largest first.
+
+    The conventional companion to the matrix itself: how fast the spectrum
+    falls says how many independent correction modes the measured machine
+    actually supports, and where the tail flattens is the noise floor an
+    orbit correction would truncate at. A separable (rank-1) matrix collapses
+    to a single significant value; genuine independent structure lifts the
+    ones behind it.
+
+    Returns an empty array rather than raising when there is nothing to
+    decompose -- no correctors or BPMs yet, or a matrix still carrying
+    non-finite cells from a partly-fitted live run. `numpy.linalg.svd` raises
+    on both, and a figure is a view: a spectrum that cannot be computed must
+    cost its own panel, not the whole figure.
+    """
+    matrix = np.asarray(matrix, dtype=float)
+    if matrix.ndim != 2 or matrix.size == 0 or not np.all(np.isfinite(matrix)):
+        return np.zeros(0)
+
+    return np.linalg.svd(matrix, compute_uv=False)
+
+
 def _peer_score(vector: np.ndarray, reference: np.ndarray) -> float:
     """Combined norm-ratio + anti-correlation score of *vector* vs *reference*."""
     vector_norm = float(np.linalg.norm(vector))

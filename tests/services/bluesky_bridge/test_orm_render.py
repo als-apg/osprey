@@ -138,8 +138,12 @@ def test_bidirectional_run_renders_the_same_matrix() -> None:
 # =========================================================================
 
 
-def test_panel_order_is_traces_then_matrix_then_anomaly_bars() -> None:
-    """Stable order, so a live figure grows instead of rearranging."""
+def test_panel_order_leads_with_the_fit_and_demotes_the_sweeps() -> None:
+    """The finding leads; the raw evidence follows in collapsed sections.
+
+    Order is stable, so a live figure grows instead of rearranging: the fitted
+    panels appear above the sweep section as sweeps complete.
+    """
     correctors, detectors = ["hcm1", "hcm2"], ["bpm1", "bpm2", "bpm3"]
     truth = _truth(len(detectors), len(correctors))
     rows = _rows(correctors, detectors, truth, _currents(1.0, 7, sweep="bidirectional"))
@@ -147,13 +151,26 @@ def test_panel_order_is_traces_then_matrix_then_anomaly_bars() -> None:
     figure = orm.render(rows, _params(correctors=correctors, detectors=detectors))
 
     assert [panel.title for panel in figure.panels] == [
-        "hcm1 sweep",
-        "hcm2 sweep",
         "Response matrix",
+        "Response by BPM",
         "Corrector anomaly score",
         "BPM anomaly score",
+        "Singular values",
+        "hcm1 sweep",
+        "hcm2 sweep",
     ]
-    traces = figure.panels[0].mark
+    # The fitted headline is inline; the sweeps and the spectrum are demoted.
+    assert [panel.section for panel in figure.panels] == [
+        None,
+        None,
+        None,
+        None,
+        "Singular values",
+        "Per-corrector sweeps",
+        "Per-corrector sweeps",
+    ]
+
+    traces = _panel(figure, "hcm1 sweep").mark
     assert isinstance(traces, LinesMark)
     assert [series.label for series in traces.series] == detectors
     assert traces.source_points == len(detectors) * 7
@@ -167,6 +184,103 @@ def test_panel_order_is_traces_then_matrix_then_anomaly_bars() -> None:
     assert bpm_bar.categories == detectors
 
 
+def test_response_by_bpm_is_the_matrix_read_column_wise() -> None:
+    """One line per fitted corrector, carrying that corrector's matrix column.
+
+    The panel ships EVERY fitted corrector and marks itself selectable: the
+    reader's choice of which lines to draw is a filter over data already on the
+    wire, never a refetch.
+    """
+    correctors, detectors = ["hcm1", "hcm2"], ["bpm1", "bpm2", "bpm3"]
+    truth = _truth(len(detectors), len(correctors))
+    rows = _rows(correctors, detectors, truth, _currents(1.0, 7, sweep="bidirectional"))
+
+    figure = orm.render(rows, _params(correctors=correctors, detectors=detectors))
+    panel = _panel(figure, "Response by BPM")
+
+    assert panel.series_picker is True
+    assert panel.section is None  # a headline panel, not demoted
+
+    mark = panel.mark
+    assert isinstance(mark, LinesMark)
+    assert [series.label for series in mark.series] == correctors
+
+    # Series j is column j of the matrix, against a 1-based BPM index.
+    for j, series in enumerate(mark.series):
+        assert [point.x for point in series.points] == [1.0, 2.0, 3.0]
+        assert [point.y for point in series.points] == pytest.approx(truth[:, j], abs=1e-9)
+
+
+def test_response_by_bpm_carries_only_fitted_correctors() -> None:
+    """An in-flight corrector has no column, so it has no line -- the same
+    subsequence the heatmap's x axis uses, never a flat zero line that would
+    read as a dead corrector."""
+    correctors = ["hcm1", "hcm2", "hcm3"]
+    detectors = ["bpm1", "bpm2"]
+    num = 7
+    truth = _truth(len(detectors), len(correctors))
+    rows = _rows(
+        correctors,
+        detectors,
+        truth,
+        _currents(1.0, num, sweep="bidirectional"),
+        stop_after=num + 3,  # hcm1 complete, hcm2 in flight, hcm3 untouched
+    )
+
+    figure = orm.render(rows, _params(correctors=correctors, detectors=detectors, num=num))
+    mark = _panel(figure, "Response by BPM").mark
+
+    assert isinstance(mark, LinesMark)
+    assert [series.label for series in mark.series] == ["hcm1"]
+
+
+def test_singular_values_panel_is_log10_and_sectioned() -> None:
+    """The spectrum is a second opinion, so it is demoted into its own section.
+
+    Values are log10 because the renderer draws linear axes only and a
+    spectrum's meaning is its decades of fall-off; the axis label says so.
+    """
+    correctors, detectors = ["hcm1", "hcm2"], ["bpm1", "bpm2", "bpm3"]
+    truth = _truth(len(detectors), len(correctors))
+    rows = _rows(correctors, detectors, truth, _currents(1.0, 7, sweep="bidirectional"))
+
+    figure = orm.render(rows, _params(correctors=correctors, detectors=detectors))
+    panel = _panel(figure, "Singular values")
+
+    assert panel.section == "Singular values"
+    assert panel.y_label == "log10 singular value"
+
+    mark = panel.mark
+    assert isinstance(mark, LinesMark)
+    points = mark.series[0].points
+    assert [point.x for point in points] == [1.0, 2.0]  # min(n_bpm, n_corr)
+
+    expected = np.log10(np.linalg.svd(truth, compute_uv=False))
+    assert [point.y for point in points] == pytest.approx(expected, abs=1e-9)
+
+
+def test_a_numerically_zero_singular_value_is_a_gap_not_a_minus_sixteen() -> None:
+    """A rank-deficient matrix leaves ~1e-16 residue, not an exact zero.
+
+    Plotting log10 of that residue would stretch the axis over sixteen decades
+    and squash every real mode flat, so anything at or below the numerical-rank
+    tolerance is a gap.
+    """
+    correctors, detectors = ["hcm1", "hcm2"], ["bpm1", "bpm2"]
+    # Both correctors drive an identical BPM shape: a rank-1 matrix, so the
+    # second singular value is zero.
+    truth = np.array([[1.0, 1.0], [2.0, 2.0]])
+    rows = _rows(correctors, detectors, truth, _currents(1.0, 7, sweep="bidirectional"))
+
+    figure = orm.render(rows, _params(correctors=correctors, detectors=detectors))
+    mark = _panel(figure, "Singular values").mark
+
+    assert isinstance(mark, LinesMark)
+    points = mark.series[0].points
+    assert points[0].y is not None
+    assert points[1].y is None
+
+
 def test_trace_points_are_the_recorded_current_and_reading() -> None:
     """A trace point is a claim about one row, not a smoothed curve."""
     correctors, detectors = ["hcm1", "hcm2"], ["bpm1", "bpm2", "bpm3"]
@@ -175,7 +289,7 @@ def test_trace_points_are_the_recorded_current_and_reading() -> None:
     rows = _rows(correctors, detectors, truth, currents)
 
     figure = orm.render(rows, _params(correctors=correctors, detectors=detectors))
-    traces = figure.panels[1].mark
+    traces = _panel(figure, "hcm2 sweep").mark
     assert isinstance(traces, LinesMark)
 
     series = traces.series[0]
@@ -246,7 +360,8 @@ def test_mid_sweep_fits_completed_correctors_and_traces_the_in_flight_one() -> N
     figure = orm.render(rows, _params(correctors=correctors, detectors=detectors, num=num))
 
     titles = [panel.title for panel in figure.panels]
-    assert titles[:4] == ["hcm1 sweep", "hcm2 sweep", "hcm3 sweep", "hcm4 sweep"]
+    sweeps = [title for title in titles if title.endswith(" sweep")]
+    assert sweeps == ["hcm1 sweep", "hcm2 sweep", "hcm3 sweep", "hcm4 sweep"]
     assert "hcm5 sweep" not in titles  # not started: no panel, not an empty one
 
     heatmap = _panel(figure, "Response matrix").mark
@@ -304,7 +419,7 @@ def test_a_bpm_that_missed_a_reading_draws_a_gap_not_a_zero() -> None:
     rows[3]["bpm1"] = None  # type: ignore[assignment]
 
     figure = orm.render(rows, _params(correctors=correctors, detectors=detectors))
-    traces = figure.panels[0].mark
+    traces = _panel(figure, "hcm1 sweep").mark
     assert isinstance(traces, LinesMark)
     assert traces.series[0].points[3].y is None
     assert traces.series[1].points[3].y is not None
@@ -386,7 +501,7 @@ def test_panels_and_series_are_capped_with_annotations_naming_the_excess() -> No
     assert len(trace_titles) == orm._MAX_TRACE_PANELS
     assert trace_titles[-1] == "hcm20 sweep"  # the tail, where a live sweep is
 
-    first = figure.panels[0]
+    first = _panel(figure, trace_titles[0])
     assert any("8 most recently swept of 20 correctors" in n for n in first.annotations)
     assert any("first 12 of 30 BPMs" in n for n in first.annotations)
 

@@ -39,6 +39,7 @@ from osprey.services.bluesky_bridge.orm_analysis import (
     SlicedResponseFit,
     column_anomaly,
     row_anomaly,
+    singular_values,
     sliced_response_matrix,
 )
 
@@ -197,6 +198,15 @@ _MAX_TRACE_SERIES = 12
 N largest: series identity has to stay stable from tick to tick, and a
 "largest" selection would swap lines in and out as the sweep fills in."""
 
+_SWEEPS_SECTION = "Per-corrector sweeps"
+"""Section holding the raw sweep traces. They are the run's evidence rather
+than its finding, so once there is a finding to lead with they move below it
+and the reader picks the corrector they want."""
+
+_SPECTRUM_SECTION = "Singular values"
+"""Section holding the singular value spectrum -- a second opinion on the
+matrix above, consulted rather than scanned."""
+
 
 def _sweep_series(fit: SlicedResponseFit, index: int) -> tuple[list[Series], bool, int, int]:
     """Corrector *index*'s BPM traces: series, decimated, points, samples drawn.
@@ -223,7 +233,13 @@ def _sweep_series(fit: SlicedResponseFit, index: int) -> tuple[list[Series], boo
     return series, decimated, source_points, len(kept)
 
 
-def _trace_panels(fit: SlicedResponseFit, num: int, lead_annotations: list[str]) -> list[Panel]:
+def _trace_panels(
+    fit: SlicedResponseFit,
+    num: int,
+    lead_annotations: list[str],
+    *,
+    section: str | None,
+) -> list[Panel]:
     """One panel per traced corrector: BPM readings against that corrector's current.
 
     A corrector that has recorded no current yet -- the sweep has not reached
@@ -274,10 +290,111 @@ def _trace_panels(fit: SlicedResponseFit, num: int, lead_annotations: list[str])
                 x_units="A",
                 y_label="BPM reading",
                 annotations=annotations,
+                section=section,
                 mark=LinesMark(series=series, decimated=decimated, source_points=source_points),
             )
         )
     return panels
+
+
+def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
+    """The matrix read column-wise: each corrector's response across the BPMs.
+
+    The same numbers as the heatmap in the encoding that makes a *shape*
+    legible -- the sign oscillation of betatron phase advance, a flat line for
+    a dead corrector, a spike every trace shares for a dead BPM. Every fitted
+    corrector ships as its own series and the reader picks which are drawn, so
+    changing the comparison costs no fetch.
+
+    The BPM axis is the requested detector order, which is not `s` order: the
+    plan is device-agnostic and carries no lattice positions, so the panel says
+    so rather than implying a geometry it cannot know.
+    """
+    series = [
+        Series(
+            label=corrector,
+            points=[
+                Point(
+                    x=float(i + 1),
+                    y=(float(cell) if math.isfinite(float(cell)) else None),
+                )
+                for i, cell in enumerate(row[j] for row in fit.matrix)
+            ],
+            source_points=len(fit.detectors),
+        )
+        for j, corrector in enumerate(fit.fitted_correctors)
+    ]
+
+    return Panel(
+        title="Response by BPM",
+        x_label="BPM index",
+        y_label="Response slope",
+        y_units="BPM units / A",
+        annotations=[
+            "Each line is one corrector's column of the matrix above. The "
+            "oscillation in sign is betatron phase advance; a flat line is a "
+            "corrector with no measured response.",
+            "BPMs are in the order they were requested, which is not their "
+            "order around the ring -- this plan carries no lattice positions.",
+        ],
+        series_picker=True,
+        mark=LinesMark(series=series, source_points=len(fit.detectors) * len(series)),
+    )
+
+
+def _spectrum_panel(fit: SlicedResponseFit) -> Panel | None:
+    """The singular value spectrum, or `None` when there is nothing to decompose.
+
+    Plotted as log10 because a spectrum's whole shape is its decades of
+    fall-off, and the renderer draws linear axes only -- taking the log here is
+    honest about the transform in the axis label, where a linear plot of the
+    same values would simply hide every mode below the first.
+
+    Values at or below the numerical-rank tolerance become gaps rather than
+    points. A rank-deficient matrix does not decompose to exact zeros: it
+    leaves floating-point residue around 1e-16 of the largest value, and
+    `log10` of *that* is a -16 that stretches the axis over sixteen decades and
+    squashes every real mode into a sliver. The threshold is the standard
+    numerical-rank one (`numpy.linalg.matrix_rank`'s): below it a value is an
+    artefact of the decomposition, not a measured mode.
+    """
+    values = singular_values(fit.matrix)
+    if values.size == 0:
+        return None
+
+    # `math.ulp(1.0)` IS the machine epsilon `sys.float_info.epsilon` reports,
+    # reached through the one module the plan validator's import allowlist
+    # permits here -- a plan file may not import `sys`.
+    rows, columns = fit.matrix.shape
+    tolerance = float(values[0]) * max(rows, columns) * math.ulp(1.0)
+
+    return Panel(
+        title="Singular values",
+        x_label="Singular value index",
+        y_label="log10 singular value",
+        annotations=[
+            "How many independent correction modes the measured machine "
+            "supports: where this curve flattens is the noise floor an orbit "
+            "correction would truncate at.",
+        ],
+        section=_SPECTRUM_SECTION,
+        mark=LinesMark(
+            series=[
+                Series(
+                    label="Singular value",
+                    points=[
+                        Point(
+                            x=float(index + 1),
+                            y=(math.log10(value) if value > tolerance else None),
+                        )
+                        for index, value in enumerate(float(v) for v in values)
+                    ],
+                    source_points=int(values.size),
+                )
+            ],
+            source_points=int(values.size),
+        ),
+    )
 
 
 def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
@@ -302,7 +419,12 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             title="Response matrix",
             x_label="Corrector",
             y_label="BPM",
-            annotations=matrix_note,
+            annotations=[
+                *matrix_note,
+                "Colour is signed: one hue each side of zero, scaled "
+                "symmetrically, so an unresponsive BPM reads as background "
+                "rather than as a mid-scale response.",
+            ],
             mark=HeatmapMark(
                 x_labels=list(fit.fitted_correctors),
                 y_labels=list(fit.detectors),
@@ -312,6 +434,7 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
                 source_points=int(fit.matrix.size),
             ),
         ),
+        _response_by_bpm_panel(fit),
         Panel(
             title="Corrector anomaly score",
             x_label="Corrector",
@@ -362,9 +485,30 @@ def _build(rows: list[dict[str, Any]], params: PARAMS, *, with_fit: bool) -> Fig
             "an anomaly score compares each corrector against its peers."
         )
 
-    panels = _trace_panels(fit, params.num, lead_annotations)
+    # The finding leads and the evidence follows, collapsed. But a section is a
+    # demotion, and there is nothing to demote beneath when the fit was skipped:
+    # with no fitted panels the sweeps ARE the figure, so they stay inline --
+    # which is also what keeps the capped-run warning above the fold, on the
+    # first panel the reader actually sees.
+    #
+    # `lead_annotations` is only ever non-empty when `capped`, and a capped run
+    # has no fitted panels -- so the cap warning always lands on an inline sweep
+    # panel, never inside a collapsed section.
+    fitted: list[Panel] = []
     if with_fit and not capped and fit.fitted_correctors:
-        panels.extend(_fit_panels(fit))
+        fitted.extend(_fit_panels(fit))
+        spectrum = _spectrum_panel(fit)
+        if spectrum is not None:
+            fitted.append(spectrum)
+
+    sweeps = _trace_panels(
+        fit,
+        params.num,
+        lead_annotations,
+        section=_SWEEPS_SECTION if fitted else None,
+    )
+
+    panels = [*fitted, *sweeps]
 
     # Placeholders: the figure route stamps the truth onto both on every path.
     # A render sees rows, never their provenance, so `partial=True` is the
