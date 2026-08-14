@@ -77,12 +77,14 @@ recorder service — that holds what those channels did.
 
 **The first deploy seeds the archive**, and it is the step that takes the
 longest. It writes about a month of history for every channel the machine
-serves, printing a progress line every 15 seconds or so while it works:
+serves, printing a progress line every 15 seconds or so while it works. The
+duration on each line is how long that slice of the seeding took:
 
 .. code-block:: text
 
    Seeding 2,908 channels over 30 days (48h at 10s, then 60s). This takes minutes on a first deploy.
-     seeding archive: 8,960 documents written (15s elapsed)
+     · seeding archive: 8,960 documents written across 2,908 channels (17.4s)
+     · seeding archive: 17,920 documents written across 2,908 channels (15.0s)
      ...
    seeded 57,600 documents x 2,908 channels (2026-07-12 09:14 to 2026-08-11 09:14 UTC) in 96.3s
 

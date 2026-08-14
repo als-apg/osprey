@@ -240,10 +240,10 @@ to that channel's own noise. Nothing invents an event nobody would find in the
 live machine.
 
 Writing it takes a minute or two on a first deploy, and the deploy says so as it
-goes ("seeding archive: N documents written", every 15 seconds or so), then
-reports the span and the document count when it finishes. Later deploys check
-the archive against the knobs now in force and skip the seed when it already
-covers them.
+goes ("seeding archive: N documents written across N channels", every 15 seconds
+or so), then reports the span and the document count when it finishes. Later
+deploys check the archive against the knobs now in force and skip the seed when
+it already covers them.
 
 **The recorded present.** From then on the recorder samples the machine every
 10 seconds and stores what answered. A setpoint you write is readable out of the
