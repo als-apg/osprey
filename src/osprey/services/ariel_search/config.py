@@ -7,6 +7,7 @@ Configuration is loaded from the `ariel:` section of config.yml.
 
 import logging
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,6 +38,7 @@ _connection_string_warned = False
 def resolve_ariel_dsn(
     ariel_section: dict[str, Any],
     services: dict[str, Any] | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> str:
     """Resolve the effective ARIEL database DSN.
 
@@ -62,6 +64,13 @@ def resolve_ariel_dsn(
         services: The ``services.postgresql`` mapping from config.yml, or None
             when the caller has no services block — the derived DSN then falls
             back to the shipped Postgres defaults.
+        env: Where to read ``ARIEL_DB_PASSWORD`` from. Defaults to the process
+            environment, which is what every in-container consumer wants. A
+            caller acting ON a project rather than IN it — the deploy, which
+            migrates a store it is bringing up — passes that project's own
+            ``.env`` instead: run from another directory, the ambient value
+            belongs to some other deployment, and using it would either fail
+            confusingly or reach a database this call was never pointed at.
 
     Returns:
         The DSN to connect with.
@@ -81,7 +90,9 @@ def resolve_ariel_dsn(
     username = postgresql.get("username", _DEFAULT_DB_USERNAME)
     database_name = postgresql.get("database_name", _DEFAULT_DB_NAME)
     port = postgresql.get("port_host", _DEFAULT_DB_PORT)
-    password = os.environ.get("ARIEL_DB_PASSWORD", _DEFAULT_DB_PASSWORD)
+    password = (env if env is not None else os.environ).get(
+        "ARIEL_DB_PASSWORD", _DEFAULT_DB_PASSWORD
+    )
 
     return f"postgresql://{username}:{password}@localhost:{port}/{database_name}"
 

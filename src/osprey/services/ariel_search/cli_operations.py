@@ -972,6 +972,29 @@ async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _Pro
         await pool.close()
 
 
+async def logbook_entry_count(config_dict: dict) -> int:
+    """How many entries the logbook currently holds.
+
+    The question a caller has to answer before writing anything it did not
+    author: an empty logbook is one nothing is lost by seeding, and a non-empty
+    one is history — an operator's own entries, or a narrative already seeded and
+    since edited — that no automated step may overwrite. Migrations must already
+    have run (call :func:`run_migrate` first).
+
+    Args:
+        config_dict: ARIEL config dict (``ARIELConfig.from_dict`` shape).
+
+    Returns:
+        The total number of entries.
+    """
+    from osprey.services.ariel_search import create_ariel_service
+
+    config = _ariel_config(config_dict)
+    service = await create_ariel_service(config)
+    async with service:
+        return await service.repository.count_entries()
+
+
 async def seed_logbook_entries(
     config_dict: dict,
     entries: list[EnhancedLogbookEntry],

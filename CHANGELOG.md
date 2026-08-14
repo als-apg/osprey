@@ -450,6 +450,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   `osprey up` mints never reached the containers, so both authenticated with the
   shipped default instead. Each user whose persona configures ARIEL is now given
   it, and a persona that configures none is not.
+- A start now creates ARIEL's schema for a database it brought up itself, and
+  writes the active scenarios' logbook entries when the logbook is empty. Until
+  now nothing on the deploy path created the tables — that lived only behind
+  `osprey ariel migrate`/`quickstart` — so a first start left a database with no
+  tables behind a panel that could not say so usefully. An existing logbook is
+  left untouched, and a database that cannot be reached warns and names the
+  command that finishes the job rather than failing the deploy.
 - A start that would generate store credentials a surviving data volume cannot
   accept now stops before it starts anything. Deleting a deployment directory
   leaves its volumes behind, so the next `osprey up` minted fresh passwords for
