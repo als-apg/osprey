@@ -26,6 +26,17 @@ Compatibility is documented in release notes, not encoded in the version string.
   magnifier and remaining controls fold into a ⋯ menu instead of vanishing.
   The six-dot drag grip is gone — the bar itself remains the drag handle.
 
+- Lifecycle commands now report what they are doing instead of scrolling their
+  transcript past. `osprey init`, `build`, `up`, `restart` and `down` print one
+  line per phase as they work; `init`, `build`, `down` and a detached
+  `up -d`/`restart -d` finish with a summary card saying where the deployment
+  stands and what to run next (an attached start ends inside the live log
+  stream, so it gets none), and `osprey reset` ends with a one-line summary.
+  The container build and compose output they used to stream is spooled to
+  `var/logs/` — and a step that fails replays its own spool in full before the
+  error, so the reason is still on the screen. `osprey -v` streams everything
+  to the terminal as before.
+
 - The control-assistant preset's two-user roster now ships alice as the
   write-capable operator and bob as the read-only viewer. The tiers differ
   visibly, not just in enforcement: the write-armed terminal keeps the full

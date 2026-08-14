@@ -525,13 +525,13 @@ def test_status_writes_nothing_into_the_repo(lifecycle_repo, runtime):
 def test_status_never_announces_creating_the_files_it_did_not_create(
     lifecycle_repo, runtime, capsys
 ):
-    """The artifact renderer narrates itself, and the dry run makes it narrate a lie.
+    """The artifact renderer must not narrate itself inside a read-only report.
 
-    Rendering into a temporary directory still runs the writer, which ends with
-    "✓ Created N Claude Code integration file(s)" on stdout. Inside a status
-    report that sentence tells an operator this read-only command just rewrote
-    their repo. This runs the real renderer, not a stub, because the sentence
-    comes from the real one.
+    Rendering into a temporary directory still runs the writer. Any "Created N
+    …" sentence it puts on stdout would tell an operator that this read-only
+    command just rewrote their repo. The renderer now keeps that detail in the
+    log rather than on the terminal, and this test is the guard that it stays
+    there: it runs the real renderer, not a stub.
     """
     render_build(lifecycle_repo)
     capsys.readouterr()

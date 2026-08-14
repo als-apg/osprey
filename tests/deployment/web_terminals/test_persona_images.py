@@ -8,11 +8,11 @@ refuses a start when `osprey build` has not written a persona's project.
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 
 import pytest
 
+from osprey.deployment.errors import CapturedProcessError
 from osprey.deployment.web_terminals import persona_images
 
 # ---------------------------------------------------------------------------
@@ -59,7 +59,7 @@ def _no_dev_wheel_staging(monkeypatch):
 
 def test_build_persona_images_noop_in_registry_mode(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(persona_images, "run_captured", lambda *a, **k: calls.append(a))
     config = {"modules": {"web_terminals": {"image_source": "registry"}}}
 
     persona_images.build_persona_images(config, [{"persona": "ops"}], False, {})
@@ -115,7 +115,7 @@ def test_build_persona_images_builds_each_referenced_persona_once(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -161,7 +161,7 @@ def test_build_persona_images_never_builds_zero_migration_entries(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -186,7 +186,7 @@ def test_build_persona_images_includes_cli_version_from_persona_config(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -215,7 +215,7 @@ def test_build_persona_images_omits_cli_version_when_unset_in_persona_config(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -249,7 +249,7 @@ def test_build_persona_images_never_reads_facility_cli_version(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -277,7 +277,7 @@ def test_build_persona_images_dev_mode_adds_osprey_dev_build_arg(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, True, {})
 
@@ -308,7 +308,7 @@ def test_build_persona_images_dev_mode_omits_osprey_dev_when_staging_fails(monke
     )
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, True, {})
 
@@ -334,7 +334,7 @@ def test_build_persona_images_non_dev_omits_osprey_dev_build_arg(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -363,7 +363,7 @@ def test_build_persona_images_dev_mode_stages_and_cleans_wheel(monkeypatch, tmp_
 
     monkeypatch.setattr(persona_images, "_copy_local_framework_for_override", _fake_stage)
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: None)
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: None)
 
     persona_images.build_persona_images(config, resolved_users, True, {})
 
@@ -400,13 +400,15 @@ def test_build_persona_images_dev_mode_cleans_staged_artifacts_on_build_failure(
         return True
 
     def _failing_build(cmd, **k):
-        raise subprocess.CalledProcessError(1, cmd)
+        # A captured build reports failure as CapturedProcessError, which carries
+        # the spool path holding the output the terminal never saw.
+        raise CapturedProcessError(cmd, 1)
 
     monkeypatch.setattr(persona_images, "_copy_local_framework_for_override", _fake_stage)
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
-    monkeypatch.setattr(persona_images.subprocess, "run", _failing_build)
+    monkeypatch.setattr(persona_images, "run_captured", _failing_build)
 
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(CapturedProcessError):
         persona_images.build_persona_images(config, resolved_users, True, {})
 
     context = persona_images._persona_image_context(ops_path)
@@ -433,7 +435,7 @@ def test_build_persona_images_no_referenced_personas_runs_no_build(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, [], False, {})
 
@@ -522,7 +524,7 @@ _PERSONA_USERS = [{"name": "alice", "index": 0, "persona": "ops", "project": "op
 def calls(monkeypatch) -> list[list[str]]:
     """Every subprocess this module would run. It must stay empty here."""
     recorded: list[list[str]] = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: recorded.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: recorded.append(cmd))
     return recorded
 
 

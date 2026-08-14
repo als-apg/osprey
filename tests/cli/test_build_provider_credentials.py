@@ -171,7 +171,7 @@ class TestReportProviderCredentials:
     def test_found_selected_provider_is_reported_with_source(self, project, profile_dir, caplog):
         (project / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
 
-        with caplog.at_level(logging.INFO):
+        with caplog.at_level(logging.DEBUG):
             report_provider_credentials(project, "cborg", profile_dir=profile_dir)
 
         text = caplog.text
@@ -200,7 +200,7 @@ class TestReportProviderCredentials:
         (project / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
         monkeypatch.setenv("ALS_APG_API_KEY", "als-key")
 
-        with caplog.at_level(logging.INFO):
+        with caplog.at_level(logging.DEBUG):
             report_provider_credentials(project, "cborg", profile_dir=profile_dir)
 
         assert "ALS_APG_API_KEY" in caplog.text
@@ -208,7 +208,7 @@ class TestReportProviderCredentials:
     def test_unset_keys_are_still_listed(self, project, profile_dir, caplog):
         (project / ".env").write_text("CBORG_API_KEY=secret\n", encoding="utf-8")
 
-        with caplog.at_level(logging.INFO):
+        with caplog.at_level(logging.DEBUG):
             report_provider_credentials(project, "cborg", profile_dir=profile_dir)
 
         assert "OPENAI_API_KEY" in caplog.text
@@ -246,7 +246,7 @@ class TestReportProviderCredentials:
         assert _status_for(statuses, "anthropic").found is False
 
     def test_keyless_selected_provider_reports_no_key_required(self, project, profile_dir, caplog):
-        with caplog.at_level(logging.INFO):
+        with caplog.at_level(logging.DEBUG):
             report_provider_credentials(project, "ollama", profile_dir=profile_dir)
 
         assert "ollama" in caplog.text
@@ -254,7 +254,7 @@ class TestReportProviderCredentials:
         assert not warnings, "a keyless provider must not warn about a missing key"
 
     def test_unknown_provider_does_not_crash_the_build(self, project, profile_dir, caplog):
-        with caplog.at_level(logging.INFO):
+        with caplog.at_level(logging.DEBUG):
             report_provider_credentials(project, "not-a-real-provider", profile_dir=profile_dir)
 
         assert "not-a-real-provider" in caplog.text

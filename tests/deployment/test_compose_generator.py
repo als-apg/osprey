@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -565,7 +566,7 @@ def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) ->
         # Return non-zero so the function bails before trying to copy a wheel.
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="stop here")
 
-    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "run", _fake_run)
     # A failed build now aborts the deploy rather than falling back to the
     # released package; the interpreter assertion below is what this test is for.
     with pytest.raises(DevModeUnavailableError):
@@ -2335,8 +2336,6 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
     """
     import subprocess as subprocess_module
 
-    from osprey.deployment import compose_generator
-
     calls: list = []
     real_run = subprocess_module.run
 
@@ -2348,7 +2347,7 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "run", _fake_run)
     return calls
 
 
@@ -2506,7 +2505,6 @@ def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
     the deploy must abort, and no wheel may be left in the build context."""
     import subprocess as subprocess_module
 
-    from osprey.deployment import compose_generator
     from osprey.deployment.errors import DevModeUnavailableError
 
     real_run = subprocess_module.run
@@ -2518,7 +2516,7 @@ def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
             )
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(compose_generator.subprocess, "run", _failing_build)
+    monkeypatch.setattr(subprocess, "run", _failing_build)
 
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
@@ -2808,7 +2806,6 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
     still lacks the local wheel's added deps (half-staged)."""
     import subprocess as subprocess_module
 
-    from osprey.deployment import compose_generator
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
     from osprey.deployment.errors import DevModeUnavailableError
 
@@ -2821,7 +2818,7 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "run", _fake_run)
 
     ctx = tmp_path / "ctx"
     ctx.mkdir()

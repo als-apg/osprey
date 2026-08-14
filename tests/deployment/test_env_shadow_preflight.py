@@ -28,6 +28,7 @@ the one end-to-end test drives ``osprey up`` with the runtime stubbed out.
 from __future__ import annotations
 
 import logging
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -413,7 +414,9 @@ def test_the_start_sequence_runs_the_preflight_before_the_image_build(tmp_path, 
         lambda config, dev, env, ctx=None: order.append("image"),
     )
     monkeypatch.setattr(
-        container_lifecycle.subprocess, "run", lambda cmd, env=None, check=False: None
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0),
     )
 
     container_lifecycle._start_stack(
@@ -454,7 +457,7 @@ def test_a_divergent_export_warns_but_still_starts_the_stack(tmp_path, monkeypat
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
-        lambda cmd, env=None, check=False: ran.append(list(cmd)),
+        lambda cmd, **k: ran.append(list(cmd)) or subprocess.CompletedProcess(list(cmd), 0),
     )
 
     with caplog.at_level(logging.WARNING):

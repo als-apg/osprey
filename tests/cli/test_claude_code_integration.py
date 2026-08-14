@@ -323,13 +323,18 @@ class TestClaudeCodeGitignore:
 class TestClaudeCodeCLI:
     """Test CLI Claude Code generation."""
 
-    def test_build_logs_claude_code_creation(self, tmp_path):
-        """osprey build logs that it created Claude Code integration files."""
+    def test_build_logs_claude_code_creation(self, tmp_path, caplog):
+        """osprey build logs that it created Claude Code integration files.
+
+        The line is DEBUG detail now — `build`'s terminal output is a handful of
+        phase lines — so the record is read off the log, not off stdout.
+        """
         runner = CliRunner()
-        _, result = _init_and_build(runner, tmp_path / "cc-project")
+        with caplog.at_level("DEBUG", logger="osprey.cli.templates"):
+            _, result = _init_and_build(runner, tmp_path / "cc-project")
 
         assert result.exit_code == 0, result.output
-        assert "Claude Code integration file" in result.output
+        assert "Claude Code integration file" in caplog.text
 
     def test_build_always_creates_claude_code_files(self, tmp_path):
         """osprey build always generates Claude Code integration files."""

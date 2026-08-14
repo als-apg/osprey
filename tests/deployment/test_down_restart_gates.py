@@ -77,7 +77,10 @@ def runtime(monkeypatch):
         lambda *a, **k: record.setdefault("built", True),
     )
 
-    def _fake_run(cmd, env=None, check=False, capture_output=False, text=False):
+    def _fake_run(cmd, env=None, check=False, capture_output=False, text=False, **kwargs):
+        # ``**kwargs`` swallows the redirection keywords ``run_captured`` passes
+        # (``cwd``/``stdout``/``stderr``): a captured child's output goes to a
+        # spool file, and nothing here writes any, so they are ignored.
         argv = list(cmd)
         record["cmds"].append(argv)
         # Matched on presence rather than position: a compose argv carries its

@@ -102,7 +102,7 @@ def fake_runtime(monkeypatch):
     """Patch subprocess.run + get_runtime_command; return the list of captured argvs."""
     calls: list[list[str]] = []
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False):
+    def _fake_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
         calls.append(list(argv))
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
@@ -125,7 +125,7 @@ def fake_runtime_prune(monkeypatch):
     calls: list[list[str]] = []
     listing: dict[str, list[str]] = {"containers": [], "volumes": []}
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False):
+    def _fake_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
             stdout = "\n".join(listing["containers"])
@@ -164,7 +164,7 @@ def fake_runtime_nuke(monkeypatch):
     down_result = {"returncode": 0, "stderr": ""}
     image_labels: dict[str, str | None] = {}
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False):
+    def _fake_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
             return subprocess.CompletedProcess(
@@ -1290,18 +1290,22 @@ def _capture_recreate_argv(monkeypatch) -> list[list[str]]:
     delegated call's arguments — a stricter check, and one that cannot pass
     while the fragment is dropped on the floor.
 
-    CAUTION for anyone extending a test that uses this: `lifecycle`, `provision`
-    and `postup_hooks` all do a plain `import subprocess`, so they share ONE
-    module object. Patching `provision.subprocess.run` here REPLACES the patch
-    `fake_runtime` installed, which means `fake_runtime`'s own list stays EMPTY
-    in these tests. Assert on the list this returns; an assertion against
-    `fake_runtime` here would be vacuously true.
+    CAUTION for anyone extending a test that uses this: the recreate is a
+    captured run, so this patches `provision.run_captured` — the seam the
+    primitive actually calls — while `fake_runtime` patches the shared
+    `subprocess` module. The recreate therefore never reaches `fake_runtime`'s
+    list, which stays EMPTY in these tests. Assert on the list this returns; an
+    assertion against `fake_runtime` here would be vacuously true.
     """
     from osprey.deployment.web_terminals import provision
 
     calls: list[list[str]] = []
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(provision.subprocess, "run", lambda cmd, **kwargs: calls.append(list(cmd)))
+    monkeypatch.setattr(
+        provision,
+        "run_captured",
+        lambda cmd, **kwargs: calls.append(list(cmd)) or subprocess.CompletedProcess(list(cmd), 0),
+    )
     return calls
 
 
@@ -1469,6 +1473,38 @@ def test_passwd_reports_a_failed_recreate_as_a_password_that_DID_change(
     assert "osprey up" in message
     # The stored hash really is the new one — the message is not a consolation.
     assert verify_password("alices-new-password", _read_hash(tmp_path, "ALICE"))
+
+
+def test_passwd_reports_a_spooled_recreate_failure_the_same_way(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """The recreate's compose output is spooled, so this is the type it raises.
+
+    ``CalledProcessError`` above is the shape the guard was written for;
+    ``CapturedProcessError`` is the one it now actually meets. Caught, the
+    operator gets the same two facts plus the spool to read. Uncaught, the
+    generic CLI handler prints "Deployment failed" over a changed password.
+    """
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _auth_config(["alice"]))
+
+    from osprey.deployment.errors import CapturedProcessError
+    from osprey.deployment.web_terminals import provision
+
+    spool = tmp_path / "var" / "logs" / "compose-auth-recreate.log"
+
+    def _failed_recreate(*args, **kwargs):
+        raise CapturedProcessError(["docker", "compose", "up"], 1, spool)
+
+    monkeypatch.setattr(provision, "force_recreate_auth_sidecar", _failed_recreate)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        lifecycle.rotate_user_password(str(config_path), "alice", "alices-new-password")
+
+    message = str(exc_info.value)
+    assert "'alice'" in message
+    assert "WAS changed" in message
+    assert str(spool) in message, "the spooled output is unreadable if nothing names it"
 
 
 def test_passwd_never_logs_or_prints_the_password(
@@ -1710,6 +1746,37 @@ def test_decommission_auth_recreate_failure_is_fatal_after_the_volume_policy_run
     assert f"{PW_HASH_VAR_PREFIX}ALICE" not in parse_dotenv_file(tmp_path / AUTH_ENV_FILENAME)
     # ...and the deferred raise let the volume policy finish first.
     assert [cmd for cmd in fake_runtime if cmd[1:3] == ["volume", "rm"]]
+
+
+def test_decommission_reports_a_spooled_recreate_failure_the_same_way(
+    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+):
+    """The reconcile guard meets the spooled type too, and must still name both.
+
+    Which user was removed, and where the compose output that explains the
+    failure went — an unreconciled sidecar is only actionable with both.
+    """
+    from osprey.deployment.errors import CapturedProcessError
+    from osprey.deployment.web_terminals import provision
+
+    monkeypatch.chdir(tmp_path)
+    _seed_env_auth(tmp_path, ALICE="scrypt.alice")
+    config_path = _write_config(tmp_path, _renderable_auth_config(["alice", "bob"]))
+
+    spool = tmp_path / "var" / "logs" / "compose-auth-recreate.log"
+
+    def _failed_recreate(*args, **kwargs):
+        raise CapturedProcessError(["docker", "compose", "up"], 1, spool)
+
+    monkeypatch.setattr(provision, "force_recreate_auth_sidecar", _failed_recreate)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
+
+    message = str(exc_info.value)
+    assert "'alice'" in message
+    assert "still holds their roster entry and password hash" in message
+    assert str(spool) in message, "the spooled output is unreadable if nothing names it"
 
 
 def test_prune_auth_recreate_failure_is_fatal_too(
