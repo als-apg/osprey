@@ -492,3 +492,37 @@ def test_env_production_missing_secret_absent_everywhere_has_no_shell_hint(tmp_p
         env_production.ensure_env_production(config, tmp_path)
 
     assert "exported in the current shell" not in str(excinfo.value)
+
+
+def test_env_production_never_carries_the_dispatcher_token(tmp_path):
+    """The tier boundary, pinned. One `.env.production` is handed to EVERY per-user
+    container, so a dispatcher bearer here would reach read-only personas too --
+    and that credential can fire triggers. The EVENTS panel is wired through the
+    PER-USER compose `environment:` block instead (see
+    `render_web_terminals(dispatcher_personas=...)`); this asserts the shared file
+    stays clean even when the operator's .env is full of service tokens."""
+    # Arrange
+    _write_dotenv(
+        tmp_path / ".env",
+        {
+            "ALS_APG_API_KEY": "cc-secret",
+            "EVENT_DISPATCHER_TOKEN": "fire-any-trigger",
+            "DISPATCH_WORKER_TOKEN": "worker",
+            "BLUESKY_LAUNCH_TOKEN": "arm-the-queue",
+        },
+    )
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    # Act
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    # Assert — the LLM credential crosses, the service tokens never do
+    assert generated["ALS_APG_API_KEY"] == "cc-secret"
+    for service_token in (
+        "EVENT_DISPATCHER_TOKEN",
+        "DISPATCH_WORKER_TOKEN",
+        "BLUESKY_LAUNCH_TOKEN",
+    ):
+        assert service_token not in generated

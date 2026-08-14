@@ -6,10 +6,13 @@ from __future__ import annotations
 import pytest
 
 from osprey.deployment.web_terminals.personas import (
+    EVENTS_PANEL_ID,
+    config_declares_panel,
     env_var_suffix,
     env_var_suffix_collisions,
     freeze_user_indices,
     normalize_users,
+    personas_declaring_panel,
     resolve_personas,
 )
 
@@ -1236,3 +1239,85 @@ def test_env_var_suffix_collisions_consumes_normalize_users_names() -> None:
 
     # Assert
     assert result == {"ALICE_B": ["alice-b", "alice_b"]}
+
+
+# ---------------------------------------------------------------------------
+# Panel declaration -> credential entitlement
+# ---------------------------------------------------------------------------
+
+
+def _write_persona_project(tmp_path, name: str, panels: dict) -> str:
+    """Render a persona project carrying ``web.panels``; return its project_path."""
+    import yaml
+
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump({"project_name": name, "web": {"panels": panels}}),
+        encoding="utf-8",
+    )
+    return name
+
+
+def _catalog_config(catalog: dict, users: list[dict]) -> dict:
+    return {"modules": {"web_terminals": {"personas": catalog, "users": users}}}
+
+
+def test_config_declares_panel_reads_the_panel_block() -> None:
+    """A declared panel counts; an absent one does not."""
+    config = {"web": {"panels": {"events": {"label": "EVENTS", "url": "http://x"}}}}
+
+    # Assert
+    assert config_declares_panel(config, EVENTS_PANEL_ID) is True
+    assert config_declares_panel(config, "bluesky") is False
+    assert config_declares_panel({}, EVENTS_PANEL_ID) is False
+
+
+def test_config_declares_panel_treats_disabled_as_undeclared() -> None:
+    """A panel switched off needs no credential, so it does not count as declared."""
+    config = {"web": {"panels": {"events": {"enabled": False}}}}
+
+    # Assert
+    assert config_declares_panel(config, EVENTS_PANEL_ID) is False
+
+
+def test_personas_declaring_panel_selects_only_the_declaring_persona(tmp_path) -> None:
+    """The entitlement set is exactly the personas whose rendered project shows the
+    panel -- the readonly tier is excluded by its own config, not by a separate key."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_persona_project(tmp_path, "rw", {"events": {"label": "EVENTS"}}),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project(tmp_path, "ro", {"okf": {"enabled": True}}),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "readwrite"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+        ],
+    )
+
+    # Act
+    result = personas_declaring_panel(config, tmp_path, EVENTS_PANEL_ID)
+
+    # Assert
+    assert result == {"readwrite"}
+
+
+def test_personas_declaring_panel_skips_unrendered_persona_projects(tmp_path) -> None:
+    """A persona whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "persona": "ghost"}],
+    )
+
+    # Act / Assert
+    assert personas_declaring_panel(config, tmp_path, EVENTS_PANEL_ID) == set()

@@ -195,18 +195,39 @@ def _build_env_production_subset(
     (``EVENT_DISPATCHER_TOKEN``, ``DISPATCH_WORKER_TOKEN``,
     ``BLUESKY_LAUNCH_TOKEN`` and the rest of ``_SERVICE_TOKEN_VARS`` in
     :mod:`osprey.deployment.container_lifecycle`, minted per deploy under
-    those fixed names). Neither kind is anything a web terminal presents to
-    anyone: the containers that need a service token read the deploy ``.env``
-    the main compose file hands them. The one web-terminal consumer that
-    WOULD read a service token if present — the bluesky MCP server's
-    ``${BLUESKY_LAUNCH_TOKEN:-}`` — is tokenless here on purpose: an agent
-    container must never hold a write-arming bearer credential (any Bash or
+    those fixed names). Build-time credentials are nothing a web terminal
+    presents to anyone; the containers that need a service token read the deploy
+    ``.env`` the main compose file hands them.
+
+    The reason the SERVICE tokens are excluded is narrower, and it is about this
+    file rather than about the tokens: ``.env.production`` is a single file
+    handed to EVERY per-user container alike. It cannot say "alice but not bob",
+    so anything placed here is granted to every persona in the roster —
+    including read-only ones, whose entire purpose is not to hold write-capable
+    credentials. A per-user entitlement therefore has to be expressed somewhere
+    that can distinguish users, and that is the per-user ``environment:`` block
+    in ``docker-compose.web.yml`` (see
+    :func:`osprey.deployment.web_terminals.render.render_web_terminals`'s
+    ``dispatcher_personas``, which grants ``EVENT_DISPATCHER_TOKEN`` only to
+    users whose persona declares the EVENTS panel, interpolated by compose from
+    the deploy ``.env`` so the secret never lands in a rendered artifact).
+
+    So this is NOT the claim that no web terminal ever presents a service token —
+    the EVENTS panel's proxy presents exactly this one, server-side, so the
+    browser never holds it. It is the narrower and still-load-bearing claim that
+    no service token is granted *rosterwide from here*. Note what that buys and
+    what it does not: a container that receives the dispatcher token shares its
+    process namespace with the agent, which can read it, so the grant is a
+    deliberate per-persona decision and never a default. The bluesky MCP
+    server's ``${BLUESKY_LAUNCH_TOKEN:-}`` stays tokenless in every persona for
+    that reason — an agent must not hold a write-ARMING bearer (any Bash or
     Python it runs could read it and arm the queue with no approval), so its
     ``queue_start`` files a panel start request and the operator's panels
-    sidecar, which does receive the token, answers it. This is the security
-    spec for this function: a var absent from the enumerated list above can
-    never appear in the returned dict, regardless of what the input ``.env``
-    contains.
+    sidecar, which does receive the token, answers it.
+
+    This is the security spec for this function: a var absent from the
+    enumerated list above can never appear in the returned dict, regardless of
+    what the input ``.env`` contains.
 
     :param config: Raw deploy config (facility fields merged in — see
         ``modules.web_terminals.image_source`` in :func:`ensure_env_production`).

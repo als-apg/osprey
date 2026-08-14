@@ -19,9 +19,11 @@ from jinja2 import Environment, FileSystemLoader
 
 from osprey.deployment.compose_generator import repo_identity, resolve_repo_root
 from osprey.deployment.web_terminals.personas import (
+    EVENTS_PANEL_ID,
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     as_dict,
+    config_declares_panel,
     effective_image_source,
     env_var_suffix,
     env_var_suffix_collisions,
@@ -137,7 +139,11 @@ def _container_agent_data_dir(config: Any, container_project_dir: str) -> str:
     return (PurePosixPath(container_project_dir) / base).as_posix()
 
 
-def render_web_terminals(config: Any, auth_env_digest: str | None = None) -> dict[str, str]:
+def render_web_terminals(
+    config: Any,
+    auth_env_digest: str | None = None,
+    dispatcher_personas: set[str] | None = None,
+) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
     Args:
@@ -158,6 +164,21 @@ def render_web_terminals(config: Any, auth_env_digest: str | None = None) -> dic
             harmless, because every ``osprey up`` re-renders through the
             artifacts seam with a current digest before its ``up``, so a
             label-less render can never reach a running stack stale.
+        dispatcher_personas: Persona names whose project declares the EVENTS
+            panel, and whose users therefore need the event dispatcher's bearer
+            token. Resolved from disk by
+            :func:`osprey.deployment.web_terminals.personas.personas_declaring_panel`
+            and passed in for the same reason ``auth_env_digest`` is: this
+            function reads no filesystem. Each such user gets
+            ``EVENT_DISPATCHER_TOKEN`` in its OWN ``environment:`` block,
+            interpolated by compose from the deploy ``.env`` — never written
+            into this rendered artifact, and never into the shared
+            ``.env.production``, which every user's container reads (see
+            :func:`osprey.deployment.web_terminals.env_production._build_env_production_subset`).
+            That split IS the tier boundary: a read-only persona must not hold a
+            credential that can fire triggers. ``None`` (the default, and the
+            ``osprey scaffold web-terminals render`` path, which has no project
+            root to resolve against) emits no token line at all.
 
     Returns:
         Mapping of output-relative-path to rendered content, for exactly three
@@ -259,6 +280,17 @@ def render_web_terminals(config: Any, auth_env_digest: str | None = None) -> dic
                     {"name": env_var, "port": user_ports[family]}
                     for family, env_var in PANEL_ENV_VARS.items()
                 ],
+                # Whether this user's container gets the event dispatcher's
+                # bearer (see the `dispatcher_personas` arg). A persona-less
+                # roster entry — the zero-migration path, where the web image
+                # IS the deploy project — is answered from this same config,
+                # with no disk read, so the determinism contract holds either
+                # way.
+                "wants_dispatcher": (
+                    entry["persona"] in (dispatcher_personas or set())
+                    if entry.get("persona")
+                    else config_declares_panel(root, EVENTS_PANEL_ID)
+                ),
             }
         )
 

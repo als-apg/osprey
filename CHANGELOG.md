@@ -463,6 +463,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Dev deploys now report each service image as it finishes building, instead
   of one summary line after the whole `compose build` — the longest step of a
   deploy, and previously silent for its entire duration.
+- The EVENTS tab now works in a multi-user deployment. Its dashboard is
+  bearer-gated, but per-user terminal containers never received the dispatcher's
+  token, so the tab loaded and then reported "No triggers are registered." — for
+  a dispatcher that had every trigger loaded. Users whose persona declares the
+  EVENTS panel now get the token in their own container; personas without the
+  panel, such as a read-only tier, deliberately still do not.
 - `osprey health` now answers from either stance. It looks for the config where
   a build writes it (`build/config.yml`) and reads credentials from the repo's
   `.env`, so running it at the repo root no longer reports the config missing,

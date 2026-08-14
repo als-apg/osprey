@@ -411,6 +411,24 @@ services:
 {%- for env in svc.panel_env %}
       - {{ env.name }}={{ env.port }}
 {%- endfor %}
+{%- if svc.wants_dispatcher %}
+      {#- The event dispatcher's bearer, for a persona that declares the EVENTS
+         panel. Every dashboard DATA endpoint is bearer-gated, and the web
+         terminal's panel proxy injects this server-side (routes/proxy.py) so the
+         browser never holds it; without it the tab renders empty.
+
+         Deliberately HERE and not in `.env.production`: that file is handed to
+         every user's container alike, so a token in it would reach read-only
+         personas too — and this one credential can fire triggers. Per-user is
+         the only placement that can express the tier boundary.
+
+         `${VAR:-}` is resolved by compose from the deploy `.env` (the pinned
+         --env-file, see provision.web_stack_compose_cmd), so the secret is never
+         written into this rendered file. The `:-` default keeps compose from
+         warning, and an unset var renders an empty value the dispatcher then
+         rejects with a 401 — visible, rather than a silent half-auth. #}
+      - EVENT_DISPATCHER_TOKEN=${EVENT_DISPATCHER_TOKEN:-}
+{%- endif %}
     volumes:
       - {{ svc.user }}-claude-config:/data/claude-config
       {#- Mount target comes from render.py's _container_agent_data_dir, which

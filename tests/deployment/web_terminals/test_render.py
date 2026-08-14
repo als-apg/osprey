@@ -2998,3 +2998,80 @@ def test_render_auth_off_still_renders_roster_names_that_collide_on_their_suffix
 
     # Assert
     assert {"web-alice-b", "web-alice_b"} <= set(compose["services"])
+
+
+# ---------------------------------------------------------------------------
+# EVENTS panel -> per-user dispatcher credential
+#
+# The dispatcher's bearer is minted into the deploy `.env` and gates every
+# dashboard DATA endpoint. It reaches a web terminal through the PER-USER
+# `environment:` block rather than the shared `env_file: .env.production`,
+# because that one file is handed to EVERY user: a token placed there would give
+# a read-only persona a credential that can fire triggers. Gating on the
+# persona's declared EVENTS panel is what keeps the tier boundary intact.
+# ---------------------------------------------------------------------------
+
+_DISPATCHER_TOKEN_LINE = "EVENT_DISPATCHER_TOKEN=${EVENT_DISPATCHER_TOKEN:-}"
+
+
+def _events_persona_config() -> dict:
+    """Two personas; only `readwrite` declares the EVENTS panel."""
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["default_persona"] = "readonly"
+    web_terminals["personas"] = {
+        "readonly": {"project": "dls-readonly", "project_path": "../dls-readonly"},
+        "readwrite": {"project": "dls-readwrite", "project_path": "../dls-readwrite"},
+    }
+    web_terminals["users"] = [
+        {"name": "alice", "index": 0, "persona": "readwrite"},
+        {"name": "bob", "index": 1, "persona": "readonly"},
+    ]
+    return config
+
+
+def test_events_panel_persona_gets_the_dispatcher_token() -> None:
+    """A user whose persona declares the EVENTS panel gets the dispatcher bearer in
+    its own `environment:` block, interpolated from the deploy `.env` at compose
+    time so the secret is never written into a rendered artifact."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), dispatcher_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    assert _DISPATCHER_TOKEN_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_persona_without_events_panel_gets_no_dispatcher_token() -> None:
+    """The tier boundary: a persona declaring no EVENTS panel must not receive a
+    credential that can fire triggers -- which is exactly why this cannot live in
+    the shared .env.production that every user's container reads."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), dispatcher_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("EVENT_DISPATCHER_TOKEN" in line for line in bob_env)
+
+
+def test_render_without_dispatcher_personas_emits_no_token_line() -> None:
+    """The no-project-root render path (`osprey scaffold web-terminals render`)
+    passes no persona set, the same way it passes no auth digest -- so it emits no
+    credential. Harmless: every `osprey up` re-renders through the artifacts seam,
+    which resolves the set from disk."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    )
+
+    # Assert
+    for service in ("web-alice", "web-bob"):
+        env = compose["services"][service]["environment"]
+        assert not any("EVENT_DISPATCHER_TOKEN" in line for line in env)
