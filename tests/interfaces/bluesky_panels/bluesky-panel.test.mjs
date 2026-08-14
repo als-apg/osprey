@@ -822,11 +822,18 @@ describe('createResultsView', () => {
       <p id="run-meta" hidden></p>
       <p id="run-note" hidden></p>
       <div id="results-empty"></div>
-      <div id="table-card" hidden><p id="table-note"></p>
-        <table><thead><tr id="table-head-row"></tr></thead><tbody id="table-body"></tbody></table>
-      </div>
       <div id="figure-card" hidden>
         <p id="figure-note" hidden></p><div id="figure-panels"></div>
+      </div>
+      <div id="data-card" hidden>
+        <div>
+          <details id="table-details"><summary><span id="table-summary-count"></span></summary>
+            <table><thead><tr id="table-head-row"></tr></thead><tbody id="table-body"></tbody></table>
+            <p id="table-note"></p>
+          </details>
+          <button type="button" id="export-btn">Export CSV</button>
+        </div>
+        <p id="export-note" hidden></p>
       </div>`;
     /** @param {string} id */
     const byId = (id) => /** @type {any} */ (document.getElementById(id));
@@ -835,10 +842,14 @@ describe('createResultsView', () => {
       meta: byId('run-meta'),
       note: byId('run-note'),
       emptyState: byId('results-empty'),
-      tableCard: byId('table-card'),
+      tableCard: byId('data-card'),
+      tableDetails: byId('table-details'),
+      tableSummaryCount: byId('table-summary-count'),
       tableNote: byId('table-note'),
       tableHeadRow: byId('table-head-row'),
       tableBody: byId('table-body'),
+      exportButton: byId('export-btn'),
+      exportNote: byId('export-note'),
       figureCard: byId('figure-card'),
       figurePanels: byId('figure-panels'),
       figureNote: byId('figure-note'),
@@ -950,7 +961,9 @@ describe('createResultsView', () => {
     expect(elements.statusBadge.textContent).toBe('completed');
     expect(elements.meta.textContent).toContain('orm');
     expect(elements.tableBody.querySelectorAll('tr')).toHaveLength(2);
-    expect(elements.tableNote.textContent).toBe('2 rows');
+    expect(elements.tableSummaryCount.textContent).toBe('2 rows');
+    // Nothing was withheld, so there is no preview caveat to print.
+    expect(elements.tableNote.hidden).toBe(true);
 
     // The figure is drawn by the renderer, into the container this view hands
     // it — one section per panel, plus the provenance line.
@@ -1370,6 +1383,231 @@ describe('createResultsView', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(fetchMock.mock.calls.length).toBe(afterFirstPoll);
   });
+
+  // -------------------------------------------------------------------------
+  // The table as a preview, and the export that is the data
+  // -------------------------------------------------------------------------
+
+  /** A truncated window: 2 rows on screen out of 4096 the run produced. */
+  const BIG_DATA = { ...DATA, row_count: 4096, truncated: true };
+
+  test('a truncated window is labelled a preview and points at the export', async () => {
+    // `row_count` is the bridge's true total and `rows.length` is what this
+    // window happens to carry. Showing 2 rows under a bare "2 rows" label was
+    // the old lie; the count now names the run and the note names the gap.
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'orm' } },
+        '/runs/r1/data': { status: 200, body: BIG_DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+      })
+    );
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+
+    expect(elements.tableSummaryCount.textContent).toBe('4,096 rows');
+    expect(elements.tableNote.hidden).toBe(false);
+    expect(elements.tableNote.textContent).toContain('showing 2 of 4,096');
+    expect(elements.tableNote.textContent).toContain('export');
+  });
+
+  test('the table stays COLLAPSED by default, and its open state survives a run switch', async () => {
+    // The whole point of the redesign: the figure is what a run is for, and a
+    // 4,096-row table must not be the first thing on screen. But an operator
+    // who deliberately opened it is stepping through runs comparing rows —
+    // re-collapsing under them on every selection would be its own bug.
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'orm' } },
+        '/runs/r1/data': { status: 200, body: DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+        '/runs/r2': { status: 200, body: { id: 'r2', status: 'completed', plan_name: 'orm' } },
+        '/runs/r2/data': { status: 200, body: DATA },
+        '/runs/r2/figure': { status: 200, body: FIGURE },
+      })
+    );
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+    expect(elements.tableDetails.open).toBe(false);
+
+    elements.tableDetails.open = true;
+    view.follow('r2');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+    expect(elements.tableDetails.open).toBe(true);
+  });
+
+  test('exporting fetches the FULL run, not the preview window on screen', async () => {
+    // The table is capped at the bridge's default 100-row window. Exporting
+    // what is rendered would hand over a silently truncated file — the export
+    // has to go back for `row_count` rows.
+    const full = {
+      ...BIG_DATA,
+      rows: Array.from({ length: 4096 }, (_, i) => [i, i * 2]),
+    };
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'grid_scan' } },
+        '/runs/r1/data': { status: 200, body: BIG_DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+        '/runs/r1/data?max_rows=4096': { status: 200, body: full },
+      })
+    );
+    /** @type {Array<{filename: string, text: string}>} */
+    const written = [];
+    const saveFile = vi.fn(
+      async (/** @type {string} */ filename, /** @type {string} */ text) => {
+        written.push({ filename, text });
+        return { saved: true, method: /** @type {const} */ ('picker') };
+      }
+    );
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements, saveFile });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+    expect(elements.tableBody.querySelectorAll('tr')).toHaveLength(2);
+
+    elements.exportButton.click();
+    await vi.waitFor(() => expect(written).toHaveLength(1));
+
+    const saved = written[0];
+    expect(saved.filename).toBe('grid_scan-r1.csv');
+    // Header + 4096 data rows, not the 2 the table is showing.
+    expect(saved.text.trimEnd().split('\r\n')).toHaveLength(4097);
+    expect(saved.text.startsWith('time,signal\r\n0,0\r\n')).toBe(true);
+    expect(elements.exportNote.textContent).toContain('4,096 rows');
+    expect(elements.exportNote.classList.contains('error')).toBe(false);
+  });
+
+  test('a download fallback says WHERE the file went', async () => {
+    // On a browser with no save dialog the file can only land in Downloads.
+    // "Saved" alone would leave the operator hunting for it.
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'orm' } },
+        '/runs/r1/data': { status: 200, body: DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+        '/runs/r1/data?max_rows=2': { status: 200, body: DATA },
+      })
+    );
+    const saveFile = vi.fn(async () => ({ saved: true, method: /** @type {const} */ ('download') }));
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements, saveFile });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+
+    elements.exportButton.click();
+    await vi.waitFor(() => expect(elements.exportNote.hidden).toBe(false));
+    expect(elements.exportNote.textContent).toContain('Downloads');
+  });
+
+  test('cancelling the save leaves no claim that anything was written', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'orm' } },
+        '/runs/r1/data': { status: 200, body: DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+        '/runs/r1/data?max_rows=2': { status: 200, body: DATA },
+      })
+    );
+    const saveFile = vi.fn(async () => ({ saved: false, method: /** @type {const} */ ('picker') }));
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements, saveFile });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+
+    elements.exportButton.click();
+    await vi.waitFor(() => expect(elements.exportButton.disabled).toBe(false));
+    expect(elements.exportNote.hidden).toBe(true);
+  });
+
+  test('an export the bridge cannot fully serve says so instead of pretending', async () => {
+    // `live_rows` caps stored rows per run, and Tiled can be rotated. When the
+    // full fetch comes back short of `row_count`, the file is still worth
+    // having — but calling it the run's data would be a lie.
+    const short = {
+      ...BIG_DATA,
+      rows: Array.from({ length: 1000 }, (_, i) => [i, i * 2]),
+      row_count: 4096,
+    };
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'orm' } },
+        '/runs/r1/data': { status: 200, body: BIG_DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+        '/runs/r1/data?max_rows=4096': { status: 200, body: short },
+      })
+    );
+    const saveFile = vi.fn(async () => ({ saved: true, method: /** @type {const} */ ('picker') }));
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements, saveFile });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+
+    elements.exportButton.click();
+    await vi.waitFor(() => expect(elements.exportNote.hidden).toBe(false));
+    expect(elements.exportNote.textContent).toContain('1,000 of 4,096');
+    expect(elements.exportNote.textContent).toContain('no longer stored');
+  });
+
+  test('a failed export reports the failure and leaves the button usable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'orm' } },
+        '/runs/r1/data': { status: 200, body: DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+        '/runs/r1/data?max_rows=2': { status: 502, body: { detail: 'bridge unreachable' } },
+      })
+    );
+    const saveFile = vi.fn(async () => ({ saved: true, method: /** @type {const} */ ('picker') }));
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements, saveFile });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+
+    elements.exportButton.click();
+    await vi.waitFor(() => expect(elements.exportNote.hidden).toBe(false));
+
+    expect(saveFile).not.toHaveBeenCalled();
+    expect(elements.exportNote.textContent).toContain('Could not export');
+    expect(elements.exportNote.classList.contains('error')).toBe(true);
+    // A transient bridge failure must not disarm the control permanently.
+    expect(elements.exportButton.disabled).toBe(false);
+  });
+
+  test('switching runs clears the previous run’s export note', async () => {
+    // Otherwise "Saved orm-r1.csv" sits under a different run's figure and
+    // reads as a claim about THAT run.
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'orm' } },
+        '/runs/r1/data': { status: 200, body: DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+        '/runs/r1/data?max_rows=2': { status: 200, body: DATA },
+      })
+    );
+    const saveFile = vi.fn(async () => ({ saved: true, method: /** @type {const} */ ('picker') }));
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements, saveFile });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+    elements.exportButton.click();
+    await vi.waitFor(() => expect(elements.exportNote.hidden).toBe(false));
+
+    view.follow(null);
+    expect(elements.exportNote.hidden).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1524,6 +1762,23 @@ describe('bundle wiring', () => {
     // Start is the counter-example — arming a queue stays a deliberate act
     // behind the Queue tab.
     expect(html.indexOf('id="start-btn"')).toBeGreaterThan(firstView);
+  });
+
+  test('the figure renders ABOVE the data table, and the table ships collapsed', () => {
+    // Source order is the whole fix. A run's figure is the plan's own answer
+    // to what the run means; the table is the raw material behind it. With the
+    // table first, every scan opened onto a wall of numbers and the operator
+    // had to scroll to see the result they asked for.
+    const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
+    const figure = html.indexOf('id="figure-card"');
+    const table = html.indexOf('id="data-card"');
+    expect(figure).toBeGreaterThan(-1);
+    expect(table).toBeGreaterThan(figure);
+
+    // `<details>` with no `open` attribute. A default-open disclosure would
+    // restore exactly the behaviour this replaces.
+    const details = html.slice(html.indexOf('id="table-details"'));
+    expect(details.slice(0, details.indexOf('>'))).not.toContain('open');
   });
 
   test('the in-body view switcher and filter hide only when embedded AND Expert', () => {
@@ -2304,7 +2559,7 @@ describe('the merged panel shell', () => {
     /** @type {any} */ (byId('queue-items').querySelector('button.queue-label')).click();
     // Selecting opened Results, so no marker: the operator IS watching. Wait
     // for the first poll to land, which is what starts the polling.
-    await vi.waitFor(() => expect(byId('table-card').hidden).toBe(false));
+    await vi.waitFor(() => expect(byId('data-card').hidden).toBe(false));
     expect(resultsNavEntry().label).toBe('Results');
 
     // Walk away while it is still filling in.

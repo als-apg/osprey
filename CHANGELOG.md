@@ -37,6 +37,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   error, so the reason is still on the screen. `osprey -v` streams everything
   to the terminal as before.
 
+- The BLUESKY panel's Results view leads with the run's figure. The raw data
+  table sits below it behind a disclosure that names the run's row count and
+  ships closed — these tables run to thousands of rows. What the table shows is
+  a bounded preview, labelled with how much of the run it is withholding.
+  **Export CSV**, on the same row, writes the whole run to a file: the browser's
+  save dialog where there is one, the Downloads folder otherwise, and the note
+  afterwards says which happened and how many rows landed. An export the bridge
+  can only partly serve reports both counts rather than passing itself off as
+  complete.
+
 - The control-assistant preset's two-user roster now ships alice as the
   write-capable operator and bob as the read-only viewer. The tiers differ
   visibly, not just in enforcement: the write-armed terminal keeps the full
@@ -746,6 +756,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   write gates and run write-pattern code even with
   `control_system.writes_enabled=false`. The deployment-level kill switch also
   now covers `execute_file`, which previously had no such check.
+
+- BLUESKY panel views taller than the window can be scrolled again. The panel's
+  layout column grew to fit its content instead of staying at the viewport, so
+  the scroll container had nothing left to scroll and everything past the fold
+  was unreachable — worst in an embedded tile, where the overflow was clipped
+  outright. Embedded panels also no longer lose the last 28px of every view to
+  padding the frame already supplies.
 
 ## [2026.8.0]
 
