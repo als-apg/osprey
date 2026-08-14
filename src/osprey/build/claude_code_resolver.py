@@ -271,9 +271,9 @@ def _load_dotenv(project_dir: Path) -> dict[str, str]:
     ``{}`` when the file is absent or ``python-dotenv`` is not importable. Pure:
     it never touches ``os.environ``, expands no ``${VAR}`` refs, and applies no
     secret or precedence logic — callers own the overlay, expansion, and auth
-    handling. Deduplicates the identical load formerly inlined in
-    :func:`inject_provider_env`, ``provider_env_for_project``, and
-    :func:`load_provider_spec`.
+    handling. The single load shared by :func:`inject_provider_env`,
+    ``provider_env_for_project``, and :func:`load_provider_spec`, so all three
+    see the same file the same way.
     """
     env_file = Path(project_dir) / ".env"
     if not env_file.is_file():
@@ -290,8 +290,8 @@ def _env_lookup(project_dir: Path) -> dict[str, str]:
 
     Never mutates global ``os.environ``. Shared by :func:`load_provider_spec`
     and ``osprey.agent_runner.primitives.provider_env_for_project`` — both need
-    this same merged view for ``${VAR}``/secret lookups, previously built via
-    an identical inline dict-merge in each.
+    this same merged view for ``${VAR}``/secret lookups, and must agree on the
+    precedence.
     """
     return {**os.environ, **_load_dotenv(project_dir)}
 
@@ -426,6 +426,7 @@ def inject_provider_env(
 def load_provider_spec(
     project_dir: Path,
     *,
+    env_dir: Path | None = None,
     provider: str | None = None,
     include_telemetry: bool = True,
     defer_unresolved_telemetry_creds: bool = False,
@@ -452,7 +453,13 @@ def load_provider_spec(
     ``benchmarks/backends/react_backend.py`` for the one genuine deferral.
 
     Args:
-        project_dir: Path to an initialized OSPREY project (contains config.yml).
+        project_dir: Directory holding the ``config.yml`` to resolve.
+        env_dir: Directory holding the deployment's ``.env``, when it is not the
+            one holding the config. A deployment repo keeps secrets at its root
+            and the rendered config under ``build/``, so a caller reading the
+            render has to name the repo root here or a ``base_url:
+            ${ARGO_PROD_URL}`` resolves to the literal placeholder. Defaults to
+            ``project_dir`` — the flat layout, where the two coincide.
         provider: When given, overrides ``claude_code.provider`` in the loaded
             config before resolving — used by cross-provider model sweeps.
 
@@ -469,7 +476,7 @@ def load_provider_spec(
     raw = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
 
     # Build an os.environ + .env overlay (.env wins) WITHOUT mutating os.environ.
-    lookup: dict[str, str] = _env_lookup(project_dir)
+    lookup: dict[str, str] = _env_lookup(Path(env_dir) if env_dir is not None else project_dir)
 
     cfg = resolve_env_vars(raw, environ=lookup)
     cc_config = cfg.get("claude_code", {})
@@ -615,7 +622,7 @@ class ClaudeCodeModelResolver:
         Model ID resolution order (highest to lowest priority):
         1. ``claude_code.models`` per-tier overrides in config.yml
         2. ``api.providers[name].models`` — the provider's own model IDs
-        3. Built-in ``models`` in CLAUDE_CODE_PROVIDERS (backward compat)
+        3. Built-in ``models`` in CLAUDE_CODE_PROVIDERS (fallback)
 
         This means providers own their model naming: set models under
         ``api.providers`` and the framework picks them up automatically.
@@ -714,7 +721,7 @@ class ClaudeCodeModelResolver:
         # ── Build tier → model mapping ───────────────────────────
         # Priority: built-in fallback < api.providers models < claude_code.models
 
-        # Start with built-in fallbacks (backward compat for old configs)
+        # Start with built-in fallbacks (configs that map no models of their own)
         tier_to_model = dict(provider_def.get("models", {}))
 
         # Override with models defined in api.providers[name].models
@@ -731,9 +738,9 @@ class ClaudeCodeModelResolver:
                 tier_to_model[tier] = model_id
 
         # Every tier must resolve to a model ID the *configured* provider
-        # actually serves. Missing tiers used to be filled with Anthropic's own
-        # direct IDs, so a proxy that ships no map launched the agent asking it
-        # for "claude-opus-4-6" — a 404 if the proxy is strict, and silently the
+        # actually serves. Never fill a missing tier with Anthropic's own direct
+        # IDs: a proxy that ships no map would launch the agent asking it for
+        # "claude-opus-4-6" — a 404 if the proxy is strict, and silently the
         # wrong model if it is not. Refuse instead, before the env block or the
         # default tier are built from the map.
         missing = [tier for tier in TIER_MODEL_ENV_VARS if tier not in tier_to_model]

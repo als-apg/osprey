@@ -9,11 +9,9 @@ three independent kinds of drift:
 
 (a) Hardcoded color literals (hex, ``rgb()``/``rgba()``, ``hsl()``/
     ``hsla()``) that should have been expressed as ``var(--token)``
-    references instead. This used to be a ratchet against
-    ``hygiene_baseline.json`` while the fleet migration (PLAN Phase 2/3)
-    was in progress; Task 4.2 (hygiene-zero-flip) deleted that baseline and
-    flipped this to a strict zero-tolerance check now that every interface
-    has migrated. From this commit on, every in-scope file must have zero
+    references instead. This is a strict zero-tolerance check (Task 4.2,
+    hygiene-zero-flip): there is no ``hygiene_baseline.json`` ratchet to
+    grade against, and every in-scope file must have zero
     non-allowlisted literals — a genuinely justified, permanent survivor
     (a print stylesheet that must stay light-on-white, a fixed categorical
     color with no fleet-wide semantic equivalent, etc.) goes on the
@@ -256,11 +254,10 @@ _KNOWN_DANGLING_VARS: frozenset[tuple[str, str]] = frozenset(
             "src/osprey/interfaces/design_system/static/js/components/osprey-theme-switcher.js",
             "…",
         ),
-        # Same prose false positive in the bluesky panels: their header comments
-        # describe token usage as "var(--…)". These files were always clean —
-        # they only entered the fleet-wide scan when the package moved from
+        # Same prose false positive in the bluesky panel: its header comment
+        # describes token usage as "var(--…)". This file was always clean — it
+        # only entered the fleet-wide scan when the package moved from
         # services/ to interfaces/ (layering fix).
-        ("src/osprey/interfaces/bluesky_panels/panels/plan/panel.css", "…"),
         ("src/osprey/interfaces/bluesky_panels/panels/bluesky/panel.css", "…"),
     }
 )

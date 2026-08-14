@@ -153,9 +153,9 @@ class ScaffoldGalleryService:
         # a body, but a record is more than a body: left in place it flows into
         # the union below and the gallery tells the operator they own the
         # write-safety layer's config, shows them the framework's text as
-        # theirs, and fails their save. A record can predate the guard that
-        # would refuse it today — the store outlives the image — so the read
-        # side has to be as skeptical as the write side.
+        # theirs, and fails their save. The store outlives the image, so it can
+        # hold a record the write guard would refuse — the read side has to be
+        # as skeptical as the write side.
         self._records = {
             name: record
             for name, record in raw.items()
@@ -219,7 +219,7 @@ class ScaffoldGalleryService:
         A claim moves the artifact out of the project, so from then on the
         profile file — not the project's — is what the operator means when they
         open it, and the only place a save is not thrown away by the next
-        ``build --force``. Only single files qualify: a skill or a service is a
+        ``osprey build``. Only single files qualify: a skill or a service is a
         whole directory the gallery does not edit as text.
         """
         if name is None:
@@ -673,9 +673,9 @@ class ScaffoldGalleryService:
         convention and each convention already decides the shape of one entry:
         a rule is a markdown file, a hook is a script known by its filename, a
         skill is a directory. Assembling ``.claude/<category>/<name>.md`` by
-        hand — what this used to do — got two of the three wrong: it dropped a
-        hook's ``.py`` from the name ownership records, and it wrote a skill as
-        a flat file that Claude Code does not load at all.
+        hand gets two of the three wrong: it drops a hook's ``.py`` from the
+        name ownership records, and it writes a skill as a flat file that
+        Claude Code does not load at all.
         """
         allowed = {"agents", "rules", "hooks", "skills", "commands", "output-styles"}
         if category not in allowed:

@@ -55,51 +55,50 @@ Quickstart
 
 The Control Assistant stack ships pointed at the Virtual Accelerator and
 **already deploys** it: the preset's ``virtual_accelerator:`` block renders a
-compose service, so ``osprey deploy up`` brings the soft-IOC up alongside the
+compose service, so ``osprey up`` brings the soft-IOC up alongside the
 rest of the stack and the connector is already talking to it. There is nothing
 to switch on.
 
 .. code-block:: bash
 
-   osprey deploy up   # brings up the soft-IOC with the rest of the stack
+   osprey up   # brings up the soft-IOC with the rest of the stack
    osprey web         # the agent talks to real Channel Access
 
-``osprey deploy up`` brings up more than the soft-IOC. Because the preset also
+``osprey up`` brings up more than the soft-IOC. Because the preset also
 declares a ``va_archiver:`` block, the deploy stands up the machine's **archive**
 next to it — a MongoDB store and a recorder service — and seeds it before the
 rest of the stack starts. See `The archive`_ below.
 
-The very first ``osprey deploy up`` that includes the Virtual Accelerator
+The very first ``osprey up`` that includes the Virtual Accelerator
 builds its container image from source (compiling PyAT and the soft-IOC), so
 expect it to take several minutes — it is building, not hanging. Later deploys
 reuse the image.
 
-If your project was built from an older preset (or a profile that sets it),
-point it at the soft-IOC explicitly:
+If your deployment came from a preset or profile that selects a different
+connector, point it at the soft-IOC explicitly:
 
 .. code-block:: bash
 
-   osprey config set-control-system virtual_accelerator
-   osprey deploy up
+   osprey set connector=virtual_accelerator
+   osprey build
+   osprey up
 
 .. note::
 
-   The second command is what makes a switch take effect for **deployed
-   services**. ``set-control-system`` edits the project's ``config.yml``, but
-   services do not read that file directly — each gets a copy staged into its
-   own directory at deploy time. A purely local ``osprey web`` run picks the
-   change up immediately; anything already running in a container does not,
-   until you re-deploy. No image rebuild is involved either way.
+   All three steps matter. ``osprey set`` writes the setting into
+   ``profile.yml``; ``osprey build`` carries it into ``build/``, where each
+   service gets its own copy of the rendered config; ``osprey up`` starts what
+   was just rendered. Anything already running in a container keeps the old
+   setting until you restart it. No image rebuild is involved.
 
-**The archive has to come first.** On a project built from the
+**The archive has to come first.** On a deployment created from the
 ``control-assistant`` preset the switch just works: the preset declares where the
-archive lives, so the project already reads a real store. On a project with no
-archive of its own — one still reading the mock archiver, which makes its history
-up as it is asked for it — ``set-control-system virtual_accelerator``
-**refuses**, and says what to do instead: point ``archiver.type`` at a store this
-deployment writes (``mongodb_archiver`` for the store the preset deploys), or
-stay on ``mock`` for an honestly storeless project. `The honesty rule`_ below
-explains why.
+archive lives, so the deployment already reads a real store. On one with no
+archive of its own — still reading the mock archiver, which makes its history
+up as it is asked for it — the build **refuses** the profile, and says what to
+do instead: point ``archiver.type`` at a store this deployment writes
+(``mongodb_archiver`` for the store the preset deploys), or stay on ``mock`` for
+an honestly storeless deployment. `The honesty rule`_ below explains why.
 
 Switching back to the mock
 ==========================
@@ -109,8 +108,9 @@ in-process simulation instead:
 
 .. code-block:: bash
 
-   osprey config set-control-system mock
-   osprey deploy up
+   osprey set connector=mock
+   osprey build
+   osprey up
 
 Read one consequence before you do: **scans become browse-only.** The mock
 does not settle-wait a corrector's readback against its setpoint, which every
@@ -211,7 +211,7 @@ The archive
 ===========
 
 A simulated machine still needs somewhere to keep what its channels did, and the
-stack deploys one. ``osprey deploy up`` brings up two more containers beside the
+stack deploys one. ``osprey up`` brings up two more containers beside the
 soft-IOC:
 
 - **the store** — a MongoDB service (``archiver-mongodb`` on the deployment's
@@ -240,10 +240,10 @@ to that channel's own noise. Nothing invents an event nobody would find in the
 live machine.
 
 Writing it takes a minute or two on a first deploy, and the deploy says so as it
-goes ("seeding archive: N documents written", every 15 seconds or so), then
-reports the span and the document count when it finishes. Later deploys check
-the archive against the knobs now in force and skip the seed when it already
-covers them.
+goes ("seeding archive: N documents written across N channels", every 15 seconds
+or so), then reports the span and the document count when it finishes. Later
+deploys check the archive against the knobs now in force and skip the seed when
+it already covers them.
 
 **The recorded present.** From then on the recorder samples the machine every
 10 seconds and stores what answered. A setpoint you write is readable out of the
@@ -267,7 +267,7 @@ these defaults.
    Every number above is a knob in the build profile's ``va_archiver:`` block —
    ``retention_days``, ``hot_span_hours``, the cadences — not a constant in the
    code. Changing one is a profile edit and a rebuild; the next
-   ``osprey deploy up`` notices the archive no longer describes what the profile
+   ``osprey up`` notices the archive no longer describes what the profile
    asks for and reseeds it. See :doc:`build-profiles`.
 
 What the archive will not claim
@@ -306,7 +306,7 @@ The pairing is refused at every point it can be created:
      - The build refuses the profile, and names the profile keys to change: add
        a ``va_archiver:`` block (which is what makes the store exist) and set
        ``config: {archiver.type: mongodb_archiver}``.
-   * - ``osprey deploy up`` / ``restart``
+   * - ``osprey up`` / ``restart``
      - The deploy aborts before starting anything, and names the ``config.yml``
        edit: set ``type:`` under ``archiver:`` to a connector reading a store
        this stack writes, or set ``type:`` under ``control_system:`` back to
@@ -314,10 +314,10 @@ The pairing is refused at every point it can be created:
    * - MCP server startup
      - The server refuses to start on such a ``config.yml``, so a file
        hand-edited after the build cannot quietly bring the pairing back.
-   * - ``osprey config set-control-system virtual_accelerator``
-     - Refused *before* the write, because this command can create the pairing:
-       it would switch the project onto the simulated machine while its archiver
-       stays the one that invents history.
+   * - ``osprey validate``
+     - Reports the same refusal without building anything, so the pairing is
+       caught the moment it is written into ``profile.yml`` rather than at
+       deploy time.
 
 Two pairings that look similar are perfectly legal, because nothing lies in
 either: **mock control system + mock archiver** is the honestly storeless

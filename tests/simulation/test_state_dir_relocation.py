@@ -1,9 +1,9 @@
-"""Scenario state lives under ``_agent_data/``, never in the build-owned ``data/``.
+"""Scenario state lives under the agent-data root, never in build-owned ``data/``.
 
 ``active_scenarios`` is the one simulation file that changes after a build. A
 project's ``data/`` tree is re-rendered from the profile on every build and
 checksummed into the manifest, so a scenario switch landing there reads as
-project drift and is erased by ``osprey build --force``. These tests pin the
+project drift and is erased by ``osprey build``. These tests pin the
 relocation: where the state directory resolves, and that no writer touches
 ``data/`` any more.
 """
@@ -18,6 +18,7 @@ import yaml
 
 from osprey.simulation.apply import apply_scenarios
 from osprey.simulation.engine import SimulationEngine, default_state_dir, resolve_state_dir
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 TEMPLATE_SIM = (
     Path(__file__).resolve().parents[2]
@@ -40,7 +41,9 @@ def _make_project(tmp_path: Path, **config_extra) -> Path:
 
 class TestResolveStateDir:
     def test_defaults_under_the_agent_data_root(self, tmp_path):
-        assert resolve_state_dir({}, tmp_path) == tmp_path / "_agent_data" / "simulation"
+        assert (
+            resolve_state_dir({}, tmp_path) == tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "simulation"
+        )
 
     def test_follows_a_relocated_agent_data_root(self, tmp_path):
         config = {"agent_data": {"base_dir": "./workspace"}}
@@ -64,12 +67,15 @@ class TestResolveStateDir:
         anything but a non-empty string is not a path, so it is ignored."""
         config = {"simulation": {"state_dir": bad}}
 
-        assert resolve_state_dir(config, tmp_path) == tmp_path / "_agent_data" / "simulation"
+        assert (
+            resolve_state_dir(config, tmp_path)
+            == tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "simulation"
+        )
 
     def test_a_non_mapping_section_falls_through_to_the_default(self, tmp_path):
         assert (
             resolve_state_dir({"simulation": "not-a-section"}, tmp_path)
-            == tmp_path / "_agent_data" / "simulation"
+            == tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "simulation"
         )
 
     def test_the_config_key_is_the_one_the_drift_check_warns_about(self):
@@ -87,7 +93,7 @@ class TestResolveStateDir:
 
         reset_config_cache()
         try:
-            assert default_state_dir() == tmp_path / "_agent_data" / "simulation"
+            assert default_state_dir() == tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "simulation"
         finally:
             reset_config_cache()
 
@@ -176,7 +182,7 @@ class TestApplyLeavesDataUntouched:
     def test_apply_writes_state_under_agent_data(self, project):
         apply_scenarios(project, ["vacuum-burst"], seed_logbook=False)
 
-        state_file = project / "_agent_data" / "simulation" / "active_scenarios"
+        state_file = project / DEFAULT_AGENT_DATA_BASE_DIR / "simulation" / "active_scenarios"
         assert state_file.exists()
         assert "vacuum-burst" in state_file.read_text()
 

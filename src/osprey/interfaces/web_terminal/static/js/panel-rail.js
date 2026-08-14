@@ -44,7 +44,9 @@
  *   </nav>
  *
  * State classes on an entry: `.active` (surfaced panel), `.disabled` (backend
- * not healthy yet), `.agent-attention` (badge).
+ * not healthy yet), `.agent-attention` (badge). A badged entry also carries a
+ * transient `data-title-base` holding the tooltip text the badge borrowed;
+ * clearing the badge restores it and removes the attribute.
  */
 
 import { flashElement } from '/design-system/js/highlight.js';
@@ -79,6 +81,15 @@ import { flashElement } from '/design-system/js/highlight.js';
  */
 
 const BUTTON_SELECTOR = '.panel-rail-button';
+
+/**
+ * Where an entry's pre-suffix tooltip is parked while the agent-attention
+ * badge owns the `title`. Present only for the badge's lifetime — see
+ * {@link applyTouchedTooltip}.
+ */
+const TITLE_BASE_ATTR = 'data-title-base';
+
+const TOUCHED_SEPARATOR = ' · agent touched ';
 
 // ---- Rendering ----
 
@@ -248,7 +259,16 @@ export function addEntry(railEl, panel, options = {}) {
  * @param {string} panelId
  */
 export function removeEntry(railEl, panelId) {
-  getEntry(railEl, panelId)?.remove();
+  const entry = getEntry(railEl, panelId);
+  if (!entry) return;
+  // A detached drag source can never fire dragend (HTML5 delivers it to the
+  // source element only), so a mid-drag removal would strand the caller's
+  // drag-end cleanup — the iframe pointer shields raised in onDragStart.
+  // End the gesture through the entry's own dragend listener before detaching.
+  if (entry.classList.contains('dragging')) {
+    entry.dispatchEvent(new Event('dragend'));
+  }
+  entry.remove();
 }
 
 // ---- Mutators ----
@@ -294,22 +314,67 @@ export function setEntryEnabled(railEl, panelId, enabled) {
 }
 
 /**
+ * Point an entry's tooltip at the moment the agent touched its panel, or put
+ * the tooltip back the way it was.
+ *
+ * The pre-suffix text is stashed on the entry for the badge's lifetime rather
+ * than recomputed, so the restore is exact even if the caller retitled the
+ * entry, and so a second event REPLACES the time instead of appending a second
+ * suffix. Restoring is keyed on the stash, which makes a clear on an unbadged
+ * entry a true no-op.
+ * @param {HTMLElement} entry
+ * @param {number | null} ts - server epoch seconds, or null to restore the base
+ */
+function applyTouchedTooltip(entry, ts) {
+  const base = entry.getAttribute(TITLE_BASE_ATTR) ?? entry.title;
+  if (ts === null) {
+    if (entry.hasAttribute(TITLE_BASE_ATTR)) {
+      entry.title = base;
+      entry.removeAttribute(TITLE_BASE_ATTR);
+    }
+    return;
+  }
+  const touchedAt = new Date(ts * 1000).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  entry.setAttribute(TITLE_BASE_ATTR, base);
+  entry.title = `${base}${TOUCHED_SEPARATOR}${touchedAt}`;
+}
+
+/**
  * Set or clear the agent-attention affordance on an entry. Turning it on
  * toggles the persistent `agent-attention` badge class (the design system's
  * highlight.css draws an absolutely-positioned `::after` accent dot — class
- * only, no child nodes, no layout shift) and fires the one-shot `agent-flash`
- * glow via {@link flashElement}. Turning it off removes only the badge class;
- * an in-flight flash is left to finish on its own `animationend`.
+ * only, no child nodes, no layout shift), fires the one-shot `agent-flash`
+ * glow via {@link flashElement}, and scrolls the entry into view: a rail
+ * taller than its viewport can otherwise take a badge entirely off-screen,
+ * which is the one case where the affordance reports nothing to the operator.
+ * `block: 'nearest'` leaves an already-visible entry exactly where it is.
+ *
+ * Turning it off removes the badge class and restores the tooltip; an
+ * in-flight flash is left to finish on its own `animationend`.
  * @param {HTMLElement} railEl
  * @param {string} panelId
  * @param {boolean} on
+ * @param {number} [ts] - the originating event's SERVER timestamp (epoch
+ *   seconds, as the `agent_activity` SSE frames carry it), appended to the
+ *   entry's tooltip as "· agent touched <time>". Omit it — or pass a
+ *   non-finite value — for a badge with no time claim; never substitute a
+ *   client clock, which would report when the browser rendered rather than
+ *   when the agent acted.
  * @returns {boolean} true when the entry existed and was updated; false for an
  *   unknown id (safe no-op, so callers can fall back)
  */
-export function setEntryAttention(railEl, panelId, on) {
+export function setEntryAttention(railEl, panelId, on, ts) {
   const entry = getEntry(railEl, panelId);
   if (!entry) return false;
   entry.classList.toggle('agent-attention', on);
-  if (on) flashElement(entry);
+  const touchedAt = on && typeof ts === 'number' && Number.isFinite(ts) ? ts : null;
+  applyTouchedTooltip(entry, touchedAt);
+  if (on) {
+    flashElement(entry);
+    entry.scrollIntoView({ block: 'nearest' });
+  }
   return true;
 }

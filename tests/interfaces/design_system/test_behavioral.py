@@ -350,7 +350,7 @@ def test_auto_follows_os_preference_until_explicit_choice(tmp_path, chromium_bro
             "document.documentElement.getAttribute('data-theme') === 'light'", timeout=5_000
         )
 
-        # Make an explicit choice; theme-manager no longer treats the
+        # Make an explicit choice; theme-manager must not treat the
         # preference as 'auto', so a subsequent OS flip must be ignored.
         _dismiss_welcome_modal(page)
         _flip_hub_theme(page)

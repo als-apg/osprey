@@ -15,9 +15,8 @@ toy lattice: nominal currents are the per-device values baked into
 -- see `_nominal_current` below), device counts/families come from
 `osprey.simulation.facility_spec.ALS_U_AR`, and every "away from nominal"
 setpoint used here was probed against the real optics (see each test's
-comment) rather than carried over from the old toy-ring numbers, since the
-real ring's stability/NaN boundaries sit much closer to nominal than the
-toy ring's did.
+comment) rather than taken from a toy-ring model, since the real ring's
+stability/NaN boundaries sit much closer to nominal than a toy ring's.
 """
 
 from __future__ import annotations
@@ -159,8 +158,8 @@ class TestSetpointWriteMovesBpm:
         # multiplier probed below 1.3x (trace_x jumps to 2.65, unstable);
         # 1.1x is used here to leave comfortable margin below that boundary
         # while still perturbing the gradient enough to move the response
-        # (real ring: 1.5x nominal -- the old toy-ring test's multiplier --
-        # is already well past the instability boundary, so it is not reused).
+        # (real ring: 1.5x nominal -- a typical toy-ring multiplier --
+        # is already well past the instability boundary, so it is not used).
         bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
         response_at_nominal_qf = bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
 
@@ -175,7 +174,7 @@ class TestSetpointWriteMovesBpm:
         # (I/I_nom - 1) * BendingAngle / Length) is far more sensitive than
         # the toy ring's -- 1.1x nominal already produces a non-finite
         # one-turn matrix (find_m44 NaN), so 1.05x (still stable, orbit shift
-        # ~13 mm) is used here instead of the old toy-ring 1.2x multiplier.
+        # ~13 mm) is used here instead of a toy-ring 1.2x multiplier.
         bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
         response_at_nominal_dipole = bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
 
@@ -409,7 +408,7 @@ class TestElementMisalignment:
         # stability boundary, so this is a real, not contrived, boot fault.
         #
         # Spec-derived device counts (24 QF + 24 QD on the real ALS-U AR
-        # ring, from facility_spec.ALS_U_AR), not the old toy ring's
+        # ring, from facility_spec.ALS_U_AR), not a toy ring's
         # `range(1, 17)` (16 + 16) -- measured: roll=0.6 across all 24+24
         # devices does still destabilize the real ring's one-turn map.
         qf_count = ALS_U_AR.family("QF").count

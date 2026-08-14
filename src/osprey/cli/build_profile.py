@@ -48,17 +48,9 @@ from .build_profile_presets import (
 )
 from .build_profile_resolve import (
     EXTENDS_OVERRIDE_REFUSAL,
-    FACILITY_BUILD_DIRNAME,
-    FACILITY_PROFILE_DIRNAME,
     PROFILE_FILENAME,
-    ProfileWriteBackGuard,
-    facility_repo_root,
-    materialize_or_reuse_profile,
     merge_cli_overrides,
-    preset_profile_dir,
-    profile_provenance_preset,
     resolve_build_document,
-    resolve_build_output_dir,
     resolve_build_profile,
     write_back_cli_overrides,
 )
@@ -79,8 +71,6 @@ from .build_profile_schema import (
 
 __all__ = [
     "EXTENDS_OVERRIDE_REFUSAL",
-    "FACILITY_BUILD_DIRNAME",
-    "FACILITY_PROFILE_DIRNAME",
     "PROFILE_FILENAME",
     "BlueskyConfig",
     "BlueskyPanelsConfig",
@@ -93,7 +83,6 @@ __all__ = [
     "LifecycleStep",
     "McpServerDef",
     "NextcloudBridgeProfileConfig",
-    "ProfileWriteBackGuard",
     "ServiceDef",
     "VAConfig",
     "_KNOWN_PROFILE_KEYS",
@@ -109,15 +98,10 @@ __all__ = [
     "_triggers_dir",
     "compute_preset_hash",
     "compute_profile_hash",
-    "facility_repo_root",
     "list_presets",
     "load_profile",
-    "materialize_or_reuse_profile",
     "merge_cli_overrides",
-    "preset_profile_dir",
-    "profile_provenance_preset",
     "resolve_build_document",
-    "resolve_build_output_dir",
     "resolve_build_profile",
     "write_back_cli_overrides",
 ]

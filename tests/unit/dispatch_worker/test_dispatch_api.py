@@ -334,9 +334,9 @@ def test_dashboard_runs_session_id_is_none_when_unrecorded(client, monkeypatch):
 # Startup lifecycle: provider-env injection, no artifact regeneration
 # ---------------------------------------------------------------------------
 #
-# The project image now bakes .claude/ and data/ at build time (COPY . +
-# osprey claude regen), so the worker no longer regenerates those artifacts
-# at runtime. Provider auth/model env injection still has to happen at
+# The project image bakes .claude/ and data/ at build time (the render `osprey
+# build` produces is COPYed in), so the worker does not regenerate those
+# artifacts at runtime. Provider auth/model env injection still has to happen at
 # process startup, since it depends on the mounted config.yml/environment.
 
 
@@ -506,7 +506,11 @@ def _isolated_environ(monkeypatch, tmp_path, **extra):
     from osprey.build.claude_code_telemetry import TELEMETRY_ENV_VARS
 
     fake = dict(os.environ)
+    # The repo root, with the render's config one level down — how the
+    # dispatch-worker compose service wires the deployed worker.
     fake["OSPREY_PROJECT_DIR"] = str(tmp_path)
+    fake["CONFIG_FILE"] = str(tmp_path / "build" / "config.yml")
+    fake.pop("OSPREY_CONFIG", None)
     fake.pop("ANTHROPIC_BASE_URL", None)
     for _var in TELEMETRY_ENV_VARS:
         fake.pop(_var, None)
@@ -515,9 +519,16 @@ def _isolated_environ(monkeypatch, tmp_path, **extra):
     return fake
 
 
+def _render_config(tmp_path, body: str) -> None:
+    """Write the rendered config where a three-zone deployment keeps it."""
+    render = tmp_path / "build"
+    render.mkdir(exist_ok=True)
+    (render / "config.yml").write_text(body)
+
+
 def test_inject_provider_env_expands_and_starts_proxy(tmp_path, monkeypatch):
     """Custom provider: ${VAR} base_url is expanded, proxy started, base URL repointed."""
-    (tmp_path / "config.yml").write_text(_ARGO_CONFIG)
+    _render_config(tmp_path, _ARGO_CONFIG)
     (tmp_path / ".env").write_text("ARGO_PROD_URL=https://argo.example/v1\nARGO_API_KEY=sk-argo\n")
     fake = _isolated_environ(monkeypatch, tmp_path)
     proxy = MagicMock(return_value=7777)
@@ -534,7 +545,7 @@ def test_inject_provider_env_expands_and_starts_proxy(tmp_path, monkeypatch):
 
 def test_inject_provider_env_no_proxy_for_native(tmp_path, monkeypatch):
     """Native provider (cborg): env injected but no translation proxy started."""
-    (tmp_path / "config.yml").write_text(_CBORG_CONFIG)
+    _render_config(tmp_path, _CBORG_CONFIG)
     _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
     proxy = MagicMock(return_value=1)
     monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy)
@@ -552,7 +563,7 @@ def test_inject_provider_env_degrades_on_telemetry_misconfig(tmp_path, monkeypat
     """
     import logging
 
-    (tmp_path / "config.yml").write_text(_TELEMETRY_BROKEN_CONFIG)
+    _render_config(tmp_path, _TELEMETRY_BROKEN_CONFIG)
     fake = _isolated_environ(monkeypatch, tmp_path, ANTHROPIC_API_KEY="sk-ant")
 
     with caplog.at_level(logging.ERROR):
@@ -575,7 +586,7 @@ def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkey
 
     The refusal must propagate — it is raised before the broad ``except`` that
     otherwise swallows provider-injection errors."""
-    (tmp_path / "config.yml").write_text(_CBORG_CONFIG)
+    _render_config(tmp_path, _CBORG_CONFIG)
     _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
     monkeypatch.setattr(
         "osprey.build.claude_code_resolver.detect_managed_policy_conflicts",
@@ -584,3 +595,39 @@ def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkey
 
     with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
         dispatch_api._inject_provider_env_once()
+
+
+# ---------------------------------------------------------------------------
+# Run records land inside the mounted volume
+# ---------------------------------------------------------------------------
+
+
+def test_persisted_runs_land_under_the_agent_data_root(tmp_path, monkeypatch):
+    """A completed run is written where the workspace volume is mounted.
+
+    The compose generator renders the worker's mount target from the config's
+    ``agent_data.base_dir`` under the project root; a writer that anchored
+    anywhere else would put every run record on the container's writable layer,
+    where a restart drops it.
+    """
+    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
+    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+
+    dispatch_api._persist_run("run-7", {"status": "completed"})
+
+    written = tmp_path / "var" / "agent_data" / "dispatch" / "run-7.json"
+    assert written.is_file()
+
+
+def test_persisted_runs_follow_a_relocated_agent_data_root(tmp_path, monkeypatch):
+    """...and follow the config key the mount target is rendered from."""
+    (tmp_path / "build").mkdir()
+    (tmp_path / "build" / "config.yml").write_text("agent_data:\n  base_dir: state/data\n")
+    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
+    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+
+    dispatch_api._persist_run("run-8", {"status": "completed"})
+
+    assert (tmp_path / "state" / "data" / "dispatch" / "run-8.json").is_file()

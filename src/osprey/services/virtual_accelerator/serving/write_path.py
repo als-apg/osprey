@@ -233,8 +233,7 @@ class SetpointRoutedModel(LUMEModel):
         The unrouted remainder is applied in one call, preserving the run
         loop's one-``set``-per-cycle shape. An empty batch is passed through
         rather than dropped: the run loop's startup cycle carries no values
-        at all, and the wrapped model treats that as "re-solve and refresh",
-        which is what it did before this wrapper existed.
+        at all, and the wrapped model treats that as "re-solve and refresh".
         """
         routed = {name: values[name] for name in values if name in self._routed}
         direct = {name: values[name] for name in values if name not in self._routed}

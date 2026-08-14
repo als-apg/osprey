@@ -13,8 +13,8 @@ and status code alike; the bridge decides what a request is allowed to do.
 Panel mounts (panel bundles must agree with this mapping — see
 ``_PANEL_MOUNTS`` below):
 
-- ``panels/plan``                 -> ``/plan``
-- ``_BLUESKY_PANEL_DIR`` (bundle) -> ``/bluesky`` and ``/results``
+- ``_BLUESKY_PANEL_DIR`` (bundle) -> ``/bluesky``, and the deprecated aliases
+  ``/plan`` and ``/results``
 
 Stays import-clean of ``bluesky``/``ophyd``/``tiled`` at module scope, mirroring
 ``osprey.services.bluesky_bridge.app``.
@@ -40,19 +40,22 @@ from osprey.interfaces.bluesky_panels import draft_relay, queue_relay, read_prox
 # the sidecar doesn't crash on a not-yet-authored bundle.
 _PANELS_ROOT = Path(__file__).parent / "panels"
 
-# The bundle directory behind the BLUESKY panel — the queue plus the selected
-# run's results, which is what the standalone results panel was folded into.
-# Both mount paths below read this one name rather than spelling the directory
-# twice, so the alias cannot come apart from the bundle it aliases.
+# The bundle directory behind the BLUESKY panel — plan composition, the queue,
+# and the selected run's results, which is what the standalone plan and results
+# panels were folded into. Every mount path below reads this one name rather
+# than spelling the directory once per mount, so an alias cannot come apart
+# from the bundle it aliases.
 _BLUESKY_PANEL_DIR = "bluesky"
 
-# (mount path, bundle directory). ``/results`` is a deprecated ALIAS of
-# ``/bluesky``: the same bundle is served at both so bookmarks, the panel
-# registry, and the web-terminal proxy keep resolving across one release. Drop
-# the alias row — not the bundle — when that release is out.
+# (mount path, bundle directory). ``/results`` and ``/plan`` are deprecated
+# ALIASES of ``/bluesky``: the same bundle is served at all three so bookmarks,
+# the panel registry, and the web-terminal proxy keep resolving across one
+# release. A deployment whose config.yml still registers a PLAN panel therefore
+# shows the merged panel rather than a 404. Drop the alias rows — not the
+# bundle — when that release is out.
 _PANEL_MOUNTS: tuple[tuple[str, str], ...] = (
-    ("/plan", "plan"),
     ("/bluesky", _BLUESKY_PANEL_DIR),
+    ("/plan", _BLUESKY_PANEL_DIR),
     ("/results", _BLUESKY_PANEL_DIR),
 )
 

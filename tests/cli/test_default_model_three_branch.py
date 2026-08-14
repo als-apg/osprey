@@ -149,16 +149,20 @@ class TestShippedPresetsResolve:
         """No preset may drop out of the parametrization by shipping no yml."""
         assert len(list(PRESET_DIR.glob("*.yml"))) >= 6
 
-    def test_config_export_renders_a_resolvable_default_model(self, tmp_path):
-        """``osprey config export`` is the canonical starting config people copy."""
+    def test_the_defaults_view_renders_a_resolvable_default_model(self, tmp_path):
+        """``osprey config --defaults`` is the config people read to start from.
+
+        It answers "what keys exist and what do they default to", so a default
+        model tier it names that the resolver cannot map is a wrong answer at
+        the one place someone is most likely to copy from.
+        """
         from click.testing import CliRunner
 
-        from osprey.cli.config_cmd import export
+        from osprey.cli.config_cmd import config
 
-        out = tmp_path / "exported.yml"
-        result = CliRunner().invoke(export, ["--output", str(out)])
+        result = CliRunner().invoke(config, ["--defaults"])
         assert result.exit_code == 0, result.output
-        exported = yaml.safe_load(out.read_text())
+        exported = yaml.safe_load(result.output)
         cc_config = exported["claude_code"]
         spec = ClaudeCodeModelResolver.resolve(
             cc_config, exported.get("api", {}).get("providers", {}), include_telemetry=False

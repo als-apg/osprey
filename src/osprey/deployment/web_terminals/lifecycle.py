@@ -18,7 +18,7 @@ read-only and never itself a removal argv; :func:`nuke_stack`'s pre-removal
 three destructive verbs this module implements. :func:`rotate_user_password` is
 the one non-destructive verb here: it changes a credential rather than removing
 a resource, but it belongs with the others because it is reached the same way
-(``osprey deploy <verb> <user>``) and needs the same roster/runtime gating.
+(``osprey users <verb> <user>``) and needs the same roster/runtime gating.
 
 Volume-scoping boundary (applies to :func:`prune_users`'s discovery and to
 :func:`nuke_stack`'s per-user volume teardown alike): orphan discovery
@@ -34,15 +34,29 @@ confirmation every destructive verb here requires remains the operator's
 backstop regardless: nothing is removed without the operator seeing the exact
 resource names first.
 
-CWD CONTRACT: every verb here resolves project-root-relative paths — the
-``.env``/``.env.auth`` credential files, the rendered ``docker-compose.web.yml``
-the sidecar recreate addresses, and the ``--archive`` tarball directory —
-against the CURRENT WORKING DIRECTORY, because ``osprey deploy`` chdirs to the
-project root before dispatching any of them. A programmatic caller that invokes
-these functions from elsewhere, passing only ``config_path``, would have those
-paths disagree with the config it passed, and the failure would be silent
-(credentials purged from the wrong file, a recreate skipped as "not deployed").
-Call them from the project root.
+REPO-ROOT CONTRACT. Everything a verb here touches follows ONE repo, the one
+:func:`~osprey.deployment.compose_generator.resolve_repo_root` derives from the
+``config_path`` the verb was handed, rather than the working directory:
+
+* the ``.env``/``.env.auth`` credential files and the ``--archive`` tarball
+  directory, which these verbs resolve themselves;
+* the artifact re-render, the nginx reload, and the auth-sidecar recreate,
+  which take the resolved repo as an explicit argument.
+
+``config_path`` is the most authoritative input that resolver takes —
+filesystem truth, unlike a ``project_root`` key that a ``--runtime-root`` build
+rewrites to a container path — so a programmatic caller passing only
+``config_path`` gets paths that agree with the config it passed, from any
+working directory.
+
+The recreate is in that list because it is the step that puts a credential
+change into FORCE, and it was the last thing here resolving a root of its own:
+against a repo it derived from the working directory it found no rendered
+compose file, warned "not deployed", reconciled nothing, and returned — after
+the roster edit and the credential purge had already succeeded. Threading the
+repo (:func:`~osprey.deployment.web_terminals.provision.force_recreate_auth_sidecar`'s
+``repo_root``) is what makes the file on disk and the running sidecar agree
+from any directory.
 
 Image-scoping boundary (applies only to :func:`nuke_stack`'s persona-image
 teardown): unlike containers and volumes, image tags are host-global — two
@@ -65,7 +79,12 @@ import subprocess
 from pathlib import Path
 from typing import Any, NoReturn
 
-from osprey.deployment.compose_generator import resolve_project_name, resolve_user_volume_names
+from osprey.deployment.compose_generator import (
+    resolve_project_name,
+    resolve_repo_root,
+    resolve_user_volume_names,
+)
+from osprey.deployment.errors import CapturedProcessError
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
     runtime_env,
@@ -84,6 +103,7 @@ from osprey.deployment.web_terminals.personas import (
     as_dict,
     effective_image_source,
     env_var_suffix,
+    freeze_user_indices,
     normalize_users,
     resolve_personas,
 )
@@ -93,14 +113,19 @@ from osprey.utils.config import ConfigBuilder
 from osprey.utils.config_writer import config_replace_list
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey.utils.logger import get_logger
+from osprey.utils.workspace import STATE_DIR_NAME
 
 logger = get_logger("deployment.lifecycle")
 
 _USERS_KEY_PATH = ["modules", "web_terminals", "users"]
 
-# Directory (relative to the project cwd, i.e. wherever ``osprey deploy`` has
-# already chdir'd) that --archive tarballs are written into.
-_ARCHIVE_DIR_NAME = "web_terminal_archives"
+# Where --archive tarballs are written, relative to the deployment repo root
+# (see the module's REPO-ROOT CONTRACT). Under ``var/`` deliberately: an archived
+# workspace is durable state, and ``var/`` is the zone that is git-ignored and
+# survives a rebuild. At the repo root the tarballs would land in the tracked
+# source zone, where a multi-gigabyte volume dump is one `git add .` away from
+# the history.
+_ARCHIVE_DIR_NAME = f"{STATE_DIR_NAME}/web_terminal_archives"
 
 
 def _require_running_runtime(config: dict[str, Any]) -> None:
@@ -138,10 +163,15 @@ def decommission_user(
        matters because roster/artifact/container changes are only cheaply
        recoverable (a redeploy re-adds the user) while volume removal is not —
        declining must not leave the roster edited but the confirmation refused.
-    3. Migrate the roster to explicit ``{name, index}`` entries (freezing current
-       positional indices) and drop the target user, leaving their index as a gap
-       so survivors' ports never shift. Write the result back to ``config.yml``,
-       comment-preserving.
+    3. Freeze the roster's current positional indices onto explicit ``index``
+       fields and drop the target user, leaving their index as a gap so
+       survivors' ports never shift. Write the result back to ``config.yml``,
+       comment-preserving. The survivors are written **as authored**
+       (:func:`~osprey.deployment.web_terminals.personas.freeze_user_indices`),
+       not as the render-facing projection: writing the projection would strip
+       each survivor's ``persona:`` key, and a roster with no ``persona:`` keys
+       re-resolves every survivor onto ``default_persona`` — a silent privilege
+       change on the next render, in the direction of the default.
     4. Re-render the web-terminal artifacts from the updated config, so the
        deployed nginx route/compose service/landing card for the user disappear.
     5. Force-remove the user's exact-named container.
@@ -167,8 +197,10 @@ def decommission_user(
     config = ConfigBuilder(str(config_path)).raw_config
     _require_running_runtime(config)
 
+    repo_root = resolve_repo_root(config, config_path)
+
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
-    migrated = normalize_users(web_terminals.get("users"))
+    migrated = freeze_user_indices(web_terminals.get("users"))
 
     if not any(entry["name"] == user for entry in migrated):
         raise ValueError(
@@ -192,10 +224,10 @@ def decommission_user(
             raise RuntimeError(f"Decommission of {user!r} aborted: confirmation did not match.")
 
     # Roster edit + artifact re-render happen before container/volume removal:
-    # they are recoverable by re-running `osprey deploy up`, unlike volume removal.
+    # they are recoverable by re-running `osprey up`, unlike volume removal.
     config_replace_list(config_path, _USERS_KEY_PATH, remaining)
     updated_config = ConfigBuilder(str(config_path)).raw_config
-    write_web_terminal_artifacts(updated_config)
+    write_web_terminal_artifacts(updated_config, repo_root)
 
     runtime = get_runtime_command(config)[0]
     env = runtime_env(config, ignore_orphans=True)
@@ -206,7 +238,9 @@ def decommission_user(
     # reload the freshly rendered nginx routes, and recreate the sidecar so its
     # roster and hashes are re-read and the user's session dies now.
     try:
-        _reconcile_auth_after_user_removal(updated_config, [user], rerendered=True)
+        _reconcile_auth_after_user_removal(
+            updated_config, [user], rerendered=True, repo_root=repo_root
+        )
     finally:
         # Deliberately in `finally`, not sequentially after: what fails above is
         # a REMOTE effect (the running sidecar still holds the old roster) while
@@ -216,7 +250,9 @@ def decommission_user(
         # reports, and it is cleanup the operator cannot easily finish by hand.
         # The reconcile's error still surfaces afterwards, so a failure to close
         # access stays fatal. Do NOT "simplify" this back to a plain call.
-        _apply_volume_policy(runtime, volumes, archive=archive, purge=purge, env=env)
+        _apply_volume_policy(
+            runtime, volumes, archive=archive, purge=purge, env=env, repo_root=repo_root
+        )
 
 
 # =============================================================================
@@ -276,6 +312,8 @@ def prune_users(
     config = ConfigBuilder(str(config_path)).raw_config
     _require_running_runtime(config)
 
+    repo_root = resolve_repo_root(config, config_path)
+
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
     roster_names = {entry["name"] for entry in normalize_users(web_terminals.get("users"))}
 
@@ -319,7 +357,12 @@ def prune_users(
         if container:
             remove_container(runtime, container, env=env)
         _apply_volume_policy(
-            runtime, orphan_volumes.get(user, []), archive=archive, purge=purge, env=env
+            runtime,
+            orphan_volumes.get(user, []),
+            archive=archive,
+            purge=purge,
+            env=env,
+            repo_root=repo_root,
         )
 
     # Authentication (no-op when off): an orphan is already off the roster, so
@@ -329,7 +372,7 @@ def prune_users(
     # with nothing to purge bounces nothing; the recreate primitive re-renders
     # the artifacts first, so the fresh sidecar's digest label matches the
     # purged file it bakes.
-    _reconcile_auth_after_user_removal(config, orphan_users, rerendered=False)
+    _reconcile_auth_after_user_removal(config, orphan_users, rerendered=False, repo_root=repo_root)
 
 
 # =============================================================================
@@ -531,7 +574,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
 
 
 def _reconcile_auth_after_user_removal(
-    config: dict[str, Any], removed: list[str], *, rerendered: bool
+    config: dict[str, Any], removed: list[str], *, rerendered: bool, repo_root: Path
 ) -> None:
     """Put a roster removal into force on the running auth sidecar.
 
@@ -571,6 +614,11 @@ def _reconcile_auth_after_user_removal(
             label matches the purged file) recreates only when a purge actually
             changed ``.env.auth``, so a prune that found nothing to purge
             leaves every live terminal and session untouched.
+        repo_root: The deployment repo ``.env.auth`` lives in, resolved by the
+            caller from its ``config_path`` (see the module's REPO-ROOT
+            CONTRACT). Passed in rather than re-derived here, and passed on to
+            the sidecar recreate, so the purge, the nginx reload and the
+            recreate all address the same repo.
 
     Raises:
         RuntimeError: If a credential purge or the sidecar recreate failed. A
@@ -590,8 +638,6 @@ def _reconcile_auth_after_user_removal(
         force_recreate_auth_sidecar,
         web_stack_compose_cmd,
     )
-
-    project_root = Path.cwd()
 
     purged: list[str] = []
     # Everyone still to be cleared. A name is struck off once its purge
@@ -613,7 +659,7 @@ def _reconcile_auth_after_user_removal(
     # down the list.
     try:
         for user in removed:
-            if purge_auth_credentials(user, project_root):
+            if purge_auth_credentials(user, repo_root):
                 purged.append(user)
             unpurged.remove(user)
     except OSError as exc:
@@ -624,13 +670,13 @@ def _reconcile_auth_after_user_removal(
     # the sidecar can be recreated. Inside that guard it would be reported as a
     # recreate failure AND skip the recreate it never attempted.
     try:
-        _warn_if_plaintext_password_survives(removed, project_root)
+        _warn_if_plaintext_password_survives(removed, repo_root)
     except OSError as exc:
         logger.warning(
             "Could not check whether a removed web-terminal user's plaintext password "
             "survives in %s (%s). If that file sets %s<USER> for any of %s, remove the "
-            "line by hand — the next `osprey deploy up` would otherwise hash it back in.",
-            project_root / ".env",
+            "line by hand — the next `osprey up` would otherwise hash it back in.",
+            repo_root / ".env",
             exc,
             PW_PLAINTEXT_VAR_PREFIX,
             ", ".join(repr(name) for name in removed),
@@ -643,17 +689,22 @@ def _reconcile_auth_after_user_removal(
     # nginx serving the removed user's route until the next deploy. Advisory
     # and never raises (it warns).
     if rerendered:
-        reload_nginx_config(web_stack_compose_cmd(config), runtime_env(config, ignore_orphans=True))
+        reload_nginx_config(
+            web_stack_compose_cmd(config, repo_root=repo_root),
+            runtime_env(config, ignore_orphans=True),
+        )
 
-    recreate_error: OSError | subprocess.CalledProcessError | None = None
+    recreate_error: OSError | subprocess.CalledProcessError | CapturedProcessError | None = None
     # The recreate runs on a PARTIAL purge (see above) but not on one that
     # removed nothing: with no change to `.env.auth` there is nothing to put
     # into force — a recreate would re-read the file with the surviving hash
     # still in it — and bouncing every live session would be gratuitous.
     try:
         if purged or (rerendered and purge_error is None):
-            force_recreate_auth_sidecar(config)
-    except (OSError, subprocess.CalledProcessError) as exc:
+            force_recreate_auth_sidecar(config, repo_root=repo_root)
+    # The recreate spools its compose output, so it raises CapturedProcessError;
+    # CalledProcessError stays in the tuple for any path that still raises it.
+    except (OSError, subprocess.CalledProcessError, CapturedProcessError) as exc:
         recreate_error = exc
 
     # A surviving credential outranks an unreconciled sidecar: one is an open
@@ -678,7 +729,7 @@ def _reconcile_auth_after_user_removal(
                 detail += (
                     f" The credentials of {others} WERE removed, but the sidecar could "
                     f"not be recreated either ({recreate_error}), so it still holds "
-                    "them. Run `osprey deploy up`."
+                    "them. Run `osprey up`."
                 )
         _fail_reconcile(names, detail, purge_error)
 
@@ -694,7 +745,7 @@ def _reconcile_auth_after_user_removal(
         detail = (
             f"their auth credentials were purged from {AUTH_ENV_FILENAME}, but the auth "
             f"sidecar could not be recreated ({recreate_error}), so it was not reconciled "
-            "and still holds their roster entry and password hash. Run `osprey deploy up` "
+            "and still holds their roster entry and password hash. Run `osprey up` "
             "to recreate it."
         )
         _fail_reconcile(", ".join(repr(name) for name in removed), detail, recreate_error)
@@ -718,7 +769,7 @@ def _warn_if_plaintext_password_survives(removed: list[str], project_root: Path)
     has a second provisioning source: with no stored hash for a user it hashes
     ``OSPREY_AUTH_PW_<SUFFIX>`` out of the project ``.env``. So the purge that
     closes the departed user's access also re-opens that fallback — the next
-    ``osprey deploy up`` re-establishes the very password the purge derived its
+    ``osprey up`` re-establishes the very password the purge derived its
     hash from, and a re-added same-name user inherits it.
 
     Warn rather than edit: ``.env`` is operator-owned and full of unrelated
@@ -737,7 +788,7 @@ def _warn_if_plaintext_password_survives(removed: list[str], project_root: Path)
         if values.get(variable, "").strip():
             logger.warning(
                 "%s still sets %s for the removed web-terminal user %r. Their password "
-                "was purged from %s, but the next `osprey deploy up` would hash that "
+                "was purged from %s, but the next `osprey up` would hash that "
                 "plaintext back in — so re-adding this username would re-establish the "
                 "DEPARTED holder's password. Remove that line from %s.",
                 dotenv_path,
@@ -751,7 +802,7 @@ def _warn_if_plaintext_password_survives(removed: list[str], project_root: Path)
 def rotate_user_password(config_path: str | Path, user: str, password: str) -> None:
     """Replace one web-terminal user's login password and put it into force.
 
-    The verb behind ``osprey deploy passwd <user>``. Order of operations, each a
+    The verb behind ``osprey users passwd <user>``. Order of operations, each a
     prerequisite for the next:
 
     1. Gate on this deployment having an OSPREY-managed password to change at
@@ -782,8 +833,11 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
     The password is never logged, printed, or echoed on this path.
 
     Args:
-        config_path: Path to the facility ``config.yml``; its directory is the
-            project root holding ``.env.auth``.
+        config_path: Path to the facility ``config.yml``. Note that
+            ``.env.auth`` is resolved against the deployment *repo root* this
+            path identifies, not against the file's own directory — the two are
+            not the same place, since the rendered config lives one zone down in
+            ``build/`` while the credential files live at the repo root.
         user: Web-terminal username whose password is being replaced.
         password: The new cleartext password. Hashed by the callee; never stored.
 
@@ -827,20 +881,22 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
 
     # Raises (rather than reporting) if `.env.auth` cannot be written, which is
     # what keeps the recreate below from running against an unchanged file and
-    # reporting success over a password that did not change. CWD, not
-    # `config_path.parent`: the recreate below resolves its compose file
-    # against CWD (see the module's CWD CONTRACT), and the two must agree or a
-    # caller off the project root would store the hash in one place and
-    # recreate against another.
+    # reporting success over a password that did not change. The repo root, not
+    # `config_path.parent`: the rendered config sits one zone down in `build/`,
+    # while `.env.auth` lives at the repo root with the deployment's other
+    # secrets (see the module's REPO-ROOT CONTRACT). The same root is handed to
+    # the recreate below, so the file this writes is the file the recreated
+    # sidecar reads whatever directory the operator is standing in.
     # BEFORE the write, not after: a rotation that stores the new hash and is
     # then refused would leave the operator holding a password the sidecar has
     # not been given. An operator who has just pasted an IdP client secret into
     # `.env.auth` and reaches for `passwd` is the likeliest way a `$`-bearing
     # value meets a deploy verb, so this is where catching it is worth the
     # check — the removal verbs deliberately do not, see the function docstring.
-    raise_if_env_auth_would_be_interpolated(Path.cwd())
+    repo_root = resolve_repo_root(config, config_path)
+    raise_if_env_auth_would_be_interpolated(repo_root)
 
-    set_auth_password(user, password, Path.cwd())
+    set_auth_password(user, password, repo_root)
 
     # The shared primitive, imported rather than re-implemented: provision.py
     # owns the web stack's compose argv, and a second copy assembled here would
@@ -850,8 +906,10 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
     from osprey.deployment.web_terminals.provision import force_recreate_auth_sidecar
 
     try:
-        force_recreate_auth_sidecar(config)
-    except subprocess.CalledProcessError as exc:
+        force_recreate_auth_sidecar(config, repo_root=repo_root)
+    except (subprocess.CalledProcessError, CapturedProcessError) as exc:
+        # The recreate spools its compose output (CapturedProcessError);
+        # CalledProcessError stays for any path that still raises it.
         # The hash is ALREADY stored, so this is not "the rotation failed" — it
         # is the mirror image of the write-failure case above. Left to
         # propagate, the CLI's generic handler prints "Deployment failed" over a
@@ -861,7 +919,7 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
         raise RuntimeError(
             f"The password for {user!r} WAS changed, but the auth sidecar could not be "
             f"recreated ({exc}), so it is still serving the previous password. Run "
-            "`osprey deploy up` to put the new password in force."
+            "`osprey up` to put the new password in force."
         ) from exc
 
 
@@ -1216,6 +1274,7 @@ def _apply_volume_policy(
     *,
     archive: bool,
     purge: bool,
+    repo_root: Path,
     env: dict[str, str] | None = None,
 ) -> None:
     """Apply the retain(default)/archive/purge policy to exact-named volumes.
@@ -1228,17 +1287,21 @@ def _apply_volume_policy(
         runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
         volumes: Exact volume names to apply the policy to.
         archive: Stream each volume to a tarball (under
-            ``<cwd>/<_ARCHIVE_DIR_NAME>``) before removing it. Mutually
-            exclusive with ``purge``.
+            ``<repo_root>/var/web_terminal_archives``, see
+            :data:`_ARCHIVE_DIR_NAME`) before removing it. Mutually exclusive
+            with ``purge``.
         purge: Remove each volume without archiving. Mutually exclusive with
             ``archive``.
+        repo_root: The deployment repo the archive directory hangs off, resolved
+            by the caller from its ``config_path`` (see the module's REPO-ROOT
+            CONTRACT).
         env: Environment for the subprocess calls.
     """
     if not (archive or purge):
         return  # retain (default): volumes are left in place
 
     if archive:
-        archive_dir = Path.cwd() / _ARCHIVE_DIR_NAME
+        archive_dir = repo_root / _ARCHIVE_DIR_NAME
         for volume in volumes:
             archive_volume(runtime, volume, archive_dir, env=env)
             remove_volume(runtime, volume, env=env)

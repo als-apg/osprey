@@ -1,15 +1,15 @@
 """Config loading and category-record assembly for a health run.
 
-This module holds the surface-agnostic core the ``osprey health`` CLI used to
-carry inline: the single ``config.yml`` load (:func:`load_config`) and the
-assembly of the merged category records — built-in "core" categories,
-declarative YAML categories, and facility plugins (:func:`build_records`, with
-its :func:`core_record` / :func:`skip_record` helpers).
+This module holds the surface-agnostic core of a health run: the single
+``config.yml`` load (:func:`load_config`) and the assembly of the merged
+category records — built-in "core" categories, declarative YAML categories, and
+facility plugins (:func:`build_records`, with its :func:`core_record` /
+:func:`skip_record` helpers).
 
-Extracting these off the CLI lets non-CLI surfaces (e.g. the web health view)
-reuse the exact same record-assembly and config-degradation behavior instead of
-reimplementing it. The CLI (:mod:`osprey.cli.health_cmd`) re-imports these names
-and wires them together unchanged.
+Keeping these off the CLI lets non-CLI surfaces (e.g. the web health view) reuse
+the exact same record-assembly and config-degradation behavior instead of
+reimplementing it. The CLI (:mod:`osprey.cli.health_cmd`) imports these names
+and wires them together.
 
 Design contracts honored here:
 
@@ -214,6 +214,8 @@ def build_records(
     config_ok: bool,
     project_path: Path,
     suite_timeout_s: float,
+    *,
+    render_path: Path,
 ) -> tuple[list[CategoryRecord], list[Any]]:
     """Assemble the merged category records and any plugin-load error rows.
 
@@ -222,6 +224,19 @@ def build_records(
     merged too and plugin-load failures are returned as diagnostic error rows;
     otherwise config-dependent core categories collapse to "config unavailable"
     skip rows and no YAML/plugin categories are loaded.
+
+    Two anchors, because the categories below live in two zones, and BOTH are
+    passed in rather than derived here — the caller already resolved them
+    together (``health_cmd._resolve_anchors``), and a second derivation in this
+    module is exactly the divergence that split anchor produced in the first
+    place.
+
+    Args:
+        project_path: The deployment REPO ROOT, for the things that belong to
+            it: the ``.env``, ``project_root``-relative paths, the disk.
+        render_path: The directory holding the rendered ``config.yml`` — the
+            build zone — for the build-owned paths that config states relative
+            to itself (the channel database).
     """
     from osprey.health.config import Cost
     from osprey.health.core import CORE_CATEGORY_NAMES, get_core_category_factory
@@ -240,10 +255,17 @@ def build_records(
             continue
 
         factory = get_core_category_factory(name)
-        if name in ("file_system", "channel_finder"):
-            # Both resolve on-disk paths relative to the project root, so they
-            # take the same ``cwd`` thread-through the uniform call omits.
+        if name == "file_system":
+            # Repo-root things: the `.env`, a `registry_path` the config states
+            # relative to project_root, the disk the deployment lives on.
             func = factory(expanded, context=None, cwd=project_path)
+        elif name == "channel_finder":
+            # NOT the repo root. A channel database is build-owned output, and
+            # the rendered config states its path relative to the config's own
+            # directory (`<repo>/build`), so anchoring it on the repo root looks
+            # one zone too high and reports a present database as missing. The
+            # two categories take DIFFERENT anchors on purpose.
+            func = factory(expanded, context=None, cwd=render_path)
         else:
             func = factory(expanded, context=None)
         default_cost = Cost.ON_DEMAND if name in ON_DEMAND_CORE else Cost.POLL

@@ -91,13 +91,14 @@ def test_inject_bluesky_panels_deployed_services_idempotent(tmp_path: Path) -> N
 
 
 def test_inject_bluesky_panels_registers_the_web_panels(tmp_path: Path) -> None:
-    """Both web.panels.<id> entries are registered with the sidecar-root url +
-    per-panel path/label. The url points at the sidecar ROOT (not a
-    panel-specific sub-path) — the panel's static mount is selected via `path`.
+    """The web.panels.bluesky entry is registered with the sidecar-root url +
+    its path/label. The url points at the sidecar ROOT (not a panel-specific
+    sub-path) — the panel's static mount is selected via `path`.
 
-    The BLUESKY entry's own rename (and the deprecated ``results`` alias) is
-    covered by ``test_panel_registration.py``; this file's subject is the
-    injector's compose/config wiring."""
+    The BLUESKY entry's own history (the ``results`` rename, the ``plan``
+    merge, and both deprecated aliases) is covered by
+    ``test_panel_registration.py``; this file's subject is the injector's
+    compose/config wiring."""
     project_path = tmp_path / "project"
     project_path.mkdir()
     _write_config(project_path)
@@ -105,12 +106,6 @@ def test_inject_bluesky_panels_registers_the_web_panels(tmp_path: Path) -> None:
     _inject_bluesky_panels(BlueskyPanelsConfig(port=8095), project_path=project_path)
 
     panels = _read_config(project_path)["web"]["panels"]
-
-    plan = panels["plan"]
-    assert plan["url"] == "${BLUESKY_PANELS_URL:-http://localhost:8095}"
-    assert plan["path"] == "/plan/"
-    assert plan["label"] == "PLAN"
-    assert "health_endpoint" not in plan
 
     bluesky = panels["bluesky"]
     assert bluesky["url"] == "${BLUESKY_PANELS_URL:-http://localhost:8095}"
@@ -128,7 +123,6 @@ def test_inject_bluesky_panels_derives_url_from_custom_port(tmp_path: Path) -> N
     _inject_bluesky_panels(BlueskyPanelsConfig(port=9999), project_path=project_path)
 
     panels = _read_config(project_path)["web"]["panels"]
-    assert panels["plan"]["url"] == "${BLUESKY_PANELS_URL:-http://localhost:9999}"
     assert panels["bluesky"]["url"] == "${BLUESKY_PANELS_URL:-http://localhost:9999}"
 
 
@@ -142,7 +136,7 @@ def test_inject_bluesky_panels_explicit_url_override_wins(tmp_path: Path) -> Non
         extra={
             "web": {
                 "panels": {
-                    "plan": {"url": "http://custom-host:1234"},
+                    "bluesky": {"url": "http://custom-host:1234"},
                 }
             }
         },
@@ -150,14 +144,12 @@ def test_inject_bluesky_panels_explicit_url_override_wins(tmp_path: Path) -> Non
 
     _inject_bluesky_panels(BlueskyPanelsConfig(port=8095), project_path=project_path)
 
-    panels = _read_config(project_path)["web"]["panels"]
+    bluesky = _read_config(project_path)["web"]["panels"]["bluesky"]
     # Explicit override preserved.
-    assert panels["plan"]["url"] == "http://custom-host:1234"
+    assert bluesky["url"] == "http://custom-host:1234"
     # But path/label are still filled in via setdefault (were absent before).
-    assert panels["plan"]["path"] == "/plan/"
-    assert panels["plan"]["label"] == "PLAN"
-    # Untouched panels still get their derived default.
-    assert panels["bluesky"]["url"] == "${BLUESKY_PANELS_URL:-http://localhost:8095}"
+    assert bluesky["path"] == "/bluesky/"
+    assert bluesky["label"] == "BLUESKY"
 
 
 def test_inject_bluesky_panels_explicit_path_label_override_wins(tmp_path: Path) -> None:

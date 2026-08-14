@@ -6,14 +6,14 @@ exactly as the build profile declared it — so a build can be reproduced from t
 config alone.
 
 What it deliberately does **not** record is the interpreter that runs agent
-Python. That path used to be baked in as ``execution.python_env_path`` at build
-time, which made every generated config a snapshot of one machine's filesystem:
-move the project, mount it into a container, or rebuild the venv elsewhere and
-the recorded path pointed at nothing. The interpreter is now resolved at run
-time (the project's own ``.venv`` when it has one, else the interpreter running
-OSPREY), so no absolute interpreter path is written to config.yml at all. These
-tests assert that absence directly — it is what lets the heal-and-strip
-workarounds that existed to repair such stale paths be deleted.
+Python. Baking that path in as ``execution.python_env_path`` at build time would
+make every generated config a snapshot of one machine's filesystem: move the
+project, mount it into a container, or rebuild the venv elsewhere and the
+recorded path points at nothing. The interpreter is resolved at run time (the
+project's own ``.venv`` when it has one, else the interpreter running OSPREY),
+so no absolute interpreter path is written to config.yml at all. These tests
+assert that absence directly — it is what keeps heal-and-strip workarounds for
+stale paths out of the loader.
 
 Configs already deployed with the retired key must keep loading: it is ignored
 with a debug log, never an error.
@@ -33,6 +33,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
+from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey.utils.config import ConfigBuilder
 
@@ -73,27 +74,27 @@ def _interpreter_paths(config: dict) -> list[tuple[str, str]]:
     ]
 
 
-def _build_project(output_dir: Path, project_name: str, *extra_args: str) -> Path:
-    """Build the control-assistant preset in-process and return the project dir.
+def _build_project(output_dir: Path, project_name: str, *init_set_args: str) -> Path:
+    """Materialize the control-assistant preset, build it, and return build/.
 
     ``--skip-deps --skip-lifecycle`` keeps the build Docker- and network-free:
-    the rendered config.yml is all these tests read.
+    the rendered config.yml is all these tests read. Any ``--set`` pairs are
+    profile-time, so they go to ``osprey init`` — the deployment repo it
+    creates is what ``osprey build`` then renders.
     """
+    repo_dir = output_dir / project_name
+    init_result = CliRunner().invoke(
+        init,
+        [str(repo_dir), "--preset", "control-assistant", "--no-git", *init_set_args],
+    )
+    assert init_result.exit_code == 0, init_result.output
+
     result = CliRunner().invoke(
         build,
-        [
-            project_name,
-            "--preset",
-            "control-assistant",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(output_dir),
-            *extra_args,
-        ],
+        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
     )
     assert result.exit_code == 0, result.output
-    project_dir = output_dir / project_name
+    project_dir = repo_dir / "build"
     assert (project_dir / "config.yml").exists()
     return project_dir
 
@@ -165,7 +166,7 @@ class TestTemplatesRenderTheDeclaration:
 class TestGeneratedConfigRecordsNoInterpreterPath:
     """A built project's config.yml carries no absolute interpreter path.
 
-    This is the precondition for deleting the heal (``osprey claude regen``) and
+    This is the precondition for deleting the heal (``osprey build``) and
     strip (container staging) steps: neither has anything left to repair once the
     build stops recording a path.
     """
@@ -245,7 +246,7 @@ class TestDeclaredEnvironmentIsRecordedVerbatim:
 
 
 class TestRetiredPythonEnvPathIsIgnored:
-    """Projects deployed with the old key must keep loading, unchanged."""
+    """Projects deployed with the retired key must keep loading, unchanged."""
 
     @staticmethod
     def _legacy_config(tmp_path: Path) -> Path:

@@ -51,7 +51,7 @@ class TestClaudeCodeSDKIntegration:
         Uses a simple prompt that triggers a single MCP tool call
         (channel_find) to prove the observability pipeline works.
         """
-        project_dir = init_project(tmp_path, "sdk-smoke-test", provider="als-apg")
+        repo = init_project(tmp_path, "sdk-smoke-test", provider="als-apg")
 
         prompt = (
             "Use the channel_find tool to search for BPM channels. "
@@ -59,7 +59,7 @@ class TestClaudeCodeSDKIntegration:
         )
 
         result = await run_sdk_query(
-            project_dir,
+            repo,
             prompt,
             max_turns=5,
             # 0.50 matches the suite's smoke-test tier (safety/feedback tests).
@@ -127,7 +127,7 @@ class TestClaudeCodeSDKIntegration:
 
         Three layers of contract:
           1. Deterministic: ``archiver_read`` was called and a PNG
-             artifact exists in the project tree.
+             artifact exists somewhere in the deployment repo.
           2. Semantic (LLM judge): the agent fetched the requested
              channel data and produced a plot from it — the judge
              decides whether ``execute``, ``create_static_plot``, or
@@ -135,7 +135,7 @@ class TestClaudeCodeSDKIntegration:
              test prescribing a specific tool.
           3. Cost: under $1.00 budget.
         """
-        project_dir = init_project(tmp_path, "sdk-archiver-plot", provider="als-apg")
+        repo = init_project(tmp_path, "sdk-archiver-plot", provider="als-apg")
 
         prompt = (
             "Use the archiver_read tool to retrieve data for channels "
@@ -146,7 +146,7 @@ class TestClaudeCodeSDKIntegration:
         )
 
         result = await run_sdk_query(
-            project_dir,
+            repo,
             prompt,
             max_turns=15,
             max_budget_usd=1.0,
@@ -169,9 +169,9 @@ class TestClaudeCodeSDKIntegration:
         archiver_calls = result.tools_matching("archiver_read")
         assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
-        png_files = find_png_files(project_dir)
+        png_files = find_png_files(repo)
         assert len(png_files) > 0, (
-            "No PNG files found in the project — agent did not produce a plot."
+            "No PNG files found in the deployment repo — agent did not produce a plot."
         )
         print(f"  PNG files: {[p.name for p in png_files]}")
 
@@ -238,7 +238,7 @@ class TestClaudeCodeSDKIntegration:
              regardless of whether plotting went through ``execute``,
              ``create_static_plot``, or another visualizer tool.
         """
-        project_dir = init_project(tmp_path, "sdk-bpm-pipeline", provider="als-apg")
+        repo = init_project(tmp_path, "sdk-bpm-pipeline", provider="als-apg")
 
         prompt = (
             "Give me a timeseries and a correlation plot of all horizontal "
@@ -248,7 +248,7 @@ class TestClaudeCodeSDKIntegration:
         )
 
         result = await run_sdk_query(
-            project_dir,
+            repo,
             prompt,
             max_turns=25,
             max_budget_usd=2.0,
@@ -288,7 +288,7 @@ class TestClaudeCodeSDKIntegration:
         assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
         # At least one PNG artifact was created
-        png_files = find_png_files(project_dir)
+        png_files = find_png_files(repo)
         assert len(png_files) > 0, "No PNG files found — agent did not produce plots."
         print(f"  PNG files: {[p.name for p in png_files]}")
 
@@ -362,7 +362,7 @@ class TestClaudeCodeSDKIntegration:
 
         Cost budget: $2.00
         """
-        project_dir = init_project(tmp_path, "sdk-3d-scatter", provider="als-apg")
+        repo = init_project(tmp_path, "sdk-3d-scatter", provider="als-apg")
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
@@ -375,7 +375,7 @@ class TestClaudeCodeSDKIntegration:
         )
 
         result = await run_sdk_query(
-            project_dir,
+            repo,
             prompt,
             max_turns=25,
             max_budget_usd=2.0,

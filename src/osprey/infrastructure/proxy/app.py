@@ -42,10 +42,10 @@ def create_proxy_app(
         upstream_base_url: OpenAI-compatible endpoint (e.g. https://aiapi-prod.stanford.edu/v1).
         upstream_api_key: API key for the upstream provider.
     """
-    # One pooled client for the app's lifetime. Creating a fresh AsyncClient per
-    # request (the old behaviour) opened and tore down an upstream TCP connection
-    # every call; at matrix volume that exhausted the host's ephemeral port pool
-    # via tens of thousands of TIME_WAIT sockets (issue #259 outage, 2026-06-18).
+    # One pooled client for the app's lifetime. A fresh AsyncClient per request
+    # opens and tears down an upstream TCP connection every call; at matrix
+    # volume that exhausts the host's ephemeral port pool via tens of thousands
+    # of TIME_WAIT sockets.
     # Construction is safe without a running loop — httpx connects lazily.
     upstream_client = httpx.AsyncClient(
         timeout=300.0,

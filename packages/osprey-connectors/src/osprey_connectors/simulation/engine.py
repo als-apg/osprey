@@ -11,9 +11,9 @@ from the *effective* values of referenced channels, so overrides and writes
 propagate through the physics couplings automatically.
 
 The active scenarios live in a plain-text ``active_scenarios`` file under the
-agent-data root (``_agent_data/simulation/`` by default — the machine file's
-own directory is build-owned and checksummed, so mutable state stays out of
-it): an optional ``anchor=<ISO8601>`` metadata line followed by
+agent-data root (``agent_data.base_dir``, in its ``simulation/`` subdirectory
+— the machine file's own directory is build-owned and checksummed, so mutable
+state stays out of it): an optional ``anchor=<ISO8601>`` metadata line followed by
 one scenario name per line (``nominal`` is always implicitly first). It is
 re-read whenever its mtime changes, and switching (or re-asserting) the set
 clears all session-written state (fresh machine). Simultaneously active
@@ -661,7 +661,7 @@ class SimulationEngine:
                     try:
                         parsed = datetime.fromisoformat(value.strip())
                         # Anchors written by apply.py are UTC-aware; attach the
-                        # facility zone to a naive (hand-edited/legacy) anchor so
+                        # facility zone to a naive (hand-edited) anchor so
                         # ``.timestamp()`` does not silently fall back to box-local.
                         if parsed.tzinfo is None:
                             parsed = parsed.replace(tzinfo=get_facility_timezone())

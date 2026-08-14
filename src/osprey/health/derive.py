@@ -41,12 +41,31 @@ _CATEGORY_NAME = "mcp_servers"
 def _in_container() -> bool:
     """Best-effort detection of whether this process runs inside a container.
 
-    Mirrors ``osprey.cli.claude_code_telemetry._running_in_container`` (a copy,
-    not an import, to keep the health package free of a CLI dependency): a
-    Docker-injected ``/.dockerenv`` marker file, or an explicit
-    ``OSPREY_IN_CONTAINER`` environment flag set by the deploy environment.
+    Mirrors :func:`osprey.build.claude_code_telemetry._running_in_container` (a
+    copy, not an import, to keep the health package free of a build-layer
+    dependency).
+
+    The signal is the runtime's own marker file: ``/.dockerenv`` under Docker,
+    ``/run/.containerenv`` under Podman. Probing only the Docker marker
+    answered ``False`` inside every Podman container, which is the runtime this
+    project actually deploys on.
+
+    ``OSPREY_IN_CONTAINER`` is an operator override on top of that, and
+    nothing in the shipped compose sets it — deliberately. It would say only
+    what the marker files already say, while the question it gets used for is
+    a different one: a ``network_mode: host`` service (the web terminals) runs
+    in a container AND cannot resolve a compose service DNS name. A deployment
+    whose MCP servers are reachable only by service name pins
+    ``health.auto.mcp.url_key`` instead. Topology is declared, never sniffed —
+    the same reason
+    :func:`osprey.build.claude_code_telemetry._openobserve_host_override`
+    exists.
     """
-    return os.path.exists("/.dockerenv") or bool(os.environ.get("OSPREY_IN_CONTAINER"))
+    return (
+        os.path.exists("/.dockerenv")
+        or os.path.exists("/run/.containerenv")
+        or bool(os.environ.get("OSPREY_IN_CONTAINER"))
+    )
 
 
 def _resolve_url_key(settings: HealthSettings) -> str:

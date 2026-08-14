@@ -24,6 +24,7 @@ from osprey.build.claude_code_telemetry import (
     _build_telemetry_env,
     _gate_is_on,
     _openobserve_host_override,
+    _running_in_container,
 )
 
 # ── on / off gating ──────────────────────────────────────────────
@@ -439,6 +440,52 @@ def test_resolve_container_endpoint(monkeypatch):
         }
     )
     assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://openobserve:5080/api/default"
+
+
+class TestContainerDetection:
+    """The marker files this module treats as "I am in a container".
+
+    Mirrors ``tests/health/test_derive.py``'s coverage of the twin helper in
+    ``osprey.health.derive``: the two are deliberate copies (health must not
+    import the build layer), so each needs its own guard or one drifts silently.
+    """
+
+    def test_docker_marker_detected(self, monkeypatch):
+        monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
+        monkeypatch.setattr("os.path.exists", lambda p: p == "/.dockerenv")
+        assert _running_in_container() is True
+
+    def test_podman_marker_detected(self, monkeypatch):
+        # Podman writes /run/.containerenv and no /.dockerenv, so a Docker-only
+        # probe read every podman deployment as a host and derived the
+        # localhost OpenObserve default from inside the container.
+        monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
+        monkeypatch.setattr("os.path.exists", lambda p: p == "/run/.containerenv")
+        assert _running_in_container() is True
+
+    def test_no_marker_is_a_host(self, monkeypatch):
+        monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
+        monkeypatch.setattr("os.path.exists", lambda p: False)
+        assert _running_in_container() is False
+
+    def test_operator_override_alone_is_enough(self, monkeypatch):
+        monkeypatch.setattr("os.path.exists", lambda p: False)
+        monkeypatch.setenv("OSPREY_IN_CONTAINER", "1")
+        assert _running_in_container() is True
+
+    def test_the_two_copies_probe_the_same_markers(self, monkeypatch):
+        """The health twin and this one must answer identically, marker for marker.
+
+        They are copies by design, which is exactly the arrangement that drifts:
+        this asserts agreement on every case rather than trusting two docstrings
+        to stay in sync.
+        """
+        from osprey.health.derive import _in_container
+
+        monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
+        for present in ("/.dockerenv", "/run/.containerenv", "/nothing"):
+            monkeypatch.setattr("os.path.exists", lambda p, hit=present: p == hit)
+            assert _running_in_container() == _in_container(), present
 
 
 def test_resolve_no_telemetry_leaves_env_block_clean():

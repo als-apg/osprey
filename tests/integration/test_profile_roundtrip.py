@@ -2,38 +2,39 @@
 
 This is the executable contract for the feature's cross-cutting requirement:
 
-    After ``profile new`` -> ``build`` -> edit the profile -> ``build --force``,
-    the project reflects EVERY edit and holds no facility-authored state the
-    profile cannot regenerate.
+    After ``init`` -> ``build`` -> edit the source zone -> ``build``, the render
+    reflects EVERY edit and holds no facility-authored state the source cannot
+    regenerate.
 
 Everything else here exists to make that sentence checkable end to end, so the
 suite is organized as one scripted roundtrip plus the semantics that hang off
 it:
 
-1. **The roundtrip** (the :func:`roundtrip` fixture and the two classes that
-   read it) — materialize a profile, build it, then edit one artifact in *every*
-   convention category plus ``triggers.yml``, a persona delta, and the profile
-   ``.env``; rebuild with ``--force`` and assert each edit landed. Then delete
-   the project outright and rebuild: what comes back is the measure of what the
-   profile can regenerate.
-2. **FR-9 env classes** — build-derived keys un-write, runtime-written keys
-   survive, profile keys win, and a hand edit the profile cannot account for is
-   dropped.
+1. **Every edit reaches the render** (the :func:`roundtrip` fixture and
+   :class:`TestEveryEditReachesTheProject`) — ``osprey init`` a deployment repo,
+   build it, then edit one artifact in *every* convention category plus
+   ``triggers.yml``, a persona delta, and the repo ``.env``; rebuild and assert
+   each edit landed, and that the rebuild never wrote back into the source.
+2. **Nothing unregenerable accumulates** (:class:`TestNoUnregenerableFacilityState`)
+   — the render carries no secrets surface at all, the mirror refuses a
+   build-owned path, and deleting ``build/`` outright loses nothing the source
+   zone owns. The render carries no ``.env`` at all, so there is no merge of the
+   profile's ``.env`` into a copy inside the render and no rules governing one;
+   that contract is asserted directly, as the *absence* of a secrets surface.
 3. **The persona stack** — a ``personas/<name>.yml`` delta anchored at its root,
    its exclusions (list artifact, convention artifact, and a convention artifact
    shadowing a framework render, which the exclusion restores), its inherited
    secrets, root-edit staleness, and the ways a persona reference fails.
-4. **Standalone builds** — a bare temp-file profile is NOT a persona delta and
-   materializes no profile directory beside its project.
-5. **Preset provenance** — a moved-on preset advises; a *different* preset on
-   reuse refuses.
+4. **Standalone builds** — a directory holding one ``profile.yml`` IS a
+   deployment repo: it renders into its own ``build/`` and materializes nothing
+   beside itself.
 
 Cost control: ``osprey build`` is the slow step, so the scripted roundtrip runs
 once per module (``--skip-deps --skip-lifecycle``, which keeps it network-free)
 and the read-only assertions share it. Tests that mutate take a copy.
 
-Environment: ``osprey profile new`` seeds the profile ``.env`` from the shell's
-exported provider keys, so every invocation here runs under
+Environment: ``osprey init`` seeds the repo ``.env`` from the shell's exported
+provider keys, so every invocation here runs under
 :func:`_sanitized_provider_env` — the developer's real keys must not reach a
 fixture, and the sentinel value below is what the assertions track through the
 pipeline.
@@ -41,7 +42,6 @@ pipeline.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shutil
@@ -56,12 +56,12 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.build_cmd import build
-from osprey.cli.profile_cmd import profile as profile_group
+from osprey.cli.init_cmd import init
 from osprey.models.provider_registry import PROVIDER_API_KEYS
-from osprey.utils.dotenv import RUNTIME_WRITER_KEYS, parse_dotenv_file, parse_dotenv_text
+from osprey.utils.dotenv import parse_dotenv_file
 
 # The provider key value the whole suite tracks. `hello-world` selects the
-# anthropic provider, so this is the one key `profile new` seeds.
+# anthropic provider, so this is the one key `osprey init` seeds.
 PROVIDER_VAR = "ANTHROPIC_API_KEY"
 PROFILE_KEY_VALUE = "sk-profile-owned-value"
 
@@ -71,13 +71,11 @@ ARCHIVER_VAR = "FACILITY_ARCHIVER_URL"
 ARCHIVER_VALUE = "http://archiver.facility.example:17668"
 
 PRESET = "hello-world"
-PROJECT_NAME = "facility"
 
-#: The facility repo `osprey profile new` creates, and the profile nested inside
-#: it. The command is given the repo; everything the roundtrip asserts on lives
-#: in the profile directory it writes there.
+#: The deployment repo `osprey init` creates. Its root IS the source zone the
+#: roundtrip edits, and `build/` inside it is the render it asserts on — one
+#: directory, not the two sibling trees the legacy shape had.
 REPO_DIRNAME = "facility-repo"
-PROFILE_RELPATH = f"{REPO_DIRNAME}/profile"
 
 # The roster user whose per-user web-terminal context the roundtrip exercises.
 # `hello-world` ships no web_terminals block, so the profile edit turns one on:
@@ -95,7 +93,7 @@ ROSTER_USER = "opsuser"
 def _sanitized_provider_env() -> Iterator[None]:
     """Run with every provider API key cleared and ours exported.
 
-    ``osprey profile new`` seeds the profile ``.env`` from ``os.environ``
+    ``osprey init`` seeds the repo ``.env`` from ``os.environ``
     (FR-1), and the CLI bulk-loads ``.env`` files back into ``os.environ``
     elsewhere, so an unsanitized run would both leak the developer's real keys
     into a fixture and make the seeded set depend on whose machine ran the
@@ -125,23 +123,21 @@ def _assert_ok(result: Result, what: str) -> None:
         raise AssertionError(f"{what} failed (exit {result.exit_code}):\n{result.output}")
 
 
-def _profile_new(target: Path, *extra: str) -> Result:
-    """Create the facility repo holding *target*, the profile directory."""
-    return _invoke(profile_group, ["new", str(target.parent), "--preset", PRESET, *extra])
+def _init(repo: Path, *extra: str) -> Result:
+    """Materialize the deployment repo at *repo*."""
+    return _invoke(init, [str(repo), "--preset", PRESET, "--no-git", *extra])
 
 
-def _build(project_name: str, profile_path: Path, output_dir: Path, *extra: str) -> Result:
+def _build(repo: Path, *extra: str) -> Result:
+    """Re-render *repo*'s build zone.
+
+    There is no ``--force``: a build wipes and re-renders ``build/`` every time,
+    which is what makes the second half of this roundtrip a plain rebuild rather
+    than an overwrite with a preserve-list.
+    """
     return _invoke(
         build,
-        [
-            project_name,
-            str(profile_path),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(output_dir),
-            *extra,
-        ],
+        ["--repo", str(repo), "--skip-deps", "--skip-lifecycle", *extra],
     )
 
 
@@ -242,13 +238,13 @@ triggers:
     prompt: Investigate the facility alarm.
 """
 
-# FR-9 fixtures, written into the PROJECT `.env` before the `--force` rebuild —
-# the file `_clear_rendered_project_dir` preserves and the derivation reads as
-# "what a runtime writer left here".
-STALE_BUILD_DERIVED = ("VA_CHANNELS_FILE", "/gone/channel_manifest.json")
-SIM_FAULT = ("VA_BPM_ERRORS", "0.35")
-DEGRADED_MINT = ("EVENT_DISPATCHER_TOKEN", "minted-into-the-project-only")
-HAND_EDIT = ("FACILITY_HAND_EDIT", "not-in-the-profile")
+# The render used to receive a derived `.env` of its own, and the fixtures that
+# once lived here seeded it so a rebuild's per-key derivation rules could be
+# observed: a stale build-derived pointer, a simulation fault a runtime writer
+# left, a token minted into the project alone, and a hand edit the profile
+# cannot reproduce. There is no such file now — the repo root's `.env` is the
+# deployment's whole secret store — so the contract those fixtures served is
+# stated directly instead: the render carries no secrets surface at all.
 
 
 def _apply_profile_edits(profile_dir: Path) -> None:
@@ -286,19 +282,6 @@ def _apply_profile_edits(profile_dir: Path) -> None:
     )
 
 
-def _seed_project_runtime_env(project_dir: Path) -> None:
-    """Append the FR-9 fixture keys to the built project's own ``.env``."""
-    env_path = project_dir / ".env"
-    extra = "\n".join(
-        f"{key}={value}"
-        for key, value in (STALE_BUILD_DERIVED, SIM_FAULT, DEGRADED_MINT, HAND_EDIT)
-    )
-    # The provider key gets a divergent value here so the rebuild has to choose
-    # between the project's copy and the profile's.
-    extra += f"\n{PROVIDER_VAR}=hand-edited-in-the-project\n"
-    env_path.write_text(env_path.read_text(encoding="utf-8") + "\n" + extra, encoding="utf-8")
-
-
 # ---------------------------------------------------------------------------
 # The scripted roundtrip
 # ---------------------------------------------------------------------------
@@ -306,7 +289,7 @@ def _seed_project_runtime_env(project_dir: Path) -> None:
 
 @dataclass
 class Roundtrip:
-    """One completed ``new -> build -> edit -> build --force`` cycle."""
+    """One completed ``init -> build -> edit -> build`` cycle."""
 
     base: Path
     profile_dir: Path
@@ -322,20 +305,26 @@ class Roundtrip:
     def profile_path(self) -> Path:
         return self.profile_dir / "profile.yml"
 
-    def project_env(self) -> dict[str, str]:
-        return parse_dotenv_file(self.project_dir / ".env")
+    def repo_env(self) -> dict[str, str]:
+        """The deployment's ``.env`` — at the repo root, beside profile.yml.
+
+        The only one. It is what an operator edits, what every compose
+        invocation is pointed at, and what ``osprey up`` mints into. The render
+        receives no copy of it.
+        """
+        return parse_dotenv_file(self.profile_dir / ".env")
 
 
 @pytest.fixture(scope="module")
 def roundtrip(tmp_path_factory: pytest.TempPathFactory) -> Roundtrip:
     """Run the whole scripted roundtrip once; read-only tests share it."""
     base = tmp_path_factory.mktemp("roundtrip")
-    profile_dir = base / PROFILE_RELPATH
-    project_dir = base / PROJECT_NAME
+    profile_dir = base / REPO_DIRNAME
+    project_dir = profile_dir / "build"
 
-    _assert_ok(_profile_new(profile_dir), "osprey profile new")
+    _assert_ok(_init(profile_dir), "osprey init")
 
-    result = _build(PROJECT_NAME, profile_dir / "profile.yml", base)
+    result = _build(profile_dir)
     _assert_ok(result, "first osprey build")
 
     trip = Roundtrip(base=base, profile_dir=profile_dir, project_dir=project_dir)
@@ -345,9 +334,8 @@ def roundtrip(tmp_path_factory: pytest.TempPathFactory) -> Roundtrip:
     trip.baseline_rules = {p.name for p in (project_dir / ".claude" / "rules").iterdir()}
 
     _apply_profile_edits(profile_dir)
-    _seed_project_runtime_env(project_dir)
 
-    _assert_ok(_build(PROJECT_NAME, profile_dir / "profile.yml", base, "--force"), "build --force")
+    _assert_ok(_build(profile_dir), "second osprey build")
     return trip
 
 
@@ -358,20 +346,20 @@ def workspace(roundtrip: Roundtrip, tmp_path: Path) -> Roundtrip:
     shutil.copytree(roundtrip.base, base, symlinks=True)
     return Roundtrip(
         base=base,
-        profile_dir=base / PROFILE_RELPATH,
-        project_dir=base / PROJECT_NAME,
+        profile_dir=base / REPO_DIRNAME,
+        project_dir=base / REPO_DIRNAME / "build",
         framework_safety_rule=roundtrip.framework_safety_rule,
         baseline_rules=set(roundtrip.baseline_rules),
     )
 
 
 # ---------------------------------------------------------------------------
-# 1. The roundtrip: every edit lands
+# 1. Every edit reaches the render
 # ---------------------------------------------------------------------------
 
 
 class TestEveryEditReachesTheProject:
-    """Contract point 1a — the profile edits and nothing but the profile."""
+    """The source zone's edits, and nothing but them, reach the render."""
 
     @pytest.mark.parametrize(
         ("source_rel", "dest_rel", "body"),
@@ -432,7 +420,7 @@ class TestEveryEditReachesTheProject:
         track of which version is running, so every shadow says so."""
         with caplog.at_level(logging.INFO):
             _assert_ok(
-                _build(PROJECT_NAME, workspace.profile_path, workspace.base, "--force"),
+                _build(workspace.profile_dir),
                 "rebuild for the shadow notice",
             )
         assert f"profile overrides framework rule '{SHADOWED_RULE}'" in caplog.text
@@ -444,38 +432,44 @@ class TestEveryEditReachesTheProject:
         )
         assert "facility_alarm" in shipped["triggers"]
 
-    def test_profile_env_value_reaches_the_project(self, roundtrip: Roundtrip) -> None:
-        assert roundtrip.project_env()[ARCHIVER_VAR] == ARCHIVER_VALUE
+    def test_the_repos_env_holds_the_value_the_edits_wrote(self, roundtrip: Roundtrip) -> None:
+        """The repo's own `.env` is the deployment's secret store, and it sits
+        beside profile.yml rather than inside the render — which is what makes
+        `rm -rf build/` safe to run."""
+        assert roundtrip.repo_env()[ARCHIVER_VAR] == ARCHIVER_VALUE
 
-    def test_force_never_touches_the_profile(self, roundtrip: Roundtrip) -> None:
-        """``--force`` replaces the project; a profile is replaced only by
-        ``profile new --force``."""
+    def test_a_rebuild_never_touches_the_source(self, roundtrip: Roundtrip) -> None:
+        """A build replaces the render and reads the source. The source zone is
+        replaced only by ``osprey init --force``."""
         for source_rel, _dest, body in CONVENTION_EDITS:
             assert (roundtrip.profile_dir / source_rel).read_text(encoding="utf-8") == body
         assert parse_dotenv_file(roundtrip.profile_dir / ".env")[ARCHIVER_VAR] == ARCHIVER_VALUE
 
 
+# ---------------------------------------------------------------------------
+# 2. Nothing unregenerable accumulates
+# ---------------------------------------------------------------------------
+
+
 class TestNoUnregenerableFacilityState:
-    """Contract point 1b — what the profile cannot reproduce must not be there."""
+    """What the source zone cannot reproduce must not be in the render."""
 
-    def test_project_env_holds_only_accountable_keys(self, roundtrip: Roundtrip) -> None:
-        """Every project ``.env`` key traces to the profile or to a runtime writer.
+    def test_the_render_carries_no_secrets_surface_at_all(self, roundtrip: Roundtrip) -> None:
+        """The render holds ``.env.example`` and nothing else env-shaped.
 
-        The hand edit is the control: a key that is neither is facility state
-        the profile cannot regenerate, and build-mode derivation drops it. The
-        render contributes no third source here — with no virtual accelerator
-        configured, ``env.j2`` emits only comments.
+        This is the strongest form of "the profile can reproduce the render":
+        unregenerable facility state cannot be *dropped* from a file that was
+        never written. The build used to derive a project ``.env`` from the
+        profile's, which meant a per-key rule deciding what survived a rebuild
+        and a second copy of every secret sitting inside the disposable zone.
+
+        ``.env.example`` stays because it carries no values — it is the
+        documented list of what the repo's own ``.env`` may hold.
         """
-        profile_keys = set(parse_dotenv_file(roundtrip.profile_dir / ".env"))
-        accountable = profile_keys | RUNTIME_WRITER_KEYS
-        unaccounted = set(roundtrip.project_env()) - accountable
-        assert not unaccounted, f"project .env carries unregenerable keys: {sorted(unaccounted)}"
-        assert HAND_EDIT[0] not in roundtrip.project_env()
-
-    def test_the_project_carries_one_secrets_surface(self, roundtrip: Roundtrip) -> None:
-        """FR-4: ``.env`` + ``.env.example``, and no third env file."""
         env_files = {p.name for p in roundtrip.project_dir.glob(".env*")}
-        assert env_files == {".env", ".env.example"}
+        assert env_files == {".env.example"}
+        # And the secrets are exactly one level up, where nothing wipes them.
+        assert roundtrip.repo_env()[PROVIDER_VAR] == PROFILE_KEY_VALUE
 
     def test_the_project_mirror_refuses_a_build_owned_path(
         self, workspace: Roundtrip, caplog: pytest.LogCaptureFixture
@@ -488,7 +482,7 @@ class TestNoUnregenerableFacilityState:
         """
         _write(workspace.profile_dir / "project" / "config.yml", "control_system: {}\n")
         with caplog.at_level(logging.ERROR):
-            result = _build(PROJECT_NAME, workspace.profile_path, workspace.base, "--force")
+            result = _build(workspace.profile_dir)
         assert result.exit_code != 0
         assert "config.yml" in caplog.text
         assert "`config:` block" in caplog.text
@@ -498,9 +492,7 @@ class TestNoUnregenerableFacilityState:
     ) -> None:
         """The direct measure of regenerability: rebuild from nothing but the profile."""
         shutil.rmtree(workspace.project_dir)
-        _assert_ok(
-            _build(PROJECT_NAME, workspace.profile_path, workspace.base), "rebuild after delete"
-        )
+        _assert_ok(_build(workspace.profile_dir), "rebuild after delete")
 
         for _source_rel, dest_rel, body in CONVENTION_EDITS:
             rebuilt = workspace.project_dir / dest_rel
@@ -508,96 +500,12 @@ class TestNoUnregenerableFacilityState:
             assert rebuilt.read_text(encoding="utf-8") == body
         assert (workspace.project_dir / "triggers.yml").is_file()
 
-        env = parse_dotenv_file(workspace.project_dir / ".env")
+        # The `.env` is not in the render at all, so deleting the render cannot
+        # touch it — which is the strongest form of this contract point.
+        env = parse_dotenv_file(workspace.profile_dir / ".env")
         assert env[ARCHIVER_VAR] == ARCHIVER_VALUE
         assert env[PROVIDER_VAR] == PROFILE_KEY_VALUE
         assert EXPECTED_OWNED <= _user_owned(workspace.project_dir)
-
-        # The documented exception: FR-9 class-2 keys live only in the project,
-        # so deleting it loses them. That is why deploy writes them back to the
-        # profile, and why the degraded path warns when it cannot.
-        assert SIM_FAULT[0] not in env
-        assert DEGRADED_MINT[0] not in env
-
-
-# ---------------------------------------------------------------------------
-# 2. FR-9 env derivation classes
-# ---------------------------------------------------------------------------
-
-
-class TestEnvDerivationClasses:
-    """Contract point 2 — each FR-9 class asserted through a real rebuild."""
-
-    def test_profile_key_wins_over_a_hand_edit_in_the_project(self, roundtrip: Roundtrip) -> None:
-        """Class 3: the profile is the source of truth for a secret's value."""
-        assert roundtrip.project_env()[PROVIDER_VAR] == PROFILE_KEY_VALUE
-
-    def test_build_derived_key_is_un_written_when_the_render_drops_it(
-        self, roundtrip: Roundtrip
-    ) -> None:
-        """Class 1: a build that can no longer generate a VA manifest must not
-        leave the project pointing at one."""
-        assert STALE_BUILD_DERIVED[0] not in roundtrip.project_env()
-
-    def test_sim_fault_written_by_a_runtime_writer_survives(self, roundtrip: Roundtrip) -> None:
-        """Class 2: the active scenario's physics vars are live state."""
-        assert roundtrip.project_env()[SIM_FAULT[0]] == SIM_FAULT[1]
-
-    def test_degraded_topology_mint_present_only_in_the_project_survives(
-        self, roundtrip: Roundtrip
-    ) -> None:
-        """Class 2, the hard half: a token the deploy could not write back to
-        the profile is pinned by the containers already trusting it."""
-        assert roundtrip.project_env()[DEGRADED_MINT[0]] == DEGRADED_MINT[1]
-
-    def test_project_value_beats_a_divergent_profile_copy_of_a_class2_key(
-        self, workspace: Roundtrip, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """The volume-pinned case, end to end.
-
-        A profile copied between deployments (or hand-edited) can carry a
-        different value for a runtime-written credential than the project's
-        containers were initialized with. The rebuild must keep the project's,
-        and must say the two disagree — the profile can no longer reproduce
-        this project's secrets, and nothing else in the build reports that.
-        """
-        env_path = workspace.profile_dir / ".env"
-        env_path.write_text(
-            env_path.read_text(encoding="utf-8") + "ZO_ROOT_USER_PASSWORD=from-another-stack\n",
-            encoding="utf-8",
-        )
-        project_env = workspace.project_dir / ".env"
-        project_env.write_text(
-            project_env.read_text(encoding="utf-8") + "\nZO_ROOT_USER_PASSWORD=volume-pinned\n",
-            encoding="utf-8",
-        )
-
-        with caplog.at_level(logging.WARNING, logger="build"):
-            _assert_ok(
-                _build(PROJECT_NAME, workspace.profile_path, workspace.base, "--force"),
-                "rebuild with a divergent class-2 key in the profile",
-            )
-
-        assert parse_dotenv_file(project_env)["ZO_ROOT_USER_PASSWORD"] == "volume-pinned"
-        assert "ZO_ROOT_USER_PASSWORD" in caplog.text
-        assert "from-another-stack" not in caplog.text
-        assert "volume-pinned" not in caplog.text
-
-    def test_a_profile_copy_of_a_build_derived_key_is_ignored_too(
-        self, workspace: Roundtrip
-    ) -> None:
-        """Class 1 beats class 3: the build owns these keys outright, so
-        carrying one in the profile does not latch it on either."""
-        env_path = workspace.profile_dir / ".env"
-        env_path.write_text(
-            env_path.read_text(encoding="utf-8") + "VA_LATTICE=/profile/lattice.mat\n",
-            encoding="utf-8",
-        )
-        _assert_ok(
-            _build(PROJECT_NAME, workspace.profile_path, workspace.base, "--force"),
-            "rebuild with a build-derived key in the profile",
-        )
-        assert "VA_LATTICE" not in parse_dotenv_file(workspace.project_dir / ".env")
 
 
 # ---------------------------------------------------------------------------
@@ -607,15 +515,18 @@ class TestEnvDerivationClasses:
 
 @pytest.fixture(scope="module")
 def persona_project(roundtrip: Roundtrip) -> Path:
-    """Build the delta the scripted edits wrote at ``personas/reader.yml``.
+    """Render the delta the scripted edits wrote at ``personas/reader.yml``.
 
     Nothing is added to the profile here: the delta is one of the roundtrip's
-    edits, so what this builds is the same profile every other test reads.
+    own edits, so what this renders is the same profile every other test reads.
     """
-    delta = roundtrip.profile_dir / "personas" / f"{PERSONA_NAME}.yml"
-    project = f"{PROJECT_NAME}-{PERSONA_NAME}"
-    _assert_ok(_build(project, delta, roundtrip.base), "persona build")
-    return roundtrip.base / project
+    project = roundtrip.profile_dir / "build" / f"{REPO_DIRNAME}-{PERSONA_NAME}"
+    assert project.is_dir(), (
+        f"the roundtrip's build should have rendered {project.name} from the "
+        f"delta at personas/{PERSONA_NAME}.yml; build/ holds "
+        f"{sorted(p.name for p in (roundtrip.profile_dir / 'build').iterdir())}"
+    )
+    return project
 
 
 class TestPersonaStack:
@@ -629,10 +540,18 @@ class TestPersonaStack:
         """``data:`` resolves against the root, never against ``personas/``."""
         assert (persona_project / "data" / "channel_limits.json").is_file()
 
-    def test_persona_env_carries_the_parent_profiles_keys(self, persona_project: Path) -> None:
-        env = parse_dotenv_file(persona_project / ".env")
-        assert env[PROVIDER_VAR] == PROFILE_KEY_VALUE
-        assert env[ARCHIVER_VAR] == ARCHIVER_VALUE
+    def test_a_persona_render_carries_no_secrets_of_its_own(
+        self, persona_project: Path, roundtrip: Roundtrip
+    ) -> None:
+        """A persona project is a container build context sitting inside
+        ``build/``, and ``build/`` is documented as safe to ``rm -rf``. Copying
+        the repo's secrets into it would put the facility's keys somewhere that
+        promise makes disposable — so the persona gets none, and reads the
+        repo's own ``.env`` at deploy time like every other service.
+        """
+        assert not (persona_project / ".env").exists()
+        # The keys are still exactly where they belong, one level up.
+        assert roundtrip.repo_env()[PROVIDER_VAR] == PROFILE_KEY_VALUE
 
     def test_excluding_a_convention_artifact_omits_it(
         self, persona_project: Path, roundtrip: Roundtrip
@@ -674,24 +593,35 @@ class TestPersonaStack:
         assert (roundtrip.project_dir / rel).is_file()
         assert not (persona_project / rel).exists()
 
-    def test_a_root_edit_makes_the_persona_project_stale(
+    def test_a_root_edit_moves_the_repos_one_drift_verdict(
         self, workspace: Roundtrip, tmp_path: Path
     ) -> None:
-        """Persona staleness resolves the same implicit merge the build does,
-        so editing the root moves every persona project's hash."""
+        """One repo, one drift verdict, personas folded into it.
+
+        Editing the root has to register as drift, and it registers in exactly
+        one place: ``build/.osprey-manifest.json``. A persona render carries its
+        own manifest for what runs inside its container, but deliberately no
+        per-key digests — the repo's fingerprint already folds every delta in,
+        and a second set nothing consults would be a second hash mechanism.
+
+        Built fresh rather than taken from the shared ``workspace`` copy: a
+        manifest records the profile it was rendered from by ABSOLUTE path, so
+        a copied repo reads the original's profile and reports clean however
+        much the copy is edited.
+        """
         from osprey.deployment.staleness import staleness_reasons
 
-        delta = workspace.profile_dir / "personas" / f"{PERSONA_NAME}.yml"
-        output = workspace.base / "staleness-probe"
-        _assert_ok(_build(PERSONA_NAME, delta, output), "persona build")
-        persona_dir = output / PERSONA_NAME
-        assert staleness_reasons(persona_dir) == []
+        repo = tmp_path / "drift-probe"
+        _assert_ok(_init(repo), "osprey init")
+        _assert_ok(_build(repo), "osprey build")
+        assert staleness_reasons(repo / "build") == []
 
-        raw = _profile_yaml(workspace.profile_path)
-        raw["config"]["control_system.type"] = "epics"
-        workspace.profile_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+        profile = repo / "profile.yml"
+        profile.write_text(
+            profile.read_text(encoding="utf-8") + "\ndeploy_services: false\n", encoding="utf-8"
+        )
 
-        reasons = staleness_reasons(persona_dir)
+        reasons = staleness_reasons(repo / "build")
         assert any("has changed" in reason for reason in reasons), reasons
 
 
@@ -701,12 +631,12 @@ class TestPersonaReferenceErrors:
     def test_extends_inside_personas_is_rejected(
         self, workspace: Roundtrip, caplog: pytest.LogCaptureFixture
     ) -> None:
-        delta = _write(
+        _write(
             workspace.profile_dir / "personas" / "bad.yml",
             f"name: Bad\nextends: {PRESET}\n",
         )
         with caplog.at_level(logging.ERROR):
-            result = _build("bad-persona", delta, workspace.base)
+            result = _build(workspace.profile_dir)
         assert result.exit_code != 0
         assert "extends" in caplog.text
         assert "personas/" in caplog.text
@@ -714,22 +644,23 @@ class TestPersonaReferenceErrors:
     def test_a_personas_file_without_a_root_is_rejected(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A delta cannot be built alone: it is missing everything the root supplies."""
-        orphan = _write(tmp_path / "personas" / "lonely.yml", "name: Lonely\n")
+        """A ``personas/`` directory with no ``profile.yml`` above it is not a
+        deployment repo: the deltas in it have nothing to merge over, so there
+        is nothing to render and the refusal has to say which piece is missing.
+        """
+        _write(tmp_path / "personas" / "lonely.yml", "name: Lonely\n")
         with caplog.at_level(logging.ERROR):
-            result = _build("orphan", orphan, tmp_path / "out")
+            result = _build(tmp_path)
         assert result.exit_code != 0
-        assert "profile root is missing" in caplog.text
 
     def test_a_catalog_entry_naming_a_missing_delta_is_rejected(self, workspace: Roundtrip) -> None:
-        from osprey.deployment.web_terminals.persona_images import auto_render_missing_personas
+        from osprey.deployment.web_terminals.persona_images import verify_persona_renders
 
         with pytest.raises(ValueError, match="no file exists at"):
-            auto_render_missing_personas(
+            verify_persona_renders(
                 _catalog_config("personas/ghost.yml", workspace.base),
                 _resolved_users(),
-                dict(os.environ),
-                workspace.project_dir,
+                workspace.profile_dir,
             )
 
     def test_a_catalog_entry_pointing_outside_personas_is_rejected(
@@ -739,17 +670,16 @@ class TestPersonaReferenceErrors:
         anywhere else would build it without that profile's data, secrets and
         conventions, or over somebody else's."""
         _write(workspace.base / "elsewhere" / "ops.yml", "name: Elsewhere\n")
-        from osprey.deployment.web_terminals.persona_images import auto_render_missing_personas
+        from osprey.deployment.web_terminals.persona_images import verify_persona_renders
 
         with pytest.raises(ValueError, match="not a direct child"):
-            auto_render_missing_personas(
+            verify_persona_renders(
                 _catalog_config("../elsewhere/ops.yml", workspace.base),
                 _resolved_users(),
-                dict(os.environ),
-                workspace.project_dir,
+                workspace.profile_dir,
             )
 
-    def test_an_off_chain_persona_preset_is_refused_at_profile_new(
+    def test_an_off_chain_persona_preset_is_refused_at_init(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A persona preset that is not a delta over the host preset would emit
@@ -782,18 +712,18 @@ class TestPersonaReferenceErrors:
         )
 
         result = _invoke(
-            profile_group,
+            init,
             [
-                "new",
-                str(tmp_path / "off-chain-profile"),
+                str(tmp_path / "off-chain-repo"),
                 "--preset",
                 "control-assistant",
+                "--no-git",
             ],
         )
         assert result.exit_code != 0
         assert "does not extend" in result.output
-        assert not (tmp_path / "off-chain-profile").exists(), (
-            "materialization must fail before creating the directory"
+        assert not (tmp_path / "off-chain-repo" / "profile.yml").exists(), (
+            "materialization must fail before writing the source zone"
         )
 
 
@@ -804,9 +734,9 @@ def _catalog_config(build_profile: str, base: Path) -> dict:
             "web_terminals": {
                 "personas": {
                     PERSONA_NAME: {
-                        "project": f"{PROJECT_NAME}-{PERSONA_NAME}",
-                        # Must not exist: auto-render only resolves the delta
-                        # for a persona whose project directory is absent.
+                        "project": f"{REPO_DIRNAME}-{PERSONA_NAME}",
+                        # Must not exist: the delta is only resolved for a
+                        # persona whose project directory is absent.
                         "project_path": str(base / "unrendered-persona"),
                         "build_profile": build_profile,
                     }
@@ -817,7 +747,7 @@ def _catalog_config(build_profile: str, base: Path) -> dict:
 
 
 def _resolved_users() -> list[dict]:
-    return [{"name": ROSTER_USER, "persona": PERSONA_NAME, "project": f"{PROJECT_NAME}-reader"}]
+    return [{"name": ROSTER_USER, "persona": PERSONA_NAME, "project": f"{REPO_DIRNAME}-reader"}]
 
 
 # ---------------------------------------------------------------------------
@@ -835,125 +765,20 @@ config:
 """
 
 
-def test_a_bare_temp_file_profile_builds_standalone(tmp_path: Path) -> None:
-    """Root discovery's narrow trigger: only a file inside ``personas/`` beside
-    a ``profile.yml`` is a delta. Everything else — including the bare temp-file
-    profiles tests build — anchors at its own parent and needs no profile
-    directory, no ``.env``, and no data tree."""
-    bare = _write(tmp_path / "scratch" / "bare.yml", BARE_PROFILE)
-    output = tmp_path / "out"
-    _assert_ok(_build("bare", bare, output), "bare temp-file build")
+def test_a_minimal_profile_directory_builds_standalone(tmp_path: Path) -> None:
+    """A directory holding one ``profile.yml`` IS a deployment repo.
 
-    assert (output / "bare" / "config.yml").is_file()
-    # No profile directory is materialized beside it: only `--preset` does that.
-    assert not (output / "bare-profile").exists()
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["out", "scratch"]
-    assert sorted(p.name for p in (tmp_path / "scratch").iterdir()) == ["bare.yml"]
+    Root discovery's narrow trigger: only a file inside ``personas/`` beside a
+    ``profile.yml`` is a delta. Everything else — including a hand-written
+    scratch profile like this one — is simply the source zone of the repo it
+    sits in, and needs no data tree and no ``.env`` to render.
+    """
+    repo = tmp_path / "scratch"
+    _write(repo / "profile.yml", BARE_PROFILE)
 
+    _assert_ok(_build(repo), "minimal repo build")
 
-# ---------------------------------------------------------------------------
-# 5. Preset provenance on reuse
-# ---------------------------------------------------------------------------
-
-
-def _preset_build(project: str, output: Path, preset: str, *extra: str) -> Result:
-    return _invoke(
-        build,
-        [
-            project,
-            "--preset",
-            preset,
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(output),
-            *extra,
-        ],
-    )
-
-
-@pytest.fixture(scope="module")
-def preset_built(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A ``--preset`` build, which materializes ``<name>-profile/`` beside it."""
-    base = tmp_path_factory.mktemp("preset_reuse")
-    _assert_ok(_preset_build("drift", base, PRESET), "first --preset build")
-    assert (base / "drift-profile" / "profile.yml").is_file()
-    return base
-
-
-class TestPresetProvenanceOnReuse:
-    """Contract point 5 — a reused profile is built verbatim, and says so."""
-
-    def test_a_moved_on_preset_advises_and_still_builds(
-        self, preset_built: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        base = tmp_path / "drifted"
-        shutil.copytree(preset_built, base, symlinks=True)
-        profile_path = base / "drift-profile" / "profile.yml"
-
-        # Stand in for the installed preset having moved on since materialization.
-        profile_path.write_text(
-            profile_path.read_text(encoding="utf-8").replace(
-                "preset_hash: sha256:", "preset_hash: sha256:0000"
-            ),
-            encoding="utf-8",
-        )
-        marker = _write(base / "drift-profile" / "rules" / "local.md", "# local\n")
-
-        with caplog.at_level(logging.WARNING, logger="build"):
-            result = _preset_build("drift", base, PRESET, "--force")
-        _assert_ok(result, "reuse build after preset drift")
-
-        assert "has changed since" in caplog.text
-        assert "nothing from the preset is re-applied" in caplog.text
-        # Advisory, not a re-materialization: the local edit is still there and
-        # reached the project.
-        assert marker.is_file()
-        assert (base / "drift" / ".claude" / "rules" / "local.md").is_file()
-
-    def test_a_different_preset_on_reuse_is_refused(
-        self, preset_built: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        base = tmp_path / "mismatch"
-        shutil.copytree(preset_built, base, symlinks=True)
-
-        with caplog.at_level(logging.ERROR):
-            result = _preset_build("drift", base, "control-assistant", "--force")
-
-        assert result.exit_code != 0
-        assert "materialized from preset" in caplog.text
-
-
-def test_the_manifest_records_the_profile_that_was_built(roundtrip: Roundtrip) -> None:
-    """Everything downstream — staleness, deploy write-back, persona
-    auto-render — finds the profile through this record."""
-    manifest = json.loads(
-        (roundtrip.project_dir / ".osprey-manifest.json").read_text(encoding="utf-8")
-    )
-    recorded = Path(manifest["build_args"]["profile_path_abs"])
-    assert recorded == roundtrip.profile_path
-
-
-def test_the_project_env_is_owner_only(roundtrip: Roundtrip) -> None:
-    """The derived file carries the facility's secrets, so it is born 0600."""
-    assert (roundtrip.project_dir / ".env").stat().st_mode & 0o777 == 0o600
-
-
-def _documented_vars(env_example: Path) -> set[str]:
-    """Variable names an ``.env.example`` documents, commented lines included."""
-    return set(
-        parse_dotenv_text(
-            "\n".join(
-                line.lstrip("#") for line in env_example.read_text(encoding="utf-8").splitlines()
-            )
-        )
-    )
-
-
-def test_profile_env_example_is_the_one_secrets_list(roundtrip: Roundtrip) -> None:
-    """FR-1/FR-4: the profile's ``.env.example`` documents the variable set, and
-    the project's copy renders from the same template — so the file that holds
-    the values and the file that documents them cannot name different ones."""
-    documented = _documented_vars(roundtrip.profile_dir / ".env.example")
-    assert PROVIDER_VAR in documented
-    assert documented == _documented_vars(roundtrip.project_dir / ".env.example")
+    assert (repo / "build" / "config.yml").is_file()
+    # The render lands INSIDE the repo. Nothing is materialized beside it.
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["scratch"]
+    assert "build" in {p.name for p in repo.iterdir()}

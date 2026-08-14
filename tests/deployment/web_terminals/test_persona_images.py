@@ -1,20 +1,18 @@
 """Unit tests for per-persona local image builds.
 
 Covers ``osprey.deployment.web_terminals.persona_images`` in isolation: the
-local-mode per-persona image builder and the on-demand persona project
-auto-render.
+local-mode per-persona image builder and the pre-render verification that
+refuses a start when `osprey build` has not written a persona's project.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
+from osprey.deployment.errors import CapturedProcessError
 from osprey.deployment.web_terminals import persona_images
 
 # ---------------------------------------------------------------------------
@@ -23,16 +21,27 @@ from osprey.deployment.web_terminals import persona_images
 
 
 def _make_persona_project(tmp_path, name, cli_version=None):
-    """Create a minimal persona project dir with a Dockerfile + config.yml."""
+    """Both copies of a persona project, as one ``osprey build`` writes them.
+
+    The flat HOST render at ``<name>/`` — what the catalog's ``project_path``
+    names, and what the credential sweep and lint read — and beside it the
+    container copy at ``.image/<name>/``, a deployment repo whose render sits in
+    ``build/``. The image is built from the second: only it records the
+    ``/app/<name>`` paths a container can resolve. Tests that assert on the
+    build argv are asserting against that context, so the fixture has to produce
+    both or it would be pinning a shape no build makes.
+    """
     project_dir = tmp_path / name
-    project_dir.mkdir(parents=True, exist_ok=True)
-    (project_dir / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
-    if cli_version is not None:
-        (project_dir / "config.yml").write_text(
-            f"claude_code:\n  cli_version: {cli_version!r}\n", encoding="utf-8"
-        )
-    else:
-        (project_dir / "config.yml").write_text("project_name: whatever\n", encoding="utf-8")
+    render = tmp_path / ".image" / name / "build"
+    config = (
+        f"claude_code:\n  cli_version: {cli_version!r}\n"
+        if cli_version is not None
+        else "project_name: whatever\n"
+    )
+    for directory in (project_dir, render):
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+        (directory / "config.yml").write_text(config, encoding="utf-8")
     return str(project_dir)
 
 
@@ -50,7 +59,7 @@ def _no_dev_wheel_staging(monkeypatch):
 
 def test_build_persona_images_noop_in_registry_mode(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(persona_images, "run_captured", lambda *a, **k: calls.append(a))
     config = {"modules": {"web_terminals": {"image_source": "registry"}}}
 
     persona_images.build_persona_images(config, [{"persona": "ops"}], False, {})
@@ -106,7 +115,7 @@ def test_build_persona_images_builds_each_referenced_persona_once(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -115,15 +124,21 @@ def test_build_persona_images_builds_each_referenced_persona_once(
     ops_cmd = next(c for c in calls if "ops-app-ops:local" in c)
     sci_cmd = next(c for c in calls if "sci-app-sci:local" in c)
 
+    # The context is the persona's CONTAINER repo, not its flat host render:
+    # the render records this machine's project_root, so an image built from it
+    # would ship servers and an agent-data root naming the build host. Its
+    # Dockerfile is one level down, inside that repo's build/.
+    ops_context = str(persona_images._persona_image_context(ops_path))
     assert ops_cmd[0] == "docker"
     assert "-f" in ops_cmd
-    assert os.path.join(ops_path, "Dockerfile") == ops_cmd[ops_cmd.index("-f") + 1]
-    assert ops_path == ops_cmd[-1]  # context is project_path
+    assert os.path.join(ops_context, "build", "Dockerfile") == ops_cmd[ops_cmd.index("-f") + 1]
+    assert ops_context == ops_cmd[-1]
+    assert ops_path != ops_cmd[-1], "the host render must never be an image build context"
     assert "--label" in ops_cmd
     assert "com.osprey.project=myfacility" in ops_cmd
 
     assert "com.osprey.project=myfacility" in sci_cmd
-    assert sci_path == sci_cmd[-1]
+    assert str(persona_images._persona_image_context(sci_path)) == sci_cmd[-1]
 
 
 def test_build_persona_images_never_builds_zero_migration_entries(
@@ -146,7 +161,7 @@ def test_build_persona_images_never_builds_zero_migration_entries(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -171,7 +186,7 @@ def test_build_persona_images_includes_cli_version_from_persona_config(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -200,7 +215,7 @@ def test_build_persona_images_omits_cli_version_when_unset_in_persona_config(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -234,7 +249,7 @@ def test_build_persona_images_never_reads_facility_cli_version(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -262,7 +277,7 @@ def test_build_persona_images_dev_mode_adds_osprey_dev_build_arg(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, True, {})
 
@@ -293,7 +308,7 @@ def test_build_persona_images_dev_mode_omits_osprey_dev_when_staging_fails(monke
     )
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, True, {})
 
@@ -319,7 +334,7 @@ def test_build_persona_images_non_dev_omits_osprey_dev_build_arg(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, resolved_users, False, {})
 
@@ -348,14 +363,17 @@ def test_build_persona_images_dev_mode_stages_and_cleans_wheel(monkeypatch, tmp_
 
     monkeypatch.setattr(persona_images, "_copy_local_framework_for_override", _fake_stage)
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: None)
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: None)
 
     persona_images.build_persona_images(config, resolved_users, True, {})
 
     # Staged artifacts (wheel AND its requirements manifest) must be cleaned
-    # up after the build so neither can poison a later non-dev build.
-    assert list(Path(ops_path).glob("*.whl")) == []
-    assert not (Path(ops_path) / "osprey-local-requirements.txt").exists()
+    # up after the build so neither can poison a later non-dev build. Staged
+    # into — and cleaned out of — the image CONTEXT, which is the only place
+    # the Dockerfile's `COPY .dockerignore *.wh[l]` can see a wheel from.
+    context = persona_images._persona_image_context(ops_path)
+    assert list(context.glob("*.whl")) == []
+    assert not (context / "osprey-local-requirements.txt").exists()
 
 
 def test_build_persona_images_dev_mode_cleans_staged_artifacts_on_build_failure(
@@ -382,17 +400,20 @@ def test_build_persona_images_dev_mode_cleans_staged_artifacts_on_build_failure(
         return True
 
     def _failing_build(cmd, **k):
-        raise subprocess.CalledProcessError(1, cmd)
+        # A captured build reports failure as CapturedProcessError, which carries
+        # the spool path holding the output the terminal never saw.
+        raise CapturedProcessError(cmd, 1)
 
     monkeypatch.setattr(persona_images, "_copy_local_framework_for_override", _fake_stage)
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
-    monkeypatch.setattr(persona_images.subprocess, "run", _failing_build)
+    monkeypatch.setattr(persona_images, "run_captured", _failing_build)
 
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(CapturedProcessError):
         persona_images.build_persona_images(config, resolved_users, True, {})
 
-    assert list(Path(ops_path).glob("*.whl")) == []
-    assert not (Path(ops_path) / "osprey-local-requirements.txt").exists()
+    context = persona_images._persona_image_context(ops_path)
+    assert list(context.glob("*.whl")) == []
+    assert not (context / "osprey-local-requirements.txt").exists()
 
 
 def test_build_persona_images_no_referenced_personas_runs_no_build(
@@ -414,7 +435,7 @@ def test_build_persona_images_no_referenced_personas_runs_no_build(
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
 
     persona_images.build_persona_images(config, [], False, {})
 
@@ -422,21 +443,30 @@ def test_build_persona_images_no_referenced_personas_runs_no_build(
 
 
 # ---------------------------------------------------------------------------
-# auto_render_missing_personas -- render a referenced persona's project on
-# demand when its project_path directory is absent, BEFORE build_persona_images
-# builds its image.
+# verify_persona_renders -- confirm every referenced persona has the project
+# `osprey build` rendered for it, BEFORE build_persona_images builds its image.
 #
-# Every render comes from a delta inside THIS deployment's own profile
-# (<profile root>/personas/<persona>.yml, located through the deployed
-# project's manifest). Renders network-free (--skip-deps), never overwrites a
-# complete (user-owned) render, and hard-errors on a partial render, a missing
-# build_profile, or a build_profile that is not such a delta.
+# A start renders nothing. `osprey build` writes one project per delta in
+# `personas/`, into the same `build/` it renders the deployment into, and this
+# function only reads: it accepts a complete render, refuses a partial one, and
+# refuses an absent one by naming `osprey build`. The `calls` fixture below spies
+# on subprocess.run for exactly that reason -- every test here asserts nothing
+# was executed, which is the property that keeps the old start-time render from
+# creeping back.
+#
+# The repo root IS the profile root: under the three-zone layout `profile.yml`,
+# `personas/` and `build/` are siblings at the top of one directory, so there is
+# no separate profile to locate and no manifest to read in order to find it.
 # ---------------------------------------------------------------------------
 
 
-def _profile_root(tmp_path: Path, *personas: str) -> Path:
-    """A materialized profile: profile.yml plus one personas/<name>.yml delta each."""
-    root = tmp_path / "facility-profile"
+def _repo(tmp_path: Path, *personas: str) -> Path:
+    """A deployment repo: profile.yml, .env, and one personas/<name>.yml each.
+
+    Also the profile root, which is the whole point — a three-zone repo is both,
+    so this fixture is deliberately not two directories.
+    """
+    root = tmp_path / "facility"
     (root / "personas").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text("name: Facility\n", encoding="utf-8")
     (root / ".env").write_text("ANTHROPIC_API_KEY=sk-facility\n", encoding="utf-8")
@@ -445,30 +475,34 @@ def _profile_root(tmp_path: Path, *personas: str) -> Path:
     return root
 
 
-def _deployed_project(tmp_path: Path, profile_path: Path | None) -> Path:
-    """The deployed project root, whose manifest records the profile it was built from.
+def _render(repo: Path, name: str = "ops-app", *, complete: bool = True) -> Path:
+    """A persona project of the shape a build leaves under ``build/``.
 
-    ``profile_path=None`` writes a manifest that records no profile at all --
-    the legacy/unlocatable case.
+    Both copies when complete — the flat host render and the container repo at
+    ``build/.image/<name>/`` the image is actually built from. Returns the flat
+    one, which is what the catalog names.
     """
-    project = tmp_path / "host"
+    project = repo / "build" / name
+    context_render = repo / "build" / ".image" / name / "build"
     project.mkdir(parents=True, exist_ok=True)
-    build_args = {} if profile_path is None else {"profile_path_abs": str(profile_path)}
-    (project / ".osprey-manifest.json").write_text(
-        json.dumps({"schema_version": "1.0", "build_args": build_args}), encoding="utf-8"
-    )
+    (project / "config.yml").write_text(f"project_name: {name}\n", encoding="utf-8")
+    if complete:
+        (project / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+        context_render.mkdir(parents=True, exist_ok=True)
+        (context_render / "config.yml").write_text(f"project_name: {name}\n", encoding="utf-8")
+        (context_render / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
     return project
 
 
-def _auto_render_config(tmp_path, **persona_overrides):
-    """A local-mode config whose single persona 'ops' renders to <tmp_path>/ops-app.
+def _persona_config(repo: Path, **persona_overrides):
+    """A local-mode config whose single persona 'ops' renders to build/ops-app.
 
-    Defaults to the ``build_profile`` ``osprey profile new`` emits; pass
+    Defaults to the ``build_profile`` ``osprey init`` emits; pass
     ``build_profile=None`` to drop it, or another value to exercise a rejection.
     """
     persona = {
         "project": "ops-app",
-        "project_path": str(tmp_path / "ops-app"),
+        "project_path": str(repo / "build" / "ops-app"),
         "build_profile": "personas/ops.yml",
     }
     persona.update(persona_overrides)
@@ -483,85 +517,77 @@ def _auto_render_config(tmp_path, **persona_overrides):
     }
 
 
-_AUTO_RENDER_USERS = [{"name": "alice", "index": 0, "persona": "ops", "project": "ops-app"}]
+_PERSONA_USERS = [{"name": "alice", "index": 0, "persona": "ops", "project": "ops-app"}]
 
 
 @pytest.fixture
 def calls(monkeypatch) -> list[list[str]]:
+    """Every subprocess this module would run. It must stay empty here."""
     recorded: list[list[str]] = []
-    monkeypatch.setattr(persona_images.subprocess, "run", lambda cmd, **k: recorded.append(cmd))
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: recorded.append(cmd))
     return recorded
 
 
-def test_auto_render_renders_from_the_deployments_own_persona_delta(tmp_path, calls):
-    """No directory at project_path -> exactly one `osprey build` render, argv
-    verbatim: <project> <profile root>/personas/<persona>.yml -o
-    <parent(project_path)> --skip-deps (rendered into the parent so it lands AT
-    project_path). The CLI is re-entered via the RUNNING interpreter (`python -m
-    osprey`), never a bare `osprey` that PATH could resolve to a different
-    install."""
-    root = _profile_root(tmp_path, "ops")
-    project_root = _deployed_project(tmp_path, root / "profile.yml")
+def test_a_complete_render_is_accepted(tmp_path, calls):
+    """The whole of the happy path: the render is there, so the start proceeds."""
+    repo = _repo(tmp_path, "ops")
+    _render(repo)
 
-    persona_images.auto_render_missing_personas(
-        _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-    )
+    persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
 
-    assert calls == [
-        [
-            sys.executable,
-            "-m",
-            "osprey",
-            "build",
-            "ops-app",
-            str(root / "personas" / "ops.yml"),
-            "-o",
-            str(tmp_path),
-            "--skip-deps",
-        ]
-    ]
+    assert calls == []
 
 
-def test_auto_render_profile_argument_anchors_env_at_the_parent_profile_root(tmp_path, calls):
-    """The reason the delta path is what gets handed to `osprey build`: root
-    discovery resolves it back to the PARENT profile root, which is the
-    directory the build derives the persona project's `.env` from. A persona
-    therefore ships the facility's secrets, not a set of its own."""
-    from osprey.cli.profile_root import resolve_profile_root
+def test_an_absent_render_refuses_and_names_the_build(tmp_path, calls):
+    """No directory at project_path -> a refusal, not a render.
 
-    root = _profile_root(tmp_path, "ops")
-    project_root = _deployed_project(tmp_path, root / "profile.yml")
+    The remedy has to be the one command that writes the directory, and it has
+    to name the path so an operator can see which of the several renders in
+    ``build/`` is the missing one.
+    """
+    repo = _repo(tmp_path, "ops")
 
-    persona_images.auto_render_missing_personas(
-        _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-    )
+    with pytest.raises(ValueError) as excinfo:
+        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
 
-    rendered_from = Path(calls[0][calls[0].index("build") + 2])
-    assert resolve_profile_root(rendered_from) == (root, True)
-    assert (root / ".env").is_file()  # ...and that root is where the secrets live
-
-
-def test_auto_render_resolves_against_the_root_when_the_deployment_is_itself_a_persona(
-    tmp_path, calls
-):
-    """A project built from a persona delta records THAT file in its manifest.
-    Root discovery -- not `Path.parent` -- is what makes its own personas
-    resolve against the profile root one level above `personas/`."""
-    root = _profile_root(tmp_path, "ops", "host")
-    project_root = _deployed_project(tmp_path, root / "personas" / "host.yml")
-
-    persona_images.auto_render_missing_personas(
-        _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-    )
-
-    assert calls[0][calls[0].index("build") + 2] == str(root / "personas" / "ops.yml")
+    message = str(excinfo.value)
+    assert "ops" in message
+    assert "osprey build" in message
+    assert str(repo / "build" / "ops-app") in message
+    assert calls == []
+    # Nothing was written, either: a start that "helpfully" rendered would have
+    # made the directory rather than raising about it.
+    assert not (repo / "build" / "ops-app").exists()
 
 
-def test_auto_render_renders_each_distinct_persona_once(tmp_path, calls):
-    """Two users sharing a persona collapse to one render; a second, distinct
-    persona renders separately -- one `osprey build` per DISTINCT persona."""
-    root = _profile_root(tmp_path, "ops", "sci")
-    project_root = _deployed_project(tmp_path, root / "profile.yml")
+def test_the_refusal_names_where_a_build_would_have_put_it(tmp_path, calls):
+    """The second thing that can be wrong: the catalog names a path no build
+    writes.
+
+    A build derives the render's location from the repo's name and the delta's
+    — it never reads the catalog — so a hand-edited ``project_path`` produces a
+    start that refuses after every successful build. The refusal names the
+    location a build actually uses, which is the only way to tell those two
+    situations apart from the message.
+    """
+    repo = _repo(tmp_path, "ops")
+    config = _persona_config(repo, project_path=str(repo / "build" / "somewhere-else"))
+
+    with pytest.raises(ValueError) as excinfo:
+        persona_images.verify_persona_renders(config, _PERSONA_USERS, repo_root=repo)
+
+    message = str(excinfo.value)
+    assert str(repo / "build" / f"{repo.name}-ops") in message
+    assert "project_path" in message
+    assert calls == []
+
+
+def test_every_distinct_persona_is_checked(tmp_path, calls):
+    """Two users sharing a persona collapse to one unit, and a second, distinct
+    persona is a unit of its own -- so a gap in EITHER is caught."""
+    repo = _repo(tmp_path, "ops", "sci")
+    _render(repo, "ops-app")
+    # sci-app deliberately absent.
     config = {
         "modules": {
             "web_terminals": {
@@ -570,12 +596,12 @@ def test_auto_render_renders_each_distinct_persona_once(tmp_path, calls):
                 "personas": {
                     "ops": {
                         "project": "ops-app",
-                        "project_path": str(tmp_path / "ops-app"),
+                        "project_path": str(repo / "build" / "ops-app"),
                         "build_profile": "personas/ops.yml",
                     },
                     "sci": {
                         "project": "sci-app",
-                        "project_path": str(tmp_path / "sci-app"),
+                        "project_path": str(repo / "build" / "sci-app"),
                         "build_profile": "personas/sci.yml",
                     },
                 },
@@ -588,77 +614,34 @@ def test_auto_render_renders_each_distinct_persona_once(tmp_path, calls):
         {"name": "carol", "index": 2, "persona": "sci", "project": "sci-app"},
     ]
 
-    persona_images.auto_render_missing_personas(
-        config, resolved_users, {}, project_root=project_root
-    )
-
-    assert len(calls) == 2
-    rendered_from = {call[call.index("build") + 2] for call in calls}
-    assert rendered_from == {
-        str(root / "personas" / "ops.yml"),
-        str(root / "personas" / "sci.yml"),
-    }
-
-
-def test_auto_render_partial_render_raises(tmp_path, calls):
-    """project_path exists but is missing its Dockerfile -> a partial render;
-    raise (naming the dir) rather than silently rebuild over it."""
-    project_path = tmp_path / "ops-app"
-    project_path.mkdir()
-    (project_path / "config.yml").write_text("project_name: whatever\n", encoding="utf-8")
-    # Dockerfile deliberately absent -> partial render.
-    root = _profile_root(tmp_path, "ops")
-    project_root = _deployed_project(tmp_path, root / "profile.yml")
-
-    with pytest.raises(ValueError, match="partial render") as excinfo:
-        persona_images.auto_render_missing_personas(
-            _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-        )
-
-    assert str(project_path) in str(excinfo.value)
-    assert "Dockerfile" in str(excinfo.value)
-    assert calls == []  # never rendered over the partial tree
-
-
-def test_auto_render_complete_render_is_noop_and_reads_no_profile(tmp_path, calls, monkeypatch):
-    """project_path exists with both config.yml and Dockerfile -> user-owned
-    complete render; never overwrite it, run no `osprey build`. The deployment's
-    profile is not even LOOKED UP: a deploy with nothing to render must not fail
-    over a profile it never has to read.
-
-    The lookup is stubbed to raise rather than merely asserting no crash — a
-    bare project root makes `_parent_profile_root` return None either way, so an
-    eager implementation would pass an assertion on the outcome alone. This
-    fails unless the call genuinely never happens."""
-    project_path = tmp_path / "ops-app"
-    project_path.mkdir()
-    (project_path / "config.yml").write_text("project_name: whatever\n", encoding="utf-8")
-    (project_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
-    bare_root = tmp_path / "host"
-    bare_root.mkdir()
-
-    def _must_not_be_called(project_root):
-        raise AssertionError(
-            f"resolved the deployment profile for {project_root} with nothing to render"
-        )
-
-    monkeypatch.setattr(persona_images, "_parent_profile_root", _must_not_be_called)
-
-    persona_images.auto_render_missing_personas(
-        _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=bare_root
-    )
+    with pytest.raises(ValueError, match="'sci'"):
+        persona_images.verify_persona_renders(config, resolved_users, repo_root=repo)
 
     assert calls == []
 
 
-def test_auto_render_existing_render_with_unservable_model_raises(tmp_path, calls):
-    """A complete persona render whose config names a model its provider cannot
-    serve must fail the deploy here, with the path and a remedy — not boot a
-    web-terminal container that crash-loops behind the reverse proxy (502).
-    An existing render is user-owned and never re-rendered, so a model the
-    profile has since moved away from would otherwise persist forever."""
-    project_path = tmp_path / "ops-app"
-    project_path.mkdir()
+def test_partial_render_raises(tmp_path, calls):
+    """project_path exists but is missing its Dockerfile -> a partial render;
+    raise (naming the dir and the missing file) rather than hand a half-written
+    tree to an image build."""
+    repo = _repo(tmp_path, "ops")
+    project_path = _render(repo, complete=False)
+
+    with pytest.raises(ValueError, match="partial render") as excinfo:
+        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
+
+    assert str(project_path) in str(excinfo.value)
+    assert "Dockerfile" in str(excinfo.value)
+    assert "osprey build" in str(excinfo.value)  # the remedy: a rebuild, not a patch
+    assert calls == []
+
+
+def test_existing_render_with_unservable_model_raises(tmp_path, calls):
+    """A persona render whose config names a model its provider cannot serve
+    must fail the deploy here, with the path and a remedy — not boot a
+    web-terminal container that crash-loops behind the reverse proxy (502)."""
+    repo = _repo(tmp_path, "ops")
+    project_path = _render(repo)
     (project_path / "config.yml").write_text(
         "project_name: ops-app\n"
         "claude_code:\n"
@@ -666,41 +649,63 @@ def test_auto_render_existing_render_with_unservable_model_raises(tmp_path, call
         "  default_model: anthropic/claude-opus\n",
         encoding="utf-8",
     )
-    (project_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
-    root = _profile_root(tmp_path, "ops")
-    project_root = _deployed_project(tmp_path, root / "profile.yml")
 
     with pytest.raises(ValueError, match="neither a model tier nor a model ID") as excinfo:
-        persona_images.auto_render_missing_personas(
-            _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-        )
+        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
 
     assert str(project_path) in str(excinfo.value)
-    assert "remove" in str(excinfo.value).lower()  # remedy: fix or remove the render
-    assert calls == []  # never rendered over the user-owned tree
+    assert "osprey build" in str(excinfo.value)  # remedy: fix the profile, rebuild
+    assert calls == []
+
+
+def test_a_persona_placeholder_resolves_from_the_repo_env(tmp_path, calls, monkeypatch):
+    """The model check reads the persona's render but expands from ``<repo>/.env``.
+
+    Personas are rendered into the disposable build zone and the deployment
+    keeps its secrets and facility values at its root. Expanding against the
+    render leaves ``${OPS_MODEL}`` a literal, and the check then refuses a
+    persona this deployment can serve — a start blocked on a value that is
+    right there in the file every container reads.
+    """
+    monkeypatch.delenv("OPS_MODEL", raising=False)
+    repo = _repo(tmp_path, "ops")
+    (repo / ".env").write_text(
+        "ANTHROPIC_API_KEY=sk-facility\nOPS_MODEL=sonnet\n", encoding="utf-8"
+    )
+    project_path = _render(repo)
+    (project_path / "config.yml").write_text(
+        "project_name: ops-app\nclaude_code:\n  provider: anthropic\n  default_model: ${OPS_MODEL}\n",
+        encoding="utf-8",
+    )
+
+    persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
+
+    assert calls == []
 
 
 # ---------------------------------------------------------------------------
 # Rejections. A persona project is rendered from a delta in the deployment's
 # OWN profile or not at all -- every other value is refused, and every refusal
 # names the file the operator has to point at instead.
+#
+# These are reached only when the render is ABSENT, and that is deliberate: the
+# refusal above would otherwise send an operator whose catalog can never name a
+# delta through a build that succeeds and a start that refuses again.
 # ---------------------------------------------------------------------------
 
 
 def _expected_delta(tmp_path) -> Path:
-    return tmp_path / "facility-profile" / "personas" / "ops.yml"
+    return tmp_path / "facility" / "personas" / "ops.yml"
 
 
 def _reject(tmp_path, build_profile) -> str:
-    """Run the auto-render with a rejected build_profile; return the message."""
-    root = _profile_root(tmp_path, "ops")
-    project_root = _deployed_project(tmp_path, root / "profile.yml")
+    """Verify a repo whose render is absent and whose build_profile is refused."""
+    repo = _repo(tmp_path, "ops")
     with pytest.raises(ValueError) as excinfo:
-        persona_images.auto_render_missing_personas(
-            _auto_render_config(tmp_path, build_profile=build_profile),
-            _AUTO_RENDER_USERS,
-            {},
-            project_root=project_root,
+        persona_images.verify_persona_renders(
+            _persona_config(repo, build_profile=build_profile),
+            _PERSONA_USERS,
+            repo_root=repo,
         )
     return str(excinfo.value)
 
@@ -708,9 +713,9 @@ def _reject(tmp_path, build_profile) -> str:
 @pytest.mark.parametrize("value", ["control-assistant", "control_assistant"])
 def test_preset_valued_build_profile_is_rejected(tmp_path, calls, value):
     """The old shape, in both spellings a preset name is written in. A bundled
-    preset would render a persona sharing none of this deployment's data,
-    secrets or conventions, so it is refused outright rather than quietly
-    built."""
+    preset names a persona sharing none of this deployment's data, secrets or
+    conventions -- and no build renders one, so the generic "run osprey build"
+    remedy would be a loop."""
     message = _reject(tmp_path, value)
 
     assert value in message
@@ -728,7 +733,7 @@ def test_slash_path_without_a_suffix_is_a_path_not_a_preset(tmp_path, calls):
     message = _reject(tmp_path, "personas/ops")
 
     assert "preset" not in message
-    assert str(tmp_path / "facility-profile" / "personas" / "ops") in message
+    assert str(tmp_path / "facility" / "personas" / "ops") in message
     assert str(_expected_delta(tmp_path)) in message  # the remedy still names the .yml
     assert calls == []
 
@@ -737,40 +742,37 @@ def test_slash_path_without_a_suffix_is_a_path_not_a_preset(tmp_path, calls):
 # Symlinks. The shape rule is LEXICAL (it is shared with lint, which has no
 # filesystem), and `.resolve()` FOLLOWS a symlink -- so shape alone cannot see
 # a delta that has been linked out of the profile. What has to hold is the
-# property the whole design rests on: the path handed to `osprey build` must
-# anchor BACK at the profile root it was resolved from. Checked on what
-# `resolve_profile_root` returns, not on the presence of a symlink, because a
-# symlink is only the mechanism -- the danger is the wrong root.
+# property the whole design rests on: a delta must anchor BACK at the profile
+# root it was resolved from. Checked on what `resolve_profile_root` returns, not
+# on the presence of a symlink, because a symlink is only the mechanism -- the
+# danger is the wrong root. The build enforces the same property over the deltas
+# it enumerates (`build_cmd._persona_deltas`); this is the catalog's half.
 # ---------------------------------------------------------------------------
 
 
 def test_delta_symlinked_out_of_the_profile_is_rejected(tmp_path, calls):
     """`personas/ops.yml` is a symlink to a file outside the profile. It is
     lexically perfect and `is_file()` succeeds, but root discovery reads the
-    resolved target as a STANDALONE profile -- so the persona would build with
-    no data tree, no `.env` secrets and no conventions, silently. Silence is
-    worse than any rejection, so this fails."""
+    resolved target as a STANDALONE profile -- so the persona it named would
+    have no data tree, no `.env` secrets and no conventions, silently."""
     from osprey.cli.profile_root import resolve_profile_root
 
-    root = _profile_root(tmp_path)
+    repo = _repo(tmp_path)
     outside = tmp_path / "elsewhere"
     outside.mkdir()
     target = outside / "ops.yml"
     target.write_text("name: ops\n", encoding="utf-8")
-    (root / "personas" / "ops.yml").symlink_to(target)
-    project_root = _deployed_project(tmp_path, root / "profile.yml")
+    (repo / "personas" / "ops.yml").symlink_to(target)
 
     # The reason it must be rejected: the target anchors somewhere else, as a
     # standalone profile rather than a delta over this deployment's.
     assert resolve_profile_root(target) == (outside.resolve(), False)
 
     with pytest.raises(ValueError) as excinfo:
-        persona_images.auto_render_missing_personas(
-            _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-        )
+        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
 
     message = str(excinfo.value)
-    assert str(root) in message  # the profile it must have belonged to
+    assert str(repo) in message  # the profile it must have belonged to
     assert str(outside.resolve()) in message  # where it actually landed
     assert calls == []
 
@@ -787,44 +789,25 @@ def test_symlinked_personas_directory_is_rejected(tmp_path, calls):
     directory."""
     from osprey.cli.profile_root import resolve_profile_root
 
-    root = _profile_root(tmp_path)
-    (root / "personas").rmdir()
+    repo = _repo(tmp_path)
+    (repo / "personas").rmdir()
     shared = tmp_path / "shared"
     (shared / "personas").mkdir(parents=True)
     (shared / "profile.yml").write_text("name: Somebody else\n", encoding="utf-8")
     (shared / "personas" / "ops.yml").write_text("name: ops\n", encoding="utf-8")
-    (root / "personas").symlink_to(shared / "personas")
-    project_root = _deployed_project(tmp_path, root / "profile.yml")
+    (repo / "personas").symlink_to(shared / "personas")
 
     # Resolves inside a `personas/` dir and IS read as a delta -- just over the
     # wrong profile. That is exactly what makes it dangerous rather than broken.
-    assert resolve_profile_root(root / "personas" / "ops.yml") == (shared.resolve(), True)
+    assert resolve_profile_root(repo / "personas" / "ops.yml") == (shared.resolve(), True)
 
     with pytest.raises(ValueError) as excinfo:
-        persona_images.auto_render_missing_personas(
-            _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-        )
+        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
 
     message = str(excinfo.value)
     assert str(shared.resolve()) in message  # the profile it would have merged over
-    assert str(root) in message  # the profile it had to merge over
+    assert str(repo) in message  # the profile it had to merge over
     assert calls == []
-
-
-def test_a_delta_that_anchors_back_at_the_profile_root_is_accepted(tmp_path, calls):
-    """The positive control for the two above: an ordinary delta round-trips
-    through root discovery to the very root it was resolved from, and renders."""
-    from osprey.cli.profile_root import resolve_profile_root
-
-    root = _profile_root(tmp_path, "ops")
-    project_root = _deployed_project(tmp_path, root / "profile.yml")
-
-    persona_images.auto_render_missing_personas(
-        _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-    )
-
-    rendered_from = Path(calls[0][calls[0].index("build") + 2])
-    assert resolve_profile_root(rendered_from) == (root, True)
 
 
 def test_absolute_build_profile_is_rejected(tmp_path, calls):
@@ -853,8 +836,8 @@ def test_absolute_build_profile_is_rejected(tmp_path, calls):
 )
 def test_build_profile_outside_the_personas_directory_is_rejected(tmp_path, calls, value):
     """Root discovery reads a file as a delta only when its parent directory IS
-    the profile's `personas/`. Anything else would build a hollow project from
-    the delta alone, or from a profile this deployment does not own."""
+    the profile's `personas/`. Anything else names a hollow project built from
+    the delta alone, or a profile this deployment does not own."""
     message = _reject(tmp_path, value)
 
     assert value in message
@@ -867,13 +850,14 @@ def test_missing_delta_file_is_rejected_by_absolute_path(tmp_path, calls):
     exist, not just the catalog value."""
     message = _reject(tmp_path, "personas/ghost.yml")
 
-    assert str(tmp_path / "facility-profile" / "personas" / "ghost.yml") in message
+    assert str(tmp_path / "facility" / "personas" / "ghost.yml") in message
     assert calls == []
 
 
 def test_missing_build_profile_raises_and_names_the_delta_it_wants(tmp_path, calls):
-    """project_path absent (a render IS needed) but the catalog entry has no
-    build_profile -> raise, naming the file that entry should point at."""
+    """project_path absent (so the render is genuinely missing) and the catalog
+    entry has no build_profile -> raise, naming the file that entry should point
+    at rather than the generic rebuild."""
     message = _reject(tmp_path, None)
 
     assert "build_profile" in message
@@ -882,55 +866,41 @@ def test_missing_build_profile_raises_and_names_the_delta_it_wants(tmp_path, cal
     assert calls == []
 
 
-@pytest.mark.parametrize("recorded", [None, "gone"])
-def test_unlocatable_deployment_profile_is_rejected(tmp_path, calls, recorded):
-    """No profile recorded in the manifest, or one that has since been deleted:
-    there is no anchor, and guessing one is how a persona gets rendered from
-    somebody else's profile. Fail, naming the project whose manifest is at
-    fault."""
-    profile_path = None if recorded is None else tmp_path / "gone" / "profile.yml"
-    project_root = _deployed_project(tmp_path, profile_path)
+def test_a_delta_with_no_profile_beside_it_is_rejected(tmp_path, calls):
+    """The source zone is gone or was never there: a `personas/` directory with
+    no `profile.yml` above it holds files that cannot be read as deltas at all.
+
+    Root discovery's own message already names the file that has to exist, which
+    is a better sentence than a second one here could be -- so what this pins is
+    that the message survives to the operator rather than being flattened into
+    the generic rebuild advice."""
+    repo = tmp_path / "facility"
+    (repo / "personas").mkdir(parents=True)
+    (repo / "personas" / "ops.yml").write_text("name: ops\n", encoding="utf-8")
+    # profile.yml deliberately absent.
 
     with pytest.raises(ValueError) as excinfo:
-        persona_images.auto_render_missing_personas(
-            _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-        )
+        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
 
-    message = str(excinfo.value)
-    assert str(project_root) in message
-    assert "osprey build" in message  # the remedy
-    assert calls == []
-
-
-def test_manifest_naming_a_rootless_persona_delta_is_rejected(tmp_path, calls):
-    """The deployed project was built from a file under `personas/` whose
-    `profile.yml` is gone -- root discovery cannot answer, so neither can this."""
-    orphan = tmp_path / "orphan" / "personas" / "host.yml"
-    orphan.parent.mkdir(parents=True)
-    orphan.write_text("name: host\n", encoding="utf-8")
-    project_root = _deployed_project(tmp_path, orphan)
-
-    with pytest.raises(ValueError) as excinfo:
-        persona_images.auto_render_missing_personas(
-            _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-        )
-
-    assert str(project_root) in str(excinfo.value)
+    assert str(repo / "profile.yml") in str(excinfo.value)
     assert calls == []
 
 
 # ---------------------------------------------------------------------------
-# Deletion assertions: the parent-build forwarding this module used to do is
-# GONE. It read the parent's `.osprey-manifest.json` `build_args`, took the
-# keys the user had explicitly passed as `--set` at parent build time
-# (`explicit_overrides`), and appended the same `--set KEY=VALUE` pairs to every
-# persona render, so one parent override retinted the whole stack.
+# Absence assertions. Two things this module must never do, both of which would
+# be silent regressions rather than failures if they appeared.
 #
-# It cannot come back by accident: the profile is the source of truth now, an
-# explicit override is written INTO the profile at build time, and a persona
-# delta merges over that same profile -- so replaying the parent's build
-# invocation would apply the change twice, and a stale manifest entry would
-# apply a value the profile no longer holds.
+# It must not shell out to `osprey build` for a persona whose project is
+# absent, which is what would make a start able to write into `build/`. And it
+# must not read the parent's `.osprey-manifest.json` `build_args`, take the keys
+# passed as `--set` at parent build time, and append the same pairs to every
+# persona render, retinting the whole stack from one parent override.
+#
+# Neither can appear by accident: `osprey build` renders every persona from
+# the profile, an explicit override is written INTO the profile, and a delta
+# merges over that same profile -- so replaying a build invocation would apply
+# the change twice, and a stale manifest entry would apply a value the profile
+# does not hold.
 # ---------------------------------------------------------------------------
 
 
@@ -938,46 +908,10 @@ def test_parent_set_override_forwarding_helper_is_gone():
     assert not hasattr(persona_images, "_parent_set_override_args")
 
 
-def test_parent_manifest_overrides_are_never_replayed_into_a_render(tmp_path, calls):
-    """A manifest still carrying the retired `explicit_overrides` field (a
-    project built before this changed) contributes nothing to the argv."""
-    root = _profile_root(tmp_path, "ops")
-    project = tmp_path / "host"
-    project.mkdir()
-    (project / ".osprey-manifest.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "1.0",
-                "build_args": {
-                    "profile_path_abs": str(root / "profile.yml"),
-                    "provider": "als-apg",
-                    "model": "anthropic/claude-opus",
-                    "explicit_overrides": ["provider", "model"],
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    persona_images.auto_render_missing_personas(
-        _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project
-    )
-
-    (cmd,) = calls
-    assert "--set" not in cmd
-    assert not any("als-apg" in arg or "claude-opus" in arg for arg in cmd)
-
-
-def test_a_render_never_takes_the_preset_path(tmp_path, calls):
-    """`--preset` is what would make the subprocess materialize a profile of its
-    own; the argv only ever carries an existing profile FILE, positionally."""
-    root = _profile_root(tmp_path, "ops")
-    project_root = _deployed_project(tmp_path, root / "profile.yml")
-
-    persona_images.auto_render_missing_personas(
-        _auto_render_config(tmp_path), _AUTO_RENDER_USERS, {}, project_root=project_root
-    )
-
-    (cmd,) = calls
-    assert "--preset" not in cmd
-    assert Path(cmd[cmd.index("build") + 2]).is_file()
+def test_the_start_time_render_is_gone():
+    """Both halves: an entry point that renders, and a manifest indirection
+    whose only job would be finding the profile it rendered from. Under three
+    zones the repo root IS the profile root, so that lookup is a tautology with
+    failure modes of its own."""
+    assert not hasattr(persona_images, "auto_render_missing_personas")
+    assert not hasattr(persona_images, "_parent_profile_root")

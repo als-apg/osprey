@@ -111,8 +111,8 @@ def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteRes
 def _warn_once_if_fail_on_mismatch_set(verification: Any) -> None:
     """Warn once per process if this project still declares ``fail_on_mismatch: true``.
 
-    The key was deleted because nothing ever read it: a failed verification has
-    never stopped a write on the default path. A project that still carries it at
+    Nothing reads the key: a failed verification does not stop a write on the
+    default path. A project that still carries it at
     ``true`` is running on a belief about its own safety posture that was never
     true, so it gets told once — at the first write, where the belief matters —
     which path actually enforces verification.

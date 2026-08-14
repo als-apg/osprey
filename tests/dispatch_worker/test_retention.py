@@ -218,6 +218,34 @@ def test_artifact_of_in_flight_run_survives(tmp_path):
     assert store.get_entry(art) is not None
 
 
+def test_artifact_sweep_deletes_run_under_the_system_actor(tmp_path):
+    """Retention deletes are maintenance: the store-level activity listener
+    must be able to tell them apart from agent deletes."""
+    from osprey.stores.artifact_store import (
+        current_artifact_mutation_actor,
+        register_artifact_delete_listener,
+        unregister_artifact_delete_listener,
+    )
+
+    store = ArtifactStore(workspace_root=tmp_path)
+    old = _save_artifact(store, "old")
+    _set_artifact_age_days(store, old, 100)
+
+    actors = []
+
+    def record_actor(_entry):
+        actors.append(current_artifact_mutation_actor())
+
+    register_artifact_delete_listener(record_actor)
+    try:
+        deleted = retention.sweep_artifacts(store, retention_days=5, now=_NOW)
+    finally:
+        unregister_artifact_delete_listener(record_actor)
+
+    assert deleted == 1
+    assert actors == ["system"]
+
+
 def test_artifact_sweep_disabled(tmp_path):
     store = ArtifactStore(workspace_root=tmp_path)
     art = _save_artifact(store, "old")
@@ -307,3 +335,61 @@ def test_retention_loop_runs_one_iteration(tmp_path, monkeypatch):
 
     assert calls == [123.0, 123.0]
     assert not (log_dir / "old.json").exists()  # the one iteration swept it
+
+
+def test_retention_loop_re_resolves_a_callable_log_dir(tmp_path, monkeypatch):
+    """A callable ``log_dir`` is called per cycle, not once at start.
+
+    The worker passes one because this loop starts during application lifespan,
+    before anything has established that the bind-mounted config is readable. If
+    the directory were resolved once there, a config that arrives a moment later
+    would leave the sweep pointed at the fallback root for the life of the
+    process — aging out nothing, silently, while the writer filled the real one.
+
+    Driven by making the FIRST answer a directory with nothing to sweep and the
+    second the one holding the expired record: a loop that resolved once would
+    leave that record in place.
+    """
+    stale_root = tmp_path / "resolved-too-early"
+    stale_root.mkdir()
+    real_root = tmp_path / "dispatch"
+    _write_run(real_root, "old", completed_at=_NOW - 10 * _DAY)
+    store = ArtifactStore(workspace_root=tmp_path)
+
+    answers = [stale_root, real_root]
+    resolved: list[Path] = []
+
+    def _log_dir() -> Path:
+        answer = answers.pop(0) if answers else real_root
+        resolved.append(answer)
+        return answer
+
+    calls: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(interval):
+        # Same passthrough as the test above: only this loop's own interval is
+        # intercepted, so a foreign thread's tick cannot drive the loop.
+        if interval != 123.0:
+            await real_sleep(interval)
+            return
+        calls.append(interval)
+        if len(calls) >= 3:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    async def drive():
+        with pytest.raises(asyncio.CancelledError):
+            await retention.retention_loop(
+                _log_dir,
+                lambda: store,
+                retention_days=5,
+                in_flight_run_ids=lambda: frozenset(),
+                interval_sec=123.0,
+            )
+
+    asyncio.run(drive())
+
+    assert resolved == [stale_root, real_root]
+    assert not (real_root / "old.json").exists()

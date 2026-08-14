@@ -100,7 +100,7 @@ class TestDesignSystemIntercept:
         assert ds.text != "from-sidecar"
         assert forwarded == []
 
-        # A non-design-system path still goes to the sidecar as before.
+        # A non-design-system path still goes to the sidecar.
         other = client.get("/panel/my-dash/static/panel.css")
         assert other.text == "from-sidecar"
         assert len(forwarded) == 1

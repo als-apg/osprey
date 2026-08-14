@@ -144,8 +144,8 @@ def test_gitlab_is_the_only_platform_with_a_template_today() -> None:
 
 
 def test_the_legacy_ci_mapping_shape_is_rejected() -> None:
-    """`ci:` used to be a mapping of pipeline coordinates. It is now the
-    platform name: everything else comes from the CI environment at run time."""
+    """`ci:` names the platform, not a mapping of pipeline coordinates:
+    everything else comes from the CI environment at run time."""
     message = _refusal(_deploy(ci={"provider": "gitlab", "project_id": 951}))
 
     assert "names the platform as a string" in message
@@ -153,8 +153,8 @@ def test_the_legacy_ci_mapping_shape_is_rejected() -> None:
 
 
 def test_the_removed_gitlab_block_is_rejected_by_name() -> None:
-    """The rule the old facility-config normalizer carried, ported here: a
-    `gitlab:` block names the platform through `ci:` instead."""
+    """A `gitlab:` block is not a deploy key: the platform is named
+    through `ci:` instead."""
     message = _refusal(_deploy(gitlab={"host": "git.example.org", "project_id": 951}))
 
     assert "'gitlab' is not a deploy key" in message
@@ -367,7 +367,7 @@ def test_an_emitted_profile_offers_the_deploy_block_as_a_comment_only(preset: st
     the second silently winning. It must appear exactly once, commented."""
     from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 
-    text = emit_standalone_profile_yaml(preset, (), (), "Emitted", "profile.yml")
+    text = emit_standalone_profile_yaml(preset, (), (), "Emitted")
 
     assert "deploy" not in (yaml.safe_load(text) or {})
     assert [line for line in text.splitlines() if line.strip() == "# deploy:"] == ["# deploy:"]
@@ -379,7 +379,7 @@ def test_the_emitted_stub_is_a_block_the_schema_accepts() -> None:
     facility the wrong one, and it would only find out after uncommenting."""
     from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 
-    text = emit_standalone_profile_yaml("control-assistant", (), (), "Emitted", "profile.yml")
+    text = emit_standalone_profile_yaml("control-assistant", (), (), "Emitted")
     lines = text.splitlines()
     start = lines.index("# deploy:")
     stub = []

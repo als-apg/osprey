@@ -188,6 +188,37 @@ async def test_list_plans_unreachable(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# list_devices — GET /devices
+# ---------------------------------------------------------------------------
+
+
+async def test_list_devices_request_response_mapping(monkeypatch):
+    captured = {}
+    devices = [{"name": "BPM1", "is_readable": True}, {"name": "COR1", "is_movable": True}]
+
+    def fake_get(path, **kwargs):
+        captured["path"] = path
+        return 200, devices
+
+    monkeypatch.setattr(f"{_MOD}._http_get_json", fake_get)
+
+    result = await _fn("list_devices")()
+
+    assert captured["path"] == "/devices"
+    data = extract_response_dict(result)
+    assert data["status"] == "success"
+    # Relayed whole: a flag the bridge starts reporting reaches the agent
+    # without a code change here.
+    assert data["devices"] == devices
+
+
+async def test_list_devices_unreachable(monkeypatch):
+    monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
+    with assert_raises_error(error_type="bluesky_bridge_unreachable"):
+        await _fn("list_devices")()
+
+
+# ---------------------------------------------------------------------------
 # list_runs — GET /runs
 # ---------------------------------------------------------------------------
 
@@ -261,6 +292,7 @@ async def test_all_client_tools_are_registered_fastmcp_function_tools():
     for name in (
         "get_run",
         "list_plans",
+        "list_devices",
         "list_runs",
         "get_run_data",
     ):

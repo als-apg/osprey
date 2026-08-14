@@ -1,10 +1,10 @@
 """Tests for the strict key check inside a profile's ``bluesky:`` block.
 
-Every field of the block used to be read with ``.get()``, so an unknown key —
-a typo like ``tiled_enabld:``, or a knob a release removed — was silently
-dropped and the build shipped without whatever the facility asked for. The
-block is now closed the same way the top level is: unknown keys hard-error,
-naming every offender and its closest known spelling.
+Reading every field of the block with ``.get()`` would silently drop an unknown
+key — a typo like ``tiled_enabld:``, or a knob a release removed — and the build
+would ship without whatever the facility asked for. The block is closed the same
+way the top level is: unknown keys hard-error, naming every offender and its
+closest known spelling.
 
 The valid set is *derived* from :class:`BlueskyConfig`'s dataclass fields, the
 same declaration ``_parse_profile`` reads the block into, so the check cannot
@@ -163,11 +163,11 @@ def test_error_style_matches_the_top_level_check() -> None:
 
 
 def test_stale_demo_runner_key_fails_loudly() -> None:
-    """Regression pin for the removed knob's migration story.
+    """Regression pin for a retired knob.
 
-    ``bluesky.demo_runner`` selected a runner that no longer exists. An old
-    profile still carrying it must stop the build rather than be quietly
-    ignored — the removal has to announce itself.
+    ``bluesky.demo_runner`` names a runner OSPREY does not have. A profile
+    carrying it must stop the build rather than be quietly ignored — an
+    unhonored key has to announce itself.
     """
     with pytest.raises(BuildProfileError) as excinfo:
         _parse_profile({"name": "x", "bluesky": {"demo_runner": "mock"}})

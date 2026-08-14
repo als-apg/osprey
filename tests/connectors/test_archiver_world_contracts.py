@@ -384,7 +384,7 @@ class World:
     def boot_values(self) -> dict[str, float]:
         """The map the Virtual Accelerator boots its records from.
 
-        Read through the loader ``osprey deploy up`` uses, so the seeded
+        Read through the loader ``osprey up`` uses, so the seeded
         procedural baselines are anchored by the same rule the live half applies
         rather than by this test's reading of the machine file.
         """

@@ -7,41 +7,42 @@ wiring that carries provider auth, and the in-network ``dispatch-worker-1:9190``
 routing baked into the shipped ``tutorial_triggers.yml`` — none of which the
 subprocess path touches.
 
-It builds a control-assistant project, deploys the stack with
-``osprey deploy up -d --dev``, fires all four tutorial webhooks at the dispatcher
+It inits + builds a control-assistant deployment repo, deploys the stack with
+``osprey up -d --dev``, fires all four tutorial webhooks at the dispatcher
 (host-published on :8020), and asserts:
 
   * hello-dispatch / triage-event / save-report -> a run completes
   * denied-tool-demo -> rejected by the worker denylist (no completed run)
 
 The same deploy also stands up the preset's multi-user web tier (local image
-mode): ``deploy up`` auto-renders both persona projects (forwarding the
-parent build's ``--set provider/model`` overrides via the project manifest),
-builds one ``:local`` image per persona, and brings up nginx + one
-web-terminal container per roster user. Four more things are asserted on top:
+mode): the build renders one persona project per ``personas/`` delta into
+``build/<repo>-<persona>/``, ``up`` builds one ``:local`` image per persona and
+brings up nginx + one web-terminal container per roster user. Four more things
+are asserted on top:
 
   T1 topology:      nginx + both per-user containers come up healthy and the
                     landing page lists both roster users.
-  T2 readonly tier:  the auto-rendered READ-ONLY project pins
+  T2 readonly tier:  the rendered READ-ONLY persona project pins
                      ``control_system.writes_enabled: false`` and its rendered
                      ``settings.json`` denies the channel-write tool.
-  T3 readwrite tier: the auto-rendered READ-WRITE project arms writes and
+  T3 readwrite tier: the rendered READ-WRITE persona project arms writes and
                      keeps the tool on the ask (human-approval) path — the
                      positive control that T2 is a real posture difference.
   T4 same surface:   both persona projects declare the IDENTICAL ``.mcp.json``
                      server set — the tier boundary is enforcement, never a
                      quietly different tool surface.
 
-COEXISTENCE: every host-published web port, the web-container name prefix
-(``facility.prefix``), and the persona catalog's ``project`` names (which
-become the ``<project>-<persona>:local`` image tags) are remapped to
-e2e-unique values in the build override, so this deploy can run beside a real
-control-assistant stack on the same host without colliding on ports,
-container names, or shared ``:local`` image tags. Teardown names exact
-resources only — never a prune or wildcard.
+COEXISTENCE: every host-published web port and the web-container name prefix
+(``facility.prefix``) are remapped to e2e-unique values in the build override,
+so this deploy can run beside a real control-assistant stack on the same host
+without colliding on ports or container names. The persona ``:local`` image
+tags are namespaced by the repo's own name (``osprey init`` writes each catalog
+entry's ``project`` as ``<repo>-<persona>``), which keeps them off a real
+deployment's tags for free. Teardown names exact resources only — never a
+prune or wildcard.
 
-The worker receives its provider key via ``env_file: ../../.env`` (see the
-dispatch_worker compose template) — the compose CLI reads the project ``.env``
+The worker receives its provider key via ``env_file: ./.env`` (see the
+dispatch_worker compose template) — the compose CLI reads the repo's ``.env``
 on the HOST (as its owner, even when it's 0600) and injects the vars directly
 into the container environment, so the non-root worker never has to open the
 file itself. Without that wiring the agent run cannot authenticate, so this
@@ -79,25 +80,32 @@ HEALTH_TIMEOUT_SEC = 180.0
 RUN_TIMEOUT_SEC = 300.0
 CONTAINER_HEALTH_TIMEOUT_SEC = 180.0
 
-# The fixture builds/deploys under this project name; compose renders each
-# container_name as ``<project>-<service>`` (services/*/docker-compose.yml.j2),
+# The deployment repo's directory name IS the deployment's name; compose renders
+# each container_name as ``<project>-<service>`` (services/*/docker-compose.yml.j2),
 # so derive the docker targets below rather than hardcode host-global names that
 # break the moment the templates are namespaced per-project.
 PROJECT_NAME = "proj"
 DISPATCHER_CONTAINER = f"{PROJECT_NAME}-event-dispatcher"
 WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
+# Where the worker's agent-data volume mounts inside the project image: the
+# repo's durable state zone, named by ``agent_data.base_dir`` in the config the
+# compose generator renders the mount from.
+WORKER_AGENT_DATA = f"/app/{PROJECT_NAME}/var/agent_data"
 
 # ---------------------------------------------------------------------------
-# Multi-user web tier (T1-T4). Prefix, ports, and persona project names are all
-# remapped off the preset defaults to e2e-unique values (see COEXISTENCE in the
-# module docstring); the roster itself (alice→readonly, bob→readwrite) is the
-# preset's own and is asserted, not configured, here.
+# Multi-user web tier (T1-T4). Prefix and ports are remapped off the preset
+# defaults to e2e-unique values (see COEXISTENCE in the module docstring); the
+# roster itself (alice→readonly, bob→readwrite) is the preset's own and is
+# asserted, not configured, here. The persona project names are the repo's, not
+# this test's: `osprey init` writes every catalog entry as
+# ``<repo>-<persona>`` at ``build/<repo>-<persona>``, and `project` must equal
+# `project_path`'s basename for the render to land where the deploy mounts it.
 # ---------------------------------------------------------------------------
 WEB_PREFIX = "dde"  # facility.prefix override: container names dde-nginx, dde-web-<user>
 READONLY_USER = "alice"
 READWRITE_USER = "bob"
-READONLY_PROJECT = "dde-readonly"
-READWRITE_PROJECT = "dde-readwrite"
+READONLY_PROJECT = f"{PROJECT_NAME}-readonly"
+READWRITE_PROJECT = f"{PROJECT_NAME}-readwrite"
 READONLY_IMAGE = f"{READONLY_PROJECT}-readonly:local"
 READWRITE_IMAGE = f"{READWRITE_PROJECT}-readwrite:local"
 
@@ -180,13 +188,13 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
 
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Build + ``osprey deploy up`` a control-assistant stack; tear down after."""
+    """Init + build + ``osprey up`` a control-assistant stack; tear down after."""
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("dispatch_deploy_build")
-    project_dir = base / PROJECT_NAME
+    repo = base / PROJECT_NAME
 
     # The preset's multi-user web tier deploys as shipped; only its
     # host-global identifiers are remapped to e2e-unique values (see
@@ -195,9 +203,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # `modules.web_terminals` siblings (roster, catalog build_profiles,
     # image_source) intact, whereas a nested `modules:` mapping would
     # wholesale-replace the subtree (same convention as
-    # tests/e2e/_orm_stack.py). The parent build's `--set provider/model`
-    # overrides below reach the auto-rendered persona projects through the
-    # project manifest's explicit-override forwarding.
+    # tests/e2e/_orm_stack.py). The persona catalog's own `project` /
+    # `project_path` are deliberately NOT overridden: `osprey init` writes them
+    # from the repo's name, and the build renders each persona exactly there.
     override_path = base / "override.yml"
     override_lines = [
         "config:",
@@ -210,33 +218,39 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         f"  modules.web_terminals.channel_finder_base_port: {WEB_PORTS['channel_finder']}",
         f"  modules.web_terminals.okf_base_port: {WEB_PORTS['okf']}",
         f"  modules.web_terminals.system_health_base_port: {WEB_PORTS['system_health']}",
-        f"  modules.web_terminals.personas.readonly.project: {READONLY_PROJECT}",
-        f"  modules.web_terminals.personas.readonly.project_path: ../{READONLY_PROJECT}",
-        f"  modules.web_terminals.personas.readwrite.project: {READWRITE_PROJECT}",
-        f"  modules.web_terminals.personas.readwrite.project_path: ../{READWRITE_PROJECT}",
         "",
     ]
     override_path.write_text("\n".join(override_lines), encoding="utf-8")
 
-    build = _run(
+    # Two steps, because the surface has two: `init` writes the repo's source
+    # zone from the preset, `build` renders build/ from it — including one
+    # persona project per `personas/` delta.
+    init = _run(
         [
             str(osprey_bin),
-            "build",
-            PROJECT_NAME,
+            "init",
+            str(repo),
             "--preset",
             "control-assistant",
+            "--no-git",
             "--override",
             str(override_path),
             "--set",
             "provider=als-apg",
             "--set",
             "model=haiku",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
         ],
+        cwd=base,
+        timeout=300,
+    )
+    if init.returncode != 0:
+        pytest.fail(
+            f"osprey init failed (rc={init.returncode}):\n"
+            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
+        )
+
+    build = _run(
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )
@@ -246,19 +260,21 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
-    # The worker's env_file (compose template) delivers this .env's vars so
-    # inject_provider_env can resolve the provider key. The compose templates
-    # have no token default (they fail closed), and `deploy up` would otherwise
-    # auto-generate a random token; we write fixed tokens here so the bearer
-    # below is predictable, and pass the provider secret through.
-    # The endpoint override rides the same .env: without it the container-side
-    # config expansion falls back to the provider's built-in default gateway.
+    # The repo root's .env is the deployment's whole secret store — the file the
+    # worker's env_file (compose template) delivers to the container so
+    # inject_provider_env can resolve the provider key, and the file `osprey up`
+    # refuses to start without. The compose templates have no token default
+    # (they fail closed), and `up` would otherwise auto-generate a random token;
+    # we write fixed tokens here so the bearer below is predictable, and pass the
+    # provider secret through. The endpoint override rides the same .env: without
+    # it the container-side config expansion falls back to the provider's
+    # built-in default gateway.
     base_url_line = (
         f"ALS_APG_BASE_URL={os.environ['ALS_APG_BASE_URL']}\n"
         if os.environ.get("ALS_APG_BASE_URL")
         else ""
     )
-    (project_dir / ".env").write_text(
+    (repo / ".env").write_text(
         "EVENT_DISPATCHER_TOKEN=dev-token\n"
         "DISPATCH_WORKER_TOKEN=dev-token\n"
         f"ALS_APG_API_KEY={os.environ['ALS_APG_API_KEY']}\n" + base_url_line,
@@ -266,13 +282,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     )
 
     # Force a fresh image build so the deployed services run CURRENT source. The
-    # dispatcher runs <project>-dispatch:local; the worker now runs the unified
-    # project image <project>:local (built by `deploy up --dev` from the project
-    # root). Both tags are project-prefixed, derived via resolve_project_name
-    # exactly as the compose templates / project build do.
-    # `osprey deploy up` does not pass --build to compose, so it would otherwise
-    # reuse existing images and silently test stale code. The freshly-built dev
-    # wheel invalidates the relevant build-cache layers on rebuild.
+    # dispatcher runs <project>-dispatch:local; the worker runs the unified
+    # project image <project>:local (built by `up --dev` from the repo root).
+    # Both tags are project-prefixed, derived via resolve_project_name exactly as
+    # the compose templates / project build do.
+    # `osprey up` does not pass --build to compose, so it would otherwise reuse
+    # existing images and silently test stale code. The freshly-built dev wheel
+    # invalidates the relevant build-cache layers on rebuild.
     project = resolve_project_name({"project_name": PROJECT_NAME})
     for image in (f"{project}-dispatch:local", f"{project}:local"):
         subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
@@ -287,13 +303,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     try:
         up = _run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=project_dir,
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up failed (rc={up.returncode}):\n"
+                f"osprey up failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
@@ -302,19 +318,19 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         # tests never race a still-warming worker (and a worker that never comes up
         # fails here with container logs, not as a bare 502 mid-test).
         _wait_for_worker_feed(HEALTH_TIMEOUT_SEC)
-        yield project_dir
+        yield repo
     finally:
-        # `deploy down` tears down the services stack AND the web stack
+        # `osprey down` tears down the services stack AND the web stack
         # (deploy_down_web_terminals); the exact-named sweeps after it are
         # belt-and-suspenders for a down that failed midway. Volumes are
-        # deliberately kept by `deploy down`, so the per-user volumes this
-        # run created are removed by exact name; the persona image tags are
-        # e2e-unique (see COEXISTENCE), so removing them cannot untag a real
-        # deployment's images.
-        down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=300)
+        # deliberately kept by `down`, so the per-user volumes this run created
+        # are removed by exact name; the persona image tags are namespaced by
+        # this repo's name (see COEXISTENCE), so removing them cannot untag a
+        # real deployment's images.
+        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         for user in (READONLY_USER, READWRITE_USER):
             subprocess.run(
@@ -437,7 +453,7 @@ def _worker_artifact_files() -> list[str]:
     only claimed success — see the assertion in ``test_full_stack_dispatch``.
     """
     proc = subprocess.run(
-        ["docker", "exec", WORKER_CONTAINER, "ls", f"/app/{PROJECT_NAME}/_agent_data/artifacts"],
+        ["docker", "exec", WORKER_CONTAINER, "ls", f"{WORKER_AGENT_DATA}/artifacts"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -540,7 +556,7 @@ def test_full_stack_dispatch(deployed_stack: Path) -> None:
 # Multi-user web tier (T1-T4) — the same deploy stands up nginx + one terminal
 # container per roster user from the preset's persona catalog. T1 exercises the
 # running topology; T2-T4 are render-layer assertions on the persona projects
-# `deploy up` auto-rendered as siblings of the main project directory.
+# `osprey build` rendered into the repo's build/ zone.
 # ---------------------------------------------------------------------------
 
 
@@ -602,26 +618,27 @@ def _fetch_in_container(container: str, url: str, timeout: float) -> str:
     )
 
 
-def _persona_dir(project_dir: Path, persona_project: str) -> Path:
-    """The auto-rendered persona project directory.
+def _persona_dir(repo: Path, persona_project: str) -> Path:
+    """The rendered persona project directory.
 
-    The catalog pins each ``project_path`` to ``../<persona-project>``, so
-    ``deploy up`` renders them as siblings of the main project directory.
+    The catalog pins each ``project_path`` to ``build/<repo>-<persona>``, which
+    is where the build renders it: a persona project is build output like every
+    other render, so it lives in the repo's OUTPUT zone.
     """
-    persona_dir = project_dir.parent / persona_project
+    persona_dir = repo / "build" / persona_project
     assert persona_dir.is_dir(), (
-        f"persona project {persona_project!r} was not auto-rendered at {persona_dir}"
+        f"persona project {persona_project!r} was not rendered at {persona_dir}"
     )
     return persona_dir
 
 
-def _writes_enabled(project_dir: Path) -> bool:
-    config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
+def _writes_enabled(render: Path) -> bool:
+    config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
     return bool((config.get("control_system") or {}).get("writes_enabled", False))
 
 
-def _permissions(project_dir: Path) -> dict:
-    settings_path = project_dir / ".claude" / "settings.json"
+def _permissions(render: Path) -> dict:
+    settings_path = render / ".claude" / "settings.json"
     assert settings_path.is_file(), f"no settings.json rendered at {settings_path}"
     return json.loads(settings_path.read_text(encoding="utf-8")).get("permissions", {})
 
@@ -630,7 +647,7 @@ def test_web_tier_topology(deployed_stack: Path) -> None:
     """T1: nginx + both per-user containers come up healthy off the overridden
     prefix, both persona images were built locally, and the landing page lists
     both roster users."""
-    config = yaml.safe_load((deployed_stack / "config.yml").read_text(encoding="utf-8"))
+    config = yaml.safe_load((deployed_stack / "build" / "config.yml").read_text(encoding="utf-8"))
     prefix = ((config.get("facility") or {}).get("prefix") or "").strip()
     assert prefix == WEB_PREFIX, (
         f"facility.prefix override did not land in the rendered config: {prefix!r}"
@@ -638,7 +655,7 @@ def test_web_tier_topology(deployed_stack: Path) -> None:
 
     expected = [NGINX_CONTAINER, _web_container(READONLY_USER), _web_container(READWRITE_USER)]
     missing = [name for name in expected if _inspect_container(name, "{{.Id}}") is None]
-    assert not missing, f"container(s) not created by 'deploy up': {missing}"
+    assert not missing, f"container(s) not created by 'osprey up': {missing}"
     for name in expected:
         _wait_for_container_health(name, CONTAINER_HEALTH_TIMEOUT_SEC)
 
@@ -649,7 +666,7 @@ def test_web_tier_topology(deployed_stack: Path) -> None:
         inspect = subprocess.run(
             ["docker", "image", "inspect", image], capture_output=True, text=True, timeout=15
         )
-        assert inspect.returncode == 0, f"persona image {image} was not built by 'deploy up'"
+        assert inspect.returncode == 0, f"persona image {image} was not built by 'osprey up'"
 
     landing = _fetch_in_container(NGINX_CONTAINER, LANDING_URL, HEALTH_TIMEOUT_SEC)
     for user in (READONLY_USER, READWRITE_USER):
@@ -657,16 +674,15 @@ def test_web_tier_topology(deployed_stack: Path) -> None:
 
 
 def test_readonly_persona_denies_writes(deployed_stack: Path) -> None:
-    """T2: the auto-rendered read-only project pins writes off and its rendered
+    """T2: the rendered read-only persona project pins writes off and its rendered
     settings.json carries the channel-write tool in permissions.deny — the
     render-time layer that actually enforces the read-only posture. The
-    forwarded provider must also have reached the render (the deploy-up
+    deployment's provider must also have reached the render (the up-time
     credential preflight already depends on it)."""
     readonly_dir = _persona_dir(deployed_stack, READONLY_PROJECT)
     config = yaml.safe_load((readonly_dir / "config.yml").read_text(encoding="utf-8"))
     assert (config.get("claude_code") or {}).get("provider") == "als-apg", (
-        "the parent build's `--set provider=als-apg` was not forwarded to the "
-        "auto-rendered persona project"
+        "the deployment's `--set provider=als-apg` did not reach the rendered persona project"
     )
     assert _writes_enabled(readonly_dir) is False, (
         "readonly tier must render control_system.writes_enabled: false"
@@ -703,8 +719,8 @@ def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
     — the tier boundary is enforcement (``writes_enabled``), never a quietly
     different tool surface."""
 
-    def mcp_server_keys(project_dir: Path) -> set[str]:
-        mcp_path = project_dir / ".mcp.json"
+    def mcp_server_keys(render: Path) -> set[str]:
+        mcp_path = render / ".mcp.json"
         assert mcp_path.is_file(), f"no .mcp.json rendered at {mcp_path}"
         return set(json.loads(mcp_path.read_text(encoding="utf-8")).get("mcpServers", {}))
 

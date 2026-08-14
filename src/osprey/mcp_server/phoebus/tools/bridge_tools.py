@@ -64,9 +64,20 @@ import anyio
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.http import _post_json_with_response, notify_panel_focus, phoebus_bridge_url
+from osprey.mcp_server.http import (
+    _post_json_with_response,
+    notify_agent_activity_async,
+    notify_panel_focus,
+    phoebus_bridge_url,
+)
 from osprey.mcp_server.phoebus.server import mcp
-from osprey.utils.workspace import load_osprey_config, resolve_config_path
+from osprey.utils.workspace import (
+    agent_data_base_dir,
+    anchored_path,
+    load_osprey_config,
+    resolve_config_path,
+    resolve_project_root,
+)
 
 logger = logging.getLogger("osprey.mcp_server.tools.phoebus")
 
@@ -129,9 +140,19 @@ def _bridge_error_message(body: object, status: int) -> str:
 
 
 def _snapshot_dir() -> Path:
-    """Resolve the directory PNG snapshots are written to (config or default)."""
+    """Resolve the directory PNG snapshots are written to (config or default).
+
+    Runtime output, so it belongs under the deployment's agent-data root — read
+    from ``agent_data.base_dir`` rather than spelled here — and a configured
+    ``phoebus.snapshot_dir`` is anchored on the repo root the same way every
+    other configured path is. Both halves matter: neither the default nor the
+    configured value may resolve against the working directory, which for an
+    MCP server is whatever launched it.
+    """
     config = load_osprey_config()
-    out = Path(config.get("phoebus", {}).get("snapshot_dir", "./_agent_data/screenshots"))
+    configured = (config.get("phoebus", {}) or {}).get("snapshot_dir")
+    relative = str(configured or f"{agent_data_base_dir(config)}/screenshots")
+    out = anchored_path(relative, resolve_project_root(config))
     out.mkdir(parents=True, exist_ok=True)
     return out
 
@@ -647,6 +668,21 @@ async def phoebus_drive(
             _bridge_error_message(body, status),
             ["Check the widget reference and that verb/mode are valid."],
         )
+
+    # Agent-activity highlight, emitted only when the drive actually reached a
+    # control. A synthetic 200 with fired=false means the bridge resolved no
+    # interactive control, so nothing was written — that stays silent. Semantic
+    # ``type`` is the exception: it writes the widget's PV through the runtime
+    # and so reports fired=false even though the value landed. Every refusal
+    # (validation, handle enforcement, unreachable bridge, non-200) returns
+    # above, so those emit nothing. notify_agent_activity_async never raises; the
+    # blocking call runs off the event loop.
+    fired = bool(body.get("fired"))
+    if fired or (verb_l == "type" and mode_l == "semantic"):
+        await notify_agent_activity_async(
+            "phoebus_drive", "channel", detail=f"{verb_l} {widget} on {display}"
+        )
+
     return json.dumps(
         {
             "status": "success",

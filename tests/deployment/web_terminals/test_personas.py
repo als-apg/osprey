@@ -8,6 +8,7 @@ import pytest
 from osprey.deployment.web_terminals.personas import (
     env_var_suffix,
     env_var_suffix_collisions,
+    freeze_user_indices,
     normalize_users,
     resolve_personas,
 )
@@ -194,6 +195,158 @@ def test_normalize_users_does_not_mutate_input_entries() -> None:
 
     # Assert
     assert original_entry == {"name": "alice", "index": 5}
+
+
+# ---------------------------------------------------------------------------
+# freeze_user_indices()
+# ---------------------------------------------------------------------------
+
+
+def test_freeze_user_indices_keeps_the_persona_normalize_users_drops() -> None:
+    """The whole point: the roster that goes BACK to config.yml keeps `persona`.
+
+    normalize_users projects it away, and a roster written from that projection
+    re-resolves every entry onto `default_persona`.
+    """
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "persona": "readonly"}]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "persona": "readonly"}]
+    assert normalize_users(users_raw) == [{"name": "alice", "index": 0}]
+
+
+def test_freeze_user_indices_freezes_bare_string_positions() -> None:
+    """A bare string carries nothing but its name, so it gains only an index —
+    the same one normalize_users assigns it."""
+    # Arrange
+    users_raw = ["alice", "bob"]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0}, {"name": "bob", "index": 1}]
+
+
+def test_freeze_user_indices_carries_unknown_keys_through() -> None:
+    """Keys this module does not read are still the facility's config."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 2, "shift": "swing"}]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 2, "shift": "swing"}]
+
+
+def test_freeze_user_indices_survival_matches_normalize_users() -> None:
+    """Who survives is normalize_users' contract, not a second copy of its rules."""
+    # Arrange
+    users_raw = [
+        "alice",
+        {"name": "bob", "index": 1, "persona": "readonly"},
+        {"name": "carol", "index": True},  # bool index: a config typo, dropped
+        {"index": 3},  # no name
+        42,
+    ]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert [entry["name"] for entry in result] == [
+        entry["name"] for entry in normalize_users(users_raw)
+    ]
+    assert [entry["name"] for entry in result] == ["alice", "bob"]
+
+
+def test_freeze_user_indices_index_comes_from_normalize_users() -> None:
+    """A malformed `index` on an otherwise-valid entry cannot leak back into the
+    file: the written index is always the normalized one."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 7, "persona": "readonly"}]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result[0]["index"] == 7 == normalize_users(users_raw)[0]["index"]
+
+
+def test_freeze_user_indices_is_idempotent() -> None:
+    """Its own output re-freezes to itself, so a roster can be frozen twice."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "persona": "readonly"}, "bob"]
+
+    # Act
+    once = freeze_user_indices(users_raw)
+    twice = freeze_user_indices(once)
+
+    # Assert
+    assert twice == once
+
+
+def test_freeze_user_indices_duplicate_name_gives_both_the_last_entrys_extras() -> None:
+    """A duplicate-name roster resolves extras by NAME, so both entries take the
+    LAST authored entry's — including its persona.
+
+    This is a guard, not an endorsement: the roster is already invalid (lint
+    reports the duplicate) and the behaviour hands one listing another's
+    persona. Pinned because it is the one path where matching by name is
+    lossy, so a future change to the matching rule has to face it deliberately
+    rather than discover it in a facility's config.
+    """
+    # Arrange
+    users_raw = [
+        {"name": "alice", "index": 0, "persona": "readonly"},
+        {"name": "alice", "index": 4, "persona": "readwrite"},
+    ]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert — each keeps its OWN frozen index...
+    assert [entry["index"] for entry in result] == [0, 4]
+    # ...but both carry the last authored entry's persona.
+    assert [entry["persona"] for entry in result] == ["readwrite", "readwrite"]
+
+
+def test_freeze_user_indices_carries_values_normalize_users_drops_as_malformed() -> None:
+    """A malformed optional value goes back to the file as the author wrote it.
+
+    normalize_users drops a non-string ``display_name`` because the render
+    cannot use it. Removing one user must not quietly repair — or delete —
+    another user's config line: the value round-trips and lint keeps reporting
+    it.
+    """
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "display_name": 123}]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "display_name": 123}]
+    assert normalize_users(users_raw) == [{"name": "alice", "index": 0}]
+
+
+def test_freeze_user_indices_does_not_mutate_input_entries() -> None:
+    """Returns new dicts, never the authored entry by reference."""
+    # Arrange
+    original_entry = {"name": "alice", "index": 5, "persona": "readonly"}
+    users_raw = [original_entry]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+    result[0]["persona"] = "readwrite"
+
+    # Assert
+    assert original_entry == {"name": "alice", "index": 5, "persona": "readonly"}
 
 
 # ---------------------------------------------------------------------------

@@ -26,7 +26,7 @@ to it with a canned PTY (no live agent, no provider, no hardware).
 :func:`capture_contact_sheet` drives a headless browser over that stack once per
 entry in :data:`VARIANTS`, then boots every supported subpanel's real app
 (:data:`PANEL_SURFACES` — ARIEL, channels, lattice, knowledge, events, and the
-three Bluesky scan panels) and captures each in the full dark/light ×
+Bluesky scan panel) and captures each in the full dark/light ×
 expert/simple matrix — always through the hub's own iframe URL shape
 (``embedded=true`` + theme + mode), so each card is the panel exactly as the
 terminal embeds it — writing one viewport PNG per card.
@@ -1054,14 +1054,11 @@ PANEL_SURFACES: list[PanelSurface] = [
     PanelSurface("knowledge", "Knowledge — OKF browser", "/", "okf", wait_selector="#tree"),
     PanelSurface("events", "Events — dispatch dashboard", "/", "dispatch"),
     PanelSurface(
-        "plan", "Plan — Bluesky scan plans", "/plan/", "bluesky", wait_selector="#plan-tree"
-    ),
-    PanelSurface(
         "bluesky",
-        "Bluesky — scan queue & run results",
+        "Bluesky — scan plans, queue & run results",
         "/bluesky/",
         "bluesky",
-        wait_selector="#queue-card",
+        wait_selector="#plan-tree",
     ),
 ]
 

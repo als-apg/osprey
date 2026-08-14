@@ -27,7 +27,7 @@ _MODULE = "osprey.mcp_server.workspace.tools.panel_tools"
 def _mock_web_terminal_url():
     """Pin the base URL used by the shared http.fetch_panels helper.
 
-    The panel tools no longer resolve the URL themselves — they delegate the
+    The panel tools do not resolve the URL themselves — they delegate the
     ``GET /api/panels`` read to ``osprey.mcp_server.http.fetch_panels``, so the
     patch has to land there for tests that stub ``urllib.request.urlopen``.
     """

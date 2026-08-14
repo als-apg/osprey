@@ -3,7 +3,7 @@
 Task 1.4 (source-agent-tagging): the three panel routes accept an optional
 ``source: "agent"`` field and pass it through into their SSE broadcast
 frames; browser-originated POSTs (which never send ``source``) broadcast
-exactly as before — the key is *omitted*, not null.  The MCP-side
+without it — the key is *omitted*, not null.  The MCP-side
 ``notify_panel_*`` helpers stamp ``source: "agent"`` on their POST payloads.
 """
 
@@ -62,13 +62,12 @@ class TestPanelFocusSource:
         assert frame["type"] == "panel_focus"
         assert frame["source"] == "agent"
 
-    def test_no_source_key_when_omitted(self):
+    def test_no_broadcast_when_source_omitted(self):
+        """A source-less focus is a human report: mirrored, never broadcast."""
         client = _make_client()
         resp = client.post("/api/panel-focus", json={"panel": "ariel"})
         assert resp.status_code == 200
-        frame = _broadcast_frame(client)
-        assert frame == {"type": "panel_focus", "panel": "ariel"}
-        assert "source" not in frame
+        client.app.state.broadcaster.broadcast.assert_not_called()
 
 
 class TestPanelVisibilitySource:

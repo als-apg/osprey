@@ -113,11 +113,12 @@ def test_generate_manifest_stamps_preset_hash(presets_dir, tmp_path):
 
 
 def test_generate_manifest_records_both_profile_path_forms(tmp_path, monkeypatch):
-    """The typed string is kept for display; the resolved path is kept for reuse.
+    """The typed string is kept as a record; the resolved path is kept for reuse.
 
-    ``reproducible_command`` has to echo what the user typed, but every later
-    reader — the deploy-side staleness advisory above all — needs a path that
-    still resolves from somewhere other than the build's working directory.
+    Every later reader — the deploy-side staleness advisory above all — needs a
+    path that still resolves from somewhere other than the build's working
+    directory, so the two forms are recorded separately rather than one being
+    re-derived from the other.
     """
     from osprey.cli.templates import manifest as manifest_mod
 
@@ -140,7 +141,10 @@ def test_generate_manifest_records_both_profile_path_forms(tmp_path, monkeypatch
 
     assert data["build_args"]["profile_path"] == "profiles/facility.yml"
     assert data["build_args"]["profile_path_abs"] == str(profile)
-    assert data["reproducible_command"] == "osprey build proj profiles/facility.yml"
+    # The command is the repo's, never assembled from the args above: the repo
+    # IS the invocation, so neither the project name nor the profile path
+    # appears on it.
+    assert data["reproducible_command"] == manifest_mod.REPO_REPRODUCIBLE_COMMAND
     assert data["creation"]["preset_hash"] == build_profile.compute_profile_hash(profile)
 
 

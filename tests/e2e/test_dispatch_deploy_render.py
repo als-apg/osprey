@@ -5,24 +5,24 @@ direct ``jinja2 template.render(**config)``, and mocks ``prepare_compose_files``
 wholesale in the deploy CLI tests) and the full-Docker dispatch lanes
 (``test_dispatch_deploy.py`` / ``test_dispatch_overlay_visibility.py``, gated on a
 running daemon + ``ALS_APG_API_KEY``). Neither tier ever drives the REAL
-``osprey deploy build`` render pipeline — config load, project-metadata injection,
-per-service ``setup_build_dir`` + ``render_template`` — end to end on a
-dispatch-enabled project.
+``osprey build`` render pipeline — profile resolution, config render,
+project-metadata injection, per-service ``setup_build_dir`` + ``render_template``
+— end to end on a dispatch-enabled deployment repo.
 
-This does exactly that, cheaply: a real ``osprey deploy build`` subprocess against a
-minimal project whose only deployed services are the event-dispatcher and
-dispatch-worker (staged with the same bundled templates ``osprey build`` copies in,
-via ``_inject_dispatch``). ``build`` is pure rendering — it never touches the
-container runtime or a provider token — so this runs in any CI lane.
+This does exactly that: a real ``osprey init`` + ``osprey build`` pair against a
+deployment repo whose profile adds the ``dispatch:`` block, so the build's own
+``_inject_dispatch`` step stages the bundled event_dispatcher/dispatch_worker
+templates and registers both in ``deployed_services``. ``build`` renders files and
+never containers, and needs no provider token, so this runs in any CI lane.
 
 It pins the render-time wiring the deployed stack depends on and that only the
 Docker lanes otherwise exercise:
 
-  * both service ``container_name``s are project-namespaced (two OSPREY projects
-    can deploy on one host without colliding);
+  * both service ``container_name``s are project-namespaced (two OSPREY
+    deployments can run on one host without colliding);
   * the worker's ``image`` defaults to the project image ``<project>:local``;
-  * the worker's provider-auth ``env_file: ../../.env`` block renders ONLY when a
-    project ``.env`` exists (``osprey_env_present``) — the load-bearing wiring that
+  * the worker's provider-auth ``env_file: ./.env`` block renders ONLY when the
+    repo's ``.env`` exists (``osprey_env_present``) — the load-bearing wiring that
     delivers the LLM key to the non-root worker;
   * both tokens fail closed (``${...}`` with no ``:-`` default);
   * a multi-worker / shared-workspace config renders one service + volume per
@@ -36,18 +36,16 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable
-from importlib.resources import as_file, files
 from pathlib import Path
 
 import pytest
-from ruamel.yaml import YAML
 
-from osprey.cli.build_cmd import _inject_dispatch
-from osprey.cli.build_profile import DispatchConfig
-
+#: The deployment repo's directory name IS the deployment's name, and the name
+#: the compose templates namespace every container by.
 PROJECT_NAME = "e2e-dispatch-render"
 
-DEPLOY_BUILD_TIMEOUT_SEC = 120
+INIT_TIMEOUT_SEC = 300
+BUILD_TIMEOUT_SEC = 300
 
 
 def _find_osprey_console_script() -> Path:
@@ -60,106 +58,117 @@ def _find_osprey_console_script() -> Path:
     raise RuntimeError("Could not locate the 'osprey' console script.")
 
 
-def _stage_dispatch_project(
+def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        cmd,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env={**os.environ, "CLAUDECODE": ""},
+    )
+
+
+def _init_dispatch_repo(
     root: Path,
     *,
     with_env: bool = True,
     worker_count: int = 1,
     workspace_mode: str = "isolated",
 ) -> Path:
-    """Build a minimal render-only project deploying only the dispatch services.
+    """Init + build a deployment repo that deploys the dispatch services.
 
-    Uses ``_inject_dispatch`` — the same build step ``osprey build`` runs — to copy
-    the bundled event_dispatcher/dispatch_worker compose templates and register
-    both in ``deployed_services``, then stages the top-level services template a
-    real ``osprey build`` would scaffold. No container image is ever built.
+    A deployment repo is one directory marked by ``profile.yml`` at its root, so
+    the fixture material here is a profile: ``hello-world`` declares no dispatch
+    of its own, and the override layers on the ``dispatch:`` block that makes the
+    build's ``_inject_dispatch`` step copy the bundled
+    event_dispatcher/dispatch_worker compose templates in and register both in
+    ``deployed_services``. No container image is ever built.
+
+    Returns the repo root; the render is at ``<repo>/build``.
     """
-    project = root / "project"
-    project.mkdir()
-
-    yaml = YAML()
-    config = {
-        "project_name": PROJECT_NAME,
-        "facility": {"name": "E2E Dispatch Render", "prefix": "e2edr", "timezone": "UTC"},
-        "deployed_services": [],
-        "services": {},
-        "system": {"timezone": "UTC"},
-    }
-    with open(project / "config.yml", "w") as fh:
-        yaml.dump(config, fh)
-
-    dispatch = DispatchConfig(
-        triggers="tutorial_triggers.yml",
-        worker_count=worker_count,
-        workspace_mode=workspace_mode,  # type: ignore[arg-type]
-    )
-    profile_dir = root / "profile"  # empty — forces bundled trigger resolution
-    profile_dir.mkdir()
-    _inject_dispatch(dispatch, profile_dir=profile_dir, project_path=project)
-
-    # prepare_compose_files always renders the top-level services template via a
-    # CWD-relative loader; a real `osprey build` scaffolds it, so a hand-built
-    # project must stage it too (same rationale as test_deploy_lifecycle.py).
-    top_template = files("osprey").joinpath("templates/services/docker-compose.yml.j2")
-    with as_file(top_template) as template_path:
-        shutil.copy(template_path, project / "services" / "docker-compose.yml.j2")
-
-    if with_env:
-        # Presence (not contents) is what flips osprey_env_present -> the worker's
-        # env_file provider-auth block. The compose CLI reads the file at deploy
-        # time; render only needs it to exist.
-        (project / ".env").write_text(
-            "EVENT_DISPATCHER_TOKEN=x\nDISPATCH_WORKER_TOKEN=y\n", encoding="utf-8"
-        )
-
-    return project
-
-
-def _run_deploy_build(project: Path) -> subprocess.CompletedProcess:
     osprey_bin = _find_osprey_console_script()
-    result = subprocess.run(
-        [str(osprey_bin), "deploy", "build"],
-        cwd=str(project),
-        capture_output=True,
-        text=True,
-        timeout=DEPLOY_BUILD_TIMEOUT_SEC,
-        env={**os.environ, "CLAUDECODE": ""},
+    repo = root / PROJECT_NAME
+
+    override_path = root / "dispatch.yml"
+    override_path.write_text(
+        "dispatch:\n"
+        "  triggers: tutorial_triggers.yml\n"
+        f"  worker_count: {worker_count}\n"
+        f"  workspace_mode: {workspace_mode}\n",
+        encoding="utf-8",
     )
-    assert result.returncode == 0, (
-        f"osprey deploy build failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
+
+    init = _run(
+        [
+            str(osprey_bin),
+            "init",
+            str(repo),
+            "--preset",
+            "hello-world",
+            "--no-git",
+            "--override",
+            str(override_path),
+        ],
+        cwd=root,
+        timeout=INIT_TIMEOUT_SEC,
     )
-    return result
+    assert init.returncode == 0, (
+        f"osprey init failed (rc={init.returncode}):\n"
+        f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
+    )
+
+    # Decided BEFORE the build, because the render probes the repo root for it:
+    # `osprey_env_present` is what gates the worker's env_file block, and
+    # `osprey init` seeds a .env only when the shell exports a provider key —
+    # which would make this knob depend on the runner's environment.
+    env_path = repo / ".env"
+    if with_env:
+        # Presence (not contents) is what flips osprey_env_present. The compose
+        # CLI reads the file at deploy time; render only needs it to exist.
+        env_path.write_text("EVENT_DISPATCHER_TOKEN=x\nDISPATCH_WORKER_TOKEN=y\n", encoding="utf-8")
+    elif env_path.exists():
+        env_path.unlink()
+
+    build = _run(
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
+        cwd=root,
+        timeout=BUILD_TIMEOUT_SEC,
+    )
+    assert build.returncode == 0, (
+        f"osprey build failed (rc={build.returncode}):\n"
+        f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
+    )
+    return repo
 
 
-def _rendered(project: Path, service: str) -> str:
-    path = project / "build" / "services" / service / "docker-compose.yml"
+def _rendered(repo: Path, service: str) -> str:
+    path = repo / "build" / "services" / service / "docker-compose.yml"
     assert path.is_file(), f"{service} compose file was not rendered at {path}"
     return path.read_text(encoding="utf-8")
 
 
 @pytest.fixture
-def dispatch_project(tmp_path: Path) -> Callable[..., Path]:
-    """Factory: build a render-only dispatch project with the given knobs."""
+def dispatch_repo(tmp_path: Path) -> Callable[..., Path]:
+    """Factory: init + build a dispatch-enabled deployment repo with the given knobs."""
 
     def _make(**kwargs: object) -> Path:
-        sub = tmp_path / f"proj-{len(list(tmp_path.iterdir()))}"
+        sub = tmp_path / f"case-{len(list(tmp_path.iterdir()))}"
         sub.mkdir()
-        return _stage_dispatch_project(sub, **kwargs)  # type: ignore[arg-type]
+        return _init_dispatch_repo(sub, **kwargs)  # type: ignore[arg-type]
 
     return _make
 
 
-def test_deploy_build_renders_dispatch_wiring(dispatch_project: Callable[..., Path]) -> None:
-    """`osprey deploy build` renders both dispatch services with the deployed-stack
+def test_build_renders_dispatch_wiring(dispatch_repo: Callable[..., Path]) -> None:
+    """`osprey build` renders both dispatch services with the deployed-stack
     wiring: project-namespaced container names, project-image worker default, the
     provider-auth env_file block, and fail-closed tokens.
     """
-    project = dispatch_project(with_env=True)
-    _run_deploy_build(project)
+    repo = dispatch_repo(with_env=True)
 
-    worker = _rendered(project, "dispatch_worker")
-    dispatcher = _rendered(project, "event_dispatcher")
+    worker = _rendered(repo, "dispatch_worker")
+    dispatcher = _rendered(repo, "event_dispatcher")
 
     # container_name is host-global — both must be namespaced by project so two
     # deployments can coexist on one host.
@@ -171,9 +180,9 @@ def test_deploy_build_renders_dispatch_wiring(dispatch_project: Callable[..., Pa
     # The dispatcher builds its own project-prefixed dispatch image.
     assert f"${{OSPREY_DISPATCH_IMAGE:-{PROJECT_NAME}-dispatch:local}}" in dispatcher
 
-    # Provider-auth wiring: a project .env exists, so the worker gets its env_file.
+    # Provider-auth wiring: the repo's .env exists, so the worker gets its env_file.
     assert "env_file:" in worker
-    assert "../../.env" in worker
+    assert "- ./.env" in worker
 
     # Both tokens fail closed — no ":-" default that would boot with a guessable
     # secret instead of refusing.
@@ -183,33 +192,31 @@ def test_deploy_build_renders_dispatch_wiring(dispatch_project: Callable[..., Pa
     assert "${EVENT_DISPATCHER_TOKEN:-" not in dispatcher
 
 
-def test_deploy_build_omits_env_file_without_dotenv(
-    dispatch_project: Callable[..., Path],
+def test_build_omits_env_file_without_dotenv(
+    dispatch_repo: Callable[..., Path],
 ) -> None:
-    """Without a project ``.env`` the worker's provider-auth ``env_file`` block must
+    """Without the repo's ``.env`` the worker's provider-auth ``env_file`` block must
     NOT render — the block is conditional on ``osprey_env_present``, and emitting a
     non-existent ``env_file`` would make ``docker compose`` hard-fail at deploy.
     """
-    project = dispatch_project(with_env=False)
-    _run_deploy_build(project)
+    repo = dispatch_repo(with_env=False)
 
-    worker = _rendered(project, "dispatch_worker")
+    worker = _rendered(repo, "dispatch_worker")
     assert "env_file:" not in worker
-    assert "../../.env" not in worker
+    assert "- ./.env" not in worker
     # The rest of the worker wiring is unaffected by the .env's absence.
     assert f"container_name: {PROJECT_NAME}-dispatch-worker-1" in worker
 
 
-def test_deploy_build_multi_worker_shared_workspace(
-    dispatch_project: Callable[..., Path],
+def test_build_multi_worker_shared_workspace(
+    dispatch_repo: Callable[..., Path],
 ) -> None:
     """A multi-worker, shared-workspace config renders one service per worker and a
     single shared workspace volume (isolated mode would render one volume each).
     """
-    project = dispatch_project(with_env=True, worker_count=2, workspace_mode="shared")
-    _run_deploy_build(project)
+    repo = dispatch_repo(with_env=True, worker_count=2, workspace_mode="shared")
 
-    worker = _rendered(project, "dispatch_worker")
+    worker = _rendered(repo, "dispatch_worker")
     assert f"container_name: {PROJECT_NAME}-dispatch-worker-1" in worker
     assert f"container_name: {PROJECT_NAME}-dispatch-worker-2" in worker
     # Shared mode: one un-suffixed workspace volume both workers mount, not the

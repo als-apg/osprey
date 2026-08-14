@@ -66,9 +66,9 @@ def _claude_code_auth_secret_vars(
     Referenced personas whose ``project_path`` isn't rendered or readable yet
     contribute nothing — a broken catalog entry is lint's / strict
     ``resolve_personas``'s error to report, and
-    :func:`deploy_up_web_terminals` auto-renders missing personas *before*
-    :func:`ensure_env_production` runs, so on every deploy path that reaches
-    generation the rendered configs are on disk. A provider name known
+    :func:`verify_persona_renders` REFUSES a deploy whose persona projects are
+    missing *before* :func:`ensure_env_production` runs, so on every deploy path
+    that reaches generation the rendered configs are on disk. A provider name known
     neither to ``CLAUDE_CODE_PROVIDERS`` nor to the config's own
     ``api.providers`` is likewise skipped here (the resolver raises its own
     actionable error for that at launch).
@@ -112,6 +112,18 @@ def _claude_code_auth_secret_vars(
         # cwd-relative assumption on this path.
         config_yml = Path(project_root, project_path_raw) / "config.yml"
         if not config_yml.is_file():
+            # Said out loud rather than skipped: a persona whose project cannot
+            # be found contributes no auth secret, so its terminals come up
+            # healthy and fail authentication on the first prompt — the exact
+            # failure this function exists to prevent. Silence here reads as
+            # "that persona needs nothing", which is a claim we cannot make.
+            logger.warning(
+                "Persona %r: no config.yml at %s, so its provider's auth secret "
+                "cannot be determined and will not be included in .env.production. "
+                "Terminals running this persona may fail authentication.",
+                persona_name,
+                config_yml,
+            )
             continue
         try:
             with config_yml.open("r", encoding="utf-8") as fh:
@@ -152,8 +164,8 @@ def _build_env_production_subset(
     *is* the definition of which secrets a web terminal is entitled to see —
     the list below is the specification, not a restatement of one kept
     elsewhere. Both routes that produce the file come through here — the
-    deploy path (:func:`ensure_env_production`) and ``osprey deploy
-    render-env-production``, which renders this same subset to stdout or a
+    deploy path (:func:`ensure_env_production`) and ``osprey users
+    env-production``, which renders this same subset to stdout or a
     named file — so neither can drift from the other or introduce a second
     spec. What earns a place is a credential the agent inside that container
     presents to a system OUTSIDE the deploy:
@@ -185,10 +197,16 @@ def _build_env_production_subset(
     :mod:`osprey.deployment.container_lifecycle`, minted per deploy under
     those fixed names). Neither kind is anything a web terminal presents to
     anyone: the containers that need a service token read the deploy ``.env``
-    the main compose file hands them, and nothing in a web terminal reads one
-    at all. This is the security spec for this function: a var absent from the
-    enumerated list above can never appear in the returned dict, regardless of
-    what the input ``.env`` contains.
+    the main compose file hands them. The one web-terminal consumer that
+    WOULD read a service token if present — the bluesky MCP server's
+    ``${BLUESKY_LAUNCH_TOKEN:-}`` — is tokenless here on purpose: an agent
+    container must never hold a write-arming bearer credential (any Bash or
+    Python it runs could read it and arm the queue with no approval), so its
+    ``queue_start`` files a panel start request and the operator's panels
+    sidecar, which does receive the token, answers it. This is the security
+    spec for this function: a var absent from the enumerated list above can
+    never appear in the returned dict, regardless of what the input ``.env``
+    contains.
 
     :param config: Raw deploy config (facility fields merged in — see
         ``modules.web_terminals.image_source`` in :func:`ensure_env_production`).
@@ -246,9 +264,9 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
       before a provider change otherwise produces web terminals that fail
       authentication with nothing in the deploy output to say why.
     - **Registry mode, absent**: raises. Registry-mode deploys expect the file
-      to have been rendered already by ``osprey deploy
-      render-env-production``, which the emitted CI pipeline's deploy job runs
-      on the host between ``osprey build`` and ``osprey deploy up``. This
+      to have been rendered already by ``osprey users env-production``,
+      which the emitted CI pipeline's deploy job runs
+      on the host between ``osprey build`` and ``osprey up``. This
       function only exists-checks in that mode, it never generates, because
       there is no local ``.env`` this system is licensed to treat as the
       authoritative source of a registry-mode deploy's secrets.
@@ -303,11 +321,11 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
         raise RuntimeError(
             f"{env_production_path} not found. Registry-mode web-terminal deploys "
             "(modules.web_terminals.image_source: registry, the default) expect "
-            "this file to have been rendered already -- `osprey deploy "
-            "render-env-production` writes it, and the emitted CI pipeline's deploy "
-            "job runs that on the host just before `osprey deploy up`, which does "
-            "not generate it in this mode. Either run render-env-production (or "
-            "supply .env.production directly), or set "
+            "this file to have been rendered already -- `osprey users "
+            "env-production` writes it, and the emitted CI pipeline's deploy "
+            "job runs that on the host just before `osprey up`, which does "
+            "not generate it in this mode. Either run `osprey users "
+            "env-production` (or supply .env.production directly), or set "
             "modules.web_terminals.image_source: local to generate it from .env."
         )
 
@@ -317,7 +335,7 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
             f"Neither {env_production_path} nor {env_path} was found. Local-mode "
             "web-terminal deploys (modules.web_terminals.image_source: local) need "
             "one of them: create .env.production directly, or create .env so "
-            "osprey deploy up can derive .env.production's module-conditional "
+            "osprey up can derive .env.production's module-conditional "
             "subset from it."
         )
 
@@ -340,45 +358,24 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
         exported = [var for var in missing if os.environ.get(var)]
         shell_hint = ""
         if exported:
-            # Append to the PROFILE .env when the project records one: a key
-            # written to the project .env unblocks the deploy in front of the
-            # operator but is dropped by the next `osprey build`, which derives
-            # the project .env from the profile. The project .env stays the
-            # fallback for legacy preset-built projects, where there is no
-            # profile to write to and it really is the only store.
-            # require_profile_file=False: this is the "where WOULD the secret
-            # live" reading. An operator being handed a command to append a
-            # secret needs the profile named even when its profile.yml is
-            # momentarily absent — the alternative is silently steering them to
-            # the project .env the next build overwrites.
-            from osprey.cli.profile_root import resolve_project_profile
-
-            profile_env = resolve_project_profile(root, require_profile_file=False).env_path
+            # One store, one command. ``env_path`` is the deployment repo's own
+            # ``.env`` at the repo root — source, not render — so appending to
+            # it IS the durable write; there is no second, profile-side copy to
+            # name and no rebuild needed to carry the value anywhere. (This
+            # replaced a two-.env model where the project's ``.env`` was
+            # derived from the profile's and a write to the wrong one was
+            # dropped by the next build. Under the three-zone layout the
+            # profile and the secret store share a root, so that distinction no
+            # longer exists — and telling an operator their write will be
+            # dropped would now be false.)
             names = ", ".join(exported)
             verb = "are" if len(exported) > 1 else "is"
-            preamble = (
+            copy_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
+            shell_hint = (
                 f" Note: {names} {verb} exported in the current shell, but this "
                 f"deploy reads only {env_path} (generation never reads the "
-                f"ambient environment)."
+                f"ambient environment). Copy it in with: {copy_cmds}"
             )
-            if profile_env is None:
-                copy_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
-                shell_hint = f"{preamble} Copy it in with: {copy_cmds}"
-            else:
-                # Both routes named, because neither alone is the whole answer:
-                # the profile write is the durable one but does not reach this
-                # deploy until a rebuild derives the project .env from it, and
-                # the project write unblocks this deploy but the next build
-                # drops it.
-                copy_cmds = " && ".join(f'echo "{var}=${var}" >> {profile_env}' for var in exported)
-                quick_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
-                shell_hint = (
-                    f"{preamble} The profile owns this project's secrets, so put "
-                    f"it there and rebuild: {copy_cmds} — then re-run `osprey "
-                    f"build` to carry it into {env_path}. Appending straight to "
-                    f"{env_path} ({quick_cmds}) unblocks this deploy but is "
-                    f"dropped by the next build."
-                )
         raise RuntimeError(
             f"Generating {env_production_path} from {env_path} would leave web "
             f"terminals unauthenticated: {needs}, not set in {env_path}. Add "

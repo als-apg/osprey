@@ -13,22 +13,37 @@ from pathlib import Path
 from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.workspace.server import mcp
 from osprey.mcp_server.workspace.tools.screen_capture_backends import (
     BackendUnavailableError,
     WindowNotFoundError,
     get_backend,
 )
-from osprey.utils.workspace import load_osprey_config
+from osprey.utils.workspace import (
+    agent_data_base_dir,
+    anchored_path,
+    load_osprey_config,
+    resolve_project_root,
+)
 
 logger = logging.getLogger("osprey.mcp_server.tools.screen_capture")
 
 
 def _get_output_dir() -> Path:
-    """Resolve the screenshots output directory from config or default."""
+    """Resolve the screenshots output directory from config or default.
+
+    Runtime output, so it belongs under the deployment's agent-data root — read
+    from ``agent_data.base_dir`` rather than spelled here — and a configured
+    ``screen_capture.output_dir`` is anchored on the repo root the same way
+    every other configured path is. Both halves matter: neither the default nor
+    the configured value may resolve against the working directory, which for an
+    MCP server is whatever launched it.
+    """
     config = load_osprey_config()
-    sc_config = config.get("screen_capture", {})
-    output_dir = Path(sc_config.get("output_dir", "./_agent_data/screenshots"))
+    configured = (config.get("screen_capture", {}) or {}).get("output_dir")
+    relative = str(configured or f"{agent_data_base_dir(config)}/screenshots")
+    output_dir = anchored_path(relative, resolve_project_root(config))
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 
@@ -261,6 +276,10 @@ async def manage_window(
             await backend.move_window(app, x, y)
         elif action == "resize":
             await backend.resize_window(app, width, height)
+
+        # Only once the backend moved the window: a refused or failed action
+        # raises out of make_error above and reports nothing.
+        await notify_agent_activity_async("manage_window", "ui", detail=f"{action} {app}")
 
         return json.dumps(
             {

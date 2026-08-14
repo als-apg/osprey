@@ -886,15 +886,6 @@ keeps:
 # notes — carried forward from tasks 3.2, 5.1 and 6.3. Not guard rules.
 # ---------------------------------------------------------------------------
 notes:
-  hardcoded_agent_data_site:
-    site: src/osprey/cli/templates/scaffolding.py
-    detail: >-
-      `agent_data_dir = project_dir / "_agent_data"` hardcodes the literal and
-      does not read agent_data.base_dir; its subdirs list is ["api_calls"]
-      alone, so registry_exports/ is not created here. Harmless today — the
-      registry and the compose generator mkdir their own directories — but it
-      is a literal-_agent_data site that will drift if anyone moves the root.
-      Recorded, not guarded.
   manifest_fixture_provider_shape:
     site: tests/cli/test_manifest_build_args.py
     detail: >-

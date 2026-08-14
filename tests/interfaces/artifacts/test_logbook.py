@@ -7,7 +7,8 @@ Covers:
   - Successful compose with artifact (mocked LLM)
   - Submit creates draft JSON in workspace/drafts/
   - Submit response includes ARIEL URL with draft_id
-  - Submit calls notify_panel_focus
+  - Submit stays silent on the web-terminal channel — see
+    test_logbook_no_agent_attribution.py
   - Prompt assembly: all Purpose × Detail combinations
   - Compose with steering fields (purpose/detail_level/nudge)
   - Compose with custom_prompt
@@ -211,10 +212,7 @@ class TestLogbookSubmit:
     @pytest.mark.unit
     def test_submit_creates_draft(self, app_client, tmp_path):
         """Draft JSON written to workspace/drafts/."""
-        with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
-            patch(f"{_MODULE}.notify_panel_focus"),
-        ):
+        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={
@@ -243,10 +241,7 @@ class TestLogbookSubmit:
     @pytest.mark.unit
     def test_submit_returns_ariel_url(self, app_client, tmp_path):
         """Response includes ARIEL URL with draft_id."""
-        with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
-            patch(f"{_MODULE}.notify_panel_focus"),
-        ):
+        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={"subject": "Test", "details": "Details."},
@@ -262,16 +257,13 @@ class TestLogbookSubmit:
         """Without ARIEL_WEB_URL, the submit URL must be a web-terminal-relative
         proxy path — not an absolute container-internal address.
 
-        Regression: the default used to be ``http://127.0.0.1:8085`` which is
-        unreachable from the user's browser. The panel embeds via /panel/ariel
+        Regression: a default of ``http://127.0.0.1:8085`` is unreachable
+        from the user's browser. The panel embeds via /panel/ariel
         and resolves the URL with ``new URL(url, origin)``, so it must be
         origin-relative to load through the proxy.
         """
         monkeypatch.delenv("ARIEL_WEB_URL", raising=False)
-        with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
-            patch(f"{_MODULE}.notify_panel_focus"),
-        ):
+        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={"subject": "Test", "details": "Details."},
@@ -283,30 +275,9 @@ class TestLogbookSubmit:
         assert url.startswith("/panel/ariel")
 
     @pytest.mark.unit
-    def test_submit_calls_panel_focus(self, app_client, tmp_path):
-        """Mock notify_panel_focus, verify called."""
-        with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
-            patch(f"{_MODULE}.notify_panel_focus") as mock_focus,
-        ):
-            resp = app_client.post(
-                "/api/logbook/submit",
-                json={"subject": "Test", "details": "Details."},
-            )
-
-        assert resp.status_code == 200
-        mock_focus.assert_called_once()
-        call_args = mock_focus.call_args
-        assert call_args[0][0] == "ariel"
-        assert "/#create?draft=" in call_args[1]["url"]
-
-    @pytest.mark.unit
     def test_submit_creates_metadata_json_attachment(self, app_client, tmp_path):
         """Submit creates a metadata.json file and includes it in attachment_paths."""
-        with (
-            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
-            patch(f"{_MODULE}.notify_panel_focus"),
-        ):
+        with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
             resp = app_client.post(
                 "/api/logbook/submit",
                 json={
@@ -882,3 +853,88 @@ class TestUserPromptContent:
         assert "Conversation log" not in user_msg
         assert "Recent session activity" not in user_msg
         mock_reader_cls.assert_not_called()
+
+
+class TestTranscriptDirIsResolvedOnce:
+    """``/compose`` reads the agent's project dir from app state, never from cwd.
+
+    The bug this guards: the route resolved the transcript directory with
+    ``Path.cwd()`` on every request. That happens to be right for the in-process
+    chat companion, whose cwd IS the agent's Claude project dir, and wrong for
+    the standalone ``osprey artifacts`` gallery, which is a uvicorn factory
+    launchable from anywhere. The failure was silent — the reader's own
+    exception guard swallowed it, so the composed entry simply came back with no
+    audit trail and no chat history, and nothing said why.
+    """
+
+    def _get_user_prompt(self, mock_llm) -> str:
+        return mock_llm.call_args.kwargs["chat_request"].messages[1].content
+
+    @pytest.mark.unit
+    def test_create_app_resolves_the_agent_project_dir_up_front(self, tmp_path):
+        from osprey.interfaces.artifacts.app import create_app
+
+        app = create_app(workspace_root=tmp_path)
+
+        assert getattr(app.state, "agent_project_dir", None) is not None
+
+    @pytest.mark.unit
+    def test_compose_reads_the_transcript_from_app_state_not_cwd(self, tmp_path, monkeypatch):
+        from pathlib import Path
+
+        from fastapi.testclient import TestClient
+
+        from osprey.interfaces.artifacts.app import create_app
+
+        agent_project_dir = tmp_path / "agent-project"
+        agent_project_dir.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+
+        app = create_app(workspace_root=tmp_path / "workspace")
+        app.state.agent_project_dir = agent_project_dir
+        client = TestClient(app)
+        entry = _make_artifact(app.state.artifact_store)
+
+        # The gallery process is launched from an unrelated directory, which is
+        # what the standalone `osprey artifacts` launch actually does.
+        monkeypatch.chdir(elsewhere)
+
+        seen: list[Path] = []
+
+        class _DirRecordingReader:
+            """Yields a transcript only for the directory it was pointed at."""
+
+            def __init__(self, project_dir):
+                self.project_dir = Path(project_dir)
+                seen.append(self.project_dir)
+
+            def read_current_session(self):
+                if self.project_dir != agent_project_dir:
+                    return []
+                return [{"tool": "channel_read", "timestamp": "2026-02-22T10:00:00"}]
+
+            def read_current_chat_history(self):
+                return []
+
+        mock_llm = AsyncMock(return_value=_llm_json_response())
+        p1, p2 = _patch_model_resolution()
+        with (
+            p1,
+            p2,
+            patch("osprey.models.completion.aget_chat_completion", mock_llm),
+            patch(
+                "osprey.mcp_server.workspace.transcript_reader.TranscriptReader",
+                _DirRecordingReader,
+            ),
+        ):
+            resp = client.post(
+                "/api/logbook/compose",
+                json={"artifact_id": entry.id},
+            )
+
+        assert resp.status_code == 200, resp.text
+        # The trail resolved, from the state-held directory rather than the cwd.
+        assert seen == [agent_project_dir]
+        assert Path.cwd() not in seen
+        assert "channel_read" in self._get_user_prompt(mock_llm)

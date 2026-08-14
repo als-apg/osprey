@@ -9,8 +9,7 @@ regenerating these three files, this test (and the equivalent
 ``build --check`` invocation) fails.
 
 This module also carries the two other things Task 1.7 is responsible
-for finalizing, now that the real build has actually run against the
-real token tree:
+for finalizing, both checked against the real token tree:
 
 - the CSS custom property names ``base.css`` (hand-written, a
   different task's file) hard-depends on existing;

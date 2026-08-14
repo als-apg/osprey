@@ -6,12 +6,12 @@ need the same two naming rules — the semantic/extension mapping
 (:func:`promoted_css_name`, driven by :data:`PROMOTED_PRIMITIVE_GROUPS`).
 Keeping them in this leaf module means the validator's collision checks and
 the emitter's output physically cannot disagree about an emitted name, and
-the validator no longer depends on the emitter (previously it imported the
-emitter's private promoted-groups tuple and re-derived the promoted name
-inline — exactly the drift class ``inherits.py`` was created to kill).
+the validator does not depend on the emitter. Neither side may reach into the
+other's promoted-groups tuple and re-derive a promoted name inline — that is
+exactly the drift class ``inherits.py`` exists to kill.
 
 Dot-path to CSS custom property name is *not* a uniform kebab-join — see
-:func:`css_variable_name` for the exact rules (a handful of legacy names
+:func:`css_variable_name` for the exact rules (a handful of names
 are preserved verbatim, ``tint.*``/``terminal.ansi.*`` are reshaped, and
 ``code.*`` is excluded entirely since it selects a highlight.js asset name
 consumed elsewhere, not a CSS value).
@@ -27,7 +27,7 @@ __all__ = ["PROMOTED_PRIMITIVE_GROUPS", "css_variable_name", "promoted_css_name"
 _EXCLUDED_GROUPS = frozenset({"code"})
 
 #: Dot-path -> CSS custom property name overrides that don't follow the
-#: naive kebab-join rule. Most preserve today's widely-used legacy names;
+#: naive kebab-join rule. Most preserve a widely-used name verbatim;
 #: the ``accent``/``accent-secondary``/``status`` entries also keep the two
 #: accent roles and the status colors on a single ``--color-*`` prefix, so
 #: the emitted names read as one semantic family rather than as whatever

@@ -142,7 +142,7 @@ def _model_matrix(correctors: list[str], bpms: list[str], currents: list[float])
     Evaluates `orbit_response` at the SAME `currents` sweep and fits the SAME
     degree-1 `numpy.polyfit` that `build_response_matrix` fits over the
     measured rows -- estimator identity, not just data-source independence.
-    This matters because the estimators are no longer interchangeable: the
+    This matters because the estimators are not interchangeable: the
     real AR lattice's sextupoles (see `calibration.py`'s `AMPS_PER_RADIAN_KICK`
     comment) make the closed-orbit response mildly nonlinear in kick angle,
     so a two-point finite-difference slope and a 5-point polyfit slope over

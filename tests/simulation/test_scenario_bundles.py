@@ -36,7 +36,7 @@ class TestRelativeTimestamps:
         by_id = {e.entry_id: e for e in engine.scenario_logbook("rf-thermal")}
         assert by_id["DEMO-026"].when == RelativeTimestamp(days_ago=4, time=dtime(3, 20, 0))
         assert by_id["DEMO-027"].when == RelativeTimestamp(days_ago=3, time=dtime(10, 0, 0))
-        # Newest incident entry lands at now-2d, matching the old rebase landing.
+        # Newest incident entry lands at now-2d.
         assert by_id["DEMO-028"].when == RelativeTimestamp(days_ago=2, time=dtime(14, 0, 0))
 
     def test_all_relative_timestamps_are_well_formed(self, engine_factory):

@@ -51,7 +51,7 @@ WEB_TERMINALS: dict[str, Any] = {
 # The same stack, deployable in LOCAL mode. `image_source: local` builds each
 # persona's image, so it requires a catalog and a default to build them from —
 # `resolve_personas` raises without one at deploy time, and since the build's
-# lint now reads the deploy-propagated config (`deploy_aware_config_errors`) it
+# lint reads the deploy-propagated config (`deploy_aware_config_errors`) it
 # refuses the same profile earlier. Every end-to-end case below names a local
 # deploy block, so they all build from this one.
 WEB_TERMINALS_LOCAL: dict[str, Any] = {
@@ -197,21 +197,15 @@ def test_the_spelling_probe_reports_only_a_real_duplicate(
 
 
 def _build_project(runner: CliRunner, tmp_path: Path, profile_body: dict[str, Any]) -> dict:
+    """Write *profile_body* at the repo root and build it in place."""
     profile = tmp_path / "profile.yml"
     profile.write_text(yaml.safe_dump(profile_body, sort_keys=False), encoding="utf-8")
     result = runner.invoke(
         build,
-        [
-            "demo",
-            str(profile),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path / "out"),
-        ],
+        ["--repo", str(tmp_path), "--skip-deps", "--skip-lifecycle"],
     )
     assert result.exit_code == 0, result.output
-    return yaml.safe_load((tmp_path / "out" / "demo" / "config.yml").read_text(encoding="utf-8"))
+    return yaml.safe_load((tmp_path / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
 def test_a_built_project_reads_the_mode_the_deploy_block_named(

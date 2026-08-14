@@ -36,7 +36,10 @@ def stat_signature(path: Path) -> tuple[int, int] | None:
 
 
 def disk_signature(config_path: str | Path | None) -> tuple[Any, Any]:
-    """Stat ``config.yml`` and its sibling ``.env`` as one config-change probe.
+    """Stat ``config.yml`` and the deployment's ``.env`` as one change probe.
+
+    The ``.env`` is the one at the REPO ROOT, not a sibling of the config: the
+    config is a render under ``build/``, which no build writes an ``.env`` into.
 
     Resolves *config_path* (or the CLI default via
     :func:`osprey.utils.workspace.resolve_config_path` when ``None``) and returns
@@ -49,4 +52,9 @@ def disk_signature(config_path: str | Path | None) -> tuple[Any, Any]:
         from osprey.utils.workspace import resolve_config_path
 
         path = resolve_config_path()
-    return (stat_signature(path), stat_signature(path.parent / ".env"))
+    # Same rule as `loader.HealthConfigLoader.load` — deliberately, and
+    # through the same helper. A signature that stats a different `.env`
+    # than the loader watches is a cache that never invalidates.
+    from osprey.utils.workspace import deployment_env_path
+
+    return (stat_signature(path), stat_signature(deployment_env_path(path)))

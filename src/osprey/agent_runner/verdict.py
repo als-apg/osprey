@@ -6,10 +6,10 @@ Translates the structured ``SDKWorkflowResult`` into one of two exit codes:
   completed without error, and no budget or turn-limit was exceeded.
 * ``EXIT_VERDICT_FAIL`` (1) — any of those conditions is not met.
 
-The third constant, ``EXIT_USAGE`` (2), is reserved for the CLI layer
-(Task 2.1) to report infrastructure or usage errors that prevented the run
-from starting at all.  It lives here so callers can import all three
-constants from a single module.
+The third constant, ``EXIT_USAGE`` (2), is reserved for the CLI layer to
+report infrastructure or usage errors that prevented the run from starting at
+all.  It lives here so callers can import all three constants from a single
+module.
 """
 
 from __future__ import annotations

@@ -22,6 +22,7 @@ from osprey.agent_runner import (
 )
 from osprey.cli.query_cmd import query
 from osprey.utils.logger import configure_logging, get_logger
+from tests.cli._lifecycle_build import stub_build
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -65,47 +66,57 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture
-def project_with_mcp(tmp_path: Path) -> Path:
-    """Minimal valid project: .mcp.json declaring 'controls' + a config.yml.
+def deployment(lifecycle_repo: Path) -> Path:
+    """A deployment repo whose render declares a 'controls' MCP server.
 
-    ``config.yml`` is what ``_is_valid_project`` keys on; ``run_query`` is
-    mocked in these tests, so the file's contents are never parsed.
+    ``query`` asks the *render*, so the ``.mcp.json`` and ``config.yml`` the
+    runner reads live in ``build/`` — the repo root holds the profile and the
+    ``.env``. ``run_query`` is mocked in these tests, so the files' contents are
+    never parsed; what matters is that they are where the verb looks.
     """
+    build = stub_build(lifecycle_repo, config="api:\n  providers: {}\n")
     mcp_json = {"mcpServers": {"controls": {"command": "osprey-controls"}}}
-    (tmp_path / ".mcp.json").write_text(json.dumps(mcp_json))
-    (tmp_path / "config.yml").write_text("api:\n  providers: {}\n")
-    return tmp_path
-
-
-@pytest.fixture
-def project_no_mcp(tmp_path: Path) -> Path:
-    """Empty directory — not a valid OSPREY project (no config.yml)."""
-    return tmp_path
+    (build / ".mcp.json").write_text(json.dumps(mcp_json))
+    return lifecycle_repo
 
 
 # ---------------------------------------------------------------------------
-# Missing-project detection
+# Nothing to query
 # ---------------------------------------------------------------------------
 
 
-class TestMissingProject:
-    def test_empty_dir_exits_usage(self, runner: CliRunner, project_no_mcp: Path) -> None:
-        result = runner.invoke(query, ["--project", str(project_no_mcp), "hello"])
+class TestNoBuild:
+    """Exit 2, not 1: "there is nothing to ask" is a usage error.
+
+    A caller that tells the two apart must never read a missing build as a
+    failed verdict — that would look like the agent answered badly rather than
+    like the deployment was never rendered.
+    """
+
+    def test_repo_without_a_build_exits_usage(
+        self, runner: CliRunner, lifecycle_repo: Path
+    ) -> None:
+        result = runner.invoke(query, ["--repo", str(lifecycle_repo), "hello"])
         assert result.exit_code == EXIT_USAGE
-        assert "osprey build" in result.output.lower() or "--project" in result.output
 
-    def test_error_message_is_actionable(self, runner: CliRunner, project_no_mcp: Path) -> None:
-        result = runner.invoke(query, ["--project", str(project_no_mcp), "hello"])
-        # User must be told how to fix it
-        assert "osprey build" in result.output or "--project" in result.output
+    def test_error_message_is_actionable(self, runner: CliRunner, lifecycle_repo: Path) -> None:
+        result = runner.invoke(query, ["--repo", str(lifecycle_repo), "hello"])
+        # The user must be told how to fix it, and the fix is one command.
+        assert "osprey build" in result.output
 
     def test_mcp_json_only_without_config_exits_usage(
-        self, runner: CliRunner, tmp_path: Path
+        self, runner: CliRunner, lifecycle_repo: Path
     ) -> None:
-        """A .mcp.json-only directory is NOT valid: the runner needs config.yml,
-        so it must fail fast with exit 2 rather than crash mid-resolution."""
-        (tmp_path / ".mcp.json").write_text('{"mcpServers": {}}')
-        result = runner.invoke(query, ["--project", str(tmp_path), "hello"])
+        """A render carrying only ``.mcp.json`` is a build in name only.
+
+        The runner unconditionally parses ``config.yml`` for the provider and
+        model, so this must fail fast with exit 2 rather than crash mid-
+        resolution.
+        """
+        build = stub_build(lifecycle_repo, with_config=False)
+        (build / ".mcp.json").write_text('{"mcpServers": {}}')
+
+        result = runner.invoke(query, ["--repo", str(lifecycle_repo), "hello"])
         assert result.exit_code == EXIT_USAGE
 
 
@@ -115,7 +126,7 @@ class TestMissingProject:
 
 
 class TestHappyPath:
-    def test_exit_zero_on_success(self, runner: CliRunner, project_with_mcp: Path) -> None:
+    def test_exit_zero_on_success(self, runner: CliRunner, deployment: Path) -> None:
         mock_result = _make_result(
             text_blocks=["The answer is 42."],
             mcp_servers=_connected_servers("controls"),
@@ -128,10 +139,10 @@ class TestHappyPath:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
-            result = runner.invoke(query, ["--project", str(project_with_mcp), "What is 6*7?"])
+            result = runner.invoke(query, ["--repo", str(deployment), "What is 6*7?"])
         assert result.exit_code == EXIT_PASS
 
-    def test_prints_final_text(self, runner: CliRunner, project_with_mcp: Path) -> None:
+    def test_prints_final_text(self, runner: CliRunner, deployment: Path) -> None:
         mock_result = _make_result(
             text_blocks=["The answer is 42."],
             mcp_servers=_connected_servers("controls"),
@@ -144,7 +155,7 @@ class TestHappyPath:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
-            result = runner.invoke(query, ["--project", str(project_with_mcp), "What is 6*7?"])
+            result = runner.invoke(query, ["--repo", str(deployment), "What is 6*7?"])
         assert "The answer is 42." in result.output
 
 
@@ -154,7 +165,7 @@ class TestHappyPath:
 
 
 class TestVerdictFailure:
-    def test_missing_server_exits_one(self, runner: CliRunner, project_with_mcp: Path) -> None:
+    def test_missing_server_exits_one(self, runner: CliRunner, deployment: Path) -> None:
         # controls server is expected but not in the snapshot
         mock_result = _make_result(
             text_blocks=["No controls server found."],
@@ -168,7 +179,7 @@ class TestVerdictFailure:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
-            result = runner.invoke(query, ["--project", str(project_with_mcp), "ping"])
+            result = runner.invoke(query, ["--repo", str(deployment), "ping"])
         assert result.exit_code == EXIT_VERDICT_FAIL
 
 
@@ -179,7 +190,7 @@ class TestVerdictFailure:
 
 class TestWriteToolSafety:
     def test_disallowed_tools_cover_mcp_and_builtin_writes(
-        self, runner: CliRunner, project_with_mcp: Path
+        self, runner: CliRunner, deployment: Path
     ) -> None:
         """The disallowed_tools passed to run_query must block BOTH the MCP write
         tools and the built-in write/exec tools (Bash/Write/Edit).
@@ -200,7 +211,7 @@ class TestWriteToolSafety:
             patch("osprey.cli.query_cmd.run_query", side_effect=capturing_run_query),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
-            runner.invoke(query, ["--project", str(project_with_mcp), "safe query"])
+            runner.invoke(query, ["--repo", str(deployment), "safe query"])
 
         assert captured, "run_query was never called"
         disallowed = captured[0]
@@ -218,7 +229,7 @@ class TestWriteToolSafety:
 
 
 class TestJsonOutput:
-    def test_json_flag_parses(self, runner: CliRunner, project_with_mcp: Path) -> None:
+    def test_json_flag_parses(self, runner: CliRunner, deployment: Path) -> None:
         trace = ToolTrace(
             name="mcp__controls__read_pv",
             input={"pv": "BEAM:CURRENT"},
@@ -238,9 +249,7 @@ class TestJsonOutput:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
-            result = runner.invoke(
-                query, ["--project", str(project_with_mcp), "--json", "beam current"]
-            )
+            result = runner.invoke(query, ["--repo", str(deployment), "--json", "beam current"])
 
         assert result.exit_code == EXIT_PASS
         data = json.loads(result.output)
@@ -249,7 +258,7 @@ class TestJsonOutput:
         assert "mcp_servers" in data
         assert "exit_code" in data
 
-    def test_json_final_text_content(self, runner: CliRunner, project_with_mcp: Path) -> None:
+    def test_json_final_text_content(self, runner: CliRunner, deployment: Path) -> None:
         mock_result = _make_result(
             text_blocks=["Beam current is 42 mA."],
             mcp_servers=_connected_servers("controls"),
@@ -262,14 +271,12 @@ class TestJsonOutput:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
-            result = runner.invoke(
-                query, ["--project", str(project_with_mcp), "--json", "beam current"]
-            )
+            result = runner.invoke(query, ["--repo", str(deployment), "--json", "beam current"])
 
         data = json.loads(result.output)
         assert "Beam current is 42 mA." in data["final_text"]
 
-    def test_json_tool_traces_schema(self, runner: CliRunner, project_with_mcp: Path) -> None:
+    def test_json_tool_traces_schema(self, runner: CliRunner, deployment: Path) -> None:
         trace = ToolTrace(
             name="mcp__controls__read_pv", input={"pv": "X"}, result="1", is_error=False
         )
@@ -285,7 +292,7 @@ class TestJsonOutput:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
-            result = runner.invoke(query, ["--project", str(project_with_mcp), "--json", "q"])
+            result = runner.invoke(query, ["--repo", str(deployment), "--json", "q"])
 
         data = json.loads(result.output)
         assert len(data["tool_traces"]) == 1
@@ -293,7 +300,7 @@ class TestJsonOutput:
         assert set(t.keys()) >= {"name", "input", "result", "is_error"}
 
     def test_json_emits_valid_payload_on_verdict_failure(
-        self, runner: CliRunner, project_with_mcp: Path
+        self, runner: CliRunner, deployment: Path
     ) -> None:
         """--json must still emit a parseable object on verdict failure, with
         both the process exit code and the embedded exit_code == 1."""
@@ -309,7 +316,7 @@ class TestJsonOutput:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
-            result = runner.invoke(query, ["--project", str(project_with_mcp), "--json", "ping"])
+            result = runner.invoke(query, ["--repo", str(deployment), "--json", "ping"])
 
         assert result.exit_code == EXIT_VERDICT_FAIL
         data = json.loads(result.output)
@@ -325,9 +332,7 @@ class TestJsonStdoutPurity:
     is meant to catch.
     """
 
-    def test_json_payload_is_alone_on_stdout(
-        self, runner: CliRunner, project_with_mcp: Path
-    ) -> None:
+    def test_json_payload_is_alone_on_stdout(self, runner: CliRunner, deployment: Path) -> None:
         marker = "purity-probe-marker"
         mock_result = _make_result(
             text_blocks=["Beam current is 42 mA."],
@@ -352,9 +357,7 @@ class TestJsonStdoutPurity:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value={"controls"}),
         ):
-            result = runner.invoke(
-                query, ["--project", str(project_with_mcp), "--json", "beam current"]
-            )
+            result = runner.invoke(query, ["--repo", str(deployment), "--json", "beam current"])
 
         assert result.exit_code == EXIT_PASS
         # The whole of stdout must be the payload — not merely contain it.
@@ -371,7 +374,7 @@ class TestJsonStdoutPurity:
 
 
 class TestInfraErrors:
-    def test_import_error_exits_usage(self, runner: CliRunner, project_with_mcp: Path) -> None:
+    def test_import_error_exits_usage(self, runner: CliRunner, deployment: Path) -> None:
         with (
             patch(
                 "osprey.cli.query_cmd.run_query",
@@ -383,10 +386,10 @@ class TestInfraErrors:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
         ):
-            result = runner.invoke(query, ["--project", str(project_with_mcp), "hello"])
+            result = runner.invoke(query, ["--repo", str(deployment), "hello"])
         assert result.exit_code == EXIT_USAGE
 
-    def test_runtime_error_exits_usage(self, runner: CliRunner, project_with_mcp: Path) -> None:
+    def test_runtime_error_exits_usage(self, runner: CliRunner, deployment: Path) -> None:
         with (
             patch(
                 "osprey.cli.query_cmd.run_query",
@@ -398,10 +401,10 @@ class TestInfraErrors:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
         ):
-            result = runner.invoke(query, ["--project", str(project_with_mcp), "hello"])
+            result = runner.invoke(query, ["--repo", str(deployment), "hello"])
         assert result.exit_code == EXIT_USAGE
 
-    def test_os_error_exits_usage(self, runner: CliRunner, project_with_mcp: Path) -> None:
+    def test_os_error_exits_usage(self, runner: CliRunner, deployment: Path) -> None:
         """A config-read failure (e.g. missing config.yml deep in resolution)
         surfaces as a usage error (exit 2), not an uncaught traceback."""
         with (
@@ -415,11 +418,11 @@ class TestInfraErrors:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
         ):
-            result = runner.invoke(query, ["--project", str(project_with_mcp), "hello"])
+            result = runner.invoke(query, ["--repo", str(deployment), "hello"])
         assert result.exit_code == EXIT_USAGE
         assert "configuration" in result.output.lower()
 
-    def test_malformed_yaml_exits_usage(self, runner: CliRunner, project_with_mcp: Path) -> None:
+    def test_malformed_yaml_exits_usage(self, runner: CliRunner, deployment: Path) -> None:
         """A malformed config.yml (yaml.YAMLError) maps to exit 2."""
         import yaml
 
@@ -434,11 +437,11 @@ class TestInfraErrors:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
         ):
-            result = runner.invoke(query, ["--project", str(project_with_mcp), "hello"])
+            result = runner.invoke(query, ["--repo", str(deployment), "hello"])
         assert result.exit_code == EXIT_USAGE
 
     def test_unknown_provider_value_error_exits_usage(
-        self, runner: CliRunner, project_with_mcp: Path
+        self, runner: CliRunner, deployment: Path
     ) -> None:
         """An unknown/misspelled provider (resolver raises ValueError) maps to
         exit 2, and the resolver's actionable message reaches the user."""
@@ -455,6 +458,6 @@ class TestInfraErrors:
             ),
             patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
         ):
-            result = runner.invoke(query, ["--project", str(project_with_mcp), "hello"])
+            result = runner.invoke(query, ["--repo", str(deployment), "hello"])
         assert result.exit_code == EXIT_USAGE
         assert "Built-in providers" in result.output

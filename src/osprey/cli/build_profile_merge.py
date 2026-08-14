@@ -565,9 +565,9 @@ def resolve_profile_document(
 
     The one place that decides what a profile file *means*. A file under
     ``personas/`` beside a ``profile.yml`` carries only a delta: living there
-    IS its inheritance, so it is resolved against that root rather than on its
+    is its inheritance, so it is resolved against that root rather than on its
     own, and everything it names anchors at the root. Every other file resolves
-    standalone through its ``extends`` chain, as before.
+    standalone through its ``extends`` chain.
 
     Both the loader and the content hash go through here, which is what keeps a
     persona's built project and its staleness hash describing the same merge.
@@ -719,7 +719,7 @@ def _fold_profile_material(
     on leaves the profile hash untouched and the deploy-side staleness advisory
     stays silent about a project that no longer matches its source.
 
-    Three kinds of input are covered:
+    Four kinds of input are covered:
 
     * the ``data:`` tree, anchored via
       :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
@@ -728,12 +728,36 @@ def _fold_profile_material(
       (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, which
       includes the ``project/`` verbatim mirror), folded in sorted name order
       so reordering the mapping table cannot move a hash;
-    * ``triggers.yml``, the dispatch trigger table the build materializes.
+    * ``triggers.yml``, the dispatch trigger table the build materializes;
+    * every persona delta in ``personas/`` — the files a deployment's own
+      per-persona projects are rendered from. Without them, editing a delta
+      moves no hash at all: the deploy-side check would call the build clean,
+      no rebuild would follow, and the persona render already on disk (which
+      ``up`` re-renders only when it is *absent*) would keep shipping the
+      superseded delta into that persona's image.
 
-    A convention directory or ``triggers.yml`` that is absent folds nothing at
-    all, so a profile carrying none of them hashes exactly as it did before
-    they existed. Creating an empty convention directory does move the hash —
-    it folds its label — which is honest: the profile tree changed.
+    Personas are folded as the *direct children* of ``personas/`` and nothing
+    deeper, because that is exactly the set that can be built: a file is read
+    as a delta only when its parent directory IS ``personas/``
+    (:func:`~osprey.cli.profile_root.resolve_profile_root`), so a tree nested
+    below it is no more build input than a ``README`` beside ``profile.yml``.
+    Suffixes are not filtered — a delta is named by the persona catalog, which
+    accepts any direct child — while dot-prefixed entries are skipped, matching
+    the walk every other convention read uses: a ``.DS_Store`` must not report a
+    deployment as stale.
+
+    One consequence, accepted rather than worked around: this is folded for a
+    persona delta too (its root_dir is the profile root), so editing ONE delta
+    moves every sibling persona's hash as well. That is the same over-report as
+    a root edit reaching every persona — it costs an idempotent rebuild, where
+    subtracting siblings would cost a persona that silently no longer matches
+    its source.
+
+    A convention directory, ``triggers.yml`` or ``personas/`` that is absent
+    folds nothing at all, so a profile carrying none of them hashes exactly as
+    it did before they existed. Creating an empty convention directory does
+    move the hash — it folds its label — which is honest: the profile tree
+    changed.
 
     Args:
         digest: The hash object to update in place.
@@ -747,6 +771,7 @@ def _fold_profile_material(
     """
     from .build_profile_model import BuildProfile
     from .profile_conventions import CONVENTION_SOURCES
+    from .profile_root import PERSONA_DIRNAME
 
     data_root = BuildProfile(name="", data=resolved.get("data")).resolved_data_root(profile_dir)
     if data_root is not None:
@@ -764,6 +789,21 @@ def _fold_profile_material(
     if triggers.is_file():
         _fold_source_tree(digest, "triggers", triggers)
 
+    # Sorted by name, which is the whole ordering rule a flat directory needs;
+    # `_fold_source_tree` contributes each delta's own name beside its content
+    # digest, so a rename moves the hash exactly as an edit does.
+    persona_dir = profile_dir / PERSONA_DIRNAME
+    if persona_dir.is_dir():
+        for delta in sorted(
+            (
+                entry
+                for entry in persona_dir.iterdir()
+                if entry.is_file() and not entry.name.startswith(".")
+            ),
+            key=lambda entry: entry.name,
+        ):
+            _fold_source_tree(digest, "persona", delta)
+
 
 def _hash_resolved_profile(
     raw: dict[str, Any], profile_path: Path, *, conventions: bool = True
@@ -773,9 +813,10 @@ def _hash_resolved_profile(
     Hashes the *resolved* content (canonical JSON, sorted keys) rather than
     file bytes, so comment/ordering churn is invisible while a change in any
     ``extends`` parent is not. The file inputs the resolved profile names — its
-    ``data:`` tree, convention directories and ``triggers.yml`` — are folded in
-    on top by :func:`_fold_profile_material`, so a project whose facility data
-    changed under an unchanged profile still reads as stale.
+    ``data:`` tree, convention directories, ``triggers.yml`` and the persona
+    deltas in ``personas/`` — are folded in on top by
+    :func:`_fold_profile_material`, so a project whose facility data changed
+    under an unchanged profile still reads as stale.
 
     Resolution goes through :func:`resolve_profile_document`, the same call the
     loader makes: the hash can only say honestly whether a built project still
@@ -843,11 +884,11 @@ def compute_preset_hash(preset_name: str) -> str | None:
 
 
 def compute_profile_hash(profile_path: Path) -> str | None:
-    """Content hash of a positional profile YAML as resolved (post-``extends``).
+    """Content hash of a repo's own ``profile.yml`` as resolved (post-``extends``).
 
-    Counterpart of :func:`compute_preset_hash` for ``osprey build NAME
-    PROFILE.yml`` invocations. Returns ``None`` when the file is missing or
-    unreadable.
+    Counterpart of :func:`compute_preset_hash` for profile-built repos — the
+    drift-fingerprint input, hashed against the profile path the manifest
+    recorded. Returns ``None`` when the file is missing or unreadable.
     """
     try:
         path = Path(profile_path)

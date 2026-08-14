@@ -1,8 +1,7 @@
 """Live package inventory for the visualization tool descriptions.
 
-The visualization tools used to name a fixed package set in their descriptions
-whatever the deployment had actually installed, so the agent planned imports
-against a set that need not exist.
+A visualization tool description must never name a fixed package set: the agent
+would plan imports against a set the deployment need not have installed.
 
 This module renders that line from the environment the *visualization sandbox*
 actually uses, which is deliberately not the one

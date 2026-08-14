@@ -284,7 +284,8 @@ def test_warns_on_writes_mismatch(tmp_path, run_drift):
     code, out, err = run_drift(tmp_path)
     assert code == 0
     assert "writes_enabled: true" in err
-    assert "regen" in err.lower()
+    # The remedy the hint names, not the word it happens to use for it.
+    assert "osprey build" in err
     # Also surfaced as SessionStart additionalContext on stdout.
     payload = json.loads(out)
     assert "writes_enabled: true" in payload["hookSpecificOutput"]["additionalContext"]
@@ -304,20 +305,20 @@ def test_warns_when_config_disables_writes_but_agent_permits(tmp_path, run_drift
     assert code == 0
     assert "writes_enabled: false" in err
     assert "permits writes" in err
-    assert "regen" in err.lower()
+    assert "osprey build" in err
     payload = json.loads(out)
     assert "permits writes" in payload["hookSpecificOutput"]["additionalContext"]
 
 
 def test_warns_on_mtime_drift(tmp_path, run_drift):
-    # writes_enabled is consistent, but config.yml was edited after the last regen.
+    # writes_enabled is consistent, but config.yml was edited after the last build.
     config_path, settings_path = _make_project(tmp_path, writes_enabled=False, channel_write=DENIED)
     _set_mtimes(config_path, settings_path, config_newer=True)
 
     code, _out, err = run_drift(tmp_path)
     assert code == 0
     assert "changed since" in err
-    assert "regen" in err.lower()
+    assert "osprey build" in err
 
 
 def test_warning_is_mirrored_to_stderr_and_session_context(tmp_path, run_drift):

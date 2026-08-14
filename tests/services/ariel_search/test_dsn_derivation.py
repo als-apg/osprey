@@ -1,11 +1,11 @@
 """The ARIEL DSN is derived from the Postgres the project actually runs.
 
-``ariel.database.uri`` used to be rendered into every project as a hardcoded
-``postgresql://ariel:…@localhost:5432/ariel`` — a second, silent copy of facts
-already declared under ``services.postgresql``.  Moving the database port there
-left the DSN pointing at the old one, and nothing said so.
+Rendering ``ariel.database.uri`` into every project as a hardcoded
+``postgresql://ariel:…@localhost:5432/ariel`` would be a second, silent copy of
+facts already declared under ``services.postgresql``.  Moving the database port
+there would leave the DSN pointing at the stale one, with nothing to say so.
 
-The templates no longer render the key at all: with ``uri`` unset the DSN is
+The templates do not render the key at all: with ``uri`` unset the DSN is
 derived from ``services.postgresql`` at load time, so a port move is a one-place
 edit.  An explicit ``uri`` still wins verbatim — that is how a project points at
 a database it does not run — and a legacy ``connection_string`` keeps working,

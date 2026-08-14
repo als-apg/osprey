@@ -142,7 +142,7 @@ class PhysicsFault:
     channel name, and NOT a mock-channel override: it never touches the
     ``overrides``/``channels`` validation path. A render step resolves this
     into VA env (``VA_BPM_ERRORS``/``VA_CORR_GAIN``)
-    before ``deploy up``; the VA applies it once at boot (hot-swapping a
+    before ``osprey up``; the VA applies it once at boot (hot-swapping a
     physics fault requires a restart, unlike ``overrides``/``archiver``).
     """
 

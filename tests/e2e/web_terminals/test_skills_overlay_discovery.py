@@ -15,8 +15,16 @@ record, and that record carries a ``skills`` array (and a matching
 ``slash_commands`` array). This init event is emitted at session start, *before*
 the model is contacted — so the signal is deterministic and needs no working
 provider credentials: a bogus ``ANTHROPIC_API_KEY`` still yields a full init
-record before the run ends with a 401. That keeps this test runnable in CI
-without spending tokens or requiring VPN/provider access.
+record. That keeps this test runnable in CI without spending tokens or requiring
+VPN/provider access.
+
+We read that init record off the stream and then KILL the CLI, rather than
+waiting for it to exit. The exit path is not part of the contract under test and
+is not ours to depend on: with an unusable credential the CLI retries the API
+call with backoff (``{"type":"system","subtype":"api_retry"}``) rather than
+terminating promptly, so waiting for exit wedges the test for as long as the
+retry schedule runs while the answer has already been sitting in stdout since
+the first second.
 
 VERDICT (recorded empirically against claude 2.1.210)
 -----------------------------------------------------
@@ -53,7 +61,10 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
+import tempfile
+import threading
 from pathlib import Path
 
 import pytest
@@ -66,6 +77,11 @@ pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke]
 # (osprey.utils.claude_launcher._SETTING_SOURCES_ARGS).
 _SETTING_SOURCES_PROJECT = ["--setting-sources", "project"]
 _SETTING_SOURCES_USER_PROJECT = ["--setting-sources", "user,project"]
+
+# The init record is emitted at session start, before the model is contacted, so
+# it lands in about a second. This bound only has to cover CLI startup on a cold,
+# loaded runner — it is a wedged-process backstop, not an expected wait.
+_INIT_RECORD_TIMEOUT_S = 60.0
 
 _SKILLIFY = """---
 name: {name}
@@ -90,8 +106,10 @@ def _clean_env(config_dir: Path) -> dict[str, str]:
     ``CLAUDECODE``/``CLAUDE_CODE_ENTRYPOINT`` are stripped so the CLI does not
     treat this as a nested session. Any inherited Anthropic auth (including a
     proxy base URL) is removed and replaced with a deliberately-bogus key: the
-    init record is emitted before the API is contacted, so the run reaches a fast
-    401 without us needing — or spending — a valid provider credential.
+    init record is emitted before the API is contacted, so we get the signal
+    without needing — or spending — a valid provider credential. What the CLI
+    does with the doomed request afterwards is immaterial; the caller stops
+    reading and kills it once the init record is in hand.
     """
     env = {
         k: v
@@ -111,13 +129,24 @@ def _clean_env(config_dir: Path) -> dict[str, str]:
     return env
 
 
+def _kill_group(proc: subprocess.Popen[str]) -> None:
+    """SIGKILL the CLI's whole process group, tolerating an already-dead child."""
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        proc.kill()
+
+
 def _discovered_skills(*, config_dir: Path, cwd: Path, setting_sources: list[str]) -> list[str]:
     """Return the ``skills`` list from the CLI's stream-json init record.
 
     Invokes ``claude --print --output-format stream-json --verbose`` with the
-    given ``--setting-sources`` and parses the first ``subtype == "init"``
-    record. Raises ``AssertionError`` if no init record is produced (a CLI/format
-    change we want to surface loudly rather than mistake for "nothing
+    given ``--setting-sources`` and returns the first ``subtype == "init"``
+    record's skills, killing the CLI the moment that record is in hand — see the
+    module docstring on why the exit path is deliberately not awaited.
+
+    Raises ``AssertionError`` if the stream ends without an init record (a
+    CLI/format change we want to surface loudly rather than mistake for "nothing
     discovered").
     """
     cmd = [
@@ -131,34 +160,61 @@ def _discovered_skills(*, config_dir: Path, cwd: Path, setting_sources: list[str
         "haiku",
         "probe",
     ]
-    proc = subprocess.run(
+    # stderr goes to a file, not a pipe: we stop reading stdout as soon as the
+    # init record lands, and an unread stderr pipe would let the CLI block
+    # forever on a full buffer instead of dying to the kill below.
+    stderr_file = tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace")
+    proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
         cmd,
         cwd=str(cwd),
         env=_clean_env(config_dir),
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=stderr_file,
         text=True,
-        timeout=120,
+        bufsize=1,
+        # Own process group, so the teardown below reaps the CLI's children too.
+        # We kill it mid-run rather than letting it exit, and a bare proc.kill()
+        # would signal only the node parent and orphan anything it spawned.
+        start_new_session=True,
     )
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if record.get("type") == "system" and record.get("subtype") == "init":
-            skills = record.get("skills")
-            assert isinstance(skills, list), (
-                "init record present but has no 'skills' list — CLI schema changed?\n"
-                f"init keys: {sorted(record)}"
-            )
-            return skills
+    # readline() blocks, so a deadline between lines cannot bound a CLI that has
+    # gone quiet. Killing the child is what makes stdout reach EOF and the loop
+    # below terminate.
+    watchdog = threading.Timer(_INIT_RECORD_TIMEOUT_S, lambda: _kill_group(proc))
+    watchdog.start()
+    stdout_seen: list[str] = []
+    try:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            stdout_seen.append(line)
+            stripped = line.strip()
+            if not stripped.startswith("{"):
+                continue
+            try:
+                record = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            if record.get("type") == "system" and record.get("subtype") == "init":
+                skills = record.get("skills")
+                assert isinstance(skills, list), (
+                    "init record present but has no 'skills' list — CLI schema changed?\n"
+                    f"init keys: {sorted(record)}"
+                )
+                return skills
+    finally:
+        watchdog.cancel()
+        _kill_group(proc)
+        proc.wait(timeout=30)
+        if proc.stdout is not None:
+            proc.stdout.close()
+        stderr_file.seek(0)
+        stderr_text = stderr_file.read()
+        stderr_file.close()
     raise AssertionError(
-        "No stream-json init record produced by the claude CLI. This test "
-        "depends on the init event being emitted before the (bogus-auth) run "
-        "ends.\n--- stdout ---\n"
-        f"{proc.stdout[:2000]}\n--- stderr ---\n{proc.stderr[:2000]}"
+        "No stream-json init record produced by the claude CLI before the stream "
+        f"ended or {_INIT_RECORD_TIMEOUT_S:.0f}s elapsed. This test depends on the "
+        "init event being emitted at session start.\n--- stdout ---\n"
+        f"{''.join(stdout_seen)[:2000]}\n--- stderr ---\n{stderr_text[:2000]}"
     )
 
 

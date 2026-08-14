@@ -50,8 +50,8 @@ Present a table:
 ## Show the active scenario set
 
 Run `osprey sim status`, or read the plain-text state file
-(`_agent_data/simulation/active_scenarios` — runtime state, kept out of the
-build-owned `data/` tree). It holds one scenario
+(`simulation/active_scenarios` under the agent-data root — `agent_data.base_dir`
+in config.yml — kept out of the build-owned `data/` tree). It holds one scenario
 name per line (plus an optional `anchor=<ISO8601>` metadata line). `nominal` is
 always implicitly active. A missing file means only `nominal` is active.
 
@@ -104,8 +104,8 @@ time has nothing to rewrite and is unaffected.
 - **Nothing is invented to fill a gap.** Where an event window reaches across a
   stretch the archive has no coverage for, those instants are left empty and
   counted, not fabricated.
-- **The archive must be seeded first.** On a store `osprey deploy up` has never
-  seeded, the rewrite is skipped and says so — run `osprey deploy up`.
+- **The archive must be seeded first.** On a store `osprey up` has never
+  seeded, the rewrite is skipped and says so — run `osprey up`.
 
 ## Bundle authoring
 

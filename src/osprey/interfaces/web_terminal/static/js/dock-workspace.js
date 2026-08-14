@@ -197,12 +197,18 @@ export function initDockWorkspace() {
       if (options.name === PANEL_TERMINAL) return adoptSubtree(terminalSource);
       return { element: document.createElement('div'), init() {} };
     },
-    // Every tile's tab renders as the host header bar (grip/title/actions) —
-    // see dock-tab.js. defaultTabComponent routes panels with no explicit
+    // Every tile's tab renders as the host header bar (title/actions) — see
+    // dock-tab.js. defaultTabComponent routes panels with no explicit
     // tabComponent (i.e. all of them, including restored layouts) through
     // createTabComponent.
     createTabComponent: (/** @type {{ id: string }} */ options) => createTileTab(options.id),
     defaultTabComponent: OSPREY_TAB_COMPONENT,
+    // One panel per tile means every tab is a lone tab: stretch it across the
+    // whole strip so the bar spans its tile, the close control anchors at the
+    // tile's right edge, and the void container (dockview's empty-space drag
+    // surface) collapses to zero. Without this the tab is sized to its
+    // content and two thirds of the "bar" is void painted a different color.
+    singleTabMode: 'fullwidth',
   });
 
   // Bind dockview's light/dark base theme (root classes + the api's own theme

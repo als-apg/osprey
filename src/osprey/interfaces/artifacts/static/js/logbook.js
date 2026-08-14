@@ -360,7 +360,15 @@ function showModal() {
 }
 
 function hideModal() {
-  if (modal) modal.style.display = "none";
+  // Dismiss on DOM state, never the `modal` cache: the submit success path
+  // nulls the cache (so the next open rebuilds a fresh composer) before
+  // scheduling the auto-dismiss, and the close/backdrop handlers must keep
+  // working in that window. The cached overlay is only concealed (it is
+  // reused); an uncached one is an orphan and is removed outright.
+  document.querySelectorAll(".logbook-overlay").forEach(function (el) {
+    if (el === modal) /** @type {HTMLElement} */ (el).style.display = "none";
+    else el.remove();
+  });
   resetModal();
 }
 
@@ -411,6 +419,43 @@ function showError(msg) {
 
 // ---- Submit ----
 
+/**
+ * The "Draft created" card that replaces the form body on a successful submit.
+ *
+ * Built as DOM rather than an interpolated HTML string for the same reason the
+ * artifact picker assigns its checkbox value as a property: the two server
+ * strings reach text and an href, and property assignment bypasses HTML
+ * parsing entirely, so neither can break out of its slot.
+ *
+ * @param {string} draftId
+ * @param {string} url
+ * @returns {HTMLElement}
+ */
+function buildSuccessCard(draftId, url) {
+  const card = document.createElement("div");
+  card.style.cssText = "text-align:center; padding:var(--art-space-6); color:var(--color-success);";
+
+  const heading = document.createElement("div");
+  heading.style.cssText = "font-size:var(--art-text-xl); margin-bottom:var(--art-space-2);";
+  heading.textContent = "Draft created";
+
+  const meta = document.createElement("div");
+  meta.style.cssText = "font-size:var(--art-text-sm); color:var(--text-secondary);";
+  meta.appendChild(document.createTextNode(draftId));
+  meta.appendChild(document.createElement("br"));
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.style.color = "var(--color-accent-light)";
+  link.textContent = "Open in ARIEL";
+  meta.appendChild(link);
+
+  card.append(heading, meta);
+  return card;
+}
+
 async function submitLogbook() {
   clearError();
 
@@ -447,19 +492,27 @@ async function submitLogbook() {
       return;
     }
     const data = await resp.json();
-    const body = document.getElementById("logbook-body");
-    if (body) {
-      body.innerHTML = `
-        <div style="text-align:center; padding:var(--art-space-6); color:var(--color-success);">
-          <div style="font-size:var(--art-text-xl); margin-bottom:var(--art-space-2);">Draft created</div>
-          <div style="font-size:var(--art-text-sm); color:var(--text-secondary);">
-            ${data.draft_id}<br>
-            <a href="${data.url}" target="_blank" rel="noopener"
-               style="color:var(--color-accent-light);">Open in ARIEL</a>
-          </div>
-        </div>
-      `;
+
+    // Sender-local navigation. Submitting a draft is a HUMAN gesture, so only
+    // THIS client's workspace may move: we ask our host window to open ARIEL
+    // instead of letting the server broadcast a panel_focus, which was
+    // agent-source and all-clients (it painted agent styling on every
+    // connected browser and yanked every operator to ARIEL because one person
+    // clicked Submit). The host applies a plain activation — no agent
+    // attribution anywhere in this payload. Same-origin on both ends: we
+    // target our own origin, and the host re-checks event.origin.
+    //
+    // Guarded on actually being embedded: a standalone gallery has no host,
+    // and the success card's "Open in ARIEL" link below stays its affordance.
+    if (window.parent !== window) {
+      window.parent.postMessage(
+        { type: "osprey:navigate", panel: "ariel", url: data.url },
+        window.location.origin,
+      );
     }
+
+    const body = document.getElementById("logbook-body");
+    if (body) body.replaceChildren(buildSuccessCard(data.draft_id, data.url));
     const actions = document.getElementById("logbook-actions");
     if (actions) actions.innerHTML = "";
     modal = null;
@@ -516,4 +569,4 @@ function injectLogbookButtons() {
   }
 }
 
-export { injectLogbookButtons, makeBtn, updateHeaderTitle, getSteeringValues, getContextValues };
+export { injectLogbookButtons, makeBtn, updateHeaderTitle, getSteeringValues, getContextValues, hideModal };

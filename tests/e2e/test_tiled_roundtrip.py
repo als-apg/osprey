@@ -43,9 +43,9 @@ swept into a lenient rerun. Keep it that way if the two ever diverge.
 
 Container safety: every docker invocation below names an exact container or
 image -- never a wildcard, never ``system prune``/``--volumes``. Teardown
-goes through ``osprey deploy down``, never a raw ``docker rm`` sweep. The
-restart step names the ``<project>-bluesky-bridge`` container only; ``osprey deploy restart``
-is never used here because it bounces every service, including Tiled and the RE
+goes through ``osprey down``, never a raw ``docker rm`` sweep. The restart step
+names the ``<project>-bluesky-bridge`` container only; ``osprey restart`` is
+never used here because it bounces every service, including Tiled and the RE
 manager, which would defeat the whole proof.
 
 Markers: no ``pytest.mark.flaky`` anywhere in this module -- this file's
@@ -71,6 +71,8 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
+from tests.e2e import _queue_drive
+from tests.e2e._deploy_diagnostics import queue_stack_logs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -89,13 +91,13 @@ VA_CA_PORT = 15065
 # ariel-postgres (5432) and OpenObserve (5080) are deployed unconditionally by
 # the control-assistant preset with no profile knob to drop them, and a
 # locally-running tutorial stack routinely holds both. A bound-port collision
-# aborts `deploy up` before the bridge/Tiled containers it creates alongside
+# aborts `osprey up` before the bridge/Tiled containers it creates alongside
 # them ever start, so both are moved to high, unassigned ports.
 POSTGRES_PORT = 25433
 OPENOBSERVE_PORT = 25082
 
-# The fixture builds/deploys under this project name; the compose template
-# renders each container_name AND the bridge's locally-built image as
+# The deployment repo's directory name IS the deployment's name; the compose
+# template renders each container_name AND the bridge's locally-built image as
 # ``<project>-<service>`` (services/bluesky/docker-compose.yml.j2), so derive
 # both (via resolve_project_name, exactly as the template does) rather than
 # hardcode host-global names that break the moment the template is namespaced
@@ -153,17 +155,17 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
 
 
 class DeployedStack:
-    """The one deployed project, plus the devices its scan will drive."""
+    """The one deployed repo, plus the devices its scan will drive."""
 
     def __init__(
         self,
-        project_dir: Path,
+        repo: Path,
         correctors: dict[str, tuple[str, str]],
         bpms: dict[str, str],
         limits: dict[str, Any],
         token: str,
     ) -> None:
-        self.project_dir = project_dir
+        self.repo = repo
         self.correctors = correctors
         self.bpms = bpms
         self.limits = limits
@@ -175,7 +177,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     """Build + co-deploy the VA, bridge, RE manager, Redis and Tiled."""
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("tiled_roundtrip_build")
-    project_dir = base / PROJECT_NAME
+    repo = base / PROJECT_NAME
 
     # `dispatch: null` drops control-assistant's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant to this proof and far
@@ -210,13 +212,17 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # leaf scalars under top-level profile keys, so plain --set works (a dotted
     # --set is only unsafe for keys nested under an existing block you don't
     # want replaced wholesale, e.g. control_system.type -- not the case here).
-    build = _run(
+    # Two steps, because the surface has two: `init` writes the repo's source
+    # zone from the preset, `build` renders build/ from it. The repo directory
+    # name IS the deployment name, so the container names above still hold.
+    init = _run(
         [
             str(osprey_bin),
-            "build",
-            PROJECT_NAME,
+            "init",
+            str(repo),
             "--preset",
             "control-assistant",
+            "--no-git",
             "--override",
             str(override_path),
             "--set",
@@ -227,12 +233,18 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"bluesky.tiled_port={TILED_PORT}",
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
         ],
+        cwd=base,
+        timeout=BUILD_TIMEOUT_SEC,
+    )
+    if init.returncode != 0:
+        pytest.fail(
+            f"osprey init failed (rc={init.returncode}):\n"
+            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
+        )
+
+    build = _run(
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
@@ -241,9 +253,10 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
+    _seed_repo_env(repo)
 
     # Force a fresh --dev build so the deployed bridge container runs CURRENT
-    # source (osprey deploy up does not pass --build to compose, so it would
+    # source (osprey up does not pass --build to compose, so it would
     # otherwise reuse a stale cached image). Exact-named images only.
     # E2E_REUSE_IMAGES=1 skips this (dev-only fast local iteration on the
     # test itself when the osprey source is unchanged; never set in CI).
@@ -253,52 +266,88 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     try:
         up = _run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=project_dir,
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up -d --dev failed (rc={up.returncode}):\n"
+                f"osprey up -d --dev failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
+        # The VA first, so that a soft-IOC that never came up is NAMED rather
+        # than reported as the bridge failing to answer. Compose already orders
+        # the bridge and the RE manager behind this same healthcheck
+        # (`depends_on: virtual-accelerator: service_healthy`), so on the happy
+        # path this returns on its first poll -- it is a diagnostic, not the
+        # thing that makes the ordering true.
+        _wait_for_container_health(VA_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(BRIDGE_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(QUEUESERVER_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(TILED_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
+        # Every container is healthy here and the stack STILL may not accept a
+        # plan: the bridge opens the RE worker environment off the readiness
+        # path, and `POST /queue/items` validates against the worker namespace
+        # that open builds. See `_queue_drive.wait_for_worker_environment`.
+        try:
+            _queue_drive.wait_for_worker_environment(BRIDGE_URL)
+        except AssertionError as exc:
+            pytest.fail(
+                f"{exc}\n{queue_stack_logs(resolve_project_name({'project_name': PROJECT_NAME}))}"
+            )
 
-        # Device names come from the .env `osprey deploy up` itself wrote
-        # (_ensure_bluesky_substrate_env derives them from the built project's
-        # own channel_limits.json) -- never a hardcoded facility channel, and
-        # never a second copy of that derivation living in this test.
-        correctors = _parse_motors(_env_value(project_dir, "BLUESKY_EPICS_MOTORS"))
-        bpms = _parse_detectors(_env_value(project_dir, "BLUESKY_EPICS_DETECTORS"))
-        assert correctors and bpms, "deploy up wired no scan devices into the project .env"
+        # Device names come from the .env `osprey up` itself wrote
+        # (_ensure_bluesky_substrate_env derives them from the render's own
+        # channel_limits.json) -- never a hardcoded facility channel, and never a
+        # second copy of that derivation living in this test.
+        correctors = _parse_motors(_env_value(repo, "BLUESKY_EPICS_MOTORS"))
+        bpms = _parse_detectors(_env_value(repo, "BLUESKY_EPICS_DETECTORS"))
+        assert correctors and bpms, "up wired no scan devices into the repo's .env"
 
         yield DeployedStack(
-            project_dir=project_dir,
+            repo=repo,
             correctors=correctors,
             bpms=bpms,
+            # The render's copy, not the source one the operator edits: it is the
+            # file the deployed containers get, and the bounds below have to be
+            # the bounds the bridge enforces.
             limits=json.loads(
-                (project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8")
+                (repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
             ),
-            token=_env_value(project_dir, "BLUESKY_LAUNCH_TOKEN"),
+            token=_env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
         )
     finally:
-        down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=600)
+        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=600)
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
 
 
-def _env_value(project_dir: Path, key: str) -> str:
+def _seed_repo_env(repo: Path) -> None:
+    """Give the repo the ``.env`` ``osprey up`` refuses to start without.
+
+    The repo root's ``.env`` is the deployment's whole secret store and the file
+    every compose invocation is pointed at, so ``up`` aborts when it is absent.
+    ``osprey init`` writes one only when the shell exports a key for the
+    profile's provider, which this lane does not need — this is the ``cp
+    .env.example .env`` the CLI itself recommends, done for the operator. The
+    substrate values ``up`` mints (launch token, scan devices) are appended to
+    whatever is here.
+    """
+    env_path = repo / ".env"
+    if not env_path.exists():
+        shutil.copy(repo / ".env.example", env_path)
+
+
+def _env_value(repo: Path, key: str) -> str:
     from osprey.utils.dotenv import parse_dotenv_file
 
-    env_path = project_dir / ".env"
+    env_path = repo / ".env"
     assert env_path.is_file(), f"no .env written at {env_path}"
     value = parse_dotenv_file(env_path).get(key)
-    assert value, f"{key} missing/empty in the project .env"
+    assert value, f"{key} missing/empty in the deployment repo's .env"
     return value
 
 
@@ -416,7 +465,7 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
     # --- 2. compose the scan in the shared draft ---------------------------
     # One corrector axis swept across the middle half of its OWN
     # channel_limits band, reading one BPM. Device names and bounds both come
-    # from the built project, never from a hardcoded channel.
+    # from the render, never from a hardcoded channel.
     axis_name = next(iter(deployed_stack.correctors))
     sp_address, _rb = deployed_stack.correctors[axis_name]
     entry = deployed_stack.limits[sp_address]
@@ -444,7 +493,7 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
     assert status == 200, f"PATCH /draft failed: {status} {patched}"
 
     # --- 3. enqueue at the pinned revision, then arm the queue -------------
-    # The two halves of what used to be one direct launch: `POST /queue/items`
+    # The two halves of a launch: `POST /queue/items`
     # takes plan_name/plan_args from the server-side draft snapshot AT this
     # revision (never from the request body) and mints the OSPREY run id;
     # `POST /queue/start` is the token-gated arming action that drains it.

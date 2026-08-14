@@ -20,7 +20,7 @@ def gather_session_metadata(created_via: str) -> dict:
     import os
     import subprocess
 
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey.utils.workspace import load_osprey_config, resolve_project_root
 
     meta: dict = {"created_via": created_via}
 
@@ -31,7 +31,7 @@ def gather_session_metadata(created_via: str) -> dict:
     try:
         from osprey.mcp_server.workspace.transcript_reader import TranscriptReader
 
-        project_dir = resolve_workspace_root().parent
+        project_dir = resolve_project_root(load_osprey_config())
         reader = TranscriptReader(project_dir)
         current = reader.find_current_transcript()
         if current is not None:
@@ -103,7 +103,7 @@ def gather_session_metadata(created_via: str) -> dict:
     # --- Model name ---
     model_name: str | None = None
     try:
-        project_dir_for_settings = resolve_workspace_root().parent
+        project_dir_for_settings = resolve_project_root(load_osprey_config())
         settings_path = project_dir_for_settings / ".claude" / "settings.json"
         if settings_path.exists():
             with open(settings_path) as fh:

@@ -2,11 +2,11 @@
 
 Phase 4 lets a user be a distinct **persona** with its own rendered project
 (``modules.web_terminals.personas.<name>.project_path`` — see
-``resolve_personas()`` in ``src/osprey/deployment/web_terminals/ports.py``).
-Per-persona permission enforcement rides the *existing* project pipeline:
-each persona's own project ``config.yml``'s ``claude_code.permissions``
-renders into that project's own ``.claude/settings.json`` at build/regen
-time (``src/osprey/cli/templates/claude_code.py`` -> ``settings.json.j2``).
+``resolve_personas()`` in ``src/osprey/deployment/web_terminals/personas.py``).
+Per-persona permission enforcement rides the *existing* render pipeline:
+each persona project's own ``config.yml``'s ``claude_code.permissions``
+renders into that project's own ``.claude/settings.json`` at build time
+(``src/osprey/cli/templates/claude_code.py`` -> ``settings.json.j2``).
 There is no separate per-persona permission merge point to unit-test — the
 only thing left to prove is that this pipeline actually produces different,
 *enforced* behavior for two personas whose ``config.yml`` differ by a single
@@ -15,12 +15,13 @@ enforcement evidence (an unwired or dead code path can still render a
 plausible-looking ``settings.json``); only a live agent run proves the
 Claude Code CLI's own permission engine honors it.
 
-This module renders two minimal projects that stand in for two personas'
-projects and differ in ``config.yml`` by exactly one tool:
+This module builds two minimal deployment repos that stand in for two
+personas' projects and differ in the render's ``config.yml`` by exactly one
+tool:
 
-* **Persona A** ("denied"): default project config, PLUS
+* **Persona A** ("denied"): default rendered config, PLUS
   ``claude_code.permissions.deny: ["mcp__osprey_workspace__facility_description"]``.
-* **Persona B** ("permitted"): unmodified default project config. The
+* **Persona B** ("permitted"): unmodified default rendered config. The
   ``osprey_workspace`` server registration
   (``src/osprey/registry/mcp.py::FRAMEWORK_SERVERS["osprey_workspace"]``)
   already puts ``facility_description`` in ``permissions_allow``, so it is
@@ -52,8 +53,6 @@ reruns anywhere in this module.
 
 from __future__ import annotations
 
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -63,6 +62,7 @@ from tests.e2e.sdk_helpers import (
     HAS_SDK,
     init_project,
     is_claude_code_available,
+    render_dir,
     run_sdk_query_with_hooks,
 )
 
@@ -81,44 +81,51 @@ _DENIED_TOOL_SHORT_NAME = "facility_description"
 _PROMPT = "Call the facility_description tool (it takes no arguments) and report what it returns."
 
 
-def _regen(project_dir: Path) -> None:
-    """Re-render Claude Code artifacts (settings.json) from config.yml.
+def _deny_swing_tool(repo: Path) -> None:
+    """Add the swing tool to the render's deny list and re-render from it.
 
-    ``claude_code.permissions`` is baked into ``.claude/settings.json`` at
-    build/regen time, not read live — mirrors ``enable_writes_in_project``
-    and the ``safety_project_writes_off`` fixture in
-    ``tests/e2e/claude_code/conftest.py``.
+    ``claude_code.permissions`` is baked into ``.claude/settings.json`` when the
+    Claude Code artifacts are rendered, not read live, so flipping the config
+    alone leaves ``settings.json`` stale. ``regen_if_drift`` re-renders them from
+    the edited config — the same step ``osprey build`` performs, and the same one
+    ``sdk_helpers.enable_writes_in_project`` uses for the kill switch.
+
+    The edit lands in the RENDER (``<repo>/build/config.yml``), which is what the
+    agent's ``.claude/`` tree is generated from and what ``CONFIG_FILE`` points
+    the MCP servers at. Nothing here rebuilds the repo from ``profile.yml``: a
+    full rebuild would also re-render the ARIEL DSN override
+    ``init_project`` applies to the same file.
     """
-    result = subprocess.run(
-        [sys.executable, "-m", "osprey.cli.main", "claude", "regen", "--project", str(project_dir)],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert result.returncode == 0, (
-        f"osprey claude regen failed (exit {result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
+    from osprey.cli.templates.manager import TemplateManager
 
-
-@pytest.fixture(scope="module")
-def persona_a_denied_project(tmp_path_factory):
-    """Persona A: a minimal project whose config.yml explicitly denies the swing tool."""
-    tmp = tmp_path_factory.mktemp("persona-a")
-    project_dir = init_project(tmp, "persona-a-denied", provider="als-apg")
-    config_path = project_dir / "config.yml"
+    render = render_dir(repo)
+    config_path = render / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     claude_code_cfg = config.setdefault("claude_code", {})
     permissions_cfg = claude_code_cfg.setdefault("permissions", {})
     permissions_cfg.setdefault("deny", []).append(_DENIED_TOOL_ENTRY)
     config_path.write_text(yaml.dump(config, default_flow_style=False))
-    _regen(project_dir)
-    return project_dir
+
+    regenerated = TemplateManager().regen_if_drift(render)
+    assert regenerated, (
+        f"no Claude Code artifact was re-rendered after adding {_DENIED_TOOL_ENTRY} to "
+        f"{config_path} — settings.json would still carry the pre-edit permissions, and "
+        "the denial under test would never reach the CLI's permission engine"
+    )
 
 
 @pytest.fixture(scope="module")
-def persona_b_permitted_project(tmp_path_factory):
-    """Persona B: a minimal project with unmodified default config.
+def persona_a_denied_repo(tmp_path_factory):
+    """Persona A: a minimal deployment repo whose render denies the swing tool."""
+    tmp = tmp_path_factory.mktemp("persona-a")
+    repo = init_project(tmp, "persona-a-denied", provider="als-apg")
+    _deny_swing_tool(repo)
+    return repo
+
+
+@pytest.fixture(scope="module")
+def persona_b_permitted_repo(tmp_path_factory):
+    """Persona B: a minimal deployment repo with unmodified default config.
 
     ``facility_description`` stays in the default ``permissions.allow`` list
     (from the ``osprey_workspace`` server's ``permissions_allow``) — this is
@@ -130,7 +137,7 @@ def persona_b_permitted_project(tmp_path_factory):
 
 
 def test_persona_configs_differ_by_exactly_one_permission_entry(
-    persona_a_denied_project, persona_b_permitted_project
+    persona_a_denied_repo, persona_b_permitted_repo
 ):
     """Sanity guard on the fixture setup itself (not the enforcement claim).
 
@@ -139,8 +146,8 @@ def test_persona_configs_differ_by_exactly_one_permission_entry(
     behavioral tests below are actually isolating a single-tool permission
     difference rather than an incidental drift between the two builds.
     """
-    config_a = yaml.safe_load((persona_a_denied_project / "config.yml").read_text())
-    config_b = yaml.safe_load((persona_b_permitted_project / "config.yml").read_text())
+    config_a = yaml.safe_load((render_dir(persona_a_denied_repo) / "config.yml").read_text())
+    config_b = yaml.safe_load((render_dir(persona_b_permitted_repo) / "config.yml").read_text())
 
     perms_a = config_a.get("claude_code", {}).get("permissions", {}) or {}
     perms_b = config_b.get("claude_code", {}).get("permissions", {}) or {}
@@ -156,7 +163,7 @@ def test_persona_configs_differ_by_exactly_one_permission_entry(
 @pytest.mark.requires_api
 @pytest.mark.requires_als_apg
 @pytest.mark.asyncio
-async def test_denied_tool_refused_in_persona_a(persona_a_denied_project):
+async def test_denied_tool_refused_in_persona_a(persona_a_denied_repo):
     """Persona A's launched agent must never successfully call the denied tool.
 
     Production launch semantics: ``permission_mode="default"`` (via
@@ -167,7 +174,7 @@ async def test_denied_tool_refused_in_persona_a(persona_a_denied_project):
     Cost budget: $0.50
     """
     result = await run_sdk_query_with_hooks(
-        persona_a_denied_project,
+        persona_a_denied_repo,
         _PROMPT,
         approval_policy="auto_approve",
         max_turns=5,
@@ -218,7 +225,7 @@ async def test_denied_tool_refused_in_persona_a(persona_a_denied_project):
 @pytest.mark.requires_api
 @pytest.mark.requires_als_apg
 @pytest.mark.asyncio
-async def test_permitted_tool_allowed_in_persona_b(persona_b_permitted_project):
+async def test_permitted_tool_allowed_in_persona_b(persona_b_permitted_repo):
     """Persona B's launched agent must be able to successfully call the same tool.
 
     Same prompt, same production launch path (``permission_mode="default"``),
@@ -230,7 +237,7 @@ async def test_permitted_tool_allowed_in_persona_b(persona_b_permitted_project):
     Cost budget: $0.50
     """
     result = await run_sdk_query_with_hooks(
-        persona_b_permitted_project,
+        persona_b_permitted_repo,
         _PROMPT,
         approval_policy="auto_approve",
         max_turns=5,

@@ -357,3 +357,24 @@ def notify_agent_activity(
         post_json(f"{base}/api/agent-activity", {"tool": tool, "target": target}, timeout=1)
     except Exception as exc:
         logger.warning("agent-activity notify failed (non-fatal): %s", exc)
+
+
+async def notify_agent_activity_async(
+    tool: str,
+    kind: str,
+    panel: str | None = None,
+    detail: str | None = None,
+) -> None:
+    """Awaitable form of :func:`notify_agent_activity` for coroutine emit sites.
+
+    The single thread-hop for async tools: the blocking (bounded ~1s) POST runs
+    on a worker thread so the event loop is never stalled. Same fire-and-forget
+    contract — never raises.
+    """
+    import functools
+
+    import anyio
+
+    await anyio.to_thread.run_sync(
+        functools.partial(notify_agent_activity, tool, kind, panel=panel, detail=detail)
+    )

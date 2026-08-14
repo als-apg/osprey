@@ -2,7 +2,7 @@
 
 import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
 import { onConnectionStateChange, fetchJSON, withPrefix } from './api.js';
-import { initPanelManager, broadcastMode, handleUiModeFlip } from './panel-manager.js';
+import { initPanelManager, broadcastMode, handleUiModeFlip, navigateAndActivatePanel } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -15,12 +15,24 @@ import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initDisplayMenu } from './display-menu.js';
-import { initIdentityMenu } from './identity-menu.js';
 import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
-  initTerminal('terminal-container');
+  // Welcome modal FIRST: #welcome-overlay ships in the DOM from first paint
+  // (opaque, full-viewport, z-index 10000) and only this init wires its
+  // dismiss controls. Any earlier throw would leave the page permanently
+  // covered with no way out — so the overlay must be dismissable before any
+  // fallible init runs. Self-contained: needs only the DOM and /health.
+  void initWelcomeModal();
+  // Guarded: xterm.js loads from a CDN by default (local only in
+  // OSPREY_OFFLINE), so a network blip must degrade the terminal card, not
+  // kill the whole boot.
+  try {
+    initTerminal('terminal-container');
+  } catch (err) {
+    console.error('Failed to init terminal:', err);
+  }
   // Simple-mode operator chat. Guarded so a chat init failure can't break the
   // rest of the boot (the expert terminal is already up at this point).
   try {
@@ -48,7 +60,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initLogoutButton();
   initModeToggle();
   initDisplayMenu();
-  initIdentityMenu();
   initRailPosition();
   initDrawerTriggerHighlight();
   initSettings();
@@ -57,9 +68,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initHookDebug();
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();
-
-  // Welcome modal (once per server session)
-  initWelcomeModal();
 });
 
 /* ---- New Session Button ---- */
@@ -138,10 +146,11 @@ export function initLogoutButton() {
  * prefix (`window.__OSPREY_PREFIX__`, which `compute_url_prefix()` sets to
  * exactly `/u/<user>` for a multi-user container and to `""` otherwise).
  *
- * Read from the prefix rather than from the identity chip's text because the
- * prefix is the copy the app already routes every one of its own requests
- * through — the chip is display markup, and taking a name from rendered text
- * to put it back in a URL is how a display change becomes a wiring bug.
+ * Read from the prefix rather than from the display menu's identity line
+ * because the prefix is the copy the app already routes every one of its own
+ * requests through — that line is display markup, and taking a name from
+ * rendered text to put it back in a URL is how a display change becomes a
+ * wiring bug.
  * Returns `""` for a plain `osprey web`, which has no per-user prefix.
  */
 function terminalUserFromPrefix() {
@@ -353,6 +362,25 @@ function initIframePasteBridge() {
       pasteToTerminal(e.data.text);
       focusTerminal();
     }
+    // A panel asking its host to move THIS client to another panel — the
+    // sender-local twin of the panel_focus SSE path (the gallery's logbook
+    // submit is the first caller). Deliberately not a server broadcast: a
+    // human gesture in one browser must not move anyone else's workspace,
+    // and it gets a plain activation with no agent attribution.
+    //
+    // The url must be root-relative and NOT protocol-relative. The origin
+    // check above is necessary but not sufficient: a same-origin sender can
+    // still be an agent-authored artifact rendered in a sandboxed panel, and
+    // this url reaches an iframe src via buildEmbedSrc, which preserves
+    // whatever scheme it is handed. `javascript:alert(1)` survives it intact
+    // and would execute in the HOST origin, and `//evil.example/x` resolves
+    // to a cross-origin document — so a leading-slash test alone is a hole.
+    // Every real panel url is root-relative and already server-prefixed.
+    if (e.data && e.data.type === 'osprey:navigate'
+        && typeof e.data.panel === 'string' && typeof e.data.url === 'string'
+        && e.data.url.startsWith('/') && !e.data.url.startsWith('//')) {
+      navigateAndActivatePanel(e.data.panel, e.data.url);
+    }
   });
 
   // Drop zone: accept dragged artifacts onto the terminal container
@@ -404,7 +432,10 @@ async function initWelcomeModal() {
   const rightText = version ? `v${version}` : '';
   const innerWidth = 58; // matches box width (no Unicode offset needed — plain text line)
   const pad = 4; // padding from box edges
-  const gap = innerWidth - pad - leftText.length - rightText.length - pad;
+  // Clamped: dev builds carry long post-release versions (`v2026.6.2.post1058+g….d…`)
+  // that overflow the box; a negative gap would make repeat() throw and leave the
+  // overlay undismissable. A too-wide line just overhangs the border harmlessly.
+  const gap = Math.max(1, innerWidth - pad - leftText.length - rightText.length - pad);
   const versionLine = '    ║' + ' '.repeat(pad) + leftText + ' '.repeat(gap) + rightText + ' '.repeat(pad) + '║';
 
   // ASCII banner — uses the original OSPREY CLI banner art

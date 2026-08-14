@@ -107,7 +107,7 @@ REASON_MANAGER_UNREACHABLE = "manager_unreachable"
 # The one-line flip that turns a browse-only deployment into an executing one.
 # Carried in the capability detail so the refusal tells the operator exactly
 # what to do rather than only what went wrong.
-FLIP_COMMAND = "osprey config set-control-system virtual_accelerator"
+FLIP_COMMAND = "osprey set connector=virtual_accelerator"
 
 # Same exception set `_resolve_control_system_type` treats as "no readable
 # config" — see `_resolve_connector_type` for why this module probes for it
@@ -635,6 +635,17 @@ class QueueBackend:
         shows up as a failed run.
         """
         return await self._call("plans_allowed")
+
+    async def devices_allowed(self) -> dict[str, Any]:
+        """The devices the worker namespace currently exposes.
+
+        The authority on which device *names* a plan's parameters can carry:
+        every plan resolves its device fields by string name against the
+        worker's namespace, so a name absent here fails the run on its first
+        iteration. Reading it is how a caller learns the set instead of
+        guessing at it.
+        """
+        return await self._call("devices_allowed")
 
     # ---------------------------------------------- environment lifecycle
 

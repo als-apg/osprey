@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_runner.artifact_resolve import deployed_config_path, deployed_render_dir
 from osprey.agent_runner.primitives import await_mcp_ready, expected_mcp_servers
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats
 
@@ -68,8 +69,6 @@ try:
     HAS_SDK = True
 except ImportError:
     HAS_SDK = False
-
-_DEFAULT_PROJECT_DIR = "/app/project"
 
 # Bounds on per-run captured output. A run's text/tool output is held in memory,
 # persisted to JSON, and proxied to the dashboard, so an adversarial or runaway
@@ -245,7 +244,7 @@ def _assemble_user_content(
 
 async def _stream_with_ready_mcp(
     options: Any,
-    project_dir: str,
+    render_dir: str,
     prompt_stream: Any,
 ) -> Any:
     """Yield the run's messages, holding the first turn until MCP is registered.
@@ -273,7 +272,7 @@ async def _stream_with_ready_mcp(
         # ``await_mcp_ready`` polls an empty expectation to its full deadline,
         # which would add that delay to every run of a project whose .mcp.json
         # declares nothing (or could not be read).
-        expected = expected_mcp_servers(Path(project_dir))
+        expected = expected_mcp_servers(Path(render_dir))
         if expected:
             servers = await await_mcp_ready(client, expected)
             connected = {s.get("name") for s in servers if s.get("status") == "connected"}
@@ -288,7 +287,7 @@ async def _stream_with_ready_mcp(
             else:
                 logger.info("MCP ready before first turn: %s", sorted(connected))
         else:
-            logger.debug("No MCP servers declared for %s; skipping readiness barrier", project_dir)
+            logger.debug("No MCP servers declared for %s; skipping readiness barrier", render_dir)
 
         await client.query(prompt_stream)
         async for message in client.receive_response():
@@ -362,7 +361,11 @@ async def run_dispatch(
             0,
         )
 
-    project_dir = os.environ.get("OSPREY_PROJECT_DIR", _DEFAULT_PROJECT_DIR)
+    # The render inside the deployment repo — what the agent CLI treats as ITS
+    # project, the directory holding ``.mcp.json``, ``.claude/`` and the rendered
+    # ``config.yml``. Derived from the environment the compose service sets
+    # (``CONFIG_FILE`` beside ``OSPREY_PROJECT_DIR``), never re-derived here.
+    render_dir = str(deployed_render_dir())
     stderr_lines: list[str] = []
 
     # Build env the same way the OSPREY web server does for operator sessions:
@@ -379,7 +382,7 @@ async def run_dispatch(
     )
     from osprey.utils.config import get_facility_timezone
 
-    sdk_env = build_clean_env(project_cwd=project_dir)
+    sdk_env = build_clean_env(project_cwd=render_dir)
 
     # Keep subagent delegation in the foreground. Since CLI 2.1.x the Agent tool
     # auto-backgrounds delegated subagents: it returns immediately, the turn
@@ -395,13 +398,15 @@ async def run_dispatch(
     # needs the guard. The cost is that parallel delegations run sequentially.
     sdk_env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
 
-    # Point OSPREY config resolution at the project explicitly. The worker
-    # process CWD is the image WORKDIR (``/app`` in the container), not the
-    # project dir, and ``osprey.utils.config`` falls back to ``CWD/config.yml``
-    # when ``CONFIG_FILE`` is unset — so without this, the spawned agent and its
+    # Point OSPREY config resolution at the render explicitly. ``build_clean_env``
+    # carries the worker's own ``CONFIG_FILE`` through, and
+    # ``deployed_config_path`` reads that same variable, so this normally just
+    # restates the compose service's value — it is set unconditionally because a
+    # worker started without it would otherwise leave the spawned agent and its
     # hook subprocesses (which ``ClaudeAgentOptions(cwd=...)`` does not relocate)
-    # error with "No config.yml found in current directory" on every dispatch.
-    sdk_env["CONFIG_FILE"] = os.path.join(project_dir, "config.yml")
+    # falling back to ``CWD/config.yml`` and failing with "No config.yml found in
+    # current directory" on every dispatch.
+    sdk_env["CONFIG_FILE"] = str(deployed_config_path())
 
     # The container sets CLAUDE_CONFIG_DIR=/data/claude-config (root-owned, used
     # by osprey-web).  The dispatch user can't write there, and the CLI hangs on
@@ -437,8 +442,12 @@ async def run_dispatch(
 
     # Declared subagent tool surfaces from the provisioned .claude/agents/ —
     # each subagent is held to exactly its declared tools (web-terminal parity)
-    # without the trigger having to enumerate them.
-    agent_surfaces = parse_project_agents(project_dir)
+    # without the trigger having to enumerate them. Read from the RENDER, which
+    # is where the build writes ``.claude/`` and where the CLI itself loads the
+    # agents from; reading the repo root instead found nothing, and an empty
+    # surface map denies every delegation (see ``tool_policy``) — fail-closed,
+    # but it silently costs dispatch its subagents.
+    agent_surfaces = parse_project_agents(render_dir)
 
     # Narrow the main thread's allow set to this surface's keep-list, if any.
     # Pure removal only — cannot add a tool absent from allowed_tools, and
@@ -476,7 +485,13 @@ async def run_dispatch(
         can_use_tool=make_backstop(effective_tools, agent_surfaces, denied_tools),
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[policy_hook])]},
         disallowed_tools=sorted(disallowed),
-        cwd=project_dir,
+        # The render, not the repo root: the agent CLI takes its working
+        # directory as its project root, which is how it finds this deployment's
+        # ``.mcp.json``, ``.claude/`` tree (settings, hooks, skills, agents) and
+        # ``CLAUDE.md``. Same choice ``osprey chat`` makes when it chdirs into
+        # the render before launching, so headless dispatch and an interactive
+        # session see one project.
+        cwd=render_dir,
         env=sdk_env,
         max_turns=max_turns,
         stderr=lambda line: stderr_lines.append(line),
@@ -540,7 +555,7 @@ async def run_dispatch(
         yield {"type": "user", "message": {"role": "user", "content": user_content}}
 
     t0 = time.monotonic()
-    agen = _stream_with_ready_mcp(options, project_dir, _prompt_stream())
+    agen = _stream_with_ready_mcp(options, render_dir, _prompt_stream())
     try:
         # Drive the generator manually (rather than ``async for``) so each
         # ``__anext__`` is bounded by the inactivity watchdog. A full-window

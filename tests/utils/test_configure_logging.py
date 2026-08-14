@@ -234,9 +234,9 @@ class TestAcceptedStdoutLimitation:
 
     This is the deliberate trade, not an oversight: the same
     add-only-if-absent rule is what stops Osprey from evicting handlers it does
-    not own — ``caplog``'s among them — which is the leak this whole redesign
-    exists to fix. Nothing in the codebase installs a stdout ``RichHandler``
-    anymore (``redirect_logging_to_stderr()`` is gone), so the case is
+    not own — ``caplog``'s among them — which is the leak this guard exists to
+    prevent. Nothing in the codebase installs a stdout ``RichHandler``
+    (there is no ``redirect_logging_to_stderr()``), so the case is
     hypothetical here. It is pinned rather than described so that changing the
     guard's semantics in EITHER direction fails loudly instead of quietly
     altering where log bytes land.

@@ -1,10 +1,16 @@
-"""Project-directory persistence for the build pipeline.
+"""Render-tree persistence for the build pipeline.
 
-Everything that writes into the freshly rendered project directory that isn't a
-service injector: the ``--force`` pre-clear (preserving user-owned state),
-config overrides, convention-tree application + its scaffold-ownership
-registration, persisting profile MCP servers / custom categories into
-``config.yml``, and the initial git commit.
+Everything that writes into the freshly rendered tree that isn't a service
+injector: config overrides, convention-tree application + its
+scaffold-ownership registration, and persisting profile MCP servers / custom
+categories into ``config.yml``.
+
+Nothing here preserves anything across a build, and nothing here makes a git
+repository. The render is ``build/`` — output, wiped and re-made whole by every
+build — and the durable state sits outside it, in the repo's own ``.env``,
+``var/`` and ``.git``. A pre-clear that preserves is therefore meaningless
+(there is nothing in the render to keep) and a nested repository is actively
+wrong (the repo is the git boundary).
 """
 
 from __future__ import annotations
@@ -24,72 +30,6 @@ from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
 logger = get_logger("build")
-
-
-def _warn_unsynced_secrets(project_path: Path) -> None:
-    """Say so when the project ``.env`` is the only copy of its service secrets.
-
-    ``secrets_synced_to_profile: false`` means the last deploy minted or adopted
-    service secrets it could not write back to the profile — no profile
-    recorded, one that has moved, or one whose values disagree. The rebuild does
-    not destroy them (``.env`` is preserved, and the token vars are
-    :data:`osprey.utils.dotenv.RUNTIME_WRITER_KEYS`, so build-mode derivation
-    keeps the project's own values), but the profile still cannot reproduce
-    them: this project directory is the only place they exist, and the docker
-    volumes initialized with them will not accept a freshly minted set.
-
-    Advisory only — never raises, and never blocks the wipe.
-    """
-    from osprey.cli.templates.manifest import read_secrets_synced_to_profile
-
-    if read_secrets_synced_to_profile(project_path) is not False:
-        return
-    logger.warning(
-        "  ⚠ The last deploy could not sync this project's service secrets to its "
-        "profile — it has no copy of them, or holds a different set — so %s is the "
-        "only copy the running containers trust, and a project built from the "
-        "profile elsewhere would not authenticate against them. This rebuild keeps "
-        "that file; back it up anyway.",
-        project_path / ".env",
-    )
-
-
-def _clear_rendered_project_dir(project_path: Path) -> list[str]:
-    """Clear a project directory for ``--force``, keeping user-owned state.
-
-    Removes every top-level entry the build renders, but leaves what the user
-    owns — ``.env`` (secrets and the service tokens/passwords live docker
-    volumes were initialized with), ``_agent_data/`` (agent workspace), and
-    ``.git`` (the project's own history) — in place, untouched. This is what
-    makes ``--force`` (the staleness advisory's remedy) safe to run on a
-    stale project. ``data/`` is *not* preserved: it is build-owned (machine
-    models, channel databases, benchmark sets all re-render from the profile)
-    and checksummed by
-    :func:`osprey.cli.templates.manifest.calculate_file_checksums`.
-
-    The manifest goes with the rendered files, and with it the
-    ``secrets_synced_to_profile`` flag a deploy stamps. This is therefore the
-    last moment that flag can be read, so a recorded ``False`` — the last deploy
-    could not reach the profile that should own the secrets — is surfaced here
-    before the wipe. ``None`` means the manifest does not say (never deployed, a
-    manifest predating the flag, or one an earlier rebuild reset) and stays
-    silent: an unanswerable question must not read as a problem.
-
-    Returns:
-        Names of the preserved entries that were actually present.
-    """
-    _warn_unsynced_secrets(project_path)
-    user_owned = (".env", "_agent_data", ".git")
-    preserved: list[str] = []
-    for entry in sorted(project_path.iterdir(), key=lambda p: p.name):
-        if entry.name in user_owned:
-            preserved.append(entry.name)
-            continue
-        if entry.is_dir() and not entry.is_symlink():
-            shutil.rmtree(entry)
-        else:
-            entry.unlink()
-    return preserved
 
 
 def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> None:
@@ -143,7 +83,7 @@ def _resolve_context_roster(project_path: Path) -> list[str]:
 
     Where the subtree comes from is this function's own; deriving names from it
     is :func:`~osprey.deployment.web_terminals.personas.roster_user_names`, the
-    same call ``osprey profile new`` makes when it seeds the per-user context
+    same call ``osprey init`` makes when it seeds the per-user context
     slots this copy fills.
     """
     from osprey.deployment.web_terminals.personas import as_dict, roster_user_names
@@ -316,7 +256,7 @@ def _apply_conventions(
             f"Profile directory {profile_dir} is inside the installed osprey package — "
             "the build never reads convention material from, or seeds context into, "
             "package directories. Materialize an operator-owned profile first: "
-            "osprey profile new <dir> --preset <name>."
+            "osprey init <dir> --preset <name>."
         )
 
     warn_unknown_root_entries(profile_dir, extra_known)
@@ -548,62 +488,3 @@ def _persist_artifact_server(project_path: Path, overrides: dict[str, Any]) -> N
             anchored_put(block, "categories", categories)
 
     _save(config_path, data)
-
-
-def _git_init_and_commit(project_path: Path) -> None:
-    """Initialize a git repo and create an initial commit."""
-    import os
-    import subprocess
-
-    # Check if project is inside an existing git repo
-    inside_existing_repo = False
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=project_path,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            parent_root = Path(result.stdout.strip()).resolve()
-            if parent_root != project_path.resolve():
-                inside_existing_repo = True
-    except FileNotFoundError:
-        pass
-
-    try:
-        subprocess.run(["git", "init"], cwd=project_path, check=True, capture_output=True)
-        subprocess.run(["git", "add", "."], cwd=project_path, check=True, capture_output=True)
-        subprocess.run(
-            ["git", "commit", "-m", "Initial project from osprey build"],
-            cwd=project_path,
-            check=True,
-            capture_output=True,
-            env={
-                **os.environ,
-                "GIT_AUTHOR_NAME": "osprey",
-                "GIT_AUTHOR_EMAIL": "osprey@build",
-                "GIT_COMMITTER_NAME": "osprey",
-                "GIT_COMMITTER_EMAIL": "osprey@build",
-            },
-        )
-        logger.info("  ✓ Initialized git repository")
-        if inside_existing_repo:
-            logger.warning(
-                "  Note: created a nested git repo inside %s.\n"
-                "     This is required for Claude Code project isolation (it uses\n"
-                "     the git root to discover .claude/ settings). The parent repo\n"
-                "     will treat this directory as opaque.",
-                parent_root,
-            )
-    except FileNotFoundError:
-        logger.warning(
-            "  git not found — project created but not initialized as a git repo.\n"
-            "     Claude Code requires git. Run 'git init && git add . && git commit'"
-            " manually."
-        )
-    except subprocess.CalledProcessError:
-        logger.warning(
-            "  git init succeeded but initial commit failed.\n"
-            "     Run 'git add . && git commit' manually."
-        )

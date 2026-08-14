@@ -47,6 +47,7 @@ import {
   formatFullTime,
   openUrl,
   requestColorPass,
+  artifactPath,
 } from "./types.js";
 import { artifactViewportHtml, mountArtifactViewport } from "./artifact-viewport.js";
 import { injectLogbookButtons } from "./logbook.js";
@@ -105,6 +106,16 @@ export function createPreviewRenderer(callbacks) {
     if (!previewEmpty || !previewContent) return;
 
     if (!getSelectedArtifact()) {
+      // Never render the empty placeholder while fullscreen: fullscreen-mode
+      // hides the header, sidebar and splitter (gallery.css), so a cleared
+      // selection — Delete from the fullscreen header, or an agent-side
+      // artifact_deleted SSE — would strand a chrome-less pane with no exit
+      // affordance. exitFullscreen re-enters renderPreview with the flag
+      // already cleared, so this cannot recurse.
+      if (isFullscreen) {
+        exitFullscreen();
+        return;
+      }
       previewEmpty.classList.remove("hidden");
       previewContent.classList.add("hidden");
       return;
@@ -163,7 +174,7 @@ export function createPreviewRenderer(callbacks) {
         </span>` : ""}
         <span class="preview-meta-path" id="preview-copy-path" title="Click to copy path">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-          <span class="preview-path-text">_agent_data/artifacts/${escapeHtml(a.filename)}</span>
+          <span class="preview-path-text">${escapeHtml(artifactPath(a))}</span>
         </span>
       </div>
       <div class="preview-viewport">
@@ -191,7 +202,7 @@ export function createPreviewRenderer(callbacks) {
     const copyPathBtn = document.getElementById("preview-copy-path");
     if (copyPathBtn) {
       copyPathBtn.addEventListener("click", () => {
-        const path = `_agent_data/artifacts/${a.filename}`;
+        const path = artifactPath(a);
         navigator.clipboard.writeText(path).then(() => {
           copyPathBtn.classList.add("copied");
           setTimeout(() => copyPathBtn.classList.remove("copied"), 1500);

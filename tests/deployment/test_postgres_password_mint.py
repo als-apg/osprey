@@ -2,7 +2,7 @@
 
 Mirrors ``test_bluesky_token_mint.py``'s coverage for the ``postgresql``
 deployed-service entry in ``_SERVICE_TOKEN_VARS`` (container_lifecycle.py):
-``osprey deploy up`` mints a strong ``ARIEL_DB_PASSWORD`` into the project
+``osprey up`` mints a strong ``ARIEL_DB_PASSWORD`` into the project
 ``.env``, which the postgresql compose template reads as POSTGRES_PASSWORD and
 the ariel DSN (``ariel.database.uri``) references as
 ``${ARIEL_DB_PASSWORD:-ariel}`` — a single source of truth replacing the old
@@ -10,6 +10,8 @@ shared ``ariel``/``ariel`` default on fresh volumes.
 """
 
 from __future__ import annotations
+
+import subprocess
 
 import pytest
 
@@ -33,8 +35,12 @@ def captured_argv(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False):
+    def _fake_run(cmd, env=None, check=False, **kwargs):
         captured["cmd"] = cmd
+        # run_captured re-wraps this result to carry its spool path, so the
+        # stand-in has to be a real completed process, and it passes redirection
+        # kwargs this ignores.
+        return subprocess.CompletedProcess(list(cmd), 0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     return captured
@@ -75,7 +81,7 @@ def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
     ``execution`` section, so on its own it never exercises this combination —
     the one a since-deleted deploy-time guard used to withhold tokens under
     (``writes_enabled: true`` plus the ``local`` spelling of the subprocess
-    backend). Minting is now unconditional for every var a deployed service
+    backend). Minting is unconditional for every var a deployed service
     declares, and this password in particular is not an arming credential at
     all: it is the Postgres superuser secret the ARIEL store initializes with,
     and withholding it leaves the store on the shared ``ariel``/``ariel``

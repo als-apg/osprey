@@ -9,7 +9,7 @@ Covers the in-core sub-agents shipped by the ``control_assistant`` preset:
 - logbook-deep-research (ARIEL/PostgreSQL, opus model)
 - data-visualizer (workspace plotting/LaTeX tools, no facility backend)
 
-Facility-specific sub-agents (literature/wiki/matlab/graph) are no longer
+Facility-specific sub-agents (literature/wiki/matlab/graph) are not
 covered here — a facility ships them in its own build profile, and coverage
 for them belongs alongside that profile.
 
@@ -53,7 +53,7 @@ def _is_ariel_db_available() -> bool:
     Delegates to :func:`ariel_db_skip_reason`, which honors the
     ``OSPREY_ARIEL_DB_URI`` override. The matrix runner provisions a
     per-cell database and exports that override, so concurrent cells never
-    share one logbook DB — a scenario test in another cell can no longer drop
+    share one logbook DB — a scenario test in another cell cannot drop
     this cell's ``text_embeddings_*`` tables mid-test. Hardcoding
     ``dbname="ariel"`` here would check the wrong (shared) database.
     """
@@ -80,9 +80,9 @@ pytestmark = [
 
 @pytest.fixture(scope="module")
 def delegation_project(tmp_path_factory):
-    """Module-scoped initialized project for delegation tests.
+    """Module-scoped deployment repo for delegation tests.
 
-    Creates a control_assistant project once and reuses it across all tests.
+    Builds a control_assistant deployment once and reuses it across all tests.
     These agents are read-only search agents — no state leaks between tests.
     """
     tmp = tmp_path_factory.mktemp("delegation")
@@ -240,7 +240,7 @@ class TestAgentDelegation:
         tools (which means real channel database traversal happened).
 
         Channel-finder needs no external backend — its database ships with
-        the project — so this is an unconditional always-run test. The
+        the deployment — so this is an unconditional always-run test. The
         ``test_channel_finder_mcp_benchmarks.py`` suite covers retrieval
         accuracy; this one only validates the delegation handoff.
         """
@@ -308,7 +308,7 @@ class TestAgentDelegation:
         """Data-visualizer agent: sandboxed plot creation via workspace MCP tools.
 
         Unlike the logbook agents, this one needs no facility backend — the
-        workspace MCP server ships with the project itself and runs the
+        workspace MCP server ships with the deployment itself and runs the
         plotting subprocess locally.
 
         Delegation contract under test: a "create a plot of …" request must

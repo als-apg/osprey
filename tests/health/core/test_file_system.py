@@ -18,6 +18,7 @@ from osprey.health.core import CORE_CATEGORIES, get_core_category_factory
 from osprey.health.core import file_system as file_system_module
 from osprey.health.core.file_system import file_system
 from osprey.health.models import CheckResult, Status
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 
 _GB = 1024**3
 
@@ -107,7 +108,7 @@ class TestProjectPaths:
         assert str(tmp_path) in by_name["project_root_path"].message
 
     def test_agent_data_dir_existing_and_writable_ok(self, tmp_path: Path) -> None:
-        (tmp_path / "_agent_data").mkdir()
+        (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR).mkdir(parents=True)
         by_name = _by_name(_run({"project_root": str(tmp_path)}, tmp_path))
         assert by_name["agent_data_dir"].status is Status.OK
         assert "writable" in by_name["agent_data_dir"].message
@@ -136,8 +137,8 @@ class TestProjectPaths:
     def test_agent_data_dir_not_writable_warns(self, tmp_path: Path) -> None:
         if hasattr(__import__("os"), "geteuid") and __import__("os").geteuid() == 0:
             pytest.skip("root bypasses filesystem write permissions")
-        data_dir = tmp_path / "_agent_data"
-        data_dir.mkdir()
+        data_dir = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR
+        data_dir.mkdir(parents=True)
         data_dir.chmod(0o500)  # read/execute only, not writable
         try:
             by_name = _by_name(_run({"project_root": str(tmp_path)}, tmp_path))
@@ -182,39 +183,53 @@ class TestEnvFile:
 
 
 class TestRegistryFile:
-    def test_no_config_yml_emits_no_registry_row(self, tmp_path: Path) -> None:
+    """The registry row reads the config it was HANDED, not a config on disk.
+
+    It used to re-read ``<cwd>/config.yml``. Under the three-zone layout that
+    cannot work for both rows in this category at once: ``.env`` is at the repo
+    root and the rendered config is in ``build/``, so whichever directory a
+    caller passes, a re-read there finds one and misses the other. The miss is
+    silent — no row is appended and ``file_system`` is not CONFIG_DEPENDENT, so
+    the category still reports healthy.
+    """
+
+    def test_no_registry_path_in_config_emits_no_row(self, tmp_path: Path) -> None:
         assert "registry_file" not in _by_name(_run({}, tmp_path))
 
-    def test_config_yml_without_registry_path_emits_no_row(self, tmp_path: Path) -> None:
-        (tmp_path / "config.yml").write_text("project_root: /somewhere\n")
-        assert "registry_file" not in _by_name(_run({}, tmp_path))
+    def test_config_without_registry_path_emits_no_row(self, tmp_path: Path) -> None:
+        assert "registry_file" not in _by_name(_run({"project_root": "/somewhere"}, tmp_path))
 
     def test_registry_file_present_ok(self, tmp_path: Path) -> None:
         (tmp_path / "registry.yml").write_text("components: []\n")
-        (tmp_path / "config.yml").write_text("registry_path: registry.yml\n")
-        by_name = _by_name(_run({}, tmp_path))
+        by_name = _by_name(_run({"registry_path": "registry.yml"}, tmp_path))
         assert by_name["registry_file"].status is Status.OK
         assert str(tmp_path / "registry.yml") in by_name["registry_file"].message
 
     def test_registry_file_configured_but_missing_errors(self, tmp_path: Path) -> None:
-        (tmp_path / "config.yml").write_text("registry_path: registry.yml\n")
-        by_name = _by_name(_run({}, tmp_path))
+        by_name = _by_name(_run({"registry_path": "registry.yml"}, tmp_path))
         assert by_name["registry_file"].status is Status.ERROR
         assert "not found" in by_name["registry_file"].message
 
     def test_registry_path_expands_env_var(self, monkeypatch, tmp_path: Path) -> None:
         (tmp_path / "reg.yml").write_text("x: 1\n")
         monkeypatch.setenv("REG_FILE", "reg.yml")
-        (tmp_path / "config.yml").write_text("registry_path: ${REG_FILE}\n")
-        by_name = _by_name(_run({}, tmp_path))
+        by_name = _by_name(_run({"registry_path": "${REG_FILE}"}, tmp_path))
         assert by_name["registry_file"].status is Status.OK
 
-    def test_empty_config_yml_is_tolerated(self, tmp_path: Path) -> None:
-        # safe_load of an empty file returns None; the broad guard swallows the
-        # resulting AttributeError and no registry_file row is emitted.
-        (tmp_path / "config.yml").write_text("")
-        by_name = _by_name(_run({}, tmp_path))
-        assert "registry_file" not in by_name
+    def test_a_config_yml_on_disk_is_not_read(self, tmp_path: Path) -> None:
+        """The regression guard for the anchor bug this row used to have.
+
+        A ``config.yml`` sitting in ``cwd`` must not supply ``registry_path``:
+        the caller's mapping is the only source, so the row cannot appear or
+        disappear based on which zone the caller happened to point ``cwd`` at.
+        """
+        (tmp_path / "registry.yml").write_text("components: []\n")
+        (tmp_path / "config.yml").write_text("registry_path: registry.yml\n")
+
+        assert "registry_file" not in _by_name(_run({}, tmp_path))
+
+    def test_empty_config_is_tolerated(self, tmp_path: Path) -> None:
+        assert "registry_file" not in _by_name(_run(None, tmp_path))
 
 
 # --------------------------------------------------------------------------- #

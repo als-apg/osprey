@@ -28,6 +28,7 @@ import {
   updateHeaderTitle,
   getSteeringValues,
   getContextValues,
+  hideModal,
 } from '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
 import { qs, byId } from '../_support/dom.mjs';
 
@@ -231,5 +232,43 @@ describe('getContextValues', () => {
   test('no scope radio checked defaults to "this" (artifact_ids null) and session defaults true when the checkbox is absent', () => {
     document.body.innerHTML = '<div id="logbook-artifact-picker-list"></div>';
     expect(getContextValues()).toEqual({ include_session_log: true, artifact_ids: null });
+  });
+});
+
+// =========================================================================
+// hideModal — dismissal must work on DOM state, never the module cache
+// =========================================================================
+//
+// The submit success path nulls the module's `modal` cache (forcing the next
+// open to rebuild a fresh composer) BEFORE scheduling the 3-second
+// auto-dismiss. A cache-guarded hideModal therefore dismissed nothing: the
+// full-panel fixed overlay stayed up forever and the next open stacked a
+// second one. These tests pin the DOM-based contract.
+
+describe('hideModal', () => {
+  test('removes an overlay the module cache no longer references', () => {
+    const orphan = document.createElement('div');
+    orphan.className = 'logbook-overlay';
+    document.body.appendChild(orphan);
+
+    hideModal();
+
+    expect(document.querySelector('.logbook-overlay')).toBeNull();
+  });
+
+  test('dismisses every stacked overlay, not just the first', () => {
+    for (let i = 0; i < 2; i++) {
+      const el = document.createElement('div');
+      el.className = 'logbook-overlay';
+      document.body.appendChild(el);
+    }
+
+    hideModal();
+
+    expect(document.querySelectorAll('.logbook-overlay')).toHaveLength(0);
+  });
+
+  test('is safe to call with no overlay present', () => {
+    expect(() => hideModal()).not.toThrow();
   });
 });

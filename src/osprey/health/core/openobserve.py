@@ -92,7 +92,7 @@ async def _check_healthz(
             CATEGORY,
             Status.WARNING,
             f"Store unreachable at {url}: {exc}",
-            details="Deploy it with `osprey deploy up`, or check the bind address / port.",
+            details="Deploy it with `osprey up`, or check the bind address / port.",
         )
 
     if resp.status_code == 200:

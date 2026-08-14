@@ -95,17 +95,15 @@ def build_outputs(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     osprey_bin = _find_osprey_console_script()
 
     for preset in PRESETS:
-        project_dir = base / preset
+        repo = base / preset
+        project_dir = repo / "build"
+        _init_repo(osprey_bin, repo, preset)
         cmd = [
             str(osprey_bin),
             "build",
-            preset,  # project name
-            "--preset",
-            preset,
+            "--repo",
+            str(repo),
             "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
         ]
         proc = subprocess.run(
             cmd,
@@ -147,6 +145,26 @@ def _find_osprey_console_script() -> Path:
     raise RuntimeError(
         "Could not locate the 'osprey' console script. "
         f"Tried {Path(sys.executable).parent / 'osprey'} and PATH."
+    )
+
+
+def _init_repo(osprey_bin: Path, repo: Path, preset: str) -> None:
+    """Materialize the deployment repo a build then renders.
+
+    Out of process, like the build itself: this module exists to exercise the
+    real console script an operator runs, so the materialization half has to go
+    through it too. ``--no-git`` because nothing here reads the history.
+    """
+    proc = subprocess.run(
+        [str(osprey_bin), "init", str(repo), "--preset", preset, "--no-git"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "CLAUDECODE": ""},
+    )
+    assert proc.returncode == 0, (
+        f"osprey init failed for {preset} (rc={proc.returncode})\n"
+        f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
     )
 
 
@@ -303,20 +321,18 @@ def test_skip_deps_command_resolves_importable_python(
     (the python running osprey-build), not gamble on PATH resolution.
     """
     base = tmp_path_factory.mktemp(f"skipdeps_{preset}")
-    project_dir = base / preset
+    repo = base / preset
+    project_dir = repo / "build"
     osprey_bin = _find_osprey_console_script()
+    _init_repo(osprey_bin, repo, preset)
     proc = subprocess.run(
         [
             str(osprey_bin),
             "build",
-            preset,
-            "--preset",
-            preset,
+            "--repo",
+            str(repo),
             "--skip-deps",
             "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
         ],
         capture_output=True,
         text=True,
@@ -325,7 +341,7 @@ def test_skip_deps_command_resolves_importable_python(
     )
     if proc.returncode != 0:
         pytest.fail(
-            f"osprey build --skip-deps {preset} failed:\n"
+            f"osprey build --repo (preset {preset}) failed:\n"
             f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
         )
 

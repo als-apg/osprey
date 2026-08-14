@@ -163,7 +163,7 @@ class TestUnsupportedProvider:
 class TestCustomProxyProvider:
     """Custom Anthropic-compatible proxy via api.providers.
 
-    With the redesign, custom proxies own their model IDs via
+    Custom proxies own their model IDs via
     api.providers[name].models.  A proxy that specifies none is refused —
     the framework never substitutes another provider's model IDs.
     """

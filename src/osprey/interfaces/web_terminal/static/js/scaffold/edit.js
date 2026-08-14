@@ -249,7 +249,7 @@ export function createScaffoldGalleryEdit(gallery) {
       body.textContent =
         'You are about to take ownership of settings.json. ' +
         'OSPREY will no longer auto-manage this file during regeneration ' +
-        '(osprey claude regen). Future framework updates to permissions, ' +
+        '(osprey build). Future framework updates to permissions, ' +
         'hooks, and model configuration will not be applied automatically. ' +
         'You can release ownership later to restore framework management.';
       dialog.appendChild(body);

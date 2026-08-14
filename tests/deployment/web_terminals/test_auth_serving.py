@@ -31,7 +31,7 @@ config, its mount paths, the sidecar's argv, its non-secret environment and the
 external origin are all read out of ``render_web_terminals()``'s output;
 ``.env.auth`` is written by the production credential functions
 (``ensure_auth_session_secrets`` and ``set_auth_password``, what the deploy
-preflight and ``osprey deploy passwd`` call) and handed to the container through
+preflight and ``osprey users passwd`` call) and handed to the container through
 ``--env-file``, matching the rendered ``env_file:``. Only the passwords
 themselves are chosen here, because minting deliberately never returns one.
 
@@ -86,6 +86,7 @@ import pytest
 import yaml
 from packaging.requirements import Requirement
 
+from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     ensure_auth_session_secrets,
@@ -454,7 +455,7 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
 
     # `.env.auth` is written by the production credential functions, not
     # hand-rolled: `ensure_auth_session_secrets` is what a deploy preflight
-    # calls, and `set_auth_password` is what `osprey deploy passwd` calls. The
+    # calls, and `set_auth_password` is what `osprey users passwd` calls. The
     # sidecar then reads the real file through `--env-file`, matching the
     # rendered `env_file: .env.auth`. Known passwords rather than the minted
     # ones because `ensure_auth_credentials` deliberately never returns them.
@@ -489,11 +490,13 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
         for attempt in range(3):
             nginx_port = free_port()
             artifacts = render_web_terminals(_config(nginx_port))
-            # Lay the rendered artifacts out at the paths their own compose
-            # mounts expect, so the `./nginx/...` host sides resolve unchanged.
+            # Lay the rendered artifacts out the way the real writer does —
+            # under the repo's build/ zone — while `project` below plays the
+            # pinned compose project directory the mount sources resolve
+            # against. The two must agree or nginx starts with no config.
             project = tmp_path / f"project-{attempt}"
             for relative_path, content in artifacts.items():
-                target = project / relative_path
+                target = web_artifacts_dir(project) / relative_path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content)
             (project / "stub_upstream.py").write_text(_STUB_UPSTREAM)
@@ -1049,7 +1052,7 @@ def test_expired_entry_no_longer_authorizes(stack: Stack) -> None:
 
 
 def test_rotated_password_retires_sessions_minted_against_the_old_one(stack: Stack) -> None:
-    """The credential-generation tag is what makes ``osprey deploy passwd`` bite.
+    """The credential-generation tag is what makes ``osprey users passwd`` bite.
 
     Rotation changes the stored hash, so every session carrying the old hash's
     tag stops verifying — with no server-side session state, and surviving the

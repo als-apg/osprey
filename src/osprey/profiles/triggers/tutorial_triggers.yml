@@ -1,4 +1,4 @@
-# tutorial_triggers.yml
+# triggers.yml
 #
 # Four control-system-free demonstration triggers shipped with the
 # control-assistant preset. Each illustrates one event-dispatch concept so a
@@ -9,8 +9,8 @@
 #   3. save-report       — tool use, a short multi-turn loop, and persistence
 #   4. denied-tool-demo  — the worker's server-side tool denylist (safety)
 #
-# Fire one with (osprey deploy up generates EVENT_DISPATCHER_TOKEN in .env;
-# load it first: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
+# Fire one with (`osprey up` mints EVENT_DISPATCHER_TOKEN into this repo's
+# .env; load it first: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
 #   curl -X POST http://localhost:8020/webhook/hello-dispatch \
 #     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
 #     -H "Content-Type: application/json" -d '{}'
@@ -24,7 +24,7 @@
 
 dispatcher:
   # The dispatcher forwards each fired trigger to this worker. The compose
-  # template names the single tutorial worker "dispatch-worker-1" on port 9190.
+  # template names the single worker "dispatch-worker-1" on port 9190.
   # (Multi-worker load distribution is not yet implemented — see docs.)
   dispatch_target: http://dispatch-worker-1:9190
   max_concurrent_runs: 2
@@ -46,7 +46,7 @@ triggers:
   #      curl -X POST http://localhost:8020/webhook/triage-event \
   #        -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
   #        -H "Content-Type: application/json" \
-  #        -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0,"severity":"warning"}'
+  #        -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0}'
   - name: triage-event
     source: webhook
     action:
@@ -59,10 +59,10 @@ triggers:
       allowed_tools: []
 
   # 3. Tool use + a short multi-turn loop + persistence via the workspace MCP
-  #    artifact tool. Artifacts land in _agent_data/artifacts/ — the worker's
-  #    mounted workspace volume — so they survive the run. This is the sanctioned
-  #    persistence channel: the preset's memory guard intentionally blocks
-  #    arbitrary file writes, so the agent persists through the artifact tool.
+  #    artifact tool. Artifacts land in the worker's mounted workspace volume,
+  #    so they survive the run. This is the sanctioned persistence channel: the
+  #    preset's memory guard intentionally blocks arbitrary file writes, so the
+  #    agent persists through the artifact tool.
   - name: save-report
     source: webhook
     action:

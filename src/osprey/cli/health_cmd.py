@@ -1,9 +1,10 @@
 """``osprey health`` command — thin CLI wrapper over the health framework.
 
-This module is a thin Click wrapper: it resolves the project, performs the
-single ``config.yml`` load, assembles the merged category records (built-in
-"core" categories, declarative YAML categories, and facility plugins), runs the
-async health suite, and renders the report. All check logic lives in
+This module is a thin Click wrapper: it resolves the project's anchors
+(:func:`_resolve_anchors` — the rendered config, the repo root, the ``.env``),
+performs the single ``config.yml`` load, assembles the merged category records
+(built-in "core" categories, declarative YAML categories, and facility plugins),
+runs the async health suite, and renders the report. All check logic lives in
 :mod:`osprey.health`; this file only wires the pieces together.
 
 Design contracts honored here:
@@ -95,8 +96,40 @@ def _quiet_run_logs(*, as_json: bool, verbose: bool) -> Iterator[None]:
             logging.getLogger(name).setLevel(level)
 
 
-def _load_project_env(project_path: Path) -> None:
-    """Load the project's ``.env`` into ``os.environ`` with override semantics.
+def _resolve_anchors(project_path: Path) -> tuple[Path, Path, Path]:
+    """Resolve the config, repo-root and ``.env`` anchors for a stance directory.
+
+    Under the three-zone layout no single directory answers the whole question:
+    the rendered ``config.yml`` lives in the ``build/`` zone while the ``.env``
+    and every ``project_root``-relative path (registry file, agent data, disk
+    sample) belong to the repo root beside ``profile.yml``. Resolving one
+    directory for both gives a half-right answer from either stance — no config
+    from the repo root, no credentials from the render.
+
+    So the config is looked up the way :func:`osprey.utils.workspace.resolve_config_path`
+    looks it up (render first, then the flat spelling a container project
+    directory uses), the repo root is derived from wherever that landed, and the
+    ``.env`` comes from :func:`osprey.utils.workspace.deployment_env_path` —
+    the same repo-root-with-container-fallback rule the loader uses, spelled
+    once so the two cannot disagree.
+
+    Returns:
+        ``(config_path, repo_root, env_path)``. Nothing is required to exist;
+        a missing config is reported by the ``configuration`` category.
+    """
+    from osprey.utils.workspace import (
+        deployment_env_path,
+        rendered_config_path,
+        repo_root_for_config,
+    )
+
+    rendered = rendered_config_path(project_path)
+    config_path = rendered if rendered.is_file() else project_path / "config.yml"
+    return config_path, repo_root_for_config(config_path), deployment_env_path(config_path)
+
+
+def _load_project_env(dotenv_path: Path) -> None:
+    """Load the deployment's ``.env`` into ``os.environ`` with override semantics.
 
     The ``.env`` file is the source of truth for API keys and facility settings,
     so it overrides any pre-existing process environment. A missing file or a
@@ -106,7 +139,6 @@ def _load_project_env(project_path: Path) -> None:
         from dotenv import load_dotenv
     except ImportError:
         return
-    dotenv_path = project_path / ".env"
     if dotenv_path.exists():
         load_dotenv(dotenv_path, override=True)
 
@@ -169,7 +201,7 @@ async def _run_suite(
     "--project",
     "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
+    help="Deployment repo or rendered project directory (default: the current directory)",
 )
 @click.option(
     "--verbose", "-v", is_flag=True, help="Show per-warning and per-error details in the summary"
@@ -201,13 +233,13 @@ def health(
     full: bool,
     basic: bool,
 ) -> None:
-    """Check the health of your Osprey installation and configuration.
+    """Run health checks on this deployment.
 
     Runs a suite of diagnostics — configuration validity, file-system layout,
     Python environment, container infrastructure, telemetry store, API
-    providers, and the Claude Code CLI — grouped into categories. Cheap
-    poll-class categories run by default; costly on_demand categories (live
-    model chat completions, pinned-CLI verification) run only with ``--full``.
+    providers, and the agent CLI — grouped into categories. Cheap poll-class
+    categories run by default; costly on_demand categories (live model chat
+    completions, pinned-CLI verification) run only with --full.
 
     Exit codes:
 
@@ -224,13 +256,16 @@ def health(
       # Poll-class checks for the current project
       $ osprey health
 
+    \b
       # Include the on_demand model-chat checks
       $ osprey health --full
 
+    \b
       # Only the providers category, as JSON
       $ osprey health --category providers --json
 
-      # A specific project directory
+    \b
+      # A repo or rendered project directory
       $ osprey health --project ~/projects/my-agent
     """
     from rich.console import Console
@@ -257,20 +292,29 @@ def health(
 
     try:
         project_path = resolve_project_path(project)
-        config_path = project_path / "config.yml"
+        config_path, repo_root, env_path = _resolve_anchors(project_path)
 
         with _quiet_run_logs(as_json=as_json, verbose=verbose):
-            config_state, expanded, settings, config_ok = load_config(config_path, project_path)
+            config_state, expanded, settings, config_ok = load_config(config_path, repo_root)
 
-            # Load the project .env after the config load so its values are present
-            # in os.environ for the run-time checks (provider canaries, env scan).
-            _load_project_env(project_path)
+            # Load the deployment .env after the config load so its values are
+            # present in os.environ for the run-time checks (provider canaries,
+            # env scan).
+            _load_project_env(env_path)
 
             suite_timeout_s = settings.suite_timeout_s if settings else DEFAULT_SUITE_TIMEOUT_S
             on_demand_timeout_s = settings.on_demand_timeout_s if settings else None
 
             records, extra_rows = build_records(
-                config_state, expanded, settings, config_ok, project_path, suite_timeout_s
+                config_state,
+                expanded,
+                settings,
+                config_ok,
+                repo_root,
+                suite_timeout_s,
+                # Both anchors from the one resolver above: the repo root for
+                # what belongs to the repo, the render for what a build wrote.
+                render_path=config_path.parent,
             )
             selected = _validate_categories(
                 categories, {r.name for r in records}, config_ok=config_ok

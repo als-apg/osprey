@@ -140,7 +140,7 @@ slow; keep it serial so serving + testing don't contend).
 - A CBORG key (`~/.cborg_key`) for open models; an als-apg key (`~/.als_apg_key`)
   for the Anthropic reference bracket. A local server (e.g. `ds4`) needs no key.
 - A live, seeded **ARIEL Postgres** for the scenario columns (rf_cavity,
-  vacuum_burst); `osprey deploy up && osprey ariel migrate && osprey ariel
+  vacuum_burst); `osprey up && osprey ariel migrate && osprey ariel
   quickstart`. Those tests skip with an actionable message if it is absent. The
   scenario tests re-anchor the demo-logbook to "now" themselves at setup (via
   `activate_scenarios`), so no external timestamp-refresh cron is needed.

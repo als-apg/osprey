@@ -1,6 +1,6 @@
 # {{ app_display_name }}
 
-A production-grade control system assistant demonstrating enterprise patterns for scientific facility automation.
+A control system assistant for scientific facilities, built on pluggable control-system and archiver connectors.
 
 **Based on:** ALS Accelerator Assistant deployment (arXiv:2509.17255)
 **Framework:** Osprey {{ framework_version }}
@@ -10,14 +10,14 @@ A production-grade control system assistant demonstrating enterprise patterns fo
 
 ## 🎯 Overview
 
-This application demonstrates production-validated patterns for building AI assistants for accelerator control systems. It includes:
+This application shows how to build an AI assistant for an accelerator control system. It includes:
 
 - **Natural Language Channel Finding** - Find control system channels using natural language
 - **Live Value Retrieval** - Read current channel values using pluggable connectors
 - **Historical Data Analysis** - Retrieve and analyze time-series data from archiver
-- **Comprehensive Benchmarking** - Evaluate channel finder performance
-- **Development Mode** - Works instantly with mock connectors (no hardware required)
-- **Production Ready** - Switch to real EPICS/LabVIEW/Tango systems by changing config
+- **Benchmarking** - Evaluate channel finder performance
+- **Development Mode** - Works with mock connectors (no hardware required)
+- **Real Hardware** - Switch to EPICS or DOOCS systems by changing config; other stacks connect through custom connectors
 
 {% if channel_finder_mode == 'in_context' %}
 **Channel Finder Mode:** In-Context (Semantic Search)
@@ -43,17 +43,18 @@ This application demonstrates production-validated patterns for building AI assi
 - **`virtual_accelerator`** — a containerized PyAT soft-IOC serving real EPICS
   Channel Access with live storage-ring physics (corrector setpoints move BPM
   readbacks). **Requires the VA service** — add `virtual_accelerator` to
-  `deployed_services` in `config.yml`, run `osprey deploy up`, then
-  `osprey config set-control-system virtual_accelerator`.
+  `deployed_services` in `profile.yml`, run
+  `osprey set connector=virtual_accelerator`, then `osprey build` and
+  `osprey up`.
 
-  That last command **also requires a real archive**, and is refused while the
-  project still reads the `mock_archiver`: a simulated machine whose history is
-  synthesized at read time reports a past that never happened. Point
-  `archiver.type` at a store this deployment writes first — the way to get one
-  is a `va_archiver:` block in the build profile, which makes `osprey deploy up`
-  stand up a store and a recorder beside the VA and seed the history. See the
-  "Use the Virtual Accelerator" how-to guide for the archive, scenarios and
-  limits.
+  That pairing **also requires a real archive**: `osprey build` refuses while
+  the profile still reads the `mock_archiver`, because a simulated machine
+  whose history is synthesized at read time reports a past that never
+  happened. Point `archiver.type` at a store this deployment writes — the way
+  to get one is a `va_archiver:` block in the build profile, which makes
+  `osprey up` stand up a store and a recorder beside the VA and seed the
+  history. See the "Use the Virtual Accelerator" how-to guide for the archive,
+  scenarios and limits.
 - **`epics`** — production EPICS via the facility gateway.
 
 ---
@@ -201,7 +202,7 @@ Try these example queries to explore the assistant's capabilities:
 
 ## 🏗️ Architecture
 
-This template follows the proven **production architecture** from the ALS Assistant with pluggable connectors:
+This template follows the **layered architecture** of the ALS Assistant, with pluggable connectors:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -226,7 +227,7 @@ This template follows the proven **production architecture** from the ALS Assist
                           │                      │
 ┌──────────────────────────────┐    ┌─────────────────────┐
 │  Service Layer               │    │ Osprey Connectors   │
-│  src/{{ package_name }}/services/ │  │ (Issue #18)      │
+│  src/{{ package_name }}/services/ │  │ (pluggable)      │
 │  - channel_finder/           │    │ - Mock connectors   │
 └──────────────────────────────┘    │ - EPICS connectors  │
                                     │ - Custom connectors │
@@ -238,7 +239,7 @@ This template follows the proven **production architecture** from the ALS Assist
 ✅ **No Code Duplication** - Service logic lives in one place
 ✅ **Flexible Deployment** - Use in Osprey OR as standalone MCP server
 ✅ **Clean Testing** - Test services independently of framework
-✅ **Production-Validated** - Based on actual ALS deployment
+✅ **Based on a Real Deployment** - Structure taken from the ALS Assistant
 ✅ **Pluggable Connectors** - Switch from tutorial to production by changing config
 ✅ **Extensible** - Add custom connectors for any control system
 
@@ -246,7 +247,7 @@ This template follows the proven **production architecture** from the ALS Assist
 
 ## 🧪 Benchmarking
 
-The template includes a comprehensive benchmarking system to evaluate channel finder performance.
+The template includes a benchmarking system to evaluate channel finder performance.
 
 ### Run Benchmarks
 
@@ -272,10 +273,10 @@ Results are saved to `data/benchmarks/results/` with detailed metrics:
 
 ### Adding Custom Benchmarks
 
-The default benchmark uses the tier-resolved unified query set at
-`data/benchmarks/queries.json` (one source of truth, all paradigms read the
-same file). To run a custom query set, write a new file alongside it and
-point `channel_finder.benchmark.dataset_path` at it:
+The default benchmark uses the tier-resolved query set at
+`data/benchmarks/queries.json` (one file, read by every paradigm). To run a
+custom query set, write a new file alongside it and point
+`channel_finder.benchmark.dataset_path` at it:
 
 ```json
 [
@@ -355,13 +356,13 @@ models:
 
 ## 🔄 Adapting for Your Facility
 
-This template uses **pluggable connectors** that make migration from development to production incredibly simple - just change the configuration!
+This template uses **pluggable connectors**, so moving from development to production is a configuration change rather than a code change.
 
 ### Connector Architecture
 
-The template uses the **Osprey Connector Abstraction** (Issue #18) which provides:
+The template uses the **Osprey Connector Abstraction**, which provides:
 - **Development Mode**: Mock connectors work with any channel names (no hardware required)
-- **Production Mode**: Real connectors (EPICS, LabVIEW, Tango, etc.) with same API
+- **Production Mode**: Real connectors (EPICS, DOOCS) with the same API; LabVIEW, Tango and other stacks are supported via custom connectors
 - **Zero Code Changes**: Switch modes by editing `config.yml`
 
 ### Migration to Production
@@ -376,38 +377,41 @@ uv pip install pyepics
 pip install pyepics
 ```
 
-**Step 2:** Use interactive menu to switch to production mode:
+**Step 2:** Switch the connector to production mode:
 
 ```bash
-uv run osprey  # Launch interactive menu
+osprey set connector=epics
 ```
 
-Navigate: **Your Project** → `config` → `set-control-system`
-- Select: **EPICS - Production mode**
-- Confirm archiver switch: **Yes - Use EPICS Archiver Appliance**
-
-**Step 3:** Configure EPICS gateway for your facility:
-
-Navigate: **Your Project** → `config` → `set-epics-gateway`
-- Select your facility: **APS** / **ALS** / **Custom**
-
-Supported facilities:
-- **APS** (Argonne): `pvgatemain1.aps4.anl.gov:5064`
-- **ALS** (Berkeley): `cagw-alsdmz.als.lbl.gov:5064` (read), `5084` (write)
-- **Custom**: Interactive prompts for your gateway
-
-**Step 4:** Test your connection:
+**Step 3:** Configure the EPICS gateway for your facility:
 
 ```bash
-uv run osprey chat
+osprey set epics_gateway=als
+```
+
+Supported facilities:
+- **`aps`** (Argonne): `pvgatemain1.aps4.anl.gov:5064`
+- **`als`** (Berkeley): `cagw-alsdmz.als.lbl.gov:5064` (read), `5084` (write)
+- **Anything else**: set the gateway keys yourself, e.g.
+  `osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org`
+
+Both commands write `profile.yml`, the deployment's source. Nothing changes in
+a running stack until you render and restart it.
+
+**Step 4:** Rebuild, restart, and test your connection:
+
+```bash
+osprey build && osprey up -d
+osprey chat
 # Try: "What is the current beam current?"
 ```
 
 **That's it!** Your capabilities work unchanged - `ConnectorFactory` automatically uses the configured connector.
 
-#### Manual Configuration (Alternative)
+#### What Those Commands Write
 
-You can also edit `config.yml` directly:
+`osprey set` edits `profile.yml`, and the next `osprey build` renders it into
+`build/config.yml` as:
 
 ```yaml
 control_system:
@@ -418,11 +422,14 @@ control_system:
         read_only:
           address: cagw.your-facility.edu
           port: 5064
+```
 
-archiver:
-  type: epics_archiver  # Changed from 'mock_archiver'
-  epics_archiver:
-    url: https://archiver.your-facility.edu:8443
+The archiver is a separate choice and is not implied by the connector. Set it
+the same way:
+
+```bash
+osprey set config.archiver.type=epics_archiver
+osprey set config.archiver.epics_archiver.url=https://archiver.your-facility.edu:8443
 ```
 
 ### Why This Works
@@ -552,7 +559,7 @@ channel_finder:
 
 ## 📊 Production Patterns
 
-This template demonstrates enterprise patterns from the ALS deployment:
+This template carries two structural patterns from the ALS deployment:
 
 ### Error Handling
 - Custom error classes per capability
@@ -589,7 +596,7 @@ deployed_services:
 2. Deploy:
 
 ```bash
-uv run osprey deploy up
+osprey build && osprey up -d
 ```
 
 3. Point your MCP client at the server (e.g. a Claude Code project's `.mcp.json`):
@@ -612,7 +619,6 @@ uv run osprey deploy up
 - **Osprey Documentation**: https://als-apg.github.io/osprey/
 - **ALS Assistant Paper**: arXiv:2509.17255
 - **Channel Finder**: Embedded in `services/channel_finder/`
-- **Template Design Doc**: `CONTROL_ASSISTANT_TEMPLATE.md`
 
 ---
 

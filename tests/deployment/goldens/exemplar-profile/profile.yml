@@ -1,25 +1,31 @@
-# Profile — OSPREY build profile
+# Demo Facility — OSPREY deployment repo
+#
+# The repository is the deployment. One directory, four zones:
+#
+#   SOURCE   tracked, yours to edit — profile.yml, data/, personas/,
+#            triggers.yml, web-terminal-context/, scripts/, the CI files
+#   SECRETS  .env — git-ignored, durable: provider keys you set, plus the
+#            service tokens `osprey up` mints
+#   OUTPUT   build/ — git-ignored, 100% disposable. Every `osprey build`
+#            wipes and re-renders it; `rm -rf build/` loses nothing, ever
+#   STATE    var/ — git-ignored, durable: var/agent_data holds the agent's
+#            memory and sessions, var/audit the audit log. No build touches it
+#
+#   +--------------+  osprey   +--------------+  osprey  +----------------+
+#   |    SOURCE    |  build    |    build/    |    up    |   DEPLOYMENT   |
+#   | profile.yml  +---------->| config.yml   +--------->| agent CLI/web  |
+#   | data/  ...   |           | .mcp.json  … |          | + containers   |
+#   +--------------+           +--------------+          +----------------+
+#          ^                                                     |
+#          +---- edit -> osprey build -> osprey up --------------+
+#
+# `osprey up` starts strictly from build/ as it was built — it never renders
+# from this file. Edit profile.yml and `up` refuses until you re-run
+# `osprey build`, so a half-finished edit can never reach a running stack.
 #
 # Emitted from the bundled `control-assistant` preset as a fully explicit,
-# standalone profile: everything the preset configures is written out
-# below and is yours to edit. Nothing is inherited at build time.
-#
-#  YOU EDIT THIS                IS RENDERED INTO             WHICH RUNS AS
-#
-#  +----------------+  osprey   +----------------+  osprey   +-----------------+
-#  |    PROFILE     |  build    |    PROJECT     |  deploy   |   DEPLOYMENT    |
-#  |                |           |                |           |                 |
-#  |  profile.yml   +---------->|  config.yml    +---------->|  agent CLI/web  |
-#  |  data/         |           |  services/     |  up -d    |  + service      |
-#  |  rules/ …      |           |  .mcp.json     |           |    containers   |
-#  |  personas/     |           |  .env  ...     |           | (docker/podman) |
-#  +----------------+           +----------------+           +-----------------+
-#   durable source of            regenerable — a              osprey deploy down
-#   truth; keep + edit           --force rebuild              stops it; deploy
-#                                overwrites it                up recreates it
-#
-#        ^                                                          |
-#        +--- the loop: edit profile -> rebuild -> redeploy --------+
+# standalone profile: everything the preset configures is written out below and
+# is yours to edit. Nothing is inherited at build time.
 #
 # Provenance — what this profile was materialized from:
 #   source preset: control-assistant
@@ -31,9 +37,9 @@
 # source preset set it:
 #   claude_md_template, dependencies, environment, lifecycle, osprey_install, python_env
 #
-# Build a project from this profile, then deploy it:
-#   osprey build <PROJECT_NAME> profile/profile.yml
-#   cd <PROJECT_NAME> && osprey deploy up -d
+# Build this deployment, then start it:
+#   osprey build
+#   osprey up -d      (both from the repo root)
 
 name: Demo Facility
 
@@ -44,11 +50,10 @@ name: Demo Facility
 # — not the packaged one — is what the build uses from then on.
 app_template: control_assistant
 
-# Default LLM provider and model. Override here or via `osprey build`'s
-# --set provider=... / --set model=... flags, which are written into the
-# profile this preset materializes. The persona projects auto-rendered at
-# deploy time build from deltas over that same profile, so they pick the
-# change up from the file rather than from a replayed command line.
+# Default LLM provider and model. Override here, or with `osprey set`, which
+# writes the value into this profile. Every persona project is rendered from a
+# delta over this same profile, so they pick the change up from the file rather
+# than from a replayed command line.
 provider: anthropic
 model: haiku   # tier (haiku/sonnet/opus), or a model ID the provider serves
 
@@ -171,7 +176,7 @@ config:
   facility.name: Demo Facility
   # Exactly the three services this facility runs. Set explicitly because the
   # packaged control_assistant skeleton also declares `postgresql` — declared
-  # is not deployed, and this list is what `osprey deploy up` reads.
+  # is not deployed, and this list is what `osprey up` reads.
   #
   # Only `openobserve` is named here. Four more are appended by the injectors
   # their blocks above trigger — `facility-mcp` and `virtual_accelerator`, plus
@@ -202,16 +207,17 @@ config:
   # for you. Saying it in both places is rejected: they are free to disagree,
   # and the disagreement decides whether the host builds images or pulls them.
   #
-  # Each persona's `project` equals its `project_path` basename — the invariant
-  # persona auto-render relies on to land the rendered project exactly where the
-  # catalog mounts it.
+  # Each persona's `project` equals its `project_path` basename. Both are
+  # derived from the repo's own directory name, and `osprey build` names each
+  # persona render the same way, which is how the render lands exactly where
+  # the catalog mounts it.
   #
   # The `build_profile` values below are PRESET names, and are consumed only
-  # here, at materialization: `osprey profile new` renders each one into a
-  # delta at `personas/<name>.yml` beside the emitted profile and rewrites this
-  # catalog to point at that file. Deploy-time auto-render reads only the
-  # rewritten value, and accepts nothing else — a persona is built from a delta
-  # over this profile, never from a preset of its own.
+  # here, at materialization: `osprey init` renders each one into a delta at
+  # `personas/<name>.yml` beside the emitted profile and rewrites this catalog
+  # to point at that file. `osprey build` reads the deltas themselves and
+  # accepts nothing else — a persona is built from a delta over this profile,
+  # never from a preset of its own.
   modules.web_terminals:
     enabled: true
     nginx_port: 9080            # public-facing reverse proxy / landing page
@@ -262,16 +268,16 @@ env:
     - DEMO_REGISTRY_TOKEN
     #
     # The deploy host's SSH key is deliberately NOT here. The pipeline reads it
-    # from a fixed CI variable (`OSPREY_DEPLOY_SSH_KEY`) that authenticates the
-    # job itself; it is never part of the deployment's environment, so listing
-    # it would put a CI credential into `.env.example` as a deployment secret.
+    # from a fixed CI variable (`DEPLOY_SSH_KEY`) that authenticates the job
+    # itself; it is never part of the deployment's environment, so listing it
+    # would put a CI credential into `.env.example` as a deployment secret.
 
 # ── Deployment coordinates ───────────────────────────────────────────────────
-# Where this profile's project is built, pushed, and run. Read only by the
-# scaffolding verbs (`osprey deploy scaffold`), never by the build: nothing
-# here changes what the agent is, only where it lands.
+# Where this deployment is built, pushed, and run. Read only by the scaffolding
+# verb (`osprey scaffold ci`), never by the build: nothing here changes what the
+# agent is, only where it lands.
 deploy:
-  # CI platform whose pipeline `osprey deploy scaffold` renders.
+  # CI platform whose pipeline `osprey scaffold ci` renders.
   ci: gitlab
   # Where the pipeline pushes images. Host-and-path, no scheme — it appears
   # verbatim in an image name.

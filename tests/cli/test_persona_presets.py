@@ -2,13 +2,16 @@
 
 The ``control-assistant`` preset hosts its own multi-user web tier — nginx,
 the landing page, and one terminal container per roster user — alongside the
-full scan stack. Two persona presets extend it to carve out capability
-postures that differ on exactly one axis, ``control_system.writes_enabled``:
+full scan stack. Two persona presets extend it to carve out capability tiers
+that differ on exactly three axes — enforcement
+(``control_system.writes_enabled``), surface (``web.ui_mode``), and the
+write-oriented panel declarations (EVENTS + BLUESKY, readwrite-only):
 
-* ``control-assistant-readwrite`` — write-capable tier; channel writes pass
-  the ordinary safety chain (writes-check, limits, human approval).
-* ``control-assistant-readonly`` — read-only tier; every write surface
-  refuses.
+* ``control-assistant-readwrite`` — write-capable tier; expert workspace;
+  channel writes pass the ordinary safety chain (writes-check, limits, human
+  approval); declares the EVENTS/BLUESKY panels.
+* ``control-assistant-readonly`` — read-only tier; simple chat-first surface;
+  every write surface refuses; built without the EVENTS/BLUESKY panels.
 
 The base's own ``web_terminals`` roster block is also exercised here. Shared
 render helpers live at the top so new sections append without restructuring.
@@ -33,6 +36,19 @@ from osprey.utils.config_writer import config_update_fields
 # The single config key the two persona tiers differ on — the reference
 # monitor's master write switch (see osprey.connectors.control_system.base).
 WRITES_KEY = "control_system.writes_enabled"
+UI_MODE_KEY = "web.ui_mode"
+# The write-oriented panels: declared only in the readwrite persona, so the
+# readonly build genuinely lacks them (a persona delta can only add config
+# keys; `enabled: false` is inert for URL panels).
+READWRITE_PANEL_KEYS = (
+    "web.panels.events.label",
+    "web.panels.events.url",
+    "web.panels.events.path",
+    "web.panels.events.health_endpoint",
+    "web.panels.bluesky.label",
+    "web.panels.bluesky.url",
+    "web.panels.bluesky.path",
+)
 
 # The literal dotted key the hosting preset must carry: the whole web-terminals
 # module subtree addressed as one leaf so config_writer sets only this leaf and
@@ -94,9 +110,12 @@ def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant")
     So this applies the same rewrite, through the same function the
     materializer calls and over the same catalog it derives, keeping the lint
     tests below a unit-cost check of the real output rather than a pin on an
-    intermediate. (The end-to-end proof that these agree lives in
-    ``tests/cli/test_persona_profile_emission.py``, which drives
-    ``profile new`` → ``build`` for every persona-bearing preset.)
+    intermediate. ``repo_name`` is *preset*: a repo named after the preset is
+    exactly what a real ``osprey init --preset control-assistant`` produces, so
+    the rewritten ``project``/``project_path`` values match what materialization
+    would actually emit. (The end-to-end proof that these agree lives in
+    ``tests/cli/test_persona_profile_emission.py``, which drives ``osprey
+    init`` → ``osprey build`` for every persona-bearing preset.)
     """
     from osprey.cli.build_profile_emit import persona_catalog
     from osprey.cli.profile_cmd import _persona_catalog_layer
@@ -107,7 +126,8 @@ def _render_deployable_config(tmp_path: Path, preset: str = "control-assistant")
         yaml.safe_dump({"system": {}}, fh)
     config_update_fields(config_path, resolved.config)
     config_update_fields(
-        config_path, _persona_catalog_layer(persona_catalog(resolved.config))["config"]
+        config_path,
+        _persona_catalog_layer(persona_catalog(resolved.config), repo_name=preset)["config"],
     )
     with config_path.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
@@ -178,8 +198,9 @@ class TestControlAssistantWebTier:
         """The rendered ``modules.web_terminals`` subtree matches the two-persona
         tutorial shape: local image source, readonly default, a
         readonly/readwrite catalog whose ``project`` equals its ``project_path``
-        basename, and a roster mapping alice→readonly and bob→readwrite, both
-        explicit.
+        basename, and a roster mapping alice→readwrite and bob→readonly, both
+        explicit, each carrying the tab-title ``display_name`` that visibly
+        marks which terminal is write-armed.
 
         Deliberately pins the preset's OWN ``config:`` layer, BEFORE the catalog
         rewrite every build performs — which is why the ``build_profile`` values
@@ -199,8 +220,18 @@ class TestControlAssistantWebTier:
         assert wt["default_persona"] == "readonly"
         assert wt["nginx_port"] == 9080
 
-        assert wt["users"][0] == {"name": "alice", "index": 0, "persona": "readonly"}
-        assert wt["users"][1] == {"name": "bob", "index": 1, "persona": "readwrite"}
+        assert wt["users"][0] == {
+            "name": "alice",
+            "index": 0,
+            "persona": "readwrite",
+            "display_name": "Control Room (Alice)",
+        }
+        assert wt["users"][1] == {
+            "name": "bob",
+            "index": 1,
+            "persona": "readonly",
+            "display_name": "Read-Only View (Bob)",
+        }
 
         personas = wt["personas"]
         assert set(personas) == {"readonly", "readwrite"}
@@ -242,9 +273,9 @@ class TestControlAssistantWebTier:
         zero ERROR findings pre-deploy.
 
         The referenced persona projects do not exist yet at build time; the lint
-        demotes those missing-but-auto-renderable paths to informational findings
-        (they carry a ``build_profile`` deploy up renders from), so the gate is
-        clean before any project is rendered.
+        demotes those not-yet-rendered paths to WARNINGS (they carry a
+        ``build_profile`` naming the delta ``osprey build`` renders them from),
+        so the gate is clean before any project is rendered.
 
         Linted through :func:`_render_deployable_config`, i.e. after the catalog
         rewrite every build performs — the preset's own ``build_profile`` values
@@ -269,7 +300,7 @@ class TestControlAssistantWebTier:
         ``<prefix>-nginx`` and ``<prefix>-web-<user>`` for the tutorial roster
         — all match the Docker name grammar (start alphanumeric, no leading
         dash). An empty prefix renders leading-dash names like ``-nginx``,
-        which Docker rejects and ``osprey deploy up`` fails the web stack on.
+        which Docker rejects and ``osprey up`` fails the web stack on.
         """
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         prefix = rendered["facility"]["prefix"]
@@ -278,9 +309,9 @@ class TestControlAssistantWebTier:
             assert DOCKER_NAME_RE.match(name), f"invalid Docker container name: {name!r}"
 
     def test_rendered_config_satisfies_landing_url(self, tmp_path: Path) -> None:
-        """The rendered config passes the exact check ``deploy up`` runs —
-        ``_landing_url`` raises without ``deploy.fqdn``, aborting
-        ``osprey deploy up`` for the otherwise zero-config tutorial."""
+        """The rendered config passes the exact check ``osprey up`` runs —
+        ``_landing_url`` raises without ``deploy.fqdn``, aborting ``osprey up``
+        for the otherwise zero-config tutorial."""
         from osprey.deployment.web_terminals.render import _landing_url
 
         rendered = _render_config_overrides(tmp_path, {"system": {}})
@@ -295,10 +326,11 @@ class TestControlAssistantWebTier:
 
 
 class TestControlAssistantPersonas:
-    """The readonly/readwrite pair: identical projects except for the one
-    write-switch key. Any second difference that creeps in would turn the
-    multi-user story ("one switch, every write surface") into a lie, so the
-    invariant is asserted wholesale rather than key-by-key."""
+    """The readonly/readwrite pair: identical projects except for the tier
+    contract — enforcement (``writes_enabled``), surface (``ui_mode``), and
+    the write-oriented panel declarations (readwrite-only). Any FOURTH
+    difference that creeps in would turn the multi-user story into a lie, so
+    the invariant is asserted wholesale rather than key-by-key."""
 
     def test_readonly_extends_base_and_disables_writes(self) -> None:
         profile = resolve_preset("control-assistant-readonly")
@@ -322,21 +354,33 @@ class TestControlAssistantPersonas:
             profile = resolve_preset(name)
             assert profile.config.get("control_system.type") == "virtual_accelerator"
 
-    def test_personas_differ_only_on_writes_enabled(self) -> None:
+    def test_personas_differ_only_on_the_tier_contract(self) -> None:
         readonly = resolve_preset("control-assistant-readonly")
         readwrite = resolve_preset("control-assistant-readwrite")
 
         ro_cfg = dict(readonly.config)
         rw_cfg = dict(readwrite.config)
+        # Axis 1 — enforcement: the write switch.
         assert ro_cfg.pop(WRITES_KEY) is False
         assert rw_cfg.pop(WRITES_KEY) is True
-        # With the axis key removed, the rendered config overrides are identical.
+        # Axis 2 — surface: chat-first for the viewer, full dock for the operator.
+        assert ro_cfg.pop(UI_MODE_KEY) == "simple"
+        assert rw_cfg.pop(UI_MODE_KEY) == "expert"
+        # Axis 3 — write-oriented panels: declared for the write tier only.
+        # pop() without default doubles as the presence assertion on rw_cfg.
+        for key in READWRITE_PANEL_KEYS:
+            assert key not in ro_cfg, f"readonly persona must not declare {key}"
+            rw_cfg.pop(key)
+        # With the tier-contract keys removed, the personas are identical.
         assert ro_cfg == rw_cfg
 
-    def test_personas_share_every_artifact_list(self) -> None:
-        """No tier is defined by artifact removal — both inherit the tutorial's
-        full artifact set verbatim, scan skills and panels included (the
-        boundary is enforcement, not absence)."""
+    def test_personas_share_every_artifact_list_except_panels(self) -> None:
+        """No tier is defined by *tool* removal — skills, rules, hooks, agents
+        and output styles are inherited verbatim by both personas (the write
+        boundary is enforcement, not a stripped-down agent). Panels are the one
+        deliberate exception: the readwrite persona adds the write-oriented
+        EVENTS/BLUESKY tabs beside their URL declarations, and the readonly
+        persona is built without them."""
         readonly = resolve_preset("control-assistant-readonly")
         readwrite = resolve_preset("control-assistant-readwrite")
         base = resolve_preset("control-assistant")
@@ -346,7 +390,8 @@ class TestControlAssistantPersonas:
             assert persona.hooks == base.hooks
             assert persona.agents == base.agents
             assert persona.output_styles == base.output_styles
-            assert persona.web_panels == base.web_panels
+        assert readonly.web_panels == base.web_panels
+        assert set(readwrite.web_panels) == set(base.web_panels) | {"events", "bluesky"}
 
     def test_safety_chain_hooks_are_shipped(self) -> None:
         """The write-capable tier is supervised, not unguarded: the hooks that
@@ -383,8 +428,13 @@ class TestWebTerminalContextShipped:
     carries the ``docker/web-terminal-context/base.md`` that seeding
     requires. base.md is framework-layer: any project that seeds a web
     terminal user needs it, so it ships from the framework template root
-    rather than from one bundle. Without it, ``osprey deploy up`` brings up
-    the whole stack and then aborts at the seed step."""
+    rather than from one bundle. Without it, ``osprey up`` brings up the whole
+    stack and then aborts at the seed step.
+
+    The path is PROJECT-relative (``seeding._CONTEXT_RELPATH``), and in a
+    deployment repo the rendered project is the ``build/`` zone — which is why
+    the seeding test below places the render there rather than treating it as
+    the repo root."""
 
     def test_built_project_ships_base_md(self, tmp_path: Path) -> None:
         from osprey.cli.templates.manager import TemplateManager
@@ -396,7 +446,7 @@ class TestWebTerminalContextShipped:
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
         )
-        base_md = project_dir / seeding._CONTEXT_DIR / "base.md"
+        base_md = project_dir / seeding._CONTEXT_RELPATH / "base.md"
         assert base_md.is_file()
         assert base_md.read_text(encoding="utf-8").strip() != ""
 
@@ -421,7 +471,7 @@ class TestWebTerminalContextShipped:
             output_dir=tmp_path,
             data_bundle="hello_world",
         )
-        base_md = project_dir / seeding._CONTEXT_DIR / "base.md"
+        base_md = project_dir / seeding._CONTEXT_RELPATH / "base.md"
         assert base_md.is_file()
         assert base_md.read_text(encoding="utf-8").strip() != ""
 
@@ -431,18 +481,32 @@ class TestWebTerminalContextShipped:
         """A seeded roster on a non-control_assistant bundle reaches the
         CLAUDE.md write instead of aborting on a missing base.md — the
         pre-flight ``RuntimeError`` such a project hit before base.md became
-        framework-layer."""
+        framework-layer.
+
+        The render is placed where a deployment repo keeps it — as the repo's
+        ``build/`` zone — because that is where seeding resolves the overlay
+        tree. Seeding from the repo root is the deploy verbs' working
+        directory, so this exercises the real pairing rather than a bare
+        project directory no deployment has.
+        """
+        import shutil
         import subprocess
 
         from osprey.cli.templates.manager import TemplateManager
         from osprey.deployment.web_terminals import seeding
 
-        project_dir = TemplateManager().create_project(
+        rendered = TemplateManager().create_project(
             project_name="ctx-seed-hello",
             output_dir=tmp_path,
             data_bundle="hello_world",
         )
-        base_content = (project_dir / seeding._CONTEXT_DIR / "base.md").read_text(encoding="utf-8")
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        project_dir = repo / "build"
+        shutil.move(str(rendered), str(project_dir))
+        base_content = (project_dir / seeding._CONTEXT_RELPATH / "base.md").read_text(
+            encoding="utf-8"
+        )
 
         container = "dls-web-alice"
         seeded: list[bytes | None] = []
@@ -462,7 +526,7 @@ class TestWebTerminalContextShipped:
         monkeypatch.setattr(seeding.subprocess, "run", _fake_run)
         monkeypatch.setattr(seeding, "get_runtime_command", lambda config=None: ["docker"])
         monkeypatch.setattr(seeding, "runtime_env", lambda config, base_env=None, **kw: {})
-        monkeypatch.chdir(project_dir)
+        monkeypatch.chdir(repo)
 
         seeding.seed_user_containers(
             {

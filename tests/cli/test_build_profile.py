@@ -3,12 +3,13 @@ build-profile schema.
 
 Covers the :class:`BlueskyPanelsConfig` dataclass, the ``BuildProfile.validate``
 exemption that lets the non-builtin scan-panel web_panels ids
-(``plan``, ``results``) validate without a
-pre-existing ``web.panels.<id>.url`` when a ``bluesky_panels`` block is present
+(``bluesky``, plus the deprecated ``plan``/``results`` spellings) validate
+without a pre-existing ``web.panels.<id>.url`` when a ``bluesky_panels`` block
+is present
 (their urls are derived post-build by ``_inject_bluesky_panels``), and a
 regression guard that the shipped control-assistant preset/profile still
 validates — the gate task 3.3 (tutorial-config) re-runs after adding the
-scan panels to that preset.
+scan panel to that preset.
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ def test_bluesky_panels_ids_validate_without_url_when_bluesky_panels_present(
     _inject_bluesky_panels, which runs after this validator."""
     profile = BuildProfile(
         name="x",
-        web_panels=["plan", "results"],
+        web_panels=["bluesky"],
         bluesky_panels=BlueskyPanelsConfig(),
     )
     profile.validate(tmp_path)  # must not raise
@@ -185,37 +186,32 @@ def test_control_assistant_profile_validates() -> None:
 # The control-assistant preset now bakes the bluesky/virtual_accelerator/
 # bluesky_panels injector blocks in directly (no --set/--override flags needed),
 # so `osprey build` on the bare preset renders the full scan stack + the
-# three scan panels turn-key. These tests build the preset in-process
-# (CliRunner, --skip-deps --skip-lifecycle -- Docker-free, mirroring
-# tests/cli/test_va_default_config.py's scaffolded_project fixture and
+# BLUESKY scan panel turn-key. These tests build a control-assistant deployment
+# repo in-process (CliRunner, --skip-deps --skip-lifecycle -- Docker-free,
+# mirroring tests/cli/test_va_default_config.py's scaffolded_project fixture and
 # tests/e2e/_orm_stack.py's build_via_cli_runner) and assert on the rendered
-# project's config.yml.
+# build/config.yml.
 
 
 @pytest.fixture(scope="module")
 def turnkey_scan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Build the bare control-assistant preset (no overrides) into a tmp dir.
+    """Build the bare control-assistant preset (no overrides) into a tmp repo.
 
-    Module-scoped: the build is the slow part (template render + service
-    template copies) and every test in this section only reads the resulting
-    config.yml, so one build is shared across assertions.
+    The exemplar repo (:func:`build_exemplar_repo`) is control-assistant's
+    profile.yml written out verbatim, so materializing it and building it is
+    the bare preset with no overrides. Module-scoped: the build is the slow
+    part (template render + service template copies) and every test in this
+    section only reads the resulting config.yml, so one build is shared
+    across assertions.
     """
+    from tests.fixtures.lifecycle_repo import build_exemplar_repo
+
     tmp_path = tmp_path_factory.mktemp("turnkey-scan")
+    repo = build_exemplar_repo(tmp_path / "turnkey-scan")
     runner = CliRunner()
-    result = runner.invoke(
-        build,
-        [
-            "turnkey-scan",
-            "--preset",
-            "control-assistant",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
-    project_dir = tmp_path / "turnkey-scan"
+    project_dir = repo / "build"
     assert (project_dir / "config.yml").exists()
     return project_dir
 
@@ -256,12 +252,7 @@ class TestControlAssistantTurnkeyScanServices:
 
 
 class TestControlAssistantTurnkeyScanPanels:
-    """Both scan-panel web.panels entries are registered with a url."""
-
-    def test_control_assistant_scan_plan_panel(self, turnkey_scan_config: dict) -> None:
-        panel = turnkey_scan_config["web"]["panels"]["plan"]
-        assert panel["path"] == "/plan/"
-        assert panel["url"]
+    """The one scan-panel web.panels entry is registered with a url."""
 
     def test_control_assistant_scan_bluesky_panel(self, turnkey_scan_config: dict) -> None:
         panel = turnkey_scan_config["web"]["panels"]["bluesky"]
@@ -271,11 +262,18 @@ class TestControlAssistantTurnkeyScanPanels:
     def test_control_assistant_ships_no_deprecated_results_panel(
         self, turnkey_scan_config: dict
     ) -> None:
-        """The shipped preset is the new-build path, so it carries only the new
-        id. The deprecated ``results`` entry is an accommodation for projects
-        built before the rename (kept working by the sidecar's alias mount);
-        re-emitting it here would put the old tab back on every rebuild."""
+        """A fresh build carries only the canonical id. The deprecated
+        ``results`` entry is an accommodation for projects built against the
+        earlier spelling (kept working by the sidecar's alias mount); emitting
+        it here would put that tab back on every rebuild."""
         assert "results" not in turnkey_scan_config["web"]["panels"]
+
+    def test_control_assistant_ships_no_deprecated_plan_panel(
+        self, turnkey_scan_config: dict
+    ) -> None:
+        """Same rule for the PLAN panel, which is the Plans tab of BLUESKY. Emitting
+        both ids would put two rail entries in front of the same panel."""
+        assert "plan" not in turnkey_scan_config["web"]["panels"]
 
 
 class TestControlAssistantTurnkeyScanControlSystem:

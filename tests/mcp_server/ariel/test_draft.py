@@ -138,14 +138,13 @@ async def test_api_get_nonexistent_returns_404(draft_app):
 def test_read_draft_resolves_dir_without_dict_injection(tmp_path, monkeypatch):
     """Regression: production has no `DRAFTS_DIR` in module.__dict__.
 
-    Earlier code relied on a module-level `__getattr__` to lazily resolve
-    `DRAFTS_DIR`, but PEP-562 `__getattr__` does NOT intercept bare-name
-    global references inside the module — only external attribute access.
-    Tests previously hid this by writing to `module.__dict__` via
-    `monkeypatch.setattr(drafts_mod, "DRAFTS_DIR", ...)`, which made the
-    bare-name lookup succeed *only under test*. This test patches the
-    underlying resolver instead, exercising the exact code path production
-    runs through.
+    A module-level PEP-562 `__getattr__` does NOT intercept bare-name global
+    references inside the module — only external attribute access — so it
+    cannot lazily resolve `DRAFTS_DIR` for the module's own code. Writing to
+    `module.__dict__` via `monkeypatch.setattr(drafts_mod, "DRAFTS_DIR", ...)`
+    hides that by making the bare-name lookup succeed *only under test*. This
+    test patches the underlying resolver instead, exercising the exact code
+    path production runs through.
     """
     import osprey.utils.workspace as ws_mod
 

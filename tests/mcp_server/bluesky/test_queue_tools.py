@@ -105,7 +105,7 @@ _BROWSE_ONLY = {
     "detail": (
         "This deployment uses the mock connector, which cannot move hardware, so scan "
         "plans can be composed and validated but not executed. To execute plans, run "
-        "`osprey config set-control-system virtual_accelerator` and redeploy."
+        "`osprey set connector=virtual_accelerator` and redeploy."
     ),
 }
 
@@ -141,7 +141,7 @@ async def test_queue_status_does_not_gate_liveness_on_can_execute(tmp_path, monk
     parsed = extract_response_dict(result)
     assert parsed["status"] == "ok"
     assert parsed["capability"]["can_execute"] is False
-    assert "set-control-system virtual_accelerator" in parsed["capability"]["detail"]
+    assert "osprey set connector=virtual_accelerator" in parsed["capability"]["detail"]
     assert "error" not in parsed
 
 
@@ -235,7 +235,7 @@ async def test_queue_add_posts_the_pinned_revision_with_the_token_when_armed(tmp
     _armed(tmp_path, monkeypatch)
     body = {"run_id": "abc123", "revision": 7, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             result = await _add_fn()(draft_revision=7)
 
     assert m.call_args.args[0] == "/queue/items"
@@ -255,7 +255,7 @@ async def test_queue_add_withholds_the_token_when_writes_are_disabled(tmp_path, 
     """
     _configure(tmp_path, monkeypatch, writes=False, token=_TOKEN)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             await _add_fn()(draft_revision=3)
 
     assert m.call_args.kwargs["headers"] is None
@@ -265,7 +265,7 @@ async def test_queue_add_missing_config_fails_closed_and_withholds_the_token(tmp
     """No config.yml at all is not "writes enabled" by omission."""
     _configure(tmp_path, monkeypatch, writes=None, token=_TOKEN)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             await _add_fn()(draft_revision=3)
 
     assert m.call_args.kwargs["headers"] is None
@@ -275,7 +275,7 @@ async def test_queue_add_without_a_configured_token_still_composes(tmp_path, mon
     """An unarmed deployment may still build a queue; only starting it is gated."""
     _configure(tmp_path, monkeypatch, writes=True, token=None)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             await _add_fn()(draft_revision=3)
 
     m.assert_called_once()
@@ -373,6 +373,30 @@ async def test_queue_add_already_launched_revision_points_at_a_draft_edit(tmp_pa
     assert any("set_draft" in s for s in ctx["envelope"]["suggestions"])
 
 
+async def test_queue_add_unknown_device_points_at_the_device_list(tmp_path, monkeypatch):
+    """The name is wrong, not the revision. Without its own hints this code
+    falls back to "re-read the draft with get_draft", which sends the agent to
+    re-read a draft that says exactly what it said before — so the hints must
+    name list_devices, and the available set must survive to the caller."""
+    _armed(tmp_path, monkeypatch)
+    body = _refusal(
+        "unknown_device",
+        "plan 'grid_scan' referenced device 'COR9', which this worker did not build; "
+        "available devices: ['BPM1', 'COR1']",
+        plan="grid_scan",
+        devices=["COR9"],
+        available_devices=["BPM1", "COR1"],
+    )
+    with patch(f"{_MOD}._http_post_json", return_value=(400, body)):
+        with assert_raises_error(error_type="unknown_device") as ctx:
+            await _add_fn()(draft_revision=7)
+
+    envelope = ctx["envelope"]
+    assert envelope["details"]["available_devices"] == ["BPM1", "COR1"]
+    assert any("list_devices" in s for s in envelope["suggestions"])
+    assert not any("get_draft" in s for s in envelope["suggestions"])
+
+
 @pytest.mark.parametrize("code", ["session_plan_unvalidated", "session_plan_not_in_namespace"])
 async def test_queue_add_session_plan_refusal_names_the_offending_plan(tmp_path, monkeypatch, code):
     _armed(tmp_path, monkeypatch)
@@ -420,13 +444,13 @@ async def test_queue_add_emits_agent_activity_only_after_a_confirmed_enqueue(tmp
     with patch(
         f"{_MOD}._http_post_json", return_value=(409, _refusal("stale_draft_revision", "no"))
     ):
-        with patch(f"{_MOD}.notify_agent_activity") as notify:
+        with patch(f"{_MOD}.notify_agent_activity_async") as notify:
             with assert_raises_error(error_type="stale_draft_revision"):
                 await _add_fn()(draft_revision=7)
     notify.assert_not_called()
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "abc123"})):
-        with patch(f"{_MOD}.notify_agent_activity") as notify:
+        with patch(f"{_MOD}.notify_agent_activity_async") as notify:
             await _add_fn()(draft_revision=7)
     assert notify.call_args.kwargs["detail"] == "abc123"
 
@@ -465,15 +489,55 @@ async def test_queue_start_missing_config_fails_closed(tmp_path, monkeypatch):
     mock_post.assert_not_called()
 
 
-async def test_queue_start_without_a_token_refuses_client_side(tmp_path, monkeypatch):
-    """Writes-enabled alone is not sufficient — and the local refusal uses the wire code."""
+async def test_queue_start_without_a_token_files_a_panel_start_request(tmp_path, monkeypatch):
+    """The tokenless deployment posture: queue_start hands the decision to the human.
+
+    In a deployed web terminal the launch token lives with the operator panels
+    sidecar and never enters the agent's environment — so a tokenless
+    queue_start must not dead-end in a refusal that reads like a config bug.
+    It files ``POST /queue/start-request`` (no token header: the route arms
+    nothing), and the result tells the agent exactly what happens next: the
+    operator confirms in the queue panel. ``/queue/start`` is never called.
+    """
     _configure(tmp_path, monkeypatch, writes=True, token=None)
-    with patch(f"{_MOD}._http_post_json") as mock_post:
-        with assert_raises_error(error_type="launch_token_required") as ctx:
+    record = {
+        "request_id": "abc123",
+        "requested_by": "agent",
+        "requested_at": "2026-08-12T20:00:00+00:00",
+        "items_in_queue": 2,
+    }
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"start_request": record})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            result = await _start_fn()()
+
+    assert m.call_args.args[0] == "/queue/start-request"
+    assert m.call_args.kwargs["headers"] is None
+    body = extract_response_dict(result)
+    assert body["started"] is False
+    assert body["start_request"] == record
+    assert "queue panel" in body["message"]
+
+
+async def test_a_tokenless_start_request_relays_bridge_refusals(tmp_path, monkeypatch):
+    """An empty queue refuses the request with the bridge's own code, so the
+    agent hears "enqueue first", not a token problem."""
+    _configure(tmp_path, monkeypatch, writes=True, token=None)
+    body = _refusal("queue_empty", "the queue holds no items")
+    with patch(f"{_MOD}._http_post_json", return_value=(409, body)):
+        with assert_raises_error(error_type="queue_empty") as ctx:
             await _start_fn()()
 
+    assert ctx["envelope"]["details"]["code"] == "queue_empty"
+
+
+async def test_a_tokenless_start_still_respects_the_kill_switch(tmp_path, monkeypatch):
+    """Writes disabled refuses BEFORE any start request is filed: a request the
+    panel shows as confirmable must never exist on a writes-off deployment."""
+    _configure(tmp_path, monkeypatch, writes=False, token=None)
+    with patch(f"{_MOD}._http_post_json") as mock_post:
+        with assert_raises_error(error_type="writes_disabled"):
+            await _start_fn()()
     mock_post.assert_not_called()
-    assert ctx["envelope"]["details"]["code"] == "launch_token_required"
 
 
 @pytest.mark.parametrize(
@@ -506,7 +570,7 @@ async def test_queue_start_armed_posts_with_the_token(tmp_path, monkeypatch):
     """Contrast case: proves the refusals above are gated, not vacuous."""
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity"):
+        with patch(f"{_MOD}.notify_agent_activity_async"):
             result = await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start"

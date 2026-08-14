@@ -30,7 +30,8 @@ def _setup_config(project: str | None):
     if not os.path.exists(config_path):
         raise click.ClickException(
             f"Configuration file not found: {config_path}\n"
-            "Run 'osprey build my-project --preset hello-world' to create a project, "
+            "Run 'osprey init my-project --preset hello-world' to create a deployment "
+            "repo, then 'osprey build' from inside it, "
             "or use --project to specify the project directory."
         )
     os.environ["CONFIG_FILE"] = str(config_path)
@@ -83,7 +84,8 @@ def _profile_data_root(project_dir):
 
     Returns:
         The profile's data tree, or ``None`` when the project names no profile
-        (preset-built, legacy or absent manifest), the profile file is gone, it
+        (preset-built, or a manifest that is absent or names none), the profile
+        file is gone, it
         cannot be read, or the resolved profile declares no ``data:`` tree at
         all — every one of which is a normal state the caller falls back from
         rather than an error to raise. Never a guessed ``<root>/data``: a
@@ -117,7 +119,7 @@ def _profile_data_root(project_dir):
     "--project",
     "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: current directory or OSPREY_PROJECT env var)",
+    help="Project directory (default: the current directory)",
 )
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging")
 @click.pass_context
@@ -192,7 +194,7 @@ def build_database(
     \b
       build-database   -> writes the database into the profile
       (project reports its build as stale)
-      build --force    -> copies the profile's data tree into the project
+      osprey build     -> copies the profile's data tree into the project
       (advisory clears)
 
     The staleness advisory is the reminder that the new database has not been
@@ -228,7 +230,7 @@ def build_database(
             console.print(
                 Messages.warning(
                     "No profile data tree resolved for this project — writing into the "
-                    "project's data tree. A later 'osprey build --force' regenerates that "
+                    "project's data tree. The next 'osprey build' regenerates that "
                     "tree and overwrites this database; pass --output to keep it elsewhere."
                 )
             )
@@ -251,7 +253,7 @@ def build_database(
         console.print(
             Messages.info(
                 "Next step: the project now reports its build as stale — run "
-                "'osprey build --force' to deploy the new database."
+                "'osprey build' to deploy the new database."
             )
         )
 
@@ -610,7 +612,7 @@ def _parse_query_indices(queries_spec: str, total: int) -> list[int]:
     "--model",
     required=True,
     help=(
-        "LiteLLM-form ``provider/wire_id`` (e.g. anthropic/claude-haiku-4-5, "
+        "LiteLLM-form provider/wire_id (e.g. anthropic/claude-haiku-4-5, "
         "ollama/gemma3:4b). The provider determines auth and routing; the "
         "wire id is forwarded upstream. Saved BenchmarkRun.model records "
         "the exact string for reproducibility."

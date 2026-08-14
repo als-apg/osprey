@@ -186,9 +186,9 @@ class TestBuiltinArchiverRegistration:
     """``register_builtin_connectors()`` heals a partially-populated registry.
 
     The function short-circuits when every name in ``_BUILTIN_ARCHIVERS`` is
-    already registered. ``mongodb_archiver`` used to be appended outside that
-    tuple, so a registry holding the other archivers satisfied the early return
-    and the MongoDB entry was never added — leaving a project configured for
+    already registered. An archiver appended outside that tuple is invisible to
+    the check: a registry holding the other archivers satisfies the early return
+    and the missing entry is never added — leaving a project configured for
     ``mongodb_archiver`` unable to build its connector at all. These pin the
     tuple as the complete list.
     """

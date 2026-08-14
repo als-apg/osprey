@@ -6,13 +6,11 @@ once per provider. All items run **concurrently** inside the single category
 callable (``asyncio.gather``); each canary bridges its synchronous
 ``check_health`` onto a daemon thread with a per-item bound of
 :data:`_PER_ITEM_TIMEOUT_S` seconds, so the category's wall-clock stays ≈ 5s
-regardless of how many providers are configured — within the epic-locked poll
-bound.
+regardless of how many providers are configured — within the health poll bound.
 
 Results are advisory only: a reachable provider is ``ok``, and every failure
 mode (bad key, unknown provider, unreachable endpoint, timeout) is ``warning``.
-The category never emits ``error``. Zero configured providers yields no rows,
-matching the pre-framework behavior.
+The category never emits ``error``. Zero configured providers yields no rows.
 """
 
 from __future__ import annotations

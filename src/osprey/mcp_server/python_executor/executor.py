@@ -27,11 +27,10 @@ from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS
 
 logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 
-# scrub_sensitive_env (and its deny-list constants) used to be defined here.
-# The implementation now lives in osprey.mcp_server.sandbox_env (imported
-# above) so this module and the workspace sandbox
-# (osprey.mcp_server.workspace.execution.sandbox_executor) share one deny-list
-# instead of two that could drift.
+# scrub_sensitive_env and its deny-list constants live in
+# osprey.mcp_server.sandbox_env (imported above), never here: this module and
+# the workspace sandbox (osprey.mcp_server.workspace.execution.sandbox_executor)
+# must share one deny-list rather than two that can drift.
 
 
 @dataclass
@@ -67,15 +66,20 @@ def _read_config() -> dict:
 
 
 def _resolve_project_root() -> Path:
-    """Resolve the project root directory (parent of workspace root).
+    """Resolve the deployment repo root.
 
-    This is the directory that contains ``_agent_data/``, ``config.yml``,
-    etc.  Used as the subprocess ``cwd`` so that relative workspace paths
-    (e.g. ``_agent_data/data/002_archiver_read.json``) resolve correctly.
+    This is the directory that contains ``var/agent_data/``, ``build/``, and
+    ``.env``. Used as the subprocess ``cwd`` so that relative workspace paths
+    (e.g. ``var/agent_data/data/002_archiver_read.json``) resolve correctly.
+
+    Resolved directly rather than by taking the parent of the agent-data root:
+    that only ever agreed with the repo root while the data directory sat
+    exactly one level below it, which stopped being true when it moved under
+    ``var/`` and was never true for a project that relocated it.
     """
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey.utils.workspace import load_osprey_config, resolve_project_root
 
-    return resolve_workspace_root().parent
+    return resolve_project_root(load_osprey_config())
 
 
 def resolve_agent_interpreter(project_root: Path | None = None) -> Path:

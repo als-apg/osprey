@@ -9,6 +9,8 @@ import json
 
 import pytest
 
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+
 # -- Helpers ------------------------------------------------------------------
 
 
@@ -31,11 +33,13 @@ def _hook_extra(tmp_path):
 def _pending_items(tmp_path):
     """Read items from pending_reviews.json, return dict or empty.
 
-    The store lives under ``_agent_data/`` — it is written while the agent runs,
-    and a project's ``data/`` tree is build-owned and cleared by
-    ``osprey build --force``.
+    The store lives under the agent-data root — it is written while the agent
+    runs, and a project's ``data/`` tree is build-owned while ``build/`` is
+    re-rendered by every build. The root is taken from the same constant the
+    hook resolves, so a relocated ``agent_data.base_dir`` moves both together
+    instead of leaving this reading an empty directory and reporting no items.
     """
-    store = tmp_path / "_agent_data" / "feedback" / "pending_reviews.json"
+    store = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "feedback" / "pending_reviews.json"
     if not store.exists():
         return {}
     data = json.loads(store.read_text())

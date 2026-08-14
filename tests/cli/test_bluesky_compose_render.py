@@ -172,7 +172,8 @@ def test_manager_is_given_the_mandatory_existing_plans_devices_path(
     argv = _manager_argv(rendered)
     assert "--existing-plans-devices /app/qserver/existing_plans_and_devices.yaml" in argv
     assert (
-        "./bluesky/user_group_permissions.yaml:/app/qserver/user_group_permissions.yaml:ro"
+        "./build/services/bluesky/user_group_permissions.yaml:"
+        "/app/qserver/user_group_permissions.yaml:ro"
         in rendered["services"]["queueserver"]["volumes"]
     ), "the mount that guarantees /app/qserver exists is gone; the path above now has no directory"
 
@@ -286,8 +287,8 @@ def test_document_plane_secrets_do_not_cross_containers(rendered: dict[str, Any]
     bridge = rendered["services"]["bluesky-bridge"]
     queueserver = rendered["services"]["queueserver"]
 
-    assert "../../data/bluesky_curve/bridge:/app/curve:ro" in bridge["volumes"]
-    assert "../../data/bluesky_curve/queueserver:/app/curve:ro" in queueserver["volumes"]
+    assert "./data/bluesky_curve/bridge:/app/curve:ro" in bridge["volumes"]
+    assert "./data/bluesky_curve/queueserver:/app/curve:ro" in queueserver["volumes"]
     # Neither container can even see the other's certificate directory.
     assert not any("bluesky_curve/queueserver" in str(v) for v in bridge["volumes"])
     assert not any("bluesky_curve/bridge" in str(v) for v in queueserver["volumes"])
@@ -333,7 +334,7 @@ def test_control_plane_keys_fail_the_deploy_when_unminted(
 
 def test_control_plane_guards_name_the_variables_the_deploy_actually_mints() -> None:
     """The `:?` guards are only fail-CLOSED if they guard the names
-    `osprey deploy up` mints — a guard on a misspelled variable would abort
+    `osprey up` mints — a guard on a misspelled variable would abort
     every deploy instead, which is a different bug wearing the same clothes."""
     from osprey.deployment.container_lifecycle import (
         _QSERVER_ZMQ_PRIVATE_KEY_VAR,
@@ -390,7 +391,8 @@ def test_manager_is_given_a_user_group_permissions_file(rendered: dict[str, Any]
     argv = _manager_argv(rendered)
     assert "--user-group-permissions /app/qserver/user_group_permissions.yaml" in argv
     assert (
-        "./bluesky/user_group_permissions.yaml:/app/qserver/user_group_permissions.yaml:ro"
+        "./build/services/bluesky/user_group_permissions.yaml:"
+        "/app/qserver/user_group_permissions.yaml:ro"
         in rendered["services"]["queueserver"]["volumes"]
     )
 
@@ -452,7 +454,9 @@ def test_queueserver_gets_the_config_mount_and_config_file(rendered: dict[str, A
     image WORKDIR, not the project dir."""
     queueserver = rendered["services"]["queueserver"]
     assert queueserver["environment"]["CONFIG_FILE"] == "/app/project/config.yml"
-    assert "./bluesky/config.yml:/app/project/config.yml:ro" in queueserver["volumes"]
+    assert (
+        "./build/services/bluesky/config.yml:/app/project/config.yml:ro" in queueserver["volumes"]
+    )
 
 
 def test_limits_db_is_mounted_read_only_when_writes_are_enabled() -> None:
@@ -460,7 +464,7 @@ def test_limits_db_is_mounted_read_only_when_writes_are_enabled() -> None:
     writes-enabled deploy that skipped this mount could not scan at all."""
     rendered = _render(writes_enabled=True)
     assert (
-        "../../data/channel_limits.json:/app/project/data/channel_limits.json:ro"
+        "./data/channel_limits.json:/app/project/data/channel_limits.json:ro"
         in rendered["services"]["queueserver"]["volumes"]
     )
 
@@ -739,7 +743,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
     )
     build_args = rendered["services"]["bluesky-bridge"]["build"]["args"]
     assert build_args.get(_DEV_BUILD_ARG) == "1", (
-        f"`osprey deploy up --dev` must pass {_DEV_BUILD_ARG}=1, which is the value "
+        f"`osprey up --dev` must pass {_DEV_BUILD_ARG}=1, which is the value "
         f"the Dockerfile's guard compares against: {build_args}"
     )
 
@@ -781,7 +785,7 @@ def test_bridge_port_bind_stays_loopback_and_token_stays_fail_closed(
 
 def test_template_renders_valid_yaml_in_every_gating_combination() -> None:
     """The conditional blocks multiply: a combination that renders broken YAML
-    would only surface at `deploy up` on somebody's machine."""
+    would only surface at `osprey up` on somebody's machine."""
     for tiled in (False, True):
         for writes in (False, True):
             for deployed in (["bluesky"], ["bluesky", "virtual_accelerator"]):

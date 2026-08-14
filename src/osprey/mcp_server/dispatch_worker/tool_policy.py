@@ -45,7 +45,7 @@ except ImportError:  # pragma: no cover - exercised only without the SDK
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.tool_policy")
 
 # Permission-free harness tools the CLI lets an agent use without any allow
-# rule today; a strict deny-only hook would otherwise starve them (TodoWrite
+# rule; a strict deny-only hook would otherwise starve them (TodoWrite
 # progress tracking, WaitForMcpServers for MCP cold-start races). Deliberately
 # NOT included: Read/Glob/Grep — main-thread file access would expose e.g.
 # config.yml provider settings. Denylist entries still beat this set.
@@ -184,7 +184,7 @@ def make_backstop(
     subagent context to the union of all declared surfaces —
     ``ToolPermissionContext`` carries no ``agent_type``, so per-agent
     precision is the hook's job; the union merely never widens the main
-    thread (which today's flat allowlist would).
+    thread (which a single flat allowlist would).
     """
     trigger_set = frozenset(trigger_tools)
     denied_tuple = tuple(denied_tools)

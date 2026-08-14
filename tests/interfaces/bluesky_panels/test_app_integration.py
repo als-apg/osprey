@@ -264,7 +264,7 @@ def test_write_surface_is_exactly_draft_and_queue() -> None:
     # writes relayed verbatim to the bridge -- they never arm or launch a run.
     # No other write verb may exist anywhere in the composed app.
     #
-    # The six /queue writes are the sidecar's relay of the bridge's queue
+    # The /queue writes are the sidecar's relay of the bridge's queue
     # surface (see test_queue_relay.py), and are the ONLY way anything this
     # sidecar serves can put work in front of hardware. They add no policy
     # here: the launch token is resolved in-process and attached to every one
@@ -276,6 +276,11 @@ def test_write_surface_is_exactly_draft_and_queue() -> None:
     # for a plan already moving hardware, the bridge gates it on nothing, and
     # it is listed here for the same reason as the rest -- so a new write route
     # cannot appear without someone justifying it in this list.
+    #
+    # The two /queue/start-request writes are likewise writes in the HTTP
+    # sense only: filing parks a "please start" record for a human to answer
+    # (the bridge starts nothing for it) and the DELETE withdraws it. The
+    # arming path they feed is /queue/start, already on this list.
     #
     # Enumerated deliberately: a new write route must fail this test until
     # someone justifies it in this list.
@@ -292,6 +297,8 @@ def test_write_surface_is_exactly_draft_and_queue() -> None:
         ("/queue/items/{uid}/move", "post"),
         ("/queue/items/{uid}", "delete"),
         ("/queue/start", "post"),
+        ("/queue/start-request", "post"),
+        ("/queue/start-request", "delete"),
         ("/queue/stop", "post"),
         ("/queue/abort", "post"),
     }, f"unexpected write surface: {write_paths}"

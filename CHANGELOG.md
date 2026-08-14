@@ -11,7 +11,67 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Changed
+
+- Generated deployment repos, bundled skills, agent instructions and the
+  documentation now describe the system as it is, rather than as a set of
+  differences from an earlier arrangement. Guidance for moving an existing
+  deployment onto the profile format is unchanged.
+
+- Web terminal tile headers were redesigned: the bar now spans its whole tile
+  (close always at the tile's right edge), sits on one seated surface whose
+  hairline turns accent on the active tile, and renders one unified 24px
+  control language with SVG icons. Panel names lead the bar with contributed
+  text as a subtitle; on narrow tiles a contributed search collapses to its
+  magnifier and remaining controls fold into a ⋯ menu instead of vanishing.
+  The six-dot drag grip is gone — the bar itself remains the drag handle.
+
+- Lifecycle commands now report what they are doing instead of scrolling their
+  transcript past. `osprey init`, `build`, `up`, `restart` and `down` print one
+  line per phase as they work; `init`, `build`, `down` and a detached
+  `up -d`/`restart -d` finish with a summary card saying where the deployment
+  stands and what to run next (an attached start ends inside the live log
+  stream, so it gets none), and `osprey reset` ends with a one-line summary.
+  The container build and compose output they used to stream is spooled to
+  `var/logs/` — and a step that fails replays its own spool in full before the
+  error, so the reason is still on the screen. `osprey -v` streams everything
+  to the terminal as before.
+
+- The control-assistant preset's two-user roster now ships alice as the
+  write-capable operator and bob as the read-only viewer. The tiers differ
+  visibly, not just in enforcement: the write-armed terminal keeps the full
+  expert workspace with the EVENTS and BLUESKY panels, the read-only one gets
+  a chat-first simple layout without them, both default to the light theme,
+  and each browser tab is titled after its role.
+
 ### Added
+
+- A red CI lane now leaves evidence behind. Every Docker lane captures its
+  container logs, exit codes and `OOMKilled` flags — plus runner disk and
+  memory state — before teardown removes the containers, and uploads them as a
+  `ci-diag-<lane>` artifact. The unit-test lane records, per parallel worker
+  and flushed as it goes, which test was in flight, alongside a stack snapshot
+  of every thread taken every five minutes — including after the last test, so
+  a hang during shutdown is visible too. A lane that is killed rather than failing
+  (job timeout, runner stall) now names the test each worker stopped on in the
+  run summary, instead of ending as a silent `cancelled`. Lanes that declare a
+  time budget now cap their test step below it, so a hang fails that step and
+  the capture still runs, rather than the whole job being cancelled mid-teardown.
+
+- A tokenless `queue_start` now files a **start request** the operator confirms
+  in the BLUESKY queue panel, instead of dead-ending in a refusal. Deployed
+  web terminals never hold the scan launch token by design; the agent stages
+  and queues, the request appears in the queue panel beside the queue it would
+  drain, and the human's *Confirm start* click — the panel's own token-gated
+  start — is what arms it. Dismissing the request is always available and
+  starts nothing. Skill and error-message guidance across the scan stack now
+  explains this posture so agents hand the start to the human instead of
+  chasing the token in configuration.
+
+- An archiver read that comes back empty now says why: the response carries a
+  coverage verdict — the window predates or postdates the archive, the channel
+  was never recorded, or the window holds a genuine gap — with the archive's
+  real bounds, so an empty answer is never a silent one.
 
 - A virtual accelerator can now be deployed with a real archive behind it: a
   MongoDB store plus an archiver-recorder service that records the machine's
@@ -39,16 +99,33 @@ Compatibility is documented in release notes, not encoded in the version string.
   lattice summary stats moved into the panel body, Channel Finder's pipeline
   switcher and corpus stats into a bottom strip, and the lattice Baseline
   button now asks for confirmation before overwriting.
+- The rest of the docked panels moved their toolbars into that one header bar
+  too. **WORKSPACE** contributes its filter, its Types/Activity switch and its
+  ⋯ menu; **KNOWLEDGE** its search; **EVENTS** its Activity/Triggers tabs. A
+  panel's search box now renders with the same magnifier as the terminal's own
+  search, so the two read alike. In Simple view the search stays in the panel
+  body, where that view puts it front and centre.
+- The **PLAN** and **BLUESKY** tabs are now one **BLUESKY** panel with three
+  views — Plans, Queue, Results. The queue's state and its two halts (**Stop
+  after current item**, **Abort running plan**) stay on screen across all
+  three, and picking a run in Queue opens it under Results. Projects that
+  still register a `plan` panel keep working for one release: the sidecar
+  serves the merged panel at `/plan/` too. Drop `plan` from your profile's
+  `web_panels` and remove any `web.panels.plan.*` override.
 - `osprey -v` (`--verbose`) shows debug output, including every container
   command a deploy runs. Normal runs no longer echo those commands, so a
   deploy reads as a report — ending in the endpoint summary — rather than a
   transcript.
-- `osprey profile try` runs the whole lifecycle as one command: settle the
-  profile (materialized on the first run, reused — with `--set`/`-O` written
-  into it — on every later one), build the project (re-rendered in place on a
-  rerun), and `deploy up`, ending in the endpoint summary. One command with
-  each phase printed in sequence, instead of three commands chained across
-  three directories. `--dev` and `-d` pass through to the deploy.
+- Bluesky scan agents can discover the worker's device namespace: a
+  `list_devices` MCP tool and a `GET /devices` bridge endpoint. Substrate
+  devices are named by their control-system channel address, and `queue_add`
+  now checks a plan's device names against the worker's list at add time,
+  refusing unknown names with a clear error instead of failing later in the
+  worker.
+- CI runs the whole Bluesky scan-stack e2e family: a new agent-driven scan
+  lane (ORM and grid scans executed end-to-end and graded by a structural
+  floor plus an LLM judge), a queue-stack lane, and the grid-scan roundtrip
+  adopted into the ORM lane — all wired into the merge gate.
 - Profiles carry artifacts into a build through **convention directories** —
   `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
   `web-terminal-context/`, `mcp_servers/`, `services/`, and `project/` for
@@ -71,31 +148,25 @@ Compatibility is documented in release notes, not encoded in the version string.
   can hand a shadowed artifact back to the framework. A bare name used where
   the profile also ships a file for it is warned about, with the qualified
   spelling that would take effect.
-- `osprey profile new --force` replaces an existing profile directory, making
-  the materialize-and-build one-liner rerunnable. It only replaces a directory
-  that is a materialized profile (or empty), and deletes nothing until the new
-  profile has fully rendered — a failed run leaves the old directory intact.
-- The emitted `profile.yml` header now opens with a lifecycle diagram:
-  profile (edit) → build → project (regenerable) → deploy → running containers.
-- `osprey profile new` writes a **facility repository** rather than a bare
-  profile directory: a git repository holding the profile under `profile/`, an
-  empty `build/`, a `ci-extra.yml` for the facility's own CI jobs, and a
-  `.gitignore`. A profile nested this way renders into the repository's
-  `build/<PROJECT_NAME>/`, from whichever directory `osprey build` is run — no
-  `--output-dir` needed.
+- `osprey init --force` re-materializes an existing repo's source zone from the
+  preset — `profile.yml`, `data/`, `personas/`, `triggers.yml`,
+  `web-terminal-context/`, `.env.example` — losing any edit to them. It never
+  touches `.env`, `.git`, `var/`, `build/`, `.gitignore`, `README.md`,
+  `ci-extra.yml`, `.gitlab-ci.yml` or `scripts/verify.sh`.
+- The emitted `profile.yml` header now opens with a map of the repo's four
+  zones — source, secrets, build output, durable state — and the
+  edit → `osprey build` → `osprey up` loop that connects them.
 - A profile can carry a `deploy:` block: CI platform, deploy host, and the
   container registry when the host pulls its images. Credentials are named
   there, never written there.
-- `osprey deploy scaffold` emits the facility repository's CI pipeline and
-  post-deploy health check from that block. Re-running is safe — a file whose
-  content already matches is left untouched, and a file the scaffolder did not
-  write is reported rather than overwritten unless `--force` is given.
-- `osprey deploy render-env-production` renders `.env.production`, the env file
-  each per-user web-terminal container runs with, from the deploy config and one
+- `osprey scaffold ci` emits the repo's CI pipeline and post-deploy health
+  check from that block. Re-running is safe — a file whose content already
+  matches is left untouched, and a file the scaffolder did not write is
+  reported rather than overwritten unless `--force` is given. `ci-extra.yml`
+  is never touched; the pipeline includes it.
+- `osprey users env-production` renders `.env.production`, the env file each
+  per-user web-terminal container runs with, from the deploy config and one
   secrets file. `--output` writes it at mode `0600` instead of to stdout.
-- New skill `osprey-deploy-ops` — the operate-time runbook: emitting the
-  deployment files, bringing the stack up on the host, and triaging a service
-  that is down.
 - `archiver_read` gained `bin_size=0` for full resolution — every real
   archived sample in the requested range, with no per-bin decimation. Only
   valid with `processing="raw"` (an aggregate has no bin to aggregate
@@ -125,9 +196,44 @@ Compatibility is documented in release notes, not encoded in the version string.
   `config: {control_system.type: ...}`, so a connector can be chosen from the
   command line with `--set connector=epics`. Giving both spellings on one
   command line is an error rather than a silent last-one-wins.
+- You can see what the agent did to your workspace. A tile the agent focuses
+  or rearranges glows briefly, and its rail tab flashes with it, so a layout
+  that changes under you is never unattributed — your own clicks stay quiet.
+  An activity strip names each action in plain words ("agent opened
+  WORKSPACE"), and its history popover holds the recent ones for when you
+  looked away. Panels that changed while you were elsewhere keep a badge
+  across a reload until you visit them. Every agent tool that changes
+  something — queue and plan authoring, logbook entries, Phoebus drives,
+  python execution, lattice and window management — reports itself there.
 
 ### Changed
 
+- **A deployment is a git repo, and every lifecycle verb is top-level.**
+  `osprey init` creates the repo, `osprey set` edits its `profile.yml`,
+  `osprey validate` checks that profile without building, and `osprey build`
+  renders `build/` from it. `osprey up`, `down`, `restart`, `status`, `logs`
+  and `reset` operate the deployment; `osprey chat` talks to it; `osprey users`
+  manages the web-terminal roster; `osprey scaffold ci` emits the CI pipeline.
+  Each verb finds the repo by walking up from the working directory, so none of
+  them is given a project or config path — `--repo` overrides the starting
+  point. Running `osprey` with no arguments prints the command list.
+- Dev mode is a property of the build: `osprey build --dev` bakes the local
+  osprey checkout into the service images, and `osprey up --dev` starts that
+  render — refusing a render built without `--dev` instead of silently starting
+  the published release (`osprey up --build --dev` chains both). A plain
+  `osprey up` of a dev build warns that the images carry the local checkout.
+- Deployed agents can no longer reconfigure their own harness: the Claude Code
+  CLI's bundled harness-configuration skills (`update-config`,
+  `keybindings-help`, `fewer-permission-prompts`) are switched off in every
+  rendered project, and the `setup-mode` skill (which can patch config.yml)
+  left the operator preset's default roster — it stays in the artifact catalog
+  for admin profiles to opt into. Rebuilt control-assistant projects will
+  report preset staleness once; that is the intended signal.
+- **Log out** moved into the web terminal's display menu, alongside
+  **Settings** — the two now sit side by side under a line naming the signed-in
+  user. The separate user chip in the header is gone, leaving search and the
+  display menu there. Single-user terminals are unchanged apart from
+  **System Settings** being relabelled **Settings**.
 - Pairing a virtual accelerator with the mock archiver is refused — at build,
   at deploy, and at MCP server startup — because the VA moves channels for
   modelled reasons while the mock archiver invents history at read time, and
@@ -140,33 +246,23 @@ Compatibility is documented in release notes, not encoded in the version string.
   UI's single workspace slot is unchanged.
 - Raised minimum versions for `psycopg`, `psycopg-pool`, `uvicorn`, `rich`,
   `fastapi`, `charset-normalizer`, `unique-namer`, and `pymongo`.
-- **The profile is the source of truth for a built project.** Every
-  `osprey build` reads a profile directory; there is no build straight out of a
-  bundled preset. `--preset NAME` materializes `<PROJECT_NAME>-profile/` beside
-  the project on the *first* build and builds from it, and every later build
-  reuses that directory as it stands — so an edit made there is what the next
-  build renders. `--set`, `-O` and `--tier` are written into the profile before
-  the build reads it, and rolled back if the build fails. Naming a *different*
-  preset for a project that already has a profile is refused rather than
-  silently building the old one.
-- `osprey deploy` is a group of verbs, each declaring the options it actually
-  takes. `-d/--detached`, `--dev` and `--expose` were global before and were
-  accepted-then-ignored by verbs that have no use for them; passing one to such
-  a verb is now a parse error.
-- `osprey scaffold claim` moves an artifact into the matching convention
-  directory of the profile the project was built from, instead of marking it
+- Web-terminal archives written by `osprey users remove --archive` now land in
+  `<repo>/var/web_terminal_archives`, not `<project>/web_terminal_archives`.
+  Archives written before this release are left where they are; move them
+  yourself if you want them all in one place.
+- `osprey scaffold claim` moves an artifact out of the build zone and into the
+  matching convention directory of the repo's source zone, instead of marking it
   user-owned where it sits. The next build copies it back and registers it, so
   ownership is derived from what the build actually copied — there is no list
   to maintain, and an artifact a persona excludes is not owned, letting the
-  framework's version render in its place. A project with no resolvable profile
-  cannot be claimed into.
+  framework's version render in its place.
 - The profile's `.env` is where a project's secrets live. `osprey build`
   derives the project's `.env` from it and from nothing else, and a later build
   never re-reads your shell. A shell export reaches a profile only once, at
   materialization, and only for providers the profile actually references —
   keys exported for other providers are named in the summary rather than copied
-  in. `osprey deploy up` writes the credentials it mints back into the
-  profile's `.env`, append-only, so a rebuild comes up on the same secrets
+  in. `osprey up` writes the credentials it mints back into the profile's
+  `.env`, append-only, so a rebuild comes up on the same secrets
   instead of minting a second set the running containers do not trust.
 - The web terminal's System Settings drawer explains itself. Each tab opens
   with a standing one-line subtitle, and the category help tooltips now
@@ -188,12 +284,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   becomes a runaway backstop (100 turns), and a turn stays eligible for replay
   for 180 days instead of 90. Long-lived direct-message threads no longer drop
   older turns while sitting far under their size budget.
-- `osprey profile new` now writes persona profiles as small deltas
-  (`extends: ../profile.yml`) instead of full standalone copies: edit the host
-  profile once and every persona inherits the change, while each persona file
-  keeps its own capability posture (e.g. `control_system.writes_enabled:
-  false`) pinned explicitly. Model-selection choices baked at materialization
-  time — and `tier` — now reach personas through inheritance.
+- `osprey init` now writes persona profiles as small deltas under `personas/`
+  instead of full standalone copies. A file there merges over the repo's
+  `profile.yml` implicitly, so edit the host profile once and every persona
+  inherits the change, while each persona file keeps its own capability posture
+  (e.g. `control_system.writes_enabled: false`) pinned explicitly.
+  Model-selection choices baked at materialization time — and `tier` — now
+  reach personas through inheritance.
 - The shipped web-terminal rosters spell out `name`/`index`/`persona` on every
   user entry instead of bare-string shorthand for the first user. Behavior is
   unchanged; already-deployed projects will see a one-time profile-staleness
@@ -257,14 +354,14 @@ Compatibility is documented in release notes, not encoded in the version string.
   already deploys and run end to end out of the box. `mock` remains the
   fallback for environments with no containers to depend on, where scans are
   browse-only — plans compose and validate, but the queue will not hold them.
-  Switch with `osprey config set-control-system mock`.
+  Switch with `osprey set connector=mock`.
 - The Bluesky **RESULTS** panel is now **BLUESKY**, and holds the scan queue as
   well as the selected run's results. The sidecar serves the same bundle at
   `/results/` for one more release so existing bookmarks and panel entries keep
   resolving; move your own `web.panels.results.*` entries to
   `web.panels.bluesky.*` before then. The preset rename changes its resolved
   content, so an already-deployed project reports staleness on its next
-  `osprey deploy up`. That is the correct signal rather than noise — the tab a
+  `osprey up`. That is the correct signal rather than noise — the tab a
   user sees is renamed — and rebuilding picks it up.
 - Unknown keys in a build profile's `bluesky:` block now fail the build, naming
   the valid keys (`excluded_plans`, `plan_dir`, `port`, `tiled_enabled`,
@@ -273,13 +370,36 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Removed
 
-- The `osprey-build-deploy` skill. `osprey-deploy-ops` replaces it, and what
-  that skill used to scaffold by hand is now `osprey deploy scaffold`.
-- `facility-config.yml`. The `modules.web_terminals` stanza lives in the
-  project's own `config.yml`, emitted from the profile's `config:` block, and
-  the deployment files come from the profile's `deploy:` block. Passing
-  `--config` to `osprey scaffold web-terminals` is now an error naming both
-  replacements; use `--project` instead.
+- The `osprey deploy` and `osprey claude` command groups, the `osprey config`
+  subcommands, `osprey profile new` and `profile try`, several `osprey build`
+  options, and the interactive menu that bare `osprey` used to launch. What to
+  run instead:
+
+  | Removed | Use instead |
+  | --- | --- |
+  | `osprey deploy up` / `down` / `restart` / `status` / `build` | `osprey up` / `down` / `restart` / `status` / `build` |
+  | `osprey deploy clean` / `rebuild` / `nuke` | `osprey reset`, or `osprey up --build` to re-render and start |
+  | `osprey deploy decommission` / `prune` / `seed` / `passwd` / `render-env-production` | `osprey users remove` / `prune` / `seed` / `passwd` / `env-production` |
+  | `osprey deploy scaffold` | `osprey scaffold ci` |
+  | `osprey claude regen` | `osprey build` |
+  | `osprey claude status` / `chat` | `osprey status` / `osprey chat` |
+  | `osprey config show` / `export` | `osprey config --rendered` / `--defaults` |
+  | `osprey config set-control-system TYPE` | `osprey set connector=TYPE` |
+  | `osprey config set-epics-gateway --facility NAME` | `osprey set epics_gateway=NAME` |
+  | `osprey build --tier N` / `--set K=V` | `osprey set tier=N` / `osprey set K=V` |
+  | `osprey build PROJECT --preset P` | `osprey init PROJECT --preset P`, then `osprey build` |
+  | `osprey profile new DIR --preset P` | `osprey init DIR --preset P` |
+  | `osprey profile try` | `osprey init --preset P --up` |
+
+  `osprey profile presets` and `osprey profile validate` are unchanged.
+- The `osprey-build-deploy` skill. What it used to scaffold by hand — the CI
+  pipeline, the deployment files, the post-deploy health check — is now
+  `osprey scaffold ci` and the deploy verbs themselves.
+- `facility-config.yml`. The `modules.web_terminals` stanza lives in the repo's
+  built `config.yml`, emitted from the profile's `config:` block, and the
+  deployment files come from the profile's `deploy:` block. Passing `--config`
+  to `osprey scaffold web-terminals` is now an error naming both replacements;
+  use `--repo`, or run from inside the repo.
 - The `overlay:` profile key and the `overlays/` seed directory. Put a file in
   the convention directory that matches what it is; there is nothing left to
   declare.
@@ -314,16 +434,67 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `osprey health` now answers from either stance. It looks for the config where
+  a build writes it (`build/config.yml`) and reads credentials from the repo's
+  `.env`, so running it at the repo root no longer reports the config missing,
+  and pointing it at the render no longer runs the provider canaries and the
+  environment scan with no credentials loaded.
+- Container detection now recognizes Podman's `/run/.containerenv`, not only
+  Docker's `/.dockerenv`. Inside a Podman deployment the derived MCP health
+  probes were aimed at host URLs.
+- `osprey set` now says so when a key is not one the profile recognizes. The
+  key is still written, but the profile schema is closed, so the next
+  `osprey build` refuses the whole profile — which used to be the first hint,
+  reported against `profile.yml` rather than against the command that made the
+  edit. Keys addressing the rendered config (`config.…`) are unaffected.
+- A dispatch worker whose `agent_data.base_dir` is an absolute path now mounts
+  its workspace volume where the worker actually writes. The mount target was
+  re-anchored under the project directory, so the volume landed on a path
+  nothing used while the records went to the container's writable layer and
+  were lost on every recreate.
+- Several messages and rendered comments still named commands the redesign
+  removed — among them the refusal `osprey up` raises when `.env.production`
+  is missing, which pointed at `osprey deploy render-env-production` instead of
+  `osprey users env-production`.
+- A scan-stack deployment no longer intermittently refuses every scan with
+  "not in the list of allowed plans". The bridge opens the Run Engine worker
+  once at startup, and abandoned it whenever it won the boot race against the
+  queue server — leaving the list of runnable plans empty until someone started
+  the queue by hand. It now waits for the queue server to answer first.
+- One operator's tab switches no longer rearrange every other window of the
+  same workspace: a human panel focus is now mirrored to the server silently
+  (the agent can still read where the operator is looking) instead of being
+  broadcast back, whose delayed echo could evict tiles the operator had open —
+  in the gesturing window and in every other one. Closing a tile no longer
+  reports its side-effect focus change either.
+- Web terminal panels no longer freeze permanently — rendering but ignoring
+  every click — when a drag from the panel rail loses its end event (for
+  example the dragged entry was removed mid-drag by the agent or another
+  client). Drag cleanup now has document-level failsafes.
+- The web terminal's panel event stream reconnects after a proxy or backend
+  hiccup and re-syncs rail membership on every reconnect, so a browser that
+  missed events while disconnected converges instead of silently drifting.
+  Event-handling errors are now logged instead of swallowed.
+- Workspace gallery: the "Draft created" confirmation no longer sticks as a
+  permanent full-panel overlay after a successful logbook submit.
+- Workspace gallery: deleting the artifact being viewed fullscreen (locally
+  or agent-side) exits fullscreen instead of stranding a pane with no
+  controls.
+- The web terminal welcome screen wires its dismiss controls before any
+  fallible boot step, and a terminal-library load failure degrades the
+  terminal card instead of aborting the whole page boot.
 - Lattice dashboard summary stats (energy, tunes, chromaticity) no longer
   freeze at load time — they recompute with the fast figures after a magnet
   change. Also removed dead panel chrome the audit surfaced: ARIEL's unwired
   "Connected" indicator and the System Health panel's no-op manual refresh
   and misleading fetch-time timestamp.
-- On Docker Desktop (macOS/Windows), `osprey deploy up` now repairs a web
-  stack that is fully healthy yet unreachable from the browser. Docker
+- The **EVENTS** panel drew two header bars when docked — its own, plus the
+  tile's. It now hides its own, like every other panel.
+- On Docker Desktop (macOS/Windows), `osprey up` now repairs a web stack that
+  is fully healthy yet unreachable from the browser. Docker
   Desktop forwards a host-network port only if it watched the container open
   it, so a container that restarted while Docker Desktop itself was starting
-  stays invisible from the host — and re-running `deploy up` could never fix
+  stays invisible from the host — and re-running `osprey up` could never fix
   it, because nothing in the container's definition changed. The post-deploy
   reachability probe now restarts the web stack once and re-checks before
   pointing at the host-networking setting.
@@ -342,25 +513,23 @@ Compatibility is documented in release notes, not encoded in the version string.
 - A secret containing `$` no longer reaches a container truncated. Compose
   substitutes `$` sequences inside env-file values, so `secret$abc` arrived as
   `secret` and `P@$$w0rd` as `P@$w0rd` — while the file on disk still read
-  correctly, leaving a login that refused for no visible reason. `osprey
-  deploy` now refuses such a stack and names the offending variables (never
-  their values). All three files a deploy reads secrets from are checked —
+  correctly, leaving a login that refused for no visible reason. `osprey up`
+  now refuses such a stack and names the offending variables (never their
+  values). All three files a deploy reads secrets from are checked —
   `.env`, `.env.production` and `.env.auth` — including ones OSPREY did not
   write itself, so a CI-built `.env.production` and a hand-added OIDC client
-  secret are covered. `deploy passwd` checks before storing a new password.
+  secret are covered. `osprey users passwd` checks before storing a new
+  password.
 - The OIDC section of the multi-user guide named `.env` as the file to put
   client credentials in. It is `.env.auth` — credentials placed as documented
-  never reached the login service. The deploy skill's config-schema and
-  web-terminals references said the same thing and are corrected too.
+  never reached the login service.
 - Editing `.env.auth` by hand (the documented way to add OIDC client
-  credentials) now takes effect on the next `osprey deploy up`. On podman the
+  credentials) now takes effect on the next `osprey up`. On podman the
   login service previously kept running with the old file's contents —
   healthy-looking but rejecting every login — until it was recreated manually.
 - Lint now refuses a roster `oidc_subject` containing `$`. The subject travels
   through the rendered compose file, where `$` sequences are rewritten, so
   that user could never log in and nothing said why.
-- The deploy skill's CI template no longer lets the shell expand — or execute
-  backticks in — the ARIEL DSN and timezone it writes into `.env.production`.
 - The settings drawer's `CLAUDE.md` section now has a help tooltip. Its help
   text was filed under a category name no gallery ever displays, so the button
   silently never rendered — on the one artifact that matters most.
@@ -540,6 +709,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The `nextcloud_bridge` block in a generated `profile.yml` described itself as
   turning "a Nextcloud folder" into a trigger source. It answers questions from
   a Talk room; the comment now says so.
+- Deleting an artifact from the gallery, and the dispatch worker's retention
+  sweep, no longer show up as agent actions in the web terminal's activity
+  strip. Only mutations the agent actually performed are reported.
+- The python executor tools now reject `execution_mode` values other than
+  `readonly` and `readwrite`. An unrecognized spelling used to slip past both
+  write gates and run write-pattern code even with
+  `control_system.writes_enabled=false`. The deployment-level kill switch also
+  now covers `execute_file`, which previously had no such check.
 
 ## [2026.8.0]
 

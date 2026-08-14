@@ -13,6 +13,7 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
+from tests import ci_diagnostics
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -387,6 +388,48 @@ def pytest_collection_modifyitems(config, items):
                 cache[marker_name] = available
             if not available:
                 item.add_marker(pytest.mark.skip(reason=reason))
+
+
+# ===================================================================
+# CI diagnostics: what survives a kill
+# ===================================================================
+#
+# A test that FAILS reports itself. A lane that is KILLED — job timeout, runner
+# OOM, a wedged worker held until the step cap — reports nothing at all: the
+# signal lands while pytest's output is still in a buffer. These hooks keep a
+# continuously flushed record on disk instead, so the post-mortem has something
+# to read. See tests/ci_diagnostics.py for the file formats and for why
+# faulthandler must target a file rather than a worker's stderr.
+#
+# Entirely gated on OSPREY_CI_DIAG_DIR, which only the CI lanes set: with the
+# variable unset this installs nothing and costs nothing.
+
+_CI_DIAGNOSTICS: ci_diagnostics.DiagnosticsRecorder | None = None
+
+
+def pytest_configure(config):
+    """Open the per-worker records and arm the stack dumper."""
+    global _CI_DIAGNOSTICS
+    _CI_DIAGNOSTICS = ci_diagnostics.recorder_from_env()
+    if _CI_DIAGNOSTICS is not None:
+        _CI_DIAGNOSTICS.start()
+
+
+def pytest_runtest_logstart(nodeid, location):
+    """Fires before setup — so a test that never returns is still on record."""
+    if _CI_DIAGNOSTICS is not None:
+        _CI_DIAGNOSTICS.record("start", nodeid=nodeid)
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    """Fires after teardown. A `start` left unmatched is the wedged test."""
+    if _CI_DIAGNOSTICS is not None:
+        _CI_DIAGNOSTICS.record("finish", nodeid=nodeid)
+
+
+def pytest_unconfigure(config):
+    if _CI_DIAGNOSTICS is not None:
+        _CI_DIAGNOSTICS.stop()
 
 
 # ===================================================================

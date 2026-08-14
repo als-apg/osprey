@@ -5,7 +5,7 @@ deployed_services. Two failure modes have to stay fixed:
 
 1. ``osprey build`` must still copy the root ``services/docker-compose.yml.j2``
    into the project, because the renderer references it unconditionally.
-2. ``osprey deploy up`` must succeed (graceful no-op) instead of dying with
+2. ``osprey up`` must succeed (graceful no-op) instead of dying with
    ``TemplateNotFound`` mid-render.
 """
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from osprey.deployment.compose_generator import (
     resolve_project_name,
     resolve_user_volume_names,
 )
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
 
 
 def _write_config(project_path: Path, deployed_services: list[str]) -> Path:
@@ -105,7 +107,7 @@ def test_copy_service_templates_root_always_present_with_valid_pkg_services(
 #
 # The worker container runs a headless agent that needs the LLM provider key.
 # Its startup hook (``inject_provider_env``) resolves it from the process
-# environment, so the worker compose service declares ``env_file: ../../.env``
+# environment, so the worker compose service declares ``env_file: ./.env``
 # — read by the compose CLI on the HOST (as the file's owner) and injected
 # into the container environment. This works even though the project ``.env``
 # is deliberately 0600 and the worker runs as non-root ``osprey``: the
@@ -115,14 +117,14 @@ def test_copy_service_templates_root_always_present_with_valid_pkg_services(
 # ``compose up`` outright.
 # ---------------------------------------------------------------------------
 
-# The worker container now runs the full PROJECT image, whose layout bakes the
+# The worker container runs the full PROJECT image, whose layout bakes the
 # project at /app/<project> (Dockerfile ``COPY . /app/{{ project_name }}/``). The
 # compose paths must track that same <project> name — resolved by the generator's
 # ``_inject_project_metadata`` into ``osprey_labels.project_name`` (and the
 # ``<project>:local`` image tag), both from a single ``resolve_project_name(config)``
 # call — so the fixtures below drive the real injection rather than hardcoding "p".
 _WORKER_PROJECT_NAME = "hwt-fixture"
-_ENV_FILE_LINE = "- ../../.env"
+_ENV_FILE_LINE = "- ./.env"
 
 
 def _render_worker_template(
@@ -185,21 +187,21 @@ def _render_dispatcher_template() -> str:
 
 
 def test_dispatcher_build_context_is_project_dir_relative() -> None:
-    """The event-dispatcher image builds from ./event_dispatcher (project-dir relative).
+    """The event-dispatcher builds from ./build/services/event_dispatcher.
 
-    With multiple `-f` compose files, relative paths resolve against the first
-    file's dir (build/services/), not each file's own subdir. File-relative
-    contexts ('.', '../event_dispatcher') break a fresh `osprey deploy up` build
-    with "unable to prepare context: path .../build/event_dispatcher not found".
+    Every relative path in every compose file resolves against ONE directory —
+    the pinned compose project directory, which is the deployment repo root
+    (``--project-directory``, see ``compose_base_cmd``) — never the file's own
+    subdir. So a context naming the render has to spell the build zone.
     """
-    assert "context: ./event_dispatcher" in _render_dispatcher_template()
+    assert "context: ./build/services/event_dispatcher" in _render_dispatcher_template()
 
 
 def test_worker_does_not_build_shared_image() -> None:
     """The worker must NOT declare its own build for its image tag.
 
-    The worker runs the project image (``<project>:local``) that `osprey deploy
-    up` builds once before `compose up` (see ``_build_project_image``). If the
+    The worker runs the project image (``<project>:local``) that `osprey up`
+    builds once before `compose up` (see ``_build_project_image``). If the
     worker also declared `build:`, two builders would race to tag the same
     image — one fails with ``ERROR: image ... already exists`` (deterministic
     once base layers are cached). The worker only references the prebuilt tag
@@ -220,7 +222,7 @@ def test_worker_does_not_build_shared_image() -> None:
 def test_worker_template_declares_env_file_when_present() -> None:
     rendered = _render_worker_template(env_present=True)
     assert "env_file:" in rendered and _ENV_FILE_LINE in rendered, (
-        "dispatch worker must declare env_file: ../../.env so the agent can "
+        "dispatch worker must declare env_file: ./.env so the agent can "
         "authenticate to the LLM provider"
     )
     assert f"/app/{_WORKER_PROJECT_NAME}/.env" not in rendered, (
@@ -284,14 +286,14 @@ def _render_va_template(config: dict[str, Any]) -> str:
 def test_va_state_mount_defaults_to_the_agent_data_root() -> None:
     rendered = _render_va_template({})
 
-    assert "- ../../_agent_data/simulation:/state/simulation:ro" in rendered
+    assert f"- ./{DEFAULT_AGENT_DATA_BASE_DIR}/simulation:/state/simulation:ro" in rendered
     assert "VA_STATE_DIR: /state/simulation" in rendered
 
 
 def test_va_state_mount_follows_a_relocated_agent_data_root() -> None:
     rendered = _render_va_template({"agent_data": {"base_dir": "./scratch-data"}})
 
-    assert "- ../../scratch-data/simulation:/state/simulation:ro" in rendered
+    assert "- ./scratch-data/simulation:/state/simulation:ro" in rendered
     mounts = [line for line in rendered.splitlines() if ":/state/simulation:ro" in line]
     assert mounts and not any("_agent_data" in line for line in mounts), (
         "the state mount source must come from agent_data.base_dir, not a literal"
@@ -320,8 +322,9 @@ def test_va_state_mount_matches_what_the_engine_writes(
 
     Every way a project can move that directory has to move both sides together:
     relocating the agent-data root, or naming the state dir outright. The mount
-    is rendered relative to ``build/services/``, so resolving it from there must
-    land on exactly the path ``resolve_state_dir`` hands the engine.
+    is rendered relative to the pinned compose project directory — the repo root
+    — so resolving it from there must land on exactly the path
+    ``resolve_state_dir`` hands the engine.
     """
     from osprey.simulation.engine import resolve_state_dir
 
@@ -329,17 +332,21 @@ def test_va_state_mount_matches_what_the_engine_writes(
     rendered = _render_va_template(config)
     source = re.search(r"- (\S+):/state/simulation:ro", rendered).group(1)
 
-    compose_project_dir = tmp_path / "build" / "services"
-    assert (compose_project_dir / source).resolve() == resolve_state_dir(config, tmp_path).resolve()
+    assert (tmp_path / source).resolve() == resolve_state_dir(config, tmp_path).resolve()
 
 
 # The worker process reads OSPREY config directly (get_facility_timezone while
 # building the agent system prompt) with CWD=/app (the image WORKDIR), so without
 # CONFIG_FILE it falls back to /app/config.yml and every dispatch errors with
 # "No config.yml found in current directory: /app".
+#
+# The path is the RENDER zone under the container's project root, because the
+# worker runs the project image: its .mcp.json is rendered as
+# `{project_root}/build/config.yml` (registry/mcp.py), so a flat config.yml here
+# would be a file the agent's own MCP servers never read.
 def test_worker_template_sets_config_file() -> None:
     rendered = _render_worker_template(env_present=True)
-    assert f"CONFIG_FILE: /app/{_WORKER_PROJECT_NAME}/config.yml" in rendered, (
+    assert f"CONFIG_FILE: /app/{_WORKER_PROJECT_NAME}/{RENDERED_CONFIG_RELPATH}" in rendered, (
         "dispatch worker must set CONFIG_FILE so the worker process (and the CLI "
         "subprocess it spawns) resolve config from the mounted project image layout"
     )
@@ -360,11 +367,11 @@ def test_worker_template_declares_openobserve_host() -> None:
 # ---------------------------------------------------------------------------
 # Task 1.3: the worker container layout must match the PROJECT image
 #
-# The worker now runs ``<project>:local`` (the project image built by
-# ``osprey deploy up``), which bakes the project at ``/app/<project>``
+# The worker runs ``<project>:local`` (the project image built by
+# ``osprey up``), which bakes the project at ``/app/<project>``
 # (Dockerfile ``COPY . /app/{{ project_name }}/``, ``WORKDIR /app/<project>``,
 # ``chown -R osprey:osprey /app/<project>``). Every worker path — OSPREY_PROJECT_DIR,
-# CONFIG_FILE, the staged config bind-mount, the .env mount, the _agent_data volume
+# CONFIG_FILE, the staged config bind-mount, the .env mount, the agent-data volume
 # — must point at that same ``/app/<project>`` root, or the worker points at an
 # empty/absent directory (plan risk M1). The image tag prefix, the label project
 # name, and the layout path all derive from one ``resolve_project_name(config)``
@@ -376,7 +383,7 @@ def test_worker_image_defaults_to_project_local_when_override_unset() -> None:
     """With OSPREY_WORKER_IMAGE unset, the worker image resolves to <project>:local.
 
     ``_inject_project_metadata`` defaults ``services.dispatch_worker.image`` to
-    ``<project>:local`` (the tag ``osprey deploy up`` builds), so the rendered
+    ``<project>:local`` (the tag ``osprey up`` builds), so the rendered
     ``image:`` line falls back to it rather than the template literal default
     ``osprey-dispatch:local``.
     """
@@ -401,13 +408,19 @@ def test_worker_layout_paths_track_injected_project_name() -> None:
     root = f"/app/{proj}"
     rendered = _render_worker_template(env_present=True)
 
-    # Env: project dir + config file
+    # Env: project dir + config file. The config sits in the render zone under
+    # that root, mirroring the repo's own three-zone shape — which is what the
+    # image's .mcp.json resolves `{project_root}/build/config.yml` to.
     assert f"OSPREY_PROJECT_DIR: {root}" in rendered
-    assert f"CONFIG_FILE: {root}/config.yml" in rendered
+    assert f"CONFIG_FILE: {root}/{RENDERED_CONFIG_RELPATH}" in rendered
 
-    # Staged config bind-mount (the deploy-time config) — repointed target,
-    # source unchanged (relative to build/services/).
-    assert f"- ./dispatch_worker/config.yml:{root}/config.yml:ro" in rendered
+    # Staged config bind-mount (the deploy-time config): rendered source under
+    # build/services/, overlaying the image's own copy at the same path the
+    # container's OSPREY_CONFIG names.
+    assert (
+        f"- ./build/services/dispatch_worker/config.yml:{root}/{RENDERED_CONFIG_RELPATH}:ro"
+        in rendered
+    )
 
     # Provider auth is delivered via env_file (host-side read), not a bind
     # mount, so there is no `/app/<project>/.env` path in the container layout.
@@ -416,8 +429,10 @@ def test_worker_layout_paths_track_injected_project_name() -> None:
         "provider auth without exposing the file inside the (non-root) container"
     )
 
-    # _agent_data named-volume mount target (default isolated mode -> per-worker)
-    assert f"- dispatch_workspace_1:{root}/_agent_data" in rendered
+    # Agent-data named-volume mount target (default isolated mode -> per-worker).
+    # The in-container directory is the config's own ``agent_data.base_dir``, so
+    # the volume lands exactly where the worker process writes.
+    assert f"- dispatch_workspace_1:{root}/{DEFAULT_AGENT_DATA_BASE_DIR}" in rendered
 
     # No stale hardcoded /app/project layout may survive anywhere.
     assert "/app/project" not in rendered, (
@@ -427,7 +442,7 @@ def test_worker_layout_paths_track_injected_project_name() -> None:
 
 def test_worker_agent_data_volume_shared_mode_targets_project_layout() -> None:
     """In shared workspace mode the single ``dispatch_workspace`` volume must also
-    mount under ``/app/<project>/_agent_data``."""
+    mount at the agent-data root under ``/app/<project>``."""
     rendered = _render_worker_template(env_present=True)
     # Re-render with shared mode via a config that sets workspace_mode.
     from importlib import resources
@@ -449,9 +464,47 @@ def test_worker_agent_data_volume_shared_mode_targets_project_layout() -> None:
         "templates/services/dispatch_worker/docker-compose.yml.j2"
     )
     shared = Template(tpl.read_text(encoding="utf-8")).render(**config)
-    assert f"- dispatch_workspace:/app/{_WORKER_PROJECT_NAME}/_agent_data" in shared
+    root = f"/app/{_WORKER_PROJECT_NAME}/{DEFAULT_AGENT_DATA_BASE_DIR}"
+    assert f"- dispatch_workspace:{root}" in shared
     # The isolated-mode default (from the other fixture) uses the per-worker name.
-    assert f"- dispatch_workspace_1:/app/{_WORKER_PROJECT_NAME}/_agent_data" in rendered
+    assert f"- dispatch_workspace_1:{root}" in rendered
+
+
+def test_worker_agent_data_volume_honors_an_absolute_base_dir() -> None:
+    """An absolute ``agent_data.base_dir`` names the same path inside the container.
+
+    It must therefore be the mount target verbatim, NOT re-anchored under
+    ``/app/<project>``. The failure this pins is silent in the worst way: the
+    volume mounts at ``/app/<project>/data/agent`` while the worker writes to
+    ``/data/agent`` — a plain directory in the container's writable layer, so
+    every dispatch run's records are discarded at the next recreate with nothing
+    logged at mount time to say so.
+    """
+    from importlib import resources
+
+    from jinja2 import Template
+
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    config = _inject_project_metadata(
+        {
+            "project_name": _WORKER_PROJECT_NAME,
+            "project_root": f"/r/{_WORKER_PROJECT_NAME}",
+            "agent_data": {"base_dir": "/data/agent"},
+            "services": {"dispatch_worker": {}},
+            "system": {"timezone": "UTC"},
+        }
+    )
+    config["osprey_env_present"] = True
+    tpl = resources.files("osprey").joinpath(
+        "templates/services/dispatch_worker/docker-compose.yml.j2"
+    )
+    rendered = Template(tpl.read_text(encoding="utf-8")).render(**config)
+
+    assert "- dispatch_workspace_1:/data/agent" in rendered
+    assert f"/app/{_WORKER_PROJECT_NAME}//data/agent" not in rendered, (
+        "an absolute base_dir must not be re-anchored under the project directory"
+    )
 
 
 def test_worker_template_inactivity_defaults_to_120() -> None:
@@ -513,7 +566,7 @@ def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) ->
         # Return non-zero so the function bails before trying to copy a wheel.
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="stop here")
 
-    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "run", _fake_run)
     # A failed build now aborts the deploy rather than falling back to the
     # released package; the interpreter assertion below is what this test is for.
     with pytest.raises(DevModeUnavailableError):
@@ -583,6 +636,29 @@ def test_bluesky_wires_va_ca_env_and_ordering_only_when_va_co_deployed() -> None
     assert "virtual-accelerator" not in without_va
 
 
+@pytest.mark.parametrize("va_deployed", [True, False])
+def test_bluesky_bridge_waits_for_the_queueserver_to_answer(va_deployed: bool) -> None:
+    """The bridge must start only after ``qserver ping`` answers — with or
+    without the VA co-deployed.
+
+    Not cosmetic ordering. The bridge opens the RE worker environment once at
+    startup (``app.py``'s ``_open_environment_at_startup``), and
+    ``ensure_environment`` gives that up WITHOUT retrying when ``capability()``
+    reports ``manager_unreachable`` — it re-runs only on an armed
+    ``POST /queue/start``. Since ``POST /queue/items`` validates against
+    ``plans_allowed``, which the manager downloads from the worker at
+    environment open, a bridge that wins the boot race against the manager
+    refuses every enqueue with "not in the list of allowed plans" and no start
+    ever gets the chance to self-heal it. Only container ordering closes that,
+    so it is asserted here rather than left to whichever process imports its
+    dependency stack faster.
+    """
+    bridge = yaml.safe_load(_render_bluesky_template(va_deployed=va_deployed))["services"][
+        "bluesky-bridge"
+    ]
+    assert bridge["depends_on"]["queueserver"] == {"condition": "service_healthy"}
+
+
 def test_bluesky_va_ca_port_defaults_when_va_config_block_absent() -> None:
     """VA in ``deployed_services`` but no ``services.virtual_accelerator`` config
     block must still render the default CA port (5064), never raise.
@@ -627,12 +703,12 @@ def test_bluesky_template_always_mounts_config_yml_read_only() -> None:
     enabled.
     """
     rendered = _render_bluesky_template(va_deployed=False)
-    assert "./bluesky/config.yml:/app/project/config.yml:ro" in rendered
+    assert "./build/services/bluesky/config.yml:/app/project/config.yml:ro" in rendered
 
     # And it must still be present when writes ARE enabled (the two mounts
     # are independent, not mutually exclusive).
     rendered_writable = _render_bluesky_template(va_deployed=False, writes_enabled=True)
-    assert "./bluesky/config.yml:/app/project/config.yml:ro" in rendered_writable
+    assert "./build/services/bluesky/config.yml:/app/project/config.yml:ro" in rendered_writable
 
 
 def test_bluesky_template_mounts_channel_limits_when_writes_enabled() -> None:
@@ -645,7 +721,7 @@ def test_bluesky_template_mounts_channel_limits_when_writes_enabled() -> None:
     mount convention (build/services/ -> project root's data/).
     """
     rendered = _render_bluesky_template(va_deployed=False, writes_enabled=True)
-    assert "../../data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered
+    assert "./data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered
 
 
 def test_bluesky_template_omits_channel_limits_mount_when_writes_disabled() -> None:
@@ -738,7 +814,7 @@ def test_bluesky_tiled_service_renders_when_enabled() -> None:
     # The three per-argument needles pin the COMMAND paths (catalog.db,
     # files, duckdb target). A single bare "/data/" check would be shorter
     # but now false-positives on the CURVE certificate bind sources
-    # ("../../data/bluesky_curve/..."), which have nothing to do with Tiled.
+    # ("./data/bluesky_curve/..."), which have nothing to do with Tiled.
     # Bare "/data" isn't usable anywhere here: it also false-positives on
     # "duckdb:////storage/data.duckdb", whose filename legitimately
     # contains "data" as a substring of "storage".
@@ -867,10 +943,10 @@ def test_orm_stack_renders_va_bridge_tiled_and_scan_mcp(
         "premise for asserting the channel_limits.json mount changes too"
     )
     assert "CONFIG_FILE: /app/project/config.yml" in rendered
-    assert "./bluesky/config.yml:/app/project/config.yml:ro" in rendered, (
+    assert "./build/services/bluesky/config.yml:/app/project/config.yml:ro" in rendered, (
         "bridge must mount config.yml read-only under /app/project (Task 3.2)"
     )
-    assert "../../data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered, (
+    assert "./data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered, (
         "control_system.writes_enabled=true (preset default) must mount "
         "channel_limits.json under the same /app/project root as config.yml"
     )
@@ -1007,7 +1083,7 @@ def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
     resolve to the CONTAINER's own ``sys.executable``, never a host path.
 
     Drives ``build_claude_code_context`` (the actual context-builder used by
-    both ``osprey build`` and ``osprey claude regen``) followed by
+    ``osprey build``) followed by
     ``resolve_servers``'s real command resolution, rather than asserting a
     single expression in isolation.
     """
@@ -1043,11 +1119,11 @@ def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
 
 
 def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() -> None:
-    """Companion to the above: the M2 failure mode is now unreachable by design.
+    """Companion to the above: the M2 failure mode is unreachable by design.
 
-    A host-looking ``python_env_path`` that survived staging used to be baked
-    into every MCP server's ``command``. The generator no longer reads the key,
-    so even a config that still carries it — exactly what an already-deployed
+    Baking a host-looking ``python_env_path`` that survived staging into every
+    MCP server's ``command`` is the failure mode. The generator does not read
+    the key, so even a config that carries it — exactly what an already-deployed
     project looks like — yields the container's own interpreter. This is what
     lets ``setup_build_dir`` stage the config untouched: nothing stands between
     the host path and a broken container because nothing consumes the path.
@@ -1500,7 +1576,7 @@ def test_mongodb_image_follows_env_config_default_chain() -> None:
 
 def test_mongodb_root_password_reads_minted_env_var() -> None:
     """The root password sources MONGO_ROOT_PASSWORD from .env (minted by
-    `deploy up`), the same single-source convention as postgres's
+    `osprey up`), the same single-source convention as postgres's
     ARIEL_DB_PASSWORD — one value for the container, the seeder, the recorder
     and the agent connector's `password_env`."""
     env = _mongodb_service()["environment"]
@@ -1532,7 +1608,7 @@ def test_mongodb_port_publish_follows_bind_address_and_port_host() -> None:
 
 def test_mongodb_healthcheck_pings_without_credentials() -> None:
     """The probe is an unauthenticated `ping`, so the minted password has
-    exactly one spelling in this file. `deploy up` gates the base seed on this
+    exactly one spelling in this file. `osprey up` gates the base seed on this
     healthcheck, so it has to answer on a fresh volume too."""
     healthcheck = _mongodb_service()["healthcheck"]
     assert healthcheck["test"] == [
@@ -1547,7 +1623,7 @@ def test_mongodb_healthcheck_pings_without_credentials() -> None:
 
 
 def test_mongodb_store_is_a_named_volume() -> None:
-    """Seeded + recorded history persists across `deploy down`: a base seed
+    """Seeded + recorded history persists across `osprey down`: a base seed
     costs minutes, and a store that resets on restart would be younger than the
     machine it claims to describe."""
     rendered = yaml.safe_load(_render_mongodb_template())
@@ -1715,7 +1791,7 @@ def test_recorder_reads_the_channel_manifest_the_va_serves() -> None:
     """
     svc = _recorder_service(va_co_deployed=True)
     assert svc["environment"]["VA_CHANNELS_FILE"] == "${VA_CHANNELS_FILE:-}"
-    assert "../../data/simulation:/data/simulation:ro" in svc["volumes"]
+    assert "./build/data/simulation:/data/simulation:ro" in svc["volumes"]
     assert not any("channel_limits" in mount for mount in svc["volumes"]), svc["volumes"]
 
 
@@ -1725,16 +1801,16 @@ def test_recorder_reads_config_yml_from_a_read_only_mount() -> None:
     take effect without a restart. CWD is the image WORKDIR, so without
     CONFIG_FILE every lookup errors "No config.yml found".
 
-    The mount is the PROJECT DIRECTORY, deliberately unlike the bluesky
-    bridge's staged copy: a copy is rewritten only by ``deploy up``, so the poll
-    would re-read a build artifact and the flip would silently need a redeploy.
-    It is a directory rather than the single file because a single-file bind
-    pins an inode at container start, and editors that save by rename leave a
-    new one behind — see the template's mount comment.
+    The mount is the REPO ROOT, deliberately unlike the bluesky bridge's staged
+    copy: a copy is rewritten only by ``osprey build``, so the poll would
+    re-read a stale copy and the flip would silently need a rebuild. It is a
+    directory rather than the single file because a single-file bind pins an
+    inode at container start, and editors that save by rename leave a new one
+    behind — see the template's mount comment.
     """
     svc = _recorder_service(va_co_deployed=True)
-    assert svc["environment"]["CONFIG_FILE"] == "/app/project/config.yml"
-    assert "../..:/app/project:ro" in svc["volumes"]
+    assert svc["environment"]["CONFIG_FILE"] == "/app/project/build/config.yml"
+    assert ".:/app/project:ro" in svc["volumes"]
     assert not any("archiver_recorder/config.yml" in mount for mount in svc["volumes"]), svc[
         "volumes"
     ]
@@ -2015,10 +2091,10 @@ def test_resolve_project_name_project_root_trailing_separator_normalized() -> No
 # (osprey-dispatch:local, osprey-va:local, ...). Service `:local` tags are
 # HOST-GLOBAL docker identifiers, so two OSPREY projects building the same
 # service on one host raced to tag ONE image — a sibling clean/rebuild could
-# delete or replace it mid-deploy. The defaults are now project-prefixed
+# delete or replace it mid-deploy. The defaults are project-prefixed
 # (`<project>-dispatch:local`, ...); the `${OSPREY_*_IMAGE:-...}` env override
 # wrappers are unchanged. The build args additionally carry
-# OSPREY_PROJECT_NAME (always) and OSPREY_DEV=1 (iff `osprey deploy up --dev`,
+# OSPREY_PROJECT_NAME (always) and OSPREY_DEV=1 (iff `osprey up --dev`,
 # via the dev_mode key setup_build_dir plumbs into the render context).
 # The external Tiled image (a pulled upstream image, never built locally) is
 # deliberately NOT project-prefixed.
@@ -2139,8 +2215,8 @@ def test_tiled_external_image_stays_unprefixed() -> None:
 # ---------------------------------------------------------------------------
 # Task 2.2: the dispatch worker's TEMPLATE-LEVEL image fallback
 #
-# The worker runs the PROJECT image (<project>:local — built by `osprey deploy
-# up` from the project Dockerfile), never the dispatcher's image. Its rendered
+# The worker runs the PROJECT image (<project>:local — built by `osprey up`
+# from the project Dockerfile), never the dispatcher's image. Its rendered
 # default normally comes from _inject_project_metadata's setdefault on
 # services.dispatch_worker.image — but that setdefault only fires when
 # `dispatch_worker:` is a mapping. A null `dispatch_worker:` key (legal YAML)
@@ -2260,8 +2336,6 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
     """
     import subprocess as subprocess_module
 
-    from osprey.deployment import compose_generator
-
     calls: list = []
     real_run = subprocess_module.run
 
@@ -2273,7 +2347,7 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "run", _fake_run)
     return calls
 
 
@@ -2407,7 +2481,7 @@ def test_failed_wheel_staging_aborts_the_deploy(
     Rendering *without* OSPREY_DEV would keep the pinned install (fail-closed on
     the build arg) but still deploy successfully — containers up on released
     osprey under a flag that promises local code. The build-arg gate stays; the
-    deploy no longer reaches it.
+    deploy does not reach it.
     """
     from osprey.deployment import compose_generator
     from osprey.deployment.errors import DevModeUnavailableError
@@ -2431,7 +2505,6 @@ def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
     the deploy must abort, and no wheel may be left in the build context."""
     import subprocess as subprocess_module
 
-    from osprey.deployment import compose_generator
     from osprey.deployment.errors import DevModeUnavailableError
 
     real_run = subprocess_module.run
@@ -2443,7 +2516,7 @@ def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
             )
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(compose_generator.subprocess, "run", _failing_build)
+    monkeypatch.setattr(subprocess, "run", _failing_build)
 
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
@@ -2733,7 +2806,6 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
     still lacks the local wheel's added deps (half-staged)."""
     import subprocess as subprocess_module
 
-    from osprey.deployment import compose_generator
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
     from osprey.deployment.errors import DevModeUnavailableError
 
@@ -2746,7 +2818,7 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
-    monkeypatch.setattr(compose_generator.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess, "run", _fake_run)
 
     ctx = tmp_path / "ctx"
     ctx.mkdir()
@@ -2911,7 +2983,7 @@ def test_nextcloud_bridge_image_follows_env_config_default_chain() -> None:
 
     Same three-level chain as every sibling service (env override wins, then a
     config-declared image, then the project-namespaced ``:local`` tag that
-    ``osprey deploy up`` builds). The local tag must carry the project name: it
+    ``osprey up`` builds). The local tag must carry the project name: it
     is a host-global docker tag, so a static default would make two projects
     fight over one image.
     """
@@ -2946,10 +3018,10 @@ def test_nextcloud_bridge_build_context_is_project_dir_relative() -> None:
     With multiple ``-f`` compose files every relative path resolves against the
     FIRST file's dir (build/services/), not this file's own subdir, so a
     file-relative context ('.', '../nextcloud_bridge') breaks a fresh
-    ``osprey deploy up`` with "unable to prepare context: path ... not found".
+    ``osprey up`` with "unable to prepare context: path ... not found".
     """
     build = _nextcloud_bridge_service()["build"]
-    assert build["context"] == "./nextcloud_bridge"
+    assert build["context"] == "./build/services/nextcloud_bridge"
     assert build["dockerfile"] == "Dockerfile"
 
 
@@ -2957,7 +3029,7 @@ def test_nextcloud_bridge_command_runs_the_bridge_module() -> None:
     """The service runs the bridge entrypoint as an exec-form ``python -m``.
 
     Exec form (a YAML list) and not a shell string: the container's PID 1 must be
-    python itself so SIGTERM from ``deploy down`` reaches the poll loop's
+    python itself so SIGTERM from ``osprey down`` reaches the poll loop's
     shutdown path instead of a shell that never forwards it.
     """
     assert _nextcloud_bridge_service()["command"] == [
@@ -2975,7 +3047,7 @@ def test_nextcloud_bridge_state_volume_is_named_and_mounted_at_data() -> None:
     loses the in-flight dedup ledger (re-answering or dropping questions) and
     resets the poll offsets (replaying or skipping room history), so this is a
     correctness requirement, not a convenience. Named rather than a bind mount so
-    it is namespaced per compose project and survives ``deploy down``.
+    it is namespaced per compose project and survives ``osprey down``.
     """
     rendered = _render_nextcloud_bridge_template()
     parsed = yaml.safe_load(rendered)
@@ -3054,7 +3126,7 @@ def test_nextcloud_bridge_never_mounts_the_project_env_in_bulk(env_present: bool
     and it is the one component that talks to an external Nextcloud instance, so
     handing it the file would widen its blast radius for nothing: every value it
     actually reads arrives by interpolation into ``environment:``, resolved from
-    that same .env because ``deploy up`` runs compose with ``--env-file .env``
+    that same .env because ``osprey up`` runs compose with ``--env-file .env``
     (and ``environment:`` outranks ``env_file:`` in compose regardless).
     Asserted for a .env both present and absent, so reintroducing the mount
     behind an ``osprey_env_present`` gate does not slip through.
@@ -3440,7 +3512,7 @@ def test_nextcloud_bridge_template_is_bundled_into_a_declaring_project(tmp_path:
 
     The whole service directory (compose template, Dockerfile, .dockerignore)
     must ship in the package and be discoverable under the ``nextcloud_bridge``
-    service key, or ``osprey deploy up`` has nothing to render and no build
+    service key, or ``osprey up`` has nothing to render and no build
     context to build.
     """
     _write_config(tmp_path, deployed_services=["nextcloud_bridge"])
@@ -3573,7 +3645,7 @@ def test_gchat_bridge_image_follows_env_config_default_chain() -> None:
 
     Same three-level chain as every sibling service (env override wins, then a
     config-declared image, then the project-namespaced ``:local`` tag that
-    ``osprey deploy up`` builds). The local tag must carry the project name: it
+    ``osprey up`` builds). The local tag must carry the project name: it
     is a host-global docker tag, so a static default would make two projects
     fight over one image.
     """
@@ -3608,10 +3680,10 @@ def test_gchat_bridge_build_context_is_project_dir_relative() -> None:
     With multiple ``-f`` compose files every relative path resolves against the
     FIRST file's dir (build/services/), not this file's own subdir, so a
     file-relative context ('.', '../gchat_bridge') breaks a fresh
-    ``osprey deploy up`` with "unable to prepare context: path ... not found".
+    ``osprey up`` with "unable to prepare context: path ... not found".
     """
     build = _gchat_bridge_service()["build"]
-    assert build["context"] == "./gchat_bridge"
+    assert build["context"] == "./build/services/gchat_bridge"
     assert build["dockerfile"] == "Dockerfile"
 
 
@@ -3619,7 +3691,7 @@ def test_gchat_bridge_command_runs_the_bridge_module() -> None:
     """The service runs the bridge entrypoint as an exec-form ``python -m``.
 
     Exec form (a YAML list) and not a shell string: the container's PID 1 must be
-    python itself so SIGTERM from ``deploy down`` reaches the subscriber's
+    python itself so SIGTERM from ``osprey down`` reaches the subscriber's
     shutdown path (which cancels the streaming-pull future) instead of a shell
     that never forwards it.
     """
@@ -3638,7 +3710,7 @@ def test_gchat_bridge_state_volume_is_named_and_mounted_at_data() -> None:
     dedup ledger and the bridge re-answers or drops questions that were mid-run,
     so this is a correctness requirement, not a convenience. Named rather than a
     bind mount so it is namespaced per compose project and survives
-    ``deploy down``. Unlike the Nextcloud bridge there is no offsets store: the
+    ``osprey down``. Unlike the Nextcloud bridge there is no offsets store: the
     Pub/Sub subscription's own ack state is the ingestion cursor.
     """
     rendered = _render_gchat_bridge_template()
@@ -3806,7 +3878,7 @@ def test_gchat_bridge_never_mounts_the_project_env_in_bulk(env_present: bool) ->
     and it is the one component holding Google service-account credentials, so
     handing it the file would widen its blast radius for nothing: every value it
     actually reads arrives by interpolation into ``environment:``, resolved from
-    that same .env because ``deploy up`` runs compose with ``--env-file .env``
+    that same .env because ``osprey up`` runs compose with ``--env-file .env``
     (and ``environment:`` outranks ``env_file:`` in compose regardless).
     Asserted for a .env both present and absent, so reintroducing the mount
     behind an ``osprey_env_present`` gate does not slip through.
@@ -4191,7 +4263,7 @@ def test_gchat_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Pat
 
     The whole service directory (compose template, Dockerfile, .dockerignore)
     must ship in the package and be discoverable under the ``gchat_bridge``
-    service key, or ``osprey deploy up`` has nothing to render and no build
+    service key, or ``osprey up`` has nothing to render and no build
     context to build.
     """
     _write_config(tmp_path, deployed_services=["gchat_bridge"])
@@ -4215,7 +4287,7 @@ def test_gchat_bridge_image_installs_the_gchat_extra_on_both_install_lines() -> 
 
     The Google client libraries (Pub/Sub, Chat, GCS) live behind the extra, so an
     install without it produces an image whose bridge dies on its first import.
-    The dev fallback matters as much as the pin: ``osprey deploy up --dev``
+    The dev fallback matters as much as the pin: ``osprey up --dev``
     against an unreleased version takes that branch, and it is the branch a
     plain copy of a sibling service's Dockerfile would leave unextra'd.
     """
@@ -4232,6 +4304,42 @@ def test_gchat_bridge_image_installs_the_gchat_extra_on_both_install_lines() -> 
     # a layer depending on order, so neither spelling may survive.
     assert '"osprey-framework==$OSPREY_VERSION"' not in dockerfile
     assert '"osprey-framework"' not in dockerfile
+
+
+def test_find_existing_compose_files_answers_from_an_explicit_base(tmp_path, monkeypatch) -> None:
+    """The lookup follows its ``base``, not the working directory.
+
+    Regression guard: both ``build_dir`` and a service's declared ``path`` are
+    relative, so from the wrong directory this function found nothing — and
+    "no compose files" is what an empty deployment looks like too, so the wrong
+    answer arrived with no error attached to it.
+    """
+    from osprey.deployment.compose_generator import find_existing_compose_files
+
+    repo = tmp_path / "repo"
+    (repo / "build" / "services" / "osprey" / "jupyter").mkdir(parents=True)
+    (repo / "build" / "services" / "docker-compose.yml").write_text("services: {}\n")
+    (repo / "build" / "services" / "osprey" / "jupyter" / "docker-compose.yml").write_text(
+        "services: {}\n"
+    )
+    config = {
+        "build_dir": "./build",
+        "services": {"jupyter": {"path": "services/osprey/jupyter"}},
+    }
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    found = find_existing_compose_files(config, ["jupyter"], quiet=True, base=repo)
+
+    assert found == [
+        "./build/services/docker-compose.yml",
+        "./build/services/osprey/jupyter/docker-compose.yml",
+    ]
+    # The same call without the anchor, from the same foreign directory, is the
+    # failure the base exists to prevent.
+    assert find_existing_compose_files(config, ["jupyter"], quiet=True) == []
 
 
 # ---------------------------------------------------------------------------

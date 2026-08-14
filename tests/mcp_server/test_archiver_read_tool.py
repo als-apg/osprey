@@ -10,7 +10,7 @@ per-channel series to the ArtifactStore.
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pandas as pd
@@ -18,6 +18,7 @@ import pytest
 
 from osprey.connectors.archiver._timerange import long_frame
 from osprey.mcp_server.control_system.server_context import initialize_server_context
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -72,8 +73,19 @@ def archiver_read_tool(archiver_project):
     Set ``connector.get_data.return_value`` (or ``.side_effect``), then await
     the tool. Tests that need the real ``MockArchiverConnector`` take
     ``archiver_project`` instead.
+
+    The coverage probes carry benign defaults — every channel available,
+    metadata archived but boundless — because a bare ``AsyncMock`` would hand
+    the empty-channel path awaitable mocks instead of ``ArchiverMetadata`` and
+    blow up on the first datetime comparison. Boundless metadata classifies as
+    ``coverage_unknown``, the verdict that asserts nothing about a store this
+    mock never had. Tests that exercise a specific verdict override them.
     """
+    from osprey.connectors.archiver.base import ArchiverMetadata
+
     connector = AsyncMock()
+    connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
+    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(pv_name=ch, is_archived=True)
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
         new_callable=AsyncMock,
@@ -271,7 +283,7 @@ async def test_archiver_read_unparseable_time(archiver_project, field, kwargs):
 
 @pytest.mark.unit
 async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
-    """Archiver read saves data to _agent_data/artifacts/ via ArtifactStore."""
+    """Archiver read saves data to the agent-data artifacts dir via ArtifactStore."""
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
 
@@ -283,10 +295,10 @@ async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
     data = extract_response_dict(result)
     assert "data_file" in data
 
-    # data_file is a project-CWD-relative path (e.g.
-    # ``_agent_data/artifacts/{id}_archiver_read.json``) so the agent can
-    # pass it directly to open(). Test resolves it from the project root.
-    assert data["data_file"].startswith("_agent_data/artifacts/")
+    # data_file is a repo-root-relative path (e.g.
+    # ``var/agent_data/artifacts/{id}_archiver_read.json``) so the agent can
+    # pass it directly to open(). Test resolves it from the repo root.
+    assert data["data_file"].startswith(f"{DEFAULT_AGENT_DATA_BASE_DIR}/artifacts/")
     data_file = tmp_path / data["data_file"]
     assert data_file.exists()
 
@@ -300,7 +312,7 @@ async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
     assert "_osprey_metadata" not in file_content
 
     # Verify the index file was created (inside the artifacts subdir)
-    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
+    artifacts_dir = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "artifacts"
     index_file = artifacts_dir / "artifacts.json"
     assert index_file.exists()
 
@@ -883,3 +895,203 @@ class TestArchiverReadRealMockConnector:
         # recorded timestamp, which here falls inside the bin, not on its edge.
         assert mean["timestamps"] == [f"2024-01-15T10:0{minute}:00+00:00" for minute in range(6)]
         assert raw["timestamps"] != mean["timestamps"]
+
+
+# ---------------------------------------------------------------------------
+# Coverage verdicts (pure composer)
+# ---------------------------------------------------------------------------
+
+
+def _probe(available=True, start=None, end=None, is_archived=True, note=None):
+    """A _CoverageProbe with an ArchiverMetadata built from bare bounds."""
+    from osprey.connectors.archiver.base import ArchiverMetadata
+    from osprey.mcp_server.control_system.tools.archiver_read import _CoverageProbe
+
+    md = ArchiverMetadata(
+        pv_name="X", is_archived=is_archived, archival_start=start, archival_end=end
+    )
+    return _CoverageProbe(available=available, metadata=md, note=note)
+
+
+_WIN_START = datetime(2026, 7, 5, tzinfo=UTC)
+_WIN_END = datetime(2026, 7, 6, tzinfo=UTC)
+_ARC_START = datetime(2026, 7, 12, 9, 0, tzinfo=UTC)
+_ARC_END = datetime(2026, 8, 11, 10, 40, tzinfo=UTC)
+
+
+class TestComposeCoverage:
+    """The pure composer: verdicts, bounds, degradation — no I/O anywhere."""
+
+    def _compose(self, probes, start=_WIN_START, end=_WIN_END):
+        from osprey.mcp_server.control_system.tools.archiver_read import _compose_coverage
+
+        return _compose_coverage(start, end, probes)
+
+    def test_no_empty_channels_composes_nothing(self):
+        assert self._compose({}) is None
+
+    def test_window_before_the_oldest_sample_precedes_the_archive(self):
+        block = self._compose({"CH": _probe(start=_ARC_START, end=_ARC_END)})
+        assert block["verdict"] == "window_precedes_archive"
+        entry = block["channels"]["CH"]
+        assert entry["verdict"] == "window_precedes_archive"
+        assert entry["archive_start"] == _ARC_START.isoformat()
+        assert entry["archive_end"] == _ARC_END.isoformat()
+        # The message states the real bound and rules out synthesis.
+        assert _ARC_START.isoformat() in block["message"]
+        assert "extrapolat" in block["message"]
+
+    def test_window_after_the_newest_sample_follows_the_archive(self):
+        block = self._compose(
+            {"CH": _probe(start=_ARC_START, end=_ARC_END)},
+            start=_ARC_END + timedelta(days=1),
+            end=_ARC_END + timedelta(days=2),
+        )
+        assert block["verdict"] == "window_follows_archive"
+        assert _ARC_END.isoformat() in block["message"]
+
+    def test_window_overlapping_coverage_is_an_honest_gap(self):
+        block = self._compose(
+            {"CH": _probe(start=_ARC_START, end=_ARC_END)},
+            start=_ARC_START + timedelta(days=1),
+            end=_ARC_START + timedelta(days=2),
+        )
+        assert block["verdict"] == "gap_within_coverage"
+        assert "recorded" in block["message"]
+
+    def test_window_touching_the_archive_start_counts_as_overlap(self):
+        # end == archival_start is NOT "precedes": the boundary sample's
+        # instant is inside coverage, so an empty result there is a gap.
+        block = self._compose(
+            {"CH": _probe(start=_ARC_START, end=_ARC_END)},
+            start=_ARC_START - timedelta(days=1),
+            end=_ARC_START,
+        )
+        assert block["verdict"] == "gap_within_coverage"
+
+    def test_unavailable_channel_was_never_recorded(self):
+        block = self._compose({"CH": _probe(available=False, start=_ARC_START, end=_ARC_END)})
+        assert block["verdict"] == "never_recorded"
+        # No bounds on a channel that has none.
+        assert "archive_start" not in block["channels"]["CH"]
+
+    def test_metadata_saying_not_archived_means_never_recorded(self):
+        block = self._compose({"CH": _probe(is_archived=False)})
+        assert block["verdict"] == "never_recorded"
+
+    def test_boundless_metadata_is_unknown_not_guessed(self):
+        # The EPICS/DOOCS connectors report is_archived=True with no bounds.
+        block = self._compose({"CH": _probe(start=None, end=None)})
+        assert block["verdict"] == "coverage_unknown"
+        assert "archive_start" not in block["channels"]["CH"]
+
+    def test_probe_failure_note_is_carried_not_raised(self):
+        from osprey.mcp_server.control_system.tools.archiver_read import _CoverageProbe
+
+        probe = _CoverageProbe(available=None, metadata=None, note="metadata probe failed: boom")
+        block = self._compose({"CH": probe})
+        assert block["verdict"] == "coverage_unknown"
+        assert block["channels"]["CH"]["note"] == "metadata probe failed: boom"
+
+    def test_naive_metadata_bounds_are_pinned_utc(self):
+        # pymongo hands back naive datetimes read as UTC; comparison must not
+        # depend on which layer attached the zone.
+        block = self._compose(
+            {"CH": _probe(start=_ARC_START.replace(tzinfo=None), end=_ARC_END.replace(tzinfo=None))}
+        )
+        assert block["verdict"] == "window_precedes_archive"
+        assert block["channels"]["CH"]["archive_start"] == _ARC_START.isoformat()
+
+    def test_differing_verdicts_report_mixed_with_per_channel_detail(self):
+        block = self._compose(
+            {
+                "OLD": _probe(start=_ARC_START, end=_ARC_END),
+                "GONE": _probe(available=False),
+            }
+        )
+        assert block["verdict"] == "mixed"
+        assert block["channels"]["OLD"]["verdict"] == "window_precedes_archive"
+        assert block["channels"]["GONE"]["verdict"] == "never_recorded"
+        assert "coverage.channels" in block["message"]
+
+
+class TestCoverageInToolResponse:
+    """The block reaches the agent — and costs nothing when nothing is empty."""
+
+    async def test_empty_channel_gets_a_coverage_block(self, archiver_read_tool):
+        from osprey.connectors.archiver.base import ArchiverMetadata
+
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({})  # nothing at all
+        # The fixture's benign probe defaults are side_effects; clear them or
+        # these return_values are silently ignored (side_effect wins in Mock).
+        connector.check_availability.side_effect = None
+        connector.check_availability.return_value = {"SR:OLD:RB": True}
+        connector.get_metadata.side_effect = None
+        connector.get_metadata.return_value = ArchiverMetadata(
+            pv_name="SR:OLD:RB",
+            is_archived=True,
+            archival_start=_ARC_START,
+            archival_end=_ARC_END,
+        )
+
+        result = await fn(
+            channels=["SR:OLD:RB"],
+            start_time="2026-07-05T00:00:00+00:00",
+            end_time="2026-07-06T00:00:00+00:00",
+        )
+
+        data = extract_response_dict(result)
+        assert data["status"] == "success"
+        cov = data["summary"]["coverage"]
+        assert cov["verdict"] == "window_precedes_archive"
+        assert cov["channels"]["SR:OLD:RB"]["archive_start"] == _ARC_START.isoformat()
+
+    async def test_fully_answered_query_has_no_block_and_no_probe(self, archiver_read_tool):
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0]})
+
+        result = await fn(channels=["SR:CURRENT:RB"], start_time="2024-01-15T10:00:00")
+
+        data = extract_response_dict(result)
+        assert "coverage" not in data["summary"]
+        # The probes are the empty path's cost, and only the empty path's.
+        connector.get_metadata.assert_not_awaited()
+        connector.check_availability.assert_not_awaited()
+
+    async def test_partial_result_explains_only_the_empty_channel(self, archiver_read_tool):
+        from osprey.connectors.archiver.base import ArchiverMetadata
+
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.0, 500.1]})
+        connector.check_availability.side_effect = None
+        connector.check_availability.return_value = {"SR:VOID:RB": False}
+        connector.get_metadata.side_effect = None
+        connector.get_metadata.return_value = ArchiverMetadata(
+            pv_name="SR:VOID:RB", is_archived=False
+        )
+
+        result = await fn(
+            channels=["SR:CURRENT:RB", "SR:VOID:RB"], start_time="2024-01-15T10:00:00"
+        )
+
+        data = extract_response_dict(result)
+        cov = data["summary"]["coverage"]
+        assert cov["verdict"] == "never_recorded"
+        assert list(cov["channels"]) == ["SR:VOID:RB"]
+        # The answered channel's data is untouched.
+        assert data["summary"]["per_channel"]["SR:CURRENT:RB"]["points"] == 2
+
+    async def test_probe_failure_degrades_to_unknown_not_error(self, archiver_read_tool):
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({})
+        connector.check_availability.side_effect = RuntimeError("store went away")
+        connector.get_metadata.side_effect = RuntimeError("store went away")
+
+        result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
+
+        data = extract_response_dict(result)
+        assert data["status"] == "success"  # the read itself did not fail
+        cov = data["summary"]["coverage"]
+        assert cov["verdict"] == "coverage_unknown"
+        assert "store went away" in cov["channels"]["SR:OLD:RB"]["note"]

@@ -52,7 +52,18 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_hook_input, get_project_dir, log_hook
+from osprey_hook_log import get_hook_input, get_repo_root, log_hook
+
+# The framework DEFAULT agent-data root, imported rather than spelled out here
+# so the two cannot drift apart. It does not follow a project that overrides
+# `agent_data.base_dir` — this hook and the channel-finder app write the same
+# two stores, and under an overridden root the capture would write where
+# nothing reads. The fallback covers a hook running with osprey off the path,
+# the one case where guessing beats crashing.
+try:
+    from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR as _AGENT_DATA_ROOT
+except Exception:  # pragma: no cover - hooks must never crash the agent
+    _AGENT_DATA_ROOT = "var/agent_data"
 
 # Top-level guard: never crash the agent
 hook_input = None
@@ -130,15 +141,20 @@ try:
     # ----------------------------------------------------------------
     # 4. Resolve store path
     # ----------------------------------------------------------------
-    project_dir = get_project_dir(hook_input)
-    if not project_dir:
+    # The REPO root, not the directory the hook is running in. That directory is
+    # the render, and the store has to land where the feedback app reads it:
+    # PendingReviewStore anchors on the config's project_root, so a capture
+    # anchored on the render wrote into a build/ subtree nothing reads and the
+    # next build deletes.
+    repo_root = get_repo_root(hook_input)
+    if not repo_root:
         log_hook("cf-feedback-capture", hook_input, status="no-cwd")
         sys.exit(0)
 
     # Runtime state lives under the agent-data root: a project's data/ tree is
-    # build-owned, checksummed into the manifest, and cleared by
-    # `osprey build --force`.
-    store_path = os.path.join(project_dir, "_agent_data", "feedback", "pending_reviews.json")
+    # build-owned and checksummed into the manifest, and build/ is wiped and
+    # re-rendered by every build.
+    store_path = os.path.join(repo_root, _AGENT_DATA_ROOT, "feedback", "pending_reviews.json")
 
     # ----------------------------------------------------------------
     # 5. Extract fields from hook input

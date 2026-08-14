@@ -1,8 +1,8 @@
 """Unit tests for the profile emitters in ``osprey.cli.build_profile_emit``.
 
 Covers what the emitted TEXT is, at the level of the emitter itself — the
-``osprey profile new`` command that drives it, and everything it writes around
-the text, is pinned by ``test_profile_new.py`` and
+``osprey init`` command that drives it, and everything it writes around
+the text, is pinned by ``test_init_verb.py`` and
 ``test_persona_profile_emission.py``.
 
 A persona file is a pure delta (FR-10): the persona preset's own layer, minus
@@ -59,7 +59,7 @@ def test_delta_content_is_the_preset_layer_minus_extends(preset: str) -> None:
 
 @pytest.mark.parametrize("preset", PERSONA_PRESETS)
 def test_delta_carries_no_extends(preset: str) -> None:
-    """Position is the inheritance now — a written ``extends:`` inside
+    """Position IS the inheritance — a written ``extends:`` inside
     ``personas/`` is rejected at build time, so emitting one would be a bug."""
     text = emit_persona_delta_yaml(
         preset_name=preset,
@@ -90,7 +90,24 @@ def test_delta_keeps_the_preset_comments() -> None:
         profile_filename="my-profile/personas/readonly.yml",
     )
 
-    assert "it is what makes the read-only terminal read-only" in text
+    unwrapped = _unwrapped_comments(text)
+    assert "this key is the tier boundary" in unwrapped
+    assert "Pared-down operator layout" in unwrapped
+
+
+def _unwrapped_comments(text: str, *, header_only: bool = False) -> str:
+    """Every comment line joined into one, so an assertion can be a sentence.
+
+    The prose is hard-wrapped, and where a sentence breaks moves whenever it is
+    edited. Asserting on the unwrapped text is what keeps these checks about
+    what the emitted file SAYS rather than about where it happens to wrap.
+    """
+    block = text.split("\n\n", 1)[0] if header_only else text
+    return " ".join(
+        line.strip().lstrip("#").strip()
+        for line in block.splitlines()
+        if line.strip().startswith("#")
+    )
 
 
 def test_header_explains_the_implicit_merge_and_names_the_source() -> None:
@@ -101,10 +118,10 @@ def test_header_explains_the_implicit_merge_and_names_the_source() -> None:
     )
 
     assert "a delta over ../profile.yml" in text
-    assert "there is no `extends:` to write" in text
+    assert "there is no `extends:` to write" in _unwrapped_comments(text)
     assert f"source preset: {PERSONA_PRESET}" in text
     assert "preset content hash: sha256:" in text
-    assert "osprey profile validate my-profile/personas/readonly.yml" in text
+    assert "osprey validate my-profile/personas/readonly.yml" in text
 
 
 def test_preset_without_extends_cannot_be_emitted_as_a_delta() -> None:
@@ -124,7 +141,7 @@ def test_preset_without_extends_cannot_be_emitted_as_a_delta() -> None:
 
 
 def _standalone(preset: str) -> str:
-    return emit_standalone_profile_yaml(preset, (), (), "Emitted", "my-profile/profile.yml")
+    return emit_standalone_profile_yaml(preset, (), (), "Emitted")
 
 
 @pytest.mark.parametrize("preset", list_presets())

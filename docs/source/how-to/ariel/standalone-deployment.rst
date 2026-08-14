@@ -66,8 +66,9 @@ on their corpus before committing to the full deployment.
 
          .. code-block:: bash
 
-            osprey build my-logbook --preset ariel-standalone
+            osprey init my-logbook --preset ariel-standalone
             cd my-logbook
+            osprey build
 
          The generated ``config.yml`` enables keyword and semantic search
          out of the box. Higher-level reasoning over results — multi-step
@@ -87,7 +88,7 @@ on their corpus before committing to the full deployment.
 
          .. code-block:: bash
 
-            osprey deploy up -d
+            osprey up -d
 
          Once the container is running, run database migrations and
          ingest the bundled demo logbook with embeddings:
@@ -129,7 +130,7 @@ on their corpus before committing to the full deployment.
 
                .. code-block:: bash
 
-                  osprey claude chat
+                  osprey chat
                   >>> What does the logbook say about the last RF cavity trip?
 
 Customizing for your facility
@@ -155,13 +156,13 @@ directly:
    .. note::
 
       ``.claude/rules/facility.md`` is auto-registered as user-owned
-      during ``osprey build``. ``osprey claude regen`` will preserve your
+      during ``osprey build``. ``osprey build`` will preserve your
       edits.
 
-2. **Set provider credentials in ``my-logbook-profile/.env``** (e.g.
+2. **Set provider credentials in the repository's ``.env``** (e.g.
    ``ANTHROPIC_API_KEY`` or ``CBORG_API_KEY``). The default provider is
-   ``anthropic``. The profile owns the project's secrets: the build derives the
-   project's ``.env`` from it, so a value set there survives every rebuild.
+   ``anthropic``. That file is the deployment's one secret store, and a build
+   never rewrites it, so a value set there survives every rebuild.
 
 3. **Replace the demo logbook seed.** The bundled
    ``data/logbook_seed/demo_logbook.json`` is 28 entries of fictional
@@ -177,29 +178,28 @@ Durable customization (a profile you own)
 -----------------------------------------
 
 For changes you want to keep across rebuilds — adding a custom skill,
-overriding a rule, wiring up a real logbook — materialize an editable build
-profile from the ``ariel-standalone`` preset:
+overriding a rule, wiring up a real logbook — create a deployment repository
+from the ``ariel-standalone`` preset:
 
 .. code-block:: bash
 
-   osprey profile new my-ariel --preset ariel-standalone
+   osprey init my-ariel --preset ariel-standalone
    cd my-ariel
 
-This writes a ``my-ariel/`` git repository whose ``profile/`` directory holds a
-standalone ``profile.yml`` — the preset's full configuration written out
-explicitly, with no ``extends:`` back to the preset — plus the preset's
-``data/`` tree and an ``.env.example`` listing every variable the agent reads.
-Directories for your own artifacts are not created up front: make a ``rules/``,
-``skills/`` or ``agents/`` directory when you have something to put in it, and
-the build carries its contents into the project. Edit ``profile/profile.yml``,
-the data files, and those directories, then rebuild whenever you change
-something:
+This writes a ``my-ariel/`` git repository whose ``profile.yml`` is a standalone
+manifest — the preset's full configuration written out explicitly, with no
+``extends:`` back to the preset — plus the preset's ``data/`` tree and an
+``.env.example`` listing every variable the agent reads. Directories for your
+own artifacts are not created up front: make a ``rules/``, ``skills/`` or
+``agents/`` directory when you have something to put in it, and the build
+carries its contents through. Edit ``profile.yml``, the data files, and those
+directories, then rebuild whenever you change something:
 
 .. code-block:: bash
 
-   osprey build my-ariel-agent profile/
+   osprey build
 
-The rendered project lands in the repository's ``build/`` directory, which is
-kept out of git. The profile is your facility's source of truth — commit it.
-The rendered project is a regenerable artifact. See :doc:`../build-profiles` for
-the full schema and the preset → profile → project model.
+The render lands in the repository's ``build/`` directory, which is kept out of
+git. The profile is your facility's source of truth — commit it. ``build/`` is a
+regenerable artifact. See :doc:`../build-profiles` for the full schema and the
+preset → profile → build model.

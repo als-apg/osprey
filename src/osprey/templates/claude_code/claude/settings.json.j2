@@ -24,18 +24,34 @@
   "outputStyle": ".claude/output-styles/control-operator.md",
   "statusLine": {
     "type": "command",
-    "command": "python \"$CLAUDE_PROJECT_DIR/.claude/statusline.py\""
+    "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/statusline.py"') | tojson }}
   },
   "_PROMPT_PROVIDER_NOTE": "Permissions policy: allow/deny/ask lists. Framework defaults merged with facility overrides from claude_code.permissions config.",
   "enableAllProjectMcpServers": true,
+{#- Claude Code ships harness-configuration skills with the CLI itself, so they
+    are present in every deployed terminal uninvited. An OSPREY operator agent
+    must never reconfigure its own harness (settings.json permissions, env
+    vars, hooks, keybindings) — that is admin work done through the profile and
+    regen, not live edits — so the harness-config family is switched off
+    entirely: hidden from the model, hidden from the / menu, and invoking one
+    by name returns an error instead of running. -#}
+  "skillOverrides": {
+    "update-config": "off",
+    "keybindings-help": "off",
+    "fewer-permission-prompts": "off"
+  },
   "permissions": {
     "allow": [
 {#- Build allow list from server registry -#}
 {%- set allow_entries = [] -%}
-{%- set _ = allow_entries.append('"Read(_agent_data/**)"') -%}
-{%- set _ = allow_entries.append('"Read(_agent_data/data/**)"') -%}
-{%- set _ = allow_entries.append('"Read(_agent_data/plots/**)"') -%}
-{%- set _ = allow_entries.append('"Read(_agent_data/results/**)"') -%}
+{#- The agent must be able to read what it writes, so these are keyed off the
+    project's own `agent_data.base_dir` rather than a literal: a relocated
+    agent-data root would otherwise leave the agent refused access to its own
+    artifacts. -#}
+{%- set _ = allow_entries.append('"Read(' ~ agent_data_root ~ '/**)"') -%}
+{%- set _ = allow_entries.append('"Read(' ~ agent_data_root ~ '/data/**)"') -%}
+{%- set _ = allow_entries.append('"Read(' ~ agent_data_root ~ '/plots/**)"') -%}
+{%- set _ = allow_entries.append('"Read(' ~ agent_data_root ~ '/results/**)"') -%}
 {%- if textbooks_root -%}
 {%- set _ = allow_entries.append('"Read(' ~ textbooks_root ~ '/**)"') -%}
 {%- endif -%}
@@ -51,7 +67,7 @@
 {%- set _ = allow_entries.append('"' ~ entry ~ '"') -%}
 {%- endfor -%}
 {%- endfor -%}
-{%- set _ = allow_entries.append('"NotebookEdit(_agent_data/artifacts/**)"') -%}
+{%- set _ = allow_entries.append('"NotebookEdit(' ~ agent_data_root ~ '/artifacts/**)"') -%}
 {#- Per-agent Task() permissions -#}
 {%- for a in agents if a.enabled -%}
 {%- set _ = allow_entries.append('"Task(' ~ a.name ~ ')"') -%}
@@ -98,12 +114,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_config_drift.py\" 2>/dev/null || true",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_config_drift.py" 2>/dev/null || true') | tojson }},
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_panels_context.py\" 2>/dev/null || true",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_panels_context.py" 2>/dev/null || true') | tojson }},
             "timeout": 5
           }
         ]
@@ -114,12 +130,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_focus_validate.py\" 2>/dev/null || true",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_focus_validate.py" 2>/dev/null || true') | tojson }},
             "timeout": 2
           },
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_workspace_delta.py\" 2>/dev/null || true",
+            "command": {{ ('"' ~ current_python_env ~ '" "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_workspace_delta.py" 2>/dev/null || true') | tojson }},
             "timeout": 3
           }
         ]

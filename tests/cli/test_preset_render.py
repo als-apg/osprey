@@ -5,7 +5,7 @@ VA soft-IOC ships and is deployed unconditionally as part of the turn-key
 Bluesky stack, so a fresh tutorial project's scan plans drive it end to end
 out of the box). ``mock`` is the documented fallback for environments with no
 containers to depend on — its non-tracking readbacks make scans browse-only —
-and is reachable via ``osprey config set-control-system mock``.
+and is reachable via ``osprey set connector=mock``.
 
 Covers three angles:
 
@@ -29,6 +29,7 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import BuildProfile, resolve_build_profile
+from osprey.cli.init_cmd import init
 
 CONTROL_SYSTEM_TYPE_KEY = "control_system.type"
 
@@ -59,25 +60,21 @@ class TestControlAssistantPresetDefault:
 @pytest.fixture(scope="module")
 def rendered_preset_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build the bare ``control-assistant`` preset (no overrides) into a tmp
-    dir. Module-scoped: the build is the slow part and every test in this
+    repo. Module-scoped: the build is the slow part and every test in this
     section only reads the resulting config.yml.
     """
     tmp_path = tmp_path_factory.mktemp("preset-va-default")
     runner = CliRunner()
+    repo = tmp_path / "preset-va-default"
+    created = runner.invoke(
+        init, [str(repo), "--preset", "control-assistant", "--no-git"], catch_exceptions=False
+    )
+    assert created.exit_code == 0, created.output
     result = runner.invoke(
-        build,
-        [
-            "preset-va-default",
-            "--preset",
-            "control-assistant",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
+        build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"], catch_exceptions=False
     )
     assert result.exit_code == 0, result.output
-    project_dir = tmp_path / "preset-va-default"
+    project_dir = repo / "build"
     assert (project_dir / "config.yml").exists()
     return project_dir
 

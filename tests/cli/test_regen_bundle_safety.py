@@ -1,4 +1,9 @@
-"""Regen-safety test: osprey claude regen must never touch the OKF bundle.
+"""Re-render safety: the ``.claude/`` walk must never touch the OKF bundle.
+
+The unit under test is ``TemplateManager.regenerate_claude_code``, the
+re-render step ``osprey build`` runs (``build_cmd.py``); it is addressed
+directly here rather than through the verb, so the guard survives the verb
+being renamed. "regen" below is the name of that step, not of a CLI verb.
 
 The facility knowledge bundle lives at a path declared by
 ``facility_knowledge.bundle_path`` in config.yml (resolved relative to the
@@ -150,7 +155,7 @@ class TestBundlePathResolution:
 
 
 class TestRegenDoesNotTouchBundle:
-    """osprey claude regen must leave every bundle file byte-identical.
+    """A re-render must leave every bundle file byte-identical.
 
     Each test uses three interlocking assertions so the check is non-vacuous:
     byte-identity (hash check), positive control (regen DID write .claude/),

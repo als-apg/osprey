@@ -16,7 +16,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment.compose_generator import resolve_repo_root
 from osprey.deployment.runtime_helper import get_runtime_command
+from osprey.deployment.subprocess_capture import run_captured
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -105,26 +108,25 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
     ships that file as ``<project_root>/scripts/verify.sh`` (the profile's
     ``project/`` mirror copies it verbatim): a health-check script
     parameterized per-facility with a probe for each enabled module.
-    Historically it was operator-run-by-hand only; this makes ``osprey deploy
-    up`` run it automatically as the last step of the post-up hook, once
-    ``compose up -d`` has already succeeded and containers are running, so an
-    operator gets an immediate health signal without a separate manual step.
+    ``osprey up`` runs it automatically as the last step of the post-up hook,
+    once ``compose up -d`` has already succeeded and containers are running, so
+    an operator gets an immediate health signal without a separate manual step.
 
     Silently skipped (no log line at all) when ``<project_root>/scripts/
     verify.sh`` doesn't exist — a profile that carries no such script must
-    deploy exactly as before.
+    deploy without any mention of one.
 
     The script's own convention (see its header) is to ALWAYS exit 0 —
     verification is advisory, never deploy-blocking — but this runs it via
     ``bash`` (rather than executing the path directly) and ignores whatever
     exit code it reports either way, so a site-customized copy that doesn't
-    honor that convention still can never fail ``osprey deploy up``: this
+    honor that convention still can never fail ``osprey up``: this
     step runs after compose already reported success, so a nonzero exit is a
-    signal to look closer, not evidence the deploy failed. Output streams
-    straight to the operator's terminal (stdout/stderr are inherited, not
-    captured) exactly like every other compose subprocess call in this
-    module, so the health report appears live rather than being buffered and
-    dumped at the end.
+    signal to look closer, not evidence the deploy failed. The script's output
+    is spooled rather than streamed, exactly like every other child on this
+    path: the deploy reports it as one sub-step, and a non-zero exit names the
+    spool file holding the whole health report. Under ``--verbose`` it streams
+    to the terminal instead, like every other captured run.
 
     :param project_root: The project root whose ``scripts/verify.sh`` (if
         any) to run; also the script's working directory, so its own
@@ -141,19 +143,37 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
 
     logger.key_info("Running post-up smoke check: %s", verify_path)
     try:
-        result = subprocess.run(["bash", str(verify_path)], cwd=project_root, env=run_env)
+        # check=False: the exit code is advisory (see above), so a site-
+        # customized script that exits non-zero must not raise from here.
+        # cwd is the project root and repo_root is where the output spools —
+        # the same directory here, but they answer different questions.
+        result = run_captured(
+            ["bash", str(verify_path)],
+            env=run_env,
+            cwd=project_root,
+            spool_name="verify-script",
+            repo_root=project_root,
+            check=False,
+        )
     except OSError as exc:
-        logger.warning("Could not run %s: %s", verify_path, exc)
+        # Covers both halves of the call: the script itself failing to launch,
+        # and the spool file it would have been captured into failing to open.
+        logger.warning("Could not run %s or capture its output: %s", verify_path, exc)
         return
 
+    _report_step(f"smoke check {verify_path.name} — exit {result.returncode}")
     if result.returncode == 0:
         logger.key_info("%s completed (exit 0)", verify_path)
     else:
+        # Read off the result, not the reporter: this hook has callers that run
+        # it with no phase open, and they need the path just as much.
+        # None only under --verbose, where the output already streamed past.
+        spool = result.spool_path
         logger.warning(
-            "%s exited %s -- advisory only, this does NOT fail the deploy. "
-            "Review the output above.",
+            "%s exited %s -- advisory only, this does NOT fail the deploy. %s",
             verify_path,
             result.returncode,
+            f"Its output: {spool}" if spool else "Review the output above.",
         )
 
 
@@ -267,13 +287,21 @@ def warn_if_web_stack_unreachable(
             " ".join(restart_cmd),
         )
         try:
-            # Output is inherited, not captured, like every other compose call
-            # on this path: a restart of the whole web tier is visible work and
-            # the operator should watch it happen.
-            subprocess.run(restart_cmd, env=run_env)
+            # Spooled, not inherited: the restart's compose chatter would bury
+            # the warning above, which is the part the operator has to act on.
+            # check=False keeps this advisory — a failed restart falls through
+            # to the settings hint below, exactly as before.
+            run_captured(
+                restart_cmd,
+                env=run_env,
+                spool_name="compose-web-restart",
+                repo_root=resolve_repo_root(config),
+                check=False,
+            )
         except OSError as exc:
             logger.warning("Could not restart the web stack: %s", exc)
         else:
+            _report_step("bounced the web stack for host-port re-registration")
             if _host_port_answers(url, attempts, delay):
                 logger.key_info("%s is reachable now.", url)
                 return
@@ -291,7 +319,7 @@ def warn_if_web_stack_unreachable(
                 else ", which is off unless host networking is enabled"
             )
             + ": Docker Desktop -> Settings -> Resources -> Network -> 'Enable "
-            "host networking', then Apply & Restart and re-run `osprey deploy up`."
+            "host networking', then Apply & Restart and re-run `osprey up`."
         )
     logger.warning(
         f"Web-terminal containers are up, but {url} is not reachable from "

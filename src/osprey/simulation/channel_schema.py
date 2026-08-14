@@ -1,9 +1,9 @@
-"""Declarative per-family channel schema for the ``one-facility`` epic.
+"""Declarative per-family channel schema for the simulated facility.
 
 Declares, for each device family in :data:`osprey.simulation.facility_spec.
 ALS_U_AR`, the tier-3 channel structure (FIELD/SUBFIELD levels of the
 ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD`` address) and the human-facing
-display metadata a downstream tier-DB generator (a later task) needs to emit
+display metadata a downstream tier-DB generator needs to emit
 the three shipped tier-3 channel database formats --
 ``hierarchical.json``, ``in_context.json``, ``middle_layer.json`` (under
 ``src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/

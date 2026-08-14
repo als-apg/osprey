@@ -26,7 +26,7 @@ are not synchronised.
 Run contract (see docker/virtual-accelerator/README.md for the full version):
 
     -v <project>/data/simulation:/data/simulation             # the DIRECTORY, never a file
-    -v <project>/_agent_data/simulation:/state/simulation:ro  # scenario state
+    -v <repo>/var/agent_data/simulation:/state/simulation:ro  # scenario state
     -p 5064:5064/tcp
 
 ``VA_DATA_DIR`` overrides the mount point (default ``/data/simulation``) for
@@ -35,17 +35,18 @@ local testing without an actual bind mount.
 ``VA_STATE_DIR`` names the directory holding the ``active_scenarios`` file the
 IOC polls for scenario switches. It is a *separate* mount because the host
 writes it at run time (``osprey sim apply``) while ``data/`` is build-owned and
-checksummed. Unset, it falls back to the data dir — the historical layout, for
-a hand-run container whose state file still sits next to ``machine.json``.
+checksummed. Unset, it falls back to the data dir — the single-directory layout,
+for a hand-run container whose state file sits next to ``machine.json``.
 
-Facility-neutral source configuration (all optional; defaults reproduce the
-historical behaviour exactly):
+Facility-neutral source configuration. Every variable below is optional, and
+unset they serve the built-in tutorial machine byte-for-byte — a deployment
+that sets none of them is unaffected by all of them:
 
 ``VA_CHANNELS_FILE``
     Path to a ``{"channels": [...]}`` manifest JSON (see
     ``manifest.loaders.load_manifest_file``). Relative paths resolve against
     the data dir. Unset/empty -> the built-in generated manifest
-    (``build_manifest()``), as before. With a file source, drive limits come
+    (``build_manifest()``). With a file source, drive limits come
     from ``<data dir>/channel_limits.json`` when present (none otherwise)
     and boot values from the mounted ``machine.json`` -- never from the
     bundled tutorial data.
@@ -260,8 +261,8 @@ def _load_drive_limits(path: Path | None = None) -> dict[str, tuple[float, float
     writable ``:SP`` address with numeric bounds. ``ioc/records.py`` stays
     file-blind (see its ``build_records`` docstring) -- this is the file
     read its ``drive_limits`` argument replaces. ``path`` selects which
-    limits file to parse; ``None`` (the default) keeps the historical
-    bundled-template read."""
+    limits file to parse; ``None`` (the default) reads the bundled
+    template."""
     raw = json.loads((path or _channel_limits_path()).read_text())
     defaults = raw.get("defaults", {})
     limits: dict[str, tuple[float, float]] = {}
@@ -287,7 +288,7 @@ def _load_boot_values(machine_path: Path | None = None) -> dict[str, float]:
     carry no static value and are skipped -- harmless here since none of
     them are ``:SP``/``:RB`` addresses, the only subfields this map is ever
     consulted for. ``machine_path`` selects which machine.json to read;
-    ``None`` (the default) keeps the historical bundled-template read."""
+    ``None`` (the default) reads the bundled template."""
     return {
         address: entry["value"]
         for address, entry in load_machine_json_channels(machine_path).items()
@@ -323,10 +324,9 @@ def _install_shutdown_signals() -> None:
 def _start_engine_source(engine_source: EngineSource, interval: float) -> threading.Thread:
     """Run the telemetry poll loop on a daemon thread of its own.
 
-    The loop used to be scheduled onto the IOC's asyncio dispatcher, which
-    the serving layer has no equivalent of: the runner owns the calling
-    thread (``run()`` blocks on it) and runs its Channel Access server on
-    one of its own. So the poll loop gets one too.
+    There is no shared dispatcher to schedule it on: the runner owns the
+    calling thread (``run()`` blocks on it) and runs its Channel Access server
+    on one of its own. So the poll loop gets one too.
 
     Daemon deliberately. It holds nothing worth draining -- each tick reads
     the scenario files afresh and pushes values it recomputes -- and the
@@ -477,8 +477,7 @@ def main() -> None:
     # each sp-echo readback into it every tick so machine-file expression
     # channels can respond to accepted setpoints (see EngineSource's
     # setpoint_echo_records docstring). With a lattice, physics coupling
-    # flows through PhysicsBridge and the engine stays a pure scenario
-    # source -- exactly the historical behaviour.
+    # flows through PhysicsBridge and the engine stays a pure scenario source.
     setpoint_echoes: dict[str, Any] | None = None
     if lattice_mode == LATTICE_NONE:
         setpoint_echoes = {

@@ -1,6 +1,6 @@
 """Lattice state manager — JSON-backed state for the dashboard.
 
-Manages ``_agent_data/lattice/state.json`` with thread-safe
+Manages ``var/agent_data/lattice/state.json`` with thread-safe
 load/save operations.  Workers and the dashboard server coordinate
 through this file.
 """
@@ -127,7 +127,7 @@ class LatticeState:
 
     Args:
         state_dir: Directory for state.json / baseline.json.
-            Typically ``_agent_data/lattice/``.
+            Typically ``var/agent_data/lattice/`` under the deployment repo.
     """
 
     def __init__(self, state_dir: Path) -> None:

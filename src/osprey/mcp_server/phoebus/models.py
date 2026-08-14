@@ -2,12 +2,9 @@
 
 Pydantic models for configuring Data Browser plots, traces, and annotations.
 
-Migrated from the retired ``phoebus_launch`` server
-(``als-profiles/mcp_servers/phoebus/models.py``) as part of reincarnating its
-``.plt``-generation capability inside the native ``phoebus_open_databrowser``
-tool (see ``.claude/plans/phoebus-als-integration/ADDENDUM-databrowser-reincarnation.md``,
-Task 0.5). Facility-neutral: nothing here names a specific facility, archiver,
-or host — that binding is supplied by the caller (see ``plt_generator``).
+These back the ``.plt`` generation behind ``phoebus_open_databrowser``.
+Facility-neutral: nothing here names a specific facility, archiver, or host —
+that binding is supplied by the caller (see ``plt_generator``).
 """
 
 from __future__ import annotations

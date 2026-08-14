@@ -99,6 +99,11 @@ async def get_plan_source(request: Request, name: str) -> JSONResponse:
     return await _forward_get(request, f"/plans/{quote(name, safe='')}/source")
 
 
+@router.get("/devices")
+async def list_devices(request: Request) -> JSONResponse:
+    return await _forward_get(request, "/devices")
+
+
 @router.get("/runs")
 async def list_runs(request: Request) -> JSONResponse:
     return await _forward_get(request, "/runs")

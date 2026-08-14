@@ -309,7 +309,7 @@ def test_surface_and_surface_prompt_are_parsed_when_present(tmp_path):
 
 # ---------------------------------------------------------------------------
 # Test 11: `action.surface` / `action.surface_prompt` are optional and default
-#          to None; an otherwise-identical trigger parses the same as before
+#          to None; an otherwise-identical trigger parses identically
 # ---------------------------------------------------------------------------
 
 

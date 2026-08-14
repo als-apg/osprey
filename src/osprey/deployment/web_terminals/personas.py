@@ -3,8 +3,10 @@
 Turns the raw ``modules.web_terminals`` roster into explicit per-user identity:
 normalized ``{"name", "index"}`` entries (:func:`normalize_users`) and fully
 resolved image/project/container-dir identity per user
-(:func:`resolve_personas`). Also home to the username→env-var-suffix mapping
-(:func:`env_var_suffix`) and its collision detector
+(:func:`resolve_personas`). Callers that write the roster *back* to
+``config.yml`` rather than render from it use :func:`freeze_user_indices`, which
+keeps the authored keys the normalizer projects away. Also home to the
+username→env-var-suffix mapping (:func:`env_var_suffix`) and its collision detector
 (:func:`env_var_suffix_collisions`), which credential provisioning, the auth
 sidecar and lint share so a user's credentials are keyed identically everywhere.
 Port arithmetic lives separately in :mod:`osprey.deployment.web_terminals.ports`.
@@ -18,7 +20,7 @@ from typing import Any
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
-# Task 2.5: the only wired value for `modules.web_terminals.mcp.topology`. Every
+# The only wired value for `modules.web_terminals.mcp.topology`. Every
 # other value (including the recognized-but-rejected `shared_http`) is
 # fail-closed at render time — see render.py's `_check_mcp_topology()`. Lives
 # in this neutral module so lint.py and render.py can both import it without
@@ -58,7 +60,7 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
 
     Legacy bare strings (``"alice"``) normalize to ``{"name": "alice", "index":
     <raw list position>}``, matching the fallback ``render.py`` already uses so
-    ports stay identical to what a pre-existing all-strings roster produces today.
+    ports stay identical to what an all-strings roster produces.
     Already-explicit object entries (``{"name": ..., "index": ...}``) pass through
     with their explicit index preserved, regardless of list position. This makes
     the function idempotent: normalizing an already-normalized list is a no-op,
@@ -136,6 +138,62 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def freeze_user_indices(users_raw: Any) -> list[dict[str, Any]]:
+    """The roster **as authored**, with :func:`normalize_users`' indices frozen onto it.
+
+    :func:`normalize_users` answers "who is on the roster, at which index" and
+    deliberately projects each entry down to the handful of fields the render
+    reads. That projection is the right input for rendering and the WRONG thing
+    to write back to ``config.yml``: every key it does not know about —
+    ``persona`` above all — would be dropped from the file, and a roster whose
+    ``persona:`` keys are gone re-resolves every survivor onto
+    ``default_persona`` (see :func:`resolve_personas`, which reads ``persona``
+    off the raw roster). For a user removal that is a silent privilege change,
+    not a cosmetic one, whenever the default persona is the more privileged.
+
+    So this function starts from :func:`normalize_users`' output — survival and
+    index-freezing stay entirely that function's contract, with no second copy
+    of its rules here — and re-attaches the keys the author actually wrote.
+    Entries are matched by ``name``, the same key
+    :func:`_persona_ref_by_name` and every other per-user artifact in this
+    module (container names, volume names) is keyed by. A roster listing one
+    name twice (a duplicate-name config error lint reports separately) therefore
+    gives both entries the *last* authored entry's extra keys; each still keeps
+    its own frozen index.
+
+    Values are carried through verbatim, including ones
+    :func:`normalize_users` would drop as malformed (a non-string
+    ``display_name``, say). Removing one user must not quietly rewrite another
+    user's config: what the author wrote about the survivors goes back to the
+    file unchanged, and lint keeps reporting it.
+
+    Args:
+        users_raw: The raw ``modules.web_terminals.users`` value.
+
+    Returns:
+        One dict per surviving :func:`normalize_users` entry, in the same order,
+        carrying every key its authored entry had plus an explicit ``index``. A
+        bare-string entry becomes ``{"name", "index"}``, since a string carries
+        nothing else — unless the same name is also spelled as an object
+        somewhere in the list, which is the duplicate-name case above. Input
+        dicts are never mutated.
+    """
+    authored_by_name: dict[str, dict[str, Any]] = {}
+    if isinstance(users_raw, list):
+        for entry in users_raw:
+            if isinstance(entry, dict) and isinstance(entry.get("name"), str):
+                authored_by_name[entry["name"]] = entry
+
+    frozen: list[dict[str, Any]] = []
+    for normalized in normalize_users(users_raw):
+        entry = dict(authored_by_name.get(normalized["name"], {}))
+        # normalize_users wins on the keys it owns: `index` is the frozen one,
+        # not whatever the file said, and `name` is already identical.
+        entry.update(normalized)
+        frozen.append(entry)
+    return frozen
+
+
 def env_var_suffix(username: str) -> str:
     """Map a roster username to the suffix its per-user env vars are keyed by.
 
@@ -191,7 +249,7 @@ def roster_user_names(web_terminals: Any) -> list[str]:
     The whole rule in one place: a module that is not switched on has no roster
     at all, and the entries of one that is are read through
     :func:`normalize_users` rather than off the raw list. Both matter to callers
-    who then create directories per user — ``osprey profile new`` seeding a
+    who then create directories per user — ``osprey init`` seeding a
     per-user context slot and the build copying into it must agree on the roster
     down to the last name, or the build looks for a directory nobody made.
 
@@ -292,10 +350,10 @@ def resolve_personas(
     ``modules.web_terminals.image_tag`` (``<tag>`` below, default ``latest``);
     local ``:local`` images are unaffected by that field:
 
-    * **No persona in effect** (``persona`` is ``None``): today's exact values —
+    * **No persona in effect** (``persona`` is ``None``): the facility defaults —
       ``image`` is ``<registry_url>/web-terminal:<tag>`` (unsuffixed, the same
-      string the compose template built directly before this function existed
-      whenever ``<tag>`` is its ``latest`` default),
+      string the compose template names directly whenever ``<tag>`` is its
+      ``latest`` default),
       ``project`` and ``container_project_dir`` are ``<facility_prefix>-assistant``
       / ``/app/<facility_prefix>-assistant``. This is the zero-migration path: a
       config with no ``personas`` catalog at all resolves every entry here.
@@ -304,10 +362,14 @@ def resolve_personas(
       ``<registry_url>/web-terminal:<tag>`` image (so the default persona's
       *image* never changes when a catalog is introduced); local mode still
       builds ``<persona.project>-<persona>:local`` like every other persona.
-      ``container_project_dir`` stays pinned to ``/app/<facility_prefix>-assistant``
-      regardless of the catalog entry's own ``project`` — the existing per-user
-      agent-data volume must keep resolving to the same in-container path it did
-      before personas existed.
+      ``container_project_dir`` is ``/app/<project>`` from the catalog entry,
+      exactly as for any other persona: the image is built FROM that project, so
+      pinning the directory to the facility default would name a path that
+      image does not have. A catalog that gives the default persona a project
+      other than ``<facility_prefix>-assistant`` therefore moves where its
+      users' agent-data volume mounts — the volume itself is unchanged and
+      keeps its contents, but they are no longer at the path the container
+      reads.
     * **Non-default persona**: registry mode uses
       ``<registry_url>/web-terminal-<persona>:<tag>``; local mode uses
       ``<persona.project>-<persona>:local`` (same rule as the default persona);
@@ -405,15 +467,14 @@ def resolve_personas(
     def _zero_migration_entry(
         name: str, index: int, persona: str | None, source: dict[str, Any]
     ) -> dict[str, Any]:
-        """The zero-migration resolution: today's exact pre-persona values, with
+        """The zero-migration resolution: the pre-persona values, with
         ``persona`` carried through for logging (``None`` when no persona is in
         effect, or the unresolvable reference on the lenient degrade path) and the
         optional per-user fields passed through unchanged. ``extra_mounts`` is
         empty here — the zero-migration path has no catalog entry to read
         persona-level host mounts from. ``seed_base`` is ``True`` — the shared
-        base-context prepend has always been mandatory for a
-        no-persona/zero-migration entry, and opting out is only expressible
-        through a catalog entry."""
+        base-context prepend is mandatory for a no-persona/zero-migration entry,
+        and opting out is only expressible through a catalog entry."""
         return _with_optional_fields(
             {
                 "name": name,
@@ -468,7 +529,7 @@ def resolve_personas(
 
         # seed_base: whether this persona's users get the shared base context
         # prepended ahead of their own extra context at seed time. Defaults to
-        # True (the historical, always-prepend behavior); a non-bool value is a
+        # True (always prepend); a non-bool value is a
         # config typo that lint reports separately, so coerce it back to the
         # safe default here rather than propagating garbage.
         seed_base = catalog_entry.get("seed_base")

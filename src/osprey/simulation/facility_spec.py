@@ -1,5 +1,5 @@
 """Declarative facility specification — the single source of truth for the
-``one-facility`` epic's device families, counts, naming scheme, and machine
+simulated facility's device families, counts, naming scheme, and machine
 constants.
 
 Stdlib-only (``dataclasses`` + ``typing``), zero third-party dependencies,
@@ -8,8 +8,7 @@ following the import discipline of
 no control-system imports) and the catalog-lookup shape of
 :mod:`osprey.services.build_artifacts.catalog`.
 
-This module inverts the retired ``manifest -> inventory -> lattice`` direction:
-the spec is the authority on families / counts / names, and the hand-ported
+The spec is the authority on families / counts / names, and the hand-ported
 ring (:func:`osprey.simulation.lattice.ring.build_ring`) is its *first
 consumer*. A drift-guard test binds the ring's actual per-family element counts
 and assigned naming to this declaration
@@ -129,5 +128,5 @@ ALS_U_AR = FacilitySpec(
 
 
 def als_u_ar() -> FacilitySpec:
-    """Return the ALS-U Accumulator Ring facility spec (the epic default)."""
+    """Return the ALS-U Accumulator Ring facility spec (the default)."""
     return ALS_U_AR

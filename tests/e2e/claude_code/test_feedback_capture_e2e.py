@@ -11,14 +11,19 @@ import json
 
 import pytest
 
-from tests.e2e.sdk_helpers import combined_text, init_project, run_sdk_query_with_hooks
+from tests.e2e.sdk_helpers import (
+    agent_data_dir,
+    combined_text,
+    init_project,
+    run_sdk_query_with_hooks,
+)
 
 pytestmark = pytest.mark.harness_benchmark
 
 
 @pytest.fixture(scope="module")
 def feedback_project(tmp_path_factory):
-    """Module-scoped project with channel_finder_mode=hierarchical."""
+    """Module-scoped deployment repo with channel_finder_mode=hierarchical."""
     tmp = tmp_path_factory.mktemp("feedback-capture")
     return init_project(
         tmp, "feedback-capture", provider="als-apg", channel_finder_mode="hierarchical"
@@ -37,7 +42,8 @@ async def test_feedback_hook_captures_search_results(feedback_project):
     """The feedback capture hook should write results to pending_reviews.json.
 
     After a channel-finder search that returns results, the PostToolUse hook
-    should silently create _agent_data/feedback/pending_reviews.json with valid items.
+    should silently create var/agent_data/feedback/pending_reviews.json with valid
+    items — the state zone the channel-finder feedback app reads back.
 
     Cost budget: $0.50
     """
@@ -66,7 +72,7 @@ async def test_feedback_hook_captures_search_results(feedback_project):
     assert len(cf_calls) >= 1, f"Expected channel-finder tool call but got: {result.tool_names}"
 
     # pending_reviews.json should exist with captured items
-    store_path = feedback_project / "_agent_data" / "feedback" / "pending_reviews.json"
+    store_path = agent_data_dir(feedback_project) / "feedback" / "pending_reviews.json"
     assert store_path.exists(), f"Expected {store_path} to exist after channel-finder search"
 
     data = json.loads(store_path.read_text())

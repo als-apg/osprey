@@ -766,49 +766,59 @@ def _find_osprey_console_script() -> Path:
 
 
 @pytest.fixture(scope="module")
-def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Build a real control-assistant project once per module.
+def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Init + build a real control-assistant deployment repo once per module.
 
-    ``--skip-deps`` keeps it fast (no project venv); the worker and dispatcher run with
-    this repo's interpreter, so the project venv is not needed. The provider choice never
+    Two steps because the surface has two: ``init`` writes the repo's source zone
+    from the preset, ``build`` renders ``build/`` from it. ``--skip-deps`` keeps it
+    fast (no project venv); the worker and dispatcher run with this repo's
+    interpreter, so the project venv is not needed. The provider choice never
     reaches an assertion here — see the module docstring on why these tests are
     model-independent.
     """
     base = tmp_path_factory.mktemp("nextcloud_talk_build")
-    project_dir = base / "proj"
+    repo = base / "proj"
     osprey_bin = _find_osprey_console_script()
 
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+    def _osprey(argv: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [str(osprey_bin), *argv],
+            cwd=str(base),
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+            env={**os.environ, "CLAUDECODE": ""},
+        )
+
+    init = _osprey(
         [
-            str(osprey_bin),
-            "build",
-            "proj",
+            "init",
+            str(repo),
             "--preset",
             "control-assistant",
+            "--no-git",
             "--set",
             "provider=als-apg",
             "--set",
             "model=haiku",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=600,
-        check=False,
-        env={**os.environ, "CLAUDECODE": ""},
+        ]
     )
-    if proc.returncode != 0:
+    if init.returncode != 0:
         pytest.fail(
-            f"osprey build failed (rc={proc.returncode}):\n"
-            f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+            f"osprey init failed (rc={init.returncode}):\n"
+            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
         )
-    if not (project_dir / "config.yml").is_file():
-        pytest.fail(f"build succeeded but config.yml missing under {project_dir}")
-    return project_dir
+
+    build = _osprey(["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    if build.returncode != 0:
+        pytest.fail(
+            f"osprey build failed (rc={build.returncode}):\n"
+            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
+        )
+    if not (repo / "build" / "config.yml").is_file():
+        pytest.fail(f"build succeeded but build/config.yml missing under {repo}")
+    return repo
 
 
 def _write_triggers(dst: Path, worker_port: int) -> None:
@@ -850,7 +860,7 @@ def _write_triggers(dst: Path, worker_port: int) -> None:
 
 
 @pytest.fixture(scope="module")
-def dispatch_stack(built_project: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
+def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
     """A real worker + dispatcher pair as subprocesses on free ports.
 
     Module-scoped: the bridge is what these tests exercise, and the pair carries no state
@@ -869,8 +879,10 @@ def dispatch_stack(built_project: Path, tmp_path_factory: pytest.TempPathFactory
             **os.environ,
             "DISPATCH_WORKER_PORT": str(worker_port),
             "DISPATCH_WORKER_TOKEN": DISPATCH_TOKEN,
-            "OSPREY_PROJECT_DIR": str(built_project),
-            "CONFIG_FILE": str(built_project / "config.yml"),
+            # Repo root + the render's config one level down, exactly as the
+            # dispatch_worker compose template wires the deployed worker.
+            "OSPREY_PROJECT_DIR": str(built_repo),
+            "CONFIG_FILE": str(built_repo / "build" / "config.yml"),
             # The worker's own per-run wall-clock cap. Must match the bridge's
             # DISPATCH_TIMEOUT_SEC or its poll_budget floor is validated against the
             # wrong number; set from one constant so they cannot drift.
@@ -879,7 +891,7 @@ def dispatch_stack(built_project: Path, tmp_path_factory: pytest.TempPathFactory
         }
         worker_proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
             [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-            cwd=str(built_project),
+            cwd=str(built_repo),
             env=worker_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -900,7 +912,7 @@ def dispatch_stack(built_project: Path, tmp_path_factory: pytest.TempPathFactory
         }
         dispatcher_proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
             [sys.executable, "-m", "osprey.dispatch"],
-            cwd=str(built_project),
+            cwd=str(built_repo),
             env=dispatcher_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -912,7 +924,7 @@ def dispatch_stack(built_project: Path, tmp_path_factory: pytest.TempPathFactory
         yield {
             "dispatcher_url": f"http://127.0.0.1:{dispatcher_port}",
             "worker_url": f"http://127.0.0.1:{worker_port}",
-            "project_dir": built_project,
+            "repo": built_repo,
         }
     finally:
         _terminate(dispatcher_proc)

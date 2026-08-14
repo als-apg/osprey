@@ -115,7 +115,7 @@ class TestNonProfileBehaviorUnchanged:
     The channel set itself is pinned by ``tests/va/test_manifest.py``'s
     measured ``EXPECTED_TOTAL`` / ``EXPECTED_RING_COUNTS`` against the
     no-argument ``build_manifest()`` — the call every runtime caller makes.
-    What this class adds is that the refactor did not move that default: see
+    What this class adds is that the default itself is the package tree: see
     ``TestManifestPaths.test_default_argument_is_the_package_tree``.
     """
 

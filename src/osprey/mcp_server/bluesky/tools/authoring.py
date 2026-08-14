@@ -26,12 +26,30 @@ Same conventions as ``read_tools.py``: ``async def``, JSON string return
 from __future__ import annotations
 
 import json
+import logging
 
 import anyio
 
 from osprey.mcp_server.bluesky.server import mcp
 from osprey.mcp_server.bluesky.server_context import _http_post_json, bridge_error_message
+from osprey.mcp_server.bluesky.tools.draft import _plans_panel_id
 from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import notify_agent_activity
+
+logger = logging.getLogger("osprey.mcp_server.bluesky.tools.authoring")
+
+
+def _notify_authoring_activity(tool: str, detail: str | None) -> None:
+    """Sync body of the fire-and-forget activity emit (worker thread only).
+
+    Authoring a plan changes what the human's BLUESKY panel lists, so the
+    highlight targets that panel — the same id draft edits resolve, hence the
+    shared :func:`~osprey.mcp_server.bluesky.tools.draft._plans_panel_id`.
+    ``notify_agent_activity`` is blocking and the panel-id lookup reads
+    config.yml, so both stay off the event loop behind
+    ``anyio.to_thread.run_sync``.
+    """
+    notify_agent_activity(tool=tool, kind="panel", panel=_plans_panel_id(), detail=detail)
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +80,12 @@ async def write_plan(
             on-disk file stem and the generated metadata's ``name`` field.
         category: Free-text grouping shown to operators (e.g. "accelerator").
         required_devices: Names of the `PARAMS` fields naming devices the
-            plan drives/reads (e.g. ``["correctors", "detectors"]``).
+            plan drives/reads (e.g. ``["correctors", "detectors"]``). Name the
+            field immediately around the device-name strings — for a nested
+            shape that is the inner key, as `grid_scan` declares
+            ``"setpoints"`` for its ``axes[].setpoint`` values. The bridge
+            checks device names against the worker's device list before
+            queuing, and a field it cannot match is left unchecked.
         writes: Whether this plan moves a device (vs. read-only). Authoring
             metadata only — has no effect on whether writes actually happen;
             that is governed entirely by ``control_system.writes_enabled``.
@@ -95,6 +118,13 @@ async def write_plan(
                 "Check category/required_devices/writes are present and well-typed.",
             ],
         )
+
+    # The file exists only past the rejection returns above: best-effort
+    # highlight of the panel that now lists it; must never alter the result.
+    try:
+        await anyio.to_thread.run_sync(_notify_authoring_activity, "write_plan", name)
+    except Exception as exc:
+        logger.debug("agent-activity emit failed (non-fatal): %s", exc)
     return json.dumps(resp_body)
 
 
@@ -149,4 +179,15 @@ async def validate_plan(
         )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(resp_body, status))
+
+    # A pass is what changes the plan's standing (loadable, enqueueable) and
+    # what the panel re-renders; a failed validation leaves everything as it
+    # was, so only a pass is reported.
+    if resp_body.get("passed"):
+        try:
+            await anyio.to_thread.run_sync(
+                _notify_authoring_activity, "validate_plan", f"validated {name}"
+            )
+        except Exception as exc:
+            logger.debug("agent-activity emit failed (non-fatal): %s", exc)
     return json.dumps(resp_body)

@@ -91,7 +91,7 @@ def _render_bridge_compose(project_path: Path) -> str:
     the project's own ``config.yml`` passed through ``_inject_project_metadata``
     (which is what supplies ``osprey_labels``/``osprey_version``/
     ``osprey_env_present``). Rendering the *project's* copy rather than the
-    packaged template is deliberate — it is the copy ``osprey deploy up``
+    packaged template is deliberate — it is the copy ``osprey up``
     renders, so this is the artifact the injector is responsible for.
     """
     config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
@@ -117,25 +117,17 @@ def _build_bridge_project(
     Returns the built project path (which may not exist, for the failure cases)
     and the click result.
     """
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    (profile_dir / "triggers.yml").write_text(_TRIGGERS_YAML, encoding="utf-8")
-    (profile_dir / "profile.yml").write_text(
+    repo_dir = tmp_path / "gcproj"
+    repo_dir.mkdir()
+    (repo_dir / "triggers.yml").write_text(_TRIGGERS_YAML, encoding="utf-8")
+    (repo_dir / "profile.yml").write_text(
         _PROFILE_YAML.format(gchat_bridge=gchat_bridge), encoding="utf-8"
     )
-    out_dir = tmp_path / "out"
     result = runner.invoke(
         build,
-        [
-            "gcproj",
-            str(profile_dir / "profile.yml"),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(out_dir),
-        ],
+        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
     )
-    return out_dir / "gcproj", result
+    return repo_dir / "build", result
 
 
 # ── injector unit behavior ───────────────────────────────────────────────────
@@ -355,7 +347,7 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     # Image falls back to the per-project local build tag (no pinned image).
     assert svc["image"] == "${OSPREY_GCHAT_BRIDGE_IMAGE:-gcproj-gchat-bridge:local}"
     assert svc["container_name"] == "gcproj-gchat-bridge"
-    assert svc["build"]["context"] == "./gchat_bridge"
+    assert svc["build"]["context"] == "./build/services/gchat_bridge"
     assert svc["build"]["args"]["OSPREY_PROJECT_NAME"] == "gcproj"
     env = svc["environment"]
     # The one variable with no template-side default.
@@ -380,7 +372,7 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     # moving the require_startup contract too.
     for var in ("GCHAT_SA_KEY", "GCHAT_SUBSCRIPTION", "GCHAT_APP_ID"):
         assert env[var] == f"${{{var}}}"
-    # The dispatch tokens are bare for the same reason, and `deploy up` mints them.
+    # The dispatch tokens are bare for the same reason, and `osprey up` mints them.
     for var in ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"):
         assert env[var] == f"${{{var}}}"
     assert env["TZ"] == "UTC"
@@ -430,31 +422,24 @@ def test_full_build_both_bridges_coexist(runner: CliRunner, tmp_path: Path) -> N
     a project may answer on Talk and Chat at once. Guards against a copy-paste
     slip in either injector clobbering the other's service block.
     """
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    (profile_dir / "triggers.yml").write_text(
+    repo_dir = tmp_path / "gcproj"
+    repo_dir.mkdir()
+    (repo_dir / "triggers.yml").write_text(
         _TRIGGERS_YAML + "  - name: nextcloud-question\n    source: webhook\n"
         "    action:\n      prompt: Answer on Talk.\n",
         encoding="utf-8",
     )
-    (profile_dir / "profile.yml").write_text(
+    (repo_dir / "profile.yml").write_text(
         _PROFILE_YAML.format(gchat_bridge="gchat_bridge: {}") + "nextcloud_bridge: {}\n",
         encoding="utf-8",
     )
     result = runner.invoke(
         build,
-        [
-            "gcproj",
-            str(profile_dir / "profile.yml"),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path / "out"),
-        ],
+        ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
     )
     assert result.exit_code == 0, result.output
 
-    project_path = tmp_path / "out" / "gcproj"
+    project_path = repo_dir / "build"
     config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
     assert config["services"]["gchat_bridge"]["trigger"] == "gchat-question"
     assert config["services"]["nextcloud_bridge"]["trigger"] == "nextcloud-question"
@@ -487,9 +472,9 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     BuildProfileError it raises actually reaches an operator running
     `osprey build`, rather than being swallowed into a bare non-zero exit.
     """
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    (profile_dir / "profile.yml").write_text(
+    repo_dir = tmp_path / "gcproj"
+    repo_dir.mkdir()
+    (repo_dir / "profile.yml").write_text(
         "name: GcNoDispatch\ndata_bundle: hello_world\nprovider: anthropic\n"
         "model: haiku\ngchat_bridge: {}\n",
         encoding="utf-8",
@@ -497,21 +482,14 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     with caplog.at_level(logging.ERROR):
         result = runner.invoke(
             build,
-            [
-                "gcproj",
-                str(profile_dir / "profile.yml"),
-                "--skip-deps",
-                "--skip-lifecycle",
-                "--output-dir",
-                str(tmp_path / "out"),
-            ],
+            ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"],
         )
 
     assert result.exit_code != 0
     errors = _build_errors(caplog)
     assert "Build profile validation failed" in errors
     assert "gchat_bridge requires a 'dispatch:' block" in errors
-    assert not (tmp_path / "out" / "gcproj" / "services" / "gchat_bridge").exists()
+    assert not (repo_dir / "build" / "services" / "gchat_bridge").exists()
 
 
 def test_full_build_unknown_trigger_aborts(

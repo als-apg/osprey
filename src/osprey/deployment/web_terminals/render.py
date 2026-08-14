@@ -12,10 +12,12 @@ from __future__ import annotations
 import posixpath
 import re
 from importlib.resources import as_file, files
+from pathlib import PurePosixPath
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.deployment.compose_generator import repo_identity, resolve_repo_root
 from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
@@ -31,6 +33,7 @@ from osprey.deployment.web_terminals.ports import (
     base_ports_from_config,
 )
 from osprey.utils.facility import resolve_facility_name
+from osprey.utils.workspace import agent_data_base_dir
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -47,10 +50,9 @@ _COMPOSE_OUTPUT = "docker-compose.web.yml"
 _NGINX_OUTPUT = "nginx/nginx.conf"
 _LANDING_OUTPUT = "nginx/landing.html"
 
-# Per-container constant (Task 1.1): every per-user app's service families
-# (web + every registry companion family) bind this host, never a routable
-# interface —
-# nginx's reverse proxy (Task 1.2) becomes the only off-host path. Not
+# Per-container constant: every per-user app's service families (web + every
+# registry companion family) bind this host, never a routable interface —
+# nginx's reverse proxy is the only off-host path. Not
 # config-driven: unlike the per-family ports, there is no config knob
 # for this, since a facility that wants a per-user port reachable directly
 # off-host would defeat the single-origin chokepoint this module exists to
@@ -59,7 +61,7 @@ _LOOPBACK_BIND_HOST = "127.0.0.1"
 
 # Default nginx image when `modules.web_terminals.nginx_image` is unset. Kept
 # byte-identical to docker-compose.web.yml.j2's own `| default(...)` fallback so
-# an absent config value renders exactly as before this seam existed.
+# an absent config value renders the same image from either side.
 _DEFAULT_NGINX_IMAGE = "nginx:1.27-alpine"
 
 #: The authentication methods this deployment can actually serve: ``none`` (no
@@ -99,6 +101,42 @@ _DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
 AUTH_ENV_DIGEST_LABEL = "osprey.auth.env.digest"
 
 
+def _container_agent_data_dir(config: Any, container_project_dir: str) -> str:
+    """Where a per-user container's agent-data volume mounts, as that container sees it.
+
+    The mount target has to be the directory the process inside the container
+    actually writes to, and that directory is decided by ``agent_data.base_dir``
+    — the same key :func:`osprey.utils.workspace.resolve_agent_data_root`
+    resolves at runtime, anchored on the config's ``project_root`` (in-container:
+    *container_project_dir*). Derived through the shared
+    :func:`~osprey.utils.workspace.agent_data_base_dir` reader for that reason:
+    a literal here is a second, silent spelling of the same setting, and a
+    project that relocates its agent-data root would mount the volume at the old
+    path while the agent writes to the new one — an unbacked directory in the
+    container's writable layer, discarded at the next recreate.
+
+    The join happens here rather than in the template because an absolute
+    ``base_dir`` names the same absolute path on both sides and must NOT be
+    re-anchored under the project directory; a template-level
+    ``{{ dir }}/{{ base }}`` concatenation cannot make that distinction.
+
+    Known limit: a ``~``-relative ``base_dir`` is anchored here like any other
+    relative path, while ``anchored_path`` expands it against the container's
+    ``HOME`` — which the compose template sets to ``/data/claude-config``. Such
+    a project's agent data therefore lands in the claude-config volume rather
+    than the agent-data one: misfiled, but persisted by the claude-config volume,
+    so this is not the unbacked-directory data loss above (the agent-data volume
+    then mounts over an empty ``~`` directory and holds nothing). Left unhandled rather
+    than expanded here because resolving it would mean spelling that ``HOME``
+    path a second time in this module, free to drift from the template that
+    actually sets it — the same duplication this function exists to remove.
+    """
+    base = PurePosixPath(agent_data_base_dir(config))
+    if base.is_absolute():
+        return base.as_posix()
+    return (PurePosixPath(container_project_dir) / base).as_posix()
+
+
 def render_web_terminals(config: Any, auth_env_digest: str | None = None) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -117,7 +155,7 @@ def render_web_terminals(config: Any, auth_env_digest: str | None = None) -> dic
             :func:`osprey.deployment.web_terminals.artifacts.write_web_terminal_artifacts`;
             ``None`` (the default, and the ``osprey scaffold web-terminals
             render`` path, which has no project root to digest) emits no label —
-            harmless, because every ``osprey deploy up`` re-renders through the
+            harmless, because every ``osprey up`` re-renders through the
             artifacts seam with a current digest before its ``up``, so a
             label-less render can never reach a running stack stale.
 
@@ -167,6 +205,23 @@ def render_web_terminals(config: Any, auth_env_digest: str | None = None) -> dic
                 "image": entry["image"],
                 "project": entry["project"],
                 "container_project_dir": entry["container_project_dir"],
+                # Where this user's agent-data volume mounts INSIDE the
+                # container, resolved from the same key the process inside it
+                # resolves its own agent-data root from.
+                # Read from `agent_data.base_dir` through the shared helper
+                # rather than spelled as a literal here, because the container
+                # resolves its own agent-data root from that key
+                # (workspace.resolve_agent_data_root, anchored on the config's
+                # project_root, which in-container is container_project_dir).
+                # A literal here silently decouples the two: the volume mounts
+                # at one path while memory, sessions and artifacts are written
+                # to another, which is a plain directory in the container's
+                # writable layer — so every user's data is discarded the next
+                # time the container is recreated, with nothing to see at
+                # mount time or in any log.
+                "container_agent_data_dir": _container_agent_data_dir(
+                    root, entry["container_project_dir"]
+                ),
                 "extra_mounts": entry["extra_mounts"],
                 # Optional per-user window/tab title -> OSPREY_WEB_APP_NAME. None
                 # (the common case: resolve_personas omits the key unless a
@@ -271,6 +326,11 @@ def render_web_terminals(config: Any, auth_env_digest: str | None = None) -> dic
         # can gate the label block on plain truthiness.
         "auth_env_digest": auth_env_digest or "",
         "auth_env_digest_label": AUTH_ENV_DIGEST_LABEL,
+        # Which CHECKOUT this stack belongs to, baked into every container and
+        # volume label the template emits. Derived through the same helper the
+        # services stack renders from, so one deployment cannot end up with two
+        # identities depending on which of its two compose files is read.
+        "repo_id": repo_identity(resolve_repo_root(config)),
         **auth_tls_ctx,
     }
 
@@ -489,9 +549,9 @@ def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
 def _build_groups(
     landing_cfg: dict[str, Any], resolved_users: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Transform config ``landing.groups`` (Task 1.2 shape) into template ``groups``
-    (Task 1.6 shape): plain dicts with a ``label`` and an ``items`` key, since
-    landing.html.j2 uses bracket subscript (``group["items"]``) throughout.
+    """Transform config ``landing.groups`` into the template's ``groups`` shape:
+    plain dicts with a ``label`` and an ``items`` key, since landing.html.j2
+    uses bracket subscript (``group["items"]``) throughout.
 
     ``{type: "users"}`` auto-populates one card per configured user, using the
     relative ``/u/<user>/`` path that nginx.conf.j2 (bind-nginx-reverse-proxy)
@@ -500,13 +560,12 @@ def _build_groups(
     resolves to a persona (:func:`resolve_personas` returns a non-``None``
     ``persona``), that card also carries an optional ``sublabel`` holding the
     persona name, shown as a secondary badge on the card; users with no persona
-    in effect (every pre-persona bare-string roster) omit the key entirely, so
-    landing.html.j2's ``{% if item["sublabel"] %}`` guard renders them exactly as
-    before. ``{type: "links", label, links}`` passes ``links`` straight through as
+    in effect (every bare-string roster) omit the key entirely, so
+    landing.html.j2's ``{% if item["sublabel"] %}`` guard renders them without
+    one. ``{type: "links", label, links}`` passes ``links`` straight through as
     ``items`` (link cards never carry a ``sublabel``). Unrecognized/malformed
-    group entries are dropped rather than raising: the lint (Task 1.5) is the
-    authoritative gate on schema well-formedness, this is just the render-time
-    adapter.
+    group entries are dropped rather than raising: lint is the authoritative
+    gate on schema well-formedness, this is just the render-time adapter.
 
     Args:
         landing_cfg: The already-dict-coerced ``modules.web_terminals.landing``
@@ -717,7 +776,7 @@ def _check_roster_charset(services: list[dict[str, Any]], auth_method: str) -> N
 
     Scoped to authentication being on, deliberately: with ``auth.method: none``
     the username is a routing label, not an identity, and raising here would
-    break renders that work today. Lint still reports it in that case.
+    break an otherwise valid render. Lint still reports it in that case.
 
     Args:
         services: The resolved per-user service entries (each with a ``user``).
@@ -791,15 +850,14 @@ def _check_roster_env_var_collisions(services: list[dict[str, Any]], auth_method
 
 def _check_mcp_topology(web_terminals: dict[str, Any]) -> None:
     """Fail closed on any ``modules.web_terminals.mcp.topology`` value other than
-    the one wired topology, ``per_container_stdio`` (Task 2.5).
+    the one wired topology, ``per_container_stdio``.
 
     Only two of the framework's eight MCP servers (``channel-finder`` and
-    ``facility-knowledge``) were found to be safely shareable across a shared
-    HTTP tier without per-user-state corruption — not enough to justify
-    building and securing a whole shared tier this phase. ``shared_http`` is
-    therefore a *recognized but rejected* schema value: it lints as an ERROR
-    (Task 2.4) and raises here at render time. See
-    ``references/modules/web-terminals.md`` for the full deferral rationale.
+    ``facility-knowledge``) are safely shareable across a shared HTTP tier
+    without per-user-state corruption — not enough to justify building and
+    securing a whole shared tier. ``shared_http`` is therefore a *recognized
+    but rejected* schema value: it lints as an ERROR and raises here at render
+    time. See ``references/modules/web-terminals.md`` for the rationale.
 
     This check is scoped to the shared **framework**-MCP tier only. It has
     nothing to do with, and never rejects, a facility's own

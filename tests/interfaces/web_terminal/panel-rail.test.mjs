@@ -22,7 +22,7 @@
  * (vitest.config.js), so `document` is a global.
  */
 
-import { test, expect, describe, beforeEach } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   createRail,
@@ -271,6 +271,40 @@ describe('drag from the rail (onDragStart / onDragEnd)', () => {
     expect(ev.defaultPrevented).toBe(true);
   });
 
+  test('removing a mid-drag entry ends its drag gesture (removeEntry heals the shields)', () => {
+    // A detached drag source can never fire dragend (HTML5 delivers it to the
+    // source element only), so the caller's onDragEnd — which lowers the
+    // iframe pointer shields — would never run and every panel would stay
+    // frozen. removeEntry must end the gesture itself before detaching.
+    /** @type {string[]} */
+    const ended = [];
+    createRail(rail, PANELS, {
+      onDragStart: () => true,
+      onDragEnd: (id) => ended.push(id),
+    });
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    entry.dispatchEvent(dragEvent('dragstart'));
+    expect(entry.classList.contains('dragging')).toBe(true);
+
+    removeEntry(rail, 'ariel');
+
+    expect(getEntry(rail, 'ariel')).toBeNull();
+    expect(ended).toEqual(['ariel']);
+  });
+
+  test('removeEntry of an idle entry does not fire onDragEnd', () => {
+    /** @type {string[]} */
+    const ended = [];
+    createRail(rail, PANELS, {
+      onDragStart: () => true,
+      onDragEnd: (id) => ended.push(id),
+    });
+
+    removeEntry(rail, 'ariel');
+
+    expect(ended).toEqual([]);
+  });
+
   test('dragend clears the dragging state and calls onDragEnd', () => {
     /** @type {string[]} */
     const ended = [];
@@ -453,6 +487,155 @@ describe('setEntryAttention', () => {
 
     expect([...entry.children]).toEqual(childrenBefore);
     expect(entry.getAttributeNames().sort()).toEqual(attrsBefore);
+  });
+
+  test('a badged-then-cleared entry leaves no tooltip stash behind', () => {
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'ariel'));
+    setEntryAttention(rail, 'ariel', true, 1_755_000_000);
+    expect(entry.hasAttribute('data-title-base')).toBe(true);
+
+    setEntryAttention(rail, 'ariel', false);
+    expect(entry.hasAttribute('data-title-base')).toBe(false);
+  });
+});
+
+/**
+ * A rail taller than its viewport can put an entry off-screen, where a badge
+ * reports nothing at all. Setting the badge must surface the entry; clearing
+ * it must not move the rail under the operator.
+ *
+ * happy-dom implements scrollIntoView as a no-op on Element.prototype, so the
+ * spy below observes real calls rather than installing a missing method.
+ */
+describe('setEntryAttention scrolls a badged entry into view', () => {
+  /** @type {HTMLElement} */
+  let rail;
+  /** @type {import('vitest').MockInstance} */
+  let scrollSpy;
+
+  beforeEach(() => {
+    rail = freshRail();
+    createRail(rail, PANELS);
+    scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('setting the badge surfaces the entry without disturbing a visible rail', () => {
+    setEntryAttention(rail, 'ariel', true);
+
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    // `nearest` is the whole point: an entry already in view must not scroll.
+    expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest' });
+    expect(scrollSpy.mock.instances[0]).toBe(getEntry(rail, 'ariel'));
+  });
+
+  test('clearing the badge does not scroll', () => {
+    setEntryAttention(rail, 'ariel', true);
+    scrollSpy.mockClear();
+
+    setEntryAttention(rail, 'ariel', false);
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  test('an unknown id scrolls nothing', () => {
+    expect(setEntryAttention(rail, 'nope', true)).toBe(false);
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The badge says a panel was touched; the tooltip says WHEN. The time comes
+ * from the event's own server `ts` (epoch seconds, as the agent_activity SSE
+ * frames carry it) — never from the client clock, which would report when the
+ * browser rendered rather than when the agent acted.
+ */
+describe('setEntryAttention tooltip time', () => {
+  /** @type {HTMLElement} */
+  let rail;
+
+  // Two fixed server timestamps an hour apart. Rendering is asserted against
+  // the same computation rather than a literal so the suite is not hostage to
+  // the runner's timezone or locale; the FORMAT is pinned separately.
+  const TS = 1_755_000_000;
+  const TS_LATER = TS + 3600;
+
+  /** @param {number} ts @returns {string} */
+  const expectedTime = (ts) =>
+    new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  beforeEach(() => {
+    rail = freshRail();
+    createRail(rail, PANELS);
+  });
+
+  test('a badge with a server ts appends the touch time to the tooltip', () => {
+    setEntryAttention(rail, 'ariel', true, TS);
+    expect(getEntry(rail, 'ariel')?.title).toBe(`ARIEL · agent touched ${expectedTime(TS)}`);
+  });
+
+  test('the rendered time is hour and minute only — no seconds', () => {
+    setEntryAttention(rail, 'ariel', true, TS);
+    const suffix = String(getEntry(rail, 'ariel')?.title).split('· agent touched ')[1];
+    expect(suffix).toMatch(/\d{1,2}:\d{2}/);
+    expect((suffix.match(/:/g) ?? []).length).toBe(1);
+  });
+
+  test('the time tracks the event ts, not the clock', () => {
+    setEntryAttention(rail, 'ariel', true, TS);
+    const first = getEntry(rail, 'ariel')?.title;
+
+    rail = freshRail();
+    createRail(rail, PANELS);
+    setEntryAttention(rail, 'ariel', true, TS_LATER);
+
+    expect(getEntry(rail, 'ariel')?.title).toBe(`ARIEL · agent touched ${expectedTime(TS_LATER)}`);
+    expect(getEntry(rail, 'ariel')?.title).not.toBe(first);
+  });
+
+  test('a second event replaces the time rather than appending a second suffix', () => {
+    setEntryAttention(rail, 'ariel', true, TS);
+    setEntryAttention(rail, 'ariel', true, TS_LATER);
+
+    const title = String(getEntry(rail, 'ariel')?.title);
+    expect(title).toBe(`ARIEL · agent touched ${expectedTime(TS_LATER)}`);
+    expect((title.match(/agent touched/g) ?? []).length).toBe(1);
+  });
+
+  test('clearing the badge restores the base tooltip exactly', () => {
+    setEntryAttention(rail, 'ariel', true, TS);
+    setEntryAttention(rail, 'ariel', false);
+
+    expect(getEntry(rail, 'ariel')?.title).toBe('ARIEL');
+  });
+
+  test('a later badge with no ts drops the stale time instead of keeping it', () => {
+    setEntryAttention(rail, 'ariel', true, TS);
+    setEntryAttention(rail, 'ariel', true);
+
+    expect(getEntry(rail, 'ariel')?.title).toBe('ARIEL');
+  });
+
+  test('no ts leaves the tooltip untouched (the pre-existing 3-arg contract)', () => {
+    setEntryAttention(rail, 'ariel', true);
+    expect(getEntry(rail, 'ariel')?.title).toBe('ARIEL');
+    expect(getEntry(rail, 'ariel')?.classList.contains('agent-attention')).toBe(true);
+  });
+
+  test('a non-finite ts is refused rather than rendered as "Invalid Date"', () => {
+    for (const bad of [NaN, Infinity]) {
+      setEntryAttention(rail, 'ariel', true, bad);
+      expect(getEntry(rail, 'ariel')?.title).toBe('ARIEL');
+    }
+  });
+
+  test('the suffix never reaches the accessible name', () => {
+    // aria-label is the entry's identity; a churning timestamp inside it would
+    // make the rail re-announce panels to a screen reader on every event.
+    setEntryAttention(rail, 'ariel', true, TS);
+    expect(getEntry(rail, 'ariel')?.getAttribute('aria-label')).toBe('ARIEL');
   });
 });
 

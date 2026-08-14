@@ -157,7 +157,7 @@ class TestGetAgentDir:
         """``applications:`` is retired — only the top-level ``file_paths`` wins.
 
         Projects that still carry a legacy ``applications:`` block keep loading,
-        but its nested ``file_paths`` no longer scope directory resolution.
+        but its nested ``file_paths`` does not scope directory resolution.
         """
         cfg = _write_config(
             tmp_path,

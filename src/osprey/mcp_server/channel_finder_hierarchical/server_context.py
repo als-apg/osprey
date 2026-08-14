@@ -15,7 +15,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from osprey.mcp_server.channel_finder_common import load_cf_config, resolve_cf_path
+from osprey.mcp_server.channel_finder_common import (
+    load_cf_config,
+    resolve_cf_path,
+    resolve_cf_state_path,
+)
 from osprey.utils.facility import resolve_facility_name
 
 if TYPE_CHECKING:
@@ -79,7 +83,9 @@ class ChannelFinderHierContext:
             try:
                 from osprey.services.channel_finder.feedback.store import FeedbackStore
 
-                store_path = resolve_cf_path(feedback_config["store_path"])
+                # State, not build output: anchored on the REPO root, so the
+                # store is not written inside the zone the next build wipes.
+                store_path = resolve_cf_state_path(feedback_config["store_path"])
                 self._feedback_store = FeedbackStore(store_path)
                 logger.info("ChannelFinderHierContext: feedback store loaded from %s", store_path)
             except Exception:

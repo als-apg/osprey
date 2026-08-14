@@ -123,10 +123,12 @@ scan_stack_touched=$(git diff $BASE...HEAD --name-only | grep -E \
   "^(src/osprey/services/bluesky_bridge/|src/osprey/interfaces/bluesky_panels/|src/osprey/templates/services/bluesky|src/osprey/mcp_server/bluesky/|tests/e2e/test_bluesky|tests/e2e/test_tiled_roundtrip|tests/e2e/test_grid_scan_roundtrip|tests/e2e/_orm_stack|tests/e2e/_queue_drive)" || true)
 if [ -n "$scan_stack_touched" ]; then
   echo "⚠ This diff touches the Bluesky scan stack — run the container e2e by hand"
-  echo "  (needs Docker; not run by any automated lane above). In this order:"
+  echo "  (needs Docker; none of these run in this script). In this order:"
   echo ""
   echo "  # 1. the whole queue stack: capability, arming, serial drain, session"
-  echo "  #    plans, abort, bridge restart, mock flip, network isolation"
+  echo "  #    plans, abort, bridge restart, mock flip, network isolation."
+  echo "  #    Runs on CI in the bluesky-queue-e2e lane; run it here to iterate"
+  echo "  #    locally before the PR rather than to cover a gap."
   echo "  uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v"
   echo ""
   echo "  # 2. minimum deploy (bridge + RE manager + Redis, browse-only)"
@@ -144,12 +146,13 @@ if [ -n "$scan_stack_touched" ]; then
   echo "  # 6. authoring sandbox: an unvalidated plan reaches no hardware"
   echo "  uv run pytest tests/e2e/test_bluesky_sandbox_escape_e2e.py -v"
   echo ""
-  echo "  # 7. grid_scan over the real VA — the only venue this one has: unlike"
-  echo "  #    its orm/va-substrate siblings it has no CI lane of its own"
+  echo "  # 7. grid_scan over the real VA. Runs on CI in the orm-roundtrip-e2e"
+  echo "  #    lane, sequentially after test_orm_roundtrip.py; run it here to"
+  echo "  #    iterate locally before the PR rather than to cover a gap."
   echo "  uv run pytest tests/e2e/test_grid_scan_roundtrip.py -v"
   echo ""
   echo "  Never 'pytest -m e2e' — the marker selection breaks registry isolation."
-  echo "  Each module tears its own stack down via 'osprey deploy down'."
+  echo "  Each module tears its own stack down via 'osprey down'."
   WARNINGS=$((WARNINGS + 1))
 else
   echo "✓ No scan-stack changes — container e2e not required for this diff"

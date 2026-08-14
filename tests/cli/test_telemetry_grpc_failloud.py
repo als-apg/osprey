@@ -95,7 +95,7 @@ def test_openobserve_backend_grpc_with_explicit_endpoint_still_works():
 
 
 def test_derived_openobserve_endpoint_unaffected_for_http():
-    """The shipped default configuration keeps resolving exactly as before."""
+    """The shipped default configuration resolves the http/protobuf endpoint."""
     env = _build_telemetry_env(_openobserve_cfg(protocol="http/protobuf"), in_container=False)
     assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:5080/api/als"
     assert env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "http/protobuf"

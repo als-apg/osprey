@@ -28,6 +28,8 @@ _SERVICE_ARTIFACTS = [
     "services/bluesky",
     "services/bluesky_panels",
     "services/virtual_accelerator",
+    "services/mongodb",
+    "services/archiver_recorder",
 ]
 
 
@@ -268,22 +270,21 @@ class TestScaffoldCliDirectoryArtifacts:
     """
 
     def _project(self, tmp_path: Path) -> tuple[Path, Path]:
-        """A built project and the profile its manifest names.
+        """A deployment repo's build zone, and the profile at the repo root.
 
-        The profile is what makes a claim possible at all: a project with none
-        has nowhere to claim into, and the command says so rather than editing
-        the project.
+        The profile is what makes a claim possible at all: a build zone with no
+        profile above it has nowhere to claim into, and the command says so
+        rather than editing the build. In a three-zone repo the profile root IS
+        the repo root, so the second return value is also what ``--repo`` names.
         """
         import json
 
         from osprey.cli.templates.manifest import MANIFEST_FILENAME
 
-        profile_path = tmp_path / "project-profile"
-        profile_path.mkdir()
+        profile_path = tmp_path / "demo-repo"
+        project_path = profile_path / "build"
+        project_path.mkdir(parents=True)
         (profile_path / "profile.yml").write_text("name: test\n", encoding="utf-8")
-
-        project_path = tmp_path / "project"
-        project_path.mkdir()
         (project_path / "config.yml").write_text("project_name: test\n", encoding="utf-8")
         (project_path / MANIFEST_FILENAME).write_text(
             json.dumps(
@@ -317,7 +318,9 @@ class TestScaffoldCliDirectoryArtifacts:
         (existing.parent / "nested" / "deep").mkdir(parents=True)
         (existing.parent / "nested" / "deep" / "extra.conf").write_text("x\n", encoding="utf-8")
 
-        result = CliRunner().invoke(claim, ["services/postgresql", "-p", str(project_path)])
+        result = CliRunner().invoke(
+            claim, ["services/postgresql", "--repo", str(project_path.parent)]
+        )
 
         assert result.exit_code == 0, result.output
         moved = profile_path / "services" / "postgresql"
@@ -334,27 +337,31 @@ class TestScaffoldCliDirectoryArtifacts:
         project_path, _ = self._project(tmp_path)
         self._seed_service(project_path)
 
-        result = CliRunner().invoke(claim, ["services/postgresql", "-p", str(project_path)])
+        result = CliRunner().invoke(
+            claim, ["services/postgresql", "--repo", str(project_path.parent)]
+        )
 
         assert result.exit_code == 0, result.output
         config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
         assert "scaffold" not in config
 
     def test_claim_of_a_catalog_only_service_refuses(self, tmp_path: Path):
-        """Claim no longer materializes a packaged template — it moves what exists.
+        """Claim moves what exists; it does not materialize a packaged template.
 
         ``services/openobserve`` is a real catalog artifact with a packaged
-        template, so the old claim would have copied it into the project and
-        marked it owned. That affordance was removed on purpose: under the
-        profile model an artifact the project does not have is authored in the
-        profile, and a claim that invented one would put a second copy of the
-        framework's template somewhere nothing reconciles.
+        template, so a claim that materialized it would copy it into the
+        project and mark it owned. That affordance is deliberately absent:
+        under the profile model an artifact the project does not have is
+        authored in the profile, and a claim that invented one would put a
+        second copy of the framework's template somewhere nothing reconciles.
         """
         from osprey.cli.scaffold_cmd import claim
 
         project_path, profile_path = self._project(tmp_path)
 
-        result = CliRunner().invoke(claim, ["services/openobserve", "-p", str(project_path)])
+        result = CliRunner().invoke(
+            claim, ["services/openobserve", "--repo", str(project_path.parent)]
+        )
 
         assert result.exit_code != 0
         assert "Nothing to claim" in result.output
@@ -371,7 +378,9 @@ class TestScaffoldCliDirectoryArtifacts:
         target = service / "docker-compose.yml.j2"
         target.write_text(target.read_text(encoding="utf-8") + "# local tweak\n", encoding="utf-8")
 
-        result = CliRunner().invoke(diff, ["services/postgresql", "-p", str(project_path)])
+        result = CliRunner().invoke(
+            diff, ["services/postgresql", "--repo", str(project_path.parent)]
+        )
         assert result.exit_code == 0, result.output
         assert "# local tweak" in result.output
         assert "services/postgresql/docker-compose.yml.j2" in result.output
@@ -383,6 +392,8 @@ class TestScaffoldCliDirectoryArtifacts:
         self._seed_service(project_path)
         update_config_add_user_owned(project_path, "services/postgresql")
 
-        result = CliRunner().invoke(diff, ["services/postgresql", "-p", str(project_path)])
+        result = CliRunner().invoke(
+            diff, ["services/postgresql", "--repo", str(project_path.parent)]
+        )
         assert result.exit_code == 0, result.output
         assert "no differences" in result.output

@@ -2,15 +2,14 @@
 
 The OKF knowledge panel, the artifact gallery's browse view, the PLAN panel,
 the LATTICE control sidebar, and the settings drawer all put a draggable
-divider between two panes. Those were once four hand-copied implementations,
-and they drifted — the grip pill was a child element in one and a ``::after``
-in another, the hover treatment disagreed, and two of them never grew keyboard
-or ARIA support at all — because nothing failed when a copy stopped matching.
-This is that missing failure.
+divider between two panes. Hand-copying that implementation per host lets the
+copies drift — a grip pill as a child element in one and a ``::after`` in
+another, disagreeing hover treatments, keyboard and ARIA support in only some
+— because nothing fails when a copy stops matching. This is that missing
+failure.
 
-The event dashboard was a sixth host until its layout zones were replaced by
-discrete views; it has no resizable pane left to divide, so it is no longer
-listed here.
+The event dashboard is not a host: it is built from discrete views and has no
+resizable pane to divide, so it is not listed here.
 
 The contract is static and deliberately shallow: each host's markup must carry
 the shared ``.osprey-splitter`` class on a proper ARIA separator, each host's
@@ -77,11 +76,11 @@ SPLITTER_HOSTS = [
         styles=(f"{_IFACE}/artifacts/static/css/gallery.css",),
     ),
     Host(
-        label="plan",
-        html=f"{_IFACE}/bluesky_panels/panels/plan/index.html",
-        js=f"{_IFACE}/bluesky_panels/panels/plan/panel.js",
+        label="bluesky-plans",
+        html=f"{_IFACE}/bluesky_panels/panels/bluesky/index.html",
+        js=f"{_IFACE}/bluesky_panels/panels/bluesky/plans-view.js",
         orientations=frozenset({"vertical"}),
-        styles=(f"{_IFACE}/bluesky_panels/panels/plan/panel.css",),
+        styles=(f"{_IFACE}/bluesky_panels/panels/bluesky/panel.css",),
     ),
     Host(
         label="lattice",

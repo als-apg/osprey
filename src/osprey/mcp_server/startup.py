@@ -68,18 +68,40 @@ def initialize_workspace_singletons() -> None:
     """Initialize the ArtifactStore singleton on the SHARED data root.
 
     The artifact store is served by long-lived daemons (the artifact gallery)
-    that read the shared ``_agent_data/`` root. Session isolation is handled
+    that read the shared ``var/agent_data/`` root. Session isolation is handled
     at the index level via ``ArtifactEntry.session_id`` — never in the store
     path. Rooting the store at the session-relocated path
     (``resolve_agent_data_root`` appends ``sessions/<id>/`` when
     ``OSPREY_SESSION_ID`` is set) would make a session's artifacts invisible
     to the gallery.
+
+    Also subscribes the artifact-activity listeners, so every save and delete
+    an MCP server performs shows up in the Web Terminal. Registration is
+    idempotent — this function runs more than once in a process under test.
+
+    The listeners are armed per PROCESS, not per store instance: they hang off
+    the ArtifactStore class, so every store built in a process that called this
+    emits. Code paths that run in their own process (dispatch ingest, retention
+    sweeps, a separately launched gallery) never call this and stay silent.
+
+    .. warning::
+        That process boundary is not guaranteed. ``ServerLauncher`` can start
+        the artifact gallery IN-THREAD inside this very process — the store
+        auto-launches it on first save when no other process owns the port
+        (``artifact_store.py`` save paths → ``ensure_artifact_server``). In
+        that topology a HUMAN deleting an artifact in the gallery UI fires the
+        same delete listener, and the activity frame is attributed to the
+        agent. Telling the two apart needs origin plumbing through the store or
+        the gallery route; until then this is a known limitation, recorded here
+        rather than papered over with a thread-name guess.
     """
+    from osprey.mcp_server.artifact_activity import register_artifact_activity_listeners
     from osprey.stores.artifact_store import initialize_artifact_store
     from osprey.utils.workspace import resolve_shared_data_root
 
     with startup_timer("workspace_singletons"):
         initialize_artifact_store(workspace_root=resolve_shared_data_root())
+        register_artifact_activity_listeners()
 
 
 def run_mcp_server(server_module: str) -> None:

@@ -83,9 +83,13 @@ _PREFIX = f"/u/{_ALICE}"
 
 @pytest.fixture
 def workspace_dir(tmp_path):
-    """A temp workspace dir for the file watcher -- content is irrelevant here."""
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
+    """A temp workspace dir for the file watcher -- content is irrelevant here.
+
+    Spelled ``var/agent_data`` because that is where a deployment's agent data
+    lives, but nothing here reads the path: the watcher is handed it directly.
+    """
+    ws = tmp_path / "var" / "agent_data"
+    ws.mkdir(parents=True)
     return ws
 
 
@@ -194,8 +198,8 @@ class TestStaticAssetUnderPrefix:
     on their bare path even when a prefix is configured -- that bare path is
     the ONLY form the app ever actually receives in the real deployment (nginx
     strips the prefix before proxying; see this module's docstring). This is
-    the exact regression a forced ``FastAPI(root_path=...)`` previously
-    introduced (fixed; pinned at the unit level in
+    the exact regression a forced ``FastAPI(root_path=...)`` introduces
+    (also pinned at the unit level in
     ``test_prefix_injection.py::test_static_mount_served_on_bare_path_when_prefix_set``).
     """
 
@@ -324,8 +328,8 @@ def ws_app(tmp_path, monkeypatch):
     exact, proven shape ``test_ws_resume_confirm.py`` already relies on.
     """
     monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-    ws_dir = tmp_path / "_agent_data"
-    ws_dir.mkdir()
+    ws_dir = tmp_path / "var" / "agent_data"
+    ws_dir.mkdir(parents=True)
     with (
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
@@ -405,7 +409,10 @@ class TestPanelProxyAndFocusUnderPrefix:
 
     def test_panel_focus_relative_url_gets_prefixed(self, alice_client):
         app, client = alice_client
-        resp = client.post("/api/panel-focus", json={"panel": "my-dash", "url": "/panel/my-dash"})
+        resp = client.post(
+            "/api/panel-focus",
+            json={"panel": "my-dash", "url": "/panel/my-dash", "source": "agent"},
+        )
         assert resp.status_code == 200
         event = app.state.broadcaster.broadcast.call_args[0][0]
         assert event["url"] == f"{_PREFIX}/panel/my-dash"
@@ -416,7 +423,7 @@ class TestPanelProxyAndFocusUnderPrefix:
         app, client = alice_client
         resp = client.post(
             "/api/panel-focus",
-            json={"panel": "my-dash", "url": "https://grafana.lan:3000/d/abc"},
+            json={"panel": "my-dash", "url": "https://grafana.lan:3000/d/abc", "source": "agent"},
         )
         assert resp.status_code == 200
         event = app.state.broadcaster.broadcast.call_args[0][0]

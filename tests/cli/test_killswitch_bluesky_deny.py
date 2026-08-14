@@ -1,13 +1,13 @@
 """Tests for the generalized kill-switch deny/remove_ask extension covering scan.
 
-``build_claude_code_context``'s writes-off kill-switch block (previously
-hardcoded to ``controls``/``python`` by name) now walks ``FRAMEWORK_SERVERS``
-for any hooks_pre rule gated by ``_WRITES_CHECK``, so a new write server (e.g.
+``build_claude_code_context``'s writes-off kill-switch block walks
+``FRAMEWORK_SERVERS`` for any hooks_pre rule gated by ``_WRITES_CHECK`` rather
+than naming ``controls``/``python`` by hand, so an added write server (e.g.
 the bluesky queue's arming tools) is covered automatically with no per-server
 code change. These tests pin: every ``bsky.ARMING_TOOLS`` entry is hard-denied
 when writes are off, the approval-only tools (``queue_stop``, ``stop_run``) are
-NEVER denied or removed-from-ask (the kill switch must not block halting), the
-existing controls/python behavior is preserved, and an extends clone gets the
+NEVER denied or removed-from-ask (the kill switch must not block halting),
+controls/python stay covered, and an extends clone gets the
 rewritten-prefix matcher.
 
 Tool names resolve from ``osprey.bluesky_tool_names`` so a rename carries

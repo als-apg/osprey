@@ -19,8 +19,8 @@ Rows emitted:
 * ``agent_data_dir`` — ok when the agent-data directory (``agent_data.base_dir``,
   resolved under the project root) is writable or can be created; warning when it
   is not writable or cannot be created.
-* ``env_file`` — ok when a ``.env`` file is present in the working directory,
-  warning otherwise.
+* ``env_file`` — ok when a ``.env`` file is present at the repo root (the
+  deployment's single secret store), warning otherwise.
 * ``registry_file`` — emitted only when ``config.yml`` declares
   ``registry_path``: ok when the file exists, error when configured but missing.
 * ``disk_space`` — warning when free space is below 1 GB or the filesystem is at
@@ -93,13 +93,18 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
         results.append(CheckResult("env_file", _CATEGORY, Status.WARNING, ".env file not found"))
 
     # Check registry file (if specified in config).
+    #
+    # Read from the config mapping this function was already handed, rather than
+    # re-reading `cwd/config.yml` off disk. Under the three-zone layout the two
+    # anchors are not the same directory: `.env` lives at the repo ROOT while
+    # the rendered config lives in `build/`, so whichever single directory a
+    # caller passes as `cwd`, a re-read there finds the config or the `.env` but
+    # not both. It fails in the quietest possible way — `exists()` is false, the
+    # registry row is simply never appended, and `file_system` is not in
+    # CONFIG_DEPENDENT, so the category still reports healthy with a row missing.
     try:
-        config_path = cwd / "config.yml"
-        if config_path.exists():
-            import yaml  # type: ignore[import-untyped]
-
-            with open(config_path) as f:
-                file_config = yaml.safe_load(f)
+        if config:
+            file_config = config
 
             registry_path_str = file_config.get("registry_path")
             if registry_path_str:
@@ -230,9 +235,18 @@ def _check_project_paths(config: dict[str, Any], cwd: Path) -> list[CheckResult]
                     )
                 )
         else:
-            # Check if parent directory exists and is writable (can we create it?).
-            parent_dir = agent_data_path.parent
-            if parent_dir.exists() and os.access(parent_dir, os.W_OK):
+            # Can we create it? The directory is made with ``parents=True``, and
+            # the default root is two segments deep (``var/agent_data``), so the
+            # immediate parent is itself something the build creates. Ask the
+            # question the creation actually answers: is the nearest existing
+            # ancestor writable — and is there a project root to create it under
+            # at all?
+            nearest_existing = next((p for p in agent_data_path.parents if p.exists()), None)
+            if (
+                project_root_path.exists()
+                and nearest_existing is not None
+                and os.access(nearest_existing, os.W_OK)
+            ):
                 results.append(
                     CheckResult(
                         "agent_data_dir",

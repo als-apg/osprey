@@ -1,11 +1,11 @@
 """The emitted pipeline's ``osprey`` commands, run through the real CLI parser.
 
-``test_deploy_scaffold_goldens.py`` proves the templates render the hand-built
-goldens byte for byte. That says nothing about whether the commands inside them
-exist. A template can reproduce its golden perfectly and still name a flag that
-was renamed three releases ago — the golden was hand-written against the CLI as
-it was, and nothing since then has re-checked it. The pipeline only finds out in
-CI, on a facility's deploy day.
+``tests/cli/test_emitted_artifacts_clean.py`` proves the templates render the
+hand-authored exemplar byte for byte. That says nothing about whether the
+commands inside them exist. A template can reproduce its specification perfectly
+and still name a flag that was renamed three releases ago — the specification
+was hand-written against the CLI as it was, and nothing since then has
+re-checked it. The pipeline only finds out in CI, on a facility's deploy day.
 
 This module welds the two halves together: it renders the pipeline through the
 real emission engine, pulls every ``osprey`` invocation out of the rendered
@@ -39,19 +39,12 @@ stdout breaks any assertion on error text.
 Concrete values
 ---------------
 
-The pipeline's invocations are written against its own ``variables:`` block
-(``$OSPREY_PROFILE`` and friends), and CI expands them before a shell ever sees
-them. The harness expands them the same way — from that block, so the
-substitution is the pipeline's own and not the test's opinion of it — and then
-parses inside the rendered facility repo.
-
-The repo has to be real, because part of what the parse checks is the
-filesystem: ``osprey profile validate`` takes a ``Path(exists=True)`` argument
-and ``--project`` a ``Path(exists=True, file_okay=False)``. The build directory
-is created for the same reason it exists on a deploy host — the ``osprey build``
-line two commands earlier in the same heredoc puts it there. Both paths stay
-*relative*, as the pipeline writes them, since accepting a relative
-``--project`` is itself part of the contract.
+The pipeline's invocations carry no arguments at all: the repo IS the
+deployment, so every verb walks up to the profile from wherever it runs. The
+harness still expands any ``$NAME`` against the pipeline's own ``variables:``
+block — so the substitution is the pipeline's and not the test's opinion of it —
+and still parses from inside a real repo, because part of what a parse checks is
+the filesystem.
 """
 
 from __future__ import annotations
@@ -71,9 +64,9 @@ from osprey.cli.main import cli
 GOLDENS = Path(__file__).parent / "goldens"
 EXEMPLAR_DIR = GOLDENS / "exemplar-profile"
 
-#: The facility repo's directory name. Every path in the emitted pipeline is
-#: keyed off it, and the goldens were built for this name.
-PROJECT_NAME = "demo-facility"
+#: The deployment repo's directory name — its deployment name, and nothing a
+#: path in the emitted pipeline keys off.
+REPO_NAME = "demo-facility"
 
 #: Passed in place of the installed version so the render does not depend on
 #: the release the test happens to run under.
@@ -96,12 +89,11 @@ VARIABLE_RE = re.compile(r"\$(\w+)")
 #: exist to tell, and a render that quietly stops running one of these steps is
 #: the failure this file is here to catch.
 EXPECTED_INVOCATIONS = [
-    "osprey profile validate $OSPREY_PROFILE",
-    "osprey build $OSPREY_PROJECT_NAME $OSPREY_PROFILE --force --skip-lifecycle --skip-deps",
-    "osprey build $OSPREY_PROJECT_NAME $OSPREY_PROFILE --force",
-    "osprey deploy render-env-production --project $OSPREY_BUILD_DIR "
-    "--output $OSPREY_BUILD_DIR/.env.production",
-    "osprey deploy up -d --project $OSPREY_BUILD_DIR",
+    "osprey validate",
+    "osprey build --skip-lifecycle --skip-deps",
+    "osprey build",
+    "osprey users env-production --output .env.production",
+    "osprey up -d",
 ]
 
 
@@ -110,13 +102,16 @@ EXPECTED_INVOCATIONS = [
 
 @pytest.fixture(scope="module")
 def facility_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A facility repo with the exemplar profile, scaffolded by the real verb.
+    """A deployment repo with the exemplar profile, scaffolded by the real engine.
 
-    Built the way a facility's is: the profile in ``profile/``, and the pipeline
-    emitted from it by the same function ``osprey deploy scaffold`` calls.
+    Three-zone: ``profile.yml`` at the repo root and the health check under
+    ``scripts/``, which is where the emitted pipeline says both of them are —
+    and where the engine puts them, since those destinations are the layout's
+    and not a caller's to choose. Emitted by the same function the scaffolding
+    verb calls, so what is parsed below is what a facility would get.
     """
-    repo_root = tmp_path_factory.mktemp("facility") / PROJECT_NAME
-    shutil.copytree(EXEMPLAR_DIR, repo_root / "profile")
+    repo_root = tmp_path_factory.mktemp("facility") / REPO_NAME
+    shutil.copytree(EXEMPLAR_DIR, repo_root)
 
     emitted = scaffold_deploy_files(repo_root, osprey_version=FROZEN_VERSION)
     assert [file.action for file in emitted] == ["created", "created"], emitted
@@ -140,17 +135,15 @@ def variables(pipeline: dict[str, Any]) -> dict[str, str]:
 
 
 @pytest.fixture(autouse=True)
-def in_facility_repo(
-    facility_repo: Path, variables: dict[str, str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Parse from the repo root, with the build directory the pipeline expects.
+def in_facility_repo(facility_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Parse from the repo root, with the build directory a deploy would have.
 
-    ``$OSPREY_BUILD_DIR`` is ``osprey build``'s output; on the deploy host it
-    exists by the time ``--project`` names it, because the build ran first in
-    the same heredoc. Creating it here reproduces that, and is what lets the
-    ``Path(exists=True)`` half of the parse mean something.
+    ``build/`` is ``osprey build``'s output; on the deploy host it exists by the
+    time the later verbs run, because the build ran first in the same heredoc.
+    Creating it here reproduces that, and is what lets any existence check in a
+    parse mean something.
     """
-    (facility_repo / variables["OSPREY_BUILD_DIR"]).mkdir(parents=True, exist_ok=True)
+    (facility_repo / "build").mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(facility_repo)
 
 
@@ -301,11 +294,18 @@ def test_pipeline_runs_the_invocations_the_deployment_story_promises(
 def test_every_key_step_is_present(invocations: list[str]) -> None:
     """The three commands the deploy cannot happen without are all run."""
     joined = "\n".join(invocations)
-    for step in ("deploy render-env-production", "build ", "deploy up"):
+    for step in ("users env-production", "build", "up -d"):
         assert f"osprey {step}" in joined, f"the pipeline never runs 'osprey {step}'"
 
 
-@pytest.mark.parametrize("index", range(len(EXPECTED_INVOCATIONS)))
+#: Identified by the invocation itself, so a rejection names the command that
+#: was rejected rather than the position it sat at.
+_INVOCATION_CASES = [
+    pytest.param(index, id=invocation) for index, invocation in enumerate(EXPECTED_INVOCATIONS)
+]
+
+
+@pytest.mark.parametrize("index", _INVOCATION_CASES)
 def test_the_cli_accepts_every_invocation(
     index: int, invocations: list[str], variables: dict[str, str]
 ) -> None:
@@ -325,24 +325,22 @@ def test_the_cli_accepts_every_invocation(
     )
 
 
-def test_the_secrets_render_takes_output_and_a_relative_project(
+def test_the_secrets_render_takes_output_as_the_pipeline_writes_it(
     invocations: list[str], variables: dict[str, str]
 ) -> None:
-    """``--output`` and ``--project`` are accepted together, relative paths and all.
+    """``--output`` is accepted, with the repo-relative path the pipeline writes.
 
-    ``--output`` is what keeps the assembled secrets out of the CI job log, and
-    ``--project`` is what points the render at the build the previous line
-    produced. If either is ever made to exclude the other, or ``--project``
-    stops accepting the relative path the pipeline writes, the pipeline breaks
-    on a real deploy with real credentials in it.
+    ``--output`` is what keeps the assembled secrets out of the CI job log. If
+    the option is ever renamed, or stops accepting a relative path, the pipeline
+    breaks on a real deploy with real credentials in it — and the failure mode
+    without the flag is not a crash but a job log full of them.
     """
-    (render,) = [line for line in invocations if "render-env-production" in line]
-    context = parse_or_fail(render, variables)
+    (secrets,) = [line for line in invocations if "env-production" in line]
+    context = parse_or_fail(secrets, variables)
 
-    build_dir = variables["OSPREY_BUILD_DIR"]
-    assert context.params["project"] == build_dir
-    assert context.params["output"] == f"{build_dir}/.env.production"
-    assert not Path(build_dir).is_absolute()
+    output = context.params["output"]
+    assert Path(output).name == ".env.production"
+    assert not Path(output).is_absolute()
 
 
 # ── The instrument itself ────────────────────────────────────────────────────
@@ -351,10 +349,9 @@ def test_the_secrets_render_takes_output_and_a_relative_project(
 @pytest.mark.parametrize(
     ("argv", "expected"),
     [
-        (["deploy", "up", "--no-such-flag"], "No such option"),
-        (["deploy", "no-such-verb"], "No such command"),
-        (["profile", "validate"], "Missing argument"),
-        (["profile", "validate", "nowhere/profile.yml"], "does not exist"),
+        (["build", "--no-such-flag"], "No such option"),
+        (["users", "no-such-verb"], "No such command"),
+        (["validate", "--repo", "nowhere"], "does not exist"),
     ],
 )
 def test_the_parser_rejects_what_it_should(argv: list[str], expected: str) -> None:
@@ -392,8 +389,8 @@ def test_extraction_reads_every_shape_a_script_block_takes() -> None:
         "  script:\n"
         "    - |\n"
         "      ssh host <<REMOTE\n"
-        "      osprey deploy up -d\n"
-        "      - osprey deploy status\n"
+        "      osprey up -d\n"
+        "      - osprey status\n"
         "      REMOTE\n"
         "not-a-script:\n"
         "  variables:\n"
@@ -404,6 +401,6 @@ def test_extraction_reads_every_shape_a_script_block_takes() -> None:
     )
     assert extract_invocations(document) == [
         "osprey build one",
-        "osprey deploy up -d",
-        "osprey deploy status",
+        "osprey up -d",
+        "osprey status",
     ]

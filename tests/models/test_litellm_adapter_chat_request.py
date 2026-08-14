@@ -368,7 +368,7 @@ class TestHandleStructuredOutputWithChatRequest:
 
     @patch("osprey.models.providers.litellm_adapter.litellm")
     def test_no_chat_request_preserves_existing_behavior(self, mock_litellm):
-        """When chat_request is None, both native and prompt-based paths work as before."""
+        """When chat_request is None, both native and prompt-based paths still work."""
         from osprey.models.providers.litellm_adapter import _handle_structured_output
 
         mock_litellm.supports_response_schema.return_value = True

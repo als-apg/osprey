@@ -182,9 +182,9 @@ class ServerLauncher:
 
         Ownership is decided by whether a live TCP listener holds the port,
         not by a bare ``/health`` 200. A ``/health`` 200 from a stale or
-        foreign responder is a false positive: it previously made the manager
+        foreign responder is a false positive: acting on it makes the manager
         skip the launch and leave the panel unbacked (proxy 502) after a
-        restart (issue #327). Instead:
+        restart. Instead:
 
         * port free            -> launch and own it;
         * port held then freed -> a shutting-down predecessor; waited out,

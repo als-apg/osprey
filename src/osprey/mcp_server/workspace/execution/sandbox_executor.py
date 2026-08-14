@@ -237,7 +237,7 @@ def _create_sandbox_wrapper(
     user_code: str,
     execution_folder: Path,
     workspace_root: Path,
-    project_root: Path | None = None,
+    project_root: Path,
 ) -> str:
     """Generate a wrapped script with filesystem sandboxing and output capture.
 
@@ -252,7 +252,11 @@ def _create_sandbox_wrapper(
     """
     exec_folder_str = str(execution_folder)
     workspace_str = str(workspace_root)
-    project_root_str = str(project_root) if project_root else str(workspace_root.parent)
+    # Required, with no parent-of-workspace-root fallback: that rule resolves to
+    # `<repo>/var` under the three-zone layout, and a default here would let a
+    # caller that forgot to resolve the root get the wrong answer silently
+    # rather than a TypeError.
+    project_root_str = str(project_root)
 
     return f'''\
 import sys
@@ -647,10 +651,23 @@ async def execute_sandbox_code(
         )
 
     # 2. Generate wrapper
-    from osprey.utils.workspace import resolve_workspace_root
+    from osprey.utils.workspace import (
+        load_osprey_config,
+        resolve_project_root,
+        resolve_workspace_root,
+    )
 
     workspace_root = resolve_workspace_root()
-    project_root = workspace_root.parent
+    # Resolved directly, NOT as the parent of the agent-data root: that only
+    # agreed with the repo root while agent data sat exactly one level below it.
+    # Under the three-zone layout the root is `<repo>/var/agent_data`, so the
+    # parent is `<repo>/var` — and for a project that relocated the root it was
+    # never right at all. The sibling python executor documents the same
+    # reasoning at `python_executor.executor._resolve_project_root`; this is the
+    # copy that had not been repointed. It matters twice over here: it is the
+    # subprocess `cwd` below, and it is what sandboxed user code is told its
+    # project root is.
+    project_root = resolve_project_root(load_osprey_config())
     wrapped_code = _create_sandbox_wrapper(code, execution_folder, workspace_root, project_root)
 
     # 3. Write script and spawn subprocess

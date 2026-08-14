@@ -207,10 +207,10 @@ class TestArtifactStore:
     def test_save_data_sets_agent_usable_data_file(self, tmp_path, monkeypatch):
         """data_file must be a path the agent can open() from project CWD.
 
-        Regression guard: previously this was a bare filename
-        (``{id}_{tool}.json``) which caused FileNotFoundError when the agent
-        passed it to ``open()`` directly. The contract is now a path relative
-        to the project root (one level above the workspace dir).
+        Regression guard: a bare filename (``{id}_{tool}.json``) raises
+        FileNotFoundError when the agent passes it to ``open()`` directly.
+        The contract is a path relative to the project root (one level above
+        the workspace dir).
         """
         from osprey.stores.artifact_store import ArtifactStore
 
@@ -238,6 +238,78 @@ class TestArtifactStore:
         # And the same path is what shows up in the tool response
         resp = entry.to_tool_response()
         assert resp["data_file"] == entry.data_file
+
+    def test_data_file_anchors_past_a_multi_segment_base_dir(self, tmp_path, monkeypatch):
+        """A nested ``agent_data.base_dir`` still yields a repo-root-relative pointer.
+
+        Regression guard: the anchor was taken as the workspace root's *parent*,
+        which is the repo root only while the data directory sits exactly one
+        level down. With ``base_dir: state/agent`` the parent is ``state/``, so
+        every pointer came out one level short and resolved to nothing from the
+        agent's working directory.
+        """
+        from pathlib import Path
+
+        from osprey.stores.artifact_store import ArtifactStore
+
+        repo_root = tmp_path / "repo"
+        (repo_root / "build").mkdir(parents=True)
+        config_path = repo_root / "build" / "config.yml"
+        config_path.write_text(
+            f"project_root: {repo_root}\nagent_data:\n  base_dir: state/agent\n",
+        )
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+        monkeypatch.chdir(repo_root)
+
+        store = ArtifactStore(workspace_root=repo_root / "state" / "agent")
+        entry = store.save_data(tool="archiver_read", data={"value": 1}, title="Nested Path")
+
+        assert entry.data_file.startswith("state/agent/artifacts/")
+        assert (Path.cwd() / entry.data_file).exists()
+
+    def test_save_survives_an_absolute_base_dir(self, tmp_path, monkeypatch):
+        """An absolute ``agent_data.base_dir`` must not crash the save.
+
+        Regression guard for the reachability, not just the helper: an absolute
+        base_dir's parts begin with the filesystem root, so the tail matched the
+        WHOLE workspace root and ``repo_root_for_agent_data``'s ``parents[]``
+        index ran off the end. ``save_data`` evaluates that anchor for every
+        artifact, inside a ``try/except ValueError`` that does not catch
+        IndexError — so the crash reached the caller. Remove the length check in
+        the guard and this test raises IndexError instead of failing an
+        assertion.
+
+        The absolute root is placed under ``tmp_path`` rather than at a literal
+        ``/data/agent`` for the obvious reason that the test has to write to it;
+        the code path is identical, since what matters is that base_dir is
+        absolute and therefore equal in length to the root it produced.
+        """
+        from pathlib import Path
+
+        from osprey.stores.artifact_store import ArtifactStore
+
+        repo_root = tmp_path / "repo"
+        (repo_root / "build").mkdir(parents=True)
+        external = tmp_path / "external" / "agent"  # absolute, outside the repo
+        config_path = repo_root / "build" / "config.yml"
+        config_path.write_text(
+            f"project_root: {repo_root}\nagent_data:\n  base_dir: {external}\n",
+        )
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+        monkeypatch.chdir(repo_root)
+
+        store = ArtifactStore(workspace_root=external)
+        entry = store.save_data(tool="archiver_read", data={"value": 1}, title="Absolute Root")
+
+        # The save completed and the artifact is on disk where the store put it.
+        assert (external / "artifacts").is_dir()
+        assert entry.data_file
+        assert (Path(store.repo_root) / entry.data_file).is_file()
+        # An agent-data root outside the repo has no repo-relative pointer to
+        # offer, so the recorded one is NOT resolvable from the agent's cwd.
+        # That is the honest outcome, and the reason this case is a fallback
+        # rather than an invented answer.
+        assert not (repo_root / entry.data_file).exists()
 
     def test_unique_ids(self, tmp_path):
         from osprey.stores.artifact_store import ArtifactStore

@@ -1,8 +1,8 @@
 """Tier 3 agentic per-preset smoke tests.
 
 One canonical workflow per preset. Each test:
-  1. Builds a project from the preset (with --skip-deps for speed; Tier 1
-     covers the real-build path).
+  1. Builds a deployment repo from the preset (with --skip-deps for speed;
+     Tier 1 covers the real-build path).
   2. Asks an agent (via the Claude Agent SDK) to perform the canonical task.
   3. Asserts the right MCP tool appears in the tool trace (the contract that
      would catch a "preset config drift means the agent never reaches for
@@ -28,6 +28,7 @@ from tests.e2e.sdk_helpers import (
     enable_writes_in_project,
     init_project,
     is_claude_code_available,
+    render_dir,
     run_sdk_query,
     run_sdk_query_with_hooks,
 )
@@ -61,9 +62,13 @@ def _to_workflow_result(query: str, sdk_result: SDKWorkflowResult) -> WorkflowRe
     )
 
 
-def _channel_finder_server_name(project_dir: Path) -> str | None:
-    """Return the channel-finder backend module short name (or None if absent)."""
-    cfg = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))
+def _channel_finder_server_name(repo: Path) -> str | None:
+    """Return the channel-finder backend module short name (or None if absent).
+
+    Takes the repo root and reads the render's ``.mcp.json`` — the file the
+    agent session loads its MCP servers from.
+    """
+    cfg = json.loads((render_dir(repo) / ".mcp.json").read_text(encoding="utf-8"))
     for name, entry in cfg.get("mcpServers", {}).items():
         if "channel-finder" in name or "channel_finder" in name:
             args = entry.get("args") or []
@@ -75,7 +80,7 @@ def _channel_finder_server_name(project_dir: Path) -> str | None:
 
 
 async def _assert_approval_hook_fires(
-    project: Path,
+    repo: Path,
     query: str,
     expected_write_tool: str,
     *,
@@ -93,7 +98,7 @@ async def _assert_approval_hook_fires(
     - decision was ``"allow"`` under the auto-approve policy
     """
     result = await run_sdk_query_with_hooks(
-        project,
+        repo,
         query,
         approval_policy="auto_approve",
         max_turns=max_turns,
@@ -102,7 +107,7 @@ async def _assert_approval_hook_fires(
     assert result.hook_events, (
         "no hook events recorded — approval hook did not fire on a write query. "
         "Either the agent never reached for a write tool, or hooks are not "
-        "wired into the project's .claude/settings.json."
+        "wired into the render's .claude/settings.json."
     )
     matching = [e for e in result.hook_events if e.tool_name == expected_write_tool]
     assert matching, (
@@ -129,13 +134,13 @@ async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     preset wiring breaks, this fires within 5 min instead of the nested
     Claude Code session hanging on missing tools.
     """
-    project = init_project(tmp_path, "hello_demo", template="hello_world", provider="als-apg")
+    repo = init_project(tmp_path, "hello_demo", template="hello_world", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     query = (
         "Use the controls MCP server to read the channel named 'example' "
         "and report its current value."
     )
-    result = await run_sdk_query(project, query, max_turns=4, max_budget_usd=0.25)
+    result = await run_sdk_query(repo, query, max_turns=4, max_budget_usd=0.25)
 
     assert any(t.name == "mcp__controls__channel_read" for t in result.tool_traces), (
         f"agent did not call mcp__controls__channel_read. Tools called: {result.tool_names}"
@@ -160,14 +165,14 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path) -> None:
     Soft assertion (the channel-finder backend differs by preset config) —
     we only require that *some* ``mcp__channel-finder__*`` tool was used.
     """
-    project = init_project(tmp_path, "ca_demo", template="control_assistant", provider="als-apg")
-    cf_server = _channel_finder_server_name(project)
+    repo = init_project(tmp_path, "ca_demo", template="control_assistant", provider="als-apg")
+    cf_server = _channel_finder_server_name(repo)
     if cf_server is None:
         pytest.skip("control-assistant preset has no channel-finder server")
 
     judge = LLMJudge(provider="als-apg")
     query = "Help me find the address of a beam-position-monitor channel for sector 5."
-    result = await run_sdk_query(project, query, max_turns=4, max_budget_usd=0.25)
+    result = await run_sdk_query(repo, query, max_turns=4, max_budget_usd=0.25)
 
     cf_tool_calls = [t for t in result.tool_traces if t.name.startswith("mcp__channel-finder__")]
     assert cf_tool_calls, (
@@ -196,10 +201,10 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
     approval hook (safety_layer 2) gets to return ``ask`` — which is what
     triggers the SDK's ``can_use_tool`` callback.
     """
-    project = init_project(tmp_path, "hw_write", template="hello_world", provider="als-apg")
-    enable_writes_in_project(project)
+    repo = init_project(tmp_path, "hw_write", template="hello_world", provider="als-apg")
+    enable_writes_in_project(repo)
     await _assert_approval_hook_fires(
-        project,
+        repo,
         # Directive prompt: explicit tool name so the agent commits to the write
         # path on its first turn instead of dithering with reads or refusals.
         "Use the mcp__controls__channel_write tool to write the value 1.5 "
@@ -212,10 +217,10 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) -> None:
     """Control-assistant write probe: same contract on the heavier preset."""
-    project = init_project(tmp_path, "ca_write", template="control_assistant", provider="als-apg")
-    enable_writes_in_project(project)
+    repo = init_project(tmp_path, "ca_write", template="control_assistant", provider="als-apg")
+    enable_writes_in_project(repo)
     await _assert_approval_hook_fires(
-        project,
+        repo,
         # Directive prompt: explicit tool name + concrete channel address so the
         # agent doesn't burn turns on channel-finder navigation. The channel MUST
         # be writable in the preset's channel_limits.json: the limits hook sits

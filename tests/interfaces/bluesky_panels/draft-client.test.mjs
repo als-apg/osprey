@@ -44,12 +44,10 @@ import {
   resetNoticeMessage,
   DISCARD_CONFIRM_NOTICE,
   REASON_BRIDGE_UNREACHABLE,
-  panelFocusUrl,
-  BLUESKY_PANEL_ID,
   buildLaunchBanner,
   buildAgentDraftBanner,
-} from '../../../src/osprey/interfaces/bluesky_panels/panels/plan/draft-client.js';
-import { renderSchemaForm } from '../../../src/osprey/interfaces/bluesky_panels/panels/plan/schema-form.js';
+} from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/draft-client.js';
+import { renderSchemaForm } from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/schema-form.js';
 
 // A small ORM-shaped fixture: one channel-list (container widget, exercises
 // whole-value-replacement flash) and two plain scalars (exercise the
@@ -2076,7 +2074,7 @@ describe('classifyQueueAddResponse', () => {
 
 describe('queueOutcomeBanner', () => {
   test('only a queued outcome reads as success — no refusal may', () => {
-    /** @type {import('../../../src/osprey/interfaces/bluesky_panels/panels/plan/draft-client.js').QueueAddOutcome[]} */
+    /** @type {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/draft-client.js').QueueAddOutcome[]} */
     const refusals = [
       { type: 'stale_draft_revision' },
       { type: 'draft_revision_already_launched' },
@@ -2129,7 +2127,7 @@ describe('queueOutcomeBanner', () => {
   });
 
   test('the cannot-execute banner carries the capability detail verbatim (it holds the flip command)', () => {
-    const detail = 'run `osprey config set-control-system virtual_accelerator` and redeploy.';
+    const detail = 'run `osprey set connector=virtual_accelerator` and redeploy.';
     expect(
       queueOutcomeBanner({ type: 'cannot_execute', reason: 'browse_only_connector', detail }).message
     ).toBe(detail);
@@ -2162,7 +2160,7 @@ describe('classifyCapability', () => {
 
   test('a browse-only deployment keeps the flip command verbatim', () => {
     const detail =
-      'This deployment uses the mock connector … run `osprey config set-control-system virtual_accelerator` and redeploy.';
+      'This deployment uses the mock connector … run `osprey set connector=virtual_accelerator` and redeploy.';
     expect(
       classifyCapability(200, {
         status: 'ok',
@@ -2210,7 +2208,7 @@ describe('capabilityBanner', () => {
   /**
    * @param {string} reason
    * @param {string} [detail]
-   * @returns {import('../../../src/osprey/interfaces/bluesky_panels/panels/plan/draft-client.js').CapabilityRecord}
+   * @returns {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/draft-client.js').CapabilityRecord}
    */
   const cannot = (reason, detail = 'because') => ({ canExecute: false, reason, detail });
 
@@ -2233,7 +2231,7 @@ describe('capabilityBanner', () => {
   });
 
   test('the bridge sentence is shown verbatim — it carries the flip command', () => {
-    const detail = 'run `osprey config set-control-system virtual_accelerator` and redeploy.';
+    const detail = 'run `osprey set connector=virtual_accelerator` and redeploy.';
     expect(capabilityBanner(cannot('browse_only_connector', detail))?.message).toBe(detail);
   });
 
@@ -2276,34 +2274,13 @@ describe('resetNoticeMessage', () => {
   });
 });
 
-describe('panelFocusUrl', () => {
-  test('drops this panel’s own /panel/<id> mount to reach the host’s focus API', () => {
-    expect(panelFocusUrl('/panel/plan')).toBe('/api/panel-focus');
-  });
-
-  test('preserves a multi-user mount prefix', () => {
-    expect(panelFocusUrl('/u/alice/panel/plan')).toBe('/u/alice/api/panel-focus');
-  });
-
-  test('served with no shell, the root-absolute path is still well-formed', () => {
-    expect(panelFocusUrl('')).toBe('/api/panel-focus');
-  });
-
-  test('the target is a registered panel ID, never a hand-built sibling URL', () => {
-    expect(BLUESKY_PANEL_ID).toBe('bluesky');
-    // Nothing about the destination is encoded in the endpoint: the id is the
-    // whole address, so a change to where panels are mounted cannot break it.
-    expect(panelFocusUrl('/panel/plan')).not.toContain(BLUESKY_PANEL_ID);
-  });
-});
-
 describe('buildLaunchBanner', () => {
-  test('renders the queued fact and an action that asks the host to switch panels', () => {
+  test('renders the queued fact and an action that opens the run', () => {
     const onOpen = vi.fn();
     const frag = buildLaunchBanner(document, { runId: 'run-77', revision: 9 }, onOpen);
     const host = document.createElement('div');
     host.appendChild(frag);
-    expect(host.textContent).toBe('revision 9 queued → run run-77Open BLUESKY');
+    expect(host.textContent).toBe('revision 9 queued → run run-77Open results');
     const open = /** @type {HTMLButtonElement|null} */ (host.querySelector('button.launch-run-link'));
     expect(open).not.toBeNull();
     if (!open) throw new Error('unreachable: button asserted non-null');
@@ -2312,7 +2289,7 @@ describe('buildLaunchBanner', () => {
     expect(onOpen).toHaveBeenCalledWith('run-77');
   });
 
-  test('no href/anchor survives — navigation goes through the host, not a URL', () => {
+  test('no href/anchor survives — opening a run is a view switch, not a URL', () => {
     const frag = buildLaunchBanner(document, { runId: 'run-77', revision: 9 }, () => {});
     const host = document.createElement('div');
     host.appendChild(frag);
@@ -2335,28 +2312,26 @@ describe('buildLaunchBanner', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Bundle integrity
+// Plans-view bundle integrity
 //
-// panel.js itself cannot be imported under test: it runs its DOM lookups and
-// boot fetches at module scope. This drift-net covers the failure that costs
-// the most for the least — a renamed element id — by reading the two files as
-// text. Ported from the sibling BLUESKY panel suite so both bundles are held
-// to the same guard; it lives in this file because it is the plan bundle's
-// only vitest home.
+// plans-view.js cannot be imported here: it is a factory, but everything it
+// drives needs the shipped markup, which the panel-level suite boots. This
+// drift-net covers the failure that costs the most for the least — a renamed
+// element id — by reading the two files as text.
 // ---------------------------------------------------------------------------
 
-describe('plan bundle wiring', () => {
+describe('plans-view bundle wiring', () => {
   // Resolved from the repo root rather than from `import.meta.url`: under
   // happy-dom the document's origin is `http://localhost`, so a URL relative
   // to this module is not a file path at all. Vitest always runs from the
   // repo root.
-  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_panels/panels/plan/`;
+  const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_panels/panels/bluesky/`;
 
-  test('every element id panel.js looks up exists in index.html', () => {
+  test('every element id plans-view.js looks up exists in index.html', () => {
     // The bundle has no build step and is served as authored, so a renamed id
     // fails only at runtime, in the operator's browser, as a silently dead
     // control. This is the drift-net for that.
-    const source = readFileSync(`${BUNDLE}panel.js`, 'utf-8');
+    const source = readFileSync(`${BUNDLE}plans-view.js`, 'utf-8');
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
 
     const referenced = [...source.matchAll(/(?:byId|getElementById)\(\s*'([^']+)'/g)].map(
@@ -2371,9 +2346,17 @@ describe('plan bundle wiring', () => {
   test('the retired direct-launch surface is gone from the bundle', () => {
     // The panel now reaches the queue relay only; a reintroduced /runs/launch
     // call would bypass the whole queue contract silently.
-    const source = readFileSync(`${BUNDLE}panel.js`, 'utf-8');
+    const source = readFileSync(`${BUNDLE}plans-view.js`, 'utf-8');
     expect(source).not.toContain('/runs/launch');
     expect(source).toContain('/queue/items');
+  });
+
+  test('the cross-panel handoff is gone — a run opens in this panel now', () => {
+    // PLAN and BLUESKY are one panel; asking the host to switch to a sibling
+    // would be asking it to switch to itself.
+    const source = readFileSync(`${BUNDLE}plans-view.js`, 'utf-8');
+    expect(source).not.toContain('panel-focus');
+    expect(source).toContain('onOpenRun');
   });
 });
 

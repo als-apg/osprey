@@ -25,10 +25,10 @@ logger = get_logger("mongodb_archiver_connector")
 # Appended to every connect()-time failure. On an OSPREY-deployed stack the store
 # is a container the project brings up itself, and "built but never deployed" is
 # by far the most common way to reach these errors — the password is minted into
-# the project's .env by `deploy up`, so before that first run there is nothing to
+# the project's .env by `osprey up`, so before that first run there is nothing to
 # authenticate with and nothing listening. Phrased as a likely remedy rather than
 # the only one, since a facility MongoDB may be administered elsewhere.
-DEPLOY_HINT = "If this project deploys its own MongoDB, run 'osprey deploy up' to start it."
+DEPLOY_HINT = "If this project deploys its own MongoDB, run 'osprey up' to start it."
 
 # Names the optional dependency the way it is actually installed, so the message
 # works whether or not the reader knows pymongo is what backs this connector.
@@ -202,7 +202,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             raise ValueError("auth (authentication database) is required for MongoDB archiver")
 
         # Get password from environment variable. An unset variable is a
-        # deployment state, not a config error: `deploy up` mints the password
+        # deployment state, not a config error: `osprey up` mints the password
         # into the project's .env, so this is what a built-but-never-deployed
         # project hits. ConnectionError so the agent gets an actionable
         # connection_error envelope instead of an opaque internal error.

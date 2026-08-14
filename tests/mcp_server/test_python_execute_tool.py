@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
+from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -170,7 +171,7 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
     assert "artifact_id" in data
     assert "data_file" in data
     # data_file is a project-CWD-relative path the agent can open() directly
-    assert data["data_file"].startswith("_agent_data/artifacts/")
+    assert data["data_file"].startswith(f"{DEFAULT_AGENT_DATA_BASE_DIR}/artifacts/")
     assert (tmp_path / data["data_file"]).exists()
 
 
@@ -245,6 +246,52 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
     data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["status"] == "Success"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["ReadWrite", "READWRITE", "write", "read_write"])
+async def test_python_execute_rejects_unknown_execution_mode(tmp_path, monkeypatch, mode):
+    """Modes outside {readonly, readwrite} are rejected before any gate runs.
+
+    An unrecognized string used to fall through BOTH write gates: it is not
+    "readonly" (so the pattern block never fired) and not "readwrite" (so the
+    deployment kill switch never fired), letting write patterns execute even
+    with control_system.writes_enabled=false.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
+    mock_exec = _mock_execute_code()
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={
+                "has_writes": True,
+                "has_reads": False,
+                "detected_patterns": {"caput": ["caput('TEST:PV', 1.0)"]},
+            },
+        ),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=False),
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
+    ):
+        fn = _get_python_execute()
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await fn(
+                code="caput('TEST:PV', 1.0)",
+                description="unknown mode bypass",
+                execution_mode=mode,
+            )
+
+    mock_exec.assert_not_called()
+    assert "execution_mode" in ctx["envelope"]["error_message"]
 
 
 @pytest.mark.unit
@@ -606,7 +653,7 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
     assert "data_file" in data
 
     # data_file is a project-CWD-relative path the agent can open() directly
-    assert data["data_file"].startswith("_agent_data/artifacts/")
+    assert data["data_file"].startswith(f"{DEFAULT_AGENT_DATA_BASE_DIR}/artifacts/")
     data_file = tmp_path / data["data_file"]
     assert data_file.exists()
     # ArtifactStore writes raw JSON (no envelope)
@@ -1060,19 +1107,19 @@ async def test_subprocess_outputs_still_written_to_execution_folder(tmp_path):
 # ============================================================================
 # Tool description — live package inventory
 #
-# The description used to name a fixed set of packages (numpy, pandas, scipy,
-# at, matplotlib, plotly) whatever the deployment had installed.  It is now
+# The description must not name a fixed set of packages (numpy, pandas, scipy,
+# at, matplotlib, plotly) regardless of what the deployment installed.  It is
 # generated from the environment that actually runs agent code, and degrades to
 # a sentence that names nothing rather than to a stale list.
 # ============================================================================
 
 
-#: Names the old hardcoded description asserted were available.
+#: Package names the description must never claim are available.
 _FORMERLY_HARDCODED = ("numpy", "pandas", "scipy", "at", "matplotlib", "plotly")
 
 
 def assert_names_no_packages(text: str) -> None:
-    """Assert ``text`` mentions none of the formerly hardcoded package names."""
+    """Assert ``text`` names no package as guaranteed-available."""
     for name in _FORMERLY_HARDCODED:
         assert not re.search(rf"\b{re.escape(name)}\b", text), (
             f"description must not name packages, found {name!r}"

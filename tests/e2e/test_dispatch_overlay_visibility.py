@@ -1,22 +1,25 @@
-"""Full-stack Docker e2e: overlay skills + project ``data/`` are visible in-worker.
+"""Full-stack Docker e2e: overlay skills + the render's ``data/`` are visible in-worker.
 
 This is the authoritative two-party gate for the dispatch-worker image
 unification. After unification the worker runs the *project* image
-(``<project>:local``, built from the project via ``COPY .``) rather than the old
-lean dispatch image (``<project>-dispatch:local``, still the dispatcher's own
-tag) — so the whole project tree, including facility
-``.claude`` overlays and the ``data/`` bundle, is baked into the container the
-agent actually runs in. A config-only render (the pre-unification behaviour)
-would silently drop both, and no mock can falsify that: only a live container
-dispatch proves the overlay artifacts and data files reached the agent.
+(``<project>:local``, built from the deployment repo via ``COPY .``) rather than
+the old lean dispatch image (``<project>-dispatch:local``, still the
+dispatcher's own tag) — so the whole repo, the render in ``build/`` included
+(facility ``.claude`` overlays, the ``data/`` bundle), is baked into the
+container the agent actually runs in. A config-only render (the
+pre-unification behaviour) would silently drop both, and no mock can falsify
+that: only a live container dispatch proves the overlay artifacts and data files
+reached the agent.
 
-The test mutates a freshly built control-assistant project *before* deploy so it
-carries three things that a hollow/degraded worker could not satisfy:
+The test mutates a freshly initialized control-assistant repo's SOURCE zone
+*before* ``osprey build``, so the render carries three things that a
+hollow/degraded worker could not satisfy:
 
-  * an OVERLAY SKILL (``.claude/skills/facility-marker``) that is NOT an OSPREY
-    built-in, whose instructions produce an observable marker token;
-  * a project ``data/channel_limits.json`` overwritten with a small fixture
-    carrying a distinctive sentinel value;
+  * an OVERLAY SKILL (``skills/facility-marker`` -> rendered to
+    ``build/.claude/skills/facility-marker``) that is NOT an OSPREY built-in,
+    whose instructions produce an observable marker token;
+  * ``data/channel_limits.json`` overwritten with a small fixture carrying a
+    distinctive sentinel value, which the render copies to ``build/data/``;
   * a custom ``overlay-visibility`` trigger that routes to the worker, invokes
     the overlay skill, and carries a ``surface_prompt`` fragment.
 
@@ -27,7 +30,7 @@ in-container) then proves, deterministically:
   (a) the OVERLAY SKILL was invoked AND present -> a ``Skill`` tool-call
       references facility-marker, and OVERLAY_MARKER (a token that exists only
       inside the baked-in skill file) surfaces in the run;
-  (b) the project ``data/`` was read AND present -> a ``Read`` tool-call
+  (b) the render's ``data/`` was read AND present -> a ``Read`` tool-call
       references channel_limits.json, and DATA_SENTINEL (a token that exists only
       inside the baked-in data file) surfaces in the run;
   (c) the ``surface_prompt`` reached the agent -> the surface token surfaces (the
@@ -68,25 +71,31 @@ DEPLOY_UP_TIMEOUT_SEC = 900
 HEALTH_TIMEOUT_SEC = 180.0
 RUN_TIMEOUT_SEC = 300.0
 
-# The unified worker runs the PROJECT image; its in-container project dir and
-# artifact dir are named after the project ("proj"), not the old "/app/project".
-# The compose template renders the worker container_name as
+# The unified worker runs the PROJECT image, which bakes the whole deployment
+# repo in at ``/app/<project>`` — so the render is at ``/app/proj/build`` and the
+# durable state zone at ``/app/proj/var``, exactly the shape the repo has on the
+# host. The compose template renders the worker container_name as
 # ``<project>-dispatch-worker-1`` (services/dispatch_worker/docker-compose.yml.j2),
 # so derive both it and the in-container paths from the one project name rather
 # than hardcode a host-global name that breaks once the template is namespaced.
 PROJECT_NAME = "proj"
 WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
-WORKER_ARTIFACT_DIR = f"/app/{PROJECT_NAME}/_agent_data/artifacts"
+WORKER_PROJECT_DIR = f"/app/{PROJECT_NAME}"
+WORKER_RENDER_DIR = f"{WORKER_PROJECT_DIR}/build"
+# Where the workspace volume mounts: ``agent_data.base_dir`` under the project
+# root, which the compose generator renders the mount source from.
+WORKER_AGENT_DATA = f"{WORKER_PROJECT_DIR}/var/agent_data"
+WORKER_ARTIFACT_DIR = f"{WORKER_AGENT_DATA}/artifacts"
 # The worker persists each completed run (full result incl. tool_calls) here.
-WORKER_DISPATCH_DIR = f"/app/{PROJECT_NAME}/_agent_data/dispatch"
+WORKER_DISPATCH_DIR = f"{WORKER_AGENT_DATA}/dispatch"
 
-# The named volume the worker mounts at ``/app/proj/_agent_data``. Its name is
+# The named volume the worker mounts at WORKER_AGENT_DATA. Its name is
 # ``<compose-project>_<volume>_<replica>`` = ``services`` (the compose files live
 # under ``build/services/``) + ``dispatch_workspace`` + ``_1`` (one worker).
 #
-# ``osprey deploy down`` does NOT remove named volumes, so a volume left by a
-# prior deployment survives. The worker runs as a NON-ROOT user and relies on a
-# FRESH volume inheriting the image's ``osprey``-owned ``_agent_data`` (see
+# ``osprey down`` does NOT remove named volumes, so a volume left by a prior
+# deployment survives. The worker runs as a NON-ROOT user and relies on a FRESH
+# volume inheriting the image's ``osprey``-owned agent-data tree (see
 # ``docker-compose.yml.j2``: the image ``chown``s the tree before ``USER
 # osprey``, and Docker copies that ownership into a volume only on first
 # population). A volume left root-owned by an older root-writing deployment makes
@@ -99,7 +108,7 @@ WORKER_WORKSPACE_VOLUME = "services_dispatch_workspace_1"
 # Custom trigger + the observable tokens the overlay skill is instructed to emit.
 OVERLAY_TRIGGER = "overlay-visibility"
 OVERLAY_MARKER = "OVERLAY_MARKER_OK"  # produced only by the overlay skill
-DATA_SENTINEL = "CHANLIM_SENTINEL_7F3A"  # lives only in the project data/ file
+DATA_SENTINEL = "CHANLIM_SENTINEL_7F3A"  # lives only in the render's data/ file
 SURFACE_TOKEN = "SURFACE=e2e-generic-webhook"  # emitted only if surface_prompt lands
 
 pytestmark = [
@@ -139,14 +148,14 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
 # SKILL.md for the overlay skill. Its frontmatter mirrors the shape of the
 # bundled skills (name / description / allowed-tools). The body instructs the
 # agent to perform observable, specific actions that only succeed if the overlay
-# and the project data/ file are both present in the container.
+# and the render's data/ file are both present in the container.
 _OVERLAY_SKILL_MD = f"""\
 ---
 name: facility-marker
 description: >
-  Facility-specific end-to-end visibility check. When invoked, read the project
+  Facility-specific end-to-end visibility check. When invoked, read the render's
   channel-limits data file and save a report proving the overlay skill and the
-  project data bundle are both reachable in the running worker container.
+  data bundle are both reachable in the running worker container.
 allowed-tools: Read, mcp__osprey_workspace__artifact_save
 ---
 
@@ -154,7 +163,7 @@ allowed-tools: Read, mcp__osprey_workspace__artifact_save
 
 When this skill is invoked, do exactly the following, in order:
 
-1. Read the file `data/channel_limits.json` from the working directory.
+1. Read the file `build/data/channel_limits.json` from the working directory.
 2. Note the value of its top-level `_sentinel` field.
 3. Save a short markdown report using the workspace artifact tool
    (`mcp__osprey_workspace__artifact_save`) with `content` (inline markdown).
@@ -166,7 +175,7 @@ When this skill is invoked, do exactly the following, in order:
 4. Confirm the artifact you created.
 """
 
-# Small, known-content replacement for the project data/ file. The sentinel is a
+# Small, known-content replacement for the render's data/ file. The sentinel is a
 # distinctive value that appears NOWHERE else, so its presence in the persisted
 # artifact is proof the in-container data/ file was actually read.
 _DATA_FIXTURE = {
@@ -194,8 +203,8 @@ _OVERLAY_TRIGGER_ENTRY = {
     "action": {
         "prompt": (
             "Invoke the facility-marker skill now using the Skill tool, and follow "
-            "its steps exactly: read the file data/channel_limits.json from the "
-            "working directory, then save a markdown report via the workspace "
+            "its steps exactly: read the file build/data/channel_limits.json from "
+            "the working directory, then save a markdown report via the workspace "
             "artifact_save tool. Do not skip any step."
         ),
         "surface_prompt": _SURFACE_PROMPT,
@@ -209,10 +218,10 @@ _OVERLAY_TRIGGER_ENTRY = {
 
 
 def _remove_worker_workspace_volume() -> None:
-    """Remove the worker's persisted ``_agent_data`` named volume, if present.
+    """Remove the worker's persisted agent-data named volume, if present.
 
     Guarantees the fresh-volume precondition the non-root worker relies on to own
-    (and write) its ``_agent_data`` (see ``WORKER_WORKSPACE_VOLUME``). ``rm -f``
+    (and write) its agent-data tree (see ``WORKER_WORKSPACE_VOLUME``). ``rm -f``
     tolerates an absent volume; it only fails if a live container still holds the
     volume, in which case the post-deploy checks surface the stale-ownership
     symptom with a clear diagnostic rather than the misleading "no tool_calls".
@@ -225,24 +234,36 @@ def _remove_worker_workspace_volume() -> None:
     )
 
 
-def _mutate_project(project_dir: Path) -> None:
+def _mutate_source(repo: Path) -> None:
     """Inject the overlay skill, known data fixture, and custom trigger.
 
-    Applied to the built project *before* ``osprey deploy up`` so the worker
-    image (``COPY .``) bakes them in. None of the three are OSPREY built-ins, so
-    a config-only / hollow worker could not satisfy the resulting assertions.
+    Applied to the repo's SOURCE zone — the tracked material an operator edits —
+    *between* ``osprey init`` and ``osprey build``, because the build is what
+    renders every one of the three into the places the deploy reads them:
+
+      * ``skills/<name>/`` -> ``build/.claude/skills/<name>/`` (convention dir);
+      * ``data/`` -> ``build/data/``;
+      * ``triggers.yml`` (named by the profile's ``dispatch.triggers``) ->
+        ``build/triggers.yml`` AND the copy under
+        ``build/services/event_dispatcher/`` that the dispatcher container
+        bind-mounts. Writing the trigger into the render post-build would leave
+        that second copy — the only one the dispatcher reads — un-mutated, and
+        the webhook would 404.
+
+    None of the three are OSPREY built-ins, so a config-only / hollow worker
+    could not satisfy the resulting assertions.
     """
-    skill_path = project_dir / ".claude" / "skills" / "facility-marker" / "SKILL.md"
+    skill_path = repo / "skills" / "facility-marker" / "SKILL.md"
     skill_path.parent.mkdir(parents=True, exist_ok=True)
     skill_path.write_text(_OVERLAY_SKILL_MD, encoding="utf-8")
 
-    data_path = project_dir / "data" / "channel_limits.json"
+    data_path = repo / "data" / "channel_limits.json"
     data_path.parent.mkdir(parents=True, exist_ok=True)
     data_path.write_text(json.dumps(_DATA_FIXTURE, indent=2), encoding="utf-8")
 
-    # Append the custom trigger to the shipped triggers file, preserving its
+    # Append the custom trigger to the source triggers file, preserving its
     # dispatcher block (which carries the dispatch-worker-1:9190 routing).
-    triggers_path = project_dir / "triggers.yml"
+    triggers_path = repo / "triggers.yml"
     doc = yaml.safe_load(triggers_path.read_text(encoding="utf-8")) or {}
     doc.setdefault("triggers", []).append(_OVERLAY_TRIGGER_ENTRY)
     triggers_path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
@@ -250,22 +271,22 @@ def _mutate_project(project_dir: Path) -> None:
 
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Build + mutate + ``osprey deploy up`` a control-assistant stack.
+    """Init + mutate + build + ``osprey up`` a control-assistant stack.
 
-    The mutation (overlay skill + data fixture + custom trigger) is applied
-    between ``osprey build`` and ``osprey deploy up`` so the freshly built worker
-    image bakes it in.
+    The mutation (overlay skill + data fixture + custom trigger) is applied to
+    the source zone between ``osprey init`` and ``osprey build``, so the build
+    renders all three and the freshly built worker image bakes them in.
     """
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("dispatch_overlay_build")
-    project_dir = base / PROJECT_NAME
+    repo = base / PROJECT_NAME
 
     # This test asserts dispatch overlay/trigger behavior, not persona
     # routing -- drop the preset's web-terminal stack (two persona images +
-    # nginx, all built locally on `deploy up`) so the deploy only builds the
+    # nginx, all built locally on `up`) so the deploy only builds the
     # dispatcher/worker images it actually exercises. Web-terminals coverage
     # lives in control-assistant-demo-e2e / multi-user-deploy-lifecycle-e2e /
     # tests/e2e/web_terminals/. One dotted LEAF key via --override, mirroring
@@ -275,25 +296,39 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     override_path = base / "override.yml"
     override_path.write_text("config:\n  modules.web_terminals.enabled: false\n", encoding="utf-8")
 
-    build = _run(
+    # Two steps, because the surface has two: `init` writes the repo's source
+    # zone from the preset, `build` renders build/ from it.
+    init = _run(
         [
             str(osprey_bin),
-            "build",
-            PROJECT_NAME,
+            "init",
+            str(repo),
             "--preset",
             "control-assistant",
+            "--no-git",
             "--override",
             str(override_path),
             "--set",
             "provider=als-apg",
             "--set",
             "model=haiku",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(base),
-            "--force",
         ],
+        cwd=base,
+        timeout=300,
+    )
+    if init.returncode != 0:
+        pytest.fail(
+            f"osprey init failed (rc={init.returncode}):\n"
+            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
+        )
+
+    # Inject the overlay skill, known data fixture, and custom trigger into the
+    # source zone so the build renders them into build/ (worker image and
+    # dispatcher mount alike).
+    _mutate_source(repo)
+
+    build = _run(
+        [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=300,
     )
@@ -303,23 +338,21 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
-    # Inject the overlay skill, known data fixture, and custom trigger into the
-    # built project so the worker image bakes them in.
-    _mutate_project(project_dir)
-
-    # The worker's env_file (compose template) delivers this .env's vars so
-    # inject_provider_env can resolve the provider key. The compose templates
-    # have no token default (they fail closed), and `deploy up` would otherwise
-    # auto-generate a random token; we write fixed tokens here so the bearer
-    # below is predictable, and pass the provider secret through.
-    # The endpoint override rides the same .env: without it the container-side
-    # config expansion falls back to the provider's built-in default gateway.
+    # The repo root's .env is the deployment's whole secret store — the file the
+    # worker's env_file (compose template) delivers to the container so
+    # inject_provider_env can resolve the provider key, and the file `osprey up`
+    # refuses to start without. The compose templates have no token default (they
+    # fail closed), and `up` would otherwise auto-generate a random token; we
+    # write fixed tokens here so the bearer below is predictable, and pass the
+    # provider secret through. The endpoint override rides the same .env: without
+    # it the container-side config expansion falls back to the provider's
+    # built-in default gateway.
     base_url_line = (
         f"ALS_APG_BASE_URL={os.environ['ALS_APG_BASE_URL']}\n"
         if os.environ.get("ALS_APG_BASE_URL")
         else ""
     )
-    (project_dir / ".env").write_text(
+    (repo / ".env").write_text(
         "EVENT_DISPATCHER_TOKEN=dev-token\n"
         "DISPATCH_WORKER_TOKEN=dev-token\n"
         f"ALS_APG_API_KEY={os.environ['ALS_APG_API_KEY']}\n" + base_url_line,
@@ -327,9 +360,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     )
 
     # Force fresh image builds so the deployed stack runs CURRENT source AND our
-    # mutated project. `osprey deploy up --dev` rebuilds these, but removing any
-    # stale images first guarantees the worker bakes the mutation above. Ignore
-    # failure if an image is absent.
+    # mutated render. `osprey up --dev` rebuilds these, but removing any stale
+    # images first guarantees the worker bakes the mutation above. Ignore failure
+    # if an image is absent.
     project = resolve_project_name({"project_name": PROJECT_NAME})
     subprocess.run(["docker", "rmi", "-f", f"{project}:local"], capture_output=True, text=True)
     subprocess.run(
@@ -337,29 +370,29 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     )
 
     # Drop any stale worker workspace volume so the fresh deploy repopulates it
-    # from the image (osprey-owned _agent_data). Without this, a volume left
+    # from the image (osprey-owned agent-data tree). Without this, a volume left
     # root-owned by an older deployment makes the non-root worker unable to
     # persist run records (see WORKER_WORKSPACE_VOLUME).
     _remove_worker_workspace_volume()
 
     try:
         up = _run(
-            [str(osprey_bin), "deploy", "up", "-d", "--dev"],
-            cwd=project_dir,
+            [str(osprey_bin), "up", "-d", "--dev"],
+            cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
             pytest.fail(
-                f"osprey deploy up failed (rc={up.returncode}):\n"
+                f"osprey up failed (rc={up.returncode}):\n"
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
-        yield project_dir
+        yield repo
     finally:
-        down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=300)
+        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # noqa: T201 - surface teardown issues in CI logs
-                f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
+                f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
         # Leave no stale workspace volume behind so the next local run starts
         # from the documented fresh-volume state (see WORKER_WORKSPACE_VOLUME).
@@ -409,7 +442,7 @@ def _worker_artifact_files() -> list[str]:
     """List ``.md`` artifact files the worker persisted to its workspace volume.
 
     Read directly from the worker container (the unified project image), whose
-    artifact dir is namespaced under the project name (``/app/proj/...``).
+    artifact dir is namespaced under the project name (``/app/proj/var/...``).
     """
     proc = subprocess.run(
         ["docker", "exec", WORKER_CONTAINER, "ls", WORKER_ARTIFACT_DIR],
@@ -488,8 +521,8 @@ def _run_by_id(run_id: str) -> dict:
 def _clear_worker_artifacts() -> None:
     """Delete stale ``.md`` artifacts so ONLY this run's outputs are asserted on.
 
-    The worker's ``_agent_data`` lives on a NAMED volume that ``osprey deploy
-    down`` does not remove, so a prior e2e can leave reports behind and the
+    The worker's agent-data tree lives on a NAMED volume that ``osprey down``
+    does not remove, so a prior e2e can leave reports behind and the
     concatenating reader would pick them up. Tolerates a non-zero rc when the
     dir is empty or absent (``rm -f`` + a shell that never fails the exec).
     """
@@ -517,7 +550,7 @@ def _worker_run_record(run_id: str) -> dict:
 
     The dispatcher feed only exposes a ``tool_count`` summary, but the worker
     persists the whole result dict — ``tool_calls`` as ``{name, input, result}``
-    — to ``<project>/_agent_data/dispatch/<run_id>.json``. That file is the
+    — to ``<project>/var/agent_data/dispatch/<run_id>.json``. That file is the
     deterministic observable this test asserts on: tool-call *results* carry the
     file/skill content the agent actually loaded in-container, independent of
     how the agent formats any report.
@@ -621,7 +654,7 @@ def _diagnostics(dispatch_id: str, run: dict, record: dict, artifact_body: str) 
     lines.append(f"text_output[:500]={(record.get('text_output') or '')[:500]!r}")
     lines.append(f"artifact_body[:800]={artifact_body[:800]!r}")
     skills = subprocess.run(
-        ["docker", "exec", WORKER_CONTAINER, "ls", "-la", f"/app/{PROJECT_NAME}/.claude/skills"],
+        ["docker", "exec", WORKER_CONTAINER, "ls", "-la", f"{WORKER_RENDER_DIR}/.claude/skills"],
         capture_output=True,
         text=True,
     )
@@ -638,17 +671,17 @@ def _diagnostics(dispatch_id: str, run: dict, record: dict, artifact_body: str) 
 
 @pytest.mark.flaky(reruns=2)
 def test_overlay_skill_and_data_visible_in_worker(deployed_stack: Path) -> None:
-    """A dispatched agent can invoke an overlay skill and read a project data file.
+    """A dispatched agent can invoke an overlay skill and read a rendered data file.
 
     Proves the unified worker image carries the facility ``.claude`` overlays and
-    the project ``data/`` bundle. The primary observables are the worker's
+    the render's ``data/`` bundle. The primary observables are the worker's
     persisted per-run ``tool_calls`` (deterministic: a tool-call *result* is the
     content the agent actually loaded in-container, not agent-authored prose):
 
       (a) overlay skill invoked  -> a ``Skill`` tool-call references facility-marker,
           and OVERLAY_MARKER (a token that exists ONLY in the baked-in skill file)
           surfaces in the run — proving the overlay was present AND loaded;
-      (b) project data/ was read -> a ``Read`` tool-call references
+      (b) the render's data/ was read -> a ``Read`` tool-call references
           channel_limits.json, and its result carries DATA_SENTINEL (a token that
           exists ONLY in the baked-in data file) — proving data/ was present and read;
       (c) surface_prompt landed  -> the SURFACE token (which the surface fragment
@@ -658,8 +691,8 @@ def test_overlay_skill_and_data_visible_in_worker(deployed_stack: Path) -> None:
     behaviour-dependent signal (the only observable effect of a system-prompt
     fragment is the agent emitting the token), retained as a real end-to-end proof.
     """
-    # Isolate this run: the worker _agent_data lives on a named volume that
-    # `osprey deploy down` does not clear, so wipe stale artifacts first.
+    # Isolate this run: the worker agent-data tree lives on a named volume that
+    # `osprey down` does not clear, so wipe stale artifacts first.
     _clear_worker_artifacts()
 
     # Fire and track THIS dispatch by id -> worker run_id, so a stale/other run in
@@ -727,18 +760,18 @@ def test_overlay_skill_and_data_visible_in_worker(deployed_stack: Path) -> None:
         f"did not surface; the overlay skill was not present/loaded in-container.\n{diag}"
     )
 
-    # (b) Project data/ read AND present. The Read tool-call proves the agent read
+    # (b) The render's data/ read AND present. The Read tool-call proves the agent read
     #     channel_limits.json; DATA_SENTINEL (a token that lives ONLY in the baked-in
     #     data file) surfacing proves the file was physically present and its content
     #     was returned to the agent.
     read_calls = _tool_calls_referencing(tool_calls, "Read", "channel_limits.json")
     assert read_calls, (
         "no Read tool-call referencing 'channel_limits.json' was recorded; the "
-        f"project data/ file was not read.\n{diag}"
+        f"rendered data/ file was not read.\n{diag}"
     )
     assert DATA_SENTINEL in haystack, (
         f"data sentinel {DATA_SENTINEL!r} (present only in the baked-in data file) did "
-        f"not surface; data/channel_limits.json was not readable in-container.\n{diag}"
+        f"not surface; build/data/channel_limits.json was not readable in-container.\n{diag}"
     )
 
     # (c) surface_prompt landed. The fragment instructs the agent to emit the SURFACE

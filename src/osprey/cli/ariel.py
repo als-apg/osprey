@@ -42,7 +42,7 @@ def _handle_db_error(e: Exception) -> None:
     msg = str(e)
     if "connection" in msg.lower() or "connect" in msg.lower():
         click.echo("Error: Cannot connect to the ARIEL database.", err=True)
-        click.echo("Make sure the database is running: osprey deploy up", err=True)
+        click.echo("Make sure the database is running: osprey up", err=True)
         raise SystemExit(1) from None
 
 
@@ -404,7 +404,7 @@ def quickstart_command(source: str | None) -> None:
     """Quick setup for ARIEL logbook search.
 
     Runs the complete setup sequence:
-    1. Checks database connection (prompts to run 'osprey deploy up' if down)
+    1. Checks database connection (prompts to run 'osprey up' if down)
     2. Runs database migrations
     3. Ingests demo logbook data (or custom source)
 

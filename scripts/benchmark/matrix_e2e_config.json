@@ -80,11 +80,11 @@
     },
     {
       "path": "tests/e2e/test_deploy_lifecycle.py",
-      "reason": "Real-container deploy-lifecycle mechanics (up/seed/decommission/prune/nuke); no LLM anywhere."
+      "reason": "Real-container deploy-lifecycle mechanics (up/seed/users remove/users prune/reset); no LLM anywhere."
     },
     {
       "path": "tests/e2e/test_deploy_writeback_e2e.py",
-      "reason": "Real-container proof that deploy-minted secrets survive a wipe-and-rebuild via the owning profile; drives `osprey build`/`osprey deploy up` and reads two upstream stores directly, with no LLM anywhere."
+      "reason": "Real-container proof that deploy-minted secrets survive a wipe-and-rebuild of the repo's build/ zone; drives `osprey build`/`osprey up` and reads two upstream stores directly, with no LLM anywhere."
     },
     {
       "path": "tests/e2e/test_dispatch_allowlist_parity.py",
@@ -92,7 +92,7 @@
     },
     {
       "path": "tests/e2e/test_dispatch_deploy_render.py",
-      "reason": "Pure `osprey deploy build` compose-template rendering — no Docker, no provider token, no LLM call of any kind."
+      "reason": "Pure `osprey build` compose-template rendering — no Docker, no provider token, no LLM call of any kind."
     },
     {
       "path": "tests/e2e/test_dispatch_overlay_visibility.py",
@@ -136,7 +136,7 @@
     },
     {
       "path": "tests/e2e/web_terminals/test_auth_perimeter.py",
-      "reason": "Builds the real auth-sidecar image and drives one `osprey deploy up`, then asserts over plain HTTP that the login perimeter refuses and admits; no LLM anywhere, and the image build would cost every matrix cell minutes for no model signal."
+      "reason": "Builds the real auth-sidecar image and drives one `osprey up`, then asserts over plain HTTP that the login perimeter refuses and admits; no LLM anywhere, and the image build would cost every matrix cell minutes for no model signal."
     },
     {
       "path": "tests/e2e/web_terminals/test_loopback_chokepoint.py",

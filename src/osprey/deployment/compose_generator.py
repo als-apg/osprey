@@ -2,18 +2,28 @@
 
 Handles Jinja2 template rendering, service discovery, build directory
 management, and Docker Compose file creation for container deployments.
+
+Working-directory precondition: the render helpers here (:func:`setup_build_dir`,
+:func:`render_kernel_templates`, :func:`_incremental_setup_build_dir`) resolve
+``build_dir`` and each service's declared ``path`` RELATIVELY, against the
+process working directory, and are called from the build with that directory at
+the repo root. They are not safe to call from anywhere else. The one function
+that answers a question rather than performing a render —
+:func:`find_existing_compose_files` — takes an explicit ``base`` instead,
+because its wrong answer is an empty list rather than an error.
 """
 
 import os
 import re
 import shutil
-import subprocess
 from pathlib import Path, PurePosixPath
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.cli.phase_reporter import report_step
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
+from osprey.deployment.subprocess_capture import run_captured
 
 # The dev-wheel build, per-process cache, and staging-copy helpers live in
 # wheel_build; the copy helper is invoked here by _stage_dev_wheel_for_context,
@@ -38,6 +48,177 @@ OUT_SRC_DIR = "repo_src"
 
 TEMPLATE_FILENAME = "docker-compose.yml.j2"
 COMPOSE_FILE_NAME = "docker-compose.yml"
+
+#: The deployment's one secret store, at the repo root. Compose is pointed at it
+#: explicitly (``--env-file``) on every invocation, and the containers mount it
+#: from there — never from the render, which every build re-creates.
+COMPOSE_ENV_FILENAME = ".env"
+
+#: Where a project image holds its deployment repo: ``templates/project/
+#: Dockerfile.j2``'s ``WORKDIR /app/<project_name>``. Spelled here so the one
+#: template that mounts a volume INTO that repo takes the path from the same
+#: derivation the image was built with instead of re-typing the prefix.
+_CONTAINER_APP_ROOT = "/app"
+
+
+def resolve_repo_root(config=None, config_path=None):
+    """The deployment repo a compose invocation is pinned to.
+
+    Every path a compose file spells relatively — bind-mount sources, build
+    contexts, ``env_file`` entries — is resolved by compose against ONE
+    directory, the compose project directory. This function answers what that
+    directory is, and :func:`compose_base_cmd` pins it with
+    ``--project-directory`` so it is never inferred from the first ``-f``
+    file's location.
+
+    Resolution order, most authoritative first:
+
+    1. The config *path*, when the caller has one: the repo is the directory
+       holding it, or its parent when the config sits in the ``build/`` zone
+       (:func:`osprey.utils.workspace.repo_root_for_config`). Filesystem truth,
+       and the only answer immune to a rewritten ``project_root``.
+    2. The config's ``project_root`` key — but only when it names a directory
+       that exists here. A project built with ``--runtime-root`` records the
+       path it will run at *inside a container* (``/app/<name>``), which is not
+       a host path at all; taking it would pin compose to a directory the host
+       does not have.
+    3. The working directory. Every repo-scoped verb chdirs into the repo root
+       before reaching a compose invocation, so this is correct — and it is what
+       the whole deployment layer relied on implicitly before the contract
+       existed.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None``.
+        config_path: Path to that config file, when the caller has it.
+
+    Returns:
+        An absolute path to the deployment repo root.
+    """
+    from osprey.utils.workspace import repo_root_for_config
+
+    if config_path:
+        return repo_root_for_config(Path(config_path).expanduser().absolute())
+
+    configured = (config or {}).get("project_root")
+    if configured:
+        candidate = Path(str(configured)).expanduser()
+        if candidate.is_dir():
+            return candidate.absolute()
+
+    return Path.cwd().absolute()
+
+
+#: Label key carrying WHICH CHECKOUT a container or volume belongs to.
+#: ``COMPOSE_PROJECT_NAME`` is derived from the repo's directory name, so two
+#: clones of one deployment on a single host share a project name and a volume
+#: namespace. This is what tells them apart — and what lets a destructive verb
+#: refuse to remove the other checkout's resources.
+REPO_ID_LABEL = "com.osprey.repo-id"
+
+
+def repo_identity(repo_root):
+    """A short, stable identity for the deployment repo at *repo_root*.
+
+    ``sha256`` of the resolved absolute path, truncated to 12 hex characters —
+    enough to tell the checkouts on one host apart, short enough to read in a
+    ``docker inspect``. Symlinks are resolved, so two spellings of one directory
+    produce one identity rather than two.
+
+    The PATH, not its contents: the question this answers is "which checkout is
+    this?", which has to survive every edit to the repo and every rebuild of it.
+
+    The single spelling of the rule, deliberately, because every consumer
+    compares against it and a second derivation would eventually disagree with
+    the first — at which point one verb would act on a set of containers another
+    verb reports. The consumers today: :func:`_inject_project_metadata` renders
+    it into every container's and volume's :data:`REPO_ID_LABEL`, ``osprey
+    down`` uses it to find this deployment's containers when ``build/`` no
+    longer holds the compose files that declared them, ``osprey reset`` uses it
+    to refuse removing resources that belong to a different checkout of the same
+    name, and ``osprey status`` uses it to sort every container on the host by
+    which checkout it belongs to. Any new one derives it from here too.
+
+    :param repo_root: The deployment repo root.
+    :return: 12 lowercase hex characters.
+    """
+    import hashlib
+
+    resolved = Path(repo_root).expanduser().resolve()
+    return hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
+
+
+def compose_env_file_args(repo_root):
+    """``["--env-file", "<repo>/.env"]`` when that file exists, else ``[]``.
+
+    Spelled absolute, and anchored on the repo rather than on the working
+    directory: ``--env-file`` decides which values compose substitutes into
+    every ``${VAR}`` in every compose file, so resolving it anywhere but the
+    deployment's own secret store starts the stack with empty credentials and
+    no error. The empty list (rather than a missing file passed anyway) is
+    deliberate — compose hard-fails on an ``--env-file`` that is not there.
+
+    :param repo_root: The deployment repo root.
+    :return: The argv fragment, ready to splice into a compose invocation.
+    """
+    env_file = Path(repo_root) / COMPOSE_ENV_FILENAME
+    if env_file.exists():
+        return ["--env-file", str(env_file)]
+    logger.warning(
+        "No .env file found - services will start with default/empty environment variables"
+    )
+    logger.info("To configure API keys: cp .env.example .env && edit .env")
+    return []
+
+
+def compose_base_cmd(runtime_cmd, compose_files, repo_root, env_file_args=None):
+    """Pin a compose argv to one deployment repo, before any subcommand.
+
+    The single spelling of the invocation contract (TR-3). Every compose
+    command OSPREY runs — ``up``, ``down``, ``restart``, ``rm``, ``build``,
+    ``pull``, ``logs``, the web stack's own invocations — is built from here,
+    so no path in any rendered compose file can resolve against a different
+    base depending on which verb ran it::
+
+        <runtime> compose [--progress plain]
+            --project-directory <repo-root>
+            -f <repo-root>/build/<file> ...
+            [--env-file <repo-root>/.env]
+
+    ``--project-directory`` is what makes the rest true. Without it compose
+    derives the project directory from the FIRST ``-f`` file's location, so a
+    services invocation resolved relative paths against ``build/services/``
+    while the web stack's resolved them against wherever its file happened to
+    be written — two bases for one deployment, and the reason the two stacks
+    could never share an invocation. With the repo root pinned, one base holds
+    for both, and every relative path in every template is spelled against it.
+
+    ``-f`` paths are anchored on the repo too, so an invocation is correct from
+    any working directory rather than only from the root the verbs chdir into.
+    An already-absolute path is passed through untouched.
+
+    The runtime argv is taken as an argument rather than resolved here, for the
+    same reason :func:`osprey.deployment.runtime_helper.with_plain_progress`
+    takes one: each call site reaches its runtime through the
+    ``get_runtime_command`` name bound in its own module, which is the seam the
+    deploy tests patch.
+
+    :param runtime_cmd: Resolved compose argv base, e.g. ``["docker", "compose"]``
+        (optionally already carrying ``--progress plain``). Never mutated.
+    :param compose_files: Compose files for this invocation, in ``-f`` order.
+    :param repo_root: The deployment repo root — the compose project directory.
+    :param env_file_args: An already-resolved ``--env-file`` fragment, for
+        callers that thread one down. ``None`` resolves it here through
+        :func:`compose_env_file_args`.
+    :return: A new argv list, ready for its subcommand.
+    """
+    root = Path(repo_root).expanduser().absolute()
+    cmd = list(runtime_cmd)
+    cmd.extend(("--project-directory", str(root)))
+    for compose_file in compose_files:
+        path = Path(compose_file)
+        cmd.extend(("-f", str(path if path.is_absolute() else root / path)))
+    cmd.extend(compose_env_file_args(root) if env_file_args is None else env_file_args)
+    return cmd
 
 
 def find_service_config(config, service_name):
@@ -105,7 +286,7 @@ def resolve_project_name(config):
 
     The name is resolved with a fixed priority order so that every consumer
     (container labels here, plus the ``<project>:local`` image tag that
-    ``osprey deploy up`` builds for the dispatch worker) agrees on one value:
+    ``osprey up`` builds for the dispatch worker) agrees on one value:
 
     1. Root-level ``project_name`` attribute (preferred, explicit)
     2. Last component of the ``project_root`` path (smart fallback)
@@ -178,7 +359,7 @@ def _inject_project_metadata(config):
     ``project_name`` > last component of ``project_root`` > ``unnamed-project``).
 
     It also defaults the dispatch worker's image to ``<project>:local`` — the
-    tag ``osprey deploy up`` builds from the project ``Dockerfile`` — unless the
+    tag ``osprey up`` builds from the project ``Dockerfile`` — unless the
     profile pinned an explicit ``services.dispatch_worker.image``. The
     event-dispatcher is left untouched (it builds ``<project>-dispatch:local``
     via its own compose ``build:`` block; the worker deliberately has none).
@@ -207,20 +388,41 @@ def _inject_project_metadata(config):
 
     osprey_version = get_running_version()
 
+    # The deployment repo this render belongs to. Resolved once, here, because
+    # three separate things below are derived from it.
+    repo_root = resolve_repo_root(config)
+
     # Create enhanced config with label metadata
     config_with_labels = config.copy()
     config_with_labels["osprey_labels"] = {
         "project_name": project_name,
         "project_root": config.get("project_root", os.getcwd()),
         "deployed_at": datetime.datetime.now().isoformat(),
+        # Which CHECKOUT this is (:func:`repo_identity`). Baked in as a literal
+        # at render time rather than left as a `${VAR}` for compose to
+        # interpolate: the label has to be trustworthy for a verb that reads it
+        # back to decide what to DESTROY, and an interpolated one is silently
+        # empty for anyone who runs `docker compose` by hand without the
+        # variable exported. A baked literal is a property of the build,
+        # readable with `docker inspect` and reproducible from the repo path.
+        #
+        # Applied at CREATE time, like every container label: containers that
+        # were already running keep whatever label they were created with until
+        # something recreates them, and a named volume takes its labels only
+        # when it is first created — an existing volume is never relabelled by a
+        # later deploy.
+        "repo_id": repo_identity(repo_root),
     }
     config_with_labels["osprey_version"] = osprey_version
 
-    # Whether a project ``.env`` exists in the deploy CWD. The dispatch worker
-    # mounts it read-only so ``inject_provider_env`` can read provider auth at
-    # startup; gating the mount on existence avoids docker auto-creating a stray
-    # empty ``.env`` directory when none is present.
-    config_with_labels["osprey_env_present"] = os.path.exists(".env")
+    # Whether this deployment repo has a ``.env``. The dispatch worker mounts it
+    # read-only so ``inject_provider_env`` can read provider auth at startup;
+    # gating the mount on existence avoids docker auto-creating a stray empty
+    # ``.env`` directory when none is present. Probed at the repo root, not in
+    # the working directory: that single root ``.env`` is the deployment's whole
+    # secret store (TR-3), and a cwd probe answered "no" for any invocation made
+    # from a subdirectory — silently dropping provider auth from the worker.
+    config_with_labels["osprey_env_present"] = (repo_root / COMPOSE_ENV_FILENAME).exists()
 
     # Bind-mount source for the Virtual Accelerator's scenario state directory,
     # derived here rather than hardcoded in the template: the mount must follow
@@ -229,24 +431,51 @@ def _inject_project_metadata(config):
     # `simulation.state_dir` outright. Resolved through the one shared helper so
     # writer and mount cannot disagree.
     #
-    # Compose bind sources are relative to the compose project directory
-    # (build/services/), hence the ../../ back to the project root. A state dir
-    # outside the project has no relative spelling and is emitted absolute.
-    from osprey.utils.workspace import resolve_simulation_state_dir
+    # Emitted relative to the REPO ROOT, because that is the compose project
+    # directory every invocation now pins (see :func:`compose_base_cmd`), and
+    # with an explicit ``./`` — a bind source that is neither absolute nor
+    # dot-prefixed is not reliably read as a path by every runtime. A state dir
+    # outside the repo has no relative spelling and is emitted absolute.
+    from osprey.utils.workspace import agent_data_base_dir, resolve_simulation_state_dir
 
-    state_project_root = Path(config.get("project_root") or os.getcwd()).expanduser().absolute()
-    state_dir = resolve_simulation_state_dir(config, state_project_root).expanduser().absolute()
+    state_dir = resolve_simulation_state_dir(config, repo_root).expanduser().absolute()
     try:
-        relative_state_dir = state_dir.relative_to(state_project_root)
+        relative_state_dir = state_dir.relative_to(repo_root)
     except ValueError:
         config_with_labels["osprey_state_mount_source"] = state_dir.as_posix()
     else:
-        config_with_labels["osprey_state_mount_source"] = (
-            f"../../{PurePosixPath(relative_state_dir)}"
-        )
+        config_with_labels["osprey_state_mount_source"] = f"./{PurePosixPath(relative_state_dir)}"
+
+    # The agent-data root as the CONTAINER sees it, ABSOLUTE and complete —
+    # rendered from the same ``agent_data.base_dir`` the container's own
+    # config.yml declares. Templates that mount a workspace volume spell the
+    # mount target through this rather than a literal, so a project that
+    # relocates its agent-data root cannot end up with the volume mounted at one
+    # path and the process writing at another.
+    #
+    # The join happens HERE rather than as `{{ project_dir }}/{{ base }}` in the
+    # template, for the same reason it does in
+    # ``web_terminals.render._container_agent_data_dir``: an absolute base_dir
+    # names the same absolute path inside the container and must NOT be
+    # re-anchored under the project directory, and a template concatenation
+    # cannot make that distinction — it would mount the volume at
+    # ``/app/<project>//data/...`` while the process wrote to ``/data/...``.
+    #
+    # Known limit, shared with the web-terminals sibling: a ``~``-relative
+    # base_dir is anchored here like any other relative path, while the process
+    # inside expands it against the container's HOME. Such a project's agent
+    # data is misfiled rather than lost, and naming HOME here would duplicate a
+    # value the image sets — the duplication this derivation exists to remove.
+    container_project_dir = PurePosixPath(_CONTAINER_APP_ROOT) / project_name
+    agent_data_base = PurePosixPath(agent_data_base_dir(config))
+    config_with_labels["osprey_container_agent_data_dir"] = (
+        agent_data_base
+        if agent_data_base.is_absolute()
+        else container_project_dir / agent_data_base
+    ).as_posix()
 
     # Default the dispatch worker's image to the project image that
-    # ``osprey deploy up`` builds (``<project>:local``). The worker compose
+    # ``osprey up`` builds (``<project>:local``). The worker compose
     # template renders ``${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image
     # | default(osprey_labels.project_name ~ ':local') }}}`` — the template-level
     # fallback now matches this same project image, so this setdefault and the
@@ -365,7 +594,9 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     :rtype: bool
     """
     if not dev_mode:
-        logger.info("Production mode: Containers will install osprey from PyPI")
+        # DEBUG, not INFO — fires once per service build context on every
+        # production build, restating a flag the operator already passed.
+        logger.debug("Production mode: Containers will install osprey from PyPI")
         return False
     if not os.path.isfile(os.path.join(out_dir, "Dockerfile")):
         # Routine and correct: pure-image services (postgresql, openobserve)
@@ -453,11 +684,12 @@ def render_kernel_templates(source_dir, config, out_dir):
 
 
 def _ensure_agent_data_structure(config):
-    """Ensure _agent_data directory and subdirectories exist before container deployment.
+    """Ensure the agent-data directory and subdirectories exist before deployment.
 
     This function creates the agent data directory structure based on the configuration
     to prevent Docker/Podman mount failures when containers try to mount non-existent
-    directories. The root comes from ``agent_data.base_dir``; each subdirectory below
+    directories. The root comes from ``agent_data.base_dir`` — ``var/agent_data``
+    under the repo root unless a profile moved it; each subdirectory below
     is created only when ``file_paths`` declares its name, so the created structure
     matches what :func:`osprey.utils.config.get_agent_dir` resolves at runtime. The
     scenario state directory is the one addition outside ``file_paths``, created only
@@ -594,7 +826,18 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     # Clear the directory if it exists
     build_dir = config.get("build_dir", "./build")
     out_dir = os.path.join(build_dir, source_dir)
-    if os.path.exists(out_dir):
+
+    # ...unless the output IS the source. A deployment repo's build renders into
+    # a staging tree that becomes `build/`, so its output base is that tree's
+    # root and each service's rendered `docker-compose.yml` lands beside the
+    # `docker-compose.yml.j2` it came from. Clearing the directory there would
+    # delete the templates this render is about to read — and there is nothing
+    # to clear in the first place, because the staged tree was created fresh by
+    # this same build. The clear exists for the other shape, where a persistent
+    # output directory can hold a previous render's stale files.
+    renders_in_place = os.path.realpath(out_dir) == os.path.realpath(source_dir)
+
+    if os.path.exists(out_dir) and not renders_in_place:
         try:
             shutil.rmtree(out_dir)
         except OSError as e:
@@ -624,8 +867,11 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     # received a wheel (see _stage_dev_wheel_for_context).
     wheel_staged = False
     if source_dir != SERVICES_DIR:  # ignore the top level dir
-        # Deep copy everything in source directory except templates
-        for file in os.listdir(source_dir):
+        # Deep copy everything in source directory except templates. Skipped
+        # when the output IS the source (see `renders_in_place` above): the
+        # files are already at the destination, and copying a file onto itself
+        # raises rather than no-opping.
+        for file in [] if renders_in_place else os.listdir(source_dir):
             src_path = os.path.join(source_dir, file)
             dst_path = os.path.join(out_dir, file)
             # Skip template files (both docker-compose and kernel templates)
@@ -641,7 +887,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
     # Create the docker compose file from the template. The render context
     # carries dev_mode so service templates can emit dev-only build args
-    # (e.g. OSPREY_DEV) exactly when `osprey deploy up --dev` runs AND the
+    # (e.g. OSPREY_DEV) exactly when `osprey up --dev` runs AND the
     # local wheel actually landed in this context — never when staging failed
     # (fail-closed: the Dockerfile then keeps its fail-loud pinned install).
     render_config = {**config, "dev_mode": dev_mode and wheel_staged}
@@ -697,7 +943,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 elif src_dir:
                     logger.warning(f"Path {src_dir} does not exist, skipping")
 
-        # Ensure _agent_data directory structure exists before container deployment
+        # Ensure the agent-data directory structure exists before container deployment
         # This prevents mount failures when containers try to mount non-existent directories
         _ensure_agent_data_structure(config)
 
@@ -841,19 +1087,30 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
     return compose_filepath
 
 
-def find_existing_compose_files(config, deployed_services, quiet=False):
+def find_existing_compose_files(config, deployed_services, quiet=False, base=None):
     """Find existing compose files without rebuilding directories.
 
     This function locates existing docker-compose.yml files in the build directory
     for the specified services without triggering any rebuild operations.
 
+    Both the config's ``build_dir`` and each service's declared ``path`` are
+    relative, so the answer depends entirely on what they are resolved against.
+    That anchor is *base*, an explicit argument rather than the working
+    directory, because from the wrong directory this function does not fail — it
+    returns an empty list, and "no compose files here" is indistinguishable from
+    "this deployment declares no services". Callers that hold a repo root pass
+    it; the ``os.getcwd()`` default is for a caller standing in the repo already.
+
     Args:
         config (dict): Configuration dictionary containing build_dir
         deployed_services (list): List of service names to find compose files for
         quiet (bool): If True, suppress warning messages about missing files
+        base (str | Path | None): Directory the relative paths resolve against
+            — the repo root. Defaults to the current working directory.
 
     Returns:
-        list: List of paths to existing compose files
+        list: Paths to the existing compose files, RELATIVE to *base* (which is
+        the anchor :func:`compose_base_cmd` resolves each ``-f`` against).
 
     Example:
         compose_files = find_existing_compose_files(config, ['osprey.jupyter'])
@@ -861,21 +1118,29 @@ def find_existing_compose_files(config, deployed_services, quiet=False):
         #          './build/services/osprey/jupyter/docker-compose.yml']
     """
     compose_files = []
+    base = Path(base) if base is not None else Path.cwd()
     build_dir = config.get("build_dir", "./build")
 
     # Add top-level compose file if it exists
     top_compose = os.path.join(build_dir, SERVICES_DIR, "docker-compose.yml")
-    if os.path.exists(top_compose):
+    if (base / top_compose).exists():
         compose_files.append(top_compose)
 
     # Add service-specific compose files
     for service_name in deployed_services:
         service_config, template_path = find_service_config(config, service_name)
         if template_path:
-            # Construct expected compose file path
-            source_dir = os.path.relpath(os.path.dirname(template_path), os.getcwd())
+            # Construct expected compose file path. A declared service path is
+            # normally relative and already base-anchored, so only an absolute
+            # one has to be made relative to the base.
+            template_dir = os.path.dirname(template_path)
+            source_dir = (
+                os.path.relpath(template_dir, base)
+                if os.path.isabs(template_dir)
+                else os.path.normpath(template_dir)
+            )
             compose_path = os.path.join(build_dir, source_dir, "docker-compose.yml")
-            if os.path.exists(compose_path):
+            if (base / compose_path).exists():
                 compose_files.append(compose_path)
             elif not quiet:
                 logger.warning(
@@ -905,28 +1170,42 @@ def clean_deployment(compose_files, config=None):
     # destroy a sibling deploy's data volumes.
     run_env = runtime_env(config, os.environ.copy())
 
+    # Both invocations below share the one pinned base (TR-3): the same repo
+    # root, the same repo-anchored -f list, and the same repo-root .env — which
+    # is also what stops a `--env-file .env` from being resolved against
+    # whatever directory the operator happened to stand in.
+    repo_root = resolve_repo_root(config)
+    env_file_args = compose_env_file_args(repo_root)
+
     # Stop and remove containers, networks, volumes
-    cmd_down = get_runtime_command(config)
-    for compose_file in compose_files:
-        cmd_down.extend(("-f", compose_file))
-    cmd_down.extend(["--env-file", ".env", "down", "--volumes", "--remove-orphans"])
+    cmd_down = compose_base_cmd(
+        get_runtime_command(config), compose_files, repo_root, env_file_args
+    )
+    cmd_down.extend(["down", "--volumes", "--remove-orphans"])
 
     logger.info(f"Running: {' '.join(cmd_down)}")
-    subprocess.run(cmd_down, env=run_env)
+    report_step("Removing containers and volumes")
+    # No check: a clean over a deployment that was never up exits non-zero, and
+    # that has always been tolerated here. Capturing must not turn it into a
+    # failure — only move the output off the terminal.
+    run_captured(
+        cmd_down, env=run_env, spool_name="compose-clean-down", repo_root=repo_root, check=False
+    )
 
     # Remove images built by the compose files
-    cmd_rmi = get_runtime_command(config)
-    for compose_file in compose_files:
-        cmd_rmi.extend(("-f", compose_file))
-    cmd_rmi.extend(["--env-file", ".env", "down", "--rmi", "all"])
+    cmd_rmi = compose_base_cmd(get_runtime_command(config), compose_files, repo_root, env_file_args)
+    cmd_rmi.extend(["down", "--rmi", "all"])
 
     logger.info(f"Running: {' '.join(cmd_rmi)}")
-    subprocess.run(cmd_rmi, env=run_env)
+    report_step("Removing images")
+    run_captured(
+        cmd_rmi, env=run_env, spool_name="compose-clean-rmi", repo_root=repo_root, check=False
+    )
 
     logger.success("Cleanup completed")
 
 
-def prepare_compose_files(config_path, dev_mode=False, expose_network=False):
+def prepare_compose_files(config_path, dev_mode=False, expose_network=False, output_root=None):
     """Prepare compose files from configuration.
 
     Loads configuration and generates all necessary compose files for deployment.
@@ -937,6 +1216,27 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False):
     :type dev_mode: bool
     :param expose_network: Expose services to all network interfaces (0.0.0.0)
     :type expose_network: bool
+    :param output_root: Directory this run writes its output under, replacing
+        the config's ``build_dir`` for the duration and for this run only. The
+        config on disk is never rewritten.
+
+        ``None`` — the deploy-time case — writes where the config says, which is
+        ``build_dir`` resolved against the repo root.
+
+        A deployment repo's ``osprey build`` needs the other case. It renders
+        into a staging tree that BECOMES ``build/`` when the atomic swap lands,
+        so the shipped config correctly says ``build_dir: ./build`` (read from
+        the repo root, where compose will read it) while this render has to
+        write at the staging root itself. Taking the config's value there
+        appended a second ``build/`` to a path that was already the output zone,
+        putting every compose file one directory below where its own rendered
+        mount paths — spelled against the repo root — resolve.
+
+        Deliberately an output-base override rather than a change to what
+        ``build_dir`` MEANS: the shipped value stays relative and is still
+        absolutized only at invocation time (TR-3), so nothing about the pinned
+        compose contract moves.
+    :type output_root: str or None
     :return: Tuple of (config dict, list of compose file paths)
     :rtype: tuple[dict, list[str]]
     :raises RuntimeError: If configuration loading fails
@@ -947,6 +1247,14 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False):
         preflight_dev_mode()
 
     config = load_project_config(config_path, wrap_errors=True)
+
+    # Where THIS render writes, when that differs from where the finished
+    # deployment will read. Applied to the in-memory config only — the config on
+    # disk keeps its own ``build_dir``, so what is shipped still says where the
+    # compose files live relative to the repo root, and only this run's output
+    # base moves. See the parameter's docstring for the case that needs it.
+    if output_root is not None:
+        config["build_dir"] = output_root
 
     # Handle network exposure setting
     # Default to localhost-only binding for security (Issue #126)

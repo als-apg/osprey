@@ -28,10 +28,10 @@ SessionStart ──► stat config.yml & .claude/settings.json
 `config.yml` is a build-time input: safety-critical fields (notably the
 ``control_system.writes_enabled`` kill-switch, which bakes
 ``mcp__controls__channel_write`` into ``settings.json``'s ``permissions.deny``)
-only take effect once the artifacts are re-rendered by ``osprey build`` /
-``osprey claude regen``. The web and CLI entry points now auto-regenerate, but a
-hand-edited config.yml launched via raw ``claude`` would otherwise run stale
-settings with no signal. This hook is that signal.
+only take effect once the artifacts are re-rendered by ``osprey build``. The web
+and CLI entry points auto-regenerate, but a hand-edited config.yml launched
+via raw ``claude`` would otherwise run stale settings with no signal. This hook
+is that signal.
 
 Warn-only by design — it never mutates artifacts and never blocks the session
 (writes stay blocked until a proper regen, which is the safe direction). It is
@@ -41,6 +41,12 @@ so YAML is matched with a regex and JSON is read with the stdlib ``json`` module
 
 Fails open on any IO/parse error — stays silent and exits 0.
 """
+
+# A hook can be executed by whatever bare ``python3`` is on PATH — on macOS that
+# is still 3.9, which parses no PEP 604 union in an evaluated annotation. Making
+# annotations lazy keeps this module importable there; without it the hook dies
+# at import and its whole check goes dark.
+from __future__ import annotations
 
 import json
 import os
@@ -54,7 +60,7 @@ from pathlib import Path
 _WRITES_ENABLED = re.compile(r"^\s*writes_enabled:\s*(true|false)\b", re.MULTILINE | re.IGNORECASE)
 _CHANNEL_WRITE = "mcp__controls__channel_write"
 
-_REGEN_HINT = "run 'osprey claude regen' and restart for changes to take effect"
+_REGEN_HINT = "run 'osprey build' and restart for changes to take effect"
 
 
 def _writes_enabled_in_config(config_path: Path) -> bool | None:

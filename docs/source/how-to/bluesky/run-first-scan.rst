@@ -28,9 +28,9 @@ say it out loud — in setpoints and monitors, not in software terms:
 
 .. code-block:: text
 
-   Set up a 2-D grid scan: sweep corrector_01 from -0.5 to 0.5 A in 5 steps
-   and corrector_02 from -0.3 to 0.3 A in 5 steps, reading bpm_01 and bpm_02
-   at every point.
+   Set up a 2-D grid scan: sweep the horizontal steering correctors in
+   sectors 1 and 2 from -0.5 to 0.5 A in 5 steps each, reading the BPMs
+   either side of them at every point.
 
 The agent turns this into a ``grid_scan`` plan and stages it as a **shared
 draft** — a plan-in-progress that you and the agent both see and can both
@@ -100,7 +100,7 @@ token, no switch can disable them:
    :icon: gear
 
    - The draft you watched lives on the **Bluesky bridge**, a small service in
-     your project. The agent edits it with its drafting tools; the PLAN panel
+     your project. The agent edits it with its drafting tools; the Plans view
      is a live view of the same object.
    - **Add to queue** pinned the exact draft revision you saw. A revision can
      be queued only once, so a double-click cannot queue a duplicate.
@@ -108,8 +108,10 @@ token, no switch can disable them:
      process with its own copy of the devices. That is why the queue survives
      restarts of everything around it.
    - **Start queue** is checked against a **launch token** the deployment
-     holds. For the agent, starting is additionally switched off entirely
-     whenever the project's control-system writes are disabled.
+     holds. In deployed control rooms the agent never holds it — asking the
+     agent to start a scan gets you a **start request** to confirm in the
+     queue panel. For the agent, starting is additionally switched off
+     entirely whenever the project's control-system writes are disabled.
 
 .. dropdown:: First-run hiccups
    :color: info

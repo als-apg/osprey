@@ -256,6 +256,30 @@ def test_start_queue_relays_success() -> None:
     assert seen[0].url.path == "/queue/start"
 
 
+def test_start_request_routes_relay_filing_and_dismissal_verbatim() -> None:
+    """Both start-request routes are plain relays: body in, body out, no policy."""
+    record = {"request_id": "r1", "requested_by": "operator", "items_in_queue": 2}
+    app, seen, contents = _recording_app(200, {"start_request": record})
+
+    with TestClient(app) as client:
+        filed = client.post("/queue/start-request", json={"requested_by": "operator"})
+
+    assert filed.status_code == 200
+    assert filed.json() == {"start_request": record}
+    assert seen[0].url.path == "/queue/start-request"
+    assert json.loads(contents[0]) == {"requested_by": "operator"}
+
+    app, seen, contents = _recording_app(200, {"dismissed": True})
+    with TestClient(app) as client:
+        dismissed = client.delete("/queue/start-request")
+
+    assert dismissed.status_code == 200
+    assert dismissed.json() == {"dismissed": True}
+    assert seen[0].method == "DELETE"
+    assert seen[0].url.path == "/queue/start-request"
+    assert contents[0] == b""
+
+
 def test_stop_queue_relays_success_and_forwards_cancel_verbatim() -> None:
     app, seen, contents = _recording_app(200, {"stop_pending": False, "msg": ""})
 
@@ -315,6 +339,8 @@ def test_a_uid_bearing_an_encoded_slash_never_reaches_the_bridge() -> None:
         ("post", "/queue/items/item-a/move", {"pos_dest": "front"}),
         ("delete", "/queue/items/item-a", None),
         ("post", "/queue/start", None),
+        ("post", "/queue/start-request", {"requested_by": "operator"}),
+        ("delete", "/queue/start-request", None),
         ("post", "/queue/stop", {"cancel": False}),
     ],
 )
@@ -341,6 +367,10 @@ def test_every_write_returns_502_when_the_bridge_is_unreachable(
         ("post", "/queue/items/item-a/move", {"pos_dest": "front"}),
         ("delete", "/queue/items/item-a", None),
         ("post", "/queue/start", None),
+        # The bridge gates neither start-request route and ignores this header
+        # on both — same reasoning as the abort below.
+        ("post", "/queue/start-request", {"requested_by": "operator"}),
+        ("delete", "/queue/start-request", None),
         ("post", "/queue/stop", {"cancel": True}),
         # The bridge gates the abort on nothing and ignores this header. It is
         # still on the list: an exception carved out here would be the same
@@ -644,7 +674,7 @@ def test_enqueue_browse_only_capability_409_passes_through_with_its_capability()
             "detail": (
                 "This deployment uses the mock connector, which cannot move hardware, so "
                 "scan plans can be composed and validated but not executed. To execute "
-                "plans, run `osprey config set-control-system virtual_accelerator` and "
+                "plans, run `osprey set connector=virtual_accelerator` and "
                 "redeploy."
             ),
             "capability": {
@@ -898,6 +928,7 @@ def test_router_exposes_exactly_the_bridge_queue_surface() -> None:
         "/queue/items/{uid}/move": {"post"},
         "/queue/items/{uid}": {"delete"},
         "/queue/start": {"post"},
+        "/queue/start-request": {"post", "delete"},
         "/queue/stop": {"post"},
         "/queue/abort": {"post"},
         "/queue/events": {"get"},
@@ -930,9 +961,9 @@ def test_the_queue_relay_shadows_no_pre_existing_sidecar_route() -> None:
     ``/plans``, ``/runs*`` and ``/draft*``. A queue path that collided with one
     of those would silently take it over.
 
-    ``/runs/launch`` used to be on this list; it was removed with the launch
-    relay itself, since every bridge primitive it called is now an
-    unconditional 410."""
+    ``/runs/launch`` is deliberately not on this list: there is no launch
+    relay, and every bridge primitive it would call answers an unconditional
+    410."""
     from osprey.interfaces.bluesky_panels.app import app as composed_app
 
     paths = composed_app.openapi()["paths"]
@@ -941,9 +972,9 @@ def test_the_queue_relay_shadows_no_pre_existing_sidecar_route() -> None:
     assert set(paths["/health"].keys()) == {"get"}
 
 
-def test_results_mount_is_an_alias_of_the_bluesky_panel_mount() -> None:
-    """Both mounts serve ONE bundle directory, so the alias cannot drift from
-    the bundle it aliases when the directory is renamed."""
+def test_deprecated_mounts_are_aliases_of_the_bluesky_panel_mount() -> None:
+    """All three mounts serve ONE bundle directory, so an alias cannot drift
+    from the bundle it aliases when the directory is renamed."""
     from starlette.routing import Mount
 
     from osprey.interfaces.bluesky_panels.app import app as composed_app
@@ -956,7 +987,7 @@ def test_results_mount_is_an_alias_of_the_bluesky_panel_mount() -> None:
 
     assert set(directories) == {"/bluesky", "/results", "/plan"}
     assert directories["/results"] == directories["/bluesky"]
-    assert directories["/plan"] != directories["/bluesky"]
+    assert directories["/plan"] == directories["/bluesky"]
 
 
 def test_results_and_bluesky_mounts_serve_identical_content() -> None:

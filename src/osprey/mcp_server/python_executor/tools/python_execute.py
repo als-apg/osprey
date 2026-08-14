@@ -4,7 +4,12 @@ import json
 import logging
 
 from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
+from osprey.mcp_server.python_executor.tools._execution_gates import (
+    enforce_deployment_writes_gate,
+    require_known_execution_mode,
+)
 from osprey.mcp_server.python_executor.tools._package_inventory import with_live_packages
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute")
@@ -38,7 +43,7 @@ async def execute(
         code: Python source code to execute.
         description: Human-readable description of what the code does.
         execution_mode: "readonly" (default) blocks detected write patterns;
-                        "readwrite" allows them.
+                        "readwrite" allows them. Any other value is rejected.
         save_output: If True, save the code and output to a workspace data file.
 
     Returns:
@@ -50,6 +55,10 @@ async def execute(
             "No code provided.",
             ["Provide Python code to execute."],
         )
+
+    # Reject unrecognised modes before any gate: the write gates branch on
+    # string equality and an unknown value would satisfy neither branch.
+    require_known_execution_mode(execution_mode)
 
     # Pre-execution safety checks (syntax, security, imports)
     try:
@@ -77,33 +86,7 @@ async def execute(
         patterns = {"has_writes": False, "has_reads": False, "detected_patterns": {}}
 
     # Deployment-level kill switch (independent of pattern detection accuracy).
-    # Fires whenever the caller asks for write mode, regardless of whether the
-    # pattern detector recognises specific write syntax in `code`.
-    if execution_mode == "readwrite":
-        try:
-            from osprey.services.python_executor.execution.control import (
-                get_execution_control_config,
-            )
-
-            exec_control_config = get_execution_control_config()
-        except ImportError:
-            logger.warning(
-                "Execution control config unavailable — skipping deployment-level writes check"
-            )
-            exec_control_config = None
-
-        if (
-            exec_control_config is not None
-            and exec_control_config.control_system_writes_enabled is False
-        ):
-            return make_error(
-                "safety_error",
-                "Control-system writes are disabled in this deployment "
-                "(control_system.writes_enabled=false in project config).",
-                [
-                    "Set control_system.writes_enabled=true in the project config to enable writes.",
-                ],
-            )
+    enforce_deployment_writes_gate(execution_mode)
 
     # Per-call execution-mode gate (uses pattern detection — readonly-mode safety).
     if patterns.get("has_writes") and execution_mode == "readonly":
@@ -124,6 +107,29 @@ async def execute(
         execution_mode=execution_mode,
         description=description,
     )
+
+    # Report the write to the Web Terminal once the script has actually been
+    # handed to the subprocess: writes it performed are already on the machine
+    # and a mid-run error does not undo them, so a failed run still reports.
+    #
+    # `execution_time_seconds` is the launch discriminator — only the subprocess
+    # path sets it, on both its completed and its timed-out return, while every
+    # "never launched" outcome comes back from execute_code's setup handler with
+    # it still None. Every pre-execution gate above returns before this point.
+    #
+    # The mode test is the complement of the readonly gate: with the mode set
+    # closed by require_known_execution_mode, the two spellings are equivalent,
+    # but the complement keeps this emit correct even if the set ever grows.
+    # Emitting before build_execution_response keeps the report independent of
+    # artifact/notebook persistence failures.
+    if (
+        patterns.get("has_writes")
+        and execution_mode != "readonly"
+        and exec_result.execution_time_seconds is not None
+    ):
+        await notify_agent_activity_async(
+            "execute", "channel", detail="ran a script with control-system writes"
+        )
 
     from osprey.mcp_server.python_executor.tools._response_builder import build_execution_response
 

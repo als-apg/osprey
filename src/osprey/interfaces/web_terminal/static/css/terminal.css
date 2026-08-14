@@ -234,150 +234,6 @@
   background: var(--bg-elevated);
 }
 
-/* ---- Identity chip (who you are + the way out) ----
-
-   One chip replaces the old user-name badge and the standalone logout door
-   button. The trigger states the fact (avatar initial + username); the popover
-   it opens holds the action (Log out) plus the deployment line, so an operator
-   on several terminals can confirm WHICH one they are about to leave before
-   they leave it. Popover grammar — capture-phase outside-click, Escape,
-   aria-expanded mirrored on the trigger — matches display-menu.js and
-   panel-add-menu.js, the shell's other two header popovers. */
-.identity-menu {
-  position: relative;
-  display: flex;
-  flex-shrink: 0;
-}
-
-.identity-trigger {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: 28px;
-  max-width: 200px;
-  padding: 0 8px 0 4px;
-  color: var(--text-primary);
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
-    background var(--wt-transition-fast);
-}
-
-.identity-trigger:hover,
-.identity-trigger[aria-expanded="true"] {
-  border-color: var(--border-accent);
-  background: var(--bg-elevated);
-}
-
-/* The initial disc. Carries the accent so the chip reads as "you" at a glance
-   without needing an avatar image the framework has no way to source. */
-.identity-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  line-height: var(--leading-none);
-  color: var(--color-on-accent);
-  background: var(--color-accent);
-  border-radius: var(--radius-full);
-}
-
-.identity-name {
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-regular);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.identity-caret {
-  display: block;
-  flex-shrink: 0;
-  color: var(--text-muted);
-}
-
-/* The popover: drops below the chip, right-aligned to it — same geometry as
-   the display menu's card. */
-.identity-card {
-  display: none;
-  position: absolute;
-  top: calc(100% + var(--space-2));
-  right: 0;
-  min-width: 200px;
-  flex-direction: column;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-dropdown);
-  overflow: hidden;
-  z-index: var(--z-dropdown);
-}
-
-.identity-card.open {
-  display: flex;
-}
-
-.identity-card-identity {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-3);
-  border-bottom: 1px solid var(--border-default);
-}
-
-.identity-card-name {
-  font-family: var(--font-display);
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
-  word-break: break-all;
-}
-
-.identity-card-sub {
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.identity-card-logout {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  padding: var(--space-3);
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  text-align: left;
-  color: var(--text-secondary);
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
-}
-
-.identity-card-logout:hover {
-  color: var(--color-error);
-  background: var(--bg-elevated);
-}
-
-.identity-card-logout[aria-busy="true"] {
-  cursor: progress;
-  opacity: 0.6;
-}
-
-.identity-card-logout-icon {
-  font-size: var(--text-md);
-  line-height: var(--leading-none);
-}
-
 /* ---- Display menu (the header sliders button) ----
 
    Every display preference — Appearance (light/dark), View (Expert/Simple),
@@ -569,15 +425,96 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
   background: var(--accent-tint-06);
 }
 
-/* System Settings: the card's last row, separated from the preference rows by
-   a hairline so it reads as an action rather than a fourth preference. Expert
-   only — the simple-mode gate lives with the other density deltas below. */
-.display-menu-settings {
+/* ---- Session footer (identity + the two actions) ----
+
+   The card's last block: who you are, then Settings and Log out side by side.
+   A hairline splits it from the preference rows so it reads as action rather
+   than a fourth preference. Both actions are present in BOTH ui modes — the
+   settings drawer's own warning gate, not the ui mode, is what guards expert
+   configuration. */
+.display-menu-identity {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-default);
+}
+
+/* The initial disc. Carries the accent so the line reads as "you" at a glance
+   without needing an avatar image the framework has no way to source. */
+.display-menu-identity-avatar {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  align-self: center;
+  width: 20px;
+  height: 20px;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-none);
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-radius: var(--radius-full);
+}
+
+/* The name wins the row when both it and the deployment are too long for it:
+   `alice` is what identifies the session, the deployment only qualifies it. */
+.display-menu-identity-name {
+  flex-shrink: 0;
+  max-width: 60%;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.display-menu-identity-sub {
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.display-menu-identity-sub::before {
+  content: '·';
+  margin-right: var(--space-1);
+}
+
+/* The hairline opens the footer, so it belongs to whichever element starts it:
+   the identity line on a multi-user terminal, the action row on a single-user
+   one (which renders no identity and no logout). */
+.display-menu-actions {
+  display: flex;
   gap: var(--space-2);
-  margin-top: calc(var(--space-1) * -1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-default);
+}
+
+.display-menu-identity + .display-menu-actions {
+  padding-top: 0;
+  border-top: none;
+}
+
+/* `flex: 1` rather than a 2-column grid: with logout absent — a single-user
+   deployment, or one with no landing_url to return to — Settings fills the row
+   by itself instead of sitting in half of it. */
+.display-menu-settings,
+.display-menu-logout {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 0;
   padding: 7px 10px;
   font-family: var(--font-display);
   font-size: var(--text-base);
@@ -586,6 +523,7 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   cursor: pointer;
+  white-space: nowrap;
   transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
     background var(--wt-transition-fast);
 }
@@ -597,7 +535,23 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
   background: var(--bg-elevated);
 }
 
-.display-menu-settings-icon {
+/* Logout hovers to the error colour, not the accent: it is the one control in
+   this card that ends the session rather than adjusting it. */
+.display-menu-logout:hover {
+  color: var(--color-error);
+  border-color: var(--color-error);
+  background: var(--bg-elevated);
+}
+
+/* app.js locks the button (`disabled` + `aria-busy`) for the whole in-flight
+   logout and never resets it — every path out of that handler navigates away. */
+.display-menu-logout[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.display-menu-settings-icon,
+.display-menu-logout-icon {
   font-size: var(--text-md);
   line-height: var(--leading-none);
 }
@@ -1216,6 +1170,26 @@ html[data-rail-position="top"] .rail-hint {
   pointer-events: none;
 }
 
+/* Agent attribution glow for a whole tile body. dock-iframe.js sizes one of
+   these to the affected panel's group rectangle and fires the design system's
+   `.agent-flash` on it (highlight.css supplies every colour, accent tokens
+   only, so it reads in all four themes). It is a separate overlay element
+   rather than the panel iframe because the iframe is another document the
+   flash cannot reach into, and flashing the iframe element itself would clip
+   the embedded app to the flash's border-radius.
+
+   At rest the element is fully transparent — the flash animates background and
+   box-shadow back to transparent and removes its own class — so a spent glow
+   costs nothing parked in the overlay. `z-index` lifts it above the overlay's
+   iframes, which are positioned but unlayered and would otherwise paint over
+   any glow created before them; `pointer-events` re-states the overlay's own
+   inertness so the layer stays click-through even if it is ever re-parented. */
+.dock-iframe-overlay .tile-glow {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
 /* ---- Terminal panel ---- */
 
 .terminal-panel {
@@ -1267,6 +1241,27 @@ html[data-rail-position="top"] .rail-hint {
   padding: 0;
   background: transparent;
   border-bottom: none;
+}
+
+/* In the bar, the session label is the tile's IDENTITY and renders exactly
+ * like every service tile's name (.tile-tab-title in dockview-overrides.css)
+ * — the green LED, selector and "+ New" are what keep the terminal
+ * recognizable, not a divergent type treatment. The un-scoped .terminal-label
+ * above stays the fallback-mode look. */
+.tile-tab .terminal-label {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+/* "+ New" joins the bar's 24px control geometry (its chip fill stays). */
+.tile-tab .new-session-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
 }
 
 .session-led {

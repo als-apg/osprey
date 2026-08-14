@@ -446,14 +446,20 @@ def test_env_production_missing_secret_present_in_shell_env_names_the_fix(tmp_pa
     assert "exported-in-shell" not in message
 
 
-def test_env_production_missing_secret_hint_points_at_the_profile_env(tmp_path, monkeypatch):
-    """When the project records a profile, the durable remedy names it.
+def test_env_production_missing_secret_hint_names_only_the_repo_env(tmp_path, monkeypatch):
+    """One secret store, so one remedy — even with a legacy sibling profile recorded.
 
-    Handing over only ``>> <project>/.env`` unblocks the deploy in front of the
-    operator but names the one file the next build overwrites, so the secret is
-    lost on the next rebuild. Both routes are named because neither alone is
-    the whole answer: the profile write survives but does not reach this deploy
-    until a rebuild, and the project write reaches it but does not survive.
+    This message used to name two files, because a built project's ``.env`` was
+    DERIVED from a separate profile directory's: a write to the project copy
+    unblocked the deploy and was then dropped by the next build, so the operator
+    had to be told both. Under the three-zone layout the profile and the secret
+    store share the repo root, so there is one file and a write to it survives.
+
+    Driven with a manifest recording a sibling ``<name>-profile/`` — the retired
+    layout — precisely because that is what would resurrect the second path: if
+    the hint ever starts naming a sibling directory again, the operator is being
+    sent to a file this deploy does not read, and the "dropped by the next
+    build" warning would be false besides.
     """
     import json
 
@@ -471,10 +477,9 @@ def test_env_production_missing_secret_hint_points_at_the_profile_env(tmp_path, 
         env_production.ensure_env_production(config, tmp_path)
 
     message = str(excinfo.value)
-    assert f">> {profile_dir / '.env'}" in message
-    # The project .env is still offered, but explicitly as the non-surviving one.
     assert f">> {tmp_path / '.env'}" in message
-    assert "dropped by the next build" in message
+    assert str(profile_dir) not in message
+    assert "dropped by the next build" not in message
     assert "exported-in-shell" not in message
 
 

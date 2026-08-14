@@ -3,15 +3,16 @@
  *
  * Under the one-panel-per-tile invariant a tile's "tab" can never have
  * siblings, so instead of a tab it renders the tile's HOST HEADER BAR. Every
- * tile gets the same bar grammar — drag grip on the left, the tile's
- * identity in the middle, close on the right — so grabbing, naming and
- * closing a tile is one gesture learned once:
+ * tile gets the same bar grammar — the tile's identity on the left, its
+ * actions right-anchored — so naming and closing a tile is one gesture
+ * learned once. There is no drag badge: the bar itself is the drag handle
+ * (cursor: grab), a convention the workspace teaches by use:
  *
- *   service tiles — grip + a visible `.tile-tab-title` + close. The close is
+ *   service tiles — a visible `.tile-tab-title` + close. The close is
  *     a LOCAL tile close (the panel keeps its rail entry; dock-sync routes
  *     the click to a vacate handler); membership removal stays the rail
  *     entry's "×". Popout remains rail-only.
- *   the terminal tile — grip + the adopted live `.terminal-header` + close.
+ *   the terminal tile — the adopted live `.terminal-header` + close.
  *     The header supplies the identity and more: session LED, session id,
  *     the session selector and "+ New" are frequently-used, stateful
  *     controls with nowhere better to live.
@@ -24,6 +25,8 @@
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { PLACEHOLDER_PREFIX } from './dock-reconcile.js';
+import { withEchoSuppressed } from './dock-sync.js';
+import { svgIcon } from './svg-icons.js';
 
 /** defaultTabComponent name registered on the dockview instance. */
 export const OSPREY_TAB_COMPONENT = 'osprey-tile-tab';
@@ -101,11 +104,6 @@ class TileTab {
     // future per-tile styling, independent of a title that may be renamed.
     root.dataset.panelId = id;
 
-    const grip = document.createElement('span');
-    grip.className = 'tile-tab-grip';
-    grip.setAttribute('aria-hidden', 'true');
-    root.appendChild(grip);
-
     /** @type {HTMLElement | null} visible name element (service tiles only) */
     this._titleEl = null;
     /** @type {HTMLElement | null} contribution region (service tiles only) */
@@ -139,7 +137,7 @@ class TileTab {
       // adopted terminal header; empty region surface still bubbles so the
       // bar remains the drag handle.
       contrib.addEventListener('pointerdown', (e) => {
-        if (e.target instanceof Element && e.target.closest('button')) {
+        if (e.target instanceof Element && e.target.closest(INTERACTIVE)) {
           e.stopPropagation();
         }
       });
@@ -162,13 +160,17 @@ class TileTab {
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'tile-tab-close';
-    close.textContent = '×';
+    close.appendChild(svgIcon('close'));
     close.title = 'Close tile';
     close.setAttribute('aria-label', 'Close tile');
     close.addEventListener('click', (e) => {
       if (e.defaultPrevented) return;
       e.preventDefault();
-      this._api?.close?.();
+      // The removal makes dockview auto-activate a surviving tile; that is a
+      // side effect of the close, not a human focus gesture, so it must not
+      // reach the focus reporter — the same suppression retireTile applies to
+      // its own removal.
+      withEchoSuppressed(() => this._api?.close?.());
     });
     actions.appendChild(close);
     root.appendChild(actions);

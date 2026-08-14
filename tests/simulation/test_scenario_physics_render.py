@@ -113,10 +113,12 @@ class TestBpmPolarityScenario:
 class TestOrmDualFaultScenario:
     """physics.bpm_errors + physics.corrector_gain together on disjoint devices.
 
-    ``orm-dual-fault`` is the combined-fault bundle the ORM agentic e2e
-    activates: a BPM 17 polarity flip (reusing ``bpm-polarity``'s shape) plus
+    ``orm-dual-fault`` is shipped scenario data in the ``control_assistant``
+    template: a BPM 17 polarity flip (reusing ``bpm-polarity``'s shape) plus
     a bounded HCM01 gain deficit, on two distinct devices so the disjoint-
     device claim in ``_render_physics_vars`` never trips within one scenario.
+    No e2e activates the bundle -- the tests in this class are what keep it
+    correct as the renderer changes, so they are its only guard.
     """
 
     def test_physics_block_parses_both_faults(self, tmp_path):
@@ -376,7 +378,7 @@ class TestChangedSignal:
     """The writer reports whether ``.env`` *content* changed, not that it wrote.
 
     It reconciles unconditionally, so "a write happened" would be true on every
-    call. ``osprey sim apply`` gates its "run osprey deploy up" notice on this
+    call. ``osprey sim apply`` gates its "run osprey up" notice on this
     signal, so re-applying the same scenario must stay quiet while clearing a
     stale fault must not.
     """

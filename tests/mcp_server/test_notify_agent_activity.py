@@ -19,6 +19,11 @@ from osprey.mcp_server.http import notify_agent_activity
 
 _MODULE = "osprey.mcp_server.http"
 
+# The helper's own contract test: it must really POST, so it opts out of the
+# conftest stub that blocks notify_* POSTs. Every case here redirects
+# ``web_terminal_url`` at a capture server or a dead port of its own.
+pytestmark = pytest.mark.real_http_posters
+
 
 def _free_port() -> int:
     """Reserve a localhost port and release it (nothing will be listening)."""
@@ -109,6 +114,30 @@ class TestPayloadShape:
         assert body == {"tool": "archiver_read", "target": {"kind": "data"}}
         assert "panel" not in body["target"]
         assert "detail" not in body["target"]
+
+
+class TestAsyncWrapper:
+    async def test_posts_off_the_event_loop_with_args_passed_through(self):
+        """The async helper is the one thread-hop for every coroutine emit site.
+
+        Tools await it instead of hand-rolling
+        ``anyio.to_thread.run_sync(functools.partial(...))``; the blocking POST
+        must run on a worker thread with all arguments forwarded unchanged.
+        """
+        from osprey.mcp_server.http import notify_agent_activity_async
+
+        calls: list[tuple[int, str, str, str | None, str | None]] = []
+
+        def record(tool, kind, panel=None, detail=None):
+            calls.append((threading.get_ident(), tool, kind, panel, detail))
+
+        with patch(f"{_MODULE}.notify_agent_activity", side_effect=record):
+            await notify_agent_activity_async(
+                "channel_write", "channel", panel="controls", detail="SR:HC1:SP"
+            )
+
+        assert [c[1:] for c in calls] == [("channel_write", "channel", "controls", "SR:HC1:SP")]
+        assert calls[0][0] != threading.get_ident()
 
 
 class TestTimeout:

@@ -192,7 +192,7 @@ async def proxy_panel_design_system(panel_id: str, asset_path: str, request: Req
     broadcasts resolves to the wrong colors inside that one frame.
 
     Intercepting here makes the shared design system single-sourced from the
-    hub for every embedded panel, so theme consistency no longer depends on
+    hub for every embedded panel, so theme consistency does not depend on
     each sidecar's build being in step. Sidecars still serve their own
     ``/design-system`` on their standalone URLs; only the embedded path is
     redirected to the hub's copy.

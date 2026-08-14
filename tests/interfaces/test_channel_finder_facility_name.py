@@ -108,7 +108,7 @@ def test_config_derived_name_is_not_the_registry_reported_name():
 
 
 # ---------------------------------------------------------------------------
-# The formerly canonical-only readers (task 3.5)
+# The canonical-name readers (task 3.5)
 # ---------------------------------------------------------------------------
 
 # (module, initializer, resetter) for the three pipeline server contexts. They

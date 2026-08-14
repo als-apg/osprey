@@ -6,6 +6,10 @@ Extracted from ``tests/e2e/sdk_helpers.py`` so that production code
 ``ToolTrace``, ``SDKWorkflowResult``, ``sdk_env``, and ``combined_text`` are
 re-exported from :mod:`osprey.agent_runner` — that module is the single source
 of truth for these primitives.
+
+Nothing here builds a project — benchmarks are handed a built repo and read it.
+Project setup belongs to ``tests.e2e.sdk_helpers.init_project``, which drives
+the ``osprey init`` + ``osprey build`` surface.
 """
 
 from __future__ import annotations
@@ -65,69 +69,8 @@ def _resolve_default_sdk_model(project_dir: Path) -> str:
     return spec.tier_to_model[spec.default_model_tier]
 
 
-def init_project(
-    tmp_path: Path,
-    name: str,
-    template: str = "control_assistant",
-    provider: str = "anthropic",
-    model: str = "haiku",
-    channel_finder_mode: str | None = None,
-    tier: int | None = None,
-) -> Path:
-    """Create a project via ``osprey build --preset <template>``, return project_dir.
-
-    Tier selection follows a per-mode default: tier 1 is in_context-only, while
-    ``hierarchical``/``middle_layer`` require tier 3. When ``tier`` is left
-    ``None`` and a ``channel_finder_mode`` is given, the tier is derived from it
-    (in_context → 1, else → 3); when neither is given, ``--tier`` is omitted and
-    the build derives the tier from the preset's own paradigm. An explicit
-    ``tier`` kwarg is always honored. Consequence: hierarchical/middle_layer
-    benchmark runs now score the full tier-3 (2908-channel) surface, not a
-    tier-1 subset.
-    """
-    import subprocess
-    import sys
-
-    from osprey.build.build_tiers import default_tier_for_mode
-
-    effective_tier = tier
-    if effective_tier is None and channel_finder_mode is not None:
-        effective_tier = default_tier_for_mode(channel_finder_mode)
-    # Drive the CLI as a subprocess (black box) rather than importing the Click
-    # command: the benchmark harness must not depend on osprey.cli internals.
-    args = [
-        sys.executable,
-        "-m",
-        "osprey",
-        "build",
-        name,
-        "--preset",
-        template.replace("_", "-"),
-        "--skip-deps",
-        "--skip-lifecycle",
-        "--output-dir",
-        str(tmp_path),
-        "--set",
-        f"provider={provider}",
-        "--set",
-        f"model={model}",
-    ]
-    if effective_tier is not None:
-        args.extend(["--tier", str(effective_tier)])
-    if channel_finder_mode is not None:
-        args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
-    result = subprocess.run(args, capture_output=True, text=True)
-    assert result.returncode == 0, (
-        f"osprey build failed (exit {result.returncode}):\n"
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-    project_dir = tmp_path / name
-    assert project_dir.exists(), f"Project directory not created: {project_dir}"
-    return project_dir
-
-
 # ---------------------------------------------------------------------------
-# Project preparation for benchmarks
+# Reading a built project's rendered agent surface
 # ---------------------------------------------------------------------------
 
 

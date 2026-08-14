@@ -10,7 +10,7 @@ one dict in that process is the whole store — there is no shared cache to keep
 coherent. Two consequences the deployment docs state plainly:
 
 * Anything that recreates the container clears the list. A force-recreate on
-  ``osprey deploy passwd``, a decommission re-render, or a podman image-drift
+  ``osprey users passwd``, a decommission re-render, or a podman image-drift
   reconcile all drop it. A cookie captured before a logout would work again after
   such a restart, bounded by ``auth.session_lifetime``.
 * Password rotation does **not** rely on this store. Invalidation there rests on

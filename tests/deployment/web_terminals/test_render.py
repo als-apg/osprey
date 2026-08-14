@@ -10,6 +10,7 @@ import pytest
 import yaml
 from jinja2 import Template
 
+from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.deployment.web_terminals.ports import (
@@ -40,6 +41,7 @@ from osprey.services.auth_sidecar.app import (
     ENV_TLS_ENABLED,
     ENV_USERS,
 )
+from osprey.utils.workspace import agent_data_base_dir
 
 # The four classic config-set families; the effective per-family base set the
 # render actually allocates from also carries every registry default
@@ -288,8 +290,8 @@ def test_nginx_fragment_has_websocket_upgrade_machinery() -> None:
 
 
 def test_nginx_fragment_proxy_disables_buffering_and_raises_read_timeout_for_sse() -> None:
-    """Now that every request under `/u/<user>/` genuinely flows through nginx
-    (unlike Phase-1's redirect, which never put nginx in the data path), nginx's
+    """Every request under `/u/<user>/` flows through nginx as a proxy, not a
+    redirect, so nginx is genuinely in the data path and its
     DEFAULT proxy buffering and 60s read timeout would apply to the app's
     heartbeat-less Server-Sent-Events streams (`/api/files/events`, chat SSE) too
     — batching/delaying `data:` lines behind nginx's buffer and tearing down an
@@ -548,9 +550,9 @@ def test_landing_url_is_the_external_origin_verbatim_under_tls() -> None:
 
 
 def test_landing_url_baked_into_containers_follows_tls_into_https() -> None:
-    """Regression: OSPREY_TERMINAL_LANDING_URL used to be hardcoded to
-    `http://<fqdn>:<nginx_port>` regardless of TLS, so a TLS deployment shipped every
-    container a "back to landing" link on the plain origin — which under the TLS
+    """Regression: hardcoding OSPREY_TERMINAL_LANDING_URL to
+    `http://<fqdn>:<nginx_port>` regardless of TLS ships every container in a TLS
+    deployment a "back to landing" link on the plain origin — which under the TLS
     posture only ever redirects, and would never carry a Secure session cookie."""
     # Arrange
     config = _tls_config()
@@ -1074,7 +1076,7 @@ def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_an
             catalog_svc["image"]
             == "git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest"
         )
-        assert f"{user}-agent-data:/app/dls-assistant/_agent_data" in catalog_svc["volumes"]
+        assert f"{user}-agent-data:/app/dls-assistant/var/agent_data" in catalog_svc["volumes"]
 
 
 def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
@@ -1110,14 +1112,14 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
-        "bob-agent-data:/app/dls-gui/_agent_data",
+        "bob-agent-data:/app/dls-gui/var/agent_data",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
     # alice (default persona, no extra_mounts) keeps exactly the two default mounts
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
-        "alice-agent-data:/app/dls-assistant/_agent_data",
+        "alice-agent-data:/app/dls-assistant/var/agent_data",
     ]
 
 
@@ -1135,8 +1137,117 @@ def test_no_extra_mounts_leaves_only_the_two_default_volume_lines() -> None:
     for user in config["modules"]["web_terminals"]["users"]:
         assert compose["services"][f"web-{user}"]["volumes"] == [
             f"{user}-claude-config:/data/claude-config",
-            f"{user}-agent-data:/app/dls-assistant/_agent_data",
+            f"{user}-agent-data:/app/dls-assistant/var/agent_data",
         ]
+
+
+def test_agent_data_volume_mounts_where_the_container_resolves_its_agent_data_root() -> None:
+    """The mount target is read from `agent_data.base_dir`, not spelled as a literal.
+
+    The container resolves its own agent-data root from that key (see
+    ``workspace.resolve_agent_data_root``, anchored on the config's
+    ``project_root`` — in-container, ``container_project_dir``). If the mount
+    names a different path, the volume is mounted over an empty directory while
+    memory, sessions and artifacts are written into the container's writable
+    layer, and every user's data is discarded the next time the container is
+    recreated. Nothing fails at mount time and nothing appears in any log, so
+    this coupling is asserted against the shared reader's own answer rather
+    than against a path repeated here.
+    """
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    expected = f"/app/dls-assistant/{agent_data_base_dir(config)}"
+    for user in config["modules"]["web_terminals"]["users"]:
+        assert f"{user}-agent-data:{expected}" in compose["services"][f"web-{user}"]["volumes"]
+
+
+def test_a_relocated_agent_data_base_dir_moves_the_volume_mount_with_it() -> None:
+    """Relocating `agent_data.base_dir` moves the mount, because the agent moves too.
+
+    The failure this guards is silent in exactly one direction: a project that
+    relocates its agent-data root keeps rendering a mount at the OLD path, so
+    the volume survives while holding nothing and the live data has no volume
+    behind it.
+    """
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["agent_data"] = {"base_dir": "state/agent"}
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    for user in config["modules"]["web_terminals"]["users"]:
+        volumes = compose["services"][f"web-{user}"]["volumes"]
+        assert f"{user}-agent-data:/app/dls-assistant/state/agent" in volumes
+        assert not any("var/agent_data" in mount for mount in volumes)
+
+
+def test_an_absolute_agent_data_base_dir_is_not_re_anchored_under_the_project_dir() -> None:
+    """An absolute `base_dir` names the same absolute path on both sides.
+
+    ``anchored_path`` returns an absolute configured path unchanged, so the
+    container writes to it verbatim; concatenating it after the project
+    directory would mount the volume at a path nothing writes to.
+    """
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["agent_data"] = {"base_dir": "/srv/osprey-agent-data"}
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    for user in config["modules"]["web_terminals"]["users"]:
+        volumes = compose["services"][f"web-{user}"]["volumes"]
+        assert f"{user}-agent-data:/srv/osprey-agent-data" in volumes
+        assert not any("/app/dls-assistant/srv" in mount for mount in volumes)
+
+
+def test_nginx_mounts_resolve_into_the_repos_build_zone(tmp_path) -> None:
+    """nginx's two mounts address the render output, under the pinned project directory.
+
+    Every relative path in the rendered compose file resolves against the
+    compose PROJECT DIRECTORY — the repo root (``compose_base_cmd`` pins
+    ``--project-directory <repo>``) — and never against the file's own location,
+    which is ``build/``. The nginx config and landing page are render output, so
+    their mounts have to carry the ``build/`` prefix themselves; a bare
+    ``./nginx/...`` would resolve to ``<repo>/nginx/``, where nothing is ever
+    written, and compose would create empty directories there and serve nginx a
+    directory in place of its config.
+
+    Asserted against the path the writer actually produces rather than a repeated
+    literal, so the mount and the render cannot drift apart.
+    """
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    sources = [mount.split(":")[0] for mount in compose["services"]["nginx"]["volumes"]]
+    resolved = [(tmp_path / source).resolve() for source in sources[:2]]
+    assert resolved == [
+        web_artifacts_dir(tmp_path) / "nginx" / "nginx.conf",
+        web_artifacts_dir(tmp_path) / "nginx" / "landing.html",
+    ]
+    # The same two relative paths are the keys the render emits, so what compose
+    # resolves is exactly what write_web_terminal_artifacts writes into build/.
+    assert [source.removeprefix("./build/") for source in sources[:2]] == [
+        "nginx/nginx.conf",
+        "nginx/landing.html",
+    ]
+    assert {"nginx/nginx.conf", "nginx/landing.html"} <= set(artifacts)
 
 
 def test_auth_default_none() -> None:
@@ -1446,7 +1557,7 @@ def test_render_succeeds_with_auth_default_none_and_tls_default_off() -> None:
     # Act
     artifacts = render_web_terminals(config)
 
-    # Assert — round-trips exactly as before (defaults are inert; no seam rendering here)
+    # Assert — round-trips unchanged (defaults are inert; no seam rendering here)
     assert set(artifacts.keys()) == {
         "docker-compose.web.yml",
         "nginx/nginx.conf",
@@ -2769,14 +2880,19 @@ def test_auth_sidecar_digest_label_is_the_only_thing_a_digest_change_touches() -
 def test_auth_sidecar_digest_label_is_omitted_when_no_digest_is_supplied() -> None:
     """`render_web_terminals` without a digest (the `osprey scaffold
     web-terminals render` path, which has no project root to digest) emits no
-    label at all — the deploy path re-renders with a current digest on every
-    `osprey deploy up`, so a label-less scaffold render can never reach a
-    running stack with a stale digest."""
+    DIGEST label — the deploy path re-renders with a current digest on every
+    `osprey up`, so a digest-less scaffold render can never reach a running
+    stack with a stale one.
+
+    The sidecar does still carry a `labels:` block: the repo-identity label is
+    unconditional (it says which checkout the container belongs to, which is
+    true whether or not a digest was supplied). So the assertion is about the
+    digest key's absence, not about the block's."""
     # Act
     auth = _compose(_auth_config())["services"]["auth"]
 
     # Assert
-    assert "labels" not in auth
+    assert AUTH_ENV_DIGEST_LABEL not in (auth.get("labels") or {})
 
 
 def test_method_none_render_is_byte_identical_with_and_without_a_digest() -> None:

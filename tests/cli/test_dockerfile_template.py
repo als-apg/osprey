@@ -6,8 +6,8 @@
 - content invariants (base image, port, project path, the 3-ARG site
   extension contract),
 - the security-critical .dockerignore entries (secrets never enter the image),
-- that `osprey claude regen` never touches the Dockerfile (it is rendered
-  once and then owned by the user), and
+- that a Claude Code regeneration never touches the Dockerfile (it is
+  rendered by `osprey build` and owned by the user in between), and
 - the anti-drift guard: every `osprey <cmd>` invocation inside the rendered
   Dockerfile must resolve against the real click command tree, so renaming
   or removing a CLI command/flag fails these tests instead of silently
@@ -17,6 +17,7 @@
 import fnmatch
 import json
 import os
+import pathlib
 import re
 import shlex
 import subprocess
@@ -37,47 +38,39 @@ EXPECTED_ARGS = {
 }
 
 
-@pytest.fixture(scope="module")
-def hello_project(tmp_path_factory):
-    """Build a hello-world preset project once for content checks."""
-    out = tmp_path_factory.mktemp("dockerfile-tpl")
+def _render(repo: pathlib.Path, preset: str, *set_pairs: str) -> pathlib.Path:
+    """Materialize a deployment repo from *preset* and render its build/ zone.
+
+    Returns the render — ``<repo>/build`` — because that is where the Dockerfile
+    lands: it is derived output like everything else the build produces.
+    """
+    args = ["init", str(repo), "--preset", preset, "--no-git"]
+    for pair in set_pairs:
+        args += ["--set", pair]
+    result = CliRunner().invoke(cli, args)
+    assert result.exit_code == 0, result.output
+
     result = CliRunner().invoke(
-        cli,
-        [
-            "build",
-            "hello-docker",
-            "--preset",
-            "hello-world",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "-o",
-            str(out),
-        ],
+        cli, ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
     )
     assert result.exit_code == 0, result.output
-    return out / "hello-docker"
+    return repo / "build"
+
+
+@pytest.fixture(scope="module")
+def hello_project(tmp_path_factory):
+    """Render a hello-world deployment once, for the content checks."""
+    return _render(tmp_path_factory.mktemp("dockerfile-tpl") / "hello-docker", "hello-world")
 
 
 @pytest.fixture(scope="module")
 def deps_project(tmp_path_factory):
-    """Build a project from a profile with pip dependencies."""
-    out = tmp_path_factory.mktemp("dockerfile-deps")
-    profile = out / "profile.yml"
-    profile.write_text("extends: hello-world\ndependencies:\n  - numpy\n  - pydantic>=2\n")
-    result = CliRunner().invoke(
-        cli,
-        [
-            "build",
-            "deps-docker",
-            str(profile),
-            "--skip-deps",
-            "--skip-lifecycle",
-            "-o",
-            str(out),
-        ],
+    """The same, for a deployment whose profile declares pip dependencies."""
+    return _render(
+        tmp_path_factory.mktemp("dockerfile-deps") / "deps-docker",
+        "hello-world",
+        "dependencies=[numpy, pydantic>=2]",
     )
-    assert result.exit_code == 0, result.output
-    return out / "deps-docker"
 
 
 class TestDockerfileContent:
@@ -368,14 +361,27 @@ class TestDockerignore:
 
     def test_secrets_and_host_state_excluded(self, hello_project):
         entries = self._entries(hello_project)
-        # secrets, host state, and the regenerated build/ tree (its fresh deploy
-        # stamps must not bust the image cache) are all excluded. The env
-        # exclusion is a glob: `.env` alone let the deploy-generated
-        # `.env.production` into the image.
-        for required in (".env*", ".venv", ".git", "_agent_data/", "build/"):
+        # Secrets and host state are excluded. The env exclusion is a glob:
+        # `.env` alone let the deploy-generated `.env.production` into the
+        # image. `var/` is the STATE zone the container mounts its own volume
+        # over, so the host's copy is dead weight in the image.
+        for required in (".env*", ".venv", ".git", "var/"):
             assert required in entries, f"{required} missing from .dockerignore"
         # .env.example is safe and useful inside the image — must be re-included
         assert "!.env.example" in entries
+
+    def test_the_render_itself_is_not_excluded(self, hello_project):
+        """``build/`` must NOT be ignored — it is the deployment being shipped.
+
+        The render IS the deployment, and the project image's context is a
+        deployment repo, so an image built with ``build/`` ignored would carry
+        no config.yml, no .mcp.json and no Claude Code artifacts — and would
+        fail only at runtime, as an agent with nothing configured.
+
+        Asserted as an absence, which is the shape of the mistake: this is the
+        one entry whose presence is the bug.
+        """
+        assert "build/" not in self._entries(hello_project)
 
     def test_auth_and_production_env_are_excluded(self, hello_project):
         """Named regression guard for the two files that carry live credentials.
@@ -433,7 +439,7 @@ class TestDockerignore:
 
 
 class TestRegenOwnership:
-    """The Dockerfile is rendered once by build; regen never touches it."""
+    """The Dockerfile is build output; a Claude Code regeneration never touches it."""
 
     def test_regen_never_touches_dockerfile(self, hello_project):
         from osprey.cli.templates.manager import TemplateManager
@@ -523,19 +529,22 @@ class TestCliCrossCheck:
     def test_all_osprey_invocations_resolve(self, hello_project):
         text = (hello_project / "Dockerfile").read_text()
         invocations = _extract_osprey_invocations(text)
-        # Sanity: the template contains at least regen, vendor fetch, and web
-        assert len(invocations) >= 3, f"expected >=3 osprey calls, got: {invocations}"
+        # Sanity: the template still calls osprey at all. Two today — the
+        # offline `vendor fetch` and the `web` entrypoint — and the floor is
+        # what keeps a template that stopped calling osprey from passing this
+        # by having nothing to check.
+        assert len(invocations) >= 2, f"expected >=2 osprey calls, got: {invocations}"
         for args in invocations:
             _assert_resolves_in_cli(args)
 
     def test_guard_catches_unknown_flag(self):
         """The guard itself must fail on a bogus flag (meta-test)."""
         with pytest.raises(AssertionError, match="unknown flag"):
-            _assert_resolves_in_cli(["claude", "regen", "--no-such-flag"])
+            _assert_resolves_in_cli(["vendor", "fetch", "--no-such-flag"])
 
     def test_guard_catches_unknown_command(self):
         with pytest.raises(AssertionError, match="unknown command"):
-            _assert_resolves_in_cli(["claude", "regenerate-everything"])
+            _assert_resolves_in_cli(["vendor", "fetch-everything"])
 
 
 if __name__ == "__main__":

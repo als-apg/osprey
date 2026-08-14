@@ -15,119 +15,101 @@ and safe to delete and rebuild at any time.
    :color: primary
    :icon: book
 
-   - Creating a profile directory and building projects from it
+   - Creating a deployment repository and rendering its ``build/`` zone
    - What lives in a profile: the convention directories, ``data/``, secrets, personas
-   - Moving an artifact you want to own out of the project and into the profile
+   - Moving an artifact you want to own out of ``build/`` and into the profile
    - Shipping and wiring your own hook scripts
-   - Keeping a profile and its project in step
+   - Keeping a profile and its build in step
 
    **Prerequisites:** A working OSPREY installation (``uv sync``).
 
    **Time:** 15--30 minutes for a basic profile.
 
 
-Preset → Profile → Project
-==========================
+Preset → Profile → Build
+========================
 
 .. mermaid::
 
    flowchart LR
-      P["Preset<br/>(bundled with OSPREY)"] -- materialize --> F["Profile directory<br/>(yours)"]
-      F -- osprey build --> J["Project<br/>(derived)"]
-      J -- osprey deploy --> R["Running containers"]
+      P["Preset<br/>(bundled with OSPREY)"] -- osprey init --> F["profile.yml<br/>(yours)"]
+      F -- osprey build --> J["build/<br/>(derived)"]
+      J -- osprey up --> R["Running containers"]
 
 - **Preset** — a bundled starting point, shipped inside OSPREY
   (``src/osprey/profiles/presets/``). Examples: ``hello-world``,
   ``control-assistant``, ``ariel-standalone``, ``channel-finder-standalone``.
   Run ``osprey profile presets`` to list them.
-- **Profile** — your facility's directory. Created once from a preset, then
-  edited and kept in version control. Everything the preset configured is
-  written out here explicitly: nothing is inherited at build time.
-- **Project** — the output of ``osprey build``. Never edit it in place; the next
-  build overwrites what you changed.
+- **Profile** — the ``profile.yml`` at the root of your deployment repository,
+  with the material it names beside it. Created once from a preset, then edited
+  and kept in version control. Everything the preset configured is written out
+  here explicitly: nothing is inherited at build time.
+- **Build** — the ``build/`` zone ``osprey build`` renders. Never edit it in
+  place; the next build wipes and re-renders the whole thing.
 
 Because nothing is inherited, a later OSPREY release that improves a preset does
-**not** change your profile. To see what moved, materialize a fresh profile into
-a scratch directory and diff it:
+**not** change your profile. To see what moved, create a fresh deployment in a
+scratch directory and diff it:
 
 .. code-block:: bash
 
-   osprey profile new /tmp/fresh --preset control-assistant
-   diff -u /tmp/fresh/profile/profile.yml my-facility/profile/profile.yml
+   osprey init /tmp/fresh --preset control-assistant
+   diff -u /tmp/fresh/profile.yml my-facility/profile.yml
 
 
-Creating a profile
-==================
+Creating a deployment
+=====================
 
-Two commands get you a profile. They differ in what surrounds it.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 45 55
-
-   * - Command
-     - What it does
-   * - ``osprey profile new my-facility --preset X``
-     - Writes a **facility repository** and stops: a git repository whose
-       ``profile/`` directory holds the profile, with an empty ``build/`` for
-       rendered projects beside it. Use it when you want to look at and edit
-       the profile before building anything.
-   * - ``osprey build my-project --preset X``
-     - Writes a bare ``my-project-profile/`` directory beside the project on
-       the *first* run, then builds from it. Every later run reuses that
-       directory as it stands.
-
-Either way the profile itself is the same. After it exists, the everyday
-command names it directly:
+One command creates a deployment repository from a preset:
 
 .. code-block:: bash
 
-   osprey build my-project my-profile/profile.yml
+   osprey init my-facility --preset control-assistant
 
-A profile nested in a facility repository is the one case where the build
-chooses the output directory for you: it renders into that repository's
-``build/<PROJECT_NAME>/``, from whichever directory you run the command.
+That writes the repository and stops. Look at the profile, edit it, then render
+and start it from inside:
 
-.. admonition:: Every build reads a profile
+.. code-block:: bash
+
+   cd my-facility
+   osprey validate
+   osprey build
+   osprey up -d
+
+.. admonition:: Every build reads the repository's own profile
    :class: important
 
-   There is no build that renders a project straight out of a bundled preset.
-   ``--preset`` on a project that already has a profile directory reuses that
-   directory verbatim — the preset is not re-applied. Naming a *different*
-   preset for an existing profile is refused: the profile would be built either
-   way, and the label would lie about what was built.
+   There is no build that renders straight out of a bundled preset. The preset
+   is applied once, at ``osprey init``, and written out in full — after that,
+   ``profile.yml`` is the only input. A later OSPREY release that changes the
+   preset does not reach an existing deployment.
 
-   A preset that has changed since your profile was made is reported as a
-   warning, never re-applied.
-
-What ``osprey profile new`` writes
-----------------------------------
+What ``osprey init`` writes
+---------------------------
 
 .. code-block:: text
 
    my-facility/
-     profile/
-       profile.yml     the full configuration — edit freely
-       data/           facility content: channel databases, knowledge, lattice
-       .env.example    every variable the agent reads, documented, no values
-       .env            your values (only when your shell had keys to seed)
-       .gitignore      keeps .env out of version control
-       README.md       explains the layout, for whoever opens the directory next
-       triggers.yml    the events the agent runs on (dispatch profiles only)
-       personas/       one delta per web-terminal persona (persona presets only)
-       web-terminal-context/  one seeded directory per operator on the roster
-     build/            empty; where `osprey build` renders projects
-     ci-extra.yml      the facility's own CI jobs; never regenerated
-     .gitignore        keeps build/ and the profile's secrets out of git
+     profile.yml     the full configuration — edit freely
+     data/           facility content: channel databases, knowledge, lattice
+     .env.example    every variable the agent reads, documented, no values
+     .env            your values (only when your shell had keys to seed)
+     README.md       explains the layout, for whoever opens the repository next
+     triggers.yml    the events the agent runs on (dispatch profiles only)
+     personas/       one delta per web-terminal persona (persona presets only)
+     web-terminal-context/  one seeded directory per operator on the roster
+     ci-extra.yml    the facility's own CI jobs; never regenerated
+     .gitignore      keeps build/, var/ and .env out of version control
+     build/          rendered by `osprey build`; disposable
+     var/            agent memory and audit log; durable
 
-The last three files under ``profile/`` appear only when the preset calls for
-them — a ``hello-world`` profile has none of them.
+``triggers.yml``, ``personas/`` and ``web-terminal-context/`` appear only when
+the preset calls for them — a ``hello-world`` deployment has none of them.
 
-``git init`` runs at the repository root, and nothing is committed. There is no
-CI pipeline yet: the profile ships its ``deploy:`` block commented out, so
-there are no coordinates to render one from. Fill the block in and
-``osprey deploy scaffold`` writes the pipeline — see
-:doc:`deploy-a-facility`.
+``git init`` and an initial commit run at the end. There is no CI pipeline yet:
+the profile ships its ``deploy:`` block commented out, so there are no
+coordinates to render one from. Fill the block in and ``osprey scaffold ci``
+writes the pipeline — see :doc:`deploy-a-facility`.
 
 Directories for your own artifacts (``rules/``, ``skills/``, and the rest) are
 **not** created up front. Create the ones you need; a directory you never create
@@ -248,17 +230,17 @@ To customize something OSPREY generates — a rule, an agent, a service template
 
 .. code-block:: bash
 
-   cd my-project
+   cd my-facility
    osprey scaffold claim rules/safety
    osprey scaffold claim agents/channel-finder
    osprey scaffold claim services/postgresql
 
-The artifact is **moved** into the matching convention slot of the profile the
-project was built from. Edit it there, then rebuild:
+The artifact is **moved** out of ``build/`` and into the matching convention
+slot of the repository's profile. Edit it there, then rebuild:
 
 .. code-block:: bash
 
-   osprey build my-project my-profile/profile.yml --force
+   osprey build
 
 The next build copies it back and registers it as yours. There is no YAML to
 edit — ownership is derived from what the build copied, not declared.
@@ -297,7 +279,7 @@ session start. Ship yours through ``hooks/``:
 
 .. code-block:: text
 
-   my-profile/
+   my-facility/
      hooks/
        facility_guard.py
 
@@ -386,12 +368,12 @@ Personas
 
 Some presets give each operator their own web terminal, and each terminal runs
 with a persona — a capability posture, such as read-only versus write-capable.
-For those presets (``control-assistant``), ``osprey profile new`` writes one
+For those presets (``control-assistant``), ``osprey init`` writes one
 file per persona:
 
 .. code-block:: text
 
-   my-profile/
+   my-facility/
      profile.yml
      data/
      personas/
@@ -410,11 +392,11 @@ result with:
 
 .. code-block:: bash
 
-   osprey profile validate my-profile/personas/readonly.yml
+   osprey validate personas/readonly.yml
 
 ``profile.yml`` points at these files by path — its web-terminal catalog carries
 ``build_profile: personas/<name>.yml`` for each one — so keep the names in step
-if you rename one. That is also what ``osprey deploy up`` reads: it renders any
+if you rename one. That is also what ``osprey up`` reads: it renders any
 persona project that does not exist yet from the named delta. A bundled preset
 name in that field is rejected, because a persona built from a preset of its own
 would not share this profile's data tree, secrets or artifacts.
@@ -485,67 +467,70 @@ facility's own scan plans; see :doc:`bluesky/write-plans`.
 Secrets
 =======
 
-API keys and service credentials belong to the profile directory, not to the
-projects built from it. ``osprey build`` derives a project's ``.env`` from the
-profile's ``.env``, so a value you set once survives every rebuild — and a
-project you delete takes no secret with it.
+API keys and service credentials live in one file: the ``.env`` at the root of
+the deployment repository. That file is the deployment's single secret store.
+A build never copies secrets into it or out of it, so a value you set once
+survives every rebuild, and wiping ``build/`` takes no secret with it.
 
 Two files, and the difference matters:
 
 - ``.env.example`` lists every variable the agent reads, with no values. It is
   safe to commit, and it is the file to read when you want to know what can be
-  set. The project gets a copy of this same file, so the two can never document
-  different variables.
+  set.
 - ``.env`` holds the values. The generated ``.gitignore`` keeps it out of git.
 
 Seeding, once
 -------------
 
-Materializing a profile — ``osprey profile new``, or the first ``--preset``
-build, which materializes one — seeds the new profile's ``.env`` from your
-shell, and only the keys of providers this profile actually references. Keys
-you exported for other providers are named in the summary rather than copied
-in, so you can tell "seen and not needed" from "lost". If your shell exported
-nothing usable, no ``.env`` is written at all (an empty secrets file reads as a
-configured one); start it yourself:
+``osprey init`` seeds the new repository's ``.env`` from your shell, and only
+the keys of providers this profile actually references. Keys you exported for
+other providers are named in the summary rather than copied in, so you can tell
+"seen and not needed" from "lost". If your shell exported nothing usable, no
+``.env`` is written at all (an empty secrets file reads as a configured one);
+start it yourself:
 
 .. code-block:: bash
 
-   cp my-profile/.env.example my-profile/.env
+   cp .env.example .env
 
-.. admonition:: This is the only moment a shell export reaches a profile
+.. admonition:: This is the only moment a shell export reaches the repository
    :class: important
 
-   It happens **once**, at materialization, and what it took is written into
-   the profile's ``.env`` under a "Seeded by ``osprey profile new`` from your
-   shell" heading — so the file itself records where each value came from.
-   Nothing else in the pipeline reads your environment for secrets:
-   ``osprey build`` derives the project's ``.env`` from the profile and from
-   nothing else, and a later build never re-reads your shell. A key that
-   reaches a built project was recorded in the profile first, where you can
-   audit it.
+   It happens **once**, at ``osprey init``, and what it took is written under a
+   "Seeded by ``osprey init`` from your shell" heading — so the file itself
+   records where each value came from. Nothing else in the pipeline reads your
+   environment for secrets, and a later build never re-reads your shell.
 
-   The practical consequence: exporting a key *after* the profile exists does
-   not get it in. Put it in the profile's ``.env`` and rebuild.
+   The practical consequence: exporting a key *after* the repository exists does
+   not get it in. Put it in ``.env`` yourself.
 
-Service credentials
--------------------
+Who else writes to ``.env``
+---------------------------
 
-``osprey deploy up`` mints the credentials that only a deploy can produce —
-database passwords, service tokens — and writes them back into the profile
-``.env`` under a "Minted by deploy" heading. The project's ``.env`` is then
-re-derived from the profile, so a rebuild comes up on the *same* secrets instead
-of minting a second set the running containers do not trust.
+Two writers append to the file, and both follow the same rule: **a value
+already on file always wins.** Nothing overwrites what you put there.
+
+- ``osprey up`` mints the credentials only a deploy can produce — database
+  passwords, service tokens — and appends them under a "Minted by deploy"
+  heading. Because a minted value is then on file, a later start comes up on the
+  *same* secrets instead of minting a second set the running containers do not
+  trust.
+- ``osprey build`` appends the pointers it derives from what it just rendered —
+  currently the virtual accelerator's channel manifest — under a "Derived by
+  build" heading.
+
+Both write to this one file. There is no second ``.env`` anywhere: ``build/``
+holds no secrets, and every service reads them from here.
 
 The write-back is **append-only**. A key already in the profile keeps its value —
 it is pinned by the docker volume that was initialized with it — and a value that
 disagrees is reported by name (never by value) for you to resolve by hand.
 
-If the profile cannot be reached — it has moved, or the project was built before
-this mechanism existed — the deploy still works. The secrets stay in the project
-``.env``, a warning names the path that failed, and the project records that its
-``.env`` is the only copy. A later ``osprey build --force`` repeats that warning
-before touching the directory.
+If the profile cannot be reached — it has moved or been deleted, or the project
+names none — the deploy still works. The secrets stay in the project ``.env``, a
+warning names the path that failed, and the project records that its ``.env`` is
+the only copy. A later ``osprey build`` repeats that warning before touching the
+directory.
 
 
 Profile YAML reference
@@ -624,7 +609,7 @@ Profile YAML reference
    * - ``services``
      - mapping
      - ``{}``
-     - Container services for ``osprey deploy`` (see :ref:`profile-services`).
+     - Container services the deployment runs (see :ref:`profile-services`).
    * - ``va_archiver``
      - mapping
      - absent
@@ -715,7 +700,7 @@ MCP server injection
 Custom MCP servers are recorded in the project's ``config.yml`` (under
 ``claude_code.servers``) and rendered from there into ``.mcp.json`` (server
 configuration) and ``.claude/settings.json`` (tool permissions) — so a later
-``osprey claude regen`` re-renders them instead of losing them.
+``osprey build`` re-renders them instead of losing them.
 
 .. code-block:: yaml
 
@@ -763,7 +748,7 @@ command finds it:
 
 .. code-block:: text
 
-   my-profile/
+   my-facility/
      mcp_servers/
        phoebus/
          __init__.py
@@ -833,8 +818,8 @@ are overridable per facility from ``config:``, using dotted keys:
 Services
 ========
 
-The ``services`` section defines facility containers that ``osprey deploy``
-manages alongside OSPREY's built-in ones.
+The ``services`` section defines facility containers the deployment runs
+alongside OSPREY's built-in ones.
 
 .. code-block:: yaml
 
@@ -860,7 +845,7 @@ The ``va_archiver`` block
 
 A deployment that serves simulated channels still needs somewhere to keep what
 those channels did. Declaring ``va_archiver:`` is what gives it one: the build
-adds a MongoDB store and a recorder to the service stack, ``osprey deploy up``
+adds a MongoDB store and a recorder to the service stack, ``osprey up``
 seeds the store with history and then records the running machine into it, and
 the ``mongodb_archiver`` connector reads it back.
 
@@ -1136,14 +1121,12 @@ survives a rebuild. The sequence is meant to run to completion:
 .. code-block:: bash
 
    osprey channel-finder build-database
-   # the project now reports its build as stale
-   osprey build my-project my-profile/profile.yml --force
-   # the advisory clears
+   # the deployment now reports its build as out of date
+   osprey build
+   # the report clears
 
-The staleness advisory in between is the reminder that the new database has not
-been deployed yet — not a problem to fix. Use ``--output`` to write somewhere
-else; a project that resolves no profile falls back to its own ``data/`` tree
-and warns that the next build will overwrite it.
+The drift report in between is the reminder that the new database has not been
+deployed yet — not a problem to fix. Use ``--output`` to write somewhere else.
 
 
 Building
@@ -1151,36 +1134,16 @@ Building
 
 .. code-block:: text
 
-   osprey build PROJECT_NAME [PROFILE] [OPTIONS]
+   osprey build [OPTIONS]
 
-**Arguments**
-
-- ``PROJECT_NAME`` — name of the project directory to create
-- ``PROFILE`` — path to a profile YAML. Mutually exclusive with ``--preset``;
-  exactly one of the two is required.
+Run it with no arguments, anywhere inside the deployment repository. It walks up
+to ``profile.yml`` and renders the whole ``build/`` zone from it.
 
 **Options**
 
 .. list-table::
    :widths: 30 70
 
-   * - ``--preset NAME``
-     - Materialize ``<PROJECT_NAME>-profile/`` from a bundled preset and build
-       from it. Reused as-is if it already exists.
-   * - ``-O, --override FILE``
-     - Layer a YAML file on top of the profile (repeatable, applied in order).
-   * - ``--set KEY.PATH=VALUE``
-     - Inline override. The right-hand side is parsed as YAML, so
-       ``--set tier=3`` lands an int and ``--set hooks=[memory-guard]`` a list.
-   * - ``--tier {1,3}``
-     - Channel-database tier. Overrides the default derived from the channel
-       finder mode (``in_context`` → tier 1, otherwise tier 3).
-   * - ``--list-presets``
-     - List bundled preset names and exit.
-   * - ``-o, --output-dir DIR``
-     - Output directory (default: current directory).
-   * - ``-f, --force``
-     - Re-render an existing project directory in place.
    * - ``-s, --stream``
      - Stream lifecycle step output in real time.
    * - ``--skip-lifecycle``
@@ -1188,51 +1151,50 @@ Building
    * - ``--skip-deps``
      - Skip venv creation and dependency installation (CI mode).
    * - ``--runtime-root PATH``
-     - Override ``project_root`` in the rendered config, for container builds.
+     - Override ``project_root`` in the rendered config, for a build whose
+       output runs somewhere other than where it was made.
+   * - ``--repo DIRECTORY``
+     - Deployment repository to act on (default: the nearest ``profile.yml``
+       at or above the working directory).
 
-.. admonition:: ``--set``, ``-O`` and ``--tier`` edit the profile
+.. admonition:: Settings are changed before the build, not during it
    :class: important
 
-   They are not build-time layers that vanish afterwards. On a build from an
-   existing profile they are **written into that profile** before it is read,
-   replacing the value at each dotted key — because the profile has to keep
-   describing the project. On the first ``--preset`` build they are baked into
-   the profile being materialized.
+   ``osprey build`` takes no configuration overrides. Change a setting with
+   ``osprey set``, which writes it into ``profile.yml`` — comments and
+   formatting intact — and then build. The profile always describes what the
+   build will produce, so there is no layer that vanishes afterwards.
 
-   Comments and formatting are preserved, and a build that then fails puts the
-   file back exactly as it was, so a typo never leaves a stuck profile behind.
-
-``--force`` re-renders everything framework-owned and preserves what you own:
-``.env``, ``_agent_data/``, and the project's ``.git``. It never touches the
-profile — only ``osprey profile new --force`` replaces one of those.
+Every build wipes and re-renders ``build/`` and preserves what you own: ``.env``,
+``var/``, and the repository's ``.git``. It never touches the source zone —
+only ``osprey init --force`` replaces that.
 
 **Examples**
 
 .. code-block:: bash
 
    # See what presets ship
-   osprey build --list-presets
+   osprey init --list-presets
 
-   # First build: materializes my-assistant-profile/ and builds from it
-   osprey build my-assistant --preset control-assistant
+   # Create the deployment, then render it
+   osprey init my-assistant --preset control-assistant
+   cd my-assistant
+   osprey build
 
-   # Later builds reuse that profile directory
-   osprey build my-assistant --preset control-assistant --force
+   # Change a setting, then carry it through to build/
+   osprey set model=claude-sonnet-4-6
+   osprey build
 
-   # Build from a profile you keep elsewhere
-   osprey build als-test ~/als-profiles/als-dev/profile.yml
-
-   # Write a setting into the profile as part of the build
-   osprey build als-test ~/als-profiles/als-dev/profile.yml \
-       --set model=claude-sonnet-4-6
+   # Render another repository's build/ without cd-ing to it
+   osprey build --repo ~/deployments/als-test
 
 Checking a profile without building
 -----------------------------------
 
 .. code-block:: bash
 
-   osprey profile validate my-profile/
-   osprey profile validate my-profile/personas/readonly.yml
+   osprey validate
+   osprey validate personas/readonly.yml
 
 Resolves the profile and runs the full consistency check — convention
 directories, the data tree, service templates, lifecycle steps, environment
@@ -1316,7 +1278,7 @@ one exists.
 error: a directory in the profile that nothing copies. Usually a typo of a
 convention directory name.
 
-**"Unknown profile key(s): 'overlay'"** — profiles no longer have an overlay
+**"Unknown profile key(s): 'overlay'"** — a profile has no ``overlay``
 section. Move the files into the convention directory that matches what they
 are (see the table above), or into ``project/`` for anything without one.
 

@@ -1,6 +1,6 @@
 """Tests for ``append_profile_env`` — the atomic, append-only profile ``.env`` write.
 
-``deploy up`` persists the secrets it minted back into the profile that owns
+``osprey up`` persists the secrets it minted back into the profile that owns
 them. Two properties carry the safety here:
 
 * **Append-only.** A key already on file keeps its value — it is pinned by the
@@ -151,8 +151,8 @@ class TestSectionBanner:
 
     def test_custom_banner_used(self, tmp_path):
         env_path = tmp_path / ".env"
-        append_profile_env(env_path, {"TOKEN": "t"}, "# ── Seeded by profile new ──")
-        assert env_path.read_text(encoding="utf-8").startswith("# ── Seeded by profile new ──\n")
+        append_profile_env(env_path, {"TOKEN": "t"}, "# ── Seeded by osprey init ──")
+        assert env_path.read_text(encoding="utf-8").startswith("# ── Seeded by osprey init ──\n")
 
     def test_no_banner_when_nothing_added(self, tmp_path):
         env_path = tmp_path / ".env"

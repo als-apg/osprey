@@ -7,14 +7,15 @@ stanza through the REAL :func:`render_web_terminals` +
 generated artifact: one compose service + one nginx route + one landing card +
 one volume pair per user, all four port families allocated and non-colliding,
 ``OSPREY_TERMINAL_USER=<user>`` per service, and a clean lint (zero findings).
-Also exercises the ``osprey scaffold web-terminals render`` CLI verb via
-subprocess for a true operator-path check.
 
-(A second part — a round-trip against als-profiles' hand-rolled
-``docker-compose.host.yml`` topology — was removed when als-profiles migrated
-to rendering its web stack from the profile: the external reference topology
-this generator was validated against no longer exists, because the generator
-replaced it.)
+Also exercises the ``osprey scaffold web-terminals render`` CLI verb via
+subprocess for a true operator-path check. That verb reads the stanza from a
+deployment repo's BUILT config, so the sample is written where a build would
+have put it.
+
+(There is no second part checking a round-trip against an external hand-rolled
+``docker-compose.host.yml`` topology: als-profiles renders its web stack from
+the profile, so no such external reference topology exists to check against.)
 """
 
 from __future__ import annotations
@@ -42,24 +43,20 @@ pytestmark = pytest.mark.e2e
 _FAMILY_ENV_VARS = {"web": "OSPREY_WEB_PORT", **PANEL_ENV_VARS}
 _PORT_FAMILIES = tuple(_FAMILY_ENV_VARS)
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-
 
 def _env_map(env_list: list) -> dict[str, str]:
     return {item.split("=", 1)[0]: item.split("=", 1)[1] for item in env_list if "=" in item}
 
 
 # ---------------------------------------------------------------------------
-# Part 1: scaffold-render consistency
+# Scaffold-render consistency
 # ---------------------------------------------------------------------------
 
 
 def _sample_config() -> dict:
-    """A facility-config exercising the web_terminals stanza, adapted from the
-    shipped ``templates/facility-config.example.yml`` (same base
-    ports/users/landing-groups shape as that reference file's
-    ``modules.web_terminals`` stanza), plus the deploy/facility/registry
-    sections ``render_web_terminals()`` reads. The roster uses the explicit
+    """A self-contained config exercising the web_terminals stanza: the base
+    ports/users/landing-groups shape of a ``modules.web_terminals`` block, plus
+    the deploy/facility/registry sections ``render_web_terminals()`` reads. The roster uses the explicit
     ``{name, index}`` form — the lint-clean identity form the
     ``bare_list_port_drift_risk`` warning steers legacy bare-string lists
     toward."""
@@ -178,8 +175,8 @@ def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
         assert f">{user}<" in landing_html
         assert f'href="/u/{user}/"' in landing_html
 
-        # Fixed per-service env var (Phase-1 contract, replaces the old
-        # `${prefix|upper}_TERMINAL_USER` convention for every facility).
+        # Fixed per-service env var (Phase-1 contract) — one name for every
+        # facility, not a `${prefix|upper}_TERMINAL_USER` convention.
         assert env["OSPREY_TERMINAL_USER"] == user
 
     assert len(seen_ports) == len(users) * len(_PORT_FAMILIES)
@@ -190,15 +187,27 @@ def test_scaffold_render_cli_verb_matches_library_call(tmp_path: Path) -> None:
     the exact same three artifacts ``render_web_terminals()`` returns in-process
     — proving the CLI verb is a thin, non-drifting wrapper around the generator.
 
-    The verb reads the stanza from a project's own ``config.yml`` via
-    ``--project``, so the sample is written as one."""
+    The verb is repo-scoped and reads the stanza from the repo's BUILT config,
+    so the sample is written to ``<repo>/build/config.yml`` — where a build puts
+    it — and the repo is marked the way every repo-scoped verb finds one, by a
+    ``profile.yml`` at its root. Nothing is built here: the render is a pure
+    function of the stanza, and staging the config directly is what keeps this
+    a test of the wrapper rather than of the build.
+
+    ``project_root`` is stamped into the sample because a real render always
+    carries it, and both sides of this comparison read it: the repo-id label the
+    compose overlay carries is derived from that path, so a sample without it
+    would have the two renders disagree on the label for a reason that has
+    nothing to do with the wrapper.
+    """
     # Arrange
+    repo = tmp_path / "demo-project"
+    build_dir = repo / "build"
+    build_dir.mkdir(parents=True)
     config = _sample_config()
-    project_dir = tmp_path / "demo-project"
-    project_dir.mkdir()
-    (project_dir / "config.yml").write_text(
-        yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
-    )
+    config["project_root"] = str(repo)
+    (build_dir / "config.yml").write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    (repo / "profile.yml").write_text("name: demo-project\n", encoding="utf-8")
     output_dir = tmp_path / "deploy"
 
     # Act
@@ -210,12 +219,12 @@ def test_scaffold_render_cli_verb_matches_library_call(tmp_path: Path) -> None:
             "scaffold",
             "web-terminals",
             "render",
-            "--project",
-            str(project_dir),
+            "--repo",
+            str(repo),
             "--output",
             str(output_dir),
         ],
-        cwd=str(_REPO_ROOT),
+        cwd=str(tmp_path),
         capture_output=True,
         text=True,
         timeout=60,

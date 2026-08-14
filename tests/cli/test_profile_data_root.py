@@ -55,31 +55,29 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
     return path
 
 
-def _build(profile_path: Path, output_dir: Path, project_name: str = "data-proj") -> Path:
-    """Run `osprey build` against ``profile_path`` and return the project dir."""
+def _build(profile_path: Path) -> Path:
+    """Run `osprey build` against the repo holding ``profile_path`` and return its build/.
+
+    ``osprey build`` is zero-argument: it always renders the repo it is run
+    against (``--repo``) into that repo's own ``build/``, so there is no output
+    directory or project name to choose — the repo's directory (``profile_path``'s
+    parent) decides both.
+    """
     from click.testing import CliRunner
 
     from osprey.cli.main import cli
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    repo = profile_path.parent
     result = CliRunner().invoke(
         cli,
-        [
-            "build",
-            project_name,
-            str(profile_path),
-            "--output-dir",
-            str(output_dir),
-            "--skip-deps",
-            "--skip-lifecycle",
-        ],
+        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
     )
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n"
         f"--- output ---\n{result.output}\n"
         f"--- exception ---\n{result.exception}"
     )
-    return output_dir / project_name
+    return repo / "build"
 
 
 class TestProfileDataIsContentNotTemplates:
@@ -92,7 +90,7 @@ class TestProfileDataIsContentNotTemplates:
             b"{{ facility_name }} raw braces\n{% if channel_finder_mode %}kept{% endif %}\n"
         )
 
-        project_dir = _build(profile_path, tmp_path / "out")
+        project_dir = _build(profile_path)
 
         landed = project_dir / "data" / "facility_notes.md.j2"
         assert landed.exists(), "stray .j2 was dropped from the profile data tree"
@@ -118,7 +116,7 @@ class TestFullReplacement:
         shutil.rmtree(profile_dir / "data" / "lattice")
         (profile_dir / "data" / "facility_marker.txt").write_text("profile tree\n")
 
-        project_dir = _build(profile_path, tmp_path / "out")
+        project_dir = _build(profile_path)
 
         assert (project_dir / "data" / "facility_marker.txt").exists(), (
             "profile-only file did not land — the profile tree was not the source"
@@ -193,7 +191,7 @@ class TestBuildPipelineOrderingHolds:
         )
         tier_src.write_text('{"channels": {"FACILITY:TIER:SRC": {"description": "profile"}}}\n')
 
-        project_dir = _build(profile_path, tmp_path / "out")
+        project_dir = _build(profile_path)
 
         flat = project_dir / "data" / "channel_databases" / "in_context.json"
         assert flat.read_text() == tier_src.read_text(), (
@@ -224,7 +222,7 @@ class TestBuildPipelineOrderingHolds:
         tier_src.write_text('{"channels": {"PROFILE:TIER": {}}}\n')
         (profile_dir / "data" / "facility_marker.txt").write_text("profile tree\n")
 
-        project_dir = _build(profile_path, tmp_path / "out")
+        project_dir = _build(profile_path)
 
         assert (project_dir / "data" / "facility_marker.txt").exists(), (
             "data/ was not sourced from the profile tree — the ordering claim is untested"

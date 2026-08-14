@@ -6,10 +6,10 @@
 [![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE.txt)
 [![DOI](https://img.shields.io/badge/DOI-10.1063%2F5.0306302-blue)](https://doi.org/10.1063/5.0306302)
 
-**An agentic interface and safety harness for safety-critical control systems.**
+**An agentic interface to scientific control systems.**
 
 Osprey addresses control-specific challenges: semantic addressing across large channel
-namespaces, protocol-agnostic integration with control stacks, intelligent logbook search
+namespaces, protocol-agnostic integration with control stacks, logbook search
 across facility electronic logbooks, and mandatory human oversight for every hardware write.
 
 Built for particle accelerators, fusion experiments, beamlines, and large scientific facilities.
@@ -25,18 +25,20 @@ Built for particle accelerators, fusion experiments, beamlines, and large scient
 # Install the framework as a standalone CLI tool (using uv, recommended)
 uv tool install osprey-framework
 
-# Create a minimal project to verify your setup
-osprey build quickstart --preset hello-world
+# Create a minimal deployment repo to verify your setup
+osprey init quickstart --preset hello-world
 cd quickstart
 
-# If API keys aren't already in your environment, copy and edit .env:
+# init seeds .env from the provider keys your shell exports, and says so.
+# When it reports none, copy the example and fill it in:
 # cp .env.example .env
 
-# Start an agent session
-claude
+# Render the deployment, then start an agent session
+osprey build
+osprey chat
 ```
 
-For a project tailored to your detector, beamline, or accelerator subsystem, install the
+For a deployment tailored to your detector, beamline, or accelerator subsystem, install the
 guided build-interview skill and run it from your agent session:
 
 ```bash
@@ -44,9 +46,9 @@ osprey skills install osprey-build-interview
 ```
 
 Then start the agent in an empty directory and type `/osprey-build-interview`. The skill
-walks you through a guided conversation and produces a facility repository — a git
-repository holding your build profile under `profile/`. From inside it,
-`osprey build <name> profile/` generates a ready-to-use project in `build/<name>/`.
+walks you through a guided conversation and produces the deployment repository — a git
+repository whose `profile.yml` is the source of truth. From inside it, `osprey build`
+renders the ready-to-run deployment into `build/`.
 
 ## Key features
 

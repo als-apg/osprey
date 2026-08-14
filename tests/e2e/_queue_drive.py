@@ -24,12 +24,16 @@ WHY EACH STEP IS SHAPED THE WAY IT IS:
   first makes every stage a genuine plan-change, so the revision always moves.
 * The pending queue is DRAINED before staging. ``POST /queue/start`` starts the
   whole queue, not one item, and the queue lives in a Redis named volume that
-  outlives ``osprey deploy down`` -- so a previous run's leftovers would go
+  ``osprey down`` deliberately keeps -- so a previous run's leftovers would go
   back on the hardware under this run's start. Removal goes through the
   bridge's own ``DELETE /queue/items/{uid}``, never into Redis.
 * The enqueue is UNARMED (no token). The queue is idle at that point, so an
   added item just sits there until the armed start -- the designed
   compose-now/arm-later split.
+
+``wait_for_worker_environment`` is the one piece here that belongs to a deploy
+FIXTURE rather than to the flow: it is the readiness gate an enqueue depends on
+and that ``/health`` does not give you. See its docstring.
 """
 
 from __future__ import annotations
@@ -46,6 +50,12 @@ LAUNCH_TOKEN_HEADER = "X-Launch-Token"
 #: too -- a caller asserting "completed" wants to see them reported promptly,
 #: not to wait out its whole deadline first.
 TERMINAL_STATUSES = ("completed", "error", "stopped")
+
+#: How long a deploy fixture waits for the RE worker environment to come up.
+#: Generous on purpose: opening it connects every substrate device over Channel
+#: Access, which takes tens of seconds on a cold stack (and longer under QEMU
+#: emulation on Apple Silicon).
+WORKER_ENV_TIMEOUT_SEC = 300.0
 
 
 def request(
@@ -87,6 +97,49 @@ def request(
             return exc.code, json.loads(raw.decode("utf-8"))
         except ValueError:
             return exc.code, raw.decode("utf-8", errors="replace")
+
+
+def wait_for_worker_environment(
+    base_url: str, *, timeout: float = WORKER_ENV_TIMEOUT_SEC, poll: float = 2.0
+) -> dict[str, Any]:
+    """Block until the manager reports an OPEN RE worker environment.
+
+    The gate every deploy fixture in this suite owes its own enqueue. HTTP
+    readiness on ``/health`` does NOT imply it: the bridge opens the worker
+    environment in a background task that is deliberately excluded from
+    readiness (device connect takes tens of seconds), so a stack can answer 200
+    with an empty worker namespace. ``POST /queue/items`` validates against
+    ``plans_allowed``, which the manager downloads from the worker only when
+    that environment opens -- so enqueueing too early is refused 409 "not in
+    the list of allowed plans", a message that reads like a permissions problem
+    and is nothing of the sort (the shipped ``user_group_permissions.yaml``
+    allows ``[":.*"]``; the list was empty because the namespace was).
+
+    ``manager_state`` is NOT the signal to wait on. It reads ``idle`` both
+    before the environment has ever been opened and after it is up, so gating
+    on it would be very nearly vacuous. ``worker_environment_exists`` is the
+    one field that separates the two.
+
+    Returns the manager status document that satisfied the wait. Raises
+    ``AssertionError`` naming the last status seen -- a failure here says the
+    worker environment never came up, which points at the queueserver rather
+    than at the plan the caller was about to run.
+    """
+    deadline = time.monotonic() + timeout
+    last: Any = "(no answer yet)"
+    while time.monotonic() < deadline:
+        http_status, body = request(base_url, "/queue", "GET")
+        if http_status == 200 and isinstance(body, dict):
+            last = body.get("status") or {}
+            if isinstance(last, dict) and last.get("worker_environment_exists"):
+                return dict(last)
+        else:
+            last = body
+        time.sleep(poll)
+    raise AssertionError(
+        f"the RE worker environment never opened within {timeout:.0f}s -- the queue "
+        f"cannot accept plans until it does (last manager status: {last!r})"
+    )
 
 
 def drain_pending_queue(base_url: str) -> None:

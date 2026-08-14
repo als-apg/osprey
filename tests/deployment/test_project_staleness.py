@@ -1,10 +1,15 @@
-"""Tests for the deploy-side project staleness advisory.
+"""Tests for the deploy-side render staleness advisory.
 
-A rendered project stamps its provenance (osprey version + resolved-preset
-hash) into ``.osprey-manifest.json`` at build time; ``deploy up`` and
-``deploy status`` compare that against the installed framework and warn —
-never fail — when the project predates the code deploying it. The check is
-fail-open by design: a legacy project without a manifest deploys silently.
+A render stamps its provenance (osprey version + resolved-profile hash) into
+``.osprey-manifest.json`` at build time; ``osprey status`` compares that
+against the installed framework and warns — never fails — when the render
+predates the code deploying it. The check is fail-open by design: a render
+without a manifest is reported on silently.
+
+Distinct from the drift REFUSAL the start verbs apply
+(``staleness.check_drift``, pinned in tests/deployment/test_up_as_built.py):
+this advisory is the softer version-and-content comparison that reports rather
+than blocks.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ def _write_manifest(project_dir, **overrides):
             "template": "demo",
         },
         "build_args": {"source": "preset", "preset": "demo", "project_name": "proj"},
-        "reproducible_command": "osprey build proj --preset demo",
+        "reproducible_command": "osprey build",
     }
     for key, value in overrides.items():
         if isinstance(value, dict) and isinstance(data.get(key), dict):
@@ -75,10 +80,9 @@ def test_development_commits_do_not_read_as_drift(tmp_path, presets_dir, monkeyp
     checkout would report the project as stale and the advisory would become noise.
     """
     _write_preset(presets_dir, "demo", "name: Demo\n")
-    from osprey.cli.templates import manifest as manifest_mod
 
-    # Rendered at one dev commit...
-    monkeypatch.setattr(manifest_mod, "get_release_version", lambda: "2026.7.0", raising=False)
+    # Rendered at one dev commit — the manifest's own osprey_version is what
+    # pins that side of the comparison.
     _write_manifest(
         tmp_path,
         creation={
@@ -113,11 +117,11 @@ def test_preset_content_drift_is_reported_when_no_profile_is_recorded(
 ):
     """Same installed version, changed preset — the --dev checkout incident.
 
-    The preset branch is the fallback now: it applies to a manifest carrying no
-    profile path at all (one written before profile-always builds, or one whose
-    profile path could not be recorded). A current ``--preset`` build records
-    the profile it materialized and is judged by that instead — see
-    :func:`test_edited_preset_materialized_profile_reports_stale`.
+    The preset branch is the fallback: it applies to a manifest carrying no
+    profile path at all (one written before builds always recorded a profile,
+    or one whose profile path could not be recorded). A build records the profile it
+    rendered from and is judged by that instead — see
+    :func:`test_an_edited_profile_reports_the_render_stale`.
     """
     _write_preset(presets_dir, "demo", "name: Demo\n")
     monkeypatch.setattr(staleness, "_installed_version", lambda: "2026.7.0")
@@ -146,44 +150,37 @@ def test_removed_preset_is_silent_on_content_check(tmp_path, presets_dir, monkey
     assert staleness.staleness_reasons(tmp_path) == []
 
 
-def test_edited_preset_materialized_profile_reports_stale(tmp_path, monkeypatch):
-    """The edit the advisory most needs to see, on the preset-origin topology.
+def test_an_edited_profile_reports_the_render_stale(tmp_path, monkeypatch):
+    """The edit the advisory most needs to see, on a real deployment repo.
 
-    A ``--preset`` build renders from the profile it materializes, so editing
-    that profile is how a facility changes its project — and the project is
-    stale from that moment. Judging the project by the bundled preset instead
-    would stay silent on exactly this change, since the preset never moved.
+    A build renders ``build/`` from the repo's ``profile.yml``, so editing that
+    profile is how a facility changes its deployment — and the render is stale
+    from that moment. Judging the render by the bundled preset instead would
+    stay silent on exactly this change, since the preset never moved.
 
-    Built for real rather than hand-stamped: the claim is that the hash the
-    build writes and the hash the deploy recomputes describe the same source,
-    which a synthesized manifest could not show.
+    Materialized and built for real rather than hand-stamped: the claim is that
+    the hash the build writes and the hash the deploy recomputes describe the
+    same source, which a synthesized manifest could not show.
     """
     from click.testing import CliRunner
 
     from osprey.cli.build_cmd import build
+    from osprey.cli.init_cmd import init
 
-    result = CliRunner().invoke(
-        build,
-        [
-            "proj",
-            "--preset",
-            "hello-world",
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(tmp_path),
-        ],
-    )
+    repo = tmp_path / "proj"
+    result = CliRunner().invoke(init, [str(repo), "--preset", "hello-world", "--no-git"])
     assert result.exit_code == 0, result.output
-    assert staleness.staleness_reasons(tmp_path / "proj") == []
+    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    assert result.exit_code == 0, result.output
+    assert staleness.staleness_reasons(repo / "build") == []
 
-    profile_path = tmp_path / "proj-profile" / "profile.yml"
+    profile_path = repo / "profile.yml"
     profile_path.write_text(
         profile_path.read_text(encoding="utf-8") + "\ndeploy_services: false\n",
         encoding="utf-8",
     )
 
-    reasons = staleness.staleness_reasons(tmp_path / "proj")
+    reasons = staleness.staleness_reasons(repo / "build")
     assert len(reasons) == 1
     assert "profile" in reasons[0]
     assert str(profile_path) in reasons[0]
@@ -202,7 +199,7 @@ def _write_profile_manifest(project_dir, build_args, preset_hash):
                 "schema_version": "1.2.0",
                 "creation": {"osprey_version": "2026.7.0", "preset_hash": preset_hash},
                 "build_args": {"project_name": "proj", "source": "profile", **build_args},
-                "reproducible_command": "osprey build proj profile.yml",
+                "reproducible_command": "osprey build",
             }
         ),
         encoding="utf-8",
@@ -214,7 +211,7 @@ def _write_profile_project(tmp_path, *, absolute: bool):
 
     Mirrors the real shape: the profile and its ``data:`` tree live wherever the
     facility keeps them, the user typed a path relative to *that* directory, and
-    ``osprey deploy`` later runs from the project directory instead.
+    a later ``osprey up`` runs from the repo root instead.
 
     Args:
         absolute: Whether the manifest also carries ``profile_path_abs`` — the
@@ -300,7 +297,17 @@ def test_warn_if_project_stale_logs_reasons_and_remedy(tmp_path, monkeypatch, _c
     assert len(_captured_warnings) == 1
     text = _captured_warnings[0]
     assert "2026.7.0" in text
-    assert "osprey build proj --preset demo --force" in text
+    # The manifest's own command, printed verbatim — no `--force` appended (it
+    # went with the legacy build surface) and no retired verb in the follow-up.
+    #
+    # The retired spelling on the last line is assertion DATA: it is the string
+    # that must NOT appear. A sweep that rewrites verb names across the tree has
+    # to skip it, or the pair collapses into `X in text` and `X not in text` and
+    # the test can never pass.
+    assert "osprey build" in text
+    assert "--force" not in text
+    assert "osprey up" in text
+    assert "osprey deploy up" not in text
 
 
 def test_warn_if_project_stale_is_quiet_when_fresh(tmp_path, monkeypatch, _captured_warnings):

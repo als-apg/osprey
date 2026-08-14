@@ -33,6 +33,19 @@ _MIME_MAP = {
 # ---------------------------------------------------------------------------
 
 
+def _artifacts_dir() -> Path:
+    """The directory the artifact store writes into.
+
+    Derived, never spelled: :func:`osprey.utils.workspace.resolve_shared_data_root`
+    is the same agent-data root the store resolves, and ``artifacts`` is the
+    store's own subdirectory (``ArtifactStore._subdir``). A second hand-built
+    join is exactly how this endpoint came to read a directory nothing writes.
+    """
+    from osprey.utils.workspace import resolve_shared_data_root
+
+    return resolve_shared_data_root() / "artifacts"
+
+
 def _get_pending_store(request: Request):
     """Get the pending review store from app state, or raise 404."""
     from osprey.services.channel_finder.feedback.pending_store import PendingReviewStore
@@ -57,9 +70,20 @@ def _resolve_artifact(item: dict, project_cwd: str) -> dict | None:
     """Find the artifact best matching this pending review item's channels.
 
     Returns ``{"id": ..., "title": ..., "filename": ...}`` or ``None``.
+
+    The index is located the way the STORE derives it — the deployment's
+    agent-data root plus the store's own ``artifacts`` subdirectory — never by
+    joining a literal onto the app's working directory. A literal that names a
+    different root reads a file the store never wrote, and every failure here is
+    swallowed by the ``except`` below: the pending-review UI would show no
+    artifact for any item, with nothing in the log to say why. ``project_cwd``
+    takes no part in that resolution; it stays on the signature because the
+    route hands it in and its meaning for the app is not this function's to
+    redefine.
     """
+    del project_cwd  # takes no part in the artifact location; see above
     try:
-        artifacts_path = Path(project_cwd) / "_agent_data" / "artifacts" / "artifacts.json"
+        artifacts_path = _artifacts_dir() / "artifacts.json"
         if not artifacts_path.is_file():
             return None
 
@@ -307,8 +331,10 @@ async def serve_artifact(filename: str, request: Request):
     if "/" in filename or ".." in filename:
         raise HTTPException(400, "Invalid filename")
 
-    project_cwd = getattr(request.app.state, "project_cwd", "")
-    artifact_path = Path(project_cwd) / "_agent_data" / "artifacts" / filename
+    # Only the BASE changed here (see _artifacts_dir): the traversal guard above
+    # stays ahead of the join, with nothing between them — this route serves
+    # file bytes over HTTP, so the order of those two statements is the control.
+    artifact_path = _artifacts_dir() / filename
 
     if not artifact_path.is_file():
         raise HTTPException(404, "Artifact not found")

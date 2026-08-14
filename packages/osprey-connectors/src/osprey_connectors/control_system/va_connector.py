@@ -25,8 +25,8 @@ def resolve_va_gateway_port() -> Any:
     service publishes and sets ``EPICS_CA_SERVER_PORT`` from — so a project
     that moves the deployed soft-IOC's port moves the connector with it.
     Falls back to :data:`DEFAULT_VA_PORT` when the key is unset, and when the
-    config cannot be read at all (no project context, unreadable file): the
-    connector then behaves exactly as it did when the port was hardcoded.
+    config cannot be read at all (no project context, unreadable file), so the
+    connector still resolves a port without one.
 
     Returns:
         The port to default-fill unset gateway ports with.

@@ -87,7 +87,7 @@ Runtime settings
    * - ``DISPATCH_TRIGGER``
      - The trigger to fire. Filled in for you from the profile block above.
    * - ``EVENT_DISPATCHER_TOKEN``
-     - Shared secret for talking to the dispatcher. ``osprey deploy up``
+     - Shared secret for talking to the dispatcher. ``osprey up``
        generates it when unset.
    * - ``DISPATCH_WORKER_TOKEN``
      - Shared secret for talking to the worker. Also auto-generated.
@@ -165,7 +165,7 @@ it starts with everything else:
 
 .. code-block:: bash
 
-   osprey deploy up        # add --dev to bake in a local osprey checkout
+   osprey up        # add --dev to bake in a local osprey checkout
 
 Then mention the bot in one of the listed rooms and ask it something. If nothing
 happens, check the service's logs first: a missing credential stops the bridge at

@@ -24,7 +24,7 @@ Build & Deploy a Project
       :link: deploy-a-facility
       :link-type: doc
 
-      The end-to-end walkthrough: one facility repo from ``osprey profile new``
+      The end-to-end walkthrough: one deployment repo from ``osprey init``
       through the CI scaffolding to a running three-service stack.
 
    .. grid-item-card:: Configure LLM Providers
@@ -46,7 +46,7 @@ Build & Deploy a Project
       :link-type: doc
 
       Create, configure, and deploy an OSPREY project from ``osprey build`` through
-      ``osprey deploy`` to a running instance.
+      ``osprey up`` to a running instance.
 
    .. grid-item-card:: Containerize a Project
       :link: containerize-project
@@ -186,8 +186,8 @@ Bundled Services & Tutorials
       :link-type: doc
 
       Run measurement scans through a durable queue — compose with the Osprey
-      agent, review in the PLAN panel, start and stop in BLUESKY, and add
-      scan plans of your own.
+      agent, review, start and stop in the BLUESKY panel, and add scan plans
+      of your own.
 
 .. seealso::
 

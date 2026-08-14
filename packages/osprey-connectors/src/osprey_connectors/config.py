@@ -22,6 +22,7 @@ import copy
 import logging
 import os
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 
@@ -30,13 +31,15 @@ import yaml
 # Safe at module level despite this module's no-osprey-imports rule below:
 # ``workspace`` imports nothing from osprey itself, so there is no cycle.
 from osprey_connectors.workspace import (
+    DEFAULT_AGENT_DATA_BASE_DIR,
     SIMULATION_STATE_DIR_CONFIG_KEY,
     anchored_path,
     dotted_config_str,
+    repo_root_for_config,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Iterator, Mapping
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -138,8 +141,8 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
 
 
 # OSPREY runs agent Python code in exactly one backend: a subprocess on the host.
-# ``local`` is the historical name for that same backend; ``container`` named a
-# Jupyter kernel gateway OSPREY never shipped.
+# ``local`` is an accepted alias for that same backend; ``container`` names a
+# Jupyter kernel gateway OSPREY does not ship.
 EXECUTION_METHOD_SUBPROCESS = "subprocess"
 
 # Module-level latch so the ``container`` deprecation is logged once per process
@@ -152,15 +155,16 @@ _container_method_warned = False
 #: profile/preset and checksummed into the manifest.
 BUILD_OWNED_DATA_DIR = "data"
 
-#: Directory runtime state belongs in — excluded from the manifest checksums and
-#: preserved across ``osprey build --force``.
-RUNTIME_STATE_DIR = "_agent_data"
+#: Directory runtime state belongs in — the durable ``var/`` zone, outside the
+#: render entirely, so it survives every rebuild of ``build/``. Named in the
+#: advisory that fires when a runtime writer is pointed at build-owned ``data/``.
+RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
 
 #: Config keys whose value names a path something writes to *at run time*.
 #: These must stay out of ``data/``: that tree is build-owned and checksummed by
 #: :func:`osprey.cli.templates.manifest.calculate_file_checksums`, so a runtime
 #: write landing there reads as project drift and is erased by the next
-#: ``osprey build --force``.
+#: ``osprey build``.
 RUNTIME_WRITE_PATH_KEYS = (
     SIMULATION_STATE_DIR_CONFIG_KEY,
     "services.channel_finder.pipelines.hierarchical.feedback.store_path",
@@ -225,9 +229,9 @@ def resolve_execution_method(
     while the config file stops claiming a backend OSPREY does not ship:
 
     - ``subprocess`` — the honest name; returned as-is.
-    - ``local`` — historical name for the same subprocess backend; mapped silently.
-    - ``container`` — named a Jupyter kernel gateway that was never shipped, so it
-      failed outright at execution time. Mapped to ``subprocess`` with a one-time
+    - ``local`` — an alias for the same subprocess backend; mapped silently.
+    - ``container`` — names a Jupyter kernel gateway OSPREY does not ship, so it
+      fails outright at execution time. Mapped to ``subprocess`` with a one-time
       deprecation warning, because that value's behavior genuinely changes.
     - unset (missing, ``None``, or blank) — defaults to ``subprocess``.
 
@@ -287,6 +291,27 @@ def resolve_execution_method(
     )
 
 
+#: Shell values :func:`load_project_dotenv`'s ``override=True`` replaced, keyed
+#: by variable name. The entry-time passthrough makes ``.env`` win inside the
+#: osprey *process*; compose's own precedence is the opposite (a shell export
+#: beats ``--env-file``), so the deploy path needs the shell as it really was —
+#: both to warn about a divergent export and to hand compose an environment
+#: that honors it. Empty when nothing differing was overridden.
+_dotenv_shell_overrides: dict[str, str] = {}
+
+
+def dotenv_shell_overrides() -> dict[str, str]:
+    """The shell's own values for variables the ``.env`` entry-load overrode.
+
+    Only variables whose exported value *differed* from the file's are
+    recorded: a key the shell never set, or set to the same value, was not
+    shadowed. Overlaying this onto ``os.environ`` reconstructs the environment
+    the operator's shell actually provided, which is what compose interpolation
+    is documented against.
+    """
+    return dict(_dotenv_shell_overrides)
+
+
 def load_project_dotenv() -> None:
     """Load ``./.env`` into ``os.environ``, overriding existing values.
 
@@ -297,6 +322,11 @@ def load_project_dotenv() -> None:
     a stale shell export. Every key in the file is passed through, not a
     declared subset — narrowing it would drop Channel Access addressing with no
     error.
+
+    What the override replaces is not discarded: the shell's own differing
+    values are recorded (:func:`dotenv_shell_overrides`) so the deploy path can
+    still see — and warn about — an export that disagrees with the store, and
+    hand compose an environment with the shell's precedence intact.
 
     ``override=True`` and the breadth of the copy are exactly why this must be
     called deliberately. Call it from process entry points only; never at
@@ -315,6 +345,21 @@ def load_project_dotenv() -> None:
         if not dotenv_path.exists():
             logger.debug(f"No .env file found at {dotenv_path}")
             return
+        from osprey_connectors.dotenv import parse_dotenv_file
+
+        # Accumulate, never clear: this runs more than once per process, and
+        # after the first load os.environ already matches the file — a later
+        # call sees no difference and must not erase the genuine shell values
+        # the first one recorded. First-seen wins; only the pre-load value is
+        # the shell's own.
+        pinned = parse_dotenv_file(dotenv_path)
+        for name, value in pinned.items():
+            if (
+                name in os.environ
+                and os.environ[name] != value
+                and name not in _dotenv_shell_overrides
+            ):
+                _dotenv_shell_overrides[name] = os.environ[name]
         load_dotenv(dotenv_path, override=True)
         logger.debug(f"Loaded .env file from {dotenv_path}")
     except OSError as e:
@@ -423,12 +468,12 @@ class ConfigBuilder:
         """Warn when a runtime writer is pointed at the build-owned ``data/`` tree.
 
         Advisory only: the misconfiguration still works until the next
-        ``osprey build --force`` wipes ``data/`` and takes the runtime state
+        ``osprey build`` wipes ``data/`` and takes the runtime state
         with it, so this warns rather than raising.
         """
         configured_root = self.raw_config.get("project_root")
         project_root = (
-            Path(configured_root) if configured_root else self.config_path.parent
+            Path(configured_root) if configured_root else repo_root_for_config(self.config_path)
         ).expanduser()
 
         for key, value in find_runtime_write_paths_under_data(self.raw_config, project_root):
@@ -436,7 +481,7 @@ class ConfigBuilder:
                 "Runtime-write path '%s' = %r resolves inside the build-owned "
                 "'%s/' tree (%s). That directory is re-rendered and checksummed on "
                 "every build, so runtime writes there show up as project drift and "
-                "are erased by 'osprey build --force'. Point it at '%s/' instead.",
+                "are erased by the next 'osprey build'. Point it at '%s/' instead.",
                 key,
                 value,
                 BUILD_OWNED_DATA_DIR,
@@ -791,6 +836,58 @@ def get_config_builder(
     return _get_config(config_path, set_as_default)
 
 
+@contextmanager
+def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
+    """Answer this process's unqualified config lookups from *config_path*.
+
+    Every :func:`get_config_value` and :func:`get_facility_timezone` call that
+    names no config resolves the default singleton, which knows exactly two
+    places to look: ``CONFIG_FILE``, and ``config.yml`` in the working
+    directory. Compose satisfies that contract for every container by injecting
+    ``CONFIG_FILE``. On the host there is nobody to inject it, and a deployment
+    repo keeps its render one zone down in ``build/`` while its verbs stand at
+    the repo root — so a host verb doing in-process work satisfies neither
+    branch, and every lookup it makes degrades to a default. Silently: a
+    degraded answer (UTC, an empty dict) is indistinguishable from a configured
+    one at the call site, which is how a whole archive can be synthesized
+    against the wrong clock without anything failing.
+
+    This is the host's half of that contract, and it is deliberately in-process
+    rather than an exported ``CONFIG_FILE``. The attached start path
+    ``os.execvpe``-replaces itself with the container runtime, and an exported
+    variable would ride into that process's interpolation environment; the
+    anchor has no business outliving the verb that set it.
+
+    Scoped for the same reason — the previous default is restored on exit, so a
+    verb pointed at one deployment with ``--repo`` cannot leave the next lookup
+    in this process answering for it.
+
+    Never raises. A config that will not load leaves the previous default in
+    place and warns: this makes lookups honest, and an anchor that aborted its
+    caller would turn a degraded lookup into a failed deploy.
+
+    Args:
+        config_path: The rendered config this process is acting on — normally
+            ``<repo>/build/config.yml`` (see
+            :func:`osprey_connectors.workspace.rendered_config_path`).
+    """
+    global _default_config, _default_configurable
+
+    previous = (_default_config, _default_configurable)
+    try:
+        try:
+            _get_config(str(config_path), set_as_default=True)
+        except Exception as exc:  # noqa: BLE001 - an unusable anchor must not fail the caller
+            logger.warning(
+                f"Could not anchor configuration at {config_path} "
+                f"({type(exc).__name__}: {exc}). Values this process reads without an "
+                "explicit path will fall back to their defaults."
+            )
+        yield
+    finally:
+        _default_config, _default_configurable = previous
+
+
 def load_config(config_path: str | None = None) -> dict[str, Any]:
     """Load raw configuration dictionary from YAML file.
 
@@ -945,6 +1042,7 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
 
 
 _tz_drift_warned = False
+_tz_fallback_warned = False
 
 
 def get_facility_timezone() -> "ZoneInfo":
@@ -955,16 +1053,28 @@ def get_facility_timezone() -> "ZoneInfo":
     ``config.yml`` and no ``CONFIG_FILE``) or a misconfigured/typo'd zone name
     degrades to UTC with a logged warning rather than propagating to callers.
 
+    The fallback warns **once per process**, not once per call. Synthesis calls
+    this per channel per chunk — thousands of times to seed one archive — and a
+    failed load is never cached (only a successful one is), so the fallback is
+    re-taken on every one of them. Repeating the multi-line "no config.yml
+    found" remedy that often buries every other line of the deploy and makes a
+    seed that is working normally read as a hung terminal. Once is deliberate
+    rather than none: a process resolving the wrong config still has to be
+    diagnosable from its own log.
+
     Returns:
         ZoneInfo for the configured facility timezone, defaulting to UTC.
     """
+    global _tz_fallback_warned
     from zoneinfo import ZoneInfo
 
     try:
         tz_name = get_config_value("facility_timezone", "UTC")
         zone = ZoneInfo(tz_name)
     except Exception as exc:  # noqa: BLE001 - any failure must degrade to UTC, not raise
-        logger.warning(f"Falling back to UTC facility timezone ({type(exc).__name__}: {exc})")
+        if not _tz_fallback_warned:
+            _tz_fallback_warned = True
+            logger.warning(f"Falling back to UTC facility timezone ({type(exc).__name__}: {exc})")
         return ZoneInfo("UTC")
 
     _warn_on_tz_drift(tz_name)

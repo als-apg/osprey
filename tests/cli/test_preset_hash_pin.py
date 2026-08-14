@@ -25,63 +25,21 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "channel-finder-standalone": (
         "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
     ),
-    # The web-terminal presets were re-pinned when the shipped roster went
-    # from a bare-string first user to fully explicit name/index/persona
-    # entries — a resolved-content change (deploy-visible as staleness), made
-    # knowingly per the module docstring. The resolved *behavior* is identical.
-    #
-    # Re-pinned again when control-assistant's control_system.type default
-    # flipped from "mock" to "virtual_accelerator" (mock is now the documented
-    # fallback via `osprey config set-control-system mock`) — both extends
-    # children inherit the new default, so all three digests moved.
-    #
-    # Re-pinned again when the RESULTS panel became BLUESKY: the preset's
-    # web_panels entry and its web.panels.<id>.{label,url,path} overrides all
-    # moved from `results` to `bluesky`. Unlike the two re-pins above this one
-    # is NOT behavior-neutral — a rebuilt project gets a differently-named tab
-    # — so the staleness advisory firing on already-deployed projects is the
-    # correct signal, not noise. Both extends children inherit it, so all three
-    # digests moved again.
-    #
-    # Re-pinned again when control-assistant gained the test-ioc-safety rule
-    # selection (renders only for EPICS-family control systems). Both extends
-    # children inherit it, so all three digests moved.
-    #
-    # Re-pinned again when every preset that ships panels-context also gained
-    # the workspace-delta hook, which reports web workspace changes between the
-    # agent's turns. All four rosters list it, so every digest moved — a rebuilt
-    # project gains a hook file and a UserPromptSubmit wiring entry, which is
-    # exactly what the staleness advisory should report.
-    #
-    # Re-pinned again when control-assistant gained a stored archive: a
-    # `va_archiver:` block, `archiver.type: mongodb_archiver` in `config:`, and
-    # pymongo in `dependencies`. The block derives eight
-    # `archiver.mongodb_archiver.*` keys into the resolved config, so this is a
-    # key change rather than a comment change and the digest is expected to
-    # move. Both extends children inherit it, so all three moved.
-    # Re-pinned again when control-assistant named its freshness canary:
-    # `va_archiver.freshness_channel`. The block derives a
-    # `health.categories.archiver.checks` entry from it — the check itself plus
-    # a staleness threshold computed from `recorder_cadence_sec` — so this is a
-    # key change, not a comment change, and the digest is expected to move. A
-    # rebuilt project gains a health check it did not have, which is exactly
-    # what the staleness advisory should announce. Both extends children inherit
-    # it, so all three moved.
-    # ...and again when the block stated `recorder_cadence_sec: 10` explicitly
-    # instead of riding the dataclass default. Behavior-neutral — the resolved
-    # value is unchanged — but the resolved CONTENT now carries the key, so the
-    # digest moves. Stated rather than defaulted because the freshness threshold
-    # is derived from it, and the preset's own convention is to document the
-    # shape it deploys rather than hide it in a dataclass.
-    # The archive and the workspace-delta hook landed either side of the same
-    # rebase, so the digests below carry both at once: re-pinning against
-    # either change alone would leave the other unaccounted for.
-    "control-assistant": "sha256:5ef868a0c4e912bffbbceb1387b8f95f0a19a4dbfb475915bdeb3467c0ed8162",
+    # A digest here is the resolved content of the preset AND of every preset
+    # that extends it, so a change in a base moves all three control-assistant
+    # entries together. Comment rewrites cannot move a digest
+    # (`_hash_resolved_profile` hashes resolved canonical JSON and says so);
+    # only a key or value change can. Some such changes are behavior-neutral
+    # and some are not — a rebuilt project can gain or lose a tab, a hook, a
+    # health check or a skill directory — and in either case the deploy-side
+    # staleness advisory firing on already-deployed projects is the correct
+    # signal, not noise.
+    "control-assistant": "sha256:6926cb0ac876d78035618a7fd2102b3bd7c32e409a4e89a1949ab84bc25ce172",
     "control-assistant-readonly": (
-        "sha256:7c30309acfa2cc519813eaf3c830b1a3b6829abf5602f11308d3308db8fb5a7f"
+        "sha256:d4f91684bc48b28f51997a32c997d08cb56a108b4acdd9a0a09863472660415a"
     ),
     "control-assistant-readwrite": (
-        "sha256:2721cb96194dc0da4030f05aaea0926fd7febad61a0cd51e5f3c2652d4271679"
+        "sha256:be5b976fef2e50caffbc3c34bb1c6123582b3960cdc85d6d657be48cb6ace2dc"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

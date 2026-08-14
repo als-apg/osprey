@@ -7,13 +7,13 @@ Multi-User Support
 The multi-user Web Terminal turns one OSPREY project into a small shared
 product: a landing page where each member of your team picks their name, and a
 private, containerized Web Terminal behind each card — all served from a single
-host, brought up with a single ``osprey deploy up``.
+host, brought up with a single ``osprey up``.
 
 .. dropdown:: What You'll Learn
    :color: primary
    :icon: book
 
-   - Why the single-user ``osprey web`` workflow is unchanged, and when each
+   - How it sits beside the single-user ``osprey web`` workflow, and when each
      mode is the right tool
    - The three ideas behind the multi-user stack: one container per user,
      personas as capability tiers, and one nginx front door
@@ -28,27 +28,27 @@ host, brought up with a single ``osprey deploy up``.
    want Docker (or Podman) and your model-provider credentials — the
    ``control-assistant`` preset ships the whole block pre-wired.
 
-Single-user is still the front door
-===================================
+Single-user is the front door
+=============================
 
-Nothing about multi-user changes the everyday workflow. From any project
-directory,
+The everyday workflow stands on its own. From any project directory,
 
 .. code-block:: bash
 
    osprey web
 
-still launches the single-user Web Terminal as one local process — no
-containers, no proxy, ready in seconds at ``http://127.0.0.1:8087``. It remains
-the fastest way to try OSPREY and the right tool whenever one person sits in
-front of one machine; :doc:`web-terminal/operate` covers it.
+launches the single-user Web Terminal as one local process — no containers, no
+proxy, ready in seconds at ``http://127.0.0.1:8087``. It is the fastest way to
+try OSPREY and the right tool whenever one person sits in front of one machine;
+:doc:`web-terminal/operate` covers it.
 
 The multi-user stack is strictly opt-in. It lives in a
-``modules.web_terminals`` block in the project's ``config.yml``, read only by
-``osprey deploy`` (and validated by ``osprey scaffold web-terminals lint``).
+``modules.web_terminals`` block in the deployment's built ``config.yml``, read
+only by the lifecycle verbs (and validated by
+``osprey scaffold web-terminals lint``).
 ``osprey web`` never looks at it — so a project that carries the block (the
-``control-assistant`` preset ships one) still runs single-user exactly as
-before. Reach for the multi-user stack when several people need their own
+``control-assistant`` preset ships one) runs single-user exactly like one that
+does not. Reach for the multi-user stack when several people need their own
 terminal on a shared machine, and stay with ``osprey web`` for everything else.
 
 How it works
@@ -70,7 +70,7 @@ container, plus two named volumes that belong to the *user*, not the container:
 a workspace volume (the files the agent reads and writes) and an
 agent-configuration volume. Upgrading or rebuilding an image replaces the
 container but never touches those volumes, so a user's files and settings
-survive every redeploy. On first start, ``osprey deploy up`` seeds each user's
+survive every redeploy. On first start, ``osprey up`` seeds each user's
 configuration volume automatically — no per-user setup steps.
 
 **A persona is a capability tier — and a whole project.** Users map to
@@ -80,8 +80,9 @@ a property of a project, the tiers are genuinely different agents — not one
 agent with a UI toggle. The ``control-assistant`` preset ships two: a
 *read-only* tier and a *read-write* tier — the same agent and tool surface,
 differing on exactly one config key (``control_system.writes_enabled``).
-``osprey deploy up`` auto-renders any persona project that doesn't exist yet
-and builds its container image locally, so no registry or CI is involved.
+``osprey build`` renders one persona project per delta in ``personas/``, and
+``osprey up`` builds each one's container image locally, so no registry or CI is
+involved.
 
 **One front door.** An nginx reverse proxy serves the landing page and proxies
 ``/u/<name>/`` to that user's container. The per-user containers are pinned to
@@ -105,7 +106,7 @@ The config block
          modules:
            web_terminals:
              enabled: true
-             image_source: local       # deploy up builds persona images itself
+             image_source: local       # osprey up builds persona images itself
              nginx_port: 9080          # the landing page
              web_base_port: 9091       # per-user ports: base + user index
              artifact_base_port: 9291
@@ -114,32 +115,38 @@ The config block
              channel_finder_base_port: 9591
              default_persona: readonly
              users:
-             - alice                   # bare name → default_persona
+             - name: alice
+               index: 0
+               persona: readwrite
+               display_name: "Control Room (Alice)"
              - name: bob
                index: 1
-               persona: readwrite
+               persona: readonly
+               display_name: "Read-Only View (Bob)"
              personas:
                readonly:
                  project: control-assistant-readonly
-                 project_path: ../control-assistant-readonly
+                 project_path: build/control-assistant-readonly
                  build_profile: personas/readonly.yml
                readwrite:
                  project: control-assistant-readwrite
-                 project_path: ../control-assistant-readwrite
+                 project_path: build/control-assistant-readwrite
                  build_profile: personas/readwrite.yml
 
-      Each ``build_profile`` names that persona's **delta** inside the build
-      profile this project was rendered from — the file
-      ``osprey profile new`` writes under ``personas/`` and points the catalog
-      at. The delta merges over that profile, so every persona shares one data
+      Each ``build_profile`` names that persona's **delta** in the deployment
+      repository — the file ``osprey init`` writes under ``personas/`` and
+      points the catalog at. The delta merges over ``profile.yml``, so every
+      persona shares one data
       tree, one set of secrets, and one set of your own artifacts. A bundled
       preset name, an absolute path, or a path outside ``personas/`` is
       rejected by both ``osprey scaffold web-terminals lint`` and
-      ``osprey deploy up``.
+      ``osprey up``.
 
       The ``users`` list is the roster — the single source of truth for who
-      exists. A bare name resolves to ``default_persona``; an entry with an
-      explicit ``persona`` picks its tier. Each user's host ports are
+      exists. A bare name (``- carol``) resolves to ``default_persona`` —
+      read-only, so a hastily added user lands on the safe side; an entry with
+      an explicit ``persona`` picks its tier, and an optional ``display_name``
+      becomes that user's browser tab title. Each user's host ports are
       ``base + index`` in every port family — one family per companion panel
       (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
       terminal itself — so alice (index 0) serves her terminal on ``9091`` and
@@ -156,15 +163,15 @@ The config block
 
    .. tab-item:: Day-to-day operations
 
-      The roster drives everything: edit it, then let ``osprey deploy``
+      The roster drives everything: edit it, then let the lifecycle verbs
       reconcile reality against it.
 
-      Edit it in the **build profile** — the ``modules.web_terminals.users``
-      entry under ``config:`` in ``profile.yml`` — and rebuild the project with
-      ``--force``. A roster change made directly in the project's ``config.yml``
-      deploys, but the next build overwrites it. Rebuilding also seeds an empty
-      ``web-terminal-context/<user>/`` slot in the profile for each new
-      operator, which is where their per-user context goes.
+      Edit it in the **source profile** — the ``modules.web_terminals.users``
+      entry under ``config:`` in ``profile.yml`` — and rebuild. A roster change
+      made directly in the built ``build/config.yml`` deploys, but the next
+      build overwrites it. Rebuilding also seeds an empty
+      ``web-terminal-context/<user>/`` slot for each new operator, which is
+      where their per-user context goes.
 
       .. list-table::
          :header-rows: 1
@@ -174,46 +181,49 @@ The config block
            - Command
          * - **Add a user**
            - Add a roster entry with the next free ``index``, then
-             ``osprey deploy up``. The new container comes up with freshly
+             ``osprey up``. The new container comes up with freshly
              allocated ports and a seeded workspace; existing users are
              untouched.
          * - **Reseed workspaces**
-           - ``osprey deploy seed [USER]`` re-applies the seeded configuration
+           - ``osprey users seed [USER]`` re-applies the seeded configuration
              for one user, or for everyone when ``USER`` is omitted.
          * - **Remove one user**
-           - ``osprey deploy decommission USER`` stops and removes the user's
+           - ``osprey users remove USER`` stops and removes the user's
              container. Their volumes are **retained** by default; add
              ``--archive`` to tarball them into ``web_terminal_archives/``
              first, or ``--purge`` to delete them outright.
          * - **Clean up leftovers**
-           - ``osprey deploy prune`` removes workspaces of users no longer on
+           - ``osprey users prune`` removes workspaces of users no longer on
              the roster. ``--dry-run`` shows what it would do first, and the
              same ``--archive`` / ``--purge`` policy applies.
          * - **Tear it all down**
-           - ``osprey deploy nuke`` removes the entire multi-user stack —
-             containers, volumes, and images — after a typed confirmation.
+           - ``osprey reset`` wipes the whole deployment back to a fresh state —
+             containers, volumes, and images, every user's workspace included —
+             after a typed confirmation. It prints the removal plan first;
+             ``--dry-run`` stops there.
 
-      ``osprey deploy status`` and ``osprey deploy down`` work exactly as they
+      ``osprey status`` and ``osprey down`` work exactly as they
       do for any other OSPREY service stack.
 
 Run the two-persona stack
 =========================
 
-From a fresh checkout, build a project from the bundled preset, then bring the
-stack up from inside it:
+From a fresh checkout, create a deployment repository from the bundled preset,
+then build and bring the stack up from inside it:
 
 .. code-block:: bash
 
-   # 1. Render the project from the control-assistant preset
-   osprey build control-assistant --preset control-assistant
+   # 1. Create the deployment repo from the control-assistant preset
+   osprey init control-assistant --preset control-assistant
 
-   # 2. From inside the project, bring the whole stack up
+   # 2. From inside the repo, render it and bring the whole stack up
    cd control-assistant
-   osprey deploy up
+   osprey build
+   osprey up
 
 That is the entire setup: the preset ships the ``modules.web_terminals`` block
 above, so no extra flags or configuration are needed. Alongside the web tier,
-``deploy up`` brings up everything else the control-assistant tutorial deploys
+``osprey up`` brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the scan services, and the supporting
 PostgreSQL/OpenObserve containers — so the two personas open onto a working
 control room, not an empty shell.
@@ -221,38 +231,36 @@ control room, not an empty shell.
 .. note::
 
    The personas' agent needs your provider credentials at run time. Add them
-   to the project's ``.env`` before ``osprey deploy up`` (the preset defaults
-   to Anthropic — set ``ANTHROPIC_API_KEY``). If you chose a different
-   provider at build time (``--set provider=...``), that choice is recorded in
-   the project and forwarded automatically to every auto-rendered persona
-   project.
+   to the repository's ``.env`` before ``osprey up`` (the preset defaults
+   to Anthropic — set ``ANTHROPIC_API_KEY``). If you chose a different provider
+   (``osprey set provider=...``), that choice is recorded in ``profile.yml`` and
+   carried into every persona project the build renders.
 
 .. note::
 
    Running from a **source checkout** of the OSPREY repository rather than a
-   released install? Add ``--dev`` to ``osprey deploy up``. The images install
+   released install? Add ``--dev`` to ``osprey up``. The images install
    the framework from PyPI by default, and a source tree's version isn't
    published there; ``--dev`` bakes your local checkout into the images
    instead.
 
-What ``osprey deploy up`` does for the web tier
------------------------------------------------
+What ``osprey build`` and ``osprey up`` do for the web tier
+-----------------------------------------------------------
 
-#. **Auto-renders the two persona projects.** For any persona whose project
-   directory does not yet exist, ``deploy up`` renders it from that persona's
-   **delta** in the build profile beside your project — landing it as a sibling
-   of the main project (``../control-assistant-readonly`` and
-   ``../control-assistant-readwrite``). Because each delta merges over that
-   profile's ``profile.yml``, both personas share its data tree, secrets and
-   artifacts, and inherit the choices recorded there (provider, model): edit
-   the profile once and both terminals pick the change up from the file rather
-   than from a replayed command line. An already-rendered project is
-   user-owned and never overwritten; a half-written one errors with a
-   remediation hint rather than being rebuilt over.
+#. **The build renders the two persona projects.** ``osprey build`` renders one
+   project per **delta** in ``personas/``, into the build zone beside the main
+   render (``build/control-assistant-readonly`` and
+   ``build/control-assistant-readwrite``). Because each delta merges over
+   ``profile.yml``, both personas share its data tree, secrets and artifacts,
+   and inherit the choices recorded there (provider, model): edit the profile
+   once and both terminals pick the change up from the file rather than from a
+   replayed command line. A start renders none of this — ``build/`` is the
+   whole account of what will run — so a persona project missing at start time
+   is reported as a stale or partial build, with a rebuild as the remedy.
 
-#. **Builds each persona's image.** In the preset's local mode
-   (``image_source: local``), ``deploy up`` builds each persona's image
-   (tagged ``<project>-<persona>:local``) itself from that rendered project —
+#. **The start builds each persona's image.** In the preset's local mode
+   (``image_source: local``), ``osprey up`` builds each persona's image
+   (tagged ``<project>-<persona>:local``) from that rendered project —
    no registry, no CI.
 
 #. **Brings up the web tier.** An nginx reverse proxy (container ``ca-nginx``)
@@ -262,8 +270,8 @@ What ``osprey deploy up`` does for the web tier
    ``ca-`` prefix is the preset's ``facility.prefix``; change it for your
    site.)
 
-Stop the stack again with ``osprey deploy down``; check on it with
-``osprey deploy status``.
+Stop the stack again with ``osprey down``; check on it with
+``osprey status``.
 
 .. note::
 
@@ -274,8 +282,9 @@ Stop the stack again with ``osprey deploy down``; check on it with
    browser.
 
    If another OSPREY deployment already occupies a service port on this host,
-   change it in the project's ``config.yml`` (e.g.
-   ``services.postgresql.port_host``) before ``osprey deploy up``.
+   change it in the profile and rebuild — for example
+   ``osprey set config.services.postgresql.port_host=5433 && osprey build`` —
+   before ``osprey up``.
 
 The landing page
 ----------------
@@ -289,22 +298,26 @@ each labelled with the persona it resolves to:
    :align: center
    :width: 100%
 
-   The grouped landing page: alice resolves to the readonly persona, bob to
-   readwrite. Click a card to open that user's session.
+   The grouped landing page: alice resolves to the readwrite persona, bob to
+   readonly. Click a card to open that user's session.
 
-alice is a bare roster entry, so she resolves to the preset's
-``default_persona`` (readonly). bob names his persona (readwrite) explicitly.
-Clicking a card opens that user's terminal at ``/u/<name>/``, proxied by nginx
-to the user's own container.
+Both entries name their persona explicitly — alice the readwrite tier, bob the
+readonly one. (A bare roster entry would fall back to the preset's
+``default_persona``, readonly, so an implicit user always lands on the safe
+side.) Clicking a card opens that user's terminal at ``/u/<name>/``, proxied
+by nginx to the user's own container.
 
 Two sessions, two write postures
 --------------------------------
 
 Each persona is a self-contained OSPREY project with its **own** permissions,
 because permissions are a property of a project's ``config.yml`` — the two
-tiers are genuinely different agents, not one agent with a UI toggle. They
-differ on exactly **one** config key, the reference monitor's master write
-switch:
+tiers are genuinely different agents, not one agent with a UI toggle. The
+enforcement boundary is exactly **one** config key, the reference monitor's
+master write switch; the tiers additionally differ in presentation — the
+write-armed terminal gets the full expert workspace with the EVENTS and
+BLUESKY control panels, the read-only one a chat-first simple surface without
+them:
 
 .. list-table::
    :header-rows: 1
@@ -314,15 +327,15 @@ switch:
      - ``control_system.writes_enabled``
      - What that means in the session
    * - **alice**
-     - ``false``
-     - Read-only. Channel reads, the channel finder, the archiver, and logbook
-       search all work — but every write surface refuses: channel writes,
-       read-write Python execution, all of it, from the single switch.
-   * - **bob**
      - ``true``
      - Write-capable — and supervised, not unguarded. A channel write still
        passes the writes-check hook, per-channel min/max limits, and a human
        approval prompt before the connector executes it.
+   * - **bob**
+     - ``false``
+     - Read-only. Channel reads, the channel finder, the archiver, and logbook
+       search all work — but every write surface refuses: channel writes,
+       read-write Python execution, all of it, from the single switch.
 
 The posture is a property of the **session**, not a statement about the
 person: which teammates get a write-capable tier is your roster's call, and
@@ -335,17 +348,19 @@ user's terminal and ask both agents to do the same two things:
 **Read.** Ask either agent about a channel — a corrector setpoint, a BPM
 reading. Both sessions answer identically: reads are ungated on both tiers.
 
-**Write.** Ask each agent to change a setpoint. In bob's session the write
-goes to a human approval prompt, then executes. In alice's session the same
-request is **refused**: the write tool is denied in her project's rendered
-permissions, and the refusal states plainly that writes are disabled in her
+**Write.** Ask each agent to change a setpoint. In alice's session the write
+goes to a human approval prompt, then executes. In bob's session the same
+request is **refused**: the write tool is denied in his project's rendered
+permissions, and the refusal states plainly that writes are disabled in his
 configuration.
 
 Both agents carry the *same* tool surface — the readonly tier is not a
 stripped-down agent that never heard of writing. It is the same agent whose
 write path is switched off in its own project, which is exactly what you want
 to demonstrate to a control room: the boundary holds at the enforcement layer,
-not at the menu.
+not at the menu. (The readonly terminal's leaner look — no EVENTS/BLUESKY
+tabs, chat-first layout — is presentation for the viewer tier, not the
+boundary itself: the refusal above fires with or without it.)
 
 Logging out and switching users
 -------------------------------
@@ -368,7 +383,7 @@ clicking a card on the landing page opens that terminal, and anyone who can
 reach the nginx port can click any card. That posture suits a **single trusted
 host** — a workstation or control-room machine you already trust — and nothing
 beyond it. It is the walkthrough's choice, not a limit of the stack: it keeps
-one ``osprey deploy up`` on a laptop free of certificates and identity
+one ``osprey up`` on a laptop free of certificates and identity
 providers. No preset ships with login enabled, so this is something you turn on
 deliberately.
 
@@ -451,7 +466,7 @@ secret — it is the identifier your provider already publishes for that person.
    issue a new one rather than trying to escape it — escaping is not portable
    between container runtimes, so there is no spelling that works everywhere.
 
-   ``osprey deploy`` refuses to start a stack whose secrets would be corrupted
+   ``osprey up`` refuses to start a stack whose secrets would be corrupted
    this way and names the offending variables, so you find out before the
    deployment is running rather than after someone cannot log in.
 
@@ -467,7 +482,7 @@ session stays valid, in **whole seconds** (default ``43200``, twelve hours); and
 ``auth.image`` names the service's image, which is **required** when
 ``image_source: registry`` — your CI publishes that image the same way it
 publishes the terminal images. In ``image_source: local`` mode
-``osprey deploy up`` builds it for you and ``auth.image`` is not needed.
+``osprey up`` builds it for you and ``auth.image`` is not needed.
 
 .. warning::
 
@@ -538,7 +553,7 @@ where you accept that risk is the only other case for it.
 Passwords, and where they live
 ------------------------------
 
-In password mode ``osprey deploy up`` makes sure every user on the roster has a
+In password mode ``osprey up`` makes sure every user on the roster has a
 password hash before it starts anything, and aborts before a single container
 starts if it cannot — an unwritable file is caught here rather than becoming a
 stack nobody can log in to. The same check covers the keys used to sign session
@@ -572,7 +587,7 @@ To change a password later:
 
 .. code-block:: bash
 
-   osprey deploy passwd alice
+   osprey users passwd alice
 
 It prompts (never echoing), rewrites that one hash, and restarts the
 authentication service. Alice's existing sessions stop working immediately, and
@@ -596,8 +611,8 @@ ends that one user's session and leaves the others alone.
 Removing someone needs care, because a credential can outlive the person's
 account in three different ways:
 
-**Use** ``osprey deploy decommission alice`` **, not a hand-edit.** Deleting a
-roster entry and running ``osprey deploy up`` removes alice's container, and the
+**Use** ``osprey users remove alice`` **, not a hand-edit.** Deleting a
+roster entry and running ``osprey up`` removes alice's container, and the
 authentication service stops answering for a name that is no longer on the
 roster — but her hash stays in ``.env.auth``. Add the name back months later and
 her old password works again. ``decommission`` (or ``prune``, for names already
@@ -606,7 +621,7 @@ edited out) is what actually retires the credential.
 **A plaintext password in** ``.env`` **survives decommission.** If you seeded
 alice's password by putting ``OSPREY_AUTH_PW_ALICE`` in the project's ``.env``,
 decommissioning her clears the hash but leaves that line — and the next
-``osprey deploy up`` for a new alice hashes it straight back in, handing the new
+``osprey up`` for a new alice hashes it straight back in, handing the new
 person the departed one's password. The decommission warns you, but the warning
 scrolls past in a deploy log weeks before anyone reuses the name. **Delete the**
 ``.env`` **line by hand when the person leaves.**
@@ -618,7 +633,7 @@ user has none. Their container is gone either way, so the stale route just
 fails; but if what you need is that person's *session* closed now, run
 ``decommission``.
 
-To turn login back off, set ``auth.method: none`` and run ``osprey deploy up``.
+To turn login back off, set ``auth.method: none`` and run ``osprey up``.
 That re-renders nginx and the compose file, drops the authentication service,
 and returns the stack to the open posture described at the top of this section.
 ``.env.auth`` is left in place, so turning login on again keeps everyone's
@@ -641,5 +656,5 @@ Related pages
       :link: deploy-project
       :link-type: doc
 
-      The ``osprey deploy`` lifecycle the multi-user stack rides on:
-      up, status, down, and the service containers.
+      The lifecycle the multi-user stack rides on: build, up, status, down,
+      and the service containers.

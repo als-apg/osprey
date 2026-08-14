@@ -28,6 +28,7 @@ sections say — including when they are absent entirely.
 from __future__ import annotations
 
 import logging
+import subprocess
 
 import pytest
 
@@ -51,8 +52,11 @@ def captured_argv(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False):
+    def _fake_run(cmd, env=None, check=False, **kwargs):
         captured["cmd"] = cmd
+        # run_captured hangs its spool path off the result, so the stand-in has
+        # to be an object, and it passes redirection kwargs this ignores.
+        return subprocess.CompletedProcess(list(cmd), 0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     return captured
@@ -94,7 +98,7 @@ def _config(**overrides) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# The posture no longer changes what is minted.
+# The posture does not change what is minted.
 # ---------------------------------------------------------------------------
 
 
@@ -197,15 +201,14 @@ def test_minted_key_set_is_identical_across_every_posture(_clean_token_env, tmp_
     )
 
 
-def test_mint_logs_no_withholding_warning_under_the_formerly_guarded_posture(
+def test_mint_logs_no_withholding_warning_under_any_posture(
     captured_argv, _clean_token_env, monkeypatch, tmp_path, caplog
 ):
-    """The guard's operator-facing half is gone too.
+    """The operator-facing half must be silent too.
 
-    It warned, per var, that a token had been withheld. A deploy that mints
-    everything must not still be telling operators something was held back —
-    that text is what sent them looking for a safety property that was never
-    there.
+    A per-var warning that a token had been withheld would tell operators
+    something was held back when a deploy mints everything — text that sends
+    them looking for a safety property that is not there.
     """
     config = _config(
         control_system={"writes_enabled": True},
@@ -217,8 +220,15 @@ def test_mint_logs_no_withholding_warning_under_the_formerly_guarded_posture(
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
     # caplog's handler already calls record.getMessage(), so r.message is the
-    # final rendered string.
-    warnings = " ".join(r.message for r in caplog.records if r.levelno >= logging.WARNING).lower()
+    # final rendered string. Scoped to the logger this test opened, because the
+    # claim is about what the MINT says: an unscoped sweep also reads warnings
+    # that echo a filesystem path, and pytest names ``tmp_path`` after the test
+    # — so this test's own name would match its own assertion.
+    warnings = " ".join(
+        r.message
+        for r in caplog.records
+        if r.levelno >= logging.WARNING and r.name == "deployment.lifecycle"
+    ).lower()
     assert "withheld" not in warnings
     assert "withholding" not in warnings
     assert "bluesky_launch_token" not in warnings
@@ -252,7 +262,7 @@ def test_dispatch_tokens_mint_alongside_bluesky_under_writes_enabled_local(
 def test_a_new_services_token_mints_without_being_triaged_first(
     captured_argv, _clean_token_env, monkeypatch, tmp_path
 ):
-    """Declaring a var is now sufficient — there is no allowlist to be added to.
+    """Declaring a var is sufficient — there is no allowlist to be added to.
 
     Under the old fail-closed allowlist an untriaged var was withheld by
     omission, so a service added without an accompanying allowlist edit
@@ -348,8 +358,9 @@ def test_explicitly_empty_value_is_left_empty_not_minted(
     """``TOKEN=`` is a deliberate value: the operator is choosing a fail-closed bridge.
 
     Minting over it would override that choice. On a loopback deploy the
-    service simply fails closed on its own; only ``--expose`` refuses (covered
-    in ``test_bluesky_token_mint.py``).
+    service simply fails closed on its own; only a deployment the build
+    rendered as reachable off-host refuses (covered in
+    ``test_bluesky_token_mint.py``).
     """
     (tmp_path / ".env").write_text("BLUESKY_LAUNCH_TOKEN=\n", encoding="utf-8")
     config = _config(

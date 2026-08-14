@@ -149,6 +149,17 @@ def test_docker_url_chosen_via_dockerenv(monkeypatch):
     assert check.params["url"] == "http://matlab:9000/mcp"
 
 
+def test_docker_url_chosen_via_podman_containerenv(monkeypatch):
+    # Podman writes /run/.containerenv and no /.dockerenv, so a Docker-only
+    # probe read every podman deployment as a host and sent the derived MCP
+    # probes at host_url from inside the container.
+    monkeypatch.delenv("OSPREY_IN_CONTAINER", raising=False)
+    monkeypatch.setattr("os.path.exists", lambda p: p == "/run/.containerenv")
+    record = derive_mcp_servers(_settings(), _expanded({"matlab": _server()}))
+    check = _only_check(record)
+    assert check.params["url"] == "http://matlab:9000/mcp"
+
+
 def test_docker_url_chosen_via_env_flag(monkeypatch):
     monkeypatch.setattr("os.path.exists", lambda p: False)
     monkeypatch.setenv("OSPREY_IN_CONTAINER", "1")

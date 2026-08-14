@@ -66,3 +66,45 @@ def dead_container_logs(project_prefix: str) -> str:
     if not sections:
         return "(no stopped containers found for this deployment)"
     return "\n".join(sections)
+
+
+def container_logs(*names: str) -> str:
+    """Return the log tail of each NAMED container, running or not.
+
+    The companion to :func:`dead_container_logs`, for the failures where every
+    container is up and the fault is in what one of them DID -- a service that
+    logged a warning and carried on. ``dead_container_logs`` skips those by
+    design; this reads them by name.
+
+    Best-effort in the same way: only ever called on an already-failing path,
+    so it reports collection failures inline instead of raising over the real
+    error.
+    """
+    sections: list[str] = []
+    for name in names:
+        try:
+            logs = subprocess.run(
+                ["docker", "logs", "--tail", str(LOG_TAIL_LINES), name],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            sections.append(f"--- {name} --- (logs unavailable: {exc})")
+            continue
+        sections.append(f"--- {name} ---\n{logs.stdout}\n{logs.stderr}")
+    return "\n".join(sections)
+
+
+def queue_stack_logs(project_prefix: str) -> str:
+    """Log tails from the two containers that own the RE worker environment.
+
+    The evidence a "the worker environment never opened" failure needs and
+    that a torn-down stack cannot be asked for afterwards: the bridge logs its
+    startup open at WARNING when it fails (``app.py``'s
+    ``_open_environment_at_startup``), and the manager's own side of the same
+    story is in the queueserver's log.
+    """
+    return container_logs(
+        f"{project_prefix}-bluesky-bridge", f"{project_prefix}-bluesky-queueserver"
+    )

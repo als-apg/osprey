@@ -1,6 +1,6 @@
 """E2E tests for the ``pyat-specialist`` framework subagent.
 
-Two halves share one project-build path:
+Two halves share one deployment-build path:
 
 - **Delegation** (:func:`test_pyat_specialist_delegation`): an operator-style,
   unambiguously *computational* lattice question must route to the
@@ -40,6 +40,7 @@ from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     SDKWorkflowResult,
+    agent_data_dir,
     e2e_budget_scale,
     init_project,
     is_claude_code_available,
@@ -117,7 +118,7 @@ async def test_pyat_specialist_delegation(tmp_path: Path) -> None:
       would mean the readonly pin was ignored and would risk a write-approval
       block in headless mode.
     """
-    project = init_project(tmp_path, "pyat_del", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "pyat_del", template="control_assistant", provider="als-apg")
     prompt = (
         "For the storage ring, compute the horizontal and vertical beta "
         "functions at every beam position monitor and report the fractional "
@@ -129,7 +130,7 @@ async def test_pyat_specialist_delegation(tmp_path: Path) -> None:
     # approval "ask" hook, and the plain ``run_sdk_query`` (bypassPermissions,
     # no callback) would DENY it — the subagent's compute would never run.
     result = await run_sdk_query_with_hooks(
-        project, prompt, approval_policy="auto_approve", max_turns=25, max_budget_usd=2.0
+        repo, prompt, approval_policy="auto_approve", max_turns=25, max_budget_usd=2.0
     )
 
     _print_trace_debug("pyat-specialist delegation", result)
@@ -294,17 +295,17 @@ def _resolve_two_plane(cands: list, label: str) -> tuple[float, float]:
     raise AssertionError(f"could not resolve horizontal/vertical {label} from saved keys: {cands}")
 
 
-def _load_results_artifacts(project_dir: Path) -> list[tuple[dict, dict]]:
+def _load_results_artifacts(repo: Path) -> list[tuple[dict, dict]]:
     """Return ``[(index_entry, parsed_json)]`` for the subagent's results artifacts.
 
     SDK e2e runs the artifact store **unscoped** (``OSPREY_SESSION_ID`` unset),
-    so the shared root ``<project_dir>/_agent_data/artifacts/`` holds every
+    so the shared root ``<repo>/var/agent_data/artifacts/`` holds every
     artifact this run produced. Filter to ``artifact_type == 'json'`` AND
     ``category != 'code_output'`` — the latter drops the executor's auto-saved
     code+stdout wrapper (also stored as json), leaving the ``save_artifact``
     results dicts.
     """
-    index_path = project_dir / "_agent_data" / "artifacts" / "artifacts.json"
+    index_path = agent_data_dir(repo) / "artifacts" / "artifacts.json"
     assert index_path.exists(), (
         "No artifact index at "
         f"{index_path} — the pyat-specialist never saved a results artifact. "
@@ -356,7 +357,7 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     in-test with the identical 4D recipe. The LLM judge only confirms the prose
     labels the answer as simulation-derived — it never sees or grades a number.
     """
-    project = init_project(tmp_path, "pyat_grd", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "pyat_grd", template="control_assistant", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     prompt = (
         "For the storage ring, compute and report the fractional betatron "
@@ -367,7 +368,7 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     # See the delegation test: the executor's approval "ask" hook needs the
     # auto-approve callback, or the compute (and its saved artifact) never runs.
     result = await run_sdk_query_with_hooks(
-        project, prompt, approval_policy="auto_approve", max_turns=25, max_budget_usd=2.0
+        repo, prompt, approval_policy="auto_approve", max_turns=25, max_budget_usd=2.0
     )
 
     _print_trace_debug("pyat-specialist grounding", result)
@@ -378,12 +379,12 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     # --- Numeric grounding: read exact floats from the results artifact(s) ---
 
     truth = _ground_truth()
-    results = _load_results_artifacts(project)
+    results = _load_results_artifacts(repo)
     assert results, (
         "No results JSON artifact found (artifact_type=='json' and "
         "category!='code_output'). The subagent must save its computed "
         "quantities via save_artifact(dict, ...). Index entries seen: "
-        f"{[(e.get('artifact_type'), e.get('category')) for e, _ in _all_index_entries(project)]}"
+        f"{[(e.get('artifact_type'), e.get('category')) for e, _ in _all_index_entries(repo)]}"
     )
 
     # Union the leaves across every results artifact so the check is robust to a
@@ -464,10 +465,10 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     assert result_eval.passed, result_eval.reasoning
 
 
-def _all_index_entries(project_dir: Path) -> list[tuple[dict, dict]]:
+def _all_index_entries(repo: Path) -> list[tuple[dict, dict]]:
     """Every json artifact index entry (unfiltered) — used only to enrich a
     failure message when no results artifact is found."""
-    index_path = project_dir / "_agent_data" / "artifacts" / "artifacts.json"
+    index_path = agent_data_dir(repo) / "artifacts" / "artifacts.json"
     if not index_path.exists():
         return []
     try:

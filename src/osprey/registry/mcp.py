@@ -15,8 +15,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from osprey import bluesky_tool_names as bsky
+from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
 
 logger = logging.getLogger(__name__)
+
+#: ``OSPREY_CONFIG`` / ``CONFIG_FILE`` value for every framework server, as an
+#: unresolved template — :func:`_resolve_placeholder` substitutes
+#: ``{project_root}`` at render time. The env vars themselves are the runtime
+#: contract every server reads and are deliberately untouched; only the path
+#: they carry moved, from the repo root into the render zone beside it.
+RENDERED_CONFIG_ENV_VALUE = f"{{project_root}}/{RENDERED_CONFIG_RELPATH}"
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +127,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         name="controls",
         module="osprey.mcp_server.control_system",
         env={
-            "OSPREY_CONFIG": "{project_root}/config.yml",
-            "CONFIG_FILE": "{project_root}/config.yml",
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
             "EPICS_CA_ADDR_LIST": "${EPICS_CA_ADDR_LIST:-}",
         },
         permissions_allow=["channel_limits"],
@@ -149,8 +157,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # config as claude_code.servers.<name>.extends: phoebus — see build_extended_server().
         default_enabled=False,
         env={
-            "OSPREY_CONFIG": "{project_root}/config.yml",
-            "CONFIG_FILE": "{project_root}/config.yml",
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
             # Full-URL override of the in-JVM bridge (default 127.0.0.1:7979).
             "PHOEBUS_BRIDGE_URL": "${PHOEBUS_BRIDGE_URL:-http://127.0.0.1:7979}",
             # Instance identity — tools tag UI signals with it (open_panel →
@@ -182,8 +190,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         name="python",
         module="osprey.mcp_server.python_executor",
         env={
-            "OSPREY_CONFIG": "{project_root}/config.yml",
-            "CONFIG_FILE": "{project_root}/config.yml",
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         permissions_allow=[],
         permissions_ask=["execute"],
@@ -199,11 +207,11 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         name="osprey_workspace",
         module="osprey.mcp_server.workspace",
         env={
-            "OSPREY_CONFIG": "{project_root}/config.yml",
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
             # osprey.utils.config reads CONFIG_FILE (not OSPREY_CONFIG); set both
             # so the server resolves config even when launched with a CWD other
             # than the project dir (e.g. the dispatch worker's /app WORKDIR).
-            "CONFIG_FILE": "{project_root}/config.yml",
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         permissions_allow=[
             "facility_description",
@@ -251,9 +259,9 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         name="ariel",
         module="osprey.mcp_server.ariel",
         env={
-            "OSPREY_CONFIG": "{project_root}/config.yml",
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
             # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
-            "CONFIG_FILE": "{project_root}/config.yml",
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
             "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         },
         permissions_allow=[
@@ -280,7 +288,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         name="osprey_facility_knowledge",
         module="osprey.mcp_server.facility_knowledge",
         env={
-            "OSPREY_CONFIG": "{project_root}/config.yml",
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
         },
         permissions_allow=["capabilities", "list_concepts", "read_concept", "search"],
         permissions_ask=["draft_concept"],
@@ -300,8 +308,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # facility-side Bluesky bridge process (mirrors phoebus's opt-in reasoning).
         default_enabled=False,
         env={
-            "OSPREY_CONFIG": "{project_root}/config.yml",
-            "CONFIG_FILE": "{project_root}/config.yml",
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
             "BLUESKY_BRIDGE_URL": "${BLUESKY_BRIDGE_URL:-http://127.0.0.1:8090}",
             "BLUESKY_LAUNCH_TOKEN": "${BLUESKY_LAUNCH_TOKEN:-}",
         },
@@ -310,6 +318,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         permissions_allow=[
             bsky.GET_RUN,
             bsky.LIST_PLANS,
+            bsky.LIST_DEVICES,
             bsky.LIST_RUNS,
             bsky.GET_RUN_DATA,
             # Draft tools never touch hardware — editing the shared
@@ -396,9 +405,9 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # cannot steer the read at call time, so there is nothing to gate.
         default_enabled=False,
         env={
-            "OSPREY_CONFIG": "{project_root}/config.yml",
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
             # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
-            "CONFIG_FILE": "{project_root}/config.yml",
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         permissions_allow=["health_check"],
         permissions_ask=["health_check_full"],
@@ -408,9 +417,9 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         name="channel-finder",
         module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",
         env={
-            "OSPREY_CONFIG": "{project_root}/config.yml",
+            "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
             # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
-            "CONFIG_FILE": "{project_root}/config.yml",
+            "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         condition="channel_finder_pipeline",
         # permissions_allow is populated dynamically from
@@ -585,8 +594,8 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
             # Custom server
             if not spec.get("command") and not spec.get("url"):
                 # Never emit a broken {"command": ""} entry into .mcp.json —
-                # e.g. a legacy 'phoebus2: {enabled: true}' spec left over from
-                # when phoebus2 was a framework server.
+                # e.g. a 'phoebus2: {enabled: true}' spec naming a server no
+                # framework entry defines.
                 logger.warning(
                     "Server %r has none of 'extends'/'command'/'url' — skipping "
                     "(a second framework-server instance is declared via "

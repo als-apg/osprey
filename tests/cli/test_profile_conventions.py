@@ -3,6 +3,11 @@
 Covers the canonical mapping itself, the ``project/`` mirror's reserved-path
 rejection (each error must name the channel that owns the path), the up-front
 source validation, and the unknown-root-entry typo warning.
+
+The ``zone``-named group at the end pins the three-zone repo layout: the repo
+root is the profile root, so the layout's own directories must be recognized
+rather than warned about, and the warning's remedy must not send an operator
+looking for a nested ``profile/`` directory that does not exist.
 """
 
 from __future__ import annotations
@@ -13,9 +18,13 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.profile_conventions import (
+    BUILD_OUTPUT_DIR,
     CONVENTION_DIRS,
     CONVENTION_SOURCES,
+    KNOWN_ROOT_ENTRIES,
+    PROJECT_MIRROR_DIR,
     RESERVED_PROJECT_PATHS,
+    STATE_DIR,
     ConventionDir,
     EntryShape,
     convention_for,
@@ -560,3 +569,134 @@ def test_warn_unknown_root_entries_is_quiet_on_a_clean_profile(
     with caplog.at_level(logging.WARNING):
         assert warn_unknown_root_entries(profile_dir) == []
     assert caplog.text == ""
+
+
+# ── Three-zone repo root ─────────────────────────────────────────────
+#
+# The repo root IS the profile root: source, secrets, output and state sit in
+# one directory. Every test below carries `zone` in its name so the layout's
+# properties can be run as one group.
+
+
+@pytest.fixture
+def zone_repo(tmp_path: Path) -> Path:
+    """A complete three-zone deployment repo, hand-built from the layout.
+
+    Source at the root (no nesting), the git-ignored `.env`, and both generated
+    zones present — the shape `osprey init` emits and every build reads.
+    """
+    repo = tmp_path / "als-exemplar"
+    repo.mkdir()
+
+    # SOURCE — tracked, user-edited.
+    _write(repo / "profile.yml", "name: als-exemplar\n")
+    _write(repo / "triggers.yml")
+    (repo / "data").mkdir()
+    (repo / "personas").mkdir()
+    _write(repo / "rules" / "safety.md")
+    _write(repo / "web-terminal-context" / "operator" / "CONTEXT.md")
+    _write(repo / "README.md")
+    _write(repo / ".gitignore", "/build/\n/var/\n/.env*\n!.env.example\n")
+    _write(repo / ".gitlab-ci.yml")
+    _write(repo / "ci-extra.yml")
+    _write(repo / "scripts" / "verify.sh")
+
+    # SECRETS — ignored, durable.
+    _write(repo / ".env")
+    _write(repo / ".env.example")
+
+    # OUTPUT — ignored, disposable.
+    _write(repo / "build" / "config.yml")
+
+    # STATE — ignored, durable.
+    (repo / "var" / "agent_data").mkdir(parents=True)
+    (repo / "var" / "audit").mkdir(parents=True)
+
+    return repo
+
+
+def test_zone_repo_root_warns_about_nothing(zone_repo: Path):
+    """SC-9: a freshly init'ed repo builds with zero unknown-root-entry warnings."""
+    assert unknown_root_entries(zone_repo) == []
+
+
+def test_zone_repo_root_is_silent_through_the_warning_path(
+    zone_repo: Path, caplog: pytest.LogCaptureFixture
+):
+    """SC-9 through the caller's door — the build calls `warn_`, not `unknown_`."""
+    with caplog.at_level(logging.WARNING):
+        assert warn_unknown_root_entries(zone_repo) == []
+    assert caplog.text == ""
+
+
+@pytest.mark.parametrize("entry", ["build", "var", "scripts", "ci-extra.yml"])
+def test_zone_entry_is_known_on_its_own(profile_dir: Path, entry: str):
+    """Each zone entry stands alone: the layout is not all-or-nothing."""
+    if entry.endswith(".yml"):
+        _write(profile_dir / entry)
+    else:
+        (profile_dir / entry).mkdir()
+    assert unknown_root_entries(profile_dir) == []
+
+
+def test_zone_generated_dirnames_are_the_ones_the_table_knows():
+    """The exported spellings and the warning's table cannot drift apart: init
+    creates these directories and build wipes one, all from these constants."""
+    assert BUILD_OUTPUT_DIR in KNOWN_ROOT_ENTRIES
+    assert STATE_DIR in KNOWN_ROOT_ENTRIES
+
+
+def test_zone_layout_still_flags_a_genuinely_stray_entry(zone_repo: Path):
+    """The other half of SC-9: recognizing the zones must not blind the check."""
+    (zone_repo / "ioc").mkdir()
+    _write(zone_repo / "rule" / "safety.md")
+    assert unknown_root_entries(zone_repo) == ["ioc", "rule"]
+
+
+def test_zone_remedy_does_not_instruct_nesting(zone_repo: Path, caplog: pytest.LogCaptureFixture):
+    """The remedy must not tell operators to nest the profile in a
+    profile/ directory. Source lives at the repo root."""
+    (zone_repo / "ioc").mkdir()
+    with caplog.at_level(logging.WARNING):
+        warn_unknown_root_entries(zone_repo)
+
+    assert "profile/profile.yml" not in caplog.text
+    assert "nested profile/" not in caplog.text
+    assert "repo root and the profile root at once" in caplog.text
+
+
+def test_zone_remedy_names_the_channel_to_move_an_entry_into(
+    zone_repo: Path, caplog: pytest.LogCaptureFixture
+):
+    """An operator with material that *should* reach the deployment needs the
+    way in, since nesting it away is not an answer."""
+    (zone_repo / "ioc").mkdir()
+    with caplog.at_level(logging.WARNING):
+        warn_unknown_root_entries(zone_repo)
+
+    assert f"{PROJECT_MIRROR_DIR}/" in caplog.text
+    assert "channel that carries it" in caplog.text
+    assert "repo-local material" in caplog.text
+    assert "leaving it here costs nothing" in caplog.text
+
+
+def test_zone_remedy_keeps_the_typo_answer(profile_dir: Path, caplog: pytest.LogCaptureFixture):
+    """The original cause still gets its own answer: the convention list."""
+    (profile_dir / "rule").mkdir()
+    with caplog.at_level(logging.WARNING):
+        assert warn_unknown_root_entries(profile_dir) == ["rule"]
+
+    assert "check for a typo" in caplog.text
+    assert "rules/" in caplog.text
+
+
+def test_zone_remedy_names_the_repo_it_is_judging(
+    zone_repo: Path, caplog: pytest.LogCaptureFixture
+):
+    """Without the path, an operator building several repos cannot tell which
+    one the advice is about."""
+    (zone_repo / "ioc").mkdir()
+    with caplog.at_level(logging.WARNING):
+        warn_unknown_root_entries(zone_repo)
+
+    assert str(zone_repo) in caplog.text

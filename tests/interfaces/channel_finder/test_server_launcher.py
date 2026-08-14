@@ -131,8 +131,8 @@ class TestEnsureRunningOwnership:
         """A /health 200 with no real listener must NOT suppress the launch.
 
         This is the core bug: `_is_running()` returning True (stale/foreign
-        responder) previously short-circuited the launch even though nothing
-        was actually bound to the port.
+        responder) must not short-circuit the launch when nothing is actually
+        bound to the port.
         """
         launcher = _make_launcher("127.0.0.1", _free_port())
 

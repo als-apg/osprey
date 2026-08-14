@@ -91,6 +91,17 @@ def test_injector_does_not_register_results_on_a_fresh_build(project_path: Path)
     assert "results" not in _read_panels(project_path)
 
 
+def test_injector_does_not_register_plan_on_a_fresh_build(project_path: Path) -> None:
+    """Same rule for the PLAN panel, which is the Plans tab of BLUESKY: registering
+    ``plan`` here would put two rail entries in front of the same panel, on
+    every new project and on every rebuild."""
+    _write_config(project_path)
+
+    _inject_bluesky_panels(BlueskyPanelsConfig(), project_path=project_path)
+
+    assert "plan" not in _read_panels(project_path)
+
+
 def test_injector_warns_about_nothing_on_a_fresh_build(
     project_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -150,7 +161,7 @@ def test_profile_listing_bluesky_validates_without_warning(tmp_path: Path) -> No
     """The new spelling is url-less-legal too — and silent."""
     profile = BuildProfile(
         name="modern",
-        web_panels=["plan", "bluesky"],
+        web_panels=["bluesky"],
         bluesky_panels=BlueskyPanelsConfig(),
     )
 
@@ -158,6 +169,43 @@ def test_profile_listing_bluesky_validates_without_warning(tmp_path: Path) -> No
         # A UserWarning here means the new spelling is being deprecated too.
         warnings.simplefilter("error", UserWarning)
         profile.validate(tmp_path)
+
+
+def test_profile_listing_plan_warns_naming_the_merge_and_the_window(
+    tmp_path: Path,
+) -> None:
+    """Same contract for the PLAN panel, which is the Plans tab of BLUESKY: the
+    warning has to say what the id became and how long it keeps working."""
+    profile = BuildProfile(
+        name="legacy",
+        web_panels=["plan"],
+        bluesky_panels=BlueskyPanelsConfig(),
+    )
+
+    with pytest.warns(UserWarning) as record:
+        profile.validate(tmp_path)
+
+    message = str(record[0].message)
+    assert "plan" in message
+    assert "BLUESKY" in message
+    assert "ONE release" in message
+
+
+def test_injector_warns_on_a_pre_merge_plan_override(
+    project_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The injector's own view of the pre-merge spelling: a
+    ``web.panels.plan.*`` override merged into config.yml earlier in the build
+    (or a config.yml built before the merge and rebuilt in place). It is
+    completed rather than dropped, because the sidecar still serves the merged
+    bundle at ``/plan/``."""
+    _write_config(project_path, panels={"plan": {"label": "PLAN"}})
+
+    with caplog.at_level(logging.WARNING, logger="osprey.cli.build_injectors"):
+        _inject_bluesky_panels(BlueskyPanelsConfig(), project_path=project_path)
+
+    assert "web.panels.plan is deprecated" in caplog.text
+    assert "web.panels.bluesky" in caplog.text
 
 
 def test_injector_warns_on_a_pre_rename_results_override(
@@ -224,8 +272,8 @@ def test_a_legacy_results_path_resolves_to_the_bluesky_bundle(project_path: Path
     assert bundle_of[legacy_mount] == bundle_of[current_mount]
 
 
-def test_a_legacy_results_path_actually_serves_the_panel(project_path: Path) -> None:
-    """The operator-visible half: the registered path returns the panel's HTML.
+def test_a_legacy_panel_path_actually_serves_the_panel(project_path: Path) -> None:
+    """The operator-visible half: every registered path returns the panel's HTML.
 
     A mount can be registered against an empty directory and still 404 (see
     ``tests/interfaces/bluesky_panels/test_health.py``), which would leave this
@@ -235,13 +283,13 @@ def test_a_legacy_results_path_actually_serves_the_panel(project_path: Path) -> 
 
     from osprey.interfaces.bluesky_panels.app import app
 
-    _write_config(project_path, panels={"results": {"label": "RESULTS"}})
+    _write_config(project_path, panels={"results": {"label": "RESULTS"}, "plan": {"label": "PLAN"}})
     _inject_bluesky_panels(BlueskyPanelsConfig(), project_path=project_path)
 
     panels = _read_panels(project_path)
 
     with TestClient(app) as client:
-        for panel_id in ("results", "bluesky"):
+        for panel_id in ("results", "plan", "bluesky"):
             response = client.get(panels[panel_id]["path"])
             assert response.status_code == 200, panel_id
             assert "text/html" in response.headers["content-type"], panel_id

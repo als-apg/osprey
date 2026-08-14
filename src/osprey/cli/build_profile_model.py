@@ -172,7 +172,7 @@ class BuildProfile:
     :mod:`osprey.cli.build_profile_archiver`).
     """
     provenance: ProfileProvenance | None = None
-    """What ``osprey profile new`` materialized this profile from (``provenance:``).
+    """What ``osprey init`` materialized this profile from (``provenance:``).
 
     ``None`` for a bundled preset and for a hand-written profile, neither of
     which was materialized from anything. Carried through resolution unchanged:
@@ -533,10 +533,11 @@ class BuildProfile:
             # (``_inject_bluesky_panels`` in build_cmd.py, which runs after this
             # validator) from the bluesky_panels sidecar's port — so they are
             # legitimately url-less here when a bluesky_panels block is present.
-            # ``results`` is the pre-rename spelling of ``bluesky``, accepted
-            # for one release rather than failing the build of a profile that
-            # predates the rename; the sidecar serves the same bundle at both
-            # /results/ and /bluesky/ for exactly that window.
+            # ``results`` is the pre-rename spelling of ``bluesky`` and ``plan``
+            # is the pre-merge spelling of its Plans tab; both are accepted for
+            # one release rather than failing the build of a profile that
+            # predates the change, because the sidecar serves the same bundle at
+            # /results/ and /plan/ for exactly that window.
             if (
                 panel in ("plan", "bluesky", "results", "health")
                 and self.bluesky_panels is not None
@@ -548,6 +549,16 @@ class BuildProfile:
                         "override to web.panels.bluesky.*). The old id keeps working for ONE "
                         "release — the bluesky-panels sidecar serves the same bundle at "
                         "/results/ — and is removed after that.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                if panel == "plan":
+                    warnings.warn(
+                        "web_panels entry 'plan' is deprecated: the PLAN panel is now the "
+                        "Plans tab of BLUESKY. Drop it (and any web.panels.plan.* config "
+                        "override); 'bluesky' covers it. The old id keeps working for ONE "
+                        "release — the bluesky-panels sidecar serves the same bundle at "
+                        "/plan/ — and is removed after that.",
                         UserWarning,
                         stacklevel=2,
                     )

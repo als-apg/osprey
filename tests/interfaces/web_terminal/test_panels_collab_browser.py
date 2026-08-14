@@ -569,17 +569,9 @@ def test_arrange_converges_from_two_layouts_without_a_report_loop(tmp_path, chro
         _open_beside(page_b, "scope")
         _open_beside(page_b, "data-viz")
 
-        # Opening a tile reports the focus, and a focus IS broadcast — every
-        # client applies it with its own takeover semantics, so B's setup has
-        # meanwhile swapped the panel in A's single tile. A's start layout is
-        # therefore established last, with a plain rail click (which only moves
-        # focus on B, where artifacts already holds a tile of its own). Wait for
-        # B's LAST focus to have landed on A first, or the click races it and
-        # the takeover happens in the wrong order.
-        expect(
-            page_a.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
-        ).to_have_count(1, timeout=10_000)
-        page_a.locator('button.panel-rail-button[data-panel-id="artifacts"]').click()
+        # B's open-beside gestures report their focus but broadcast nothing —
+        # human focus stays local — so A's boot layout (artifacts alone) is
+        # untouched by B's setup and needs no re-establishing.
         _wait_for_client_tiles(page_a, ["artifacts"])
         assert _client_open_tiles(page_b) == ["artifacts", "scope", "data-viz"], _client_open_tiles(
             page_b
@@ -740,9 +732,9 @@ def _apply_preset_by_click(page: Page) -> None:
 def test_preset_click_and_agent_preset_call_are_the_same_operation(tmp_path, chromium_browser):
     """A "Layouts" click and ``arrange_workspace(preset=…)`` produce one workspace.
 
-    Presets used to be applied by the browser, panel by panel; the agent had no
-    way to ask for one. Both paths now resolve the same preset server-side and
-    broadcast the same arrangement, so the claim to prove is equality of the
+    Both paths resolve the same preset server-side and broadcast the same
+    arrangement, rather than the browser applying it panel by panel, so the
+    claim to prove is equality of the
     RESULT, not of the code path: same tiles in the same order, the same focus,
     and the same pruned rail — a preset is exclusive, so the panel it omits
     leaves the launcher rail in both paths.
@@ -1067,3 +1059,84 @@ def test_occupancy_read_back_distinguishes_unknown_from_empty(tmp_path, chromium
         assert isinstance(state["open_tiles_age_s"], float), state
 
         dockless.close()
+
+
+# ===========================================================================
+# (e) Human gestures stay local: no focus command leaks, no cross-client echo
+# ===========================================================================
+
+
+def test_tile_close_with_two_tiles_commands_nothing(tmp_path, chromium_browser):
+    """A tile "×" with a SECOND service tile open still commands nothing.
+
+    The single-tile variant is pinned in the sibling suite; with two tiles the
+    close makes dockview auto-activate the surviving service tile, and that
+    activation runs outside any human focus gesture — it must stay inside the
+    echo guard exactly like retireTile's removal does, or the close leaks a
+    ``setPanelFocus`` command the design says it must not send. The assertion
+    window is generous because the leaked POST arrives asynchronously, well
+    after the tab is gone.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(workspace, enabled_panels={"artifacts"}, custom_panels=[_DATA_VIZ]) as (
+        base_url,
+        _app,
+    ):
+        page = _open_page(chromium_browser, base_url)
+        _open_beside(page, "data-viz")
+        _wait_for_client_tiles(page, ["artifacts", "data-viz"])
+        page.wait_for_timeout(800)  # drain boot/open-beside traffic
+
+        posts = _track_panel_posts(page)
+        _close_tile(page, "data-viz")
+        page.wait_for_timeout(1500)  # the leak arrives asynchronously
+
+        commands = [e for e in _endpoints(posts) if e != "panel-layout"]
+        assert commands == [], f"a human tile close must not command, got {commands}"
+
+        page.close()
+
+
+def test_human_focus_stays_local_to_the_gesturing_client(tmp_path, chromium_browser):
+    """One operator's focus gestures never move another client's workspace.
+
+    Client B opens a second tile (its activation tail reports the focus via
+    ``setPanelFocus`` — a human gesture). Client A must keep its own active
+    panel and its own tile set: human focus is a REPORT the server mirrors for
+    the agent's benefit, never a command broadcast back to other clients
+    (the contract stated in panel-commands.js and the collaborative-panels
+    design). The server-side mirror is asserted off the same gesture, so this
+    cannot pass by the report silently not landing.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(workspace, enabled_panels={"artifacts"}, custom_panels=[_DATA_VIZ]) as (
+        base_url,
+        _app,
+    ):
+        page_a = _open_page(chromium_browser, base_url)
+        _wait_for_client_tiles(page_a, ["artifacts"])
+        page_b = _open_page(chromium_browser, base_url)
+        _wait_for_client_tiles(page_b, ["artifacts"])
+        assert _active_rail_id(page_a) == "artifacts"
+
+        # B's human gesture: open data-viz beside (activation reports focus).
+        _open_beside(page_b, "data-viz")
+        _wait_for_client_tiles(page_b, ["artifacts", "data-viz"])
+
+        # The server mirrors the gesture for the agent's gaze...
+        _wait_for_active(base_url, "data-viz")
+        page_a.wait_for_timeout(1000)  # ...but no echo may reach client A:
+
+        assert _active_rail_id(page_a) == "artifacts", (
+            "client B's human focus gesture moved client A's active panel"
+        )
+        assert _client_open_tiles(page_a) == ["artifacts"], (
+            "client B's human focus gesture changed client A's tiles"
+        )
+
+        page_a.close()
+        page_b.close()

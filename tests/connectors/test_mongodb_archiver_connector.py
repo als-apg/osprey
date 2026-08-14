@@ -137,7 +137,7 @@ class TestConnectDisconnectLifecycle:
     async def test_connect_unset_password_env_var_raises_connection_error(self, mongodb_config):
         """An unset password variable is a deployment state, not a config error.
 
-        ``deploy up`` mints the password into the project's ``.env``, so this is
+        ``osprey up`` mints the password into the project's ``.env``, so this is
         exactly what a built-but-never-deployed project hits on its first
         archiver call. It must raise ConnectionError — that is what reaches the
         agent as an actionable ``connection_error`` envelope naming the fix,
@@ -151,7 +151,7 @@ class TestConnectDisconnectLifecycle:
         with pytest.raises(ConnectionError, match="NONEXISTENT_ENV_VAR.*is not set") as exc_info:
             await connector.connect(config)
 
-        assert "osprey deploy up" in str(exc_info.value)
+        assert "osprey up" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_disconnect_clears_state(self, mongodb_config):
@@ -602,7 +602,7 @@ class TestQueryShapeWithoutDocker:
             {"BEAM:CURRENT": {"$exists": True}},
             {"BEAM:LIFETIME": {"$exists": True}},
         ]
-        # The old shape ANDed a top-level key per PV; it must be gone.
+        # ANDing a top-level key per PV is wrong; none may appear.
         assert "BEAM:CURRENT" not in captured["query"]
 
     @pytest.mark.asyncio

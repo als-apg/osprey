@@ -21,13 +21,16 @@ def test_errors_shim_preserves_module_identity():
 
 def test_utils_shims_preserve_module_identity():
     import osprey.utils.config
+    import osprey.utils.dotenv
     import osprey.utils.logger
     import osprey.utils.relative_time
     import osprey_connectors.config
+    import osprey_connectors.dotenv
     import osprey_connectors.logger
     import osprey_connectors.relative_time
 
     assert osprey.utils.config is osprey_connectors.config
+    assert osprey.utils.dotenv is osprey_connectors.dotenv
     assert osprey.utils.logger is osprey_connectors.logger
     assert osprey.utils.relative_time is osprey_connectors.relative_time
 

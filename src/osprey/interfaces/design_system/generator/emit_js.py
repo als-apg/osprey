@@ -237,8 +237,7 @@ def _default_family(tree: TokenTree, defaults: dict[str, dict[str, str]]) -> str
     manifest order, so a family whose files sort before the canonical one
     can never silently become the product default. When no theme is
     flagged, fall back to the first family declared in the manifest
-    (insertion order, itself manifest/filename order -- the historical
-    behavior).
+    (insertion order, itself manifest/filename order).
 
     Shared by :func:`render_tokens_js` (which exports it as
     ``DEFAULT_FAMILY`` for ``theme-manager.js`` to read) and
@@ -349,7 +348,7 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     server-rendered ``<html data-theme>`` attribute, each validated
     against the baked-in id list (the query/storage rungs also accept the
     special ``'auto'`` value); the first candidate that validates wins,
-    and anything left over (missing or unknown/legacy) falls all the way
+    and anything left over (missing or unrecognized) falls all the way
     through to ``'auto'``. ``'auto'`` resolves via
     ``matchMedia('(prefers-color-scheme: dark)')`` against ``DEFAULTS``.
     ``data-theme`` is set synchronously as the script's last statement, so
@@ -358,7 +357,7 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     before it.
 
     Server-attribute contract (for whoever renders ``<html>`` server-side,
-    e.g. Task 1.10's web_terminal server): the boot script reads
+    e.g. the web_terminal server): the boot script reads
     ``document.documentElement.getAttribute("data-theme")`` — i.e. the
     ``data-theme`` attribute on the ``<html>`` element. It is treated as a
     candidate only when it is a non-null string present in the baked
@@ -382,8 +381,7 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     otherwise ``DEFAULT_FAMILY`` — the first family declared in the
     manifest (manifest/filename order — never re-sorted) — is the
     deterministic fallback, reached only when no server attribute is
-    present/valid (e.g. before Task 1.10 wires up server rendering, or if
-    it's ever omitted).
+    present/valid (a host that does no server rendering, or omits it).
 
     Args:
         tree: A token tree that has already passed
@@ -473,7 +471,7 @@ def render_theme_boot_js(tree: TokenTree) -> str:
 
   // The server-rendered rung (finding I4): whatever data-theme already
   // sits on <html> when this script runs, e.g. stamped by the web server
-  // from config (Task 1.10). Read once so both the resolution candidate
+  // from config. Read once so both the resolution candidate
   // below and the no-clobber check at the end use the exact same value.
   function readServerTheme() {{
     try {{

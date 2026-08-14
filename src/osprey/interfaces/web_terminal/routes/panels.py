@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
+from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
 
@@ -208,7 +209,7 @@ async def get_panels(request: Request):
     ``rail_position`` mirrors the server-rendered ``<html data-rail-position>``
     the same way, and travels with two companions: ``family_rail_defaults``
     (``app.FAMILY_RAIL_DEFAULTS``, the theme-family -> rail-position coupling
-    that makes the retro family restore the pre-redesign top tab strip) and
+    that gives the retro family a top tab strip) and
     ``rail_position_configured`` (whether ``web.rail_position`` was set
     explicitly, which outranks that coupling). ``rail-position.js`` reads both
     so a live theme-family switch can move the rail without the browser
@@ -336,6 +337,33 @@ def _known_panel_ids(request: Request) -> set[str]:
 _TERMINAL_PANEL_ID = "terminal"
 
 
+def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> None:
+    """Record an agent-origin panel command in the agent-activity history ring.
+
+    Panel commands reach the browser as their own SSE frames (``panel_focus``,
+    ``panel_visibility``, ...), never through ``POST /api/agent-activity``, so
+    without this they are invisible to a client that reads
+    ``GET /api/agent-activity/recent`` after connecting late.  The row goes in
+    through that route's own ``record_activity``, so a consumer feeds it
+    through the handler it already uses for the SSE ``agent_activity`` stream.
+
+    ``tool`` is synthetic: the panel routes carry no tool name of their own, so
+    the caller supplies the MCP verb the action corresponds to (``switch_panel``,
+    ``show_panel``, ``hide_panel``, ``arrange_workspace``, ``register_panel``)
+    and the frontend words the entry from it.
+
+    Nothing is broadcast — this is history only.  Callers must invoke it for
+    agent-origin requests exactly once per action, and never for human ones: a
+    human's own gestures are not the agent's activity.
+
+    Args:
+        request: Incoming FastAPI request carrying ``app.state``.
+        tool: Synthetic tool name naming the action.
+        panel: The panel id the action targeted.
+    """
+    record_activity(request, tool, {"kind": "panel", "panel": panel})
+
+
 class PanelFocusRequest(BaseModel):
     panel: str
     url: str | None = None
@@ -351,7 +379,15 @@ async def get_panel_focus(request: Request):
 
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
-    """Set the active panel and broadcast a focus event via SSE.
+    """Set the active panel; broadcast a focus event only for agent switches.
+
+    Attribution decides the frame's fate. An ``source: "agent"`` switch is a
+    command every client must apply, so it broadcasts. A source-less POST is a
+    human gesture REPORT (panel-commands.js's ``setPanelFocus``): the server
+    mirrors ``active_panel`` for the agent's gaze and broadcasts nothing —
+    one operator's tab switches never move another client's workspace, and
+    the gesturing client applies its own focus locally rather than riding an
+    echo.
 
     ``body.url`` (e.g. from an agent-invoked ``switch_panel`` MCP call) is
     run through ``_prefix_path()`` before broadcast so a root-absolute path
@@ -369,6 +405,11 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
 
     A panel already in the rail — which is the only kind a human can click —
     changes nothing and emits no visibility frame.
+
+    An agent switch is also mirrored into the activity history ring as one
+    ``switch_panel`` row. When the switch additionally adds rail membership,
+    only the focus is mirrored: the pair of frames is one agent action, and
+    history counts actions, not frames.
 
     Args:
         body: ``panel`` (panel id), optional ``url`` to load, and optional
@@ -408,12 +449,12 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
             visibility_event["source"] = body.source
         request.app.state.broadcaster.broadcast(visibility_event)
 
-    event: dict = {"type": "panel_focus", "panel": body.panel}
-    if body.url:
-        event["url"] = _prefix_path(body.url)
-    if body.source:
-        event["source"] = body.source
-    request.app.state.broadcaster.broadcast(event)
+    if body.source == "agent":
+        event: dict = {"type": "panel_focus", "panel": body.panel, "source": body.source}
+        if body.url:
+            event["url"] = _prefix_path(body.url)
+        _mirror_agent_panel_activity(request, "switch_panel", body.panel)
+        request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "active_panel": body.panel}
 
 
@@ -426,6 +467,10 @@ class PanelVisibilityRequest(BaseModel):
 @router.post("/api/panel-visibility")
 async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     """Show or hide a panel and broadcast the change via SSE.
+
+    An agent-origin change is also mirrored into the activity history ring, as
+    a ``show_panel`` or ``hide_panel`` row depending on the flag, so a client
+    reading the history can word it the way it words the live frame.
 
     Args:
         body: ``panel`` (panel id) and ``visible`` (desired visibility).
@@ -449,6 +494,10 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     event: dict = {"type": "panel_visibility", "panel": body.panel, "visible": body.visible}
     if body.source:
         event["source"] = body.source
+    if body.source == "agent":
+        _mirror_agent_panel_activity(
+            request, "show_panel" if body.visible else "hide_panel", body.panel
+        )
     request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "panel": body.panel, "visible": body.visible}
 
@@ -555,7 +604,7 @@ async def arrange_panels(body: PanelArrangeRequest, request: Request):
     an entry of ``web.presets`` (``app.state.panel_presets``); its members are
     resolved here so the human "Layouts" click and an agent preset call are one
     server operation. A preset additionally sets ``prune_rail`` on the
-    broadcast, preserving today's membership-exclusive preset semantics
+    broadcast, giving presets membership-exclusive semantics
     (non-members leave the launcher rail); a ``tiles`` request never removes
     rail membership, it only adds any listed non-member.
 
@@ -576,6 +625,9 @@ async def arrange_panels(body: PanelArrangeRequest, request: Request):
     very same ``GET /api/panels`` response omits from ``visible``. The
     broadcast still carries ``focus`` only when one was requested, leaving the
     client's fallback rule in charge of what is actually focused on screen.
+
+    An agent arrangement is mirrored into the activity history ring as a single
+    ``arrange_workspace`` row targeting the recorded focus panel.
 
     Args:
         body: ``tiles`` (explicit ids, left-to-right) **or** ``preset`` (a
@@ -635,6 +687,11 @@ async def arrange_panels(body: PanelArrangeRequest, request: Request):
         event["prune_rail"] = True
     if body.source:
         event["source"] = body.source
+    if body.source == "agent":
+        # One row for the whole arrangement, targeting the panel focus lands on
+        # — the same id recorded as ``active_panel`` above, so the history entry
+        # names the tile the operator's eye is sent to.
+        _mirror_agent_panel_activity(request, "arrange_workspace", body.focus or tiles[0])
     request.app.state.broadcaster.broadcast(event)
     return {
         "status": "ok",
@@ -674,8 +731,8 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
     **unknown** (``open_tiles = None``) while still stamping the timestamp and
     the flag — ``GET /api/panels`` then reports ``open_tiles: null`` with a
     numeric age, meaning "a client is watching but cannot report tile order".
-    The request wire format is unchanged; the mapping happens here. ``dock:
-    true`` records the list verbatim, exactly as before.
+    The mapping happens here, not on the wire. ``dock: true`` records the list
+    verbatim.
 
     Content dedupe: a report whose *recorded* occupancy and ``dock`` flag both
     equal the stored state is a no-op — the stored timestamp is deliberately
@@ -887,6 +944,9 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     If a custom panel with the same ``id`` already exists it is replaced
     atomically (remove-then-append) so the proxy always returns the first match.
 
+    An agent-origin registration is mirrored into the activity history ring as
+    a ``register_panel`` row.
+
     Args:
         body: Panel registration fields: ``id``, ``label``, ``url`` (raw),
             ``path`` (default ``"/"``), ``health_endpoint`` (optional).
@@ -963,6 +1023,8 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
     }
     if body.source:
         event["source"] = body.source
+    if body.source == "agent":
+        _mirror_agent_panel_activity(request, "register_panel", body.id)
     request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "id": body.id, "label": body.label, "url": browser_url}
 

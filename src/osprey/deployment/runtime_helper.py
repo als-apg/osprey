@@ -154,7 +154,7 @@ def runtime_env(
     rather than left for every operator to learn to ignore.
 
     It must stay opt-in because the single-stack paths are the mirror image:
-    plain ``deploy up`` reconciles with ``up --remove-orphans`` and ``clean``
+    plain ``osprey up`` reconciles with ``up --remove-orphans`` and ``clean``
     tears down with ``down --remove-orphans``, and docker compose hard-errors
     on the combination ("cannot combine COMPOSE_IGNORE_ORPHANS and
     --remove-orphans") rather than letting one win. A default-on env var
@@ -205,14 +205,14 @@ def with_plain_progress(cmd: list[str]) -> list[str]:
     Docker only, deliberately. ``--progress`` is a docker compose v2 flag;
     ``podman compose`` delegates to whichever provider the host has, and a
     provider that rejects an unknown flag would turn a cosmetic improvement
-    into a failed deploy. Podman hosts keep today's behaviour, and lose
+    into a failed deploy. Podman hosts keep compose's own default, and lose
     little: ``auto`` already resolves to ``plain`` whenever stdout is not a
     terminal, which covers CI and systemd — the places a production deploy's
     output is actually captured.
 
     ``--progress`` is a global flag, valid ahead of every compose subcommand,
     so callers append their ``-f``/``--env-file`` arguments and the subcommand
-    afterwards exactly as before.
+    afterwards unchanged.
 
     Args:
         cmd: A compose argv base, e.g. ``["docker", "compose"]``, as returned

@@ -1,20 +1,18 @@
-"""Profile command group — author and inspect build profiles.
+"""Profile command group — inspect build profiles, and materialize one.
 
-A build profile is the editable source a facility owns: a ``profile.yml`` plus
-the data tree and convention directories beside it. This group holds the verbs that act on
-that source, keeping them separate from ``osprey build``, which consumes a
-profile and derives a project from it.
+A build profile is the editable source a deployment owns: the ``profile.yml`` at
+its repo root plus the data tree and convention directories beside it. This
+group holds the read-only verbs that act on that source, kept separate from
+``osprey build``, which consumes a profile and renders ``build/`` from it.
 
-``osprey profile new`` creates the whole facility repo the profile lives in —
-the profile directory, the render target beside it, and the repo-root files a
-deployment needs — because a profile on its own is not something a facility can
-version, run CI against, or deploy from.
+The write half lives elsewhere by design: ``osprey init`` creates the deployment
+repo (through :func:`_materialize_profile_directory` here, which is the one
+function in this module that writes anything), ``osprey set`` edits the profile,
+and ``osprey validate`` is the top-level spelling of ``profile validate``.
 
 Usage:
     osprey profile presets
-    osprey profile validate my-facility/profile/
-    osprey profile new my-facility --preset control-assistant
-    osprey profile try my-facility --preset control-assistant --dev -d
+    osprey profile validate ~/deployments/als-assistant
 """
 
 from __future__ import annotations
@@ -28,14 +26,13 @@ import click
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
-from .profile_conventions import PER_USER_CONTEXT_DIRNAME
+from .profile_conventions import BUILD_OUTPUT_DIR, PER_USER_CONTEXT_DIRNAME
 
 if TYPE_CHECKING:
     # Annotation only — the profile model is imported lazily inside the command
     # bodies to keep `osprey --help` off the build-profile import chain (the
     # lazy-import budget test in tests/cli/test_main.py pins this).
     from .build_profile_model import BuildProfile
-    from .deploy_scaffold import ScaffoldedFile
     from .templates.manager import TemplateManager
 
 logger = get_logger("profile")
@@ -49,9 +46,10 @@ def profile() -> None:
 def _resolve_profile_file(target: Path) -> Path:
     """Return the profile file named by *target* (a profile file or its directory).
 
-    A profile directory is the unit users work with, so both spellings are
-    accepted: the directory itself (``profile.yml`` inside it, the name
-    ``profile new`` writes) or an explicit path to any profile file.
+    A deployment repo is the unit users work with, so both spellings are
+    accepted: the directory itself (the ``profile.yml`` at its root) or an
+    explicit path to any profile file — a persona delta under ``personas/``
+    included.
 
     Raises:
         click.UsageError: When *target* is a directory without a profile.yml.
@@ -61,8 +59,8 @@ def _resolve_profile_file(target: Path) -> Path:
         if not candidate.is_file():
             raise click.UsageError(
                 f"No profile.yml in {target}. Pass the profile file directly, or "
-                f"materialize a profile directory with "
-                f"`osprey profile new {target} --preset <NAME>`."
+                f"create a deployment repo with "
+                f"`osprey init {target} --preset <NAME>`."
             )
         return candidate.resolve()
     return target.resolve()
@@ -72,8 +70,7 @@ def _resolve_profile_file(target: Path) -> Path:
 def presets() -> None:
     """List bundled preset names, one per line.
 
-    Every name printed here is usable as ``--preset NAME`` for
-    ``osprey profile new`` and ``osprey build``.
+    Every name printed here is usable as 'osprey init --preset NAME'.
     """
     from .build_profile import list_presets
 
@@ -86,9 +83,9 @@ def presets() -> None:
 def validate(target: Path) -> None:
     """Check a profile without building anything.
 
-    TARGET is a profile directory (its ``profile.yml`` is used) or a path to a
-    profile file. Resolves ``extends:`` chains and runs the full consistency
-    check — convention directories, the ``data:`` tree, service templates,
+    TARGET is a profile directory (its profile.yml is used) or a path to a
+    profile file. Resolves 'extends:' chains and runs the full consistency
+    check — convention directories, the 'data:' tree, service templates,
     lifecycle steps, env vars — reporting every problem found, not just the
     first.
 
@@ -98,8 +95,8 @@ def validate(target: Path) -> None:
     Examples:
 
     \b
-      $ osprey profile validate my-profile/
-      $ osprey profile validate my-profile/personas/reader.yml
+      $ osprey profile validate ~/deployments/als-assistant
+      $ osprey profile validate ~/deployments/als-assistant/personas/readonly.yml
     """
     from .build_profile import resolve_build_profile
     from .build_profile_deploy import deploy_aware_config_errors
@@ -132,296 +129,8 @@ def validate(target: Path) -> None:
         deploy = build_profile.deploy
         click.echo(f"  Deploy: {deploy.ci} CI → {deploy.host.user}@{deploy.host.name}")
     click.echo("\nNext steps:")
-    click.echo(f"  1. Build a project from it: osprey build <PROJECT_NAME> {profile_file}")
+    click.echo("  1. Render it: osprey build")
     click.echo("  2. Re-run this command after editing the profile")
-
-
-@profile.command()
-@click.argument("target_dir", type=click.Path(path_type=Path))
-@click.option(
-    "--preset",
-    required=True,
-    metavar="NAME",
-    help="Bundled preset to materialize (see `osprey profile presets`).",
-)
-@click.option(
-    "--override",
-    "-O",
-    "overrides",
-    multiple=True,
-    type=click.Path(exists=False, dir_okay=False, path_type=Path),
-    help="Layer a YAML file on top of the preset before writing (repeatable).",
-)
-@click.option(
-    "--set",
-    "set_pairs",
-    multiple=True,
-    metavar="KEY.PATH=VALUE",
-    help="Inline scalar/list override baked into the emitted profile (repeatable). "
-    "RHS parsed as YAML. Top-level shorthands: provider, model, "
-    "channel_finder_mode, connector (the control system to talk to — mock, "
-    "epics, virtual_accelerator, doocs).",
-)
-@click.option(
-    "--force",
-    is_flag=True,
-    help="Replace an existing repo's profile/ directory, deleting its current "
-    "contents (including any edits), and overwrite hand-edited deployment "
-    "files. Refuses a target that is not a facility repo (no profile/ "
-    "directory) and not empty. Never touches ci-extra.yml.",
-)
-def new(
-    target_dir: Path,
-    preset: str,
-    overrides: tuple[Path, ...],
-    set_pairs: tuple[str, ...],
-    force: bool,
-) -> None:
-    """Create a facility repo from a bundled preset.
-
-    TARGET_DIR is the repository this facility's deployment lives in. It is
-    created and populated with everything that repo holds:
-
-    \b
-      profile/       the editable source the facility owns — a standalone
-                     profile.yml (the preset written out explicitly, no
-                     `extends:`), its data tree, and its own .env channel
-      build/         empty; where `osprey build` renders projects
-      ci-extra.yml   the facility's own CI jobs, never regenerated
-      .gitignore     keeps build/ and the profile's secrets out of git
-
-    `git init` runs at the root. The CI pipeline is emitted too as soon as
-    there is anything to render it from: a profile whose `deploy:` block is
-    still the commented stub gets the rest of the repo, and `osprey deploy
-    scaffold` adds the pipeline once the block is filled in.
-
-    Examples:
-
-    \b
-      $ osprey profile new my-facility --preset control-assistant
-      $ osprey profile new my-facility --preset hello-world --set model=sonnet
-    """
-    from .build_profile_resolve import FACILITY_BUILD_DIRNAME, FACILITY_PROFILE_DIRNAME
-
-    repo_root = target_dir.resolve()
-    _check_repo_target(repo_root, force=force)
-    # Remembered before the profile is materialized: its `mkdir(parents=True)`
-    # is what creates the repo root, and a failure afterwards must not leave an
-    # empty directory behind that a retry would then refuse.
-    created_root = not repo_root.exists()
-
-    try:
-        materialized = _materialize_profile_directory(
-            repo_root / FACILITY_PROFILE_DIRNAME,
-            preset,
-            overrides,
-            set_pairs,
-            force=force,
-            profile_name=_directory_derived_name(repo_root.name),
-        )
-    except BuildProfileError as e:
-        # Reaching here means a packaging problem, not a user mistake — the
-        # helper raises UsageError for everything the caller could have got
-        # wrong. Abort (exit 1) keeps that distinct from usage errors (exit 2).
-        _discard_empty_repo_root(repo_root, created=created_root)
-        logger.error("✗ %s", e)
-        raise click.Abort() from e
-    except BaseException:
-        _discard_empty_repo_root(repo_root, created=created_root)
-        raise
-
-    target = materialized.target
-    profile_rel = target.name
-
-    (repo_root / FACILITY_BUILD_DIRNAME).mkdir(exist_ok=True)
-    _write_if_absent(repo_root / ".gitignore", _repo_gitignore())
-    _write_if_absent(repo_root / _CI_EXTRA_FILENAME, _ci_extra_text(materialized.profile_name))
-    git_note = _init_git_repo(repo_root)
-    # Emitted through the same engine `osprey deploy scaffold` re-runs, so a repo
-    # created today and one re-scaffolded a year from now carry the same files.
-    deploy_files = _emit_deploy_scaffolding(
-        repo_root, declared=materialized.deploy_declared, force=force
-    )
-    ci_name = _ci_output_name(repo_root, deploy_files)
-
-    click.echo(f"✓ Created facility repo: {repo_root}")
-    click.echo("")
-    for line in _repo_tree_lines(repo_root.name, profile_rel, ci_name):
-        click.echo(line)
-    click.echo(f"\n  {git_note}")
-
-    # Read back from disk rather than threading a second return value out of the
-    # helper: what the user is told they own is exactly what was written.
-    persona_files = sorted((target / _PERSONA_PROFILE_DIRNAME).glob("*.yml"))
-    if persona_files:
-        click.echo(
-            f"\nWeb-terminal personas — one delta each, merged over {profile_rel}/profile.yml:"
-        )
-        for persona_file in persona_files:
-            click.echo(f"  {profile_rel}/{_PERSONA_PROFILE_DIRNAME}/{persona_file.name}")
-
-    # Secrets get their own block: this directory is now where they live, and a
-    # reader has to be able to tell at a glance whether a value was seeded for
-    # them or is still theirs to supply.
-    click.echo(f"\nSecrets — kept out of git by {profile_rel}/.gitignore and the repo's own:")
-    click.echo(f"  {profile_rel}/{_PROFILE_ENV_EXAMPLE_FILENAME} — every variable this agent reads")
-    env_path = target / _PROFILE_ENV_FILENAME
-    if env_path.is_file():
-        from osprey.utils.dotenv import parse_dotenv_file
-
-        seeded = ", ".join(sorted(parse_dotenv_file(env_path)))
-        click.echo(f"  {profile_rel}/{_PROFILE_ENV_FILENAME} — seeded from your shell: {seeded}")
-    else:
-        # Two different absences, and the remedy differs: nothing exported at
-        # all, or keys exported for providers this profile does not use.
-        reason = (
-            "your shell exports no key for the providers it references"
-            if materialized.skipped_shell_keys
-            else "your shell exports no provider key"
-        )
-        click.echo(
-            f"  {profile_rel}/{_PROFILE_ENV_FILENAME} — not written: {reason}. "
-            f"Copy the example and fill it in."
-        )
-    if materialized.skipped_shell_keys:
-        # Named rather than dropped in silence: the operator exported these, and
-        # has to be able to tell "seen and not needed" from "lost".
-        click.echo(f"  {_skipped_keys_note(materialized.skipped_shell_keys)}")
-
-    for line in _deploy_scaffolding_report(deploy_files, repo_root, profile_rel):
-        click.echo(line)
-
-    click.echo("\nNext steps:")
-    click.echo(f"  1. cd {repo_root.name}")
-    click.echo(f"  2. Read {profile_rel}/README.md — it explains what you now own")
-    click.echo(f"  3. Edit {profile_rel}/profile.yml and the files under {profile_rel}/data/")
-    click.echo(
-        f"  4. Build a project from it: osprey build <PROJECT_NAME> {profile_rel}/profile.yml"
-    )
-
-
-@profile.command(name="try")
-@click.argument("project_name")
-@click.argument(
-    "profile_path",
-    required=False,
-    default=None,
-    type=click.Path(exists=False, dir_okay=False),
-)
-@click.option(
-    "--preset",
-    default=None,
-    metavar="NAME",
-    help="Bundled preset to try (see `osprey profile presets`). Materializes "
-    "<PROJECT_NAME>-profile/ the first time; reused as-is afterwards.",
-)
-@click.option(
-    "--override",
-    "-O",
-    "overrides",
-    multiple=True,
-    type=click.Path(exists=False, dir_okay=False, path_type=Path),
-    help="Layer a YAML file on top of the profile before building (repeatable).",
-)
-@click.option(
-    "--set",
-    "set_pairs",
-    multiple=True,
-    metavar="KEY.PATH=VALUE",
-    help="Inline scalar/list override written into the profile before the "
-    "build reads it (repeatable). RHS parsed as YAML.",
-)
-@click.option(
-    "--output-dir",
-    "-o",
-    type=click.Path(),
-    default=".",
-    help="Directory the profile and project land in (default: current directory).",
-)
-@click.option(
-    "--detached",
-    "-d",
-    is_flag=True,
-    help="Run the deployed services in detached mode.",
-)
-@click.option(
-    "--dev",
-    is_flag=True,
-    help="Development mode: bake the local osprey checkout into the containers "
-    "instead of installing from PyPI.",
-)
-@click.pass_context
-def try_(
-    ctx: click.Context,
-    project_name: str,
-    profile_path: str | None,
-    preset: str | None,
-    overrides: tuple[Path, ...],
-    set_pairs: tuple[str, ...],
-    output_dir: str,
-    detached: bool,
-    dev: bool,
-) -> None:
-    """Materialize, build, and deploy in one command.
-
-    Chains the whole lifecycle — profile, build, deploy up — so trying a
-    preset (or a profile edit) is a single command instead of three runs
-    from three directories. Each phase prints in sequence, ending in the
-    deploy's endpoint summary.
-
-    The profile is settled exactly as `osprey build --preset` settles it:
-    the first run materializes <PROJECT_NAME>-profile/ in the output
-    directory, every later run reuses that directory as it stands, and
-    --set / -O are written into it first. The project is re-rendered in
-    place on a rerun (.env, _agent_data/ and .git are preserved) — rerunning
-    is the point, so no --force is needed.
-
-    PROJECT_NAME: project directory to create or re-render.
-
-    PROFILE_PATH: optional path to an existing profile.yml (mutually
-    exclusive with --preset).
-
-    Examples:
-
-    \b
-      $ osprey profile try my-assistant --preset control-assistant \\
-            --set provider=als-apg --set model=haiku --dev -d
-      $ osprey profile try my-assistant my-profile/profile.yml -d
-    """
-    # Imported at call time, not module top: the deploy chain is heavy and
-    # `osprey --help` must stay off it (the lazy-import budget test in
-    # tests/cli/test_main.py pins this).
-    from . import build_cmd, deploy_cmd
-
-    # Phase separators are one line each on purpose: build and deploy narrate
-    # themselves, and the value added here is only the seam between them.
-    click.echo(f"━━ 1/2 build: {project_name} ━━")
-    # force=True is the re-render-in-place behaviour documented above; it
-    # never touches the profile, which is reused (and --set/-O written into
-    # it) by the build itself.
-    ctx.invoke(
-        build_cmd.build,
-        project_name=project_name,
-        profile=profile_path,
-        preset=preset,
-        overrides=overrides,
-        set_pairs=set_pairs,
-        output_dir=output_dir,
-        force=True,
-    )
-
-    project_dir = Path(output_dir).resolve() / project_name
-    click.echo(f"\n━━ 2/2 deploy up: {project_dir.name} ━━")
-    # `deploy up`, the subcommand — not the `deploy` group, which takes no
-    # arguments of its own and would run nothing.
-    ctx.invoke(
-        deploy_cmd.up,
-        project=str(project_dir),
-        config="config.yml",
-        detached=detached,
-        dev=dev,
-        expose=False,
-    )
 
 
 # Directory name the materialized data tree gets, and the value written to the
@@ -445,41 +154,40 @@ _PROFILE_TRIGGERS_FILENAME = "triggers.yml"
 # the slots seeded here are the ones the build copies from.
 _CONTEXT_CONVENTION_DIRNAME = PER_USER_CONTEXT_DIRNAME
 
-# The profile's secret channel (FR-1). `.env.example` is the documented variable
-# list, rendered from the SAME template the build renders into a project, so the
-# two can never document different variables. `.env` beside it holds the values,
-# and is what the build derives the project's own `.env` from — which is what
-# makes a secret survive a rebuild.
+# The deployment's secret channel (FR-1). `.env.example` is the documented
+# variable list, rendered from the SAME template every other render uses, so the
+# two can never document different variables. `.env` beside it holds the values
+# and IS the deployment's secret store — the file compose is handed as
+# `--env-file` and every `${VAR}` expansion reads. Nothing derives a second copy
+# of it, and a build only ever appends, which is what makes a secret survive a
+# rebuild.
 _PROFILE_ENV_FILENAME = ".env"
 _PROFILE_ENV_EXAMPLE_FILENAME = ".env.example"
 _ENV_EXAMPLE_TEMPLATE = "project/env.example.j2"
 
 # Section header the shell-harvested keys are written under, distinct from the
-# banner `osprey deploy up` appends its minted service tokens beneath: the two
-# have different origins, and a reader should be able to tell which values came
-# from their own shell.
-_SEEDED_ENV_BANNER = "# ── Seeded by `osprey profile new` from your shell ──"
+# banner `osprey up` appends its minted service tokens beneath: the two have
+# different origins, and a reader should be able to tell which values came from
+# their own shell. Named after the verb that actually ran, because the banner is
+# what tells a reader months later where a value in their `.env` came from — and
+# an emitted artifact naming a command that does not exist is worse than no
+# attribution at all (SC-8).
+REPO_SEEDED_ENV_BANNER = "# ── Seeded by `osprey init` from your shell ──"
 
-# The profile's own `.gitignore`. A profile is meant to live in version control
-# — it is the facility's source of truth — so it ships with the one rule that
-# keeps its secrets out. `.env*` deliberately covers every variant the directory
-# accumulates, including the `.env.lock` the write-back path creates beside the
-# `.env` it appends to; `.env.example` carries no values and is the exception.
-_PROFILE_GITIGNORE = """\
-# This profile is your facility's source of truth — keep it in version control.
-# Its secrets are the one thing that must stay out.
-
-# Every .env variant holds values (and .env.lock is the write-back lock file).
-# .env.example is the documented variable list and carries none, so it is the
-# single exception.
-.env*
-!.env.example
-
-# OS / editor noise
-.DS_Store
-*.swp
-*.swo
-"""
+#: Source-zone entries a repo-root materialization owns, and therefore the exact
+#: set a re-materialization is allowed to replace. Everything else in a
+#: deployment repo — ``.git``, ``.env``, ``var/``, ``build/``, ``ci-extra.yml``,
+#: the CI files — belongs to the operator or to another command, so re-running
+#: ``osprey init`` over an existing repo can never cost a secret, an agent's
+#: memory, or a hand-written CI job.
+MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
+    "profile.yml",
+    _PROFILE_DATA_DIRNAME,
+    _PERSONA_PROFILE_DIRNAME,
+    _PROFILE_TRIGGERS_FILENAME,
+    _CONTEXT_CONVENTION_DIRNAME,
+    _PROFILE_ENV_EXAMPLE_FILENAME,
+)
 
 # Build exhaust that a source checkout may hold inside a bundle's data tree but
 # a wheel install never does — hatch excludes it from the package (see the
@@ -488,142 +196,6 @@ _PROFILE_GITIGNORE = """\
 # relative to the data root, matched segment-wise so an unrelated `results/`
 # elsewhere in the tree is untouched.
 _EXCLUDED_DATA_SUBTREES: tuple[tuple[str, ...], ...] = (("benchmarks", "results"),)
-
-_ALREADY_EXISTS = (
-    "Target directory already exists: {target}. Remove it, choose a different "
-    "path, or re-run with --force to replace it."
-)
-
-_NOT_REPLACEABLE = (
-    "Refusing --force: {target} is not a materialized profile directory (no "
-    "profile.yml) and not empty. Remove it yourself if you really mean to "
-    "replace it."
-)
-
-# The same two refusals at the repo level. Separate strings rather than a shared
-# one with a substituted noun: the remedies differ (`--force` here replaces the
-# profile inside an existing repo, not the repo), and a build reaching the
-# profile-level refusal matches on its exact text.
-_REPO_ALREADY_EXISTS = (
-    "Target directory already exists: {target}. Remove it, choose a different "
-    "path, or re-run with --force to re-materialize the profile inside it."
-)
-
-_REPO_NOT_REPLACEABLE = (
-    "Refusing --force: {target} is not a facility repo (no {profile}/ directory) "
-    "and not empty. Remove it yourself if you really mean to replace it."
-)
-
-# Build-time staging directories a bundle may ship inside its data tree, paired
-# with what the README should say about each. Data-driven rather than
-# per-preset prose: only the ones a bundle actually ships are described, so a
-# hello-world profile is not told about tiers it does not have. Paths are
-# relative to the data root.
-# Notes are pre-wrapped with a two-space continuation indent so the rendered
-# markdown reads as well in a plain editor as it does formatted.
-_STAGING_TREE_NOTES: tuple[tuple[str, str], ...] = (
-    (
-        "channel_databases/tiers",
-        "per-tier source databases. The build materializes the one your\n"
-        "  `tier:` and `channel_finder_mode:` settings select into the flat\n"
-        "  location the deployment reads, and prunes the rest.",
-    ),
-    (
-        "benchmarks/cross_paradigm",
-        "benchmark question sets for comparing channel-finder paradigms.\n"
-        "  Build-time input, never deployed.",
-    ),
-    (
-        "raw",
-        "staging inputs the channel databases are generated from, kept so\n"
-        "  they can be regenerated.",
-    ),
-)
-
-
-# ---------------------------------------------------------------------------
-# The facility repo the profile lives in
-# ---------------------------------------------------------------------------
-#
-# A profile alone is not deployable: it has to be versioned, rendered somewhere,
-# and built by something. `osprey profile new` therefore creates the whole repo
-# — `profile/` beside `build/`, the two repo-root files the facility owns from
-# the first minute, and the generated pipeline — so an operator never has to
-# assemble that layout by hand or learn what it is supposed to look like.
-#
-# Two of those files are generated and re-generated by `osprey deploy scaffold`
-# (deploy_scaffold.py owns them, marker contract included). The rest are written
-# once and never rewritten, because from creation onward they are the facility's.
-
-
-#: The facility's own CI jobs. The generated pipeline ``include:``s it, so it is
-#: the supported way to extend the pipeline without editing a generated file.
-_CI_EXTRA_FILENAME = "ci-extra.yml"
-
-
-def _ci_extra_text(facility_name: str) -> str:
-    """The starter ``ci-extra.yml`` — an include point with nothing in it yet.
-
-    Written by this command and by nothing else, ever: the pipeline beside it is
-    regenerated, and a facility needs one file in the CI surface that is safe to
-    edit. The placeholder job exists because an empty file is not valid YAML for
-    an ``include:`` to resolve.
-    """
-    return f"""\
-# {facility_name}'s own pipeline jobs.
-#
-# .gitlab-ci.yml is emitted by `osprey deploy scaffold` and will be overwritten
-# the next time it runs. This file never is — put anything facility-specific
-# here: extra tests, an IOC smoke check, a notification hook. It is included
-# after the scaffolded pipeline, so it can also override a job by redefining it
-# under the same name.
-#
-# Example:
-#
-#   ioc-smoke-test:
-#     stage: validate
-#     image: python:3.11-slim
-#     script:
-#       - ./ci/ioc_smoke_test.sh
-
-# Placeholder so the include always parses. Delete it when you add a job.
-.facility-jobs-go-here: {{}}
-"""
-
-
-def _repo_gitignore() -> str:
-    """The repo's ``.gitignore`` — the render target and the profile's secrets.
-
-    Every path pattern here is ANCHORED with a leading slash, which is the whole
-    subtlety of the file: an unanchored ``build/`` matches a directory of that
-    name *anywhere* in the tree, so a facility that later adds
-    ``profile/data/build/`` would find it silently untracked. Only the exact
-    paths this layout generates are ignored — the editor noise at the end is
-    the one deliberate exception, being a name pattern rather than a path.
-
-    The profile carries a ``.gitignore`` of its own covering the same secrets
-    from inside. Both exist because both are true independently: the profile
-    directory is copyable on its own, and the repo must be safe to commit even
-    if that file is edited.
-    """
-    from .build_profile_resolve import FACILITY_BUILD_DIRNAME, FACILITY_PROFILE_DIRNAME
-
-    return f"""\
-# Rendered projects. Regenerable from {FACILITY_PROFILE_DIRNAME}/ by `osprey build`,
-# so they are never committed — the profile is the source of truth.
-/{FACILITY_BUILD_DIRNAME}/
-
-# The profile's secrets, and the lock file the write-back path creates beside
-# them. Anchored to these exact paths: an unanchored pattern would also swallow
-# a same-named file anywhere else in the tree, silently.
-/{FACILITY_PROFILE_DIRNAME}/{_PROFILE_ENV_FILENAME}
-/{FACILITY_PROFILE_DIRNAME}/{_PROFILE_ENV_FILENAME}.lock
-
-# OS / editor noise
-.DS_Store
-*.swp
-*.swo
-"""
 
 
 def _directory_derived_name(dirname: str) -> str:
@@ -634,210 +206,6 @@ def _directory_derived_name(dirname: str) -> str:
     result as an ordinary editable key.
     """
     return dirname.replace("-", " ").replace("_", " ").title()
-
-
-def _check_repo_target(repo_root: Path, *, force: bool) -> None:
-    """Refuse a target this command must not write a facility repo into.
-
-    The same discipline the profile directory itself gets, one level up: an
-    existing target is refused outright, and ``--force`` only proceeds when the
-    target is something this command produced — a repo holding a ``profile/``,
-    or an empty directory. Anything else is a path named by mistake, and it may
-    hold work that has nothing to do with OSPREY.
-
-    Whether that ``profile/`` is really replaceable is not decided here: the
-    materializer asks the same question of it one level down, and answering it
-    twice would be two rules to keep in agreement. This check only establishes
-    that the directory is a facility repo at all.
-
-    ``--force`` does not delete the repo. It re-materializes the profile inside
-    it and re-emits the generated deployment files; the facility's own files are
-    left alone (:func:`_write_if_absent`).
-
-    Raises:
-        click.UsageError: When the target exists and must not be written into.
-    """
-    from .build_profile_resolve import FACILITY_PROFILE_DIRNAME
-
-    if not repo_root.exists():
-        return
-    if not force:
-        raise click.UsageError(_REPO_ALREADY_EXISTS.format(target=repo_root))
-    refusal = click.UsageError(
-        _REPO_NOT_REPLACEABLE.format(target=repo_root, profile=FACILITY_PROFILE_DIRNAME)
-    )
-    if not repo_root.is_dir():
-        raise refusal
-    # A freshly cloned empty repository counts as empty: `.git` is git's, not the
-    # facility's, and creating the profile inside a blank checkout is exactly how
-    # a facility that made the repository first would do this.
-    empty = not any(entry.name != ".git" for entry in repo_root.iterdir())
-    if not ((repo_root / FACILITY_PROFILE_DIRNAME).is_dir() or empty):
-        raise refusal
-
-
-def _discard_empty_repo_root(repo_root: Path, *, created: bool) -> None:
-    """Undo the repo root this run created, when nothing was left inside it.
-
-    The profile materializer creates the root on its way to ``profile/`` and
-    cleans up only its own directory on failure. Without this, a failed run
-    would leave an empty directory that the next attempt then refuses — the
-    caller having done nothing wrong twice.
-    """
-    if not created or not repo_root.is_dir():
-        return
-    try:
-        if not any(repo_root.iterdir()):
-            repo_root.rmdir()
-    except OSError:
-        # Cleanup must never mask the failure that brought us here.
-        pass
-
-
-def _write_if_absent(path: Path, text: str) -> bool:
-    """Write *path* only when nothing is there; report whether it was written.
-
-    These are the facility's files from the moment they exist, so there is no
-    ``--force`` for them: re-running the command over an existing repo must not
-    discard CI jobs somebody wrote. The generated files, which *are* rewritten,
-    go through the scaffolding engine's marker check instead.
-    """
-    if path.exists():
-        return False
-    path.write_text(text, encoding="utf-8")
-    return True
-
-
-def _init_git_repo(repo_root: Path) -> str:
-    """Make the new repo a git repo, and say what happened either way.
-
-    A facility repo is a repository — the pipeline resolves its ``include:``
-    through git, and the deploy host gets its copy by cloning. Initializing it
-    here means the operator's first ``git status`` already shows the tree.
-
-    Every failure degrades: no git on PATH, a git that errors, a target that is
-    already a repository. The rest of the repo is complete without it, so none
-    of those is worth failing the command over — they are reported, with the
-    one command that finishes the job.
-
-    Returns:
-        One line for the summary, describing what was done or why it was not.
-    """
-    import subprocess
-
-    if (repo_root / ".git").exists():
-        return "Existing git repository left as it is."
-    try:
-        completed = subprocess.run(
-            ["git", "init", "--quiet", str(repo_root)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError) as e:
-        logger.warning("Could not run `git init` in %s: %s", repo_root, e)
-        return "No git available — skipped `git init`. Run it yourself to version this repo."
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout).strip().splitlines()
-        logger.warning("`git init` failed in %s: %s", repo_root, detail[-1] if detail else "")
-        return "`git init` failed — run it yourself to version this repo."
-    return "Initialized a git repository. Nothing is committed yet."
-
-
-def _emit_deploy_scaffolding(
-    repo_root: Path, *, declared: bool, force: bool
-) -> list[ScaffoldedFile]:
-    """Emit the CI pipeline and health check, if the profile says where to deploy.
-
-    Deployment coordinates are opt-in and a fresh profile has none: every preset
-    ships the ``deploy:`` block commented out, so a repo created from one is
-    complete apart from these two files. That is decided from the materialized
-    profile rather than by catching the engine's error, which reports a missing
-    block as a failure — correct for ``osprey deploy scaffold``, whose entire
-    job it is, and wrong for a creation that never promised a pipeline.
-
-    Args:
-        repo_root: The facility repo, holding the profile just materialized.
-        declared: Whether that profile carries an active ``deploy:`` block.
-        force: Overwrite generated files that carry no marker of ours.
-
-    Returns:
-        One :class:`~.deploy_scaffold.ScaffoldedFile` per emitted file, or an
-        empty list when there was nothing to render a pipeline from.
-    """
-    if not declared:
-        return []
-
-    from .deploy_scaffold import scaffold_deploy_files
-
-    return scaffold_deploy_files(repo_root, force=force)
-
-
-def _ci_output_name(repo_root: Path, emitted: Iterable[ScaffoldedFile]) -> str | None:
-    """The pipeline file name to show in the tree, or ``None`` if none was emitted.
-
-    Identified by position rather than by name: the pipeline is the emitted file
-    that lands at the repo root, whatever the platform calls it.
-    """
-    for scaffolded in emitted:
-        if scaffolded.path.parent == repo_root:
-            return scaffolded.path.name
-    return None
-
-
-def _repo_tree_lines(repo_name: str, profile_rel: str, ci_name: str | None) -> list[str]:
-    """The repo's top level as a tree, one line per entry, each with its job.
-
-    An operator meets this layout for the first time here, and the thing they
-    need to know about each entry is which ones are theirs and which ones are
-    regenerated. A tree says that in less space than prose can.
-    """
-    from .build_profile_resolve import FACILITY_BUILD_DIRNAME
-
-    rows: list[tuple[str, str]] = [
-        (f"{profile_rel}/", "the source you own — edit this"),
-        (f"{FACILITY_BUILD_DIRNAME}/", "where `osprey build` renders projects (gitignored)"),
-        (_CI_EXTRA_FILENAME, "your own CI jobs; nothing ever regenerates this"),
-    ]
-    if ci_name is not None:
-        rows.append((ci_name, "generated — `osprey deploy scaffold` re-emits it"))
-    rows.append((".gitignore", f"keeps {FACILITY_BUILD_DIRNAME}/ and the secrets out of git"))
-
-    width = max(len(name) for name, _ in rows)
-    lines = [f"  {repo_name}/"]
-    for index, (name, note) in enumerate(rows):
-        connector = "└──" if index == len(rows) - 1 else "├──"
-        lines.append(f"  {connector} {name.ljust(width)}   {note}")
-    return lines
-
-
-def _deploy_scaffolding_report(
-    emitted: Collection[ScaffoldedFile], repo_root: Path, profile_rel: str
-) -> list[str]:
-    """What the deployment emission did, or what to do because it did nothing.
-
-    The no-pipeline case is the common one on a fresh repo and gets the longer
-    answer: it is not a failure, and the operator has to leave knowing which key
-    to fill in and which command turns it into a pipeline.
-    """
-    if not emitted:
-        return [
-            "\nNo CI pipeline yet:",
-            f"  {profile_rel}/profile.yml carries the `deploy:` block commented out, so",
-            "  there are no coordinates to render one from. Fill it in — CI platform,",
-            "  deploy host, and a registry if the host pulls its images — and the",
-            "  pipeline is one command away:",
-            f"    cd {repo_root.name} && osprey deploy scaffold",
-        ]
-
-    lines = [f"\nDeployment files — generated from {profile_rel}/profile.yml:"]
-    for scaffolded in emitted:
-        rel = scaffolded.path.relative_to(repo_root)
-        if scaffolded.refused:
-            lines.append(f"  {rel} — NOT written: {scaffolded.reason}")
-        else:
-            lines.append(f"  {rel} ({scaffolded.action})")
-    return lines
 
 
 def _data_copy_ignore(source_root: Path) -> Callable[[str, list[str]], set[str]]:
@@ -864,7 +232,7 @@ def _data_copy_ignore(source_root: Path) -> Callable[[str, list[str]], set[str]]
     return ignore
 
 
-def _persona_catalog_layer(persona_names: Iterable[str]) -> dict[str, Any]:
+def _persona_catalog_layer(persona_names: Iterable[str], *, repo_name: str) -> dict[str, Any]:
     """A raw profile fragment repointing each persona's ``build_profile`` at its
     emitted sibling profile.
 
@@ -874,15 +242,27 @@ def _persona_catalog_layer(persona_names: Iterable[str]) -> dict[str, Any]:
     (``modules.web_terminals:``, or even a nested ``modules:``) and land inside
     it — while a shallower fragment of ours would instead be overwritten
     wholesale by the preset's own subtree.
+
+    Args:
+        persona_names: Personas the profile's catalog declares.
+        repo_name: Directory name of the deployment repo. A persona render is
+            build output like every other render, so its ``project_path`` lands
+            under the repo's ``build/`` zone and its ``project`` is keyed off
+            the deployment's own name rather than the preset's. This is why a
+            shipped preset cannot spell either value correctly on its own —
+            neither is knowable until a repo has a name.
     """
-    return {
-        "config": {
-            f"modules.web_terminals.personas.{name}.build_profile": (
-                f"{_PERSONA_PROFILE_DIRNAME}/{name}.yml"
-            )
-            for name in persona_names
-        }
-    }
+    layer: dict[str, str] = {}
+    for name in persona_names:
+        prefix = f"modules.web_terminals.personas.{name}"
+        layer[f"{prefix}.build_profile"] = f"{_PERSONA_PROFILE_DIRNAME}/{name}.yml"
+        # `project` must equal `project_path`'s basename. Both are derived from
+        # the repo name here, and `osprey build` derives the render's own name
+        # the same way, which is how the render lands exactly where the catalog
+        # mounts it.
+        layer[f"{prefix}.project"] = f"{repo_name}-{name}"
+        layer[f"{prefix}.project_path"] = f"{BUILD_OUTPUT_DIR}/{repo_name}-{name}"
+    return {"config": layer}
 
 
 def _triggers_source(resolved: BuildProfile, preset_dir: Path) -> Path | None:
@@ -1084,14 +464,16 @@ def _exported_provider_keys(providers: Collection[str]) -> _ShellProviderKeys:
     """Split the shell's provider API keys against the providers ``providers`` names.
 
     ``os.environ`` is the ONLY source (FR-1). A ``.env`` that happens to sit in
-    whatever directory ``osprey profile new`` was run from is ambient state the
-    profile cannot reproduce, so nothing is harvested from it.
+    whatever directory ``osprey init`` was run from is ambient state the profile
+    cannot reproduce, so nothing is harvested from it.
 
-    This is the one place the shell may seed a key, and it seeds the *profile* —
-    the file an operator can read, edit, and account for. ``osprey build`` reads
-    nothing from the environment at all: it derives the project ``.env`` from
-    the profile written here, so a key that reaches a built project was always
-    recorded in the profile first.
+    This is the one place the shell may seed a key, and it seeds the repo's own
+    ``.env`` — the file an operator can read, edit, and account for, and the one
+    store compose and every ``${VAR}`` expansion read. There is no second copy
+    to derive: a build only ever appends to that file
+    (:func:`~osprey.utils.dotenv.append_profile_env`), so a key seeded here
+    survives every rebuild and a key that reaches a running deployment was
+    written to this file first.
 
     Only the keys of providers the RESOLVED PROFILE references are seeded: a
     whole-keyring import copies secrets the profile has no use for into a file
@@ -1133,7 +515,7 @@ def _exported_provider_keys(providers: Collection[str]) -> _ShellProviderKeys:
 def _skipped_keys_note(skipped: Collection[str]) -> str:
     """One line naming the exported keys this profile did not take.
 
-    One wording, used by both the materializer's log and ``profile new``'s
+    One wording, used by both the materializer's log and ``osprey init``'s
     summary: a skipped secret is a thing the operator has to be able to account
     for, and two spellings of the same fact read as two different facts.
     """
@@ -1195,14 +577,13 @@ def _write_secret_channel(
         },
         target / _PROFILE_ENV_EXAMPLE_FILENAME,
     )
-    (target / ".gitignore").write_text(_PROFILE_GITIGNORE, encoding="utf-8")
-    written = [_PROFILE_ENV_EXAMPLE_FILENAME, ".gitignore"]
+    written = [_PROFILE_ENV_EXAMPLE_FILENAME]
 
     if exported:
-        # Written through the same append-only, 0600, atomic path `deploy up`
+        # Written through the same append-only, 0600, atomic path `osprey up`
         # uses for its write-back, so there is one writer discipline for the
         # profile `.env` rather than a second one that only new profiles get.
-        append_profile_env(target / _PROFILE_ENV_FILENAME, exported, _SEEDED_ENV_BANNER)
+        append_profile_env(target / _PROFILE_ENV_FILENAME, exported, REPO_SEEDED_ENV_BANNER)
         written.append(_PROFILE_ENV_FILENAME)
 
     return written
@@ -1260,7 +641,7 @@ def _off_chain_problem(persona_name: str, persona_preset: str, host_preset: str)
 def _persona_profile_texts(
     resolved: BuildProfile,
     profile_name: str,
-    profile_dirname: str,
+    persona_path_prefix: str,
     host_preset: str,
 ) -> dict[str, str]:
     """Emit one delta text per persona the profile deploys.
@@ -1269,6 +650,11 @@ def _persona_profile_texts(
     :func:`~osprey.cli.build_profile_emit.emits_persona_profiles`) — a persona
     preset inherits the catalog but disables the module, and emitting from one
     of those would produce personas-of-a-persona.
+
+    ``persona_path_prefix`` is what the emitted headers prefix ``personas/``
+    with when they name a persona file: the profile's directory name and a
+    slash for a nested profile directory, and empty for a repo root, where the
+    reader already stands where those paths are relative to.
 
     Each entry is emitted as a pure DELTA — the persona preset's own layer, no
     ``extends:`` (:func:`~.build_profile_emit.emit_persona_delta_yaml`) — over
@@ -1336,7 +722,9 @@ def _persona_profile_texts(
         texts[persona_name] = emit_persona_delta_yaml(
             preset_name=persona_preset,
             profile_name=f"{profile_name} ({persona_name})",
-            profile_filename=f"{profile_dirname}/{_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml",
+            profile_filename=(
+                f"{persona_path_prefix}{_PERSONA_PROFILE_DIRNAME}/{persona_name}.yml"
+            ),
         )
     if problems:
         raise click.UsageError(
@@ -1347,54 +735,57 @@ def _persona_profile_texts(
 
 
 def _cleanup(target: Path) -> str:
-    """Remove a partially materialized ``target``; report what is actually left.
+    """Remove what a failed materialization wrote, and say what is left.
 
-    ``rmtree`` runs with ``ignore_errors`` so a cleanup failure never masks the
-    original error — which means the directory may survive, and the message
-    must not claim otherwise.
+    Only the entries a materialization owns (:data:`MATERIALIZED_SOURCE_ENTRIES`)
+    are removed: the target is a deployment repo root, which routinely holds an
+    operator's own files — a ``.git``, an ``.env``, a clone's README — and a
+    failed run must never cost one of those.
+
+    Returns:
+        A sentence for the refusal it is appended to, naming anything that could
+        not be removed so the operator knows a retry will refuse too.
     """
     import shutil
 
-    shutil.rmtree(target, ignore_errors=True)
-    if target.exists():
-        return f"A partial directory remains at {target} — remove it before retrying."
+    for name in MATERIALIZED_SOURCE_ENTRIES:
+        entry = target / name
+        if entry.is_dir():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            entry.unlink(missing_ok=True)
+    remaining = [name for name in MATERIALIZED_SOURCE_ENTRIES if (target / name).exists()]
+    if remaining:
+        return (
+            f"Partly-written files remain in {target}: {', '.join(remaining)} — "
+            f"remove them before retrying."
+        )
     return "Nothing was materialized."
 
 
-def _packaged_sources(manager: TemplateManager, data_bundle: str) -> tuple[Path, Path]:
-    """The two packaged trees this command copies: the seed, and ``data_bundle``'s data.
+def _packaged_data_source(manager: TemplateManager, data_bundle: str) -> Path:
+    """The packaged ``data/`` tree this command copies verbatim.
 
-    Both are checked up front, before anything is written, so a packaging
-    regression surfaces as an actionable error here rather than as a Jinja
-    ``TemplateNotFound`` deep in the loader or a missing-file error mid-copy.
-    Neither can be caused by anything the caller passed.
+    Checked up front, before anything is written, so a packaging regression
+    surfaces as an actionable error here rather than as a missing-file error
+    mid-copy. It cannot be caused by anything the caller passed.
 
     Args:
         manager: The :class:`~.templates.manager.TemplateManager` locating the
             installed template root.
         data_bundle: App template whose ``data/`` tree gets materialized.
 
-    Returns:
-        ``(seed_root, data_source)``.
-
     Raises:
-        BuildProfileError: If either tree is absent from the installation.
+        BuildProfileError: If the tree is absent from the installation.
     """
-    seed_root = manager.template_root / "profile_seed"
-    if not seed_root.is_dir():
-        raise BuildProfileError(
-            f"Profile seed templates missing at {seed_root}. "
-            f"This is a packaging bug — reinstall osprey-framework."
-        )
-
-    data_source = manager.template_root / "apps" / data_bundle / "data"
+    data_source = Path(manager.template_root) / "apps" / data_bundle / "data"
     if not data_source.is_dir():
         raise BuildProfileError(
             f"App template {data_bundle!r} ships no data tree at {data_source}. "
             f"This is a packaging bug — reinstall osprey-framework."
         )
 
-    return seed_root, data_source
+    return data_source
 
 
 class _MaterializedProfile(NamedTuple):
@@ -1427,7 +818,6 @@ def _materialize_profile_directory(
     overrides: tuple[Path, ...] = (),
     set_pairs: tuple[str, ...] = (),
     *,
-    force: bool = False,
     profile_name: str | None = None,
 ) -> _MaterializedProfile:
     """Materialize an editable, standalone profile directory from ``preset_name``.
@@ -1453,13 +843,9 @@ def _materialize_profile_directory(
         preset_name: Bundled preset to materialize, in either spelling.
         overrides: ``-O`` files, layered in order.
         set_pairs: ``--set`` pairs, layered last.
-        force: Replace an existing target (see above).
         profile_name: Display name for the emitted profile. Defaults to one
-            derived from the target directory's own name, which is right for a
-            profile whose directory the operator chose and wrong for one nested
-            in a facility repo, where every profile directory is called
-            ``profile/`` and the repo carries the facility's name.
-            ``--set name=`` still wins over both.
+            derived from the repo directory's own name. ``--set name=`` wins
+            over both.
 
     Returns:
         What was written, for the caller's summary (:class:`_MaterializedProfile`).
@@ -1479,7 +865,6 @@ def _materialize_profile_directory(
     )
     from .build_profile_emit import emit_standalone_profile_yaml
     from .templates.manager import TemplateManager
-    from .templates.scaffolding import _copy_data_tree
 
     # Resolving through the public path validates the preset AND its -O/--set
     # layers up front, and names the bundle whose data tree gets copied. It also
@@ -1499,19 +884,6 @@ def _materialize_profile_directory(
     name_override = baked.get("name")
 
     target = target_dir.resolve()
-    replacing = False
-    if target.exists():
-        if not force:
-            raise click.UsageError(_ALREADY_EXISTS.format(target=target))
-        # --force only replaces what this command itself produces: a
-        # materialized profile (profile.yml present) or an empty directory.
-        # Anything else could be an arbitrary directory named by mistake —
-        # refuse rather than delete it.
-        if not (
-            target.is_dir() and ((target / "profile.yml").is_file() or not any(target.iterdir()))
-        ):
-            raise click.UsageError(_NOT_REPLACEABLE.format(target=target))
-        replacing = True
 
     normalized_preset = _normalize_preset_name(preset_name)
     # The caller's name, or one read off the directory the operator chose
@@ -1522,9 +894,11 @@ def _materialize_profile_directory(
         profile_name_default = str(name_override)
 
     manager = TemplateManager()
-    seed_root, data_source = _packaged_sources(manager, resolved.data_bundle)
+    data_source = _packaged_data_source(manager, resolved.data_bundle)
 
-    profile_filename = f"{target.name}/profile.yml"
+    # How the emitted persona comments spell their own paths: repo-relative,
+    # because the repo root is where a reader stands.
+    persona_dirname = ""
 
     # A profile that deploys per-persona web terminals owns those personas too:
     # their profiles are materialized beside this one and the catalog is
@@ -1537,7 +911,7 @@ def _materialize_profile_directory(
     triggers_src = _triggers_source(resolved, preset_dir)
 
     persona_texts = _persona_profile_texts(
-        resolved, profile_name_default, target.name, normalized_preset
+        resolved, profile_name_default, persona_dirname, normalized_preset
     )
     # Parsed here, before the first mkdir and before `--force` replaces
     # anything: the parse is what validates the emitted deltas, so a bad one
@@ -1545,7 +919,7 @@ def _materialize_profile_directory(
     persona_deltas = _parsed_persona_deltas(persona_texts)
 
     extra_layers: tuple[dict[str, Any], ...] = (
-        *((_persona_catalog_layer(persona_texts),) if persona_texts else ()),
+        *((_persona_catalog_layer(persona_texts, repo_name=target.name),) if persona_texts else ()),
         *((_triggers_layer(),) if triggers_src is not None else ()),
     )
 
@@ -1568,50 +942,16 @@ def _materialize_profile_directory(
         overrides=overrides,
         set_pairs=(*set_pairs, f"data={_PROFILE_DATA_DIRNAME}"),
         profile_name=profile_name_default,
-        profile_filename=profile_filename,
         extra_layers=extra_layers,
         include_flow_diagram=True,
     )
 
-    # The replacement happens here, after every input has resolved and the new
-    # profile text is fully rendered — a failure above (bad preset, invalid
-    # override) leaves the existing directory exactly as it was.
-    if replacing:
-        shutil.rmtree(target)
+    # The repo root is allowed to exist — it usually does (an empty clone, the
+    # operator's own mkdir). Whether writing into THIS one is acceptable was
+    # settled by the caller, which also owns what to clear if this fails.
+    target.mkdir(parents=True, exist_ok=True)
 
     try:
-        target.mkdir(parents=True)
-    except FileExistsError as e:
-        # Lost the race against another process between the check above and
-        # here — same user-facing outcome, so say the same thing.
-        raise click.UsageError(_ALREADY_EXISTS.format(target=target)) from e
-
-    try:
-        ctx = {
-            "preset_name": normalized_preset,
-            "profile_name": profile_name_default,
-            "profile_dirname": target.name,
-            "profile_filename": profile_filename,
-            # Only the staging directories this bundle actually ships, so the
-            # README never explains a directory the reader does not have.
-            "staging_notes": [
-                {"path": rel, "note": note}
-                for rel, note in _STAGING_TREE_NOTES
-                if (data_source / rel).is_dir()
-            ],
-            # Empty for a profile that deploys no persona stack, so the README
-            # never explains a directory the reader does not have.
-            "persona_profiles": list(persona_texts),
-            # Same: only a profile with a dispatch block owns a triggers.yml.
-            "has_triggers": triggers_src is not None,
-            # Same again: the per-user context slots exist only for a profile
-            # that stands up a web-terminal roster.
-            "context_users": roster,
-            # Whether the reader has a `.env` already, so the README either
-            # explains what was seeded or tells them how to create one.
-            "has_seeded_env": bool(exported_keys),
-        }
-        _copy_data_tree(seed_root, target, manager.template_root, manager.jinja_env, ctx)
         # Verbatim copy (D1/FR2): staging subdirectories and any stray `.j2`
         # come across byte-identical — a profile data tree is content, never
         # templates, so nothing here is rendered. The one exclusion is build
@@ -1635,9 +975,9 @@ def _materialize_profile_directory(
         )
         logger.info("  Secrets: %s", ", ".join(secret_files))
         if shell_keys.skipped:
-            # Also logged here, not only in `profile new`'s summary: a build
-            # that materializes its own profile takes this path too, and a
-            # skipped secret must be visible wherever the skipping happened.
+            # Logged here as well as in `osprey init`'s own summary: this is
+            # where the skipping happens, and a skipped secret must be visible
+            # at the point it was skipped.
             logger.info("  %s", _skipped_keys_note(shell_keys.skipped))
 
         # One empty slot per roster user, so the per-user context a facility

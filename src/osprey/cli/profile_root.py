@@ -82,7 +82,8 @@ class ProjectProfileProblem(Enum):
     it is there but does not anchor.
     """
 
-    #: The manifest names no profile — a legacy manifest, or not a built project.
+    #: The manifest names no profile — a manifest without that field, or not a
+    #: built project.
     NO_PROFILE_RECORDED = "no_profile_recorded"
 
     #: The manifest names a profile file that is not there any more.
@@ -154,10 +155,8 @@ def resolve_project_profile(project_dir: Path, *, require_profile_file: bool) ->
 
     ``require_profile_file=False`` deliberately does not make this a check a
     caller about to *write* unattended can lean on; that caller owes the
-    stronger question separately (see
-    :func:`osprey.deployment.container_lifecycle._stale_manifest_profile`),
-    which is why this resolver stays a pure path resolution and answers no
-    question about whether writing there is a good idea.
+    stronger question separately. This resolver stays a pure path resolution and
+    answers no question about whether writing there is a good idea.
 
     :param project_dir: Project root (the directory holding the manifest).
     :param require_profile_file: Whether the recorded profile file must exist.

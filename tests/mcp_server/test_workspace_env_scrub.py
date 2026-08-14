@@ -4,10 +4,10 @@ Mirrors ``test_executor_env_scrub.py`` for the sibling sandbox in
 ``osprey.mcp_server.workspace.execution.sandbox_executor`` (used by the
 data-visualizer tools: ``create_static_plot``, ``create_interactive_plot``,
 ``create_dashboard``). This sandbox has its own local subprocess-spawn seam
-(``execute_sandbox_code``'s ``asyncio.create_subprocess_exec`` call) that
-previously had no ``env=`` kwarg at all and therefore inherited the full
-parent environment — the same write-arming-token leak found and fixed in the
-python-executor sandbox (task 2.11).
+(``execute_sandbox_code``'s ``asyncio.create_subprocess_exec`` call) which,
+without an ``env=`` kwarg, would inherit the full parent environment — the
+same write-arming-token leak the python-executor sandbox guards against
+(task 2.11).
 """
 
 import textwrap

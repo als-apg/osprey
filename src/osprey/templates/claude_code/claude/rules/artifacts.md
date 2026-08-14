@@ -54,8 +54,9 @@ and can be viewed with rendered HTML formatting.
 - **Auto-created:** Every execution is saved as a `.ipynb` notebook artifact
 - **Pre-execution review:** When approval is required, a pre-execution notebook
   is created and linked in the approval prompt for code review
-- **Editable:** Use `NotebookEdit` to modify notebook cells in
-  `_agent_data/artifacts/` — the gallery re-renders automatically
+- **Editable:** Use `NotebookEdit` to modify notebook cells in the `artifacts/`
+  directory under the agent-data root (`agent_data.base_dir` in config.yml) —
+  the gallery re-renders automatically
 
 ## Directing User Attention
 

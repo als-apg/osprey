@@ -48,6 +48,7 @@ services:
     command: ["python", "-u", "-m", "osprey.services.archiver_recorder"]
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
@@ -75,7 +76,7 @@ services:
     # convention): this service talks to exactly two things, an IOC and the
     # archiver store, and never calls an LLM. Everything it reads arrives by
     # explicit interpolation below, resolved from the project .env because
-    # `deploy up` runs compose with `--env-file .env`.
+    # `osprey up` runs compose with `--env-file .env`.
     environment:
       # The recorder reads control_system.type (its own enablement), the
       # va_archiver cadence/retention knobs and the archiver connection block
@@ -83,7 +84,7 @@ services:
       # project dir, so without CONFIG_FILE this falls back to /app/config.yml
       # and every lookup errors "No config.yml found" — the same CONFIG_FILE
       # convention the dispatch worker and bluesky bridge follow.
-      CONFIG_FILE: /app/project/config.yml
+      CONFIG_FILE: /app/project/build/config.yml
       # In-network overrides for the archiver connection, following the
       # OSPREY_OTEL_OPENOBSERVE_HOST precedent. The connection block in
       # config.yml is written for the HOST side — `localhost` and the
@@ -97,7 +98,7 @@ services:
       OSPREY_ARCHIVER_MONGODB_PORT: "27017"
       # The store's minted root password, read through the same variable the
       # agent connector's `password_env` names, so container, recorder, seeder
-      # and agent all authenticate with one value. `osprey deploy up` mints it
+      # and agent all authenticate with one value. `osprey up` mints it
       # into the project .env when unset. The literal fallback matches the
       # mongodb template's own MONGO_INITDB_ROOT_PASSWORD default line for
       # line: an unset password must mean the SAME thing on both sides, or a
@@ -140,20 +141,21 @@ services:
 {% endif %}
       TZ: {{ system.timezone }}
     volumes:
-      # Bind-mount sources are relative to the compose project directory
-      # (build/services/), not this file's own subdir — so `../..` is the
-      # project root and `../../data/simulation` the build-owned data tree.
+      # Bind-mount sources are relative to the pinned compose project
+      # directory, which is the deployment REPO ROOT — so `.` is the repo and
+      # `./build/data/simulation` the build-owned data tree.
       #
-      # The PROJECT DIRECTORY, read-only, and a deliberate exception to the
-      # convention every other service follows. The bluesky bridge and the
-      # dispatch worker mount the flattened config.yml the compose generator
-      # stages into their own build dir; this service must not. That staged
-      # copy is written once per `deploy up`, so an enablement poll re-reading
-      # it could only ever re-read a build artifact, and the flip an operator
-      # makes in the project's own config.yml would never arrive. CONFIG_FILE
-      # above names /app/project/config.yml, which is now the LIVE file — which
-      # is what makes this service's own log line ("Flipping it in
-      # /app/project/config.yml takes effect within 30s") true verbatim.
+      # The REPO ROOT, read-only, and a deliberate exception to the convention
+      # every other service follows. The bluesky bridge and the dispatch
+      # worker mount the flattened config.yml the compose generator stages
+      # into their own build dir; this service must not. That staged copy is
+      # written once per `osprey build`, so an enablement poll re-reading it
+      # could only ever re-read a stale copy, and a flip made in the rendered
+      # config.yml would never arrive. CONFIG_FILE above names
+      # /app/project/build/config.yml — the deployment's as-built config,
+      # reached through the directory mount, so an edit to it on the host is
+      # what this service's own log line ("Flipping it in
+      # /app/project/build/config.yml takes effect within 30s") re-reads.
       #
       # A DIRECTORY rather than the single file, and this is the load-bearing
       # part: a single-file bind resolves to an inode when the container
@@ -165,17 +167,17 @@ services:
       # flow. Mounting the directory re-resolves the path on every read, so any
       # editor's save is seen.
       #
-      # Read-only, so the project's .env is also visible to this container.
+      # Read-only, so the repo's .env is also visible to this container.
       # Accepted: it is first-party and already receives the store credential
       # by env. The in-network connection values still come from the
       # OSPREY_ARCHIVER_MONGODB_* overrides above — the config's own connection
       # block stays host-side and is not what this service connects with.
-      - ../..:/app/project:ro
+      - .:/app/project:ro
       # The simulation data dir, read-only, mounted at the SAME container path
       # the VA uses so a relative VA_CHANNELS_FILE resolves identically on both
       # sides. The recorder only reads the channel manifest from here; it never
       # writes into the build-owned data tree.
-      - ../../data/simulation:/data/simulation:ro
+      - ./build/data/simulation:/data/simulation:ro
     networks:
       - osprey-network
 

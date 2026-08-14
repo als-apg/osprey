@@ -66,6 +66,31 @@ class TestArtifactEntryAPI:
         assert resp.json()["id"] == entry.id
         assert resp.json()["title"] == "Fetch Me"
 
+    def test_delete_route_runs_under_the_human_actor(self, app_client):
+        """A gallery delete is a human action: the store-level activity
+        listener must be able to tell it apart from an agent delete."""
+        from osprey.stores.artifact_store import (
+            current_artifact_mutation_actor,
+            register_artifact_delete_listener,
+            unregister_artifact_delete_listener,
+        )
+
+        client, _ = app_client
+        entry = _save_text_artifact(client.app.state.artifact_store)
+
+        actors = []
+
+        def record_actor(_entry):
+            actors.append(current_artifact_mutation_actor())
+
+        register_artifact_delete_listener(record_actor)
+        try:
+            assert client.delete(f"/api/artifacts/{entry.id}").status_code == 200
+        finally:
+            unregister_artifact_delete_listener(record_actor)
+
+        assert actors == ["human"]
+
     def test_delete_artifact_removes_entry(self, app_client):
         client, _ = app_client
         entry = _save_text_artifact(client.app.state.artifact_store)

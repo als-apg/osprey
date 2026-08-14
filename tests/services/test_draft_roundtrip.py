@@ -8,11 +8,11 @@ real ``osprey.services.bluesky_bridge.app`` bridge via ``httpx.ASGITransport``
 frame it broadcasts is observed on the bridge itself. That cross-service hop is
 this module's whole subject.
 
-The "launch" third of the original chain has moved: plans execute in the queue
-server now, so ``POST /draft/run`` no longer launches anything and answers the
-machine-readable ``use_the_queue`` refusal instead. This module asserts exactly
-that -- a caller who follows the PATCH with the old launch call learns where
-the capability went. It deliberately stops there. The draft-revision-to-enqueue
+Launching is not part of that chain: plans execute in the queue server, so
+``POST /draft/run`` launches nothing and answers the machine-readable
+``use_the_queue`` refusal instead. This module asserts exactly that -- a caller
+who follows the PATCH with a launch call learns where the capability lives. It
+deliberately stops there. The draft-revision-to-enqueue
 path (reservation, arming, what reaches the manager) is
 ``tests/integration/test_bluesky_queue_contract.py``'s subject, against a
 stateful mock queue server; duplicating it here would mean two places to update

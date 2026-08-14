@@ -1,7 +1,7 @@
 """``data/`` is byte-stable across every runtime writer (FR-8b regression).
 
 A project's ``data/`` tree is build-owned: rendered from the profile, checksummed
-into ``.osprey-manifest.json``, and cleared by ``osprey build --force``. Anything
+into ``.osprey-manifest.json``, and cleared by ``osprey build``. Anything
 written there while the system runs therefore reads as project drift and is
 erased by the next forced rebuild — silently taking an operator's scenario
 selection or accumulated channel-finder feedback with it.
@@ -26,12 +26,14 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
+from osprey.cli.init_cmd import init
 from osprey.cli.templates.manifest import calculate_file_checksums
 from osprey.interfaces.channel_finder.app import FEEDBACK_DIR
 from osprey.utils.config import (
     ConfigBuilder,
     find_runtime_write_paths_under_data,
 )
+from osprey.utils.workspace import agent_data_base_dir
 
 PRESET = "control-assistant"
 PROJECT_NAME = "checksum-stability"
@@ -49,27 +51,23 @@ def _data_checksums(project: Path) -> dict[str, str]:
 
 @pytest.fixture(scope="module")
 def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A real built project, shared by every test here.
+    """A real render, shared by every test here.
 
-    Built once: the writers below are only ever supposed to touch
-    ``_agent_data/``, so they cannot interfere with each other's ``data/``
-    assertions, and a per-test rebuild would pay the build cost for nothing.
+    The RENDER, not the repo: ``data/`` is build output, and what these tests
+    watch is whether anything writes back into it after the build.
+
+    Built once. The writers below are only ever supposed to touch the agent-data
+    root, so they cannot interfere with each other's ``data/`` assertions, and a
+    per-test rebuild would pay the build cost for nothing.
     """
-    out_dir = tmp_path_factory.mktemp("projects")
-    result = CliRunner().invoke(
-        build,
-        [
-            PROJECT_NAME,
-            "--preset",
-            PRESET,
-            "--skip-deps",
-            "--skip-lifecycle",
-            "--output-dir",
-            str(out_dir),
-        ],
-    )
+    repo = tmp_path_factory.mktemp("projects") / PROJECT_NAME
+
+    created = CliRunner().invoke(init, [str(repo), "--preset", PRESET, "--no-git"])
+    assert created.exit_code == 0, created.output
+
+    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
-    return out_dir / PROJECT_NAME
+    return repo / "build"
 
 
 @pytest.fixture(scope="module")
@@ -100,21 +98,28 @@ class TestRuntimeWriters:
     """Every writer that runs after the build, against one real project."""
 
     def test_activating_a_scenario_leaves_data_untouched(
-        self, built_project: Path, baseline: dict[str, str]
+        self, built_project: Path, baseline: dict[str, str], project_config: dict
     ) -> None:
         from osprey.simulation.apply import apply_scenarios
+        from osprey.utils.workspace import resolve_simulation_state_dir
 
         # Both side-seedings are off for the same reason: each one reaches a
         # service this test does not run and is not about. `seed_logbook` wants
         # ARIEL's Postgres; `seed_archive` wants the MongoDB store the
         # control-assistant preset now declares, and refuses outright without
-        # the password `osprey deploy up` mints -- correctly, since a rewrite it
+        # the password `osprey up` mints -- correctly, since a rewrite it
         # cannot perform would leave the archive contradicting the scenario.
         # What is under test here is where the ACTIVATION writes: the state file
-        # belongs in `_agent_data/`, never in the build-owned `data/` tree.
+        # belongs under `var/agent_data/`, never in the build-owned `data/`
+        # tree.
         apply_scenarios(built_project, ["vacuum-burst"], seed_logbook=False, seed_archive=False)
 
-        state_file = built_project / "_agent_data" / "simulation" / "active_scenarios"
+        # Resolved from the config rather than spelled out, because where the
+        # agent-data root sits is a config decision: pinning the literal here
+        # would turn a deliberate move of the state zone into a test failure
+        # that reads like a regression.
+        state_dir = resolve_simulation_state_dir(project_config, built_project)
+        state_file = state_dir / "active_scenarios"
         assert "vacuum-burst" in state_file.read_text(encoding="utf-8")
         assert _data_checksums(built_project) == baseline
 
@@ -132,9 +137,13 @@ class TestRuntimeWriters:
             .get("feedback", {})
         )
         store_path = feedback.get("store_path", f"{FEEDBACK_DIR}/hierarchical_feedback.json")
-        assert store_path.startswith("_agent_data/"), (
-            f"the shipped config points the feedback store at {store_path} — "
-            "runtime writes there are erased by `osprey build --force`"
+        # Under the agent-data root, wherever the config puts it. Asserted
+        # against the configured root rather than a literal, because the point
+        # is the ZONE: a feedback store outside it sits in the tracked source
+        # zone, where it dirties `git status` and a rebuild erases it.
+        assert store_path.startswith(f"{agent_data_base_dir(project_config)}/"), (
+            f"the shipped config points the feedback store at {store_path}, outside "
+            f"the agent-data root — runtime writes there are not durable state"
         )
         hierarchical = built_project / store_path
         hierarchical.parent.mkdir(parents=True, exist_ok=True)

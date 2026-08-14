@@ -185,8 +185,8 @@ def test_panel_catalog_registers_system_health_tab_with_explicit_health_endpoint
     An omitted/null ``healthEndpoint`` SKIPS polling and pins the panel healthy,
     which would leave the SYSTEM rail entry permanently enabled even with its
     sidecar down — so the descriptor MUST carry ``healthEndpoint: '/health'``.
-    (The rail no longer draws a per-entry LED; the poll now feeds only the
-    coarse ``.disabled`` state, and the detailed readout is the ``web_panels``
+    (The rail draws no per-entry LED; the poll feeds only the coarse
+    ``.disabled`` state, and the detailed readout is the ``web_panels``
     health category. The explicit endpoint matters either way.)
 
     Reads ``panel-catalog.js``, which owns the shipped ``PANELS`` array —

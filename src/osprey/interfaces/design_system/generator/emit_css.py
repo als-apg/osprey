@@ -72,7 +72,7 @@ def _default_theme_stem(tree: TokenTree) -> str:
     independent of filename/manifest order, so adding a theme family whose
     files sort before the canonical one can never hijack the product
     default. When no theme is flagged, fall back to the first dark theme
-    in manifest order (the historical behavior).
+    in manifest order.
 
     Args:
         tree: The loaded token tree.

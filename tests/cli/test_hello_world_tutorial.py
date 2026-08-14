@@ -46,8 +46,9 @@ def _resolve_preset_profile(name: str) -> Path:
 def _build_from_profile(profile_name: str, project_name: str, tmp_path: Path) -> Path:
     """Build a project from a bundled example profile using TemplateManager directly.
 
-    Equivalent to ``osprey build <project_name> <profile> --skip-deps``
-    without overlay file copying.
+    Equivalent to ``osprey init`` followed by a zero-argument
+    ``osprey build --skip-deps``, driving TemplateManager directly and without
+    overlay file copying.
     """
     from osprey.cli.build_profile import load_profile
     from osprey.cli.templates.artifact_library import validate_artifacts
