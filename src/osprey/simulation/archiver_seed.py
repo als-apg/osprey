@@ -725,7 +725,7 @@ def seed_base(
         seeded_at=t0,
         report=report,
     )
-    logger.info(report.describe())
+    logger.debug(report.describe())
     return report
 
 

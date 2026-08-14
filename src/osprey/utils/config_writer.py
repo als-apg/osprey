@@ -310,7 +310,7 @@ def config_remove_from_list(
                 del parent_node[parent_key]
 
     _save(config_path, data)
-    logger.info("config_remove_from_list: %s -= %s in %s", ".".join(key_path), value, config_path)
+    logger.debug("config_remove_from_list: %s -= %s in %s", ".".join(key_path), value, config_path)
     return True
 
 
@@ -346,7 +346,7 @@ def config_replace_list(
 
     node[key_path[-1]] = new_list
     _save(config_path, data)
-    logger.info(
+    logger.debug(
         "config_replace_list: %s = <%d item(s)> in %s",
         ".".join(key_path),
         len(new_list),
@@ -373,7 +373,7 @@ def config_update_fields(
         _set_dotted_anchored(data, data, dotted_key, value, create_only=True)
 
     _save(config_path, data)
-    logger.info("config_update_fields: updated %d field(s) in %s", len(updates), config_path)
+    logger.debug("config_update_fields: updated %d field(s) in %s", len(updates), config_path)
 
 
 def _set_dotted_anchored(

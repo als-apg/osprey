@@ -12,7 +12,6 @@ import logging
 import shutil
 from pathlib import Path
 
-from osprey.cli.styles import console
 from osprey.cli.templates._rendering import render_template
 
 logger = logging.getLogger("osprey.cli.templates")
@@ -301,10 +300,7 @@ def copy_template_data(
         dst_data = project_dir / "data"
         # dirs_exist_ok is defensive — no build path reaches here with data/ present.
         shutil.copytree(data_root, dst_data, dirs_exist_ok=True)
-        console.print(
-            f"  [success]✓[/success] Copied profile data files from "
-            f"[path]{data_root}[/path] to [path]{dst_data}[/path]"
-        )
+        logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
         return
 
     app_template_dir = template_root / "apps" / data_bundle
@@ -317,9 +313,7 @@ def copy_template_data(
             _copy_data_tree(template_data_dir, dst_data, template_root, jinja_env, ctx)
         else:
             shutil.copytree(template_data_dir, dst_data, dirs_exist_ok=True)
-        console.print(
-            f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
-        )
+        logger.debug("Copied template data files to %s", dst_data)
         return
 
     # Fallback: scan for data/ directories inside template subdirectories
@@ -344,9 +338,7 @@ def copy_template_data(
                         elif item.is_file():
                             dst_item.parent.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(item, dst_item)
-            console.print(
-                f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
-            )
+            logger.debug("Copied template data files to %s", dst_data)
             return
 
 
@@ -443,10 +435,11 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
     if queries_src_root.exists():
         shutil.rmtree(queries_src_root)
 
-    console.print(
-        f"  [success]✓[/success] Materialized tier{tier} artifacts "
-        f"(channel DB + queries) for {sorted(paradigms)!r} to "
-        f"[path]{project_dir / 'data'}[/path]"
+    logger.debug(
+        "Materialized tier%s artifacts (channel DB + queries) for %r to %s",
+        tier,
+        sorted(paradigms),
+        project_dir / "data",
     )
 
 
@@ -474,7 +467,4 @@ def prune_csv_build_artifacts(project_dir: Path, channel_finder_mode: str) -> No
         return
 
     shutil.rmtree(raw_dir)
-    console.print(
-        f"  [success]✓[/success] Removed [path]{raw_dir}[/path] "
-        f"(no CSV build path for {channel_finder_mode!r} paradigm)"
-    )
+    logger.debug("Removed %s (no CSV build path for %r paradigm)", raw_dir, channel_finder_mode)

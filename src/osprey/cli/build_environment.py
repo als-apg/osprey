@@ -159,11 +159,11 @@ def report_provider_credentials(
     if selected is None:
         # Keyless provider, or a name outside the registry (custom adapter).
         if provider in PROVIDER_API_KEYS:
-            logger.info("  ✓ Provider: %s — no API key required", provider)
+            logger.debug("  ✓ Provider: %s — no API key required", provider)
         else:
-            logger.info("  ✓ Provider: %s — no known API key env var; skipping check", provider)
+            logger.debug("  ✓ Provider: %s — no known API key env var; skipping check", provider)
     elif selected.found:
-        logger.info("  ✓ Provider: %s — %s found (%s)", provider, selected.var, selected.source)
+        logger.debug("  ✓ Provider: %s — %s found (%s)", provider, selected.var, selected.source)
     else:
         logger.warning("  ✗ Provider: %s — %s NOT SET", provider, selected.var)
         logger.warning("      The build will complete, but the agent cannot reach the model.")
@@ -185,9 +185,9 @@ def report_provider_credentials(
     found_others = [s.var for s in others if s.found]
     missing_others = [s.var for s in others if not s.found]
     if found_others:
-        logger.info("      Other keys detected: %s", ", ".join(found_others))
+        logger.debug("      Other keys detected: %s", ", ".join(found_others))
     if missing_others:
-        logger.info("      Not set:             %s", ", ".join(missing_others))
+        logger.debug("      Not set:             %s", ", ".join(missing_others))
 
     return statuses
 
@@ -712,7 +712,7 @@ def freeze_base_environment(python_path: Path, inherit_exclude: list[str]) -> li
         raise BuildProfileError(_freeze_offender_message(python_path, unreproducible, conflicts))
 
     pinned = [f"{name}=={version}" for _, (name, version, _) in sorted(survivors.items())]
-    logger.info(
+    logger.debug(
         "  ✓ Froze %d packages from base venv %s (%.2fs)",
         len(pinned),
         python_path,
@@ -776,7 +776,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     # --- Create venv ---
     logger.info("  Creating project virtual environment...")
     if base_python is not None:
-        logger.info("  Base interpreter: %s", base_python)
+        logger.debug("  Base interpreter: %s", base_python)
     if uv_path:
         result = subprocess.run(
             [uv_path, "venv", str(venv_path), "--python", base_python_arg, "--quiet"],
