@@ -2412,3 +2412,117 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
             assert actions and actions[-1] == ["more", "refresh"], actions
 
             page.close()
+
+
+# The drag ghost dockview builds for a tab is a deep clone of that tab, parented
+# to document.body — OUTSIDE #dock-root (verified against the vendored 7.0.2
+# bundle: the Tab's `createGhost` calls `_buildGhostElement()`, which clones the
+# element and inlines the computed style ON THE ROOT ONLY, then `addGhostImage`
+# appends the clone to document.body before `setDragImage`; the pointer-drag
+# path parents its ghost to document.body too). Every rule in
+# dockview-overrides.css is scoped under `.dock-root` to win the cascade against
+# the bundle's self-injected stylesheet, so none of them reach the clone's
+# descendants.
+#
+# That makes the bar's inline SVGs the load-bearing case. A viewBox alone gives
+# an SVG an intrinsic RATIO but no intrinsic SIZE, so once `.dock-root
+# .bar-icon` is out of scope, `width: auto` resolves to the containing block's
+# width and the 1:1 ratio squares it — the search icon paints as a ~400px
+# magnifying glass riding the cursor (the close × collapses to 0 instead, its
+# container being zero-width). The icons must carry their own intrinsic size so
+# they stay bar-sized wherever the ghost lands.
+_GHOST_ICON_PROBE = """
+() => {
+  // The tab under test is the one whose panel contributed the search box —
+  // NOT document's first .dv-tab, which is another tile entirely.
+  const tab = document.querySelector('.contrib-search-input')?.closest('.dv-tab');
+  if (!tab) return { error: 'no .dv-tab carrying a contributed search' };
+  const liveIcon = tab.querySelector('.contrib-search-icon .bar-icon');
+  if (!liveIcon) return { error: 'no search icon in the live bar' };
+  const liveRect = liveIcon.getBoundingClientRect();
+  // Drive dockview's REAL html5 drag source. addGhostImage removes the ghost in
+  // a setTimeout(0), so it is still attached when this synchronous dispatch
+  // returns — measure before yielding to the event loop.
+  tab.dispatchEvent(new DragEvent('dragstart', {
+    bubbles: true, cancelable: true, dataTransfer: new DataTransfer(),
+  }));
+  const ghost = document.querySelector('body > .dv-tab-ghost-drag');
+  if (!ghost) return { error: 'dockview built no ghost element' };
+  const box = (el) => {
+    const r = el.getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height) };
+  };
+  const icons = [...ghost.querySelectorAll('.bar-icon')].map((el) => ({
+    cls: el.getAttribute('class'),
+    ...box(el),
+    parent: el.parentElement.getAttribute('class') || el.parentElement.tagName,
+    parentBox: box(el.parentElement),
+  }));
+  return {
+    icons,
+    ghost: box(ghost),
+    parent: ghost.parentElement.tagName,
+    live: { w: Math.round(liveRect.width), h: Math.round(liveRect.height) },
+  };
+}
+"""
+
+
+def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
+    """A dragged tile's ghost must not blow its icons up to container width.
+
+    dockview parents the ghost to document.body, so the tile bar's clone loses
+    every `.dock-root`-scoped rule — including the one that sizes `.bar-icon`.
+    An inline SVG with only a viewBox has no intrinsic size, so what the
+    operator sees riding the cursor is a magnifying glass scaled to the width
+    of the whole bar, not a tile header.
+
+    Only a real browser settles this: it needs layout, the replaced-element
+    sizing fallback, and dockview's own ghost-construction path.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _search_menu_panel_backend() as stub_url:
+        custom = {
+            "id": "search-demo",
+            "label": "SEARCHY",
+            "url": stub_url,
+            "healthEndpoint": None,
+            "path": "/",
+        }
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[custom],
+        ) as (base_url, _app):
+            page = _open_page(chromium_browser, base_url)
+            _open_second_tile(page, base_url, "search-demo", "SEARCHY")
+
+            # Wait for the contribution to land so the bar really holds a
+            # magnifier — otherwise this could pass on an empty bar.
+            tab = _service_tab(page, "SEARCHY")
+            expect(tab.locator(".contrib-search-input")).to_have_attribute(
+                "placeholder", "Filter things…", timeout=10_000
+            )
+
+            probe = page.evaluate(_GHOST_ICON_PROBE)
+            assert "error" not in probe, probe
+            assert probe["parent"] == "BODY", probe
+
+            # In the bar itself the icon keeps the 12px `.dock-root
+            # .contrib-search-icon .bar-icon` gives it: CSS beats the intrinsic
+            # width/height attributes, so sizing the SVG for the ghost must not
+            # have resized anything the operator actually looks at.
+            assert probe["live"] == {"w": 12, "h": 12}, probe["live"]
+
+            icons = probe["icons"]
+            # The bar always renders a close ×, and this panel adds a search
+            # magnifier — a ghost with no icons would be a vacuous pass.
+            assert len(icons) >= 2, icons
+            assert any("search" in i["cls"] for i in icons), icons
+
+            oversized = [i for i in icons if i["w"] > 24 or i["h"] > 24]
+            assert not oversized, f"drag-ghost icons rendered oversized: {oversized}"
+
+            page.close()

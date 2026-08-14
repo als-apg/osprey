@@ -33,6 +33,17 @@ const PATHS = {
 export function svgIcon(name) {
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '0 0 16 16');
+  // Intrinsic size, carried on the element itself. `.dock-root .bar-icon`
+  // supplies the bar's real 14px, and CSS beats presentation attributes — so
+  // these change nothing in the bar. They matter where that rule does NOT
+  // reach: dockview builds a tile's drag ghost by cloning the header bar into
+  // document.body (outside #dock-root), and a viewBox alone gives an SVG an
+  // intrinsic RATIO but no intrinsic SIZE, so `width: auto` resolves to the
+  // containing block's width and the ratio squares it — the search icon
+  // painted as a 402px magnifier riding the cursor. 16px is the viewBox's own
+  // scale, so the ghost degrades to a bar-sized icon instead.
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
   svg.setAttribute('fill', 'none');
   svg.setAttribute('stroke', 'currentColor');
   svg.setAttribute('stroke-width', '1.5');
