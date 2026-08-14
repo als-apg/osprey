@@ -348,8 +348,11 @@ _ALREADY_A_REPO = (
     "{target} is already an OSPREY deployment repo (it has a profile.yml).\n\n"
     "Re-run with --force to re-materialize its source zone from the preset — "
     "which replaces profile.yml, data/, personas/, triggers.yml, "
-    "web-terminal-context/, and .env.example, losing any edit to them. These "
-    f"are left alone either way: {_PRESERVED_PROSE}."
+    "web-terminal-context/, and .env.example, losing any edit to them. To start "
+    "over on this name entirely, re-run with --reset: that re-materializes the "
+    "source zone the same way AND destroys the previous deployment's "
+    "containers, data volumes and images. These are left alone either way: "
+    f"{_PRESERVED_PROSE}."
 )
 
 _TARGET_NOT_EMPTY = (
@@ -890,6 +893,17 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
     is_flag=True,
     help="Skip `git init` and the initial commit.",
 )
+@click.option(
+    "--reset",
+    "reset",
+    is_flag=True,
+    help="Start over on this name: destroy the containers, data volumes and "
+    "images left by a previous deployment of it, and re-materialize the source "
+    "zone as --force does when the repo directory still exists. Removing a "
+    "deployment's directory never removed its runtime state — it is keyed on "
+    "the project name and outlives the directory — so re-creating under a used "
+    f"name inherits its stores. Discards their data. Never touches: {_PRESERVED_PROSE}.",
+)
 @click.option("--up", "start", is_flag=True, help="Build the deployment and start it.")
 @click.option("-d", "--detach", "detached", is_flag=True, help="With --up: run in the background.")
 @click.option("--dev", is_flag=True, help="With --up: start in development mode.")
@@ -902,6 +916,7 @@ def init(
     set_pairs: tuple[str, ...],
     force: bool,
     no_git: bool,
+    reset: bool,
     start: bool,
     detached: bool,
     dev: bool,
@@ -952,7 +967,14 @@ def init(
     # mid-replacement is a whole repo again, so the refusals below judge the
     # deployment the operator has rather than the wreck of one.
     _reinstate_held_source_zone(target)
-    created = _prepare_repo_root(target, force=force)
+    # `--reset` implies `--force`'s file half. Its promise is "start over on
+    # this name", and a source zone left standing from the last deployment is
+    # not a start over — an edited profile.yml or a file an older preset wrote
+    # would carry into the new deployment silently. It is also what lets the
+    # flag work at all on the case it exists for: without it, a used name is
+    # refused right here, before the reset it asked for could ever run.
+    replacing = force or reset
+    created = _prepare_repo_root(target, force=replacing)
 
     # The reporter is installed around the `--up` chain as well as around the
     # creation itself: `_chain_up` invokes `build` and `up`, each of which finds
@@ -966,7 +988,7 @@ def init(
             # preset resolves in there — so the zone being replaced is held aside
             # for it rather than removed ahead of it.
             try:
-                with _replacing_source_zone(target, active=force):
+                with _replacing_source_zone(target, active=replacing):
                     materialized = _materialize_profile_directory(
                         target,
                         preset,
@@ -1009,6 +1031,29 @@ def init(
 
         _report(target, materialized, deploy_files, git_note)
 
+        # After the repo exists and before anything is built or started. The
+        # repo root is what `reset_deployment` reads to resolve the project
+        # name and plan the removals, so it cannot run earlier; and the state
+        # it removes is what a `--up` below would otherwise inherit, so it
+        # must not run later.
+        if reset:
+            # Imported here, not at module scope: this command is lazy-loaded,
+            # and `reset` pulls in the whole deployment stack.
+            from osprey.deployment.reset import reset_deployment
+
+            with reporter.phase(f"Discarding the previous {target.name}"):
+                reset_deployment(target, assume_yes=True, emit=logger.key_info)
+
+            # `reset` removes only what carries this checkout's repo-id label,
+            # so a deployment predating that label survives it — correctly, since
+            # ownership cannot be proved. But this flag promised a clean start,
+            # and continuing without one walks into the stale-volume refusal
+            # further down, whose remedy is `osprey reset`: the very thing that
+            # just declined. Stop here and name the actual obstacle instead.
+            survivors = _surviving_project_resources(target)
+            if survivors:
+                _abort_incomplete_reset(target, survivors)
+
         if start:
             _chain_up(ctx, target, detached=detached, dev=dev)
 
@@ -1018,6 +1063,59 @@ def init(
         # deployment that is now running rather than three. An ATTACHED
         # `init --up` never arrives — compose replaced this process.
         print_summary_card(target, "running" if start else "created")
+
+
+def _surviving_project_resources(target: Path) -> list[str]:
+    """Containers and volumes still labelled for this project after a reset.
+
+    Read-only, and label-scoped to the compose project rather than to the
+    checkout: the point is to find exactly what ``reset``'s ownership proof
+    could NOT account for, so the narrower filter would report nothing every
+    time.
+
+    An unreachable runtime yields ``[]`` — a reset that could not run at all has
+    already failed loudly, and inventing a second failure here would only bury
+    the first.
+    """
+    from osprey.deployment.compose_generator import resolve_project_name
+    from osprey.deployment.reset import RuntimeProbe
+    from osprey.deployment.runtime_helper import get_runtime_command
+
+    project = resolve_project_name({"project_name": target.name})
+    try:
+        probe = RuntimeProbe(get_runtime_command({})[0])
+        return [
+            f"{resource.kind} {resource.name}"
+            for resource in (
+                *probe.containers_for_project(project),
+                *probe.volumes_for_project(project),
+            )
+        ]
+    except Exception:  # noqa: BLE001 — see docstring: never mask the real failure
+        return []
+
+
+def _abort_incomplete_reset(target: Path, survivors: list[str]) -> None:
+    """Stop a ``--reset`` that could not actually clear the name it was given."""
+    logger.error(
+        "✗ --reset could not clear %s: %d resource(s) of this project remain.\n\n%s\n\n"
+        "`osprey reset` removes only what carries this checkout's `com.osprey.repo-id` "
+        "label. These predate it — a deployment created before the label existed — so it "
+        "cannot prove they are this repo's and declines to touch them, which is what keeps "
+        "one checkout from destroying another's.\n\n"
+        "Remove them yourself, once, and every later deployment of this name will carry the "
+        "label and reset cleanly:\n"
+        "    docker ps -aq --filter label=com.docker.compose.project=%s | xargs docker rm -f\n"
+        "    docker volume ls -q --filter label=com.docker.compose.project=%s | xargs docker "
+        "volume rm\n\n"
+        "Nothing was built and nothing was started.",
+        target.name,
+        len(survivors),
+        "\n".join(f"    {line}" for line in survivors),
+        target.name,
+        target.name,
+    )
+    raise click.Abort()
 
 
 def _write_if_absent(path: Path, text: str) -> bool:

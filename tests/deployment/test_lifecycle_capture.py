@@ -84,7 +84,7 @@ class CaptureRecorder:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    def __call__(self, cmd, *, env=None, spool_name, repo_root=None, check=True):
+    def __call__(self, cmd, *, env=None, spool_name, repo_root=None, check=True, on_line=None):
         self.calls.append(
             {
                 "cmd": list(cmd),
@@ -92,6 +92,7 @@ class CaptureRecorder:
                 "spool_name": spool_name,
                 "repo_root": repo_root,
                 "check": check,
+                "on_line": on_line,
             }
         )
         return subprocess.CompletedProcess(list(cmd), 0)
@@ -374,6 +375,12 @@ def start_stack_stubs(monkeypatch):
     """The host-touching preflights ``_start_stack`` runs before its compose calls."""
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    # Asks the runtime which of this project's data volumes exist. Stubbed for
+    # the same reason as the two above: left live it reads the developer's own
+    # daemon, so a stray `proj_*` volume on one machine would fail tests that
+    # are about spooling, and CI — with no such volume — could never reproduce
+    # it. Its own behaviour is pinned in test_stale_store_volume_preflight.py.
+    monkeypatch.setattr(container_lifecycle, "_preflight_stale_store_volumes", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
@@ -438,6 +445,82 @@ def test_a_non_dev_deploy_does_not_build(captured, reporter, start_stack_stubs, 
 
     assert captured.spool_names == ["compose-rm", "compose-up"]
     assert "service images built" not in reporter.steps
+
+
+# ---------------------------------------------------------------------------
+# Per-image progress during the service-image build
+# ---------------------------------------------------------------------------
+#
+# `compose build` builds every service image in one parallel invocation, and it
+# is the longest step of a dev deploy — half an hour cold. A single step line
+# printed at the end reads as a hang for the whole build. The fix keeps the one
+# parallel build and derives per-image steps from BuildKit's own stream: each
+# `naming to <ref> done` line marks one image's completion.
+
+
+def test_each_finished_image_is_its_own_step(reporter):
+    report = container_lifecycle.compose_build_step_reporter()
+
+    for line in [
+        "#12 [va internal] load build context",
+        "#37 naming to docker.io/library/proj-va:local",
+        "#37 naming to docker.io/library/proj-va:local 0.1s done",
+        "#41 naming to docker.io/library/proj-dispatch:local done",
+    ]:
+        report(line)
+
+    assert reporter.steps == [
+        "service image proj-va:local",
+        "service image proj-dispatch:local",
+    ]
+
+
+def test_an_image_named_twice_reports_once(reporter):
+    """BuildKit repeats the `naming to` line (bare, then with a duration); an
+    image must not appear to build twice."""
+    report = container_lifecycle.compose_build_step_reporter()
+
+    report("#37 naming to docker.io/library/proj-va:local done")
+    report("#37 naming to docker.io/library/proj-va:local 0.0s done")
+
+    assert reporter.steps == ["service image proj-va:local"]
+
+
+def test_registry_qualified_tags_keep_their_registry(reporter):
+    """Only the implicit docker.io/library/ prefix is noise; a real registry in
+    the tag is the operator's own naming and stays."""
+    report = container_lifecycle.compose_build_step_reporter()
+
+    report("#9 naming to ghcr.io/lab/proj-svc:2026.6 done")
+
+    assert reporter.steps == ["service image ghcr.io/lab/proj-svc:2026.6"]
+
+
+def test_unfinished_naming_lines_report_nothing(reporter):
+    """The bare `naming to` line appears while the export is still running; a
+    step for it would announce an image that may yet fail."""
+    report = container_lifecycle.compose_build_step_reporter()
+
+    report("#37 naming to docker.io/library/proj-va:local")
+    report("#37 DONE 0.2s")
+
+    assert reporter.steps == []
+
+
+def test_the_dev_build_streams_per_image_progress(
+    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path
+):
+    """The build call — and only the build call — carries the line parser.
+
+    `rm` and `up` produce no `naming to` lines, so a parser there would be
+    dead weight; asserting None pins that the stream-parsing stays scoped to
+    the one invocation whose silence it exists to break.
+    """
+    _start(_repo(tmp_path), dev_mode=True)
+
+    assert callable(captured.call("compose-build")["on_line"])
+    assert captured.call("compose-rm")["on_line"] is None
+    assert captured.call("compose-up")["on_line"] is None
 
 
 def test_the_stack_compose_echoes_are_debug_only(

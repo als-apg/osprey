@@ -194,6 +194,74 @@ class TestReporterCoupling:
         assert phase.spool.exists()
 
 
+class TestOnLine:
+    """``on_line`` tees the child's output to a callback, line by line.
+
+    The seam that gives a long silent build per-step progress: the caller hands
+    a parser, the child's merged stream still lands in the spool byte for byte,
+    and each line also reaches the callback as decoded text. The callback is
+    cosmetic by contract — nothing it does may change what the run itself
+    produces or whether it fails.
+    """
+
+    def test_the_callback_sees_every_line_the_spool_records(self, tmp_path):
+        seen: list[str] = []
+
+        run_captured(_echo("one", "two"), spool_name="tee", repo_root=tmp_path, on_line=seen.append)
+
+        assert seen == ["one", "two"]
+        assert _spools(tmp_path)[0].read_text() == "one\ntwo\n"
+
+    def test_stderr_reaches_the_callback_in_stream_order(self, tmp_path):
+        argv = [
+            sys.executable,
+            "-c",
+            "import sys\nprint('out', flush=True)\nprint('err', file=sys.stderr, flush=True)\n",
+        ]
+        seen: list[str] = []
+
+        run_captured(argv, spool_name="tee", repo_root=tmp_path, on_line=seen.append)
+
+        assert seen == ["out", "err"]
+
+    def test_a_raising_callback_neither_fails_the_run_nor_loses_output(self, tmp_path):
+        def boom(line: str) -> None:
+            raise RuntimeError(line)
+
+        completed = run_captured(
+            _echo("one", "two"), spool_name="tee", repo_root=tmp_path, on_line=boom
+        )
+
+        assert completed.returncode == 0
+        assert _spools(tmp_path)[0].read_text() == "one\ntwo\n"
+
+    def test_the_failure_path_still_names_the_spool(self, tmp_path):
+        argv = [sys.executable, "-c", "import sys; print('partial'); sys.exit(3)"]
+
+        with pytest.raises(CapturedProcessError) as excinfo:
+            run_captured(argv, spool_name="failing", repo_root=tmp_path, on_line=lambda _: None)
+
+        assert excinfo.value.returncode == 3
+        assert excinfo.value.spool_path == _spools(tmp_path)[0]
+        assert excinfo.value.spool_path.read_text() == "partial\n"
+
+    def test_verbose_mode_streams_raw_and_never_calls_back(
+        self, tmp_path, recorded_run, verbose_reporter
+    ):
+        """Verbose already puts the child's own lines on the terminal; step
+        lines derived from the same stream would only duplicate them."""
+        seen: list[str] = []
+
+        run_captured(
+            ["docker", "build", "."], spool_name="build", repo_root=tmp_path, on_line=seen.append
+        )
+
+        assert seen == []
+        (args, kwargs) = recorded_run[0]
+        assert args[0] == ["docker", "build", "."]
+        assert "stdout" not in kwargs
+
+
 class TestVerbosePassThrough:
     """SC7: verbose runs the identical argv with inherited stdio."""
 

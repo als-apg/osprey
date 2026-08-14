@@ -187,6 +187,7 @@ MINTED_ENV_BANNERS: tuple[str, ...] = (
     "Auto-generated service auth tokens (osprey deploy up)",
     "Auto-configured bluesky bridge scan devices (osprey deploy up)",
     "Auto-generated bluesky RE manager control-socket keypair (osprey deploy up)",
+    "Credentials adopted from pre-existing data volumes (osprey --reuse-stores)",
 )
 
 
@@ -482,6 +483,36 @@ class RuntimeProbe:
             )
         names = [line.strip() for line in (listing.stdout or "").splitlines() if line.strip()]
         return [Resource("volume", name, self._labels_of("volume", name)) for name in names]
+
+    def env_of_container(self, name: str) -> Mapping[str, str] | None:
+        """Read-only: one container's environment, or ``None`` if unreadable.
+
+        The deploy path's stale-volume preflight uses this and nothing else
+        does: a store container's environment is the only host-side record of
+        the credential its data volume was initialized with, so while the
+        container survives the volume can still be reopened, and once it has
+        been recreated the volume is orphaned.
+
+        ``None`` means "no such container" — which for that preflight is not an
+        error but the answer itself, and the reason it must run before anything
+        recreates one.
+
+        Scoped by name rather than by label filter, unlike every listing above,
+        because the caller wants one exact container: the compose template
+        derives ``container_name`` from the project name, so the name is already
+        project-qualified. Nothing here removes anything.
+        """
+        result = self._capture(
+            ["container", "inspect", name, "--format", "{{range .Config.Env}}{{println .}}{{end}}"]
+        )
+        if result.returncode != 0:
+            return None
+        env: dict[str, str] = {}
+        for line in (result.stdout or "").splitlines():
+            key, sep, value = line.partition("=")
+            if sep and key.strip():
+                env[key.strip()] = value
+        return env
 
     def image_if_ours(self, tag: str, project: str) -> Resource | None:
         """Read-only: *tag* as a removal candidate, or ``None`` if it is not one.

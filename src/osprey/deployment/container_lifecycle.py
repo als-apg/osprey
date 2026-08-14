@@ -10,9 +10,10 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -150,6 +151,33 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
 # with a named-var/no-value error.
 _VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN"}
 
+
+class VolumeInitializedStore(NamedTuple):
+    """Where one store's identity lives on the host, for the stale-volume check.
+
+    Four names that must agree with the service's compose template, which
+    ``TestRegistryAgreement`` in the per-store mint tests pins field by field:
+
+    * ``service`` — the ``deployed_services`` key, and the name shown to the
+      operator;
+    * ``volume`` — the *bare* volume name the template declares. Compose
+      namespaces it with the project name on the host, so the host-side name is
+      ``<project>_<volume>``;
+    * ``container`` — the suffix the template appends to the project name in
+      ``container_name``. The container is the only host-side record of the
+      credential its volume was initialized with;
+    * ``cred_env`` — what that credential is called *inside* the container,
+      which is not the ``.env`` var name for two of the three stores
+      (``MONGO_ROOT_PASSWORD`` arrives as ``MONGO_INITDB_ROOT_PASSWORD``,
+      ``ARIEL_DB_PASSWORD`` as ``POSTGRES_PASSWORD``).
+    """
+
+    service: str
+    volume: str
+    container: str
+    cred_env: str
+
+
 #: Minted vars a service reads ONLY when it initializes a fresh data volume.
 #: For every other token, minting a new value and restarting is enough; for
 #: these the container keeps whatever it was born with, so a fresh mint
@@ -160,12 +188,27 @@ _VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN"}
 #: ``.env`` (or just its minted section) while the volumes lived. Every var here
 #: is interpolated with a ``:-`` DEFAULT in its compose template, so none
 #: carries a ``:?`` guard that would abort the deploy and say so — which is why
-#: this warning is the only thing standing between that operator and a login
-#: that will not work for reasons nothing has named.
-_VOLUME_INITIALIZED_VARS: dict[str, str] = {
-    "ZO_ROOT_USER_PASSWORD": "openobserve",
-    "ARIEL_DB_PASSWORD": "postgresql",
-    "MONGO_ROOT_PASSWORD": "mongodb",
+#: ``_preflight_stale_store_volumes`` is the only thing standing between that
+#: operator and a login that will not work for reasons nothing has named.
+_VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
+    "ZO_ROOT_USER_PASSWORD": VolumeInitializedStore(
+        service="openobserve",
+        volume="openobserve_data",
+        container="-openobserve",
+        cred_env="ZO_ROOT_USER_PASSWORD",
+    ),
+    "ARIEL_DB_PASSWORD": VolumeInitializedStore(
+        service="postgresql",
+        volume="ariel_postgres_data",
+        container="-ariel-postgres",
+        cred_env="POSTGRES_PASSWORD",
+    ),
+    "MONGO_ROOT_PASSWORD": VolumeInitializedStore(
+        service="mongodb",
+        volume="archiver_mongodb_data",
+        container="-archiver-mongodb",
+        cred_env="MONGO_INITDB_ROOT_PASSWORD",
+    ),
 }
 
 # Document-plane CURVE certificate layout, relative to the project directory.
@@ -230,8 +273,14 @@ def _ensure_service_tokens(
     config: dict,
     expose_network: bool,
     env_path: Path | None = None,
-) -> None:
+) -> set[str]:
     """Self-provision required fail-closed service tokens into ``env_path``.
+
+    :returns: The ``_VOLUME_INITIALIZED_VARS`` names this call actually minted —
+        the subset whose brand-new value a pre-existing data volume would
+        ignore. Empty on the common paths (nothing minted, or nothing minted
+        that a volume adopts), and the input to
+        ``_preflight_stale_store_volumes``.
 
     ``osprey up`` passes the deployment repo's own ``.env`` explicitly; a caller
     that passes nothing falls back to a cwd-relative ``.env`` (see the
@@ -276,6 +325,7 @@ def _ensure_service_tokens(
     entry at all, since a validate-only var's presence does not depend on
     ``deployed_services`` membership.
     """
+    minted_volume_initialized: set[str] = set()
     deployed_services = config.get("deployed_services")
     services = {str(s) for s in (deployed_services or [])}
 
@@ -359,28 +409,14 @@ def _ensure_service_tokens(
 
             # A mint is the moment the volume-initialized vars become a hazard:
             # the value is new, and any volume that already exists will keep
-            # ignoring it. Warn — never refuse — because the same mint is also
-            # the completely ordinary first-deploy case, where there is no
-            # volume yet and nothing is wrong. Names only, never values, in
-            # keeping with every other line this function logs.
-            for name in sorted(generated):
-                service = _VOLUME_INITIALIZED_VARS.get(name)
-                if service is None:
-                    continue
-                logger.warning(
-                    "%s was newly generated. %s reads it only when it initializes a "
-                    "fresh data volume, so if this deployment's %s volume already "
-                    "exists it keeps the credential it was created with and will "
-                    "reject the new one. If you cannot sign in to %s, remove that "
-                    "volume so it re-initializes (`osprey reset` does it for the "
-                    "whole stack), or put the original %s back in %s.",
-                    name,
-                    service,
-                    service,
-                    service,
-                    name,
-                    env_path.resolve(),
-                )
+            # ignoring it. Report them upward rather than warning here — whether
+            # this is the ordinary first deploy (no volume yet, nothing wrong)
+            # or a mismatch that cannot work is not a guess: it is one
+            # label-filtered `volume ls` away, which is what
+            # _preflight_stale_store_volumes asks before anything starts.
+            minted_volume_initialized |= {
+                name for name in generated if name in _VOLUME_INITIALIZED_VARS
+            }
 
     # Validate the effective value of every required var — whichever of
     # process env, an existing .env, or a value just minted above the caller
@@ -410,6 +446,275 @@ def _ensure_service_tokens(
             continue  # absent — never fabricated, never minted
         if not _validate_var(name, effective):
             _raise_invalid_var(name, effective)
+
+    return minted_volume_initialized
+
+
+def _volume_initialized_vars_that_would_be_minted(config: dict, env_path: Path) -> set[str]:
+    """Which store credentials a mint on this config *would* generate.
+
+    The same rule ``_ensure_service_tokens`` mints by — absent from both the
+    process env and the ``.env`` — evaluated without writing anything. It exists
+    for ``restart``, which has to run the stale-volume check BEFORE its ``down``:
+    the ``down`` removes the store containers, and with them the only host-side
+    copy of the credential each surviving volume was initialized with. Asking
+    after the stop would find every volume unrecoverable, having just made it so.
+    """
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    return {
+        var
+        for var, store in _VOLUME_INITIALIZED_VARS.items()
+        if store.service in services and var not in os.environ and var not in on_disk
+    }
+
+
+def _harvest_original_credential(probe, project: str, store: VolumeInitializedStore) -> str | None:
+    """The credential *store*'s volume was initialized with, if still readable.
+
+    ``None`` whenever the container is gone, carries no such variable, or holds
+    an empty one — every case in which the volume cannot be reopened and the
+    only way forward is to discard it.
+    """
+    env = probe.env_of_container(f"{project}{store.container}")
+    if not env:
+        return None
+    return env.get(store.cred_env) or None
+
+
+def _stale_store_volumes(
+    probe,
+    project: str,
+    minted: set[str],
+    services: set[str],
+    env_path: Path,
+) -> tuple[list[tuple[str, VolumeInitializedStore]], dict[str, str | None]]:
+    """Stores whose surviving data volume will reject the credential in ``.env``.
+
+    Read-only, and asked of the runtime rather than assumed: a credential beside
+    no volume is the ordinary first deploy, and one beside a surviving volume
+    may be unusable. Only the runtime knows which.
+
+    A store qualifies on either of two independent grounds, because neither
+    alone covers the ground the other does:
+
+    * *this run minted the credential* — the value is brand new and a volume
+      that already exists never adopted it. The only rule that can speak for a
+      store whose container is gone, since there is then nothing to compare
+      against;
+    * *the store's own container disagrees with ``.env``* — a running container
+      holds the credential the volume actually has, so a ``.env`` that differs
+      cannot authenticate no matter who wrote it or how long ago. This is the
+      rule that recognises a deployment already in the broken state, where a
+      previous run's mint is sitting in ``.env`` and nothing new is minted.
+
+    Deliberately NOT a third ground: a surviving volume with no container to
+    compare against and nothing minted. That is simply a stopped deployment —
+    the normal way one sits between sessions — and refusing it would block
+    every start.
+
+    Returns the qualifying ``(env_var, store)`` pairs in
+    ``_VOLUME_INITIALIZED_VARS`` order (so a multi-store report reads the same
+    way every time), together with each one's harvested original credential —
+    ``None`` where the volume can no longer be reopened.
+    """
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    try:
+        existing = {resource.name for resource in probe.volumes_for_project(project)}
+    except RuntimeError as exc:
+        # A runtime that cannot answer must not become a deploy-blocking verdict
+        # of its own: fall through to the start, where the store's own
+        # authentication failure still reports the mismatch the old way.
+        logger.warning("Could not check this deployment's data volumes: %s", exc)
+        return [], {}
+
+    on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    stale: list[tuple[str, VolumeInitializedStore]] = []
+    originals: dict[str, str | None] = {}
+
+    for var, store in _VOLUME_INITIALIZED_VARS.items():
+        if store.service not in services:
+            continue
+        if f"{project}_{store.volume}" not in existing:
+            continue
+
+        original = _harvest_original_credential(probe, project, store)
+        # The value compose will actually substitute: a shell export outranks
+        # --env-file, the same precedence _ensure_service_tokens mints by and
+        # _preflight_env_shadowing warns about.
+        effective = _effective_value(var, on_disk)
+        disagrees = original is not None and bool(effective) and original != effective
+
+        if var in minted or disagrees:
+            stale.append((var, store))
+            originals[var] = original
+
+    return stale, originals
+
+
+def _preflight_stale_store_volumes(
+    config: dict,
+    minted: set[str],
+    env_path: Path,
+    *,
+    reuse_stores: bool = False,
+) -> None:
+    """Abort before anything starts when a fresh credential meets an old volume.
+
+    A refusal rather than a warning, and here rather than at the store's own
+    health probe, for two reasons that both come down to what ``compose up``
+    does on its way past:
+
+    * it recreates the store container — and that container's environment is
+      the only host-side record of the credential its volume was initialized
+      with. Starting the stack overwrites it with the value that cannot work,
+      turning a recoverable mismatch into a permanently orphaned volume;
+    * it builds the project image first, so the store's own "Authentication
+      failed" arrives minutes later and names only whichever store was probed
+      first, leaving the rest to be found one restart at a time.
+
+    With *reuse_stores*, adopt the volumes instead: restore each store's
+    original credential to ``env_path`` in place of the value just minted. That
+    is only possible while the store's container survives, so a run that cannot
+    reopen every stale volume still refuses rather than starting a stack that
+    is half-adopted and half-doomed.
+
+    :raises RuntimeError: if any deployed store has a surviving volume that will
+        reject the credential in ``env_path``, and this run is not able (or not
+        asked) to adopt it.
+    """
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    if not any(store.service in services for store in _VOLUME_INITIALIZED_VARS.values()):
+        return  # the fast path: no volume-initialized store is deployed at all
+
+    # Imported here, not at module scope: reset.py imports THIS module, so a
+    # top-level import would close a cycle. RuntimeProbe is the codebase's one
+    # container-runtime conversation seam — every listing label-filtered, every
+    # removal naming exactly one resource — and nothing here removes anything.
+    from osprey.deployment.reset import RuntimeProbe
+
+    project = resolve_project_name(config)
+    probe = RuntimeProbe(get_runtime_command(config)[0], run=subprocess.run)
+
+    stale, originals = _stale_store_volumes(probe, project, minted, services, env_path)
+    if not stale:
+        return
+
+    if reuse_stores and all(originals.values()):
+        _adopt_original_credentials(env_path, stale, originals)
+        return
+
+    raise RuntimeError(
+        _stale_store_report(project, env_path, stale, originals, reuse_stores=reuse_stores)
+    )
+
+
+def _adopt_original_credentials(
+    env_path: Path,
+    stale: list[tuple[str, VolumeInitializedStore]],
+    originals: dict[str, str | None],
+) -> None:
+    """Put each store's original credential into ``.env``, replacing any mint.
+
+    Both shapes occur, because the two start paths reach here at opposite sides
+    of the mint. ``up`` has already minted, so the file carries a fresh
+    assignment that must be *rewritten in place* — appending instead would leave
+    two assignments of one name, and which wins would depend on the reader
+    (compose takes the last; a human takes the first they see). ``restart``
+    checks before its ``down`` and therefore before any mint, so the file may
+    not carry the name at all and the value has to be appended.
+    """
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    text = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
+    on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}
+
+    absent: dict[str, str] = {}
+    for var, _store in stale:
+        original = originals[var]
+        if original is None:  # unreachable via the caller's `all(...)` guard
+            continue
+        if var in on_disk:
+            text = re.sub(
+                rf"^{re.escape(var)}=.*$",
+                f"{var}={original}",
+                text,
+                flags=re.MULTILINE,
+            )
+        else:
+            absent[var] = original
+    env_path.write_text(text, encoding="utf-8")
+    if absent:
+        _append_env_block(
+            env_path,
+            "Credentials adopted from pre-existing data volumes (osprey --reuse-stores)",
+            absent,
+        )
+
+    written = parse_dotenv_file(env_path)
+    missed = [var for var, _ in stale if written.get(var) != originals[var]]
+    if missed:
+        raise RuntimeError(
+            f"Could not restore {', '.join(sorted(missed))} in {env_path.resolve()}. "
+            "Edit the file by hand, or re-run without --reuse-stores."
+        )
+
+    logger.key_info(
+        "Adopted %d pre-existing data volume(s): restored the credential(s) %s they were "
+        "initialized with into %s. Values are never printed.",
+        len(stale),
+        ", ".join(var for var, _ in stale),
+        env_path.resolve(),
+    )
+
+
+def _stale_store_report(
+    project: str,
+    env_path: Path,
+    stale: list[tuple[str, VolumeInitializedStore]],
+    originals: dict[str, str | None],
+    *,
+    reuse_stores: bool,
+) -> str:
+    """The refusal text: what is stale, and which way out each store leaves open.
+
+    Names variables and volumes, never values — the same rule every other
+    secret-touching line on this path follows.
+    """
+    lines = [
+        f"{len(stale)} store(s) of this deployment have a data volume that predates the "
+        f"credentials just generated in {env_path.resolve()}.",
+        "Each store reads its root credential only while initializing an empty volume, so it "
+        "keeps the password it was created with and will reject the new one:",
+        "",
+    ]
+    for var, store in stale:
+        lines.append(f"    {store.service:<12} {project}_{store.volume}")
+        if originals[var] is None:
+            lines.append(f"    {'':<12} its container is gone — the original is unrecoverable")
+        else:
+            lines.append(f"    {'':<12} original recoverable from {project}{store.container}")
+    lines.append("")
+
+    recoverable = [var for var, _ in stale if originals[var] is not None]
+    if reuse_stores:
+        lines.append(
+            "--reuse-stores cannot reopen every volume: a store whose container has been "
+            "recreated no longer holds the credential its volume was initialized with."
+        )
+        if recoverable:
+            lines.append(
+                f"The other {len(recoverable)} could be adopted, but starting a stack that is "
+                "half-adopted and half-doomed only moves the failure later."
+            )
+    elif len(recoverable) == len(stale):
+        lines.append("--reuse-stores     keep the data: restore the original credential(s) to .env")
+    lines.append("`osprey reset` re-initializes the whole stack, discarding the data in it.")
+    lines += ["", "Nothing was started and no image was built."]
+    return "\n".join(lines)
 
 
 def _refuse_invented_history(config: dict) -> None:
@@ -2043,6 +2348,7 @@ def deploy_up(
     dev_mode=False,
     expose_network=False,
     keep_archiver_base=False,
+    reuse_stores=False,
 ):
     """Start services using container runtime (Docker or Podman).
 
@@ -2101,7 +2407,46 @@ def deploy_up(
             # which looks secure and says nothing.
             env_path=repo_root / COMPOSE_ENV_FILENAME,
             keep_archiver_base=keep_archiver_base,
+            reuse_stores=reuse_stores,
         )
+
+
+#: One image's completion in BuildKit's plain-progress stream: ``naming to``
+#: is the export stage assigning the built image its tag, and only the line
+#: carrying ``done`` marks it finished — the bare form appears while the
+#: export is still running. The optional duration is BuildKit's own
+#: (``naming to <ref> 0.1s done``).
+_IMAGE_NAMED_LINE = re.compile(r"naming to (?P<ref>\S+?)(?: \d+(?:\.\d+)?s)? done\s*$")
+
+
+def compose_build_step_reporter() -> Callable[[str], None]:
+    """Per-image progress steps for a ``compose build``, from BuildKit's own stream.
+
+    ``compose build`` builds every service image in one parallel invocation —
+    the longest step of a dev deploy, half an hour cold — and a single step
+    line printed at the end reads as a hang for the whole build. Splitting the
+    build per service would give progress at the price of the parallelism, so
+    the steps are derived instead: fed to :func:`run_captured` as ``on_line``,
+    this watches the captured stream and reports each image the moment BuildKit
+    finishes it.
+
+    Deduplicated per image, because BuildKit repeats the ``naming to`` line
+    (bare, then with a duration). The implicit ``docker.io/library/`` prefix is
+    stripped as registry noise; a real registry in the tag is the operator's
+    own naming and stays.
+    """
+    seen: set[str] = set()
+
+    def report(line: str) -> None:
+        match = _IMAGE_NAMED_LINE.search(line)
+        if match is None:
+            return
+        ref = match.group("ref").removeprefix("docker.io/library/")
+        if ref not in seen:
+            seen.add(ref)
+            _report_step(f"service image {ref}")
+
+    return report
 
 
 def _start_stack(
@@ -2115,6 +2460,7 @@ def _start_stack(
     env_path: Path | None = None,
     build_context: Path | str | None = None,
     keep_archiver_base: bool = False,
+    reuse_stores: bool = False,
 ) -> None:
     """Provision, preflight and start one already-resolved stack.
 
@@ -2198,13 +2544,27 @@ def _start_stack(
     # carries provider keys renders with osprey_env_present=True and picks up
     # the appended tokens, and a tokens-only .env carries no provider secret to
     # mount in the first place.
-    _ensure_service_tokens(config, expose_network, env_path)
+    minted_store_vars = _ensure_service_tokens(config, expose_network, env_path)
 
     # Fail fast on the optional dependency the staged archiver bring-up below
     # cannot proceed without. Here, beside the mint that provisions the store's
     # own credential, rather than at the seeder: a missing extra must abort in
     # seconds, before the minutes-long image build, not after it.
     _preflight_archiver_pymongo(config)
+
+    # Refuse a deploy whose store credentials a surviving data volume will
+    # reject. Before every container-touching step below — the image build and
+    # the archiver staging included — because `compose up` recreating a store
+    # container destroys the only host-side copy of the credential that volume
+    # was initialized with. See _preflight_stale_store_volumes.
+    #
+    # But AFTER the pymongo check above, which is a local import and costs
+    # nothing: this one is the first thing on the path to ask the container
+    # runtime a question, and a deploy doomed by a missing extra must abort
+    # without having touched the host at all.
+    _preflight_stale_store_volumes(
+        config, minted_store_vars or set(), env_path or Path(".env"), reuse_stores=reuse_stores
+    )
 
     # Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
     # VA-backed Bluesky stack (additive; no-op unless both bluesky and
@@ -2318,7 +2678,13 @@ def _start_stack(
         # service that has no published upstream tag to pull.
         build_cmd = base_cmd + ["build"]
         logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
-        run_captured(build_cmd, env=run_env, spool_name="compose-build", repo_root=repo_root)
+        run_captured(
+            build_cmd,
+            env=run_env,
+            spool_name="compose-build",
+            repo_root=repo_root,
+            on_line=compose_build_step_reporter(),
+        )
         _report_step("service images built")
 
     # --remove-orphans reconciles away containers whose service left the
@@ -2469,6 +2835,7 @@ def up_as_built(
     detached: bool = False,
     dev_mode: bool = False,
     keep_archiver_base: bool = False,
+    reuse_stores: bool = False,
 ) -> None:
     """Start a deployment repo from ``build/`` exactly as it was built.
 
@@ -2524,6 +2891,7 @@ def up_as_built(
         detached=detached,
         dev_mode=dev_mode,
         keep_archiver_base=keep_archiver_base,
+        reuse_stores=reuse_stores,
     )
 
 
@@ -2684,6 +3052,7 @@ def _start_as_built(
     detached: bool,
     dev_mode: bool,
     keep_archiver_base: bool = False,
+    reuse_stores: bool = False,
 ) -> None:
     """Start already-resolved as-built inputs, with a deployment repo's rules.
 
@@ -2719,6 +3088,7 @@ def _start_as_built(
             env_path=repo_root / COMPOSE_ENV_FILENAME,
             build_context=container_image_context(repo_root, resolve_project_name(config)),
             keep_archiver_base=keep_archiver_base,
+            reuse_stores=reuse_stores,
         )
 
 
@@ -2910,6 +3280,7 @@ def restart_deployment(
     detached: bool = False,
     dev_mode: bool = False,
     keep_archiver_base: bool = False,
+    reuse_stores: bool = False,
 ) -> None:
     """Stop this deployment and start it again from ``build/``.
 
@@ -2948,6 +3319,22 @@ def restart_deployment(
     """
     repo_root = Path(repo_root)
     config, compose_files, exposed = _resolve_as_built_inputs(repo_root, dev_mode=dev_mode)
+
+    # BEFORE the stop, unlike every other start path, and that ordering is the
+    # whole point: `down` removes the store containers, and a removed container
+    # takes with it the only host-side copy of the credential its data volume
+    # was initialized with. Run at the usual point — after the stop, inside
+    # `_start_as_built` — this check would report every stale volume as
+    # unrecoverable, having itself destroyed the evidence moments earlier.
+    # Nothing is minted yet here, so the set is the one a mint *would* generate.
+    env_path = repo_root / COMPOSE_ENV_FILENAME
+    _preflight_stale_store_volumes(
+        config,
+        _volume_initialized_vars_that_would_be_minted(config, env_path),
+        env_path,
+        reuse_stores=reuse_stores,
+    )
+
     down_deployment(repo_root)
     _start_as_built(
         repo_root,
@@ -2957,6 +3344,7 @@ def restart_deployment(
         detached=detached,
         dev_mode=dev_mode,
         keep_archiver_base=keep_archiver_base,
+        reuse_stores=reuse_stores,
     )
 
 

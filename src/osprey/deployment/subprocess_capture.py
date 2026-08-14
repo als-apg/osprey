@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import subprocess
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from osprey.cli.phase_reporter import current_reporter, is_verbose
@@ -111,6 +111,7 @@ def run_captured(
     spool_name: str,
     repo_root: Path | str | None = None,
     check: bool = True,
+    on_line: Callable[[str], None] | None = None,
 ) -> CapturedProcess:
     """Run ``cmd``, spooling its merged output to ``<repo>/var/logs/``.
 
@@ -127,6 +128,13 @@ def run_captured(
         means the current directory, the same default the compose ``--env-file``
         helpers use. No repo discovery happens here.
     :param check: Raise :class:`CapturedProcessError` on a non-zero exit.
+    :param on_line: Watch the child's merged stream, line by line, as decoded
+        text without its newline. The spool stays byte-for-byte complete either
+        way — the callback is a tee, not a diversion — and it is cosmetic by
+        contract: an exception it raises is logged at debug and changes nothing
+        about the run's outcome. Ignored under ``--verbose``, where the child's
+        own lines are already on the terminal and derived progress would only
+        duplicate them.
     :returns: A :class:`CapturedProcess`, whose ``spool_path`` is the file this
         run's output went to, or ``None`` in verbose mode.
         ``stdout``/``stderr`` are ``None`` — the output is in that file (or on
@@ -157,9 +165,14 @@ def run_captured(
         # The reporter keeps the path for the whole phase, not just this call:
         # an interrupt during the child needs to name the partial output.
         current_reporter().note_spool(spool_path)
-        # stderr into the same handle, not a second file — a build's errors are
-        # only legible interleaved with the step they interrupted.
-        completed = subprocess.run(cmd, env=env, cwd=cwd, stdout=spool, stderr=subprocess.STDOUT)
+        if on_line is None:
+            # stderr into the same handle, not a second file — a build's errors
+            # are only legible interleaved with the step they interrupted.
+            completed = subprocess.run(
+                cmd, env=env, cwd=cwd, stdout=spool, stderr=subprocess.STDOUT
+            )
+        else:
+            completed = _run_teeing(cmd, env=env, cwd=cwd, spool=spool, on_line=on_line)
 
     if check and completed.returncode != 0:
         raise CapturedProcessError(cmd, completed.returncode, spool_path)
@@ -168,6 +181,39 @@ def run_captured(
     # that does not raise still has to be able to name the file its output went
     # to, and it may be running with no phase open at all.
     return CapturedProcess(cmd, completed.returncode, spool_path=spool_path)
+
+
+def _run_teeing(
+    cmd: Sequence[str],
+    *,
+    env: Mapping[str, str] | None,
+    cwd: Path | str | None,
+    spool,
+    on_line: Callable[[str], None],
+) -> subprocess.CompletedProcess:
+    """The watched variant of the capture: every line to the spool AND the callback.
+
+    The direct-to-file ``subprocess.run`` cannot offer a per-line hook, so this
+    path reads the child's merged stream through a pipe and writes it on. The
+    bytes reaching the spool are the child's own; only the callback gets a
+    decoded copy, with U+FFFD standing in for anything that is not UTF-8 —
+    a build log's occasional garbage must not take down the build.
+
+    The callback is fenced per line rather than per run: one line the parser
+    chokes on costs that line's step at debug level, not every step after it.
+    """
+    with subprocess.Popen(
+        cmd, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    ) as process:
+        assert process.stdout is not None  # PIPE above guarantees it
+        for raw in process.stdout:
+            spool.write(raw)
+            try:
+                on_line(raw.decode("utf-8", errors="replace").rstrip("\r\n"))
+            except Exception as exc:
+                logger.debug("on_line callback failed on %r: %s", raw[:200], exc)
+        returncode = process.wait()
+    return subprocess.CompletedProcess(list(cmd), returncode)
 
 
 __all__ = ["SPOOL_DIR", "SPOOL_RETENTION", "CapturedProcess", "run_captured"]

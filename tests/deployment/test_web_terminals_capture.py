@@ -91,7 +91,9 @@ class RunRecorder:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    def __call__(self, cmd, *, env=None, cwd=None, spool_name, repo_root=None, check=True):
+    def __call__(
+        self, cmd, *, env=None, cwd=None, spool_name, repo_root=None, check=True, on_line=None
+    ):
         self.calls.append(
             {
                 "cmd": list(cmd),
@@ -100,6 +102,7 @@ class RunRecorder:
                 "spool_name": spool_name,
                 "repo_root": repo_root,
                 "check": check,
+                "on_line": on_line,
             }
         )
         return CapturedProcess(list(cmd), 0, spool_path=None)
@@ -406,6 +409,22 @@ def test_up_reports_a_step_for_each_stack(monkeypatch, tmp_path, reporter):
         "pulled web-terminal images",
         "web-terminal stack started",
     ]
+
+
+def test_the_services_build_streams_per_image_progress(monkeypatch, tmp_path, reporter):
+    """The web path's `build` gets the same per-image steps as the plain path.
+
+    It is the identical half-hour silence — same compose build, reached through
+    `deploy_up_web_terminals` instead of `_start_stack` — so the two sites must
+    not drift apart on whether an operator can see it progressing.
+    """
+    recorder = _stub_web_stack(monkeypatch, tmp_path)
+
+    provision.deploy_up_web_terminals(_web_config(), ["docker-compose.yml"], True, {}, [])
+
+    assert callable(recorder.by_spool("build-services")["on_line"])
+    for other in ("compose-services-rm", "compose-services-up", "compose-web-up"):
+        assert recorder.by_spool(other)["on_line"] is None
 
 
 def test_local_mode_up_still_never_pulls(monkeypatch, tmp_path, reporter):

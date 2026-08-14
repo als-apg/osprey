@@ -895,3 +895,170 @@ def test_importing_the_module_stays_off_the_heavy_chain() -> None:
         [sys.executable, "-c", probe], capture_output=True, text=True, check=True
     )
     assert completed.stdout.split() == ["False", "False"]
+
+
+class TestResetFlag:
+    """``--reset`` — starting over on a name that has been used before.
+
+    ``rm -rf <repo>`` removes a deployment's directory but not its containers or
+    its data volumes, which are keyed on the project name and outlive any number
+    of re-creations. Re-creating the repo under the same name therefore inherits
+    the previous deployment's stores, whose credentials the new ``.env`` does not
+    have. ``--reset`` is the way to say "that deployment is gone, take its
+    runtime state with it", in the one command that would otherwise walk
+    straight into that.
+
+    Delegated to ``reset_deployment`` (imported at call time, so these patch
+    it on its own module) rather than reimplemented: it already owns
+    the label-scoped plan, the foreign-checkout refusal, and the
+    one-resource-at-a-time removals. By the time this runs the repo has been
+    materialized, so that machinery has the repo root it needs.
+    """
+
+    def test_it_discards_the_previous_deployments_runtime_state(
+        self, runner, tmp_path, monkeypatch
+    ):
+        calls: list[dict] = []
+        monkeypatch.setattr(
+            "osprey.deployment.reset.reset_deployment",
+            lambda repo_root, **kw: calls.append({"repo_root": Path(repo_root), **kw}) or True,
+        )
+
+        result = runner.invoke(
+            cli,
+            ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1, "expected exactly one reset of the target repo"
+        assert calls[0]["repo_root"] == tmp_path / "demo"
+        # No prompt: the operator already said so on the command line, and the
+        # point of the flag is a one-line re-create that runs unattended.
+        assert calls[0]["assume_yes"] is True
+
+    def test_it_runs_after_the_repo_exists(self, runner, tmp_path, monkeypatch):
+        """``reset_deployment`` reads the repo it is pointed at, so order matters.
+
+        Called before materialization it would be handed a directory with no
+        profile.yml, and would resolve the project name from a repo not yet there.
+        """
+        seen: list[bool] = []
+        monkeypatch.setattr(
+            "osprey.deployment.reset.reset_deployment",
+            lambda repo_root, **kw: (
+                seen.append((Path(repo_root) / "profile.yml").is_file()) or True
+            ),
+        )
+
+        result = runner.invoke(
+            cli,
+            ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert seen == [True]
+
+    def test_it_refuses_when_the_sweep_left_this_projects_resources_behind(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """A reset that could not prove ownership must not report a clean start.
+
+        ``osprey reset`` only removes what carries this checkout's repo-id
+        label, so resources from a deployment that predates that label survive
+        it — correctly, since it cannot prove they are this repo's. Continuing
+        anyway walks into the stale-volume refusal 40 seconds later, whose
+        remedy is `osprey reset`: the exact thing that just declined. Naming the
+        real cause here is the difference between a dead end and a fix.
+        """
+        monkeypatch.setattr(
+            "osprey.deployment.reset.reset_deployment", lambda repo_root, **kw: True
+        )
+        monkeypatch.setattr(
+            "osprey.cli.init_cmd._surviving_project_resources",
+            lambda target: ["container old-thing", "volume old-thing_data"],
+        )
+
+        result = runner.invoke(
+            cli,
+            ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"],
+        )
+
+        assert result.exit_code != 0
+        assert "old-thing" in result.output
+        assert "com.osprey.repo-id" in result.output
+
+    def test_it_proceeds_when_the_sweep_was_complete(self, runner, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.deployment.reset.reset_deployment", lambda repo_root, **kw: True
+        )
+        monkeypatch.setattr("osprey.cli.init_cmd._surviving_project_resources", lambda target: [])
+
+        result = runner.invoke(
+            cli,
+            ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"],
+        )
+
+        assert result.exit_code == 0, result.output
+
+    def test_it_re_materializes_the_source_zone_without_force(
+        self, exemplar_repo, runner, monkeypatch
+    ):
+        """``--reset`` on a used name is the whole command — no ``--force`` beside it.
+
+        The flag's promise is "start over on this name", and a source zone left
+        standing from the last deployment is not a start over: an edit made to
+        the old ``profile.yml``, or a file an older preset wrote, would carry
+        into the new deployment silently. Implying ``--force`` is also what
+        makes the flag work AT ALL on the case it exists for — without it a used
+        name is refused by the repo-root check before ``--reset`` is ever
+        reached, and the refusal names the wrong problem.
+
+        What ``--force`` never touches, ``--reset`` never touches either:
+        ``PRESERVED_BY_FORCE`` is one table and this path goes through the same
+        code. The provider keys in ``.env`` are the ones that matter here — the
+        reason to converge a repo in place rather than delete and re-create it.
+        """
+        monkeypatch.setattr(
+            "osprey.deployment.reset.reset_deployment", lambda repo_root, **kw: True
+        )
+        stale_marker = "STALE-FROM-THE-LAST-DEPLOYMENT"
+        (exemplar_repo / "profile.yml").write_text(f"name: {stale_marker}\n", encoding="utf-8")
+        (exemplar_repo / "data" / "orphan.json").write_text("{}\n", encoding="utf-8")
+        env = exemplar_repo / ".env"
+        env.write_text("MY_PROVIDER_KEY=keepme\n", encoding="utf-8")
+
+        result = init_exemplar(runner, exemplar_repo, "--reset")
+
+        assert result.exit_code == 0, result.output
+        assert stale_marker not in (exemplar_repo / "profile.yml").read_text(encoding="utf-8")
+        assert not (exemplar_repo / "data" / "orphan.json").exists()
+        assert "MY_PROVIDER_KEY=keepme" in env.read_text(encoding="utf-8")
+
+    def test_the_refusal_on_a_used_name_offers_the_flag(self, exemplar_repo, runner):
+        """The wall an operator hits is where they must learn the way through it.
+
+        Without ``--reset`` named here, the only advertised way past a used name
+        is ``--force``, which leaves the previous deployment's containers and
+        volumes in place — and the stale-store refusal that follows sends them
+        to ``osprey reset``, a verb that wants the repo they were told to
+        re-create.
+        """
+        result = init_exemplar(runner, exemplar_repo)
+
+        assert result.exit_code == 2
+        assert "--reset" in result.output
+
+    def test_without_the_flag_nothing_is_reset(self, runner, tmp_path, monkeypatch):
+        """The default must never destroy a volume — that is what the flag is for."""
+        calls: list = []
+        monkeypatch.setattr(
+            "osprey.deployment.reset.reset_deployment",
+            lambda repo_root, **kw: calls.append(repo_root) or True,
+        )
+
+        result = runner.invoke(
+            cli, ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert calls == []
