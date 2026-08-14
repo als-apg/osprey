@@ -224,7 +224,7 @@ def test_service_token_vars_map_includes_openobserve():
 # ---------------------------------------------------------------------------
 
 
-class TestVolumeContinuityWarning:
+class TestVolumeContinuityReporting:
     """A re-minted password is silently rejected by a volume that already exists.
 
     OpenObserve and Postgres read their root credential ONLY when they
@@ -235,26 +235,43 @@ class TestVolumeContinuityWarning:
     ignoring it, and the failure surfaces as "I cannot log in" with nothing
     anywhere connecting that to the mint.
 
-    Neither variable can be guarded by compose. Both are interpolated with a
-    ``:-`` DEFAULT in their templates, so unlike the ``:?``-guarded tokens
-    there is no version of this that aborts the deploy and says why. This
-    warning is the only thing that names it, which is why it is pinned.
+    Neither variable can be guarded by compose — both are interpolated with a
+    ``:-`` DEFAULT in their templates, so no ``:?`` guard aborts the deploy and
+    says why. What closes the gap instead is
+    ``_preflight_stale_store_volumes``, and the mint's only job is to tell it
+    which vars are newly minted. That hand-off is what is pinned here; the
+    refusal it feeds is pinned in test_stale_store_volume_preflight.py.
     """
 
-    def test_a_minted_password_warns_that_an_existing_volume_will_reject_it(
-        self, tmp_path, monkeypatch, caplog
+    def test_a_minted_password_is_reported_as_a_volume_continuity_hazard(
+        self, tmp_path, monkeypatch
     ):
         monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
         config = {"deployed_services": ["openobserve"]}
 
-        with caplog.at_level("WARNING"):
-            container_lifecycle._ensure_service_tokens(
-                config, expose_network=False, env_path=tmp_path / ".env"
-            )
+        minted = container_lifecycle._ensure_service_tokens(
+            config, expose_network=False, env_path=tmp_path / ".env"
+        )
 
-        assert "ZO_ROOT_USER_PASSWORD" in caplog.text
-        assert "openobserve" in caplog.text
-        assert "fresh data volume" in caplog.text
+        assert minted == {"ZO_ROOT_USER_PASSWORD"}
+
+    def test_an_adopted_password_is_not_reported(self, tmp_path, monkeypatch):
+        """Nothing was minted, so the volume and the value agree by construction.
+
+        The distinction the whole preflight rests on: only a *new* value can
+        disagree with a volume that already exists.
+        """
+        monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
+        # Must satisfy the same complexity constraint a real adopted value would.
+        (tmp_path / ".env").write_text("ZO_ROOT_USER_PASSWORD=Preexisting1!\n", encoding="utf-8")
+
+        minted = container_lifecycle._ensure_service_tokens(
+            {"deployed_services": ["openobserve"]},
+            expose_network=False,
+            env_path=tmp_path / ".env",
+        )
+
+        assert minted == set()
 
     def test_the_warning_never_prints_the_value(self, tmp_path, monkeypatch, caplog):
         """Names only, never values — the same rule every other line here follows."""

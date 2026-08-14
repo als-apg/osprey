@@ -339,6 +339,11 @@ def _preflight(repo_root: Path, reporter: PhaseReporter, *, nothing_done: str) -
     is_flag=True,
     help="Keep the existing archiver history even when the profile's retention/cadence knobs no longer match it. Without this, changed knobs rebuild the base series and discard recorded samples.",
 )
+@click.option(
+    "--reuse-stores",
+    is_flag=True,
+    help="Adopt data volumes left by an earlier deployment of this name, keeping their contents: each store's original credential is restored to .env in place of the one just generated. Only possible while the store's container survives.",
+)
 @click.pass_context
 def up_verb(
     ctx: click.Context,
@@ -348,6 +353,7 @@ def up_verb(
     chain_build: bool,
     as_built: bool,
     keep_archiver_base: bool,
+    reuse_stores: bool,
 ) -> None:
     """Start this deployment from build/, as built.
 
@@ -426,6 +432,7 @@ def up_verb(
                     detached=detached,
                     dev_mode=dev,
                     keep_archiver_base=keep_archiver_base,
+                    reuse_stores=reuse_stores,
                 )
         except NoBuildError as e:
             _abort(f"{e} Nothing was started.")
@@ -549,6 +556,11 @@ def down_verb(repo: Path | None) -> None:
     is_flag=True,
     help="Keep the existing archiver history even when the profile's retention/cadence knobs no longer match it. Without this, changed knobs rebuild the base series and discard recorded samples.",
 )
+@click.option(
+    "--reuse-stores",
+    is_flag=True,
+    help="Adopt data volumes left by an earlier deployment of this name, keeping their contents: each store's original credential is restored to .env in place of the one just generated. Checked before the stop, since stopping removes the containers this reads from.",
+)
 @click.pass_context
 def restart_verb(
     ctx: click.Context,
@@ -558,6 +570,7 @@ def restart_verb(
     chain_build: bool,
     as_built: bool,
     keep_archiver_base: bool,
+    reuse_stores: bool,
 ) -> None:
     """Stop and start this deployment again.
 
@@ -630,6 +643,7 @@ def restart_verb(
                     detached=detached,
                     dev_mode=dev,
                     keep_archiver_base=keep_archiver_base,
+                    reuse_stores=reuse_stores,
                 )
         except NoBuildError as e:
             _abort(f"{e} Nothing was stopped.")

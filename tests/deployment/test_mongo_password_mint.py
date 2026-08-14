@@ -138,22 +138,51 @@ class TestRegistryAgreement:
         assert f"${{{var}:-" in template
 
     def test_the_minted_var_is_registered_as_volume_initialized(self):
-        """A missing entry makes the fresh-mint warning silently never fire.
+        """A missing entry makes the stale-volume preflight silently never fire.
 
         The store adopts ``MONGO_ROOT_PASSWORD`` only when it initializes a
         fresh data volume, so a newly minted value beside a surviving volume is
         a credential mismatch nothing else names — the registry entry is what
-        makes ``_ensure_service_tokens`` warn at the mint. The template
-        declaring a named volume is the fact that earns the entry its place.
+        makes ``_preflight_stale_store_volumes`` look for that volume at all.
+        The template declaring a named volume is the fact that earns the entry
+        its place.
         """
         from osprey.deployment.container_lifecycle import _VOLUME_INITIALIZED_VARS
 
-        assert _VOLUME_INITIALIZED_VARS.get("MONGO_ROOT_PASSWORD") == "mongodb"
+        assert _VOLUME_INITIALIZED_VARS["MONGO_ROOT_PASSWORD"].service == "mongodb"
         declared = _declared_top_level_volumes(_mongodb_template_text())
         assert "archiver_mongodb_data" in declared, (
             "the volume the store initializes /data/db on must be a declared "
-            "named volume, or the fresh-mint warning guards nothing"
+            "named volume, or the stale-volume preflight guards nothing"
         )
+
+    def test_the_registry_names_the_volume_the_template_declares(self):
+        """A drifted volume name makes the preflight look for something absent.
+
+        The failure mode is silent and one-directional: the probe finds no
+        such volume, concludes this is an ordinary first deploy, and lets the
+        credential mismatch through to the store — which is the exact bug the
+        preflight exists to stop.
+        """
+        from osprey.deployment.container_lifecycle import _VOLUME_INITIALIZED_VARS
+
+        store = _VOLUME_INITIALIZED_VARS["MONGO_ROOT_PASSWORD"]
+        assert store.volume in _declared_top_level_volumes(_mongodb_template_text())
+
+    def test_the_registry_names_the_container_and_env_var_the_template_uses(self):
+        """The harvest reads this credential off this container, by this name.
+
+        Both halves are drift-prone in the same silent direction: a wrong
+        container name or a wrong in-container variable makes ``--reuse-stores``
+        report a recoverable credential as unrecoverable, and the operator
+        discards data that could have been kept.
+        """
+        from osprey.deployment.container_lifecycle import _VOLUME_INITIALIZED_VARS
+
+        store = _VOLUME_INITIALIZED_VARS["MONGO_ROOT_PASSWORD"]
+        template = _mongodb_template_text()
+        assert f"container_name: {{{{ osprey_labels.project_name }}}}{store.container}" in template
+        assert f"{store.cred_env}: ${{MONGO_ROOT_PASSWORD:-" in template
 
     def test_the_port_remedy_names_the_knob_the_profile_block_emits(self):
         """The generic fallback would be ``services.mongodb.port``, which is wrong."""

@@ -374,6 +374,14 @@ def start_stack_stubs(monkeypatch):
     """The host-touching preflights ``_start_stack`` runs before its compose calls."""
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    # Asks the runtime which of this project's data volumes exist. Stubbed for
+    # the same reason as the two above: left live it reads the developer's own
+    # daemon, so a stray `proj_*` volume on one machine would fail tests that
+    # are about spooling, and CI — with no such volume — could never reproduce
+    # it. Its own behaviour is pinned in test_stale_store_volume_preflight.py.
+    monkeypatch.setattr(
+        container_lifecycle, "_preflight_stale_store_volumes", lambda config, minted, env: None
+    )
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )

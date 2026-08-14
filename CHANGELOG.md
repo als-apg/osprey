@@ -434,6 +434,23 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- A start that would generate store credentials a surviving data volume cannot
+  accept now stops before it starts anything. Deleting a deployment directory
+  leaves its volumes behind, so the next `osprey up` minted fresh passwords for
+  postgresql, openobserve and mongodb — which each read their password only
+  when initializing an empty volume, and go on rejecting the new one. The
+  previous warning could only guess that this might be happening; the start now
+  asks the container runtime, names every affected store at once, and says
+  whether each one's original credential can still be recovered. It reports
+  this before the image build instead of at a health probe minutes later —
+  which matters, because starting the stack recreates the store containers, and
+  a container holds the only copy of the credential its volume was created
+  with. `osprey restart` runs the same check before it stops anything, for the
+  same reason.
+- New: `osprey up --reuse-stores` and `osprey restart --reuse-stores` adopt
+  those volumes instead of discarding them, restoring each store's original
+  credential to `.env`. They refuse if any affected volume can no longer be
+  reopened, rather than starting a stack that is part-adopted and part-doomed.
 - `osprey health` now answers from either stance. It looks for the config where
   a build writes it (`build/config.yml`) and reads credentials from the repo's
   `.env`, so running it at the repo root no longer reports the config missing,
