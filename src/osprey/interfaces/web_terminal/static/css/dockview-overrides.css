@@ -24,6 +24,17 @@
  * theme blocks. Compounding with `.dock-root` (and covering the `.dv-shell`
  * element dockview stamps its own theme class on, which sits BETWEEN the root
  * and every panel) wins on specificity instead of order, deterministically.
+ *
+ * That compounding applies ONLY to rules whose subject is a `dv-*` element —
+ * the ones with a stock rule to out-specify. Rules whose subject is one of the
+ * bar's OWN classes (`.tile-tab*`, `.contrib-*`, `.bar-icon`) anchor on
+ * `.tile-tab` instead, matching terminal.css's `.tile-tab .terminal-header`.
+ * `.dock-root` would be actively WRONG for them: dockview builds a tile's drag
+ * image by cloning the tab into document.body, so a bar styled from the dock
+ * root paints unstyled the moment the operator picks it up. Anchoring on a
+ * class the bar itself carries travels with the clone. The swap is
+ * specificity-neutral — both anchors are one class — so the cascade is
+ * unchanged in the dock. Do not "restore" the `.dock-root` prefix on these.
  */
 
 .dock-root.dockview-theme-dark,
@@ -207,7 +218,7 @@
   padding: 0;
 }
 
-.dock-root .tile-tab {
+.tile-tab {
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -224,7 +235,7 @@
  * the buttons it labels) — ellipsized so a long runtime-panel label can never
  * push the close control off the bar. Primary on the active tile; the
  * dv-inactive-group rule above dims it. */
-.dock-root .tile-tab-title {
+.tile-tab .tile-tab-title {
   /* Identity holds its ground: the name does not flex-shrink (a narrowing
    * tile crowds the contrib region instead, which is what engages the
    * overflow ladder), but a long runtime label caps at 40% of the bar and
@@ -252,7 +263,7 @@
  * so the reconcile in tile-header-contrib.js keeps one flat child list.
  * min-width:0 + hidden overflow let text ellipsize before the overflow
  * ladder folds whole controls (.contrib-hidden). */
-.dock-root .tile-tab-contrib {
+.tile-tab .tile-tab-contrib {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -262,25 +273,25 @@
   overflow: hidden;
 }
 
-.dock-root .tile-tab-contrib::before {
+.tile-tab .tile-tab-contrib::before {
   content: "";
   flex: 1 1 0;
   order: 1;
   min-width: 0;
 }
 
-.dock-root .tile-tab-contrib > * {
+.tile-tab .tile-tab-contrib > * {
   order: 2;
 }
 
-.dock-root .tile-tab-contrib > .contrib-text {
+.tile-tab .tile-tab-contrib > .contrib-text {
   order: 0;
 }
 
 /* Subtitle: the loaded-file-name idiom — quiet mono beside the display-type
  * name. Its floor makes the region overflow (and the ladder fold controls)
  * before the subtitle is squeezed past a stub. */
-.dock-root .contrib-text {
+.tile-tab .contrib-text {
   flex: 0 1 auto;
   min-width: 40px;
   overflow: hidden;
@@ -297,10 +308,10 @@
  * control: transparent at rest, elevated fill under the pointer, one
  * radius, one type style. Icons are inline SVG on currentColor
  * (svg-icons.js), so they take each control's own state color. */
-.dock-root .tile-tab-actions button,
-.dock-root .contrib-btn,
-.dock-root .contrib-nav-link,
-.dock-root .contrib-menu-btn {
+.tile-tab .tile-tab-actions button,
+.tile-tab .contrib-btn,
+.tile-tab .contrib-nav-link,
+.tile-tab .contrib-menu-btn {
   appearance: none;
   display: inline-flex;
   align-items: center;
@@ -321,38 +332,38 @@
   flex: 0 0 auto;
 }
 
-.dock-root .tile-tab-actions button:hover,
-.dock-root .contrib-btn:hover:not(:disabled),
-.dock-root .contrib-nav-link:hover,
-.dock-root .contrib-menu-btn:hover,
-.dock-root .contrib-menu-btn[aria-expanded='true'] {
+.tile-tab .tile-tab-actions button:hover,
+.tile-tab .contrib-btn:hover:not(:disabled),
+.tile-tab .contrib-nav-link:hover,
+.tile-tab .contrib-menu-btn:hover,
+.tile-tab .contrib-menu-btn[aria-expanded='true'] {
   color: var(--text-primary);
   background: var(--bg-elevated);
 }
 
 /* Icon-only controls square off. */
-.dock-root .tile-tab-actions button,
-.dock-root .contrib-menu-btn {
+.tile-tab .tile-tab-actions button,
+.tile-tab .contrib-menu-btn {
   width: 24px;
   padding: 0;
 }
 
-.dock-root .bar-icon {
+.tile-tab .bar-icon {
   width: 14px;
   height: 14px;
   display: block;
 }
 
-.dock-root .contrib-btn:disabled {
+.tile-tab .contrib-btn:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-.dock-root .contrib-btn-accent {
+.tile-tab .contrib-btn-accent {
   color: var(--color-accent);
 }
 
-.dock-root .contrib-btn-accent:hover:not(:disabled) {
+.tile-tab .contrib-btn-accent:hover:not(:disabled) {
   color: var(--color-accent);
   background: var(--accent-tint-08);
 }
@@ -360,7 +371,7 @@
 /* Nav renders as a segmented control: one bordered track, the active view a
  * filled segment — a view switcher should read as one control with N
  * positions, not N sibling buttons. */
-.dock-root .contrib-nav {
+.tile-tab .contrib-nav {
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -372,12 +383,12 @@
   flex: 0 0 auto;
 }
 
-.dock-root .contrib-nav-link {
+.tile-tab .contrib-nav-link {
   height: 18px;
   border-radius: var(--radius-xs);
 }
 
-.dock-root .contrib-nav-link.active {
+.tile-tab .contrib-nav-link.active {
   color: var(--text-primary);
   background: var(--bg-elevated);
 }
@@ -388,7 +399,7 @@
  * to --bg-primary now that the bar itself sits on --bg-panel. Sized to
  * the 36px bar rather than the 28px header, and allowed to shrink to an
  * icon-plus-stub before the overflow ladder collapses it further. */
-.dock-root .contrib-search {
+.tile-tab .contrib-search {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -402,25 +413,25 @@
   transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
 
-.dock-root .contrib-search:hover,
-.dock-root .contrib-search:focus-within {
+.tile-tab .contrib-search:hover,
+.tile-tab .contrib-search:focus-within {
   border-color: var(--border-accent);
   background: var(--bg-elevated);
 }
 
-.dock-root .contrib-search-icon {
+.tile-tab .contrib-search-icon {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
   color: var(--text-muted);
 }
 
-.dock-root .contrib-search-icon .bar-icon {
+.tile-tab .contrib-search-icon .bar-icon {
   width: 12px;
   height: 12px;
 }
 
-.dock-root .contrib-search-input {
+.tile-tab .contrib-search-input {
   appearance: none;
   flex: 1 1 auto;
   min-width: 0;
@@ -434,31 +445,31 @@
   color: var(--text-primary);
 }
 
-.dock-root .contrib-search-input::placeholder {
+.tile-tab .contrib-search-input::placeholder {
   color: var(--text-muted);
 }
 
 /* Chrome/Safari draw their own clear affordance on type=search; the Escape
  * key is the panel-agnostic one and the bar has no room for both. */
-.dock-root .contrib-search-input::-webkit-search-cancel-button {
+.tile-tab .contrib-search-input::-webkit-search-cancel-button {
   display: none;
 }
 
 /* A control the overflow ladder folded into the bar's ⋯ menu. Folded, not
  * lost: the menu keeps it reachable (see applyOverflowLadder). */
-.dock-root .contrib-hidden {
+.tile-tab .contrib-hidden {
   display: none;
 }
 
 /* The bar-owned ⋯ fold target sits at the controls cluster's right edge,
  * inside the region (order 3 > the controls' order 2). */
-.dock-root .tile-tab-contrib > .contrib-overflow-btn {
+.tile-tab .tile-tab-contrib > .contrib-overflow-btn {
   order: 3;
 }
 
 /* Ladder step 1: the search field down to its magnifier — a 24px ghost
  * button (click / Enter re-expands it for typing). */
-.dock-root .contrib-search-collapsed {
+.tile-tab .contrib-search-collapsed {
   flex: 0 0 auto;
   width: 24px;
   min-width: 24px;
@@ -469,16 +480,16 @@
   cursor: pointer;
 }
 
-.dock-root .contrib-search-collapsed:hover {
+.tile-tab .contrib-search-collapsed:hover {
   background: var(--bg-elevated);
   border-color: transparent;
 }
 
-.dock-root .contrib-search-collapsed .contrib-search-input {
+.tile-tab .contrib-search-collapsed .contrib-search-input {
   display: none;
 }
 
-.dock-root .contrib-search-collapsed .contrib-search-icon {
+.tile-tab .contrib-search-collapsed .contrib-search-icon {
   color: var(--text-secondary);
 }
 
@@ -542,7 +553,7 @@
 
 /* Actions cluster: right-anchored; its buttons take the unified ghost
  * language above. */
-.dock-root .tile-tab-actions {
+.tile-tab .tile-tab-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
