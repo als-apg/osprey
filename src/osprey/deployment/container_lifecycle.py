@@ -2508,21 +2508,25 @@ def _start_stack(
     # mount in the first place.
     minted_store_vars = _ensure_service_tokens(config, expose_network, env_path)
 
-    # Refuse a deploy whose freshly minted store credentials meet data volumes
-    # that predate them. Directly after the mint (which is what creates the
-    # hazard) and before every container-touching step below — including the
-    # image build and the archiver staging — because `compose up` recreating a
-    # store container destroys the only host-side copy of the credential that
-    # volume was initialized with. See _preflight_stale_store_volumes.
-    _preflight_stale_store_volumes(
-        config, minted_store_vars, env_path or Path(".env"), reuse_stores=reuse_stores
-    )
-
     # Fail fast on the optional dependency the staged archiver bring-up below
     # cannot proceed without. Here, beside the mint that provisions the store's
     # own credential, rather than at the seeder: a missing extra must abort in
     # seconds, before the minutes-long image build, not after it.
     _preflight_archiver_pymongo(config)
+
+    # Refuse a deploy whose store credentials a surviving data volume will
+    # reject. Before every container-touching step below — the image build and
+    # the archiver staging included — because `compose up` recreating a store
+    # container destroys the only host-side copy of the credential that volume
+    # was initialized with. See _preflight_stale_store_volumes.
+    #
+    # But AFTER the pymongo check above, which is a local import and costs
+    # nothing: this one is the first thing on the path to ask the container
+    # runtime a question, and a deploy doomed by a missing extra must abort
+    # without having touched the host at all.
+    _preflight_stale_store_volumes(
+        config, minted_store_vars or set(), env_path or Path(".env"), reuse_stores=reuse_stores
+    )
 
     # Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
     # VA-backed Bluesky stack (additive; no-op unless both bluesky and

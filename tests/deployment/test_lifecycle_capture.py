@@ -379,9 +379,7 @@ def start_stack_stubs(monkeypatch):
     # daemon, so a stray `proj_*` volume on one machine would fail tests that
     # are about spooling, and CI — with no such volume — could never reproduce
     # it. Its own behaviour is pinned in test_stale_store_volume_preflight.py.
-    monkeypatch.setattr(
-        container_lifecycle, "_preflight_stale_store_volumes", lambda config, minted, env: None
-    )
+    monkeypatch.setattr(container_lifecycle, "_preflight_stale_store_volumes", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
