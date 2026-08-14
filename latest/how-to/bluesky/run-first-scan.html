@@ -555,9 +555,26 @@ not. <a class="reference internal" href="queue.html"><span class="doc">Scans and
 <section id="step-5-watch-the-results">
 <h2>Step 5: Watch the results<a class="headerlink" href="#step-5-watch-the-results" title="Link to this heading">#</a></h2>
 <p>Stay on the <strong>BLUESKY</strong> tab. The lower half follows the selected run: a table
-gains one row per grid position, and a live chart traces each monitor’s
-readings. A 5 × 5 grid settles fast on the Virtual Accelerator — all 25
-points should land within a few seconds.</p>
+gains one row per grid position, and beside it the run’s <strong>figure</strong> fills in —
+one plot per panel, with real axis labels and units. A 5 × 5 grid settles fast
+on the Virtual Accelerator — all 25 points should land within a few seconds.</p>
+<p>What you are watching is <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code>’s own view of the scan. A two-axis grid
+draws one <strong>heatmap per monitor</strong> — the fast axis across, the slow axis up, one
+cell per grid position — and a cell the scan has not reached yet is left empty
+rather than filled with a zero. Sweep a single axis instead and the same plan
+draws lines: one panel per monitor, against that axis. The <code class="docutils literal notranslate"><span class="pre">orm</span></code> plan brings
+its own view too: a trace per corrector while the sweep runs, then the fitted
+response matrix and per-device scores.</p>
+<p>A short note above the plots says where the data came from and whether it is
+still arriving — <em>live data · still filling in</em> while the scan runs. A run you
+come back to later, read from durable storage, shows <em>stored data</em> instead.</p>
+<p>A plan does not have to bring a view. For one that does not, the panel draws
+the <strong>default view</strong> instead: every numeric column the run recorded, plotted
+against the scan’s own axis, with the note line adding a few words about why
+you are seeing it. None of that is an error — the default view is real data,
+and for many measurements it is exactly the right picture.</p>
+<p>Ask the agent <em>“how does that scan look?”</em> and it reads the same figure you
+have on screen, so you are both describing one picture rather than two.</p>
 </section>
 <section id="if-you-need-to-stop">
 <h2>If you need to stop<a class="headerlink" href="#if-you-need-to-stop" title="Link to this heading">#</a></h2>
@@ -605,7 +622,7 @@ deployment is not armed (no launch token), the queue still holds a scan
 someone stopped earlier (remove it first — see <a class="reference internal" href="queue.html"><span class="doc">Scans and the Queue</span></a>), or the
 queue server is still starting up (wait a moment and try again).</p>
 </dd>
-<dt><strong>The chart shows “N points so far” instead of a percentage.</strong></dt><dd><p class="sd-card-text">That is honesty, not a glitch: not every plan can predict its total
+<dt><strong>Progress reads “N points so far” instead of a percentage.</strong></dt><dd><p class="sd-card-text">That is honesty, not a glitch: not every plan can predict its total
 point count, so the panel counts what has arrived rather than invent a
 percentage.</p>
 </dd>

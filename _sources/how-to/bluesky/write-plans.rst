@@ -77,6 +77,10 @@ Two ways to add a plan
    - **The plan function** — builds the actual Bluesky plan from the
      parameters and the resolved devices.
 
+   Plus an optional fourth: **the view** — a ``render`` function that turns
+   the run's rows into the plan's own plots. See *Give a plan its own view*
+   below.
+
    The agent's ``writing-bluesky-plans`` skill carries the full, current
    template — the fastest way to see one is to ask the agent to write a
    minimal plan and read the result.
@@ -109,6 +113,65 @@ Two ways to add a plan
    is why a session plan that outlived a restart asks to be validated once
    more. Facility-tier plans carry no fingerprint bookkeeping — their trust
    comes from being installed by you.
+
+Give a plan its own view
+========================
+
+Every run gets a figure in the BLUESKY panel, and by default it is drawn for
+you: every numeric column the run recorded, plotted against the scan's own
+axis. That **default view** is honest and, for a straightforward measurement,
+enough.
+
+A plan that measures something the raw columns cannot show can bring its own
+view instead — a small ``render`` function that receives the run's rows and its
+parameters and returns the plots the plan itself designs. The shipped ``orm``
+plan does exactly that: a trace per corrector while the sweep runs, then the
+fitted response matrix and per-device scores once there is enough data.
+
+The vocabulary is small on purpose. A figure is a list of **panels**; each
+panel has a title, axis labels and units, any notes worth printing beside it,
+and exactly one **mark**:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Mark
+     - What it draws
+   * - **Lines**
+     - Named series of x/y points — a sweep, a trend, one line per monitor. A
+       reading the run never took stays a gap in the line, never a zero.
+   * - **Bars**
+     - One value per named category — a score or a total per device.
+   * - **Heatmap**
+     - A labelled 2-D grid — for example BPMs against correctors, each cell a
+       fitted slope.
+
+Three rules keep a view honest, and the framework enforces all three:
+
+- **Drawing never disturbs a scan.** A view is computed from data already
+  recorded, after the fact. If it fails, the run and its numbers are untouched
+  and the panel simply shows the default view with a note saying why.
+- **Views name no facility.** Labels come from the plan's parameters and the
+  columns the run recorded, so the same plan draws correct device names at any
+  facility that installs it.
+- **Only installed plans draw their own view.** A plan's ``render`` runs inside
+  the bridge every time a panel refreshes, so it is honored for plans shipped
+  with OSPREY, with a preset, or installed by your facility — not for session
+  plans the agent writes mid-conversation. A session plan queues, runs and
+  records data exactly as any other; its runs just show the default view. A
+  view is one more reason for a plan that earns its keep to graduate into your
+  facility's library.
+
+.. note::
+
+   **Views apply going forward.** A figure is computed by the plan code that
+   owns the plan's name *now*, so adding a ``render`` — or fixing one — shows
+   up on the next run with nothing to migrate. The exception is old data: a run
+   recorded before OSPREY kept track of which plan produced it has nothing to
+   tie it back to plan code, so it keeps showing the default view whatever you
+   add later. Its numbers are all still there; only the plan's own view is out
+   of reach.
 
 .. seealso::
 

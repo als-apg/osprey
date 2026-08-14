@@ -78,9 +78,30 @@ Step 5: Watch the results
 =========================
 
 Stay on the **BLUESKY** tab. The lower half follows the selected run: a table
-gains one row per grid position, and a live chart traces each monitor's
-readings. A 5 × 5 grid settles fast on the Virtual Accelerator — all 25
-points should land within a few seconds.
+gains one row per grid position, and beside it the run's **figure** fills in —
+one plot per panel, with real axis labels and units. A 5 × 5 grid settles fast
+on the Virtual Accelerator — all 25 points should land within a few seconds.
+
+What you are watching is ``grid_scan``'s own view of the scan. A two-axis grid
+draws one **heatmap per monitor** — the fast axis across, the slow axis up, one
+cell per grid position — and a cell the scan has not reached yet is left empty
+rather than filled with a zero. Sweep a single axis instead and the same plan
+draws lines: one panel per monitor, against that axis. The ``orm`` plan brings
+its own view too: a trace per corrector while the sweep runs, then the fitted
+response matrix and per-device scores.
+
+A short note above the plots says where the data came from and whether it is
+still arriving — *live data · still filling in* while the scan runs. A run you
+come back to later, read from durable storage, shows *stored data* instead.
+
+A plan does not have to bring a view. For one that does not, the panel draws
+the **default view** instead: every numeric column the run recorded, plotted
+against the scan's own axis, with the note line adding a few words about why
+you are seeing it. None of that is an error — the default view is real data,
+and for many measurements it is exactly the right picture.
+
+Ask the agent *"how does that scan look?"* and it reads the same figure you
+have on screen, so you are both describing one picture rather than two.
 
 If you need to stop
 ===================
@@ -130,7 +151,7 @@ token, no switch can disable them:
       someone stopped earlier (remove it first — see :doc:`queue`), or the
       queue server is still starting up (wait a moment and try again).
 
-   **The chart shows "N points so far" instead of a percentage.**
+   **Progress reads "N points so far" instead of a percentage.**
       That is honesty, not a glitch: not every plan can predict its total
       point count, so the panel counts what has arrived rather than invent a
       percentage.

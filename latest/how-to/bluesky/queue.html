@@ -973,6 +973,8 @@ control-system writes are disabled.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">queue_stop</span></code> / <code class="docutils literal notranslate"><span class="pre">stop_run</span></code> — the two halts. Never switched off.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">queue_list</span></code> / <code class="docutils literal notranslate"><span class="pre">queue_status</span></code> / <code class="docutils literal notranslate"><span class="pre">list_runs</span></code> / <code class="docutils literal notranslate"><span class="pre">get_run_data</span></code>
 — read what is queued, running, and measured.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">get_run_figure</span></code> — read the same figure the BLUESKY panel is
+drawing, so you and the agent are discussing one picture.</p></li>
 </ul>
 <p>A bundled skill (<code class="docutils literal notranslate"><span class="pre">operating-bluesky-scans</span></code>) teaches the agent this
 flow, so you rarely need to name a tool yourself.</p>
@@ -988,7 +990,8 @@ POST /queue/start-request  ask a token holder to start — arms nothing
 POST /queue/stop           stop after the running item
 POST /queue/abort          abort the running plan — never gated
 GET  /queue                what is queued and running
-GET  /runs                 recent runs; /runs/&lt;id&gt;/data for the numbers
+GET  /runs                 recent runs; /runs/&lt;id&gt;/data for the numbers,
+                           /runs/&lt;id&gt;/figure for the plotted view
 </pre></div>
 </div>
 <p>Every refusal comes back with a <code class="docutils literal notranslate"><span class="pre">detail</span></code> object of the form

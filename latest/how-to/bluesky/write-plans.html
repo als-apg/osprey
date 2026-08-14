@@ -556,6 +556,9 @@ well-described parameter becomes a well-labeled field.</p></li>
 <li><p class="sd-card-text"><strong>The plan function</strong> — builds the actual Bluesky plan from the
 parameters and the resolved devices.</p></li>
 </ul>
+<p class="sd-card-text">Plus an optional fourth: <strong>the view</strong> — a <code class="docutils literal notranslate"><span class="pre">render</span></code> function that turns
+the run’s rows into the plan’s own plots. See <em>Give a plan its own view</em>
+below.</p>
 <p class="sd-card-text">The agent’s <code class="docutils literal notranslate"><span class="pre">writing-bluesky-plans</span></code> skill carries the full, current
 template — the fastest way to see one is to ask the agent to write a
 minimal plan and read the result.</p>
@@ -587,7 +590,73 @@ is why a session plan that outlived a restart asks to be validated once
 more. Facility-tier plans carry no fingerprint bookkeeping — their trust
 comes from being installed by you.</p>
 </div>
-</details><div class="admonition seealso">
+</details></section>
+<section id="give-a-plan-its-own-view">
+<h2>Give a plan its own view<a class="headerlink" href="#give-a-plan-its-own-view" title="Link to this heading">#</a></h2>
+<p>Every run gets a figure in the BLUESKY panel, and by default it is drawn for
+you: every numeric column the run recorded, plotted against the scan’s own
+axis. That <strong>default view</strong> is honest and, for a straightforward measurement,
+enough.</p>
+<p>A plan that measures something the raw columns cannot show can bring its own
+view instead — a small <code class="docutils literal notranslate"><span class="pre">render</span></code> function that receives the run’s rows and its
+parameters and returns the plots the plan itself designs. The shipped <code class="docutils literal notranslate"><span class="pre">orm</span></code>
+plan does exactly that: a trace per corrector while the sweep runs, then the
+fitted response matrix and per-device scores once there is enough data.</p>
+<p>The vocabulary is small on purpose. A figure is a list of <strong>panels</strong>; each
+panel has a title, axis labels and units, any notes worth printing beside it,
+and exactly one <strong>mark</strong>:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 82.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Mark</p></th>
+<th class="head"><p>What it draws</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Lines</strong></p></td>
+<td><p>Named series of x/y points — a sweep, a trend, one line per monitor. A
+reading the run never took stays a gap in the line, never a zero.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Bars</strong></p></td>
+<td><p>One value per named category — a score or a total per device.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Heatmap</strong></p></td>
+<td><p>A labelled 2-D grid — for example BPMs against correctors, each cell a
+fitted slope.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Three rules keep a view honest, and the framework enforces all three:</p>
+<ul class="simple">
+<li><p><strong>Drawing never disturbs a scan.</strong> A view is computed from data already
+recorded, after the fact. If it fails, the run and its numbers are untouched
+and the panel simply shows the default view with a note saying why.</p></li>
+<li><p><strong>Views name no facility.</strong> Labels come from the plan’s parameters and the
+columns the run recorded, so the same plan draws correct device names at any
+facility that installs it.</p></li>
+<li><p><strong>Only installed plans draw their own view.</strong> A plan’s <code class="docutils literal notranslate"><span class="pre">render</span></code> runs inside
+the bridge every time a panel refreshes, so it is honored for plans shipped
+with OSPREY, with a preset, or installed by your facility — not for session
+plans the agent writes mid-conversation. A session plan queues, runs and
+records data exactly as any other; its runs just show the default view. A
+view is one more reason for a plan that earns its keep to graduate into your
+facility’s library.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Views apply going forward.</strong> A figure is computed by the plan code that
+owns the plan’s name <em>now</em>, so adding a <code class="docutils literal notranslate"><span class="pre">render</span></code> — or fixing one — shows
+up on the next run with nothing to migrate. The exception is old data: a run
+recorded before OSPREY kept track of which plan produced it has nothing to
+tie it back to plan code, so it keeps showing the default view whatever you
+add later. Its numbers are all still there; only the plan’s own view is out
+of reach.</p>
+</div>
+<div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
 <dt><a class="reference internal" href="queue.html"><span class="doc">Scans and the Queue</span></a></dt><dd><p>How a queued plan actually runs, and what refusals mean.</p>
@@ -648,6 +717,7 @@ comes from being installed by you.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#who-is-trusted-in-one-paragraph">Who is trusted, in one paragraph</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-ways-to-add-a-plan">Two ways to add a plan</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#give-a-plan-its-own-view">Give a plan its own view</a></li>
 </ul>
   </nav></div>
 

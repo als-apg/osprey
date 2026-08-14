@@ -67,7 +67,7 @@ reorder/remove controls, plus the runs that have finished. Picking any run
 opens it under Results. :doc:`/how-to/bluesky/queue` covers what those controls
 do.
 
-**Results** shows the selected run's record, table and live chart.
+**Results** shows the selected run's record, table and live figure.
 
 .. note::
 
