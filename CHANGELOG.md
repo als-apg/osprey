@@ -796,6 +796,41 @@ Compatibility is documented in release notes, not encoded in the version string.
   outright. Embedded panels also no longer lose the last 28px of every view to
   padding the frame already supplies.
 
+- The axes table in a scan's parameter form no longer truncates device names —
+  its columns are sized to the names they hold.
+
+- The web terminal header names the product once. The page title repeating it
+  alongside is gone.
+
+- An embedded status strip now keeps its own inset. The queue badge sat against
+  the tile frame and the halt buttons touched its corner, while the content
+  below them was comfortably inset.
+
+- The session picker's dropdown opens in front of the terminal rather than
+  behind it. The tab strip it is adopted into clipped the menu and pinned it
+  under the content pane whatever its stacking order; it now mounts at body
+  level and closes on scroll, resize, Escape, or a click outside.
+
+- The ORM figure reads as a signed response matrix. A corrector kicks the beam
+  and a BPM downstream reads positive or negative by phase advance, but the
+  matrix was painted on a single-hue ramp anchored to the raw extent: zero
+  landed mid-ramp, so an unresponsive BPM looked like a real response, and the
+  strongest negative response painted faintest. It is now diverging about zero
+  and scaled against a symmetric max|value|, so equal and opposite responses
+  read as equally strong and two runs stay comparable. Cells with no reading
+  are hatched rather than left blank, and the legend became a colorbar carrying
+  the numbers.
+
+- New: an ORM result carries the two views that conventionally accompany a
+  response matrix. **Response by BPM** reads the matrix column-wise, where the
+  sign oscillation is legible and a dead corrector shows as a flat line against
+  a dead BPM's shared spike; you pick which correctors are drawn without
+  refetching. **Singular values** plots the spectrum on a log axis, with modes
+  at or below the numerical-rank tolerance drawn as gaps rather than as the
+  ~1e-16 residue a rank-deficient matrix leaves behind. The raw per-corrector
+  sweeps move below the fit into a collapsed section that shows one corrector
+  at a time; when the fit is skipped they stay inline.
+
 ## [2026.8.0]
 
 ### Removed
