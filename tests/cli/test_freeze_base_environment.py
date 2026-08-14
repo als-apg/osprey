@@ -153,7 +153,9 @@ def test_freeze_logs_duration(
     python, _ = base_venv
     write_dist(clean_site_packages, "lmfit", "1.3.2")
 
-    with caplog.at_level("INFO", logger="build"):
+    # DEBUG: the freeze duration is build-internal detail, below the phase lines
+    # the verb now prints.
+    with caplog.at_level("DEBUG", logger="build"):
         freeze_base_environment(python, [])
 
     assert any("Froze 1 packages" in r.message and "s)" in r.message for r in caplog.records)

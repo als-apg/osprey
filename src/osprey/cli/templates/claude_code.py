@@ -1136,7 +1136,7 @@ def create_claude_code_integration(
             if hook.is_file() and hook.suffix == ".py":
                 hook.chmod(hook.stat().st_mode | 0o755)
 
-    console.print(f"  [success]✓[/success] Created {files_created} Claude Code integration file(s)")
+    logger.debug("Created %s Claude Code integration file(s)", files_created)
 
 
 def check_user_owned_drift(

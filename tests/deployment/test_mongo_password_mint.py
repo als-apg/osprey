@@ -17,6 +17,8 @@ tests assert the invariant end to end — a mint that reaches the ``.env``, and 
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from osprey.deployment import container_lifecycle
@@ -40,8 +42,12 @@ def captured_argv(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False):
+    def _fake_run(cmd, env=None, check=False, **kwargs):
         captured["cmd"] = cmd
+        # run_captured re-wraps this result to carry its spool path, so the
+        # stand-in has to be a real completed process, and it passes redirection
+        # kwargs this ignores.
+        return subprocess.CompletedProcess(list(cmd), 0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     return captured

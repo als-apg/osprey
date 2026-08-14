@@ -10,6 +10,8 @@ listens on the landing port" from a silent absence into a stated fact.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.host_ports import _WILDCARD_HOSTS, parse_host_port_bindings
 from osprey.utils.logger import get_logger
@@ -28,20 +30,20 @@ _HTTP_SERVICES = {
 }
 
 
-def format_endpoint_summary(config: dict, compose_files: list[str]) -> str:
-    """Render where a deployment's services are reachable, as its render declares it.
+def endpoint_entries(config: dict, compose_files: list[str]) -> list[tuple[str, str]]:
+    """Where a deployment's services are reachable, as ``(service, address)`` pairs.
 
-    The single derivation of "what answers where", so the summary a deploy
-    prints when it finishes and the one a report prints later cannot describe
-    the same deployment differently. It says where a service *would* answer —
-    the published ports are read out of the rendered compose files, not probed.
+    The single derivation of "what answers where": the text summary below lays
+    these out, and the closing summary card takes the URLs off the same list, so
+    no reader of a deployment can describe it differently from another. It says
+    where a service *would* answer — the published ports are read out of the
+    rendered compose files, not probed.
 
     :param config: Loaded configuration dictionary
     :param compose_files: Rendered compose file paths, spelled absolutely or
         resolvable from the working directory — they are opened here
-    :return: Multi-line summary text
     """
-    lines = [f"Service endpoints ({resolve_project_name(config)}):"]
+    entries: list[tuple[str, str]] = []
 
     try:
         bindings = parse_host_port_bindings(compose_files)
@@ -52,15 +54,57 @@ def format_endpoint_summary(config: dict, compose_files: list[str]) -> str:
         address = f"{host}:{binding.host_port}"
         if binding.service in _HTTP_SERVICES:
             address = f"http://{address}"
-        lines.append(f"  {binding.service:<20} {address}")
+        entries.append((binding.service, address))
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     nginx_port = web_terminals.get("nginx_port")
     if web_terminals.get("enabled") and isinstance(nginx_port, int):
-        lines.append(f"  {'web terminal':<20} http://127.0.0.1:{nginx_port}  (landing page)")
+        entries.append(("web terminal", f"http://127.0.0.1:{nginx_port}  (landing page)"))
     else:
-        lines.append(f"  {'web terminal':<20} (not configured in this project)")
+        entries.append(("web terminal", "(not configured in this project)"))
 
+    return entries
+
+
+def as_built_endpoint_entries(repo_root: Path | str) -> list[tuple[str, str]]:
+    """The endpoint entries of the deployment ``repo_root`` has BUILT.
+
+    The same two facts every other reader of a deployment starts from — the
+    rendered ``build/config.yml`` and the compose files it names — so a caller
+    holding nothing but the repo (the summary card at the end of a verb) reaches
+    the same answer as one that was handed the config. A repo with nothing
+    rendered has no endpoints to declare and answers with an empty list.
+
+    Compose paths come back relative to the repo root and are anchored on it
+    here, because :func:`endpoint_entries` opens them itself.
+    """
+    from osprey.deployment.container_lifecycle import as_built_compose_files, as_built_config_path
+    from osprey.utils.config import load_project_config
+
+    root = Path(repo_root)
+    config_path = as_built_config_path(root)
+    if not config_path.is_file():
+        return []
+    config = load_project_config(str(config_path), wrap_errors=True)
+    files = [
+        str(path if path.is_absolute() else root / path)
+        for path in (Path(name) for name in as_built_compose_files(config, root))
+    ]
+    return endpoint_entries(config, files)
+
+
+def format_endpoint_summary(config: dict, compose_files: list[str]) -> str:
+    """Render :func:`endpoint_entries` as the text block a deploy or report prints.
+
+    :param config: Loaded configuration dictionary
+    :param compose_files: Rendered compose file paths, spelled absolutely or
+        resolvable from the working directory — they are opened here
+    :return: Multi-line summary text
+    """
+    lines = [f"Service endpoints ({resolve_project_name(config)}):"]
+    lines += [
+        f"  {service:<20} {address}" for service, address in endpoint_entries(config, compose_files)
+    ]
     return "\n".join(lines)
 
 

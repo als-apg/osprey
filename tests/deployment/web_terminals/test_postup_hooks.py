@@ -283,9 +283,12 @@ def test_docker_desktop_unreachable_self_heals_via_restart(monkeypatch, caplog):
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
 
     ran: list[list[str]] = []
+    # The self-heal restart is a captured run: patching the helper (rather than
+    # the shared stdlib `subprocess`) keeps the assertion on the argv and stops
+    # the real capture branch spooling a log into the working directory.
     monkeypatch.setattr(
-        postup_hooks.subprocess,
-        "run",
+        postup_hooks,
+        "run_captured",
         lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
     )
 
@@ -311,9 +314,12 @@ def test_docker_desktop_warns_only_after_restart_fails_to_help(monkeypatch, capl
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
 
     ran: list[list[str]] = []
+    # The self-heal restart is a captured run: patching the helper (rather than
+    # the shared stdlib `subprocess`) keeps the assertion on the argv and stops
+    # the real capture branch spooling a log into the working directory.
     monkeypatch.setattr(
-        postup_hooks.subprocess,
-        "run",
+        postup_hooks,
+        "run_captured",
         lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
     )
 
@@ -334,9 +340,12 @@ def test_self_heal_never_fires_on_linux(monkeypatch, caplog):
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
 
     ran: list[list[str]] = []
+    # The self-heal restart is a captured run: patching the helper (rather than
+    # the shared stdlib `subprocess`) keeps the assertion on the argv and stops
+    # the real capture branch spooling a log into the working directory.
     monkeypatch.setattr(
-        postup_hooks.subprocess,
-        "run",
+        postup_hooks,
+        "run_captured",
         lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
     )
 
@@ -356,9 +365,12 @@ def test_self_heal_skipped_when_caller_supplies_no_compose_cmd(monkeypatch, capl
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
 
     ran: list[list[str]] = []
+    # The self-heal restart is a captured run: patching the helper (rather than
+    # the shared stdlib `subprocess`) keeps the assertion on the argv and stops
+    # the real capture branch spooling a log into the working directory.
     monkeypatch.setattr(
-        postup_hooks.subprocess,
-        "run",
+        postup_hooks,
+        "run_captured",
         lambda cmd, **kw: ran.append(cmd) or _FakeCompletedProcess(0),
     )
 

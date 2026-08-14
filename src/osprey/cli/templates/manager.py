@@ -1,5 +1,6 @@
 """TemplateManager facade: thin orchestrator delegating to submodules."""
 
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -13,7 +14,6 @@ from osprey.build.build_tiers import (
     default_tier_for_mode,
     tier_mode_conflict,
 )
-from osprey.cli.styles import console
 from osprey.cli.templates import claude_code, manifest, scaffolding
 from osprey.cli.templates._rendering import render_template as _render_template
 from osprey.errors import BuildProfileError
@@ -21,6 +21,8 @@ from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import repo_root_for_config
+
+logger = logging.getLogger("osprey.cli.templates")
 
 
 class TemplateManager:
@@ -342,9 +344,7 @@ class TemplateManager:
         if machine_data_src.exists():
             machine_data_dst = project_dir / "machine_data"
             shutil.copytree(machine_data_src, machine_data_dst, dirs_exist_ok=True)
-            console.print(
-                f"  [success]✓[/success] Copied machine data to [path]{machine_data_dst}[/path]"
-            )
+            logger.debug("Copied machine data to %s", machine_data_dst)
 
         # 6a'. Install the web-terminal persona baseline. base.md is
         # framework-layer, not bundle-layer: seeding requires it for ANY
@@ -353,9 +353,7 @@ class TemplateManager:
         context_src = self.template_root / "claude_code" / "web-terminal-context"
         context_dst = project_dir / "docker" / "web-terminal-context"
         shutil.copytree(context_src, context_dst, dirs_exist_ok=True)
-        console.print(
-            f"  [success]✓[/success] Installed web-terminal context to [path]{context_dst}[/path]"
-        )
+        logger.debug("Installed web-terminal context to %s", context_dst)
 
         # 6b. Flatten the preset's tier-routed channel DBs into the canonical
         # data/channel_databases/<paradigm>.json locations. Must run before the

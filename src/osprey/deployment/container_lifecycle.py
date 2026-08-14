@@ -7,6 +7,7 @@ Docker or Podman compose.
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Mapping
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import yaml
 
+from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
     REPO_ID_LABEL,
@@ -50,6 +52,7 @@ from osprey.deployment.service_tokens import (
     _validate_var,
 )
 from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
+from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.provision import (
     deploy_down_web_terminals,
     deploy_up_web_terminals,
@@ -1284,9 +1287,15 @@ def _build_project_image(
 
     try:
         cmd = _project_image_build_cmd(config, runtime, project_root, dev_mode and wheel_staged)
-        logger.key_info("Building dispatch worker project image %s:", project_image)
+        logger.debug("Building dispatch worker project image %s:", project_image)
         logger.debug("Running command:\n    %s", " ".join(cmd))
-        subprocess.run(cmd, env=env, check=True)
+        run_captured(
+            cmd,
+            env=env,
+            spool_name="build-project-image",
+            repo_root=resolve_repo_root(config),
+        )
+        _report_step(f"project image {project_image}")
     finally:
         # Remove BOTH staged artifacts (wheel + requirements manifest) so
         # neither can poison a later non-dev build in this context.
@@ -1819,8 +1828,13 @@ def _wait_for_archiver_store(
 def _seed_progress_reporter():
     """A :func:`~osprey.simulation.archiver_seed.seed_base` progress callback.
 
-    Rate-limited rather than per-chunk: the point is to prove a multi-minute step
-    is moving, not to narrate every insert.
+    Each firing becomes a step line under the verb's open phase, so a first
+    deploy's multi-minute seed reports as it goes instead of stalling silently.
+    Rate-limited rather than per-chunk: the callback fires once per chunk, which
+    on a large archive is many times a second, and the point is to prove the step
+    is moving — not to narrate every insert. The channel count and the seeded
+    span are fixed for the run and already announced before seeding starts, so
+    the line carries the one quantity that grows.
     """
     last = [time.monotonic()]
 
@@ -1829,9 +1843,9 @@ def _seed_progress_reporter():
         if now - last[0] < _ARCHIVER_PROGRESS_INTERVAL_S:
             return
         last[0] = now
-        logger.info(
-            f"  seeding archive: {seed_report.documents:,} documents written "
-            f"({seed_report.elapsed_s:.0f}s elapsed)"
+        _report_step(
+            f"seeding archive: {seed_report.documents:,} documents written "
+            f"across {seed_report.channels:,} channels"
         )
 
     return report
@@ -1937,8 +1951,9 @@ def _stage_archiver_store(config, compose_files, env, project_dir, *, keep_base=
     )
 
     up_cmd = base_cmd + ["up", "-d", _ARCHIVER_STORE_SERVICE]
-    logger.info(f"Running command:\n    {' '.join(up_cmd)}")
-    subprocess.run(up_cmd, env=run_env, check=True)
+    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
+    run_captured(up_cmd, env=run_env, spool_name="archiver-store-up", repo_root=project_dir)
+    _report_step("archiver store started")
 
     # Assembled while the store boots, and before the health budget starts: this
     # reads a manifest and a machine model off disk, and charging that time
@@ -1978,8 +1993,15 @@ def _stage_archiver_store(config, compose_files, env, project_dir, *, keep_base=
 
         if _ARCHIVER_RECORDER_DEPLOY_NAME in (config.get("deployed_services") or []):
             stop_cmd = base_cmd + ["stop", _ARCHIVER_RECORDER_SERVICE]
-            logger.info(f"Running command:\n    {' '.join(stop_cmd)}")
-            quiesce = subprocess.run(stop_cmd, env=run_env)
+            logger.debug(f"Running command:\n    {' '.join(stop_cmd)}")
+            quiesce = run_captured(
+                stop_cmd,
+                env=run_env,
+                spool_name="archiver-recorder-stop",
+                repo_root=project_dir,
+                check=False,
+            )
+            _report_step("archiver recorder quiesced")
             # Not fatal — the rebuild is still the right thing to do — but a
             # recorder that would not stop is writing into the collection about
             # to be dropped, so the breach of the quiesce invariant has to be
@@ -2282,7 +2304,8 @@ def _start_stack(
     # of clean/rebuild. Best-effort: if it fails, `up` surfaces the real error.
     rm_cmd = base_cmd + ["rm", "-f"]
     logger.debug(f"Running command:\n    {' '.join(rm_cmd)}")
-    subprocess.run(rm_cmd, env=run_env)
+    run_captured(rm_cmd, env=run_env, spool_name="compose-rm", repo_root=repo_root, check=False)
+    _report_step("cleared stopped containers")
 
     if dev_mode:
         # `osprey up --dev` re-bakes the local osprey checkout into a fresh
@@ -2295,7 +2318,8 @@ def _start_stack(
         # service that has no published upstream tag to pull.
         build_cmd = base_cmd + ["build"]
         logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
-        subprocess.run(build_cmd, env=run_env, check=True)
+        run_captured(build_cmd, env=run_env, spool_name="compose-build", repo_root=repo_root)
+        _report_step("service images built")
 
     # --remove-orphans reconciles away containers whose service left the
     # config since the last deploy (including a formerly-enabled web-terminal
@@ -2311,7 +2335,8 @@ def _start_stack(
 
     logger.debug(f"Running command:\n    {' '.join(cmd)}")
     if detached:
-        subprocess.run(cmd, env=run_env, check=True)
+        run_captured(cmd, env=run_env, spool_name="compose-up", repo_root=repo_root)
+        _report_step("containers started")
         log_endpoint_summary(config, compose_files)
     else:
         # execvpe replaces this process, so the summary must print first —
@@ -2794,6 +2819,11 @@ def _down_by_label(config: dict | None, repo_root: Path) -> None:
                 f"{(result.stderr or '').strip()}"
             )
 
+    # The recovery path reports what it did for the same reason the compose path
+    # does: without it, a `down` that fell back to labels closes its phase with a
+    # bare ✓ and never says that anything was found, let alone how much.
+    _report_step(f"removed {len(container_ids)} labelled container(s)")
+
 
 def down_deployment(repo_root: Path | str) -> None:
     """Stop a deployment repo's stack, keeping every volume.
@@ -2852,12 +2882,26 @@ def down_deployment(repo_root: Path | str) -> None:
     cmd.append("down")
 
     logger.debug(f"Running command:\n    {' '.join(cmd)}")
-    result = subprocess.run(cmd, env=runtime_env(config, os.environ.copy()), check=False)
+    # Captured, not streamed: the phase line this runs under is only readable if
+    # compose's own output goes to the spool instead of the same terminal. The
+    # pinned COMPOSE_PROJECT_NAME reaches compose through `env=` — unpinned,
+    # `down` targets the shared "services" project rather than this deploy's.
+    result = run_captured(
+        cmd,
+        env=runtime_env(config, os.environ.copy()),
+        spool_name="compose-down",
+        repo_root=repo_root,
+        check=False,
+    )
     if getattr(result, "returncode", 0):
+        # check=False and raise here, rather than letting run_captured raise:
+        # a failed `down` has a specific consequence to state. The reporter
+        # already holds the spool path, so the failure line replays it.
         raise RuntimeError(
             f"`compose down` failed (exit {result.returncode}) — this deployment's "
-            "containers may still be running. The output above is the runtime's own."
+            "containers may still be running."
         )
+    _report_step("containers stopped")
 
 
 def restart_deployment(
@@ -2923,11 +2967,12 @@ def deploy_down(config_path, dev_mode=False):
     torn down first via its own compose invocation
     (:func:`osprey.deployment.web_terminals.provision.deploy_down_web_terminals`):
     the two stacks are separate invocations of one pinned base, and the
-    services ``down`` execvpe-replaces this process, so the web ``down`` must
-    happen before it.
+    services ``down`` ends this process, so the web ``down`` must happen
+    before it.
 
     :param config_path: Path to the configuration file
     :type config_path: str
+    :raises SystemExit: Always — with the ``compose down`` child's own exit code.
     """
     config = load_project_config(config_path, wrap_errors=True)
     repo_root = resolve_repo_root(config, config_path)
@@ -2962,10 +3007,24 @@ def deploy_down(config_path, dev_mode=False):
     cmd.append("down")
 
     logger.debug(f"Running command:\n    {' '.join(cmd)}")
-    # execvpe (not execvp) so the COMPOSE_PROJECT_NAME pin reaches compose:
-    # `down` must target the same project `up` created, or it either misses this
-    # deploy's containers or (unpinned) tears down the shared "services" project.
-    os.execvpe(cmd[0], cmd, runtime_env(config, os.environ.copy()))
+    # The COMPOSE_PROJECT_NAME pin must reach compose: `down` must target the
+    # same project `up` created, or it either misses this deploy's containers
+    # or (unpinned) tears down the shared "services" project. That pin is why
+    # this used to `execvpe` rather than `execvp`; the captured run carries the
+    # same environment through `env=`.
+    run_env = runtime_env(config, os.environ.copy())
+    # check=False, then exit on the child's own code: `down` is the last thing
+    # this process does, and propagating the code verbatim keeps the exit
+    # status callers see identical to the exec'd child's.
+    proc = run_captured(
+        cmd, env=run_env, spool_name="compose-down", repo_root=repo_root, check=False
+    )
+    if proc.returncode == 0:
+        _report_step("containers stopped")
+    # A signal-killed child reports a NEGATIVE returncode, which sys.exit would
+    # mask to its low byte (-15 -> 241). Shells spell "killed by signal N" as
+    # 128+N, and 128+N is exactly what the exec'd child's own status used to be.
+    sys.exit(proc.returncode if proc.returncode >= 0 else 128 - proc.returncode)
 
 
 def deploy_restart(config_path, detached=False, expose_network=False):

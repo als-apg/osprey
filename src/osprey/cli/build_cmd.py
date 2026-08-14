@@ -640,6 +640,7 @@ def _render_project(
     deployment: bool,
     progress: Any,
     extra_known: Sequence[str] = (),
+    injected_out: list[str] | None = None,
 ) -> Path:
     """Render one resolved profile into ``<output_dir>/<project_name>``.
 
@@ -684,6 +685,12 @@ def _render_project(
         extra_known: Repo-root entry names to exempt from the unknown-entry
             warning on top of the profile's own, so a persona render does not
             repeat a warning the deployment's render already made.
+        injected_out: A list to record this render's injected service names in,
+            for a caller that reports them. Passed rather than returned because
+            a build renders six times and every pass injects the same set: the
+            caller names the ONE pass whose set it reports (``deployment`` does
+            not identify it — the deployment's container copy renders with it
+            set too).
 
     Returns:
         The rendered project directory.
@@ -764,7 +771,9 @@ def _render_project(
             for key, value in entries.items():
                 progress("      %s: %s (from the profile's %s block)", key, value, block)
 
-    _inject_services(build_profile, repo_root, render_dir)
+    injected = _inject_services(build_profile, repo_root, render_dir)
+    if injected_out is not None:
+        injected_out.extend(injected)
 
     applied = _apply_conventions(
         repo_root,
@@ -963,7 +972,7 @@ def _render_persona_projects(shared: _SharedRenderInputs, zones: _RenderZones) -
     rendered: list[Path] = []
     for delta in deltas:
         project_name = f"{shared.repo_root.name}-{delta.stem}"
-        logger.info("  Rendering persona %r → %s/", delta.stem, project_name)
+        logger.debug("  Rendering persona %r → %s/", delta.stem, project_name)
         rendered.append(
             _render_project(
                 shared,
@@ -1558,8 +1567,16 @@ def _build_repo(
             included. ``build/`` is left as it was found.
         click.UsageError: When no deployment repo encloses the search path.
     """
+    from osprey.deployment.errors import CapturedProcessError
+
     from .build_profile import resolve_build_document
     from .build_profile_deploy import deploy_aware_config_errors
+    from .phase_reporter import current_reporter
+
+    # Whatever the verb at the top of this run installed — this build's own
+    # reporter under `osprey build`, and the one `init --up` or `up --build`
+    # already had open when they chained here.
+    reporter = current_reporter()
 
     repo_root = find_repo_root(repo)
     profile_path = repo_root / PROFILE_FILENAME
@@ -1569,7 +1586,7 @@ def _build_repo(
     name = repo_root.name
     zones = _render_zones(repo_root)
 
-    logger.info("Building %s", repo_root)
+    logger.debug("Building %s", repo_root)
 
     # The durable zone first: a fresh clone carries no git-ignored directory,
     # and the render below records paths into it.
@@ -1627,10 +1644,15 @@ def _build_repo(
         # beside it, is copied into the staged tree — the record and the
         # environment it describes must ship together.
         if not skip_deps:
-            project_deps = _create_project_venv(zones.build_dir, build_profile)
-            recorded = zones.build_dir / "pyproject.toml"
-            if recorded.is_file():
-                shutil.copy2(recorded, zones.stage / "pyproject.toml")
+            # Reported on its own, not folded into the render below: it is the
+            # longest thing a first build does by a wide margin, and a build
+            # that looks stuck for two minutes is the moment an operator most
+            # needs to be told what it is waiting on.
+            with reporter.phase("Preparing the project environment"):
+                project_deps = _create_project_venv(zones.build_dir, build_profile)
+                recorded = zones.build_dir / "pyproject.toml"
+                if recorded.is_file():
+                    shutil.copy2(recorded, zones.stage / "pyproject.toml")
         else:
             project_deps = list(build_profile.dependencies or [])
 
@@ -1644,33 +1666,54 @@ def _build_repo(
             va_manifests={},
         )
 
-        _render_project(
-            shared,
-            resolved,
-            profile_path=profile_path,
-            project_name=name,
-            output_dir=zones.stage.parent,
-            deployment=True,
-            progress=logger.info,
-        )
-
-        config = _render_compose_files(zones, runtime_root, dev_mode=dev)
-
-        persona_renders = _render_persona_projects(shared, zones)
-
-        # The copies the images are built from — the deployment's and one per
-        # persona — each rendered against the path its container sees itself at
-        # rather than the host's. Skipped under an explicit --runtime-root: that
-        # build is ALREADY aimed at a runtime elsewhere, and rendering a second
-        # relocation inside it would be guessing which of the two the operator
-        # meant.
-        image_renders = (
-            []
-            if runtime_root
-            else _render_container_projects(
-                shared, resolved, zones, profile_path=profile_path, project_name=name
+        # One reported phase over every render pass this build makes — the
+        # deployment, the compose files, one per persona delta, one per image
+        # copy. They are six passes over the same profile producing one build/,
+        # and reported one by one they read as six builds. Each pass gets a step
+        # line naming what it produced instead.
+        with reporter.phase("Rendering the configuration") as phase:
+            # Only this pass records what it injected: all six inject the same
+            # set, and the operator wants the components named once.
+            injected: list[str] = []
+            _render_project(
+                shared,
+                resolved,
+                profile_path=profile_path,
+                project_name=name,
+                output_dir=zones.stage.parent,
+                deployment=True,
+                # The step lines below are the default view of this pass now, so
+                # its own line-by-line narration joins the other five passes at
+                # DEBUG, where `--verbose` still has all of it.
+                progress=logger.debug,
+                injected_out=injected,
             )
-        )
+            phase.step("project files, agent artifacts and services")
+            if injected:
+                phase.step(f"services injected: {', '.join(injected)}")
+
+            config = _render_compose_files(zones, runtime_root, dev_mode=dev)
+            phase.step("compose files")
+
+            persona_renders = _render_persona_projects(shared, zones)
+            if persona_renders:
+                phase.step(f"{len(persona_renders)} persona render(s)")
+
+            # The copies the images are built from — the deployment's and one per
+            # persona — each rendered against the path its container sees itself at
+            # rather than the host's. Skipped under an explicit --runtime-root: that
+            # build is ALREADY aimed at a runtime elsewhere, and rendering a second
+            # relocation inside it would be guessing which of the two the operator
+            # meant.
+            image_renders = (
+                []
+                if runtime_root
+                else _render_container_projects(
+                    shared, resolved, zones, profile_path=profile_path, project_name=name
+                )
+            )
+            if image_renders:
+                phase.step(f"{len(image_renders)} image build context(s)")
 
         # Both remaining phases run against the staged tree, before the swap:
         # a profile whose own validation fails must not be able to replace a
@@ -1724,6 +1767,13 @@ def _build_repo(
     except ValueError as e:
         logger.error("✗ Error: %s", e)
         raise click.Abort() from e
+    except CapturedProcessError as e:
+        # A child that exited non-zero is a build failure, not an unexpected
+        # one. Its output has already been replayed by the phase this ran
+        # under, so the message names the spool rather than repeating it — and
+        # carries no ✗ of its own, because that phase's failure line has one.
+        logger.error("Build failed: %s", e)
+        raise click.Abort() from e
     except Exception as e:
         logger.error("✗ Unexpected error: %s", e)
         import traceback
@@ -1738,7 +1788,7 @@ def _build_repo(
             shutil.rmtree(zones.stage_root, ignore_errors=True)
 
     if backup_dir is not None:
-        logger.info("  ✓ Previous Claude Code artifacts saved to %s", backup_dir)
+        logger.debug("  ✓ Previous Claude Code artifacts saved to %s", backup_dir)
     logger.info("✓ Rendered %s", zones.build_dir)
     _warn_if_deployment_running(config, name)
 
@@ -1775,7 +1825,7 @@ def _check_osprey_version_requirement(build_profile: Any) -> None:
             build_profile.requires_osprey_version,
         )
         raise click.Abort()
-    logger.info("  ✓ OSPREY %s satisfies %s", current, build_profile.requires_osprey_version)
+    logger.debug("  ✓ OSPREY %s satisfies %s", current, build_profile.requires_osprey_version)
 
 
 def _collect_profile_artifacts(
@@ -1888,7 +1938,7 @@ def _repo_render_context(
     return context
 
 
-def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) -> None:
+def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) -> list[str]:
     """Scaffold the service tree and inject every service the profile declares.
 
     Skipped wholesale for an attached project (``deploy_services: false``): its
@@ -1902,33 +1952,50 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     already being in ``deployed_services``, which is what the dispatch injector
     writes there; the bluesky-panels sidecar read-proxies the bluesky bridge and
     follows it for the same reason.
+
+    Returns:
+        The name of each component injected, in injection order — what the
+        build reports as one step line. Empty when nothing was injected.
     """
     if not build_profile.deploy_services:
-        logger.info(
+        logger.debug(
             "deploy_services: false — attached project; no services scaffolded "
             "(connects to a shared OSPREY services stack)"
         )
-        return
+        return []
+
+    injected: list[str] = []
 
     svc_count = _copy_service_templates(project_path)
     if svc_count:
-        logger.info("  ✓ Copied %d service template(s)", svc_count)
+        logger.debug("  ✓ Copied %d service template(s)", svc_count)
 
     if build_profile.services:
         psvc_count = _inject_profile_services(profile_dir, project_path, build_profile.services)
-        logger.info("  ✓ Injected %d profile service(s)", psvc_count)
+        logger.debug("  ✓ Injected %d profile service(s)", psvc_count)
+        if psvc_count:
+            # Counted rather than named: an unresolvable template is warned
+            # about and skipped, so the profile's own keys can name more
+            # services than were injected.
+            injected.append(f"{psvc_count} profile service(s)")
     if build_profile.dispatch is not None:
         _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
+        injected.append("event dispatch")
     if build_profile.nextcloud_bridge is not None:
         _inject_nextcloud_bridge(build_profile.nextcloud_bridge, project_path)
+        injected.append("Nextcloud Talk bridge")
     if build_profile.gchat_bridge is not None:
         _inject_gchat_bridge(build_profile.gchat_bridge, project_path)
+        injected.append("Google Chat bridge")
     if build_profile.bluesky is not None:
         _inject_bluesky(build_profile.bluesky, project_path)
+        injected.append("bluesky bridge")
     if build_profile.bluesky_panels is not None:
         _inject_bluesky_panels(build_profile.bluesky_panels, project_path)
+        injected.append("bluesky panels")
     if build_profile.virtual_accelerator is not None:
         _inject_va(build_profile.virtual_accelerator, project_path)
+        injected.append("virtual accelerator")
     # Must follow the VA injector: the recorder's compose template gates its
     # image source, startup ordering and Channel Access addressing on
     # `virtual_accelerator` being in `deployed_services`, which is exactly what
@@ -1938,6 +2005,9 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     # va_archiver_config_overrides).
     if build_profile.va_archiver is not None:
         _inject_va_archiver(build_profile.va_archiver, project_path)
+        injected.append("archiver store")
+
+    return injected
 
 
 @click.command()
@@ -2002,11 +2072,27 @@ def build(
       # Dev build: images run this checkout, not the published release
       $ osprey build --dev
     """
-    _build_repo(
-        repo,
-        stream=stream,
-        skip_lifecycle=skip_lifecycle,
-        skip_deps=skip_deps,
-        runtime_root=runtime_root,
-        dev=dev,
-    )
+    from .main import lifecycle_reporter
+    from .summary_card import owns_summary_card, print_summary_card
+
+    # Both decided here rather than in `_build_repo`, because a chained build —
+    # `init --up`, `up --build` — reaches that function with the chaining verb's
+    # reporter already installed, and this is the entry that has to leave it
+    # alone. `lifecycle_reporter` makes that decision for the reporter and
+    # `owns_summary_card` the same one for the card, which the chaining verb
+    # prints at the end of the whole run instead.
+    owns_card = owns_summary_card()
+    with lifecycle_reporter():
+        _build_repo(
+            repo,
+            stream=stream,
+            skip_lifecycle=skip_lifecycle,
+            skip_deps=skip_deps,
+            runtime_root=runtime_root,
+            dev=dev,
+        )
+        if owns_card:
+            # Resolved again rather than returned: `_build_repo` derives the
+            # same root from the same argument, and a build that got here
+            # resolved it successfully.
+            print_summary_card(find_repo_root(repo), "built")

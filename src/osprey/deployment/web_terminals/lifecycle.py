@@ -84,6 +84,7 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
     resolve_user_volume_names,
 )
+from osprey.deployment.errors import CapturedProcessError
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
     runtime_env,
@@ -693,7 +694,7 @@ def _reconcile_auth_after_user_removal(
             runtime_env(config, ignore_orphans=True),
         )
 
-    recreate_error: OSError | subprocess.CalledProcessError | None = None
+    recreate_error: OSError | subprocess.CalledProcessError | CapturedProcessError | None = None
     # The recreate runs on a PARTIAL purge (see above) but not on one that
     # removed nothing: with no change to `.env.auth` there is nothing to put
     # into force — a recreate would re-read the file with the surviving hash
@@ -701,7 +702,9 @@ def _reconcile_auth_after_user_removal(
     try:
         if purged or (rerendered and purge_error is None):
             force_recreate_auth_sidecar(config, repo_root=repo_root)
-    except (OSError, subprocess.CalledProcessError) as exc:
+    # The recreate spools its compose output, so it raises CapturedProcessError;
+    # CalledProcessError stays in the tuple for any path that still raises it.
+    except (OSError, subprocess.CalledProcessError, CapturedProcessError) as exc:
         recreate_error = exc
 
     # A surviving credential outranks an unreconciled sidecar: one is an open
@@ -904,7 +907,9 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
 
     try:
         force_recreate_auth_sidecar(config, repo_root=repo_root)
-    except subprocess.CalledProcessError as exc:
+    except (subprocess.CalledProcessError, CapturedProcessError) as exc:
+        # The recreate spools its compose output (CapturedProcessError);
+        # CalledProcessError stays for any path that still raises it.
         # The hash is ALREADY stored, so this is not "the rotation failed" — it
         # is the mirror image of the write-failure case above. Left to
         # propagate, the CLI's generic handler prints "Deployment failed" over a

@@ -16,13 +16,14 @@ because its wrong answer is an empty list rather than an error.
 import os
 import re
 import shutil
-import subprocess
 from pathlib import Path, PurePosixPath
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.cli.phase_reporter import report_step
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
+from osprey.deployment.subprocess_capture import run_captured
 
 # The dev-wheel build, per-process cache, and staging-copy helpers live in
 # wheel_build; the copy helper is invoked here by _stage_dev_wheel_for_context,
@@ -593,7 +594,9 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     :rtype: bool
     """
     if not dev_mode:
-        logger.info("Production mode: Containers will install osprey from PyPI")
+        # DEBUG, not INFO — fires once per service build context on every
+        # production build, restating a flag the operator already passed.
+        logger.debug("Production mode: Containers will install osprey from PyPI")
         return False
     if not os.path.isfile(os.path.join(out_dir, "Dockerfile")):
         # Routine and correct: pure-image services (postgresql, openobserve)
@@ -1181,14 +1184,23 @@ def clean_deployment(compose_files, config=None):
     cmd_down.extend(["down", "--volumes", "--remove-orphans"])
 
     logger.info(f"Running: {' '.join(cmd_down)}")
-    subprocess.run(cmd_down, env=run_env)
+    report_step("Removing containers and volumes")
+    # No check: a clean over a deployment that was never up exits non-zero, and
+    # that has always been tolerated here. Capturing must not turn it into a
+    # failure — only move the output off the terminal.
+    run_captured(
+        cmd_down, env=run_env, spool_name="compose-clean-down", repo_root=repo_root, check=False
+    )
 
     # Remove images built by the compose files
     cmd_rmi = compose_base_cmd(get_runtime_command(config), compose_files, repo_root, env_file_args)
     cmd_rmi.extend(["down", "--rmi", "all"])
 
     logger.info(f"Running: {' '.join(cmd_rmi)}")
-    subprocess.run(cmd_rmi, env=run_env)
+    report_step("Removing images")
+    run_captured(
+        cmd_rmi, env=run_env, spool_name="compose-clean-rmi", repo_root=repo_root, check=False
+    )
 
     logger.success("Cleanup completed")
 

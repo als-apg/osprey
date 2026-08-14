@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -155,9 +156,12 @@ def started(monkeypatch):
     # from the rendered bindings by a different function, which stays live.
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
 
-    def _fake_run(cmd, env=None, check=False):
+    def _fake_run(cmd, env=None, check=False, **kwargs):
         record.setdefault("cmds", []).append(list(cmd))
         record["env"] = dict(env or {})
+        # run_captured hangs its spool path off the result, so a stand-in has to
+        # be an object with a __dict__, not None.
+        return subprocess.CompletedProcess(list(cmd), 0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
@@ -1036,7 +1040,11 @@ def test_the_legacy_deploy_up_still_renders(tmp_path, monkeypatch):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0),
+    )
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 

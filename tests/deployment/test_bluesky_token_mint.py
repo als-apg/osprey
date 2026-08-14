@@ -10,6 +10,7 @@ launch attempt after a fresh deploy.
 from __future__ import annotations
 
 import secrets
+import subprocess
 
 import pytest
 
@@ -36,8 +37,11 @@ def captured_argv(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False):
+    def _fake_run(cmd, env=None, check=False, **kwargs):
         captured["cmd"] = cmd
+        # run_captured hangs its spool path off the result, so the stand-in has
+        # to be an object, and it passes redirection kwargs this ignores.
+        return subprocess.CompletedProcess(list(cmd), 0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     return captured
@@ -154,7 +158,11 @@ def test_bluesky_alongside_dispatch_mints_both_independently(
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0),
+    )
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 

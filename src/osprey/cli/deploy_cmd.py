@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import click
 
@@ -23,6 +23,9 @@ from osprey.utils.config import load_project_config
 from osprey.utils.logger import get_logger
 
 from .repo_resolver import repo_option
+
+if TYPE_CHECKING:
+    from .phase_reporter import PhaseReporter
 
 logger = get_logger("deploy")
 
@@ -278,6 +281,38 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
     )
 
 
+def _preflight(repo_root: Path, reporter: PhaseReporter, *, nothing_done: str) -> None:
+    """Check the two things a start verb needs before it starts anything.
+
+    Reported as one phase because it is one question to the operator — can this
+    deployment start at all? — answered by two facts: a ``build/`` to start, and
+    the secret store every compose invocation is pointed at. Both refusals name
+    the same remedies they always did; the phase only adds a ✗ line naming the
+    step that stopped.
+
+    Args:
+        repo_root: The deployment repo.
+        reporter: The reporter this verb installed.
+        nothing_done: The sentence the ``build/`` refusal ends with, spelled for
+            the verb the operator typed (``up`` starts nothing, ``restart`` also
+            stops nothing).
+
+    Raises:
+        click.Abort: When there is no build, or no ``.env`` and none was seeded.
+    """
+    from osprey.deployment.container_lifecycle import as_built_config_path
+
+    with reporter.phase("Preflight") as phase:
+        config_path = as_built_config_path(repo_root)
+        if not config_path.is_file():
+            _abort(
+                f"No build found at {config_path.parent}. Run `osprey build` to render it. "
+                f"{nothing_done}"
+            )
+        ensure_repo_env(repo_root, load_project_config(str(config_path), wrap_errors=True))
+        phase.done("build/ and .env are in place")
+
+
 @click.command("up")
 @repo_option
 @click.option("--detached", "-d", is_flag=True, help="Run services in the background.")
@@ -354,53 +389,69 @@ def up_verb(
       # Test local osprey changes in the containers (dev render + start)
       $ osprey up --build --dev
     """
+    from osprey.cli.main import lifecycle_reporter
     from osprey.cli.repo_resolver import find_repo_root
-    from osprey.deployment.container_lifecycle import (
-        NoBuildError,
-        as_built_config_path,
-        up_as_built,
-    )
+    from osprey.cli.summary_card import owns_summary_card, print_summary_card
+    from osprey.deployment.container_lifecycle import NoBuildError, up_as_built
 
     repo_root = find_repo_root(repo)
-    gate_start_from_build(
-        ctx, repo_root, chain_build=chain_build, as_built=as_built, verb="up", dev=dev
-    )
-
-    config_path = as_built_config_path(repo_root)
-    if not config_path.is_file():
-        _abort(
-            f"No build found at {config_path.parent}. Run `osprey build` to render it. "
-            "Nothing was started."
+    # Asked before the reporter is installed, so a start chained from `init --up`
+    # leaves the card to the verb that owns the run (see `owns_summary_card`).
+    owns_card = owns_summary_card()
+    with lifecycle_reporter() as reporter:
+        # The gate opens no phase of its own: with --build it chains a whole
+        # `osprey build`, which reports its own phases into this same reporter,
+        # and a phase held open around them would close after them and time the
+        # build as part of the start.
+        gate_start_from_build(
+            ctx, repo_root, chain_build=chain_build, as_built=as_built, verb="up", dev=dev
         )
-    ensure_repo_env(repo_root, load_project_config(str(config_path), wrap_errors=True))
 
-    # Into the repo for the duration: the compose-file lookup and the runtime's
-    # own relative-path handling both resolve against the working directory, and
-    # a start verb has to be correct from any directory inside the repo. Restored
-    # on the detached path; the attached one os.execvpe-replaces this process.
-    previous = Path.cwd()
-    os.chdir(repo_root)
-    try:
-        up_as_built(
-            repo_root, detached=detached, dev_mode=dev, keep_archiver_base=keep_archiver_base
-        )
-    except NoBuildError as e:
-        _abort(f"{e} Nothing was started.")
-    except DevModeUnavailableError as e:
-        console.print(f"\n✗ --dev cannot be honored: {e.reason}\n", style=Styles.ERROR)
-        for line in e.remedy.splitlines():
-            console.print(f"  {line}" if line else "")
-        console.print("\n  Nothing was deployed.\n", style=Styles.WARNING)
-        raise click.Abort() from None
-    except KeyboardInterrupt:
-        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
-        raise click.Abort() from None
-    except (click.Abort, click.ClickException):
-        raise
-    except Exception as e:
-        _abort(f"Deployment failed: {e}")
-    finally:
-        os.chdir(previous)
+        _preflight(repo_root, reporter, nothing_done="Nothing was started.")
+
+        # Into the repo for the duration: the compose-file lookup and the runtime's
+        # own relative-path handling both resolve against the working directory, and
+        # a start verb has to be correct from any directory inside the repo. Restored
+        # on the detached path; the attached one os.execvpe-replaces this process.
+        previous = Path.cwd()
+        os.chdir(repo_root)
+        try:
+            # Attached starts never close this phase: `up_as_built` hands the
+            # terminal to compose with os.execvpe and this process is gone. That
+            # is the documented shape — phases up to the exec point, then the
+            # live log stream, and no summary card.
+            with reporter.phase(f"Starting {repo_root.name}"):
+                up_as_built(
+                    repo_root,
+                    detached=detached,
+                    dev_mode=dev,
+                    keep_archiver_base=keep_archiver_base,
+                )
+        except NoBuildError as e:
+            _abort(f"{e} Nothing was started.")
+        except DevModeUnavailableError as e:
+            # No ✗ of its own: this is raised from inside the start phase, whose
+            # failure line has already marked the run. Two markers for one
+            # refusal read as two things having gone wrong.
+            console.print(f"\n--dev cannot be honored: {e.reason}\n", style=Styles.ERROR)
+            for line in e.remedy.splitlines():
+                console.print(f"  {line}" if line else "")
+            console.print("\n  Nothing was deployed.\n", style=Styles.WARNING)
+            raise click.Abort() from None
+        except KeyboardInterrupt:
+            console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+            raise click.Abort() from None
+        except (click.Abort, click.ClickException):
+            raise
+        except Exception as e:
+            _abort(f"Deployment failed: {e}")
+        finally:
+            os.chdir(previous)
+
+        # Reached only on a detached start that succeeded: every refusal above
+        # aborts, and an attached one never comes back from `up_as_built`.
+        if owns_card and detached:
+            print_summary_card(repo_root, "running")
 
 
 @click.command("down")
@@ -439,7 +490,9 @@ def down_verb(repo: Path | None) -> None:
       # Stop a deployment you are not standing in
       $ osprey down --repo ~/deployments/my-agent
     """
+    from osprey.cli.main import lifecycle_reporter
     from osprey.cli.repo_resolver import find_repo_root
+    from osprey.cli.summary_card import print_summary_card
     from osprey.deployment.container_lifecycle import down_deployment
 
     repo_root = find_repo_root(repo)
@@ -452,7 +505,13 @@ def down_verb(repo: Path | None) -> None:
     previous = Path.cwd()
     os.chdir(repo_root)
     try:
-        down_deployment(repo_root)
+        with lifecycle_reporter() as reporter:
+            # The card is the verb's, not the library's: `down_deployment` is
+            # also what `restart` and `reset` stop with, and a "stopped" card
+            # printed from inside it would land in the middle of both.
+            with reporter.phase(f"Stopping {repo_root.name}"):
+                down_deployment(repo_root)
+            print_summary_card(repo_root, "stopped")
     except KeyboardInterrupt:
         console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
         raise click.Abort() from None
@@ -544,49 +603,57 @@ def restart_verb(
       # Restart the existing render anyway
       $ osprey restart --as-built -d
     """
+    from osprey.cli.main import lifecycle_reporter
     from osprey.cli.repo_resolver import find_repo_root
-    from osprey.deployment.container_lifecycle import (
-        NoBuildError,
-        as_built_config_path,
-        restart_deployment,
-    )
+    from osprey.cli.summary_card import owns_summary_card, print_summary_card
+    from osprey.deployment.container_lifecycle import NoBuildError, restart_deployment
 
     repo_root = find_repo_root(repo)
-    gate_start_from_build(
-        ctx, repo_root, chain_build=chain_build, as_built=as_built, verb="restart", dev=dev
-    )
-
-    config_path = as_built_config_path(repo_root)
-    if not config_path.is_file():
-        _abort(
-            f"No build found at {config_path.parent}. Run `osprey build` to render it. "
-            "Nothing was stopped."
+    owns_card = owns_summary_card()
+    with lifecycle_reporter() as reporter:
+        gate_start_from_build(
+            ctx, repo_root, chain_build=chain_build, as_built=as_built, verb="restart", dev=dev
         )
-    ensure_repo_env(repo_root, load_project_config(str(config_path), wrap_errors=True))
 
-    previous = Path.cwd()
-    os.chdir(repo_root)
-    try:
-        restart_deployment(
-            repo_root, detached=detached, dev_mode=dev, keep_archiver_base=keep_archiver_base
-        )
-    except NoBuildError as e:
-        _abort(f"{e} Nothing was stopped.")
-    except DevModeUnavailableError as e:
-        console.print(f"\n✗ --dev cannot be honored: {e.reason}\n", style=Styles.ERROR)
-        for line in e.remedy.splitlines():
-            console.print(f"  {line}" if line else "")
-        console.print("\n  Nothing was stopped.\n", style=Styles.WARNING)
-        raise click.Abort() from None
-    except KeyboardInterrupt:
-        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
-        raise click.Abort() from None
-    except (click.Abort, click.ClickException):
-        raise
-    except Exception as e:
-        _abort(f"Restart failed: {e}")
-    finally:
-        os.chdir(previous)
+        _preflight(repo_root, reporter, nothing_done="Nothing was stopped.")
+
+        previous = Path.cwd()
+        os.chdir(repo_root)
+        try:
+            # One phase for the stop and the start together, because that is what
+            # the verb is: `restart_deployment` recreates the containers, and a
+            # stop reported as finished while the start is still to come would
+            # invite reading the ✓ as "it is down now".
+            with reporter.phase(f"Restarting {repo_root.name}"):
+                restart_deployment(
+                    repo_root,
+                    detached=detached,
+                    dev_mode=dev,
+                    keep_archiver_base=keep_archiver_base,
+                )
+        except NoBuildError as e:
+            _abort(f"{e} Nothing was stopped.")
+        except DevModeUnavailableError as e:
+            # Same dedupe as `up`: the restart phase's ✗ is the run's marker.
+            console.print(f"\n--dev cannot be honored: {e.reason}\n", style=Styles.ERROR)
+            for line in e.remedy.splitlines():
+                console.print(f"  {line}" if line else "")
+            console.print("\n  Nothing was stopped.\n", style=Styles.WARNING)
+            raise click.Abort() from None
+        except KeyboardInterrupt:
+            console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+            raise click.Abort() from None
+        except (click.Abort, click.ClickException):
+            raise
+        except Exception as e:
+            _abort(f"Restart failed: {e}")
+        finally:
+            os.chdir(previous)
+
+        # Detached only, for the same reason `up` has it: an attached restart
+        # ends inside compose's log stream, which the card cannot follow.
+        if owns_card and detached:
+            print_summary_card(repo_root, "running")
 
 
 @click.command("status")

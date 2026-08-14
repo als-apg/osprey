@@ -259,7 +259,7 @@ def _build_rich_theme(theme: ColorTheme) -> Theme:
     )
 
 
-def _build_questionary_style(theme: ColorTheme) -> QuestionaryStyle | None:
+def _build_questionary_style(theme: ColorTheme) -> "QuestionaryStyle | None":
     """Build a Questionary style from a ColorTheme.
 
     Args:
@@ -301,7 +301,7 @@ else:
     console = Console(theme=osprey_theme)
 
 
-def get_questionary_style() -> QuestionaryStyle | None:
+def get_questionary_style() -> "QuestionaryStyle | None":
     """Get the Questionary style for interactive prompts.
 
     Returns the current active theme's questionary style.

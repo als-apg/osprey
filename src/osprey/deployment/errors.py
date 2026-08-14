@@ -14,6 +14,27 @@ class DeploymentError(Exception):
     """Base class for deployment failures."""
 
 
+class CapturedProcessError(DeploymentError):
+    """A captured child process exited non-zero.
+
+    Carries the ``spool_path`` holding that process's full output so the verb's
+    handler can replay it beneath the failed phase line. In verbose mode there
+    is no spool — the output already went to the terminal — and ``spool_path``
+    is ``None``.
+
+    This replaces :class:`subprocess.CalledProcessError` for runs made through
+    :func:`osprey.deployment.subprocess_capture.run_captured`, so callers have
+    one exception type to catch whichever mode they ran in.
+    """
+
+    def __init__(self, cmd: Sequence[str], returncode: int, spool_path: Path | None = None) -> None:
+        self.cmd = list(cmd)
+        self.returncode = returncode
+        self.spool_path = spool_path
+        where = f" (output: {spool_path})" if spool_path is not None else ""
+        super().__init__(f"Command '{' '.join(self.cmd)}' exited {returncode}{where}")
+
+
 class ComposeInterpolationError(DeploymentError):
     """A secret bound for a compose ``env_file:`` contains ``$``.
 

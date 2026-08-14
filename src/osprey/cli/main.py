@@ -5,8 +5,14 @@ commands under the `osprey` command namespace.
 """
 
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 import click
+
+if TYPE_CHECKING:
+    from .phase_reporter import PhaseReporter
 
 # Ensure UTF-8 on Windows for Unicode CLI output
 if sys.platform == "win32":
@@ -212,6 +218,48 @@ def cli(ctx, verbose):
         # zero-argument, so the help is the menu — an interactive wrapper would
         # be a surface with nothing to wrap.
         click.echo(ctx.get_help())
+
+
+@contextmanager
+def lifecycle_reporter() -> Iterator["PhaseReporter"]:
+    """Install the phase reporter for the duration of one lifecycle verb.
+
+    Every lifecycle verb (``init``, ``build``, ``up``, ``restart``, ``down``,
+    ``reset``) opens this at entry. The verb that opens it OUTERMOST owns the
+    reporter: a verb that finds one already installed reuses it and installs
+    nothing, so ``init --up`` — which chains ``build`` and ``up`` through
+    ``ctx.invoke`` — reports as one continuous run rather than three, and does
+    it through the module-level handle instead of threading a reporter through
+    every signature.
+
+    "Already installed" is judged as "not the quiet default": the default is a
+    :class:`~osprey.cli.phase_reporter.NullReporter` with ``verbose`` False, and
+    that is the one shape no verb ever installs. Under the global ``--verbose``
+    the installed reporter is ``NullReporter(verbose=True)`` — verbose there is
+    not decoration, it is what :func:`~osprey.cli.phase_reporter.is_verbose`
+    reports to the capture helper, which streams its subprocesses instead of
+    spooling them.
+
+    The flag is read off the root context rather than taken as an argument,
+    because the verbs reach here three different ways — a plain invocation, a
+    ``ctx.invoke`` chain, and a direct call in a test — and only the context
+    knows about all three. ``build`` declares no ``pass_context`` at all.
+    """
+    from .phase_reporter import NullReporter, PhaseReporter, current_reporter, install_reporter
+
+    active = current_reporter()
+    if not (isinstance(active, NullReporter) and not active.verbose):
+        yield active
+        return
+
+    ctx = click.get_current_context(silent=True)
+    verbose = bool(ctx.find_root().params.get("verbose")) if ctx is not None else False
+    reporter: PhaseReporter = NullReporter(verbose=True) if verbose else PhaseReporter()
+    previous = install_reporter(reporter)
+    try:
+        yield reporter
+    finally:
+        install_reporter(previous)
 
 
 def main():

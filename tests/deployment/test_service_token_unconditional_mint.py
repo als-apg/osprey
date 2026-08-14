@@ -28,6 +28,7 @@ sections say — including when they are absent entirely.
 from __future__ import annotations
 
 import logging
+import subprocess
 
 import pytest
 
@@ -51,8 +52,11 @@ def captured_argv(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False):
+    def _fake_run(cmd, env=None, check=False, **kwargs):
         captured["cmd"] = cmd
+        # run_captured hangs its spool path off the result, so the stand-in has
+        # to be an object, and it passes redirection kwargs this ignores.
+        return subprocess.CompletedProcess(list(cmd), 0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     return captured

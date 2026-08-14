@@ -82,7 +82,7 @@ def _refresh_service_dir(src_dir: Path, dest_dir: Path, name: str, owned: set[st
     user-owned and the project copy was left untouched.
     """
     if name in owned:
-        logger.info("  ⏭  services/%s is user-owned — left untouched (scaffold claim)", name)
+        logger.debug("  ⏭  services/%s is user-owned — left untouched (scaffold claim)", name)
         return False
     if dest_dir.exists():
         shutil.rmtree(dest_dir)
@@ -413,23 +413,23 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         yaml.dump(config, fh)
 
     # 4. Post-build hint.
-    logger.info(
+    logger.debug(
         "  ✓ Injected event dispatch (%d worker(s), port %d)",
         dispatch.worker_count,
         dispatch.dispatcher_port,
     )
-    logger.info("    Dashboard:  http://localhost:%d/dashboard", dispatch.dispatcher_port)
-    logger.info(
+    logger.debug("    Dashboard:  http://localhost:%d/dashboard", dispatch.dispatcher_port)
+    logger.debug(
         "    Token:      `osprey up` writes EVENT_DISPATCHER_TOKEN to .env; "
         "load it with: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)"
     )
-    logger.info(
+    logger.debug(
         "    Try it:     curl -X POST http://localhost:%d/webhook/hello-dispatch "
         '-H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" '
         "-H 'Content-Type: application/json' -d '{}'",
         dispatch.dispatcher_port,
     )
-    logger.info(
+    logger.debug(
         "    Images:     `osprey up` builds the dispatch image and the "
         "worker's project image locally (first run is slow). Use `--dev` to bake "
         "in your local osprey checkout; set OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE "
@@ -515,22 +515,22 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         yaml.dump(config, fh)
 
     # 3. Post-build hint.
-    logger.info("  ✓ Injected Bluesky scan bridge (port %d)", bluesky.port)
-    logger.info(
+    logger.debug("  ✓ Injected Bluesky scan bridge (port %d)", bluesky.port)
+    logger.debug(
         "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "a host-run agent's queue tools read it automatically. Deployed web "
         "terminals never receive it — their agents file a start request the "
         "operator confirms in the BLUESKY queue panel."
     )
-    logger.info(
+    logger.debug(
         "    Images:     `osprey up` builds the bluesky-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_BLUESKY_BRIDGE_IMAGE to use a published image."
     )
     if bluesky.tiled_enabled:
-        logger.info("    Tiled:      enabled on port %d", bluesky.tiled_port)
+        logger.debug("    Tiled:      enabled on port %d", bluesky.tiled_port)
     if bluesky.plan_dir:
-        logger.info(
+        logger.debug(
             "    Plan dir:   %s mounted read-only into the bridge; its plans "
             "load as the 'facility' trust tier (BLUESKY_PLAN_DIRS)",
             bluesky.plan_dir,
@@ -611,12 +611,12 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
         yaml.dump(config, fh)
 
     # 3. Post-build hint.
-    logger.info("  ✓ Injected Virtual Accelerator soft-IOC (CA port %d)", va.port)
-    logger.info(
+    logger.debug("  ✓ Injected Virtual Accelerator soft-IOC (CA port %d)", va.port)
+    logger.debug(
         "    Data:       requires <project>/data/simulation/machine.json "
         "(the simulation preset provisions this; without it the IOC SystemExits)."
     )
-    logger.info(
+    logger.debug(
         "    Images:     `osprey up` builds the virtual-accelerator image "
         "locally for your native architecture (first run is slow — the native deps "
         "are compiled from source, so no prebuilt aarch64 wheels are "
@@ -784,12 +784,12 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
         yaml.dump(config, fh)
 
     # 4. Post-build hint.
-    logger.info("  ✓ Injected bluesky-panels sidecar (port %d)", bluesky_panels.port)
-    logger.info(
+    logger.debug("  ✓ Injected bluesky-panels sidecar (port %d)", bluesky_panels.port)
+    logger.debug(
         "    Panels:     BLUESKY (Plans | Queue | Results) — reached through the "
         "web-terminal proxy at /panel/bluesky."
     )
-    logger.info(
+    logger.debug(
         "    Images:     `osprey up` builds the bluesky-panels image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_BLUESKY_PANELS_IMAGE to use a published image."
@@ -876,20 +876,20 @@ def _inject_nextcloud_bridge(
         yaml.dump(config, fh)
 
     # 3. Post-build hint.
-    logger.info("  ✓ Injected Nextcloud Talk bridge (trigger %r)", nextcloud_bridge.trigger)
-    logger.info(
+    logger.debug("  ✓ Injected Nextcloud Talk bridge (trigger %r)", nextcloud_bridge.trigger)
+    logger.debug(
         "    Credentials: set NEXTCLOUD_BASE_URL, NEXTCLOUD_BOT_ACCOUNT, "
         "NEXTCLOUD_APP_PASSWORD and NEXTCLOUD_ROOMS in the project .env before "
         "`osprey up`. These are user-supplied — unlike the dispatch "
         "tokens, deploy does not mint them, and the bridge aborts at boot "
         "naming whichever is missing."
     )
-    logger.info(
+    logger.debug(
         "    Rooms:       NEXTCLOUD_ROOMS is a comma-separated list of Talk room "
         "tokens. Room membership is the access gate: whoever can post in a "
         "listed room can reach the agent."
     )
-    logger.info(
+    logger.debug(
         "    Images:     `osprey up` builds the nextcloud-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_NEXTCLOUD_BRIDGE_IMAGE to use a published image."
@@ -970,8 +970,8 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         yaml.dump(config, fh)
 
     # 3. Post-build hint.
-    logger.info("  ✓ Injected Google Chat bridge (trigger %r)", gchat_bridge.trigger)
-    logger.info(
+    logger.debug("  ✓ Injected Google Chat bridge (trigger %r)", gchat_bridge.trigger)
+    logger.debug(
         "    Credentials: set GCHAT_SA_KEY (host path to the service-account JSON "
         "key, mounted read-only at the same path in the container), "
         "GCHAT_SUBSCRIPTION and GCHAT_APP_ID in the project .env before "
@@ -979,14 +979,14 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         "tokens, deploy does not mint them, and the bridge aborts at boot "
         "naming whichever is missing."
     )
-    logger.info(
+    logger.debug(
         "    Subscription: deploy exactly ONE bridge per Pub/Sub subscription. "
         "Pub/Sub load-balances a subscription across its consumers, so a second "
         "deployment on the same name does not duplicate events — it silently "
         "splits them, and each half answers only what it received. Give every "
         "deployment its own subscription on the topic."
     )
-    logger.info(
+    logger.debug(
         "    Images:     `osprey up` builds the gchat-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_GCHAT_BRIDGE_IMAGE to use a published image."
@@ -1091,23 +1091,23 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
         yaml.dump(config, fh)
 
     # 3. Post-build hint.
-    logger.info(
+    logger.debug(
         "  ✓ Injected archiver store + recorder (port %d, %d-day retention)",
         va_archiver.port_host,
         va_archiver.retention_days,
     )
-    logger.info(
+    logger.debug(
         "    History:    `osprey up` seeds the base series before the "
         "stack starts (minutes on a first deploy, skipped when the knobs have "
         "not changed). Until then the archive is empty and archiver reads "
         "honestly return nothing."
     )
-    logger.info(
+    logger.debug(
         "    Password:   `osprey up` mints %s into .env; the store, the "
         "recorder and the agent all authenticate with that one value.",
         va_archiver.password_env,
     )
-    logger.info(
+    logger.debug(
         "    Recording:  the recorder writes only while control_system.type is "
         "'virtual_accelerator' — on any other control system it idles. It "
         "re-reads that setting on an interval, so the flip needs no restart."
