@@ -554,10 +554,17 @@ not. <a class="reference internal" href="queue.html"><span class="doc">Scans and
 </section>
 <section id="step-5-watch-the-results">
 <h2>Step 5: Watch the results<a class="headerlink" href="#step-5-watch-the-results" title="Link to this heading">#</a></h2>
-<p>Stay on the <strong>BLUESKY</strong> tab. The lower half follows the selected run: a table
-gains one row per grid position, and beside it the run’s <strong>figure</strong> fills in —
-one plot per panel, with real axis labels and units. A 5 × 5 grid settles fast
-on the Virtual Accelerator — all 25 points should land within a few seconds.</p>
+<p>Stay on the <strong>BLUESKY</strong> tab. The lower half follows the selected run, and the
+run’s <strong>figure</strong> leads it — one plot per panel, with real axis labels and
+units, filling in as the scan goes. A 5 × 5 grid settles fast on the Virtual
+Accelerator — all 25 points should land within a few seconds.</p>
+<p>The raw numbers are underneath, behind a <strong>Data table</strong> disclosure that names
+the run’s row count and stays closed until you open it. These tables run to
+thousands of rows on a real scan, which is why they are not in your way by
+default. What the table shows is a preview — a bounded window, labelled with
+how much of the run it is holding back. <strong>Export CSV</strong>, on the same row, is how
+you get the whole run: one click opens your browser’s save dialog, and the file
+that lands carries every row the run recorded, at full precision.</p>
 <p>What you are watching is <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code>’s own view of the scan. A two-axis grid
 draws one <strong>heatmap per monitor</strong> — the fast axis across, the slow axis up, one
 cell per grid position — and a cell the scan has not reached yet is left empty

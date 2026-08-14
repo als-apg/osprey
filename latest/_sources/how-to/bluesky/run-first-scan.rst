@@ -77,10 +77,18 @@ the queue, in order, not only your item. Glance at the list before you click.
 Step 5: Watch the results
 =========================
 
-Stay on the **BLUESKY** tab. The lower half follows the selected run: a table
-gains one row per grid position, and beside it the run's **figure** fills in —
-one plot per panel, with real axis labels and units. A 5 × 5 grid settles fast
-on the Virtual Accelerator — all 25 points should land within a few seconds.
+Stay on the **BLUESKY** tab. The lower half follows the selected run, and the
+run's **figure** leads it — one plot per panel, with real axis labels and
+units, filling in as the scan goes. A 5 × 5 grid settles fast on the Virtual
+Accelerator — all 25 points should land within a few seconds.
+
+The raw numbers are underneath, behind a **Data table** disclosure that names
+the run's row count and stays closed until you open it. These tables run to
+thousands of rows on a real scan, which is why they are not in your way by
+default. What the table shows is a preview — a bounded window, labelled with
+how much of the run it is holding back. **Export CSV**, on the same row, is how
+you get the whole run: one click opens your browser's save dialog, and the file
+that lands carries every row the run recorded, at full precision.
 
 What you are watching is ``grid_scan``'s own view of the scan. A two-axis grid
 draws one **heatmap per monitor** — the fast axis across, the slow axis up, one
