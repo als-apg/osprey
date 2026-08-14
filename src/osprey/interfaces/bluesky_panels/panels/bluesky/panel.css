@@ -145,6 +145,20 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
 }
 .status-strip-spacer { flex: 1 1 auto; }
 
+/* `body.embedded` zeroes the body padding so the scrolling views can meet the
+   tile edges — but this strip is a fixed header band, not scrolling content,
+   and it had no inset of its own: standalone, the body padding was quietly
+   providing one. Embedded, that left the badge against the frame's left edge
+   and the emergency halt touching the top-right corner, while the card content
+   below it sat at a comfortable inset — the mismatch that made the strip look
+   misplaced and the halts look oversized. Restoring the inset here (rather
+   than un-zeroing the body) keeps the views themselves edge-to-edge. */
+body.embedded .status-strip {
+  padding-top: 10px;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
 /* ---- View containers ---- */
 
 .view {
@@ -920,6 +934,54 @@ select.field-input { cursor: pointer; }
   border-color: var(--color-accent-light);
   background: var(--bg-primary);
 }
+/* Column widths follow the schema type (`columnKind` in schema-form.js), because
+   the DOM cannot tell the columns apart on its own: every cell holds an
+   <input>, and an input's intrinsic width is the same ~20-character UA default
+   whatever its type, so `table-layout: auto` alone hands all four columns an
+   equal share — a PV name truncating beside a two-digit point count.
+
+   `width: 1%` is the shrink-to-fit idiom: under auto layout a percentage below
+   a column's min-content width resolves back *up* to min-content, so these
+   columns end up exactly as wide as their contents need and every remaining
+   pixel falls to the untouched free-text column. */
+.obj-table th.col-num, .obj-table td.col-num,
+.obj-table th.col-bool, .obj-table td.col-bool,
+.obj-table th.col-enum, .obj-table td.col-enum {
+  width: 1%;
+}
+
+/* Room for a signed four-decimal setpoint (-0.0125) plus the input's own
+   padding and border — the value decides the column, not the header above it,
+   which is free to wrap onto a second line. */
+.obj-table td.col-num .field-input {
+  width: calc(7ch + 16px);
+  min-width: 0;
+}
+
+/* Wrapped headers ("NUM / POINTS") sit on the same baseline as their unwrapped
+   neighbours instead of floating above them. */
+.obj-table th { vertical-align: bottom; }
+
+/* Spin buttons are ~15px of the input's own width and appear on hover/focus —
+   in a column sized to the value they would clip the digits at exactly the
+   moment you reach for the field. Keyboard up/down still step the value, so no
+   way of entering a number is lost. Scoped to the table: full-width number
+   fields elsewhere in the form keep their spinners. */
+.obj-table td.col-num .field-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.obj-table td.col-num .field-input::-webkit-outer-spin-button,
+.obj-table td.col-num .field-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* A floor under the flexing column so a narrow panel squeezes it to a still-
+   readable width and then scrolls, rather than crushing it to nothing. */
+.obj-table td.col-text .field-input { min-width: 12ch; }
+.table-field { overflow-x: auto; }
+
 .th-x, .td-x { width: 30px; }
 .td-x { text-align: center; }
 

@@ -240,6 +240,31 @@ function isScalar(node) {
 }
 
 /**
+ * The width class one scalar gets as a `buildTable` column.
+ *
+ * Numbers, booleans and enums all render controls whose useful width is
+ * bounded and small — a point count, a checkbox, a fixed set of options — so
+ * their columns shrink to fit. Free text is unbounded (a PV name runs to
+ * ``SR:C01:CORR:HORIZ:X:SP``) and absorbs whatever width is left.
+ *
+ * This has to come from the schema because the DOM cannot tell the difference:
+ * every cell holds an ``<input>`` whose *intrinsic* width is the same ~20
+ * character UA default whatever its ``type`` is, so ``table-layout: auto`` on
+ * its own hands each column an equal share and truncates the one field that
+ * actually needed the room.
+ *
+ * @param {JsonSchemaNode} node A resolved scalar node.
+ * @returns {string}
+ */
+function columnKind(node) {
+  if (Array.isArray(node.enum)) return 'col-enum';
+  const type = effectiveType(node);
+  if (type === 'boolean') return 'col-bool';
+  if (type === 'integer' || type === 'number') return 'col-num';
+  return 'col-text';
+}
+
+/**
  * True when a resolved node is an object whose every property is scalar —
  * i.e. it can render as one table row.
  *
@@ -764,15 +789,19 @@ function buildTable(root, node, itemSchema, seed) {
   const properties = itemSchema.properties || {};
   const columnNames = Object.keys(properties);
   const required = new Set(itemSchema.required || []);
+  // Per-column width class, from the schema type (see `columnKind`). Computed
+  // once here rather than per row so every row's cells stay in step with the
+  // header they sit under.
+  const columnKinds = columnNames.map((name) => columnKind(resolveNode(root, properties[name])));
 
   const headRow = h(
     'tr',
     undefined,
-    ...columnNames.map((name) => {
+    ...columnNames.map((name, index) => {
       const prop = resolveNode(root, properties[name]);
       return h(
         'th',
-        { scope: 'col' },
+        { scope: 'col', class: columnKinds[index] },
         h('span', { text: prop.title || name }),
         required.has(name) ? h('span', { class: 'field-required', text: '*' }) : null
       );
@@ -789,14 +818,14 @@ function buildTable(root, node, itemSchema, seed) {
   function addRow(itemValue) {
     /** @type {Array<{name: string, collect: () => unknown}>} */
     const cells = [];
-    const tds = columnNames.map((name) => {
+    const tds = columnNames.map((name, index) => {
       const control = buildControl(
         root,
         properties[name],
         itemValue && typeof itemValue === 'object' ? itemValue[name] : undefined
       );
       cells.push({ name, collect: control.collect });
-      return h('td', undefined, control.el);
+      return h('td', { class: columnKinds[index] }, control.el);
     });
     const removeBtn = h('button', {
       type: 'button',

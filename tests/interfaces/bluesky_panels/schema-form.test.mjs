@@ -338,6 +338,50 @@ describe('grid_scan schema (axes table + toggle)', () => {
     expect(check.checked).toBe(false);
   });
 
+  test('classes each column by its schema type so widths are not shared evenly', () => {
+    renderSchemaForm(form, GRID_SCAN_SCHEMA);
+    const table = $(form, '.obj-table');
+
+    // Every cell holds an <input>, and an input's intrinsic width is the same
+    // ~20-character UA default whatever its type — so `table-layout: auto`
+    // alone splits the table evenly and truncates the PV name next to a
+    // two-digit point count. The schema already knows which columns are
+    // bounded (numbers) and which are free text, so the renderer tags them
+    // and the stylesheet sizes them accordingly.
+    const headCols = $$(table, 'thead th:not(.th-x)').map((th) => th.className);
+    expect(headCols).toEqual(['col-text', 'col-num', 'col-num', 'col-num']);
+
+    const bodyCols = $$(table, 'tbody tr:first-child td:not(.td-x)').map((td) => td.className);
+    expect(bodyCols).toEqual(['col-text', 'col-num', 'col-num', 'col-num']);
+  });
+
+  test('bounded non-numeric columns (boolean, enum) shrink too', () => {
+    // buildTable is generic over any array-of-flat-objects, so the rule is
+    // "bounded content shrinks, free text absorbs" — not "numbers shrink".
+    renderSchemaForm(form, {
+      type: 'object',
+      properties: {
+        rows: {
+          type: 'array',
+          minItems: 1,
+          title: 'Rows',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', title: 'Label' },
+              mode: { type: 'string', enum: ['fast', 'slow'], title: 'Mode' },
+              active: { type: 'boolean', title: 'Active' },
+            },
+          },
+        },
+      },
+    });
+
+    const table = $(form, '.obj-table');
+    const headCols = $$(table, 'thead th:not(.th-x)').map((th) => th.className);
+    expect(headCols).toEqual(['col-text', 'col-enum', 'col-bool']);
+  });
+
   test('collects detectors + nested axes rows + toggled snake_axes', () => {
     const collect = renderSchemaForm(form, GRID_SCAN_SCHEMA);
 
