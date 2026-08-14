@@ -1,6 +1,4 @@
-"""Control system connector implementations."""
-
-from osprey.connectors.control_system.base import (
+from osprey_connectors.control_system import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,

@@ -19,6 +19,7 @@ import and monkeypatch call sites keep resolving against it.
 
 import atexit
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -135,20 +136,34 @@ def _wheel_base_requirements(wheel_path: str | Path) -> list[str]:
     return sorted(requirements)
 
 
-def _write_local_requirements_manifest(cached_wheel: Path, out_dir: str) -> None:
-    """Write ``osprey-local-requirements.txt`` next to the staged dev wheel.
+#: Requirement lines naming a workspace-local distribution. These are excluded
+#: from the manifest: the distribution is staged as a wheel in the same build
+#: context and installed by the Dockerfiles' wheel layer, so a PyPI requirement
+#: for it would fail until (and unless) a satisfying release exists there.
+_WORKSPACE_DIST_RE = re.compile(r"^osprey[-_.]connectors\b", re.IGNORECASE)
+
+
+def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) -> None:
+    """Write ``osprey-local-requirements.txt`` next to the staged dev wheels.
 
     Content contract (shared with the service Dockerfiles, which COPY the file
     and pip-install it in their toolchain-equipped deps layer): one requirement
     per line, sorted, trailing newline — byte-identical for identical wheels.
+    The union of every staged wheel's base requirements, minus requirements on
+    workspace-local distributions (see :data:`_WORKSPACE_DIST_RE`), which the
+    wheel layer satisfies from the wheels staged beside this manifest.
 
-    :param cached_wheel: The cached local wheel the manifest derives from
-    :type cached_wheel: pathlib.Path
-    :param out_dir: Build context directory the wheel was staged into
+    :param cached_wheels: The cached local wheels the manifest derives from
+    :type cached_wheels: list[pathlib.Path]
+    :param out_dir: Build context directory the wheels were staged into
     :type out_dir: str
     """
     manifest_path = os.path.join(out_dir, LOCAL_REQUIREMENTS_FILENAME)
-    content = "".join(f"{line}\n" for line in _wheel_base_requirements(cached_wheel))
+    requirements: set[str] = set()
+    for wheel in cached_wheels:
+        requirements.update(_wheel_base_requirements(wheel))
+    lines = sorted(line for line in requirements if not _WORKSPACE_DIST_RE.match(line))
+    content = "".join(f"{line}\n" for line in lines)
     with open(manifest_path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(content)
 
@@ -347,32 +362,53 @@ def _copy_local_framework_for_override(out_dir):
 
         cached_wheel = _build_dev_wheel_cached(osprey_source_root)
 
-        # Copy the cached wheel to this call's output directory
-        dest_wheel = os.path.join(out_dir, cached_wheel.name)
-        shutil.copy2(cached_wheel, dest_wheel)
+        # The framework wheel requires the osprey-connectors workspace member,
+        # which pip resolves from PyPI only once a satisfying release exists
+        # there. Build it from the same checkout and stage it beside the
+        # framework wheel: the Dockerfiles' wheel layer installs every staged
+        # wheel in one pip call, so the requirement is satisfied locally.
+        connectors_root = osprey_source_root / "packages" / "osprey-connectors"
+        if not (connectors_root / "pyproject.toml").exists():
+            raise DevModeUnavailableError(
+                f"the osprey-connectors workspace member is missing from the "
+                f"checkout ({connectors_root})",
+                "--dev stages the connectors wheel beside the framework wheel "
+                "because the framework requires it.\n"
+                "Restore packages/osprey-connectors in the checkout.",
+            )
+        cached_connectors_wheel = _build_dev_wheel_cached(connectors_root)
 
-        # Stage the wheel's own base dependency list next to it so the
+        # Copy the cached wheels to this call's output directory
+        cached_wheels = [cached_wheel, cached_connectors_wheel]
+        dest_wheels = []
+        for wheel in cached_wheels:
+            dest = os.path.join(out_dir, wheel.name)
+            shutil.copy2(wheel, dest)
+            dest_wheels.append(dest)
+
+        # Stage the wheels' own base dependency list next to them so the
         # Dockerfiles' toolchain-equipped deps layer can install any deps the
-        # released PyPI pin lacks. A context holding a wheel without its
+        # released PyPI pin lacks. A context holding wheels without their
         # manifest is half-staged — the OSPREY_DEV success signal must not
-        # fire for it, so a manifest failure removes the wheel and fails
+        # fire for it, so a manifest failure removes the wheels and fails
         # staging outright (fail-closed, matching the wheel-build path).
         try:
-            _write_local_requirements_manifest(cached_wheel, out_dir)
+            _write_local_requirements_manifest(cached_wheels, out_dir)
         except Exception as manifest_error:
-            try:
-                os.remove(dest_wheel)
-            except OSError:
-                pass
+            for dest in dest_wheels:
+                try:
+                    os.remove(dest)
+                except OSError:
+                    pass
             raise DevModeUnavailableError(
                 f"could not write {LOCAL_REQUIREMENTS_FILENAME} beside the staged "
-                f"wheel ({manifest_error})",
+                f"wheels ({manifest_error})",
                 "A context holding a wheel without its requirements manifest is "
                 "half-staged and would build against the released pin's "
                 "dependencies.\nCheck that the build context directory is writable.",
             ) from manifest_error
 
-        logger.success(f"Copied osprey wheel: {cached_wheel.name}")
+        logger.success(f"Copied osprey wheels: {cached_wheel.name}, {cached_connectors_wheel.name}")
 
         return True
 

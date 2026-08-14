@@ -615,9 +615,15 @@ orphan_sites:
       regex: '^\s+port:\s*11434'
       why: the deleted ollama port line
   applications:
-    - root: src/osprey/utils
+    # `root` may be a LIST: the config loader moved to the osprey-connectors
+    # workspace member, so src/osprey/utils/config.py is a shim this regex can
+    # never match. Both trees are scanned; the back-test sums hits across the
+    # roots, because the connectors tree postdates the baseline commit.
+    - root:
+        - src/osprey/utils
+        - packages/osprey-connectors/src/osprey_connectors
       regex: 'current_application'
-      why: deleted loader identity block (config.py)
+      why: deleted loader identity block (config.py, now osprey_connectors/config.py)
   control_system.connector.timeout:
     - root: src/osprey/templates
       regex: '^  connector:\n    timeout:'

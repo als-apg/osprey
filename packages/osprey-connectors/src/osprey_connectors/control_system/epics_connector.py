@@ -1,0 +1,566 @@
+"""
+EPICS control system connector using pyepics.
+
+Provides interface to EPICS Channel Access (CA) control system.
+Refactored from existing EPICS integration code.
+
+"""
+
+import asyncio
+import os
+import threading
+from collections.abc import Callable
+from datetime import datetime
+from typing import Any
+
+from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.control_system.base import (
+    ChannelMetadata,
+    ChannelValue,
+    ChannelWriteResult,
+    ControlSystemConnector,
+    WriteVerification,
+)
+from osprey_connectors.logger import get_logger
+
+logger = get_logger("epics_connector")
+
+
+def _configure_pyepics_libca() -> None:
+    """Point pyepics at epicscorelibs' per-architecture libca before it loads CA.
+
+    pyepics's bundled ``clibs`` are x86_64-only: its ``find_libca()`` selects
+    ``clibs/linux64`` for any 64-bit OS, so on an arm64 host it loads a
+    mismatched-architecture ``libca.so`` and Channel Access initialization
+    fails outright. ``epicscorelibs`` (already present via the CA stack) ships a
+    correct per-architecture libca; exporting ``PYEPICS_LIBCA`` to it makes the
+    connector's CA work in arm64 and amd64 containers alike.
+
+    Only sets the variable when it is unset, so an operator's explicit
+    ``PYEPICS_LIBCA`` override always wins. A no-op that leaves pyepics' own
+    resolution in place when ``epicscorelibs`` is not installed.
+    """
+    if os.environ.get("PYEPICS_LIBCA"):
+        return
+    try:
+        from epicscorelibs.path import get_lib
+
+        os.environ["PYEPICS_LIBCA"] = get_lib("ca")
+        logger.debug("Configured PYEPICS_LIBCA from epicscorelibs: %s", os.environ["PYEPICS_LIBCA"])
+    except Exception:  # epicscorelibs absent/failed -> pyepics falls back to its own resolution
+        logger.debug("epicscorelibs libca unavailable; using pyepics default libca resolution")
+
+
+class EPICSConnector(ControlSystemConnector):
+    """
+    EPICS control system connector using pyepics.
+
+    Provides read/write access to EPICS Process Variables through
+    Channel Access protocol. Supports gateway configuration for
+    remote access and read-only/write-access gateways.
+
+    Example:
+        Direct gateway connection:
+        >>> config = {
+        >>>     'timeout': 5.0,
+        >>>     'gateways': {
+        >>>         'read_only': {
+        >>>             'address': 'cagw-alsdmz.als.lbl.gov',
+        >>>             'port': 5064
+        >>>         }
+        >>>     }
+        >>> }
+        >>> connector = EPICSConnector()
+        >>> await connector.connect(config)
+        >>> value = await connector.read_channel('BEAM:CURRENT')
+        >>> print(f"Beam current: {value.value} {value.metadata.units}")
+
+        SSH tunnel connection:
+        >>> config = {
+        >>>     'timeout': 5.0,
+        >>>     'gateways': {
+        >>>         'read_only': {
+        >>>             'address': 'localhost',
+        >>>             'port': 5074,
+        >>>             'use_name_server': True
+        >>>         }
+        >>>     }
+        >>> }
+        >>> connector = EPICSConnector()
+        >>> await connector.connect(config)
+        >>> value = await connector.read_channel('BEAM:CURRENT')
+        >>> print(f"Beam current: {value.value} {value.metadata.units}")
+    """
+
+    def __init__(self):
+        self._connected = False
+        self._subscriptions: dict[str, Any] = {}
+        self._pv_cache: dict[str, Any] = {}
+        self._pv_cache_lock = threading.Lock()  # Thread safety for PV cache
+        self._epics_configured = False
+
+    async def connect(self, config: dict[str, Any]) -> None:
+        """
+        Configure EPICS environment and test connection.
+
+        Args:
+            config: Configuration with keys:
+                - timeout: Default timeout in seconds (default: 5.0)
+                - gateways: Gateway configuration dict with:
+                    - read_only: {address, port, use_name_server} for read operations
+                    - write_access: {address, port, use_name_server} for write operations
+
+                Gateway sub-keys:
+                    - address: Gateway hostname or IP
+                    - port: Gateway port number
+                    - use_name_server: (optional) Use EPICS_CA_NAME_SERVERS instead of
+                      EPICS_CA_ADDR_LIST. Required for SSH tunnels. Default: False
+
+        Raises:
+            ImportError: If pyepics is not installed
+        """
+        # Ensure pyepics loads a correct-architecture libca before first CA use.
+        _configure_pyepics_libca()
+
+        # Import epics here to give clear error if not installed
+        try:
+            import epics
+
+            self._epics = epics
+        except ImportError:
+            raise ImportError(
+                "pyepics is required for EPICS connector. Install with: pip install pyepics"
+            ) from None
+
+        # Select the CA gateway. EPICS uses one process-wide context, so the
+        # connector points at a single gateway. A read-only gateway rejects
+        # writes, so a write-enabled deployment must route through the
+        # write-capable gateway. Defense-in-depth: only use write_access when
+        # writes are enabled, so a read-only deployment also has its writes
+        # rejected at the network layer (reinforcing the writes_enabled switch).
+        from osprey_connectors.config import get_config_value
+
+        gateways = config.get("gateways", {})
+        try:
+            writes_enabled = get_config_value("control_system.writes_enabled", False)
+        except (FileNotFoundError, KeyError, RuntimeError):
+            writes_enabled = False  # Can't tell -> assume the safe (read-only) path
+
+        write_gateway = gateways.get("write_access") or {}
+        if writes_enabled and write_gateway:
+            gateway_config = write_gateway
+            logger.debug("EPICS connector: routing through write_access gateway (writes enabled)")
+        else:
+            gateway_config = gateways.get("read_only", {})
+            if writes_enabled and not write_gateway:
+                logger.warning(
+                    "control_system.writes_enabled is true but no gateways.write_access "
+                    "is configured; routing through the read_only gateway, which may "
+                    "reject writes. Configure gateways.write_access to enable hardware writes."
+                )
+
+        if gateway_config:
+            address = gateway_config.get("address", "")
+            port = gateway_config.get("port", 5064)
+            # Explicit configuration for connection method
+            # Config system automatically converts "true"/"false" strings to booleans
+            use_name_server = gateway_config.get("use_name_server", False)
+
+            # Configure EPICS environment variables
+            # Clear conflicting variables first — having both CA_ADDR_LIST and
+            # CA_NAME_SERVERS set causes TCP connection attempts that block
+            # asyncio.to_thread() worker threads.
+            if use_name_server:
+                # Use CA_NAME_SERVERS (required for SSH tunnels and some gateway configurations)
+                os.environ["EPICS_CA_NAME_SERVERS"] = f"{address}:{port}"
+                os.environ.pop("EPICS_CA_ADDR_LIST", None)
+                os.environ.pop("EPICS_CA_SERVER_PORT", None)
+                logger.debug(f"Using EPICS_CA_NAME_SERVERS: {address}:{port}")
+            else:
+                # Use CA_ADDR_LIST (standard gateway configuration)
+                os.environ["EPICS_CA_ADDR_LIST"] = address
+                os.environ["EPICS_CA_SERVER_PORT"] = str(port)
+                os.environ.pop("EPICS_CA_NAME_SERVERS", None)
+                logger.debug(f"Using EPICS_CA_ADDR_LIST: {address}, CA_SERVER_PORT: {port}")
+
+            os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
+
+            # Clear EPICS cache to pick up new environment
+            self._epics.ca.clear_cache()
+
+            logger.debug(f"Configured EPICS gateway: {address}:{port}")
+            self._epics_configured = True
+
+        self._timeout = config.get("timeout", 5.0)
+
+        # Initialize limits validator for automatic validation and verification config
+        from osprey_connectors.control_system.limits_validator import LimitsValidator
+
+        self._limits_validator = LimitsValidator.from_config()
+        if self._limits_validator:
+            logger.debug("EPICS connector: limits validator initialized")
+
+        self._connected = True
+        logger.debug("EPICS connector initialized")
+
+    async def disconnect(self) -> None:
+        """Cleanup EPICS connections."""
+        # Unsubscribe from all active subscriptions
+        for sub_id in list(self._subscriptions.keys()):
+            await self.unsubscribe(sub_id)
+
+        # Disconnect and clear cached PVs
+        with self._pv_cache_lock:
+            for pv in self._pv_cache.values():
+                try:
+                    pv.disconnect()
+                except Exception:
+                    pass  # Best effort cleanup
+            self._pv_cache.clear()
+
+        self._connected = False
+        logger.info("EPICS connector disconnected")
+
+    async def read_channel(
+        self, channel_address: str, timeout: float | None = None
+    ) -> ChannelValue:
+        """
+        Read current value from EPICS channel.
+
+        Args:
+            channel_address: EPICS channel address (e.g., 'BEAM:CURRENT')
+            timeout: Timeout in seconds (uses default if None)
+
+        Returns:
+            ChannelValue with current value, timestamp, and metadata
+
+        Raises:
+            ConnectionError: If channel cannot be connected
+            TimeoutError: If operation times out
+        """
+        timeout = timeout or self._timeout
+
+        # Use asyncio.to_thread for blocking EPICS operations
+        pv_result = await asyncio.to_thread(self._read_channel_sync, channel_address, timeout)
+
+        return pv_result
+
+    def _read_channel_sync(self, pv_address: str, timeout: float) -> ChannelValue:
+        """Synchronous PV read (runs in thread pool).
+
+        Uses PV cache to reuse PV objects for the same channel address.
+        This prevents subscription floods when reading the same channel rapidly,
+        which can crash soft IOCs like caproto due to race conditions.
+        """
+        # Get or create cached PV object (thread-safe)
+        with self._pv_cache_lock:
+            if pv_address not in self._pv_cache:
+                self._pv_cache[pv_address] = self._epics.PV(pv_address)
+            pv = self._pv_cache[pv_address]
+
+        pv.wait_for_connection(timeout=timeout)
+
+        if not pv.connected:
+            raise ConnectionError(
+                f"Failed to connect to PV '{pv_address}' (timeout after {timeout}s)"
+            )
+
+        # Use pv.get() with explicit timeout instead of pv.value.
+        # pv.value uses a 1s default timeout for ca.get() which is too short
+        # when running in asyncio.to_thread() worker threads where the CA
+        # context needs extra time to receive the first value.
+        value = pv.get(timeout=timeout)
+
+        # Get timestamp from EPICS (seconds since epoch), rendered in facility tz
+        if pv.timestamp:
+            timestamp = datetime.fromtimestamp(pv.timestamp, get_facility_timezone())
+        else:
+            timestamp = datetime.now(get_facility_timezone())
+
+        # Extract metadata
+        metadata = ChannelMetadata(
+            units=getattr(pv, "units", "") or "",
+            precision=getattr(pv, "precision", None),
+            alarm_status=pv.status if hasattr(pv, "status") else None,
+            timestamp=timestamp,
+            raw_metadata={
+                "severity": getattr(pv, "severity", None),
+                "type": getattr(pv, "type", None),
+                "count": getattr(pv, "count", None),
+            },
+        )
+
+        return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
+
+    async def write_channel(
+        self,
+        channel_address: str,
+        value: Any,
+        timeout: float | None = None,
+        verification_level: str | None = None,
+        tolerance: float | None = None,
+    ) -> ChannelWriteResult:
+        """
+        Write value to EPICS channel with automatic limits validation and verification.
+
+        The connector automatically:
+        1. Validates limits (min/max/step/writable) if limits checking enabled
+        2. Determines verification level from per-channel or global config
+        3. Executes write with appropriate verification
+
+        Args:
+            channel_address: EPICS channel address
+            value: Value to write
+            timeout: Timeout in seconds
+            verification_level: Optional override for verification level (auto-determined if None)
+            tolerance: Optional override for tolerance (auto-calculated if None)
+
+        Returns:
+            ChannelWriteResult with write status and verification details
+
+        Raises:
+            ConnectionError: If channel cannot be connected
+            TimeoutError: If operation times out
+            ChannelLimitsViolationError: If limits validation fails (when enabled)
+        """
+        timeout = timeout or self._timeout
+
+        # Import here to avoid circular dependency
+        from osprey_connectors.errors import ChannelLimitsViolationError
+
+        # Step 1: Auto-determine verification config if not provided (cheap, on-loop)
+        if verification_level is None:
+            verification_level, auto_tolerance = self._get_verification_config(
+                channel_address, float(value)
+            )
+            if tolerance is None:
+                tolerance = auto_tolerance
+
+        # Step 2: Validate the verification level up front — reject invalid levels
+        # BEFORE issuing any caput (preserves the no-caput-on-invalid-level behavior).
+        if verification_level not in ("none", "callback", "readback"):
+            raise ValueError(
+                f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'"
+            )
+
+        # callback/readback wait for the IOC callback; none does not.
+        wait = verification_level != "none"
+
+        # Step 3: Validate limits (FAIL CLOSED) and issue the caput in ONE thread
+        # offload, so a caller on the event loop is never stalled by the blocking
+        # caget that max_step validation performs.
+        def _validate_and_put():
+            if self._limits_validator:
+                try:
+                    self._limits_validator.validate(channel_address, value)
+                    logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+                except ChannelLimitsViolationError:
+                    raise  # limits refusal propagates unchanged (carries LIMITS semantics)
+                except Exception as e:
+                    # FAIL CLOSED: any other validation error refuses the write — no caput issued
+                    logger.warning(
+                        f"Validation error — refusing write (fail-closed): {channel_address}: {e}"
+                    )
+                    return ("refused", e)  # sentinel: no caput issued
+            success = self._epics.caput(channel_address, value, wait=wait, timeout=timeout)
+            return ("ok", success)
+
+        outcome, payload = await asyncio.to_thread(_validate_and_put)
+
+        if outcome == "refused":
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                success=False,
+                error_message=f"Write to '{channel_address}' refused: validation error: {payload}",
+                blocked=True,
+                refusal_reason="VALIDATION_ERROR",
+            )
+
+        success = payload
+
+        # Step 4: Build the per-level result (observable output identical to before)
+        if verification_level == "none":
+            # Fast path - no verification, no wait for callback
+            if not success:
+                return ChannelWriteResult(
+                    channel_address=channel_address,
+                    value_written=value,
+                    success=False,
+                    verification=WriteVerification(
+                        level="none", verified=False, notes="Write command failed"
+                    ),
+                    error_message=f"Failed to write to channel '{channel_address}'",
+                )
+
+            logger.debug(f"EPICS write (no verification): {channel_address} = {value}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                success=True,
+                verification=WriteVerification(
+                    level="none", verified=False, notes="No verification requested"
+                ),
+            )
+
+        elif verification_level == "callback":
+            # EPICS callback - the caput above waited for the IOC to confirm processing
+            if not success:
+                return ChannelWriteResult(
+                    channel_address=channel_address,
+                    value_written=value,
+                    success=False,
+                    verification=WriteVerification(
+                        level="callback", verified=False, notes="IOC callback failed or timeout"
+                    ),
+                    error_message=f"Failed to write to channel '{channel_address}'",
+                )
+
+            logger.debug(f"EPICS write (callback verified): {channel_address} = {value}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                success=True,
+                verification=WriteVerification(
+                    level="callback", verified=True, notes="IOC callback confirmed"
+                ),
+            )
+
+        elif verification_level == "readback":
+            # Full verification - the caput above waited (callback); now read back
+            if not success:
+                return ChannelWriteResult(
+                    channel_address=channel_address,
+                    value_written=value,
+                    success=False,
+                    verification=WriteVerification(
+                        level="readback", verified=False, notes="Write command failed"
+                    ),
+                    error_message=f"Failed to write to channel '{channel_address}'",
+                )
+
+            # Read back to verify
+            try:
+                readback = await self.read_channel(channel_address, timeout=timeout)
+
+                # Check tolerance
+                diff = abs(float(readback.value) - float(value))
+                verified = diff <= (tolerance or 0.001)
+
+                logger.debug(
+                    f"EPICS write (readback verified={verified}): {channel_address} = {value}, "
+                    f"readback = {readback.value}, diff = {diff:.6f}, tolerance = {tolerance}"
+                )
+
+                return ChannelWriteResult(
+                    channel_address=channel_address,
+                    value_written=value,
+                    success=True,
+                    verification=WriteVerification(
+                        level="readback",
+                        verified=verified,
+                        readback_value=float(readback.value),
+                        tolerance_used=tolerance,
+                        notes=(
+                            f"Readback: {readback.value}, tolerance: ±{tolerance}, diff: {diff:.6f}"
+                            if verified
+                            else f"Readback mismatch: {readback.value} (expected {value}, diff: {diff:.6f} > tolerance {tolerance})"
+                        ),
+                    ),
+                )
+
+            except Exception as e:
+                logger.warning(f"EPICS readback failed for {channel_address}: {e}")
+                return ChannelWriteResult(
+                    channel_address=channel_address,
+                    value_written=value,
+                    success=True,  # Write succeeded, but readback failed
+                    verification=WriteVerification(
+                        level="readback", verified=False, notes=f"Readback failed: {str(e)}"
+                    ),
+                    error_message=f"Readback verification failed: {str(e)}",
+                )
+
+    async def read_multiple_channels(
+        self, channel_addresses: list[str], timeout: float | None = None
+    ) -> dict[str, ChannelValue]:
+        """Read multiple channels concurrently."""
+        tasks = [self.read_channel(ch_addr, timeout) for ch_addr in channel_addresses]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        return {
+            ch_addr: result
+            for ch_addr, result in zip(channel_addresses, results, strict=False)
+            if not isinstance(result, Exception)
+        }
+
+    async def subscribe(
+        self, channel_address: str, callback: Callable[[ChannelValue], None]
+    ) -> str:
+        """
+        Subscribe to channel value changes.
+
+        Args:
+            channel_address: EPICS channel address
+            callback: Function to call when value changes
+
+        Returns:
+            Subscription ID for later unsubscription
+        """
+        loop = asyncio.get_event_loop()
+
+        def epics_callback(pvname=None, value=None, timestamp=None, **kwargs):
+            """Wrapper to convert EPICS callback to our format."""
+            pv_value = ChannelValue(
+                value=value,
+                timestamp=(
+                    datetime.fromtimestamp(timestamp, get_facility_timezone())
+                    if timestamp
+                    else datetime.now(get_facility_timezone())
+                ),
+                metadata=ChannelMetadata(
+                    units=kwargs.get("units", ""), alarm_status=kwargs.get("status")
+                ),
+            )
+            # Schedule callback in event loop
+            loop.call_soon_threadsafe(callback, pv_value)
+
+        # Create PV and add callback
+        pv = self._epics.PV(channel_address, callback=epics_callback)
+
+        # Generate subscription ID
+        sub_id = f"{channel_address}_{id(pv)}"
+        self._subscriptions[sub_id] = pv
+
+        logger.debug(f"EPICS subscription created: {sub_id}")
+        return sub_id
+
+    async def unsubscribe(self, subscription_id: str) -> None:
+        """Unsubscribe from PV changes."""
+        if subscription_id in self._subscriptions:
+            pv = self._subscriptions[subscription_id]
+            pv.clear_callbacks()
+            del self._subscriptions[subscription_id]
+            logger.debug(f"EPICS subscription removed: {subscription_id}")
+
+    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+        """Get metadata for a channel."""
+        channel_value = await self.read_channel(channel_address)
+        return channel_value.metadata
+
+    async def validate_channel(self, channel_address: str) -> bool:
+        """
+        Check if channel exists and is accessible.
+
+        Args:
+            channel_address: EPICS channel address
+
+        Returns:
+            True if channel can be accessed
+        """
+        try:
+            await self.read_channel(channel_address, timeout=2.0)
+            return True
+        except Exception as e:
+            logger.debug(f"Channel validation failed for {channel_address}: {e}")
+            return False

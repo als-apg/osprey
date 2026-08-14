@@ -66,7 +66,11 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"
 # only busts when the manifest content changes. When OSPREY_DEV=1 and the pinned
 # spec is unreleased (the primer install fails), fall back to the latest
 # published osprey-framework so dev builds are not blocked; otherwise the build
-# fails loudly.
+# fails loudly. A git+ OSPREY_PIP_SPEC points into the monorepo, so the
+# osprey-connectors workspace member the framework requires is pre-installed
+# from the same URL's packages/ subdirectory first — a commit-pinned build
+# cannot assume a satisfying connectors release exists on PyPI (best-effort: a
+# spec pip cannot take a #subdirectory fragment on falls through to PyPI).
 COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling
 # (CompileError escapes uncaught), which fails any source build of the EPICS
@@ -80,6 +84,10 @@ RUN export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
+    && { case "$OSPREY_PIP_SPEC" in \
+           git+*) pip install --no-cache-dir "osprey-connectors @ ${OSPREY_PIP_SPEC}#subdirectory=packages/osprey-connectors" \
+                  || echo "WARNING: could not pre-install osprey-connectors from the git spec; resolving from PyPI" ;; \
+         esac; } \
     && { pip install --no-cache-dir "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
          || if [ "$OSPREY_DEV" = "1" ]; then \
                 echo "WARNING: pin unreleased, priming with latest" \

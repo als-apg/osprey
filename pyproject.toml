@@ -167,6 +167,7 @@ dependencies = [
     # `--extra dev` would otherwise satisfy every other --dev precondition and
     # fail only at wheel-build time.
     "build",
+    "osprey-connectors>=0.1.0,<0.2.0",
 ]
 
 [project.optional-dependencies]
@@ -347,6 +348,12 @@ all = [
     "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge,gchat]"
 ]
 
+[tool.uv.workspace]
+members = ["packages/osprey-connectors"]
+
+[tool.uv.sources]
+osprey-connectors = { workspace = true }
+
 [project.urls]
 Homepage = "https://als-apg.github.io/osprey"
 Documentation = "https://als-apg.github.io/osprey"
@@ -504,7 +511,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "interfaces", "deployment"]
+src = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
 # Written by the hatch-vcs build hook, not by hand — formatting it is not ours to
 # enforce, and it is present in any built or editable-installed tree.
 extend-exclude = ["src/osprey/_version.py"]
@@ -545,7 +552,7 @@ known-first-party = ["osprey", "configs", "applications", "interfaces", "deploym
 
 # Coverage configuration (if using pytest-cov)
 [tool.coverage.run]
-source = ["src", "interfaces", "deployment"]
+source = ["src", "interfaces", "deployment", "packages/osprey-connectors/src"]
 # Hooks ship as standalone scripts and are exercised by spawning them, so most of
 # their code runs in child processes. The subprocess patcher makes those children
 # measure themselves. It force-enables parallel data files; the explicit entry

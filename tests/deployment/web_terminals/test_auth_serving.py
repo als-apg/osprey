@@ -102,6 +102,11 @@ from osprey.utils.dotenv import parse_dotenv_file
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_DIR = _REPO_ROOT / "src"
+# The osprey.* tree reached via /src is shim-backed: config/logger/connectors
+# live in the osprey-connectors workspace member, so its source joins the
+# mount and the PYTHONPATH — the distribution is not yet installable from
+# PyPI inside the harness image.
+_CONNECTORS_SRC_DIR = _REPO_ROOT / "packages" / "osprey-connectors" / "src"
 
 _USERS = ("alice", "bob", "carol")
 """The roster. ``carol`` exists so the throttle test can burn a user's attempt
@@ -196,7 +201,7 @@ def _harness_dockerfile() -> str:
         f"""\
         FROM python:3.11-slim
         RUN pip install --no-cache-dir {specs}
-        ENV PYTHONPATH=/src PYTHONDONTWRITEBYTECODE=1
+        ENV PYTHONPATH=/src:/connectors-src PYTHONDONTWRITEBYTECODE=1
         """
     )
 
@@ -554,6 +559,8 @@ def serving_stack(tmp_path: Path) -> Iterator[Stack]:
             f"container:{stub_name}",
             "-v",
             f"{_SRC_DIR}:/src:ro",
+            "-v",
+            f"{_CONNECTORS_SRC_DIR}:/connectors-src:ro",
             "--env-file",
             str(deployment_root / AUTH_ENV_FILENAME),
             *auth_env,
