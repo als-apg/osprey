@@ -1000,6 +1000,54 @@ class TestResetFlag:
 
         assert result.exit_code == 0, result.output
 
+    def test_it_re_materializes_the_source_zone_without_force(
+        self, exemplar_repo, runner, monkeypatch
+    ):
+        """``--reset`` on a used name is the whole command — no ``--force`` beside it.
+
+        The flag's promise is "start over on this name", and a source zone left
+        standing from the last deployment is not a start over: an edit made to
+        the old ``profile.yml``, or a file an older preset wrote, would carry
+        into the new deployment silently. Implying ``--force`` is also what
+        makes the flag work AT ALL on the case it exists for — without it a used
+        name is refused by the repo-root check before ``--reset`` is ever
+        reached, and the refusal names the wrong problem.
+
+        What ``--force`` never touches, ``--reset`` never touches either:
+        ``PRESERVED_BY_FORCE`` is one table and this path goes through the same
+        code. The provider keys in ``.env`` are the ones that matter here — the
+        reason to converge a repo in place rather than delete and re-create it.
+        """
+        monkeypatch.setattr(
+            "osprey.deployment.reset.reset_deployment", lambda repo_root, **kw: True
+        )
+        stale_marker = "STALE-FROM-THE-LAST-DEPLOYMENT"
+        (exemplar_repo / "profile.yml").write_text(f"name: {stale_marker}\n", encoding="utf-8")
+        (exemplar_repo / "data" / "orphan.json").write_text("{}\n", encoding="utf-8")
+        env = exemplar_repo / ".env"
+        env.write_text("MY_PROVIDER_KEY=keepme\n", encoding="utf-8")
+
+        result = init_exemplar(runner, exemplar_repo, "--reset")
+
+        assert result.exit_code == 0, result.output
+        assert stale_marker not in (exemplar_repo / "profile.yml").read_text(encoding="utf-8")
+        assert not (exemplar_repo / "data" / "orphan.json").exists()
+        assert "MY_PROVIDER_KEY=keepme" in env.read_text(encoding="utf-8")
+
+    def test_the_refusal_on_a_used_name_offers_the_flag(self, exemplar_repo, runner):
+        """The wall an operator hits is where they must learn the way through it.
+
+        Without ``--reset`` named here, the only advertised way past a used name
+        is ``--force``, which leaves the previous deployment's containers and
+        volumes in place — and the stale-store refusal that follows sends them
+        to ``osprey reset``, a verb that wants the repo they were told to
+        re-create.
+        """
+        result = init_exemplar(runner, exemplar_repo)
+
+        assert result.exit_code == 2
+        assert "--reset" in result.output
+
     def test_without_the_flag_nothing_is_reset(self, runner, tmp_path, monkeypatch):
         """The default must never destroy a volume — that is what the flag is for."""
         calls: list = []

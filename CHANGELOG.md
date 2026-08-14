@@ -451,14 +451,15 @@ Compatibility is documented in release notes, not encoded in the version string.
   those volumes instead of discarding them, restoring each store's original
   credential to `.env`. They refuse if any affected volume can no longer be
   reopened, rather than starting a stack that is part-adopted and part-doomed.
-- New: `osprey init --reset` destroys the containers, volumes and images left
-  by a previous deployment of the same name before creating the new one, so
-  re-creating a deployment from scratch is one command again. Deleting a
-  deployment's directory never removed those — they are keyed on the project
-  name and outlive it. If anything of that name survives the sweep, `init`
-  stops and says so instead of starting: `reset` removes only what carries the
-  checkout's own label, so a deployment created before that label existed has
-  to be cleared by hand once.
+- New: `osprey init --reset` starts over on a name that has been used: it
+  destroys the containers, volumes and images left by a previous deployment of
+  that name, and re-materializes the source zone as `--force` does when the
+  repo directory still exists — so re-creating a deployment is one command,
+  with no `rm -rf` first. Provider keys in `.env`, git history and the audit
+  log survive, exactly as they do under `--force`. If anything of that name
+  survives the sweep, `init` stops and says so instead of starting: `reset`
+  removes only what carries the checkout's own label, so a deployment created
+  before that label existed has to be cleared by hand once.
 - `osprey health` now answers from either stance. It looks for the config where
   a build writes it (`build/config.yml`) and reads credentials from the repo's
   `.env`, so running it at the repo root no longer reports the config missing,

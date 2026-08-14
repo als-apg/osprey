@@ -348,8 +348,11 @@ _ALREADY_A_REPO = (
     "{target} is already an OSPREY deployment repo (it has a profile.yml).\n\n"
     "Re-run with --force to re-materialize its source zone from the preset — "
     "which replaces profile.yml, data/, personas/, triggers.yml, "
-    "web-terminal-context/, and .env.example, losing any edit to them. These "
-    f"are left alone either way: {_PRESERVED_PROSE}."
+    "web-terminal-context/, and .env.example, losing any edit to them. To start "
+    "over on this name entirely, re-run with --reset: that re-materializes the "
+    "source zone the same way AND destroys the previous deployment's "
+    "containers, data volumes and images. These are left alone either way: "
+    f"{_PRESERVED_PROSE}."
 )
 
 _TARGET_NOT_EMPTY = (
@@ -894,11 +897,12 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
     "--reset",
     "reset",
     is_flag=True,
-    help="Destroy the containers, data volumes and images left by a previous "
-    "deployment of this name before creating this one. Removing a deployment's "
-    "directory does not remove those — they are keyed on the project name and "
-    "outlive it — so re-creating under a used name inherits its stores. Use this "
-    "to start genuinely clean; it discards their data.",
+    help="Start over on this name: destroy the containers, data volumes and "
+    "images left by a previous deployment of it, and re-materialize the source "
+    "zone as --force does when the repo directory still exists. Removing a "
+    "deployment's directory never removed its runtime state — it is keyed on "
+    "the project name and outlives the directory — so re-creating under a used "
+    f"name inherits its stores. Discards their data. Never touches: {_PRESERVED_PROSE}.",
 )
 @click.option("--up", "start", is_flag=True, help="Build the deployment and start it.")
 @click.option("-d", "--detach", "detached", is_flag=True, help="With --up: run in the background.")
@@ -963,7 +967,14 @@ def init(
     # mid-replacement is a whole repo again, so the refusals below judge the
     # deployment the operator has rather than the wreck of one.
     _reinstate_held_source_zone(target)
-    created = _prepare_repo_root(target, force=force)
+    # `--reset` implies `--force`'s file half. Its promise is "start over on
+    # this name", and a source zone left standing from the last deployment is
+    # not a start over — an edited profile.yml or a file an older preset wrote
+    # would carry into the new deployment silently. It is also what lets the
+    # flag work at all on the case it exists for: without it, a used name is
+    # refused right here, before the reset it asked for could ever run.
+    replacing = force or reset
+    created = _prepare_repo_root(target, force=replacing)
 
     # The reporter is installed around the `--up` chain as well as around the
     # creation itself: `_chain_up` invokes `build` and `up`, each of which finds
@@ -977,7 +988,7 @@ def init(
             # preset resolves in there — so the zone being replaced is held aside
             # for it rather than removed ahead of it.
             try:
-                with _replacing_source_zone(target, active=force):
+                with _replacing_source_zone(target, active=replacing):
                     materialized = _materialize_profile_directory(
                         target,
                         preset,
