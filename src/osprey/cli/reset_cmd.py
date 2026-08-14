@@ -99,44 +99,53 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
         reset_deployment,
     )
 
+    from .main import lifecycle_reporter
+
     repo_root = find_repo_root(repo)
 
-    try:
-        outcome = reset_deployment(
-            repo_root,
-            dry_run=dry_run,
-            assume_yes=assume_yes,
-            purge_audit=purge_audit,
-            emit=click.echo,
-        )
-    except ForeignCheckoutError as e:
-        # Shown verbatim rather than summarized: the message is already the whole
-        # explanation, and it is carefully scoped to what the labels actually
-        # prove. Rewording it here would be how a claim it does not make gets
-        # reintroduced.
-        raise click.ClickException(str(e)) from None
-    except KeyboardInterrupt:
-        # An interrupt AT THE PROMPT is handled inside reset_deployment, which
-        # can prove nothing ran and says so. Reaching here means the interrupt
-        # landed after the confirmation, mid-teardown — so this must not claim
-        # the deployment is untouched, because it very likely is not.
-        #
-        # It exits with the PARTIAL code rather than 1 for the same reason the
-        # partial-failure ending does: what a script needs from `$?` is the
-        # state on disk, and this path leaves exactly the state a stuck removal
-        # leaves. Reporting 1 here would tell a caller "nothing was touched"
-        # about a half-wiped deployment.
-        click.echo(
-            "Reset interrupted while it was removing things. It does not roll back, so "
-            "this deployment is in a partly-reset state. Re-run `osprey reset` to finish; "
-            "it re-reads what is actually there.",
-            err=True,
-        )
-        raise click.exceptions.Exit(PARTIAL_RESET_EXIT_CODE) from None
-    except RuntimeError as e:
-        # ClickException is deliberately NOT re-raised above this: it does not
-        # inherit from RuntimeError, so it already passes through untouched.
-        raise click.ClickException(str(e)) from None
+    # Installed, but not reported through: reset says what it is doing on its
+    # own `emit` callback, which is the plan an operator reads before confirming
+    # and the record of what actually went. The reporter is here for what reset
+    # reaches — the shared teardown helpers, which capture their subprocesses
+    # and need a reporter to report a failure to, and which must stream instead
+    # of spooling when `--verbose` was asked for.
+    with lifecycle_reporter():
+        try:
+            outcome = reset_deployment(
+                repo_root,
+                dry_run=dry_run,
+                assume_yes=assume_yes,
+                purge_audit=purge_audit,
+                emit=click.echo,
+            )
+        except ForeignCheckoutError as e:
+            # Shown verbatim rather than summarized: the message is already the
+            # whole explanation, and it is carefully scoped to what the labels
+            # actually prove. Rewording it here would be how a claim it does not
+            # make gets reintroduced.
+            raise click.ClickException(str(e)) from None
+        except KeyboardInterrupt:
+            # An interrupt AT THE PROMPT is handled inside reset_deployment, which
+            # can prove nothing ran and says so. Reaching here means the interrupt
+            # landed after the confirmation, mid-teardown — so this must not claim
+            # the deployment is untouched, because it very likely is not.
+            #
+            # It exits with the PARTIAL code rather than 1 for the same reason the
+            # partial-failure ending does: what a script needs from `$?` is the
+            # state on disk, and this path leaves exactly the state a stuck removal
+            # leaves. Reporting 1 here would tell a caller "nothing was touched"
+            # about a half-wiped deployment.
+            click.echo(
+                "Reset interrupted while it was removing things. It does not roll back, so "
+                "this deployment is in a partly-reset state. Re-run `osprey reset` to finish; "
+                "it re-reads what is actually there.",
+                err=True,
+            )
+            raise click.exceptions.Exit(PARTIAL_RESET_EXIT_CODE) from None
+        except RuntimeError as e:
+            # ClickException is deliberately NOT re-raised above this: it does not
+            # inherit from RuntimeError, so it already passes through untouched.
+            raise click.ClickException(str(e)) from None
 
     # The exit status is this verb's contract in machine-readable form: 0 says
     # the deployment is now what the plan described. Both non-zero endings have

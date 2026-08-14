@@ -942,7 +942,9 @@ def init(
             "-d/--dev only mean something with --up, which is what starts the deployment."
         )
 
+    from .main import lifecycle_reporter
     from .profile_cmd import _directory_derived_name, _materialize_profile_directory
+    from .summary_card import print_summary_card
 
     target = _resolve_target(directory)
     _refuse_enclosing_repo(target)
@@ -952,47 +954,70 @@ def init(
     _reinstate_held_source_zone(target)
     created = _prepare_repo_root(target, force=force)
 
-    # Everything that can reject this run happens inside the block — the preset
-    # resolves in there — so the zone being replaced is held aside for it rather
-    # than removed ahead of it.
-    try:
-        with _replacing_source_zone(target, active=force):
-            materialized = _materialize_profile_directory(
-                target,
-                preset,
-                overrides,
-                set_pairs,
-                profile_name=_directory_derived_name(target.name),
-            )
-    except BuildProfileError as e:
-        # Reaching here means a packaging problem, not a user mistake — the
-        # helper raises UsageError for everything the caller could have got
-        # wrong. Abort (exit 1) keeps that distinct from usage errors (exit 2).
-        _discard_created_root(target, created=created)
-        logger.error("✗ %s", e)
-        raise click.Abort() from e
-    except BaseException:
-        _discard_created_root(target, created=created)
-        raise
+    # The reporter is installed around the `--up` chain as well as around the
+    # creation itself: `_chain_up` invokes `build` and `up`, each of which finds
+    # this one already installed and reports into it, so `init --up` reads as
+    # one run of phases rather than three commands' worth.
+    with lifecycle_reporter() as reporter:
+        # The phase opens only once the refusals above are past, so a run that
+        # is turned away prints its reason and nothing else.
+        with reporter.phase(f"Creating {target.name}") as phase:
+            # Everything that can reject this run happens inside the block — the
+            # preset resolves in there — so the zone being replaced is held aside
+            # for it rather than removed ahead of it.
+            try:
+                with _replacing_source_zone(target, active=force):
+                    materialized = _materialize_profile_directory(
+                        target,
+                        preset,
+                        overrides,
+                        set_pairs,
+                        profile_name=_directory_derived_name(target.name),
+                    )
+            except BuildProfileError as e:
+                # Reaching here means a packaging problem, not a user mistake —
+                # the helper raises UsageError for everything the caller could
+                # have got wrong. Abort (exit 1) keeps that distinct from usage
+                # errors (exit 2).
+                _discard_created_root(target, created=created)
+                logger.error("✗ %s", e)
+                raise click.Abort() from e
+            except BaseException:
+                _discard_created_root(target, created=created)
+                raise
+            phase.step(f"source zone from preset {preset}")
 
-    name = materialized.profile_name
-    # Driven off the table rather than three calls written out: the set of
-    # files this command authors and the set the --force promise names are
-    # then the same object, not two lists that agree today.
-    for filename, build_text in WRITE_ONCE_FILES.items():
-        _write_if_absent(target / filename, build_text(name))
-    for relative in _STATE_DIRS:
-        (target / relative).mkdir(parents=True, exist_ok=True)
+            name = materialized.profile_name
+            # Driven off the table rather than three calls written out: the set of
+            # files this command authors and the set the --force promise names are
+            # then the same object, not two lists that agree today.
+            for filename, build_text in WRITE_ONCE_FILES.items():
+                _write_if_absent(target / filename, build_text(name))
+            for relative in _STATE_DIRS:
+                (target / relative).mkdir(parents=True, exist_ok=True)
 
-    # Emitted through the same engine `osprey scaffold ci` re-runs, so a repo
-    # created today and one re-scaffolded a year from now carry the same files.
-    deploy_files = _emit_ci(target, declared=materialized.deploy_declared)
-    git_note = _bootstrap_git(target, no_git=no_git)
+            # Emitted through the same engine `osprey scaffold ci` re-runs, so a
+            # repo created today and one re-scaffolded a year from now carry the
+            # same files.
+            deploy_files = _emit_ci(target, declared=materialized.deploy_declared)
+            phase.step("repo scaffolding")
 
-    _report(target, materialized, deploy_files, git_note)
+            # No step of its own: whatever git did or did not do, `_report`
+            # below says so in a sentence, and saying it twice in two shapes is
+            # exactly the duplication this feature is removing.
+            git_note = _bootstrap_git(target, no_git=no_git)
 
-    if start:
-        _chain_up(ctx, target, detached=detached, dev=dev)
+        _report(target, materialized, deploy_files, git_note)
+
+        if start:
+            _chain_up(ctx, target, detached=detached, dev=dev)
+
+        # The chain's single card, printed by the verb that owns the run: the
+        # `build` and `up` inside `_chain_up` find this reporter installed and
+        # leave it to here, so `init --up -d` ends with one card describing the
+        # deployment that is now running rather than three. An ATTACHED
+        # `init --up` never arrives — compose replaced this process.
+        print_summary_card(target, "running" if start else "created")
 
 
 def _write_if_absent(path: Path, text: str) -> bool:
@@ -1093,11 +1118,13 @@ def _report(
     for line in _ci_report(deploy_files, target):
         click.echo(line)
 
+    # What to READ and EDIT, only. The commands that follow are on the summary
+    # card this verb ends with, which is also the one place they are correct
+    # for both shapes of the verb: `init --up` has already run them.
     click.echo("\nNext steps:")
     click.echo(f"  1. cd {target.name}")
     click.echo("  2. Read README.md — it explains the four zones")
     click.echo("  3. Edit profile.yml and the files under data/")
-    click.echo("  4. osprey build && osprey up -d")
 
 
 def _zone_tree(repo_name: str, has_ci: bool) -> list[str]:
