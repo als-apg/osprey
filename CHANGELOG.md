@@ -469,6 +469,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   a dispatcher that had every trigger loaded. Users whose persona declares the
   EVENTS panel now get the token in their own container; personas without the
   panel, such as a read-only tier, deliberately still do not.
+- The event dashboard no longer claims a dispatcher has no triggers when it was
+  simply not authorised to read it. Both trigger views now say they were
+  refused, and a panel opened inside the terminal is told its terminal has no
+  token rather than to open the tab it is already in.
 - `osprey health` now answers from either stance. It looks for the config where
   a build writes it (`build/config.yml`) and reads credentials from the repo's
   `.env`, so running it at the repo root no longer reports the config missing,
