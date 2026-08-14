@@ -22,6 +22,7 @@ from pathlib import Path
 
 import yaml
 
+from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.compose_generator import (
     _stage_dev_wheel_for_context,
     compose_base_cmd,
@@ -35,6 +36,7 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
     with_plain_progress,
 )
+from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.artifacts import (
     web_compose_file,
     write_web_terminal_artifacts,
@@ -507,7 +509,8 @@ def build_auth_sidecar_image(config: dict, dev_mode: bool, env: dict[str, str]) 
         )
         return
 
-    context_dir = _materialize_auth_build_context(resolve_repo_root(config), dev_mode)
+    repo_root = resolve_repo_root(config)
+    context_dir = _materialize_auth_build_context(repo_root, dev_mode)
 
     from osprey import __version__ as osprey_version
 
@@ -535,7 +538,8 @@ def build_auth_sidecar_image(config: dict, dev_mode: bool, env: dict[str, str]) 
 
     logger.key_info("Building auth sidecar image %s:", tag)
     logger.debug("Running command:\n    %s", " ".join(cmd))
-    subprocess.run(cmd, env=env, check=True)
+    run_captured(cmd, env=env, spool_name="build-auth-sidecar", repo_root=repo_root)
+    _report_step(f"auth sidecar image {tag}")
 
 
 def web_stack_compose_cmd(
@@ -701,11 +705,16 @@ def force_recreate_auth_sidecar(
         web_stack_compose_cmd(config, env_file_args, repo_root=root),
         runtime_env(config, env if env is not None else dict(os.environ), ignore_orphans=True),
         [AUTH_SERVICE_NAME],
+        repo_root=root,
     )
 
 
 def _force_recreate_services(
-    web_cmd: list[str], run_env: dict[str, str], services: list[str]
+    web_cmd: list[str],
+    run_env: dict[str, str],
+    services: list[str],
+    *,
+    repo_root: Path | str | None = None,
 ) -> None:
     """Run one service-scoped ``up -d --force-recreate`` for ``services``.
 
@@ -713,10 +722,14 @@ def _force_recreate_services(
     ``up -d --force-recreate`` would bounce every live terminal in the stack,
     which is exactly what both callers (the post-``up`` reconcile and
     :func:`force_recreate_auth_sidecar`) exist to avoid.
+
+    :param repo_root: The deployment repo whose ``var/logs/`` holds this
+        recreate's spooled output. Both callers already resolved it.
     """
     cmd = web_cmd + ["up", "-d", "--force-recreate", *services]
     logger.debug(f"Running command:\n    {' '.join(cmd)}")
-    subprocess.run(cmd, env=run_env, check=True)
+    run_captured(cmd, env=run_env, spool_name="compose-force-recreate", repo_root=repo_root)
+    _report_step(f"recreated {', '.join(services)}")
 
 
 def deploy_up_web_terminals(
@@ -914,7 +927,14 @@ def deploy_up_web_terminals(
         # OTHER stack's containers as "orphans" of the shared project.
         services_rm = services_base + ["rm", "-f"]
         logger.debug(f"Running command:\n    {' '.join(services_rm)}")
-        subprocess.run(services_rm, env=run_env)
+        run_captured(
+            services_rm,
+            env=run_env,
+            spool_name="compose-services-rm",
+            repo_root=repo_root,
+            check=False,
+        )
+        _report_step("cleared stale service containers")
         if dev_mode:
             # Mirrors the plain non-web path's dev-mode build (see deploy_up):
             # without a rebuild, a co-deployed service's cached image tag keeps
@@ -923,13 +943,19 @@ def deploy_up_web_terminals(
             # image-store race.
             services_build = services_base + ["build"]
             logger.debug(f"Running command:\n    {' '.join(services_build)}")
-            subprocess.run(services_build, env=run_env, check=True)
+            run_captured(
+                services_build, env=run_env, spool_name="build-services", repo_root=repo_root
+            )
+            _report_step("built service images")
         services_cmd = services_base + ["up"]
         if dev_mode:
             services_cmd.append("--no-build")
         services_cmd.append("-d")
         logger.debug(f"Running command:\n    {' '.join(services_cmd)}")
-        subprocess.run(services_cmd, env=run_env, check=True)
+        run_captured(
+            services_cmd, env=run_env, spool_name="compose-services-up", repo_root=repo_root
+        )
+        _report_step("backend services started")
 
     # ---- web-terminal stack (same pinned project directory: the repo root) --
     web_cmd = web_stack_compose_cmd(config, env_file_args, repo_root=repo_root)
@@ -938,7 +964,8 @@ def deploy_up_web_terminals(
     # no-`--remove-orphans` constraint — see that comment).
     web_rm = web_cmd + ["rm", "-f"]
     logger.debug(f"Running command:\n    {' '.join(web_rm)}")
-    subprocess.run(web_rm, env=run_env)
+    run_captured(web_rm, env=run_env, spool_name="compose-web-rm", repo_root=repo_root, check=False)
+    _report_step("cleared stale web-terminal containers")
 
     if not local_mode:
         # Registry mode only: local-only tags have no upstream to pull from,
@@ -947,17 +974,19 @@ def deploy_up_web_terminals(
         # to add; never run `pull` unconditionally here again.
         pull_cmd = web_cmd + ["pull"]
         logger.debug(f"Running command:\n    {' '.join(pull_cmd)}")
-        subprocess.run(pull_cmd, env=run_env, check=True)
+        run_captured(pull_cmd, env=run_env, spool_name="compose-web-pull", repo_root=repo_root)
+        _report_step("pulled web-terminal images")
 
     up_cmd = web_cmd + ["up", "-d"]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    subprocess.run(up_cmd, env=run_env, check=True)
+    run_captured(up_cmd, env=run_env, spool_name="compose-web-up", repo_root=repo_root)
+    _report_step("web-terminal stack started")
 
     # Post-`up` recreate for podman's same-tag image drift. A changed
     # `.env.auth` needs nothing here: the render above stamped its content
     # digest into the sidecar's service definition, so the `up -d` itself
     # already recreated the sidecar on any content change.
-    _reconcile_web_stack_recreates(config, web_cmd, run_env)
+    _reconcile_web_stack_recreates(config, web_cmd, run_env, repo_root=repo_root)
 
     # Hot-reload nginx: `up -d` never restarts a running nginx whose
     # bind-mounted nginx.conf/landing.html CONTENT changed — the container
@@ -992,6 +1021,8 @@ def _reconcile_web_stack_recreates(
     config: dict,
     web_cmd: list[str],
     run_env: dict[str, str],
+    *,
+    repo_root: Path | str | None = None,
 ) -> None:
     """Issue the one post-``up`` force-recreate this deploy needs: image drift.
 
@@ -1024,7 +1055,11 @@ def _reconcile_web_stack_recreates(
         against the same compose project as the preceding ``up``.
     :param run_env: The ``COMPOSE_PROJECT_NAME``-pinned environment shared by
         every web-stack invocation.
+    :param repo_root: The deployment repo — the rendered compose file this
+        reads and the spooled output of any recreate it issues both hang off
+        it. Defaults to the one resolved from ``config``.
     """
+    root = Path(repo_root) if repo_root is not None else None
     changed: list[str] = []
 
     runtime = get_runtime_command(config)[0]
@@ -1034,7 +1069,10 @@ def _reconcile_web_stack_recreates(
         # services exist and what image / container name each carries -- reading
         # it here keeps this reconcile free of any per-service name
         # reconstruction and covers nginx and every per-user terminal uniformly.
-        compose_file = web_compose_file(resolve_repo_root(config))
+        # Resolved lazily, inside the branch that needs it: the docker path
+        # touches neither the compose file nor a recreate.
+        root = root if root is not None else resolve_repo_root(config)
+        compose_file = web_compose_file(root)
         try:
             compose_doc = yaml.safe_load(compose_file.read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError) as exc:
@@ -1061,7 +1099,7 @@ def _reconcile_web_stack_recreates(
     if not changed:
         return
 
-    _force_recreate_services(web_cmd, run_env, changed)
+    _force_recreate_services(web_cmd, run_env, changed, repo_root=root)
 
 
 def deploy_down_web_terminals(

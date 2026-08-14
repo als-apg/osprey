@@ -12,16 +12,18 @@ registry-mode deploys never enter this module.
 
 import os
 import posixpath
-import subprocess
 from pathlib import Path
 from typing import cast
 
 from osprey.build.claude_code_resolver import load_provider_spec
+from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
     resolve_project_name,
+    resolve_repo_root,
 )
 from osprey.deployment.runtime_helper import get_runtime_command
+from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.config import ConfigBuilder
@@ -686,6 +688,8 @@ def build_persona_images(
 
     runtime = get_runtime_command(config)[0]
     project_label = resolve_project_name(config)
+    # The deployment repo whose var/logs/ takes each build's spooled output.
+    repo_root = resolve_repo_root(config)
 
     for unit in referenced:
         persona_name = unit["persona"]
@@ -724,7 +728,16 @@ def build_persona_images(
             )
             logger.key_info("Building persona image %s-%s:local:", project, persona_name)
             logger.debug("Running command:\n    %s", " ".join(cmd))
-            subprocess.run(cmd, env=env, check=True)
+            run_captured(
+                cmd,
+                env=env,
+                spool_name=f"build-persona-{project}-{persona_name}",
+                repo_root=repo_root,
+            )
+            # One line per image, after its own build: the slowest step of a
+            # local-mode deploy, and the only progress an operator gets while
+            # a handful of multi-minute builds run one after another.
+            _report_step(f"persona image {project}-{persona_name}:local")
         finally:
             # Remove BOTH staged artifacts (wheel + requirements manifest) so
             # neither can poison a later non-dev build in this context.
