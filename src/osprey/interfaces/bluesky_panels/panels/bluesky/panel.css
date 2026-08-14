@@ -1680,6 +1680,115 @@ button.queue-label:focus-visible {
   margin-top: 2px;
 }
 
+/* Colorbar: the heatmap's value scale, with its numbers. A heatmap without one
+   is unreadable — the reader can see which cells differ but not by how much,
+   nor which side of zero they are on. The strip's gradient is written inline by
+   the renderer from the live palette (negative hue → transparent → positive
+   hue), so it tracks the theme without this file naming a colour. */
+.figure-colorbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.figure-colorbar-label {
+  font-family: var(--font-display);
+  color: var(--text-muted);
+}
+.figure-colorbar-scale {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.figure-colorbar-strip {
+  width: 180px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid var(--border-default);
+}
+.figure-colorbar-zero {
+  color: var(--text-muted);
+}
+
+/* A cell with no reading. Hatched rather than left as background, because
+   background is now what a genuine ZERO looks like. */
+.figure-cell-missing {
+  pointer-events: all;
+}
+
+/* Section: detail demoted below the figure's findings, one panel at a time. */
+.figure-section {
+  margin-top: 14px;
+  border-top: 1px solid var(--border-default);
+  padding-top: 10px;
+}
+.figure-section-summary {
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.figure-section-summary:hover {
+  color: var(--text-primary);
+}
+.figure-section-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Picker: which series a panel draws, or which panel a section shows. Chips
+   rather than a <select> because the current choice has to be visible at a
+   glance — a closed select hides exactly the thing the reader is comparing. */
+.figure-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.figure-picker-label,
+.figure-picker-note {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.figure-picker-note {
+  font-family: var(--font-mono);
+}
+.figure-picker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.figure-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.figure-chip:hover,
+.figure-chip:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+}
+.figure-chip.selected {
+  color: var(--text-primary);
+  border-color: var(--color-accent-light);
+  background: var(--accent-tint-08);
+}
+
 /* Stands in for the plot when a panel has nothing plottable yet. Styled as an
    ordinary quiet line, NOT as an error: a run still filling in, and a default
    view that declined to render, are both normal states. */

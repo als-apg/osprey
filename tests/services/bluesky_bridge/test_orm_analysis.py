@@ -15,6 +15,7 @@ from osprey.services.bluesky_bridge.orm_analysis import (
     column_anomaly,
     localize_kick,
     row_anomaly,
+    singular_values,
 )
 
 CORRECTORS = ["corr1", "corr2", "corr3"]
@@ -266,3 +267,54 @@ def test_row_anomaly_detector_is_all_zero_with_fewer_than_two_bpms() -> None:
     scores = row_anomaly(np.ones((1, 4)))
 
     assert np.all(scores == 0.0)
+
+
+# =========================================================================
+# 3.7 singular_values
+# =========================================================================
+
+
+def test_singular_values_are_returned_largest_first() -> None:
+    values = singular_values(_clean_matrix())
+
+    assert values.size > 0
+    assert np.all(np.diff(values) <= 0.0)
+
+
+def test_a_separable_matrix_has_exactly_one_significant_mode() -> None:
+    """`_clean_matrix` is a rank-1 outer product, so all the response lives in
+    the first singular value -- the spectrum a perfectly-correlated (and so
+    uninformative-beyond-one-mode) machine would show."""
+    values = singular_values(_clean_matrix())
+
+    assert values[0] > 0.0
+    assert np.all(values[1:] < values[0] * 1e-10)
+
+
+def test_added_independent_structure_raises_the_second_mode() -> None:
+    matrix = _clean_matrix()
+    matrix[:, 1] += np.array([0.4, -0.4, 0.4, -0.4, 0.4])  # a second direction
+
+    values = singular_values(matrix)
+
+    assert values[1] > values[0] * 1e-3
+
+
+def test_singular_values_count_is_the_smaller_dimension() -> None:
+    assert singular_values(np.ones((7, 3))).size == 3
+    assert singular_values(np.ones((3, 7))).size == 3
+
+
+def test_singular_values_of_an_empty_matrix_is_empty() -> None:
+    assert singular_values(np.zeros((0, 0))).size == 0
+    assert singular_values(np.zeros((5, 0))).size == 0
+
+
+def test_singular_values_of_a_non_finite_matrix_is_empty() -> None:
+    """`numpy.linalg.svd` raises on NaN rather than returning one, and a
+    figure is a view: a partly-fitted matrix must degrade to no spectrum, not
+    to an exception that costs the whole figure."""
+    matrix = _clean_matrix()
+    matrix[1, 1] = np.nan
+
+    assert singular_values(matrix).size == 0

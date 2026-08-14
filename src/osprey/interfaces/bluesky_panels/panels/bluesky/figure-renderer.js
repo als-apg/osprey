@@ -9,10 +9,16 @@
  *    `splitSegments`, `heatmapCells`, `barGeometry`, …). No DOM, no theme, no
  *    globals; given plain figure objects they return numbers and strings, and
  *    they are what the unit tests exercise directly.
- *  - **Drawing** — `renderFigure(elements, figure)`, which turns that geometry
- *    into nodes. Every node is built with `createElement`/`createElementNS` and
- *    every string lands via `textContent` or `setAttribute`; nothing in this
- *    file assigns `innerHTML`.
+ *  - **Drawing** — `renderFigure(elements, figure, options)`, which turns that
+ *    geometry into nodes. Every node is built with
+ *    `createElement`/`createElementNS` and every string lands via `textContent`
+ *    or `setAttribute`; nothing in this file assigns `innerHTML`.
+ *
+ * The reader's own choices about a figure — which series a panel draws, which
+ * panel a section shows, whether a section is open — live in
+ * `figure-controls.js`, along with the chrome that changes them. This file
+ * draws what the bridge sent; that one owns what the reader did with it. Pass
+ * `options.selection` to give those choices memory across a redraw.
  *
  * Colors are read from the theme-manager computed-style bridges *inside*
  * `renderFigure`, never at module or closure scope, so a caller that re-renders
@@ -32,14 +38,25 @@
 
 import { chartSeries, chartTheme } from '/design-system/js/theme-manager.js';
 
+import {
+  chipPicker,
+  colorbarElement,
+  groupPanels,
+  resolveSeriesSelection,
+  sectionElement,
+} from './figure-controls.js';
+
+/** @typedef {import('./figure-controls.js').FigureSelection} FigureSelection */
+
 /** @typedef {{x: number, y: number|null}} FigurePoint */
 /** @typedef {{label: string, points: FigurePoint[], decimated: boolean, source_points: number}} FigureSeries */
 /** @typedef {{kind: 'lines', series: FigureSeries[], decimated: boolean, source_points: number}} LinesMark */
 /** @typedef {{kind: 'heatmap', x_labels: string[], y_labels: string[], values: Array<Array<number|null>>, value_label: string, value_units: string|null, decimated: boolean, source_points: number}} HeatmapMark */
 /** @typedef {{kind: 'bars', label: string, categories: string[], values: Array<number|null>, decimated: boolean, source_points: number}} BarsMark */
 /** @typedef {LinesMark|HeatmapMark|BarsMark} FigureMark */
-/** @typedef {{title: string, x_label: string, y_label: string, x_units: string|null, y_units: string|null, annotations: string[], mark: FigureMark}} FigurePanel */
+/** @typedef {{title: string, x_label: string, y_label: string, x_units: string|null, y_units: string|null, annotations: string[], mark: FigureMark, section?: string|null, series_picker?: boolean}} FigurePanel */
 /** @typedef {{panels: FigurePanel[], partial: boolean, source: 'live'|'tiled', reason: string|null}} Figure */
+
 
 /** @typedef {{left: number, top: number, width: number, height: number, right: number, bottom: number}} PlotBox */
 /** @typedef {(value: number) => number} Scale */
@@ -323,6 +340,41 @@ export function heatmapExtent(values) {
 }
 
 /**
+ * The signed colour scale for a heatmap, anchored at zero.
+ *
+ * A response matrix is signed and roughly zero-centred: a corrector kicks the
+ * beam and a BPM downstream reads positive or negative by phase advance. On a
+ * sequential ramp anchored to `[min, max]` that structure is destroyed twice
+ * over -- zero lands mid-ramp, so an unresponsive BPM paints like a real
+ * response, and the most negative cell paints faintest, so the strongest
+ * negative response is indistinguishable from no measurement at all.
+ *
+ * So: one hue each side of zero, and a magnitude scaled against a SYMMETRIC
+ * `limit` of `max|value|` rather than the raw extent. Zero maps to opacity 0 --
+ * the plot background, painted by nothing -- which is what makes a dead row
+ * read as dead. The symmetric limit is also what makes two runs comparable: a
+ * ramp fitted to each run's own extent means a different thing every time.
+ *
+ * `null` when no cell holds a reading.
+ *
+ * @param {Array<Array<number|null>>} values
+ * @returns {{limit: number, opacityFor: (value: number) => number, isNegative: (value: number) => boolean}|null}
+ */
+export function divergingScale(values) {
+  const extent = heatmapExtent(values);
+  if (extent === null) return null;
+
+  const limit = Math.max(Math.abs(extent.min), Math.abs(extent.max));
+  return {
+    limit,
+    // A flat matrix (limit 0) is all zero, and all zero is all background:
+    // inventing contrast for it would draw structure that is not there.
+    opacityFor: (value) => (limit > 0 ? Math.min(1, Math.abs(value) / limit) : 0),
+    isNegative: (value) => value < 0,
+  };
+}
+
+/**
  * One rectangle per heatmap cell, row 0 at the top so the drawn grid reads in
  * the same order as `values` and `y_labels`. Cells with no reading are
  * returned with `value: null` — the caller leaves them unpainted rather than
@@ -538,7 +590,49 @@ export function seriesColor(palette, index, fallback) {
 
 /** @typedef {{text: string, grid: string, plotBg: string, palette: string[]}} RenderColors */
 /** @typedef {{label: string, color: string}} LegendEntry */
-/** @typedef {{plotted: boolean, legend: LegendEntry[]}} MarkResult */
+/** @typedef {{label: string, limit: number, negative: string, positive: string}} Colorbar */
+/** @typedef {{plotted: boolean, legend: LegendEntry[], colorbar?: Colorbar}} MarkResult */
+
+/** Distinguishes one render's `<pattern>` ids from another's on the same page. */
+let patternSequence = 0;
+
+/**
+ * Define a diagonal hatch in `svg` and return the `fill` value referencing it.
+ *
+ * Ids must be unique per document, not per SVG: several figures share a page,
+ * and a duplicate id would silently hand every one of them the first figure's
+ * pattern -- drawn in the first figure's palette, which a theme flip would then
+ * fail to update.
+ *
+ * @param {SVGElement} svg
+ * @param {string} color
+ * @returns {string}
+ */
+function hatchFill(svg, color) {
+  const id = `figure-hatch-${(patternSequence += 1)}`;
+  const pattern = svgNode('pattern', {
+    id,
+    width: 5,
+    height: 5,
+    patternUnits: 'userSpaceOnUse',
+    patternTransform: 'rotate(45)',
+  });
+  pattern.appendChild(
+    svgNode('line', {
+      x1: 0,
+      y1: 0,
+      x2: 0,
+      y2: 5,
+      stroke: color,
+      'stroke-width': 1.5,
+      'stroke-opacity': 0.4,
+    })
+  );
+  const defs = svgNode('defs', {});
+  defs.appendChild(pattern);
+  svg.appendChild(defs);
+  return `url(#${id})`;
+}
 
 /**
  * @param {string} name
@@ -739,24 +833,37 @@ function drawLines(svg, mark, panel, box, colors) {
  * @returns {MarkResult}
  */
 function drawHeatmap(svg, mark, panel, box, colors) {
-  const extent = heatmapExtent(mark.values);
-  if (extent === null) return { plotted: false, legend: [] };
+  const scale = divergingScale(mark.values);
+  if (scale === null) return { plotted: false, legend: [] };
 
-  const color = seriesColor(colors.palette, 0, colors.text);
-  const toOpacity = linearScale(extent.min, extent.max, 0.12, 1);
+  const positive = seriesColor(colors.palette, 0, colors.text);
+  // The second palette slot, not a parsed complement: the tokens are arbitrary
+  // CSS colour strings and any ramp built by taking them apart would break on
+  // the first theme shipping a colour space this file cannot parse.
+  const negative = seriesColor(colors.palette, 1, colors.text);
+  const missingFill = hatchFill(svg, colors.text);
+
   for (const cell of heatmapCells(mark, box)) {
-    if (cell.value === null) continue;
-    const rect = svgNode('rect', {
-      class: 'figure-cell',
+    const attributes = {
       x: cell.x.toFixed(1),
       y: cell.y.toFixed(1),
       width: Math.max(0, cell.width).toFixed(1),
       height: Math.max(0, cell.height).toFixed(1),
-      fill: color,
-      'fill-opacity': toOpacity(cell.value).toFixed(3),
-    });
+    };
+    // A missing cell is HATCHED, not skipped. Left unpainted it would be plot
+    // background -- which is exactly what a zero reading now looks like, so
+    // "never measured" and "measured, no response" would be the same picture.
+    const rect =
+      cell.value === null
+        ? svgNode('rect', { ...attributes, class: 'figure-cell figure-cell-missing', fill: missingFill })
+        : svgNode('rect', {
+            ...attributes,
+            class: 'figure-cell',
+            fill: scale.isNegative(cell.value) ? negative : positive,
+            'fill-opacity': scale.opacityFor(cell.value).toFixed(3),
+          });
     const hover = svgNode('title', {});
-    hover.textContent = formatTickValue(cell.value);
+    hover.textContent = cell.value === null ? 'No reading' : formatTickValue(cell.value);
     rect.appendChild(hover);
     svg.appendChild(rect);
   }
@@ -780,9 +887,19 @@ function drawHeatmap(svg, mark, panel, box, colors) {
     colors
   );
 
-  const valueTitle = axisTitle(mark.value_label, mark.value_units);
-  const legend = valueTitle ? [{ label: valueTitle, color }] : [];
-  return { plotted: true, legend };
+  // A colorbar, not a legend swatch: a single flat chip labelled "Response
+  // slope" says which quantity is painted but leaves every shade in the grid
+  // unreadable as a number.
+  return {
+    plotted: true,
+    legend: [],
+    colorbar: {
+      label: axisTitle(mark.value_label, mark.value_units),
+      limit: scale.limit,
+      negative,
+      positive,
+    },
+  };
 }
 
 /**
@@ -875,9 +992,10 @@ function annotationList(notes) {
 /**
  * @param {FigurePanel} panel
  * @param {RenderColors} colors
+ * @param {{selection: Required<FigureSelection>, redraw: () => void}} [view]
  * @returns {HTMLElement}
  */
-function renderPanel(panel, colors) {
+function renderPanel(panel, colors, view) {
   const section = document.createElement('section');
   section.className = 'figure-panel';
   section.dataset.mark = panel.mark.kind;
@@ -887,6 +1005,35 @@ function renderPanel(panel, colors) {
     heading.className = 'figure-panel-title';
     heading.textContent = panel.title;
     section.appendChild(heading);
+  }
+
+  // A series picker filters what is DRAWN from series already on the wire, so
+  // changing the comparison costs no fetch. The panel keeps every series in
+  // `mark` either way -- narrowing that here would make the choice one-way.
+  let mark = panel.mark;
+  if (view && panel.series_picker && mark.kind === 'lines') {
+    const available = mark.series.map((line) => line.label);
+    const stored = view.selection.series[panel.title];
+    const picked = resolveSeriesSelection(stored, available);
+    section.appendChild(
+      chipPicker({
+        label: 'Show',
+        options: available,
+        selected: picked,
+        multi: true,
+        note: `${picked.length} of ${available.length}`,
+        onPick: (value) => {
+          const next = picked.includes(value)
+            ? picked.filter((label) => label !== value)
+            : [...picked, value];
+          // Never let the last chip off: an empty plot reads as "no data",
+          // which would be a lie about a run that has plenty.
+          if (next.length > 0) view.selection.series[panel.title] = next;
+          view.redraw();
+        },
+      })
+    );
+    mark = { ...mark, series: mark.series.filter((line) => picked.includes(line.label)) };
   }
 
   const box = plotBox();
@@ -908,7 +1055,6 @@ function renderPanel(panel, colors) {
     })
   );
 
-  const mark = panel.mark;
   let result;
   if (mark.kind === 'lines') result = drawLines(svg, mark, panel, box, colors);
   else if (mark.kind === 'heatmap') result = drawHeatmap(svg, mark, panel, box, colors);
@@ -916,6 +1062,17 @@ function renderPanel(panel, colors) {
 
   if (result.plotted) {
     section.appendChild(svg);
+    if (result.colorbar) {
+      section.appendChild(
+        colorbarElement({
+          label: result.colorbar.label,
+          low: formatTickValue(-result.colorbar.limit),
+          high: formatTickValue(result.colorbar.limit),
+          negative: result.colorbar.negative,
+          positive: result.colorbar.positive,
+        })
+      );
+    }
     if (result.legend.length > 0) section.appendChild(legendList(result.legend));
   } else {
     const empty = document.createElement('p');
@@ -945,10 +1102,17 @@ function renderPanel(panel, colors) {
  * Theme colors are read here, once per render, so a caller re-rendering from a
  * theme change gets the new palette.
  *
+ * Pass a stable `options.selection` object to give the figure's pickers and
+ * disclosures memory: this function replaces its container's children on every
+ * call, so any state left in that DOM dies with it. The object is the caller's
+ * -- reset it when the RUN changes, or one run's choices would be re-applied to
+ * the next run's panels.
+ *
  * @param {FigureElements} elements
  * @param {Figure} figure
+ * @param {{selection?: FigureSelection}} [options]
  */
-export function renderFigure(elements, figure) {
+export function renderFigure(elements, figure, options = {}) {
   const theme = chartTheme();
   /** @type {RenderColors} */
   const colors = {
@@ -980,5 +1144,18 @@ export function renderFigure(elements, figure) {
     return;
   }
 
-  for (const panel of figure.panels) root.appendChild(renderPanel(panel, colors));
+  const store = options.selection ?? {};
+  store.series ??= {};
+  store.section ??= {};
+  store.open ??= {};
+  const view = {
+    selection: /** @type {Required<FigureSelection>} */ (store),
+    redraw: () => renderFigure(elements, figure, { ...options, selection: store }),
+  };
+
+  const { inline, sections } = groupPanels(figure.panels);
+  for (const panel of inline) root.appendChild(renderPanel(panel, colors, view));
+  for (const group of sections) {
+    root.appendChild(sectionElement(group, view, (panel) => renderPanel(panel, colors, view)));
+  }
 }

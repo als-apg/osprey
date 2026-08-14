@@ -227,6 +227,22 @@ class Panel(_FigureNode):
     mark: Mark
     """Exactly one mark. A panel showing two things is two panels."""
 
+    section: str | None = None
+    """Groups this panel with every other panel carrying the same string into
+    one collapsed disclosure below the unsectioned panels, in first-appearance
+    order. ``None`` -- the default, and what every other plan emits -- renders
+    the panel inline, exactly as before this field existed.
+
+    A section holding more than one panel shows *one at a time*, behind a
+    picker: sections exist for detail a reader consults about a chosen device,
+    not for a wall of plots to scroll past."""
+
+    series_picker: bool = False
+    """Whether the reader may choose which of this panel's series are drawn.
+    Only meaningful for a `LinesMark` with labelled series. The panel ships
+    every series either way -- the picker filters what is *drawn*, so toggling
+    it costs no fetch."""
+
 
 class Figure(_FigureNode):
     """A complete plan view: the payload of `GET /runs/{run_id}/figure`.
