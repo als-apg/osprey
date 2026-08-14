@@ -102,7 +102,7 @@ def test_top_level_key_written_in_place_with_comments_intact(runner, lifecycle_r
     assert "model: haiku" not in after
     # The inline comment on that very line, and the block comment above it.
     assert "# tier (haiku/sonnet/opus)" in after
-    assert "# Default LLM provider and model." in after
+    assert "# Which model answers." in after
     # Every other line of prose survives the round trip. Counted rather than
     # sampled: a writer that drops the file's comments would still pass any
     # handful of spot checks on the ones near the key it touched.

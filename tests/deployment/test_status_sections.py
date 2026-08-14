@@ -224,7 +224,7 @@ def test_another_checkouts_containers_are_not_reported_as_this_ones(lifecycle_re
 
     text = report(lifecycle_repo)
 
-    assert "DIFFERENT checkout" in text
+    assert "DIFFERENT copy" in text
     assert "ffffffffffff" in text
     assert repo_identity(lifecycle_repo) in text
     assert "Nothing is running for this deployment" in text
@@ -245,7 +245,8 @@ def test_the_other_checkout_is_not_described_as_safe_from_this_ones_verbs(lifecy
 
     text = report(lifecycle_repo)
 
-    assert "stops them as well" in text
+    # Collapse the console's line wrapping: the phrase may break mid-sentence.
+    assert "stops them too" in " ".join(text.split())
     assert "act on its own containers only" not in text
 
 
@@ -317,7 +318,7 @@ def test_the_endpoint_list_does_not_claim_anything_is_answering(lifecycle_repo, 
 
     text = report(lifecycle_repo)
 
-    assert "not a check that anything answers" in text
+    assert "nothing was contacted to check" in text
 
 
 # ---------------------------------------------------------------------------
@@ -460,7 +461,7 @@ def test_out_of_sync_artifacts_name_the_rebuild(lifecycle_repo, runtime, monkeyp
 
     text = report(lifecycle_repo)
 
-    assert "out of sync" in text
+    assert "no longer match" in text
     assert "osprey build" in text
     assert ".claude/settings.json" in text
 

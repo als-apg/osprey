@@ -274,7 +274,7 @@ def test_emitted_profile_carries_the_provenance_header() -> None:
     text = _emit("control-assistant")
     header = text.split("\nname:")[0]
 
-    assert "source preset: control-assistant" in header
+    assert "bundled `control-assistant` preset" in header
     assert "preset content hash: sha256:" in header
     assert "emitted by OSPREY" in header
 

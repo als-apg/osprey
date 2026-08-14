@@ -39,7 +39,7 @@ from tests.fixtures.lifecycle_repo import build_exemplar_repo
 #: The redeploy notice's own wording. Asserted through a constant so the
 #: presence and absence checks below cannot drift apart, and so a verb rename
 #: is one edit rather than a dozen.
-_NOTICE = "reads this only at container boot"
+_NOTICE = "reads this only when its container is created"
 
 # Two physics scenarios on disjoint devices, one physics-free scenario to clear
 # back to, one same-device pair (physics collision) and one same-channel pair

@@ -117,9 +117,9 @@ def test_header_explains_the_implicit_merge_and_names_the_source() -> None:
         profile_filename="my-profile/personas/readonly.yml",
     )
 
-    assert "a delta over ../profile.yml" in text
-    assert "there is no `extends:` to write" in _unwrapped_comments(text)
-    assert f"source preset: {PERSONA_PRESET}" in text
+    assert "settings for one web login" in text
+    assert "Only the differences from profile.yml belong here" in _unwrapped_comments(text)
+    assert "merges this file over that one" in _unwrapped_comments(text)
     assert "preset content hash: sha256:" in text
     assert "osprey validate my-profile/personas/readonly.yml" in text
 
@@ -175,7 +175,7 @@ def test_provenance_agrees_with_the_header_prose() -> None:
     provenance = yaml.safe_load(text)["provenance"]
     header = text.split("\nname:")[0]
 
-    assert f"source preset: {provenance['preset']}" in header
+    assert f"bundled `{provenance['preset']}` preset" in header
     assert f"preset content hash: {provenance['preset_hash']}" in header
 
 

@@ -382,7 +382,7 @@ def show_status(config_path, *, console=None, styles=None):
     # service set that looks perfectly healthy here, so status is the other
     # place (besides osprey up) the drift must be visible.
     for reason in staleness_reasons(Path(config_path).resolve().parent):
-        console.print(f"[yellow]⚠ Project render is stale: {reason} — re-run osprey build[/yellow]")
+        console.print(f"[yellow]⚠ The build is out of date: {reason}. Re-run osprey build[/yellow]")
 
     deployed_services = config.get("deployed_services", [])
     deployed_service_names = (
@@ -596,12 +596,12 @@ def _print_containers_section(repo_root, config, console, styles):
         # build/ and runs `down` would be told nothing was found while these
         # kept running.
         console.print(
-            f"  [{styles.WARNING}]{len(unlabelled)} of the above matched by project name "
-            f"only ({', '.join(_container_display_name(c) for c in unlabelled)}): they "
-            f"carry no {REPO_ID_LABEL} label, so they were created before this repo "
-            f"labelled its containers. `osprey down` finds them through build/'s compose "
-            f"files, but not through the label fallback that stands in when build/ is "
-            f"gone.[/{styles.WARNING}]"
+            f"  [{styles.WARNING}]{len(unlabelled)} of these were matched by name, not by "
+            f"label ({', '.join(_container_display_name(c) for c in unlabelled)}): they "
+            f"carry no {REPO_ID_LABEL} label, because they were started before this repo "
+            f"began labelling its containers. `osprey down` finds them through build/'s "
+            f"compose files, but not through the label fallback that takes over when "
+            f"build/ is gone.[/{styles.WARNING}]"
         )
 
     if foreign:
@@ -613,12 +613,12 @@ def _print_containers_section(repo_root, config, console, styles):
         # isolates them would be exactly backwards for the operator who then
         # runs `osprey down`.
         console.print(
-            f"\n  [{styles.WARNING}]{len(foreign)} container(s) named for project "
-            f"'{project_name}' belong to a DIFFERENT checkout of it "
-            f"({', '.join(sorted({_container_label(c, REPO_ID_LABEL) or '?' for c in foreign}))}); "
-            f"this repo's identity is {identity}. They share this deployment's compose "
-            f"project name, so `osprey down` run here stops them as well. Only the "
-            f"{REPO_ID_LABEL} label tells the two checkouts apart.[/{styles.WARNING}]"
+            f"\n  [{styles.WARNING}]{len(foreign)} container(s) named for '{project_name}' "
+            f"were started from a DIFFERENT copy of this deployment "
+            f"({', '.join(sorted({_container_label(c, REPO_ID_LABEL) or '?' for c in foreign}))}; "
+            f"this copy is {identity}). They share a name with yours, so `osprey down` run "
+            f"here stops them too. Only their label tells the two copies "
+            f"apart.[/{styles.WARNING}]"
         )
         console.print(_container_table(foreign, styles))
 
@@ -666,7 +666,7 @@ def _print_endpoints_section(config, compose_files, console, styles):
     console.print(f"[bold]{summary.splitlines()[0]}[/bold]")
     for line in summary.splitlines()[1:]:
         console.print(line)
-    console.print(f"  [{styles.DIM}](declared by build/ — not a check that anything answers)[/]")
+    console.print(f"  [{styles.DIM}](listed by the build; nothing was contacted to check)[/]")
 
 
 def _auth_availability(secret_env, repo_root):
@@ -860,8 +860,8 @@ def _print_agent_section(repo_root, build_dir, config, console, styles, *, show_
     unchanged = result.get("unchanged") or []
     if changed:
         console.print(
-            f"  [{styles.WARNING}]artifacts: {len(changed)} out of sync with build/config.yml — "
-            f"run `osprey build`[/{styles.WARNING}]"
+            f"  [{styles.WARNING}]artifacts: {len(changed)} no longer match "
+            f"build/config.yml. Run `osprey build`[/{styles.WARNING}]"
         )
         for path in changed:
             console.print(f"    [{styles.WARNING}]~[/{styles.WARNING}] {path}")

@@ -579,7 +579,7 @@ def web(
 
     if host == "0.0.0.0":
         click.echo("WARNING: Binding to 0.0.0.0 exposes the terminal to the network.")
-        click.echo("This is a single-user tool — add authentication before external exposure.\n")
+        click.echo("This is a single-user tool. Add authentication before you expose it.\n")
 
     # Pre-flight: check if port is already in use. SO_REUSEADDR matches
     # uvicorn's own bind semantics — without it, TIME_WAIT sockets from a
@@ -603,7 +603,7 @@ def web(
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as free_sock:
                 free_sock.bind((host, 0))
                 port = free_sock.getsockname()[1]
-            click.echo(f"Port {busy_port} in use — using :{port} instead.")
+            click.echo(f"Port {busy_port} is in use, so this is on :{port} instead.")
 
     # Publish the ACTUAL port to every child process (PTY shells, their MCP
     # servers): web_terminal_url() resolves OSPREY_WEB_PORT first, and
@@ -750,7 +750,7 @@ def web_stop(ctx: click.Context, repo: Path | None) -> None:
     try:
         pid = int(pid_path.read_text().strip())
     except (ValueError, OSError):
-        click.echo("Corrupt PID file — removing.")
+        click.echo("Removing a corrupt PID file.")
         pid_path.unlink(missing_ok=True)
         return
 

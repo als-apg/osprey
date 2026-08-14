@@ -16,6 +16,7 @@ volume is ever created or removed here).
 from __future__ import annotations
 
 import logging
+import re
 import stat
 import subprocess
 import sys
@@ -169,8 +170,13 @@ def _fake_web_terminals(**attrs):
 
 
 def _flat(output: str) -> str:
-    """Collapse Rich's line wrapping so help text can be matched as one string."""
-    return " ".join(output.split())
+    """Collapse Rich's line wrapping so help text can be matched as one string.
+
+    ANSI style codes are stripped first: a wrap point re-opens the style at the
+    start of the next line, which would otherwise glue an escape sequence onto
+    the middle of a matched phrase.
+    """
+    return " ".join(re.sub(r"\x1b\[[0-9;]*m", "", output).split())
 
 
 @pytest.fixture
@@ -737,7 +743,7 @@ class TestProfileRosterWrite:
         assert result.exit_code == 0
         flat = _flat(result.output)
         assert "does not spell the web-terminal roster" in flat
-        assert "next build restores them" in flat
+        assert "next build will restore them" in flat
 
     def test_the_drift_hint_is_printed_after_the_write(self, cli_runner, tmp_path, monkeypatch):
         """Same closing line `osprey set` prints: the build is now out of date."""

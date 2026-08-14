@@ -499,7 +499,7 @@ def test_prune_dry_run_prints_plan_and_removes_nothing(
     assert removal_calls == []
     out = capsys.readouterr().out
     assert "eve" in out
-    assert "dry-run" in out.lower()
+    assert "dry run" in out.lower()
 
 
 def test_prune_removes_only_off_roster_resources(tmp_path, monkeypatch, fake_runtime_prune):

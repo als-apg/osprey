@@ -342,7 +342,7 @@ def prune_users(
             print(f"      volume {volume!r}: {policy}")
 
     if dry_run:
-        print("prune: dry-run — no resources were removed.")
+        print("prune: dry run, so nothing was removed.")
         return
 
     prompt = (
@@ -528,8 +528,8 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
         images_to_remove.append(image)
 
     print(
-        f"nuke: this will tear down project {project!r}'s entire web-terminal + "
-        f"service stack — every container (project-scoped), {len(volumes)} "
+        f"nuke: this will tear down project {project!r}'s entire web-terminal and "
+        f"service stack: every container in the project, {len(volumes)} "
         f"volume(s) ({len(roster_names)} roster user(s), "
         f"{len(orphan_volumes)} off-roster user(s)), and {len(images_to_remove)} "
         "image(s):"
@@ -541,7 +541,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
         print(f"  - image {image!r}: removed permanently (com.osprey.project verified)")
     for image, label_value in skipped_images:
         print(
-            f"  - image {image!r}: SKIPPED — com.osprey.project label {label_value!r} "
+            f"  - image {image!r}: SKIPPED. Its com.osprey.project label {label_value!r} "
             f"does not match this deployment's project {project!r}"
         )
 

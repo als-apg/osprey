@@ -187,7 +187,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     unrecognized = _unrecognized_top_level_keys(expanded)
     if unrecognized:
         click.echo(
-            f"⚠ Not a profile key: {', '.join(unrecognized)} — written, but the "
+            f"⚠ Not a profile key: {', '.join(unrecognized)}. It was written, but the "
             "profile schema is closed, so `osprey build` will refuse this profile "
             "until it is corrected or removed. To address the rendered config "
             "instead, prefix the key with `config.`."

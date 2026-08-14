@@ -243,6 +243,10 @@ class TemplateManager:
             # Ordered list of {"provider", "var"} dicts; key-less providers
             # (ollama, vllm, …) are excluded.
             "provider_api_keys": scaffolding.provider_api_key_entries(),
+            # The subset of the above this profile actually uses. Empty here so
+            # a caller with no profile still renders the whole list uncommented;
+            # `osprey init` fills it in and the rest drop below a divider.
+            "active_provider_vars": [],
             # Deploy-minted service credentials, derived from the map the
             # deploy path mints from, so .env.example documents every one of
             # them. Ordered list of {"var", "services", "note"} dicts.

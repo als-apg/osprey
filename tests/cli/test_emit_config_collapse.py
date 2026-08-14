@@ -228,8 +228,8 @@ def test_the_collapsed_key_keeps_the_section_header_it_was_holding() -> None:
     header with it."""
     text = _emit("control-assistant-readonly")
 
-    assert "# ── Event dispatch (optional)" in text
-    assert text.index("# ── Event dispatch (optional)") < text.index("\ndispatch:")
+    assert "# ── Answering webhooks (optional)" in text
+    assert text.index("# ── Answering webhooks (optional)") < text.index("\ndispatch:")
 
 
 @pytest.mark.parametrize("preset", list_presets())

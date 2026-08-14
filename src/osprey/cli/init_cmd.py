@@ -133,63 +133,75 @@ def _repo_readme(name: str) -> str:
     return f"""\
 # {name}
 
-This repository is an OSPREY deployment. Everything the assistant is made of
-lives here, and the directory name is the deployment's name.
+This folder is your OSPREY assistant. Everything it is made of lives here, and
+the folder name is the assistant's name.
 
-## The four zones
+## What is in here
 
-| Zone | Path | Tracked? | Survives? |
+| What | Where | In git? | Kept? |
 | --- | --- | --- | --- |
-| Source | {_source_zone_prose()} | yes | it *is* the record |
-| Secrets | `.env` | no | yes — durable |
-| Output | `{BUILD_OUTPUT_DIR}/` | no | no — 100% disposable |
-| State | `{STATE_DIR}/agent_data/`, `{STATE_DIR}/audit/` | no | yes — durable |
+| Your settings | `profile.yml`, `data/`, `personas/` | yes | yes |
+| Your API keys | `.env` | no | yes |
+| Generated files | `{BUILD_OUTPUT_DIR}/` | no | no, safe to delete |
+| The agent's memory and audit log | `{STATE_DIR}/agent_data/`, `{STATE_DIR}/audit/` | no | yes |
 
-`{BUILD_OUTPUT_DIR}/` is derived in full from the source zone. `rm -rf {BUILD_OUTPUT_DIR}/` loses
-nothing, ever: no configuration, no keys, no agent memory. Nothing durable is
-allowed to live there.
+In full, the first row is: {_source_zone_prose()}.
 
-## Daily use
+`{BUILD_OUTPUT_DIR}/` is generated from your settings every time you run `osprey build`.
+Deleting it is always safe: no settings, no keys and no agent memory live there.
+
+## Everyday commands
 
 ```bash
-osprey build          # render {BUILD_OUTPUT_DIR}/ from profile.yml
-osprey up -d          # start the deployment from {BUILD_OUTPUT_DIR}/, as built
-osprey status         # containers, endpoints, drift, versions
-osprey logs           # follow the stack's logs
+osprey build          # turn your settings into something runnable
+osprey up -d          # start it in the background
+osprey status         # what is running, and is it up to date
+osprey logs           # watch the logs
 osprey down           # stop it
 ```
 
-Every command walks up from wherever you are to this directory, so they work
-from any subdirectory with no flags. `--repo PATH` overrides that.
+Run these from anywhere inside this folder. They find their way to the top on
+their own, so they need no arguments. `--repo PATH` points them somewhere else.
 
 ## Changing something
 
-Edit `profile.yml` (or `osprey set model=sonnet` for a single key), then:
+Edit `profile.yml` (or run `osprey set model=sonnet` to change one setting),
+then:
 
 ```bash
 osprey build && osprey up -d
 ```
 
-`osprey up` starts strictly from `{BUILD_OUTPUT_DIR}/` as it was built — it never renders
-from `profile.yml`. If the source zone has moved on, `up` refuses and names
-what changed, so a half-finished edit can never reach a running stack. Use
-`osprey up --build` to chain the render, or `--as-built` to start the previous
-build knowingly.
+`osprey up` starts what `osprey build` last produced. If you change your
+settings without rebuilding, `up` stops and tells you what changed, so a
+half-finished edit cannot reach a running system. `osprey up --build` does both
+steps; `osprey up --as-built` starts the previous build anyway.
+
+## Running it on a server
+
+To run this somewhere other than your own machine, fill in the `deploy:` section
+at the end of `profile.yml` (which server, which CI system), then run:
+
+```bash
+osprey scaffold ci
+```
+
+That writes the pipeline files. Your own extra CI jobs go in `ci-extra.yml`,
+which nothing ever overwrites.
 
 ## Starting over
 
 ```bash
-osprey reset          # containers, volumes, agent data, {BUILD_OUTPUT_DIR}/ — all gone
+osprey reset          # stops everything, then deletes containers, agent data and {BUILD_OUTPUT_DIR}/
 ```
 
-`reset` keeps `{STATE_DIR}/audit/` and your provider keys. `osprey reset --purge-audit`
-destroys the audit log too; that plus `rm -rf` on this directory is a complete
-uninstall.
+`reset` keeps `{STATE_DIR}/audit/` and your API keys. `osprey reset --purge-audit`
+deletes the audit log as well; that plus deleting this folder removes it all.
 
-## Backup and restore
+## Backups
 
-Git covers the source zone. `{STATE_DIR}/` and `.env` are the entire durable state, so
-a backup is a tarball of those two, and a restore is:
+Git covers your settings. `{STATE_DIR}/` and `.env` are everything else, so a backup
+is a copy of those two, and a restore is:
 
 ```bash
 git clone <this repo> && tar xf state.tar.gz && osprey build && osprey up -d
@@ -539,10 +551,10 @@ def _reinstate_held_source_zone(target: Path) -> None:
     unrecognized = sorted(entry.name for entry in stash.iterdir())
     if unrecognized:
         click.echo(
-            f"\n⚠ Restored the source zone held aside in {stash}, but left "
-            f"{', '.join(unrecognized)} in it — no entry of a source zone goes "
-            f"by those names in this version of osprey. Nothing else will read "
-            f"them; move them out or delete the directory yourself.",
+            f"\n⚠ Put your files back from {stash}, but left "
+            f"{', '.join(unrecognized)} in it. This version of osprey has no "
+            f"place for anything by those names, and nothing will read them. "
+            f"Move them out, or delete that directory yourself.",
             err=True,
         )
         return
@@ -649,9 +661,9 @@ def _replacing_source_zone(target: Path, *, active: bool) -> Iterator[None]:
     shutil.rmtree(stash, ignore_errors=True)
     if stash.exists():
         click.echo(
-            f"\n⚠ Could not remove {stash} — it holds the source zone that was "
-            f"just replaced, and everything in it is superseded by what is now "
-            f"in the repo. Remove it before committing.",
+            f"\n⚠ Could not remove {stash}. It holds the files that were just "
+            f"replaced, so everything in it is an older copy of what is now in "
+            f"the repo. Remove it before you commit.",
             err=True,
         )
 
@@ -712,12 +724,14 @@ def _bootstrap_git(target: Path, *, no_git: bool) -> str:
         One line for the summary.
     """
     if no_git:
-        return "Skipped `git init` (--no-git). Run it yourself to version this deployment."
+        return "Skipped `git init` (--no-git). Run it yourself to keep this in version control."
 
     enclosing = _enclosing_git_dir(target)
     if enclosing is not None:
         where = "here" if enclosing == target else f"at {enclosing}"
-        return f"Git repository already {where} — left alone. Commit when you are ready."
+        return (
+            f"Found a git repository already {where}, and left it alone. Commit when you are ready."
+        )
 
     import subprocess
 
@@ -740,14 +754,13 @@ def _bootstrap_git(target: Path, *, no_git: bool) -> str:
                     "`git %s` failed in %s: %s", step[0], target, detail[-1] if detail else ""
                 )
                 return (
-                    f"`git {step[0]}` failed — the deployment is complete, but "
-                    f"nothing is committed yet."
+                    f"`git {step[0]}` failed. Everything was created, but nothing is committed yet."
                 )
     except (OSError, subprocess.SubprocessError) as e:
         logger.warning("Could not run git in %s: %s", target, e)
-        return "No git available — skipped `git init`. Run it yourself to version this deployment."
+        return "No git found, so `git init` was skipped. Run it yourself to keep this in\n  version control."
 
-    return "Initialized a git repository and committed the source zone."
+    return "Started a git repo and made the first commit."
 
 
 # ---------------------------------------------------------------------------
@@ -1007,7 +1020,7 @@ def init(
             except BaseException:
                 _discard_created_root(target, created=created)
                 raise
-            phase.step(f"source zone from preset {preset}")
+            phase.step(f"settings and data from preset {preset}")
 
             name = materialized.profile_name
             # Driven off the table rather than three calls written out: the set of
@@ -1168,120 +1181,92 @@ def _report(
     deploy_files: list[ScaffoldedFile],
     git_note: str,
 ) -> None:
-    """Tell the operator what they now own, zone by zone.
+    """List what the new repo holds and which parts are the user's to edit.
 
-    An operator meets this layout for the first time here, and the thing they
-    need to know about each entry is which ones are theirs and which ones are
-    regenerated.
+    Someone meets this layout for the first time here, so the report names only
+    the entries they make decisions about. The plumbing they never open --
+    ``.gitignore``, ``.env.example``, ``ci-extra.yml``, ``build/`` -- is in the
+    README, which the last row points at.
     """
-    from osprey.utils.dotenv import parse_dotenv_file
-
     from .profile_cmd import _skipped_keys_note
 
-    click.echo(f"✓ Created deployment repo: {target}")
+    click.echo(f"✓ Created {target.name}")
     click.echo("")
-    for line in _zone_tree(target.name, bool(deploy_files)):
+    for line in _entry_list(target, materialized):
         click.echo(line)
     click.echo(f"\n  {git_note}")
 
-    persona_files = sorted((target / "personas").glob("*.yml"))
-    if persona_files:
-        click.echo("\nWeb-terminal personas — one delta each, merged over profile.yml:")
-        for persona_file in persona_files:
-            click.echo(f"  personas/{persona_file.name}")
-
-    # Secrets get their own block: this repo is now where they live, and a
-    # reader has to be able to tell at a glance whether a value was seeded for
-    # them or is still theirs to supply.
-    click.echo("\nSecrets — kept out of git by .gitignore, and durable across every build:")
-    click.echo("  .env.example — every variable this deployment reads")
-    env_path = target / ".env"
-    if env_path.is_file():
-        seeded = ", ".join(sorted(parse_dotenv_file(env_path)))
-        click.echo(f"  .env — seeded from your shell: {seeded}")
-    else:
-        # Two different absences, and the remedy differs: nothing exported at
-        # all, or keys exported for providers this profile does not use.
-        reason = (
-            "your shell exports no key for the providers it references"
-            if materialized.skipped_shell_keys
-            else "your shell exports no provider key"
-        )
-        click.echo(f"  .env — not written: {reason}. Copy the example and fill it in.")
     if materialized.skipped_shell_keys:
-        # Named rather than dropped in silence: the operator exported these, and
-        # has to be able to account for the omission.
+        # Named rather than dropped in silence: they exported these, and have to
+        # be able to account for the omission.
         click.echo(f"  {_skipped_keys_note(materialized.skipped_shell_keys)}")
 
     for line in _ci_report(deploy_files, target):
         click.echo(line)
 
-    # What to READ and EDIT, only. The commands that follow are on the summary
-    # card this verb ends with, which is also the one place they are correct
-    # for both shapes of the verb: `init --up` has already run them.
-    click.echo("\nNext steps:")
-    click.echo(f"  1. cd {target.name}")
-    click.echo("  2. Read README.md — it explains the four zones")
-    click.echo("  3. Edit profile.yml and the files under data/")
 
-
-def _zone_tree(repo_name: str, has_ci: bool) -> list[str]:
-    """The repo's top level as a tree, one line per entry, each with its job."""
+def _entry_list(target: Path, materialized: _MaterializedProfile) -> list[str]:
+    """The entries someone edits, one line each, with what the entry is for."""
+    personas = sorted(path.stem for path in (target / "personas").glob("*.yml"))
     rows: list[tuple[str, str]] = [
-        ("profile.yml", "the manifest — edit this"),
-        ("data/ personas/", "the material it names — yours too"),
-        (".env.example", "every variable this deployment reads"),
-        ("README.md", "what the zones are and how to operate them"),
-        (_CI_EXTRA_FILENAME, "your own CI jobs; nothing ever regenerates this"),
+        ("profile.yml", "your assistant's settings; edit this"),
+        ("data/", "channel lists and facility docs; edit these"),
     ]
-    if has_ci:
-        rows.append((".gitlab-ci.yml", "generated — `osprey scaffold ci` re-emits it"))
+    if personas:
+        rows.append(("personas/", f"one per web login: {', '.join(personas)}"))
     rows += [
-        (f"{STATE_DIR}/", "agent memory and audit log (gitignored, durable)"),
-        (".gitignore", f"keeps {BUILD_OUTPUT_DIR}/, {STATE_DIR}/, and .env out of git"),
+        (".env", _env_note(target, materialized)),
+        ("README.md", "what everything here does"),
     ]
 
     width = max(len(name) for name, _ in rows)
-    lines = [f"  {repo_name}/"]
-    for index, (name, note) in enumerate(rows):
-        connector = "└──" if index == len(rows) - 1 else "├──"
-        lines.append(f"  {connector} {name.ljust(width)}   {note}")
-    return lines
+    return [f"  {name.ljust(width)}   {note}" for name, note in rows]
+
+
+def _env_note(target: Path, materialized: _MaterializedProfile) -> str:
+    """What happened to the secrets file, in one clause.
+
+    Three outcomes, and the remedy differs: keys were taken from the shell,
+    nothing was exported at all, or what was exported belongs to providers this
+    assistant does not use.
+    """
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    env_path = target / ".env"
+    if env_path.is_file():
+        taken = ", ".join(sorted(parse_dotenv_file(env_path)))
+        return f"from your shell: {taken}. Not in git"
+    if materialized.skipped_shell_keys:
+        return "empty; no key for the providers this assistant uses"
+    return "empty; copy .env.example and add your API key"
 
 
 def _ci_report(emitted: list[ScaffoldedFile], target: Path) -> list[str]:
-    """What the CI emission did, or what to do because it did nothing.
+    """What the CI emission did, when it did anything.
 
-    The no-pipeline case is the common one on a fresh repo and gets the longer
-    answer: it is not a failure, and the operator has to leave knowing which key
-    to fill in and which command turns it into a pipeline.
+    The no-pipeline case says nothing at all. It is by far the common one on a
+    fresh repo, and it is not a problem: running the assistant on a shared
+    server is a later job, and someone creating their first deployment has no
+    question here to answer. The README covers it when they get there.
 
-    A refusal already names its remedy — the engine's per-file reason ends with
-    the ``osprey scaffold ci --force`` re-run — so the trailer only has to say
-    why *this* command's ``--force`` is not it: init's flag is scoped to the
-    source zone and deliberately cannot regenerate a CI file (see
-    :func:`_emit_ci`).
+    A refusal already names its remedy (the engine's per-file reason ends with
+    the ``osprey scaffold ci --force`` re-run), so the trailer only has to say
+    why *this* command's ``--force`` is not it: init's flag cannot regenerate a
+    CI file (see :func:`_emit_ci`).
     """
     if not emitted:
-        return [
-            "\nNo CI pipeline yet:",
-            "  profile.yml carries the `deploy:` block commented out, so there are",
-            "  no coordinates to render one from. Fill it in — CI platform, deploy",
-            "  host, and a registry if the host pulls its images — and the pipeline",
-            "  is one command away:",
-            f"    cd {target.name} && osprey scaffold ci",
-        ]
+        return []
 
-    lines = ["\nDeployment files — generated from profile.yml:"]
+    lines = ["\nDeployment files, generated from profile.yml:"]
     for scaffolded in emitted:
         relative = scaffolded.path.relative_to(target)
         if scaffolded.refused:
-            lines.append(f"  {relative} — NOT written: {scaffolded.reason}")
+            lines.append(f"  {relative} not written: {scaffolded.reason}")
         else:
             lines.append(f"  {relative} ({scaffolded.action})")
 
     if any(scaffolded.refused for scaffolded in emitted):
         lines.append(
-            "  (`osprey init` never regenerates a CI file — `osprey scaffold ci --force` does.)"
+            "  (`osprey init` never regenerates a CI file. `osprey scaffold ci --force` does.)"
         )
     return lines

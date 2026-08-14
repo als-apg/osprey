@@ -157,7 +157,7 @@ def test_preset_comments_survive(runner: CliRunner, tmp_path: Path) -> None:
     assert _new(runner, target, "control-assistant").exit_code == 0
 
     text = (target / "profile.yml").read_text()
-    assert "Default LLM provider and model" in text
+    assert "Which model answers" in text
     assert "Gate hardware-write tool calls on human approval prompt" in text
 
 
@@ -414,7 +414,7 @@ def test_unreferenced_exported_keys_are_named_not_dropped_silently(
     result = _new(runner, target, "hello-world")
 
     assert result.exit_code == 0, result.output
-    assert "Not seeded: OPENAI_API_KEY" in result.output
+    assert "Left out OPENAI_API_KEY" in result.output
 
 
 def test_only_unreferenced_keys_exported_writes_no_env_and_says_why(
@@ -429,8 +429,8 @@ def test_only_unreferenced_keys_exported_writes_no_env_and_says_why(
 
     assert result.exit_code == 0, result.output
     assert not (target / ".env").exists()
-    assert "no key for the providers it references" in result.output
-    assert "Not seeded: OPENAI_API_KEY" in result.output
+    assert "no key for the providers this assistant uses" in result.output
+    assert "Left out OPENAI_API_KEY" in result.output
 
 
 def test_seeded_env_file_is_owner_only(
@@ -510,7 +510,7 @@ def test_summary_names_the_secret_files_it_wrote(
     result = _new(runner, target, "hello-world")
 
     assert result.exit_code == 0, result.output
-    assert ".env.example" in result.output
+    assert ".env" in result.output
     assert "ANTHROPIC_API_KEY" in result.output
 
 
@@ -522,7 +522,7 @@ def test_summary_says_no_env_was_written_when_nothing_was_exported(
     result = _new(runner, target, "hello-world")
 
     assert result.exit_code == 0, result.output
-    assert "not written" in result.output
+    assert "copy .env.example and add your API key" in result.output
 
 
 # ---------------------------------------------------------------------------

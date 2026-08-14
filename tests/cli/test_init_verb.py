@@ -330,7 +330,7 @@ def test_enclosing_git_repository_is_left_alone(runner: CliRunner, tmp_path: Pat
 
     assert result.exit_code == 0, result.output
     assert not (target / ".git").exists()
-    assert "left alone" in result.output
+    assert "left it alone" in result.output
     # Nothing was committed into somebody else's history — the enclosing repo
     # still has no HEAD at all.
     no_head = subprocess.run(
@@ -363,7 +363,7 @@ def test_a_machine_without_git_still_gets_a_complete_repo(
     result = init_exemplar(runner, target)
 
     assert result.exit_code == 0, result.output
-    assert "No git available" in result.output
+    assert "No git found" in result.output
     assert (target / "profile.yml").is_file()
     assert not (target / ".git").exists()
 
@@ -405,7 +405,7 @@ def test_in_place_into_an_empty_clone(
     assert (target / "profile.yml").is_file()
     assert (target / "var" / "agent_data").is_dir()
     # The clone's own git is left alone — the operator commits when ready.
-    assert "left alone" in result.output
+    assert "left it alone" in result.output
 
 
 def test_in_place_refuses_a_directory_that_is_not_empty(
@@ -619,7 +619,7 @@ def test_force_never_regenerates_a_hand_written_pipeline(runner: CliRunner, tmp_
 
     assert result.exit_code == 0, result.output
     assert hand_written.read_text(encoding="utf-8") == "# mine, no marker\nbuild-it: {}\n"
-    assert "NOT written" in result.output
+    assert "not written" in result.output
     # The remedy names the verb that OWNS regeneration. Pointing an operator
     # who just ran `init --force` back at --force would send them round a loop
     # that cannot terminate, since this command never forces a CI file.
@@ -696,7 +696,10 @@ def test_unused_exported_keys_are_reported_not_dropped_silently(
 
     assert result.exit_code == 0, result.output
     assert "OPENAI_API_KEY" in result.output
-    assert "Not seeded" in result.output
+    assert "Left out" in result.output
+    # The shell origin is the load-bearing half: it is why they are seeing this
+    # at all, and without it the omission is unaccountable.
+    assert "Your shell exports them" in result.output
 
 
 # ---------------------------------------------------------------------------

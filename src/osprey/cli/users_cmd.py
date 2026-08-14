@@ -476,8 +476,8 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
                 f"  Not done: profile.yml still lists {user}, so the next "
                 "[command]osprey build[/command] would put them back on the roster.\n\n"
                 f"  Fix it either way:\n"
-                f"    • re-run [command]osprey users remove {user}[/command] — it detects the "
-                "half-finished removal and completes just the profile edit\n"
+                f"    • re-run [command]osprey users remove {user}[/command]. It notices the "
+                "half-finished removal and only edits the profile\n"
                 f"    • or delete {user}'s entry from profile.yml by hand",
                 style=Styles.WARNING,
             )
@@ -509,7 +509,7 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
                 f"\n! {user} was removed from the deployment, but this repo's profile.yml "
                 "does not spell the web-terminal roster, so there was nothing to edit "
                 "there. If the roster comes from an 'extends:' preset, remove the user "
-                f"in the profile by hand — otherwise the next build restores them.",
+                f"in the profile by hand, or the next build will restore them.",
                 style=Styles.WARNING,
             )
 

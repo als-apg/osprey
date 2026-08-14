@@ -519,10 +519,9 @@ def _skipped_keys_note(skipped: Collection[str]) -> str:
     summary: a skipped secret is a thing the operator has to be able to account
     for, and two spellings of the same fact read as two different facts.
     """
-    subject = "this variable" if len(skipped) == 1 else "these variables"
     return (
-        f"Not seeded: {', '.join(skipped)} — exported by your shell, but this "
-        f"profile references no provider that reads {subject}."
+        f"Left out {', '.join(skipped)}. Your shell exports them, but this "
+        f"assistant uses a different provider."
     )
 
 
@@ -532,6 +531,7 @@ def _write_secret_channel(
     resolved: BuildProfile,
     profile_name: str,
     exported: Mapping[str, str],
+    providers: Collection[str] = (),
 ) -> list[str]:
     """Write the profile's secret channel: ``.env.example``, ``.env``, ``.gitignore``.
 
@@ -567,6 +567,15 @@ def _write_secret_channel(
         {
             "project_name": profile_name,
             "provider_api_keys": provider_api_key_entries(),
+            # Which of those this profile actually uses, so the example puts
+            # the one or two keys someone has to fill in above the rest rather
+            # than in a list of eight they have to search. Empty from the
+            # programmatic path, where the template lists them all as before.
+            "active_provider_vars": [
+                entry["var"]
+                for entry in provider_api_key_entries()
+                if entry["provider"] in providers
+            ],
             "service_token_vars": service_token_var_entries(),
             # The profile's `env:` block is documentation, not values — the
             # same two keys `osprey build` feeds this template.
@@ -926,7 +935,8 @@ def _materialize_profile_directory(
     # Read once, before anything is written: the README rendered below tells the
     # reader whether a `.env` was seeded for them, and the seeding itself happens
     # further down. Two reads of the environment could disagree.
-    shell_keys = _exported_provider_keys(_referenced_providers(resolved, persona_deltas))
+    referenced_providers = _referenced_providers(resolved, persona_deltas)
+    shell_keys = _exported_provider_keys(referenced_providers)
     exported_keys = shell_keys.seeded
 
     # Derived once for the same reason: the README lists the per-user context
@@ -965,20 +975,25 @@ def _materialize_profile_directory(
 
         if triggers_src is not None:
             shutil.copy2(triggers_src, target / _PROFILE_TRIGGERS_FILENAME)
-            logger.info("  Trigger config: %s", _PROFILE_TRIGGERS_FILENAME)
+            logger.debug("  Trigger config: %s", _PROFILE_TRIGGERS_FILENAME)
 
         # The profile owns its secrets from the first minute (FR-1) — the
         # documented variable list, whatever the shell already exports, and the
         # .gitignore that keeps the values out of version control.
         secret_files = _write_secret_channel(
-            target, manager, resolved, profile_name_default, exported_keys
+            target,
+            manager,
+            resolved,
+            profile_name_default,
+            exported_keys,
+            referenced_providers,
         )
-        logger.info("  Secrets: %s", ", ".join(secret_files))
+        logger.debug("  Secrets: %s", ", ".join(secret_files))
         if shell_keys.skipped:
-            # Logged here as well as in `osprey init`'s own summary: this is
-            # where the skipping happens, and a skipped secret must be visible
-            # at the point it was skipped.
-            logger.info("  %s", _skipped_keys_note(shell_keys.skipped))
+            # Debug only. `osprey init`'s summary prints the same sentence from
+            # the same helper, and this is the only caller, so logging it here
+            # at info put the fact on screen twice in one run.
+            logger.debug("  %s", _skipped_keys_note(shell_keys.skipped))
 
         # One empty slot per roster user, so the per-user context a facility
         # writes has an obvious home from the first minute (FR-5). Only the
@@ -990,7 +1005,7 @@ def _materialize_profile_directory(
             user_dir.mkdir(parents=True, exist_ok=True)
             (user_dir / ".gitkeep").touch()
         if roster:
-            logger.info(
+            logger.debug(
                 "  Per-user context: %s",
                 ", ".join(f"{_CONTEXT_CONVENTION_DIRNAME}/{user}/" for user in roster),
             )
@@ -1003,7 +1018,7 @@ def _materialize_profile_directory(
             persona_dir.mkdir()
             for persona_name, persona_text in persona_texts.items():
                 (persona_dir / f"{persona_name}.yml").write_text(persona_text, encoding="utf-8")
-            logger.info(
+            logger.debug(
                 "  Persona deltas: %s",
                 ", ".join(f"{_PERSONA_PROFILE_DIRNAME}/{name}.yml" for name in persona_texts),
             )
@@ -1034,7 +1049,7 @@ def _materialize_profile_directory(
         _cleanup(target)
         raise
 
-    logger.info("✓ Materialized profile at: %s", target)
+    logger.debug("Wrote profile directory: %s", target)
     return _MaterializedProfile(
         target,
         shell_keys.skipped,
