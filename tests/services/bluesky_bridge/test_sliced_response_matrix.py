@@ -276,11 +276,11 @@ def test_num_below_two_is_rejected():
 def test_facility_scale_fit_is_fast():
     """Perf sanity at 70 correctors x 100 BPMs x 1470 rows.
 
-    The formal gate (median-of-5 under 200 ms) lives with the figure route,
-    which measures the whole tick; this only pins that the fit itself is
-    vectorized -- the per-pair polyfit path it replaces takes seconds on
-    this shape, so the threshold discriminates by orders of magnitude and
-    does not need CI-machine tuning.
+    The formal gate (median-of-5) lives with the figure route, which measures
+    the whole tick; this only pins that the fit itself is vectorized -- the
+    per-pair polyfit path it replaces takes seconds on this shape, so the
+    threshold discriminates by orders of magnitude and does not need
+    CI-machine tuning.
     """
     correctors = [f"CH{j}" for j in range(70)]
     detectors = [f"BPM{i}" for i in range(100)]
