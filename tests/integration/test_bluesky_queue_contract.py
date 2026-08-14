@@ -502,11 +502,17 @@ def test_enqueue_puts_the_pinned_draft_in_the_managers_queue(
     assert "capability" not in body
 
     # The manager holds exactly the plan the DRAFT named, with OSPREY's run id
-    # in the item metadata — the key start documents and Tiled results join on.
+    # in the item metadata — the key start documents and Tiled results join on —
+    # beside the plan-identity stamp a finished run is rendered from. Both keys
+    # ride the item into the start document; the queue's own read surfaces relay
+    # only the run id (`queue._public_item`).
     (item,) = manager.items
     assert item["name"] == "grid_scan"
     assert item["kwargs"] == _grid_scan_args()
-    assert item["meta"] == {qb.RUN_ID_META_KEY: body["run_id"]}
+    assert item["meta"] == {
+        qb.RUN_ID_META_KEY: body["run_id"],
+        qb.PLAN_META_KEY: {"name": "grid_scan", "kwargs": _grid_scan_args()},
+    }
 
 
 def test_a_draft_revision_can_be_enqueued_only_once(

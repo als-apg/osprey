@@ -321,6 +321,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             bsky.LIST_DEVICES,
             bsky.LIST_RUNS,
             bsky.GET_RUN_DATA,
+            bsky.GET_RUN_FIGURE,
             # Draft tools never touch hardware — editing the shared
             # plan draft only stages what a future queue_add or in-panel
             # Add-to-queue click might queue, so like the read tools above they need no approval

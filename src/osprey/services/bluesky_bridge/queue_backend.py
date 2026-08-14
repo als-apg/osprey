@@ -68,6 +68,12 @@ QSERVER_PUBLIC_KEY_ENV = "QSERVER_ZMQ_PUBLIC_KEY"
 # are matched back to the run the operator enqueued.
 RUN_ID_META_KEY = "osprey_run_id"
 
+# The item-metadata key carrying the plan's own identity — its name and the
+# kwargs it was enqueued with — along the same path. Start documents are the
+# only place a completed run's plan identity survives into Tiled, so this stamp
+# is what lets results be rendered as the plan the operator actually asked for.
+PLAN_META_KEY = "osprey_plan"
+
 # Manager states in which a plan is under way (or about to be). Enqueuing during
 # one of these is an armed operation — the item joins a queue that is already
 # draining toward hardware — so the route layer gates it behind the launch
@@ -405,6 +411,10 @@ class QueueBackend:
     ) -> dict[str, Any]:
         """Append (or insert) one item into the queue.
 
+        When a run id is given, the item also carries the plan's identity — its
+        name and kwargs — under :data:`PLAN_META_KEY`, so a finished run can be
+        rendered as the plan it was without consulting the queue.
+
         Args:
             item: A queueserver item — a plain dict, or a ``BItem``/``BPlan``.
             run_id: OSPREY's run id for this item. Threaded through the item's
@@ -423,6 +433,10 @@ class QueueBackend:
         if run_id is not None:
             meta = dict(payload.get("meta") or {})
             meta[RUN_ID_META_KEY] = run_id
+            meta[PLAN_META_KEY] = {
+                "name": payload.get("name"),
+                "kwargs": dict(payload.get("kwargs") or {}),
+            }
             payload["meta"] = meta
 
         kwargs: dict[str, Any] = {"item": payload}

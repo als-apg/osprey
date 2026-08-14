@@ -27,7 +27,13 @@ threads OSPREY's own run id through queueserver item metadata
 run's start document, and :class:`RunDocumentRouter` reads it back out there.
 A start document without it (someone drove the worker directly) falls back to
 the run uid, so such a run is still recorded — just under the only identity it
-has.
+has. The same metadata path carries the plan stamp
+(``queue_backend.PLAN_META_KEY``), read out here and handed to the recorder so
+a run's rows stay self-describing for a reader holding only its id. Because a
+run id can be reused — re-running an interrupted item keeps it — a start
+document also invalidates any settled figure cached under that id
+(``figure_cache.evict``), which is what lets the figure route trust its cache
+without re-reading the source to check.
 
 **Progress is computed here, not in the worker.** ``rows_seen`` comes from the
 live buffer's true event count; ``expected_points`` comes from the plan
@@ -52,9 +58,9 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from . import live_rows
+from . import figure_cache, live_rows
 from .live_rows import LiveRowRecorder
-from .queue_backend import RUN_ID_META_KEY
+from .queue_backend import PLAN_META_KEY, RUN_ID_META_KEY
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.document_plane")
 
@@ -331,7 +337,12 @@ class RunDocumentRouter:
             if isinstance(declared, int) and not isinstance(declared, bool) and declared > 0:
                 record_expected_points(key, declared)
 
-        recorder = LiveRowRecorder(key=key)
+        # Which plan produced the run travels with its rows: a reader holding
+        # only a run id cannot otherwise tell what the columns mean. Read here,
+        # beside the run id and for the same reason — the stamp is a document
+        # detail, and keeping the extraction in this plane leaves `live_rows`
+        # testable with synthetic documents.
+        recorder = LiveRowRecorder(key=key, plan=doc.get(PLAN_META_KEY))
         with self._lock:
             self._recorders[run_uid] = recorder
             self._recorders.move_to_end(run_uid)
@@ -339,6 +350,16 @@ class RunDocumentRouter:
                 evicted, _ = self._recorders.popitem(last=False)
                 self._forget_descriptors(evicted)
         recorder("start", doc)
+        # The rows under `key` are now this run's, so any settled figure cached
+        # for that id was built from the previous occupant's rows — an operator
+        # re-running an interrupted item reuses the OSPREY run id. Evicting here
+        # is what keeps the figure route from validating its cache at read time,
+        # which would cost the very Tiled search the cache exists to avoid. It
+        # runs AFTER `recorder("start", ...)` returns, so `live_rows`' lock is
+        # released before the cache's is taken (the two are never nested, in
+        # either order) and so the buffer is already the new run's by the time
+        # the generation bump admits figures computed from it.
+        figure_cache.evict(key)
 
     def _on_descriptor(self, doc: dict[str, Any]) -> None:
         descriptor_uid = doc.get("uid")

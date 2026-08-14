@@ -59,10 +59,12 @@ import {
   badgeToneForStatus,
   createResultsView,
   formatCell,
-  numericColumnIndices,
   runMetaParts,
   shouldKeepPolling,
 } from '../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/results-view.js';
+// The absolute specifier the panel itself imports, so the `setTheme()` this
+// file calls drives the very same subscriber set `createResultsView` joins.
+import { setTheme } from '/design-system/js/theme-manager.js';
 
 /** A manager summary in the shape `_status_summary` publishes. */
 function summary(overrides = {}) {
@@ -473,6 +475,13 @@ describe('itemRunId', () => {
     expect(itemRunId(item({ meta: undefined }))).toBeNull();
     expect(itemRunId(null)).toBeNull();
   });
+
+  test('the bridge strips the plan stamp, and the run id still resolves', () => {
+    // What the bridge actually puts on the wire: the enqueue path stamps both
+    // `osprey_run_id` and `osprey_plan` into the item's metadata, and the
+    // queue relays drop the latter. The join key survives that strip.
+    expect(itemRunId(item({ meta: { osprey_run_id: 'run-1' } }))).toBe('run-1');
+  });
 });
 
 describe('itemParamSummary', () => {
@@ -792,20 +801,6 @@ describe('results helpers', () => {
     expect(formatCell('ok')).toBe('ok');
   });
 
-  test('only fully numeric columns are plotted', () => {
-    const data = {
-      columns: ['time', 'signal', 'label'],
-      rows: [
-        [1, 2.5, 'a'],
-        [2, 3.5, 'b'],
-      ],
-      row_count: 2,
-      truncated: false,
-    };
-    expect(numericColumnIndices(data)).toEqual([0, 1]);
-    expect(numericColumnIndices({ ...data, rows: [] })).toEqual([]);
-  });
-
   test('partial data outranks a terminal status when deciding to keep polling', () => {
     expect(shouldKeepPolling('running', false)).toBe(true);
     expect(shouldKeepPolling('completed', false)).toBe(false);
@@ -830,8 +825,8 @@ describe('createResultsView', () => {
       <div id="table-card" hidden><p id="table-note"></p>
         <table><thead><tr id="table-head-row"></tr></thead><tbody id="table-body"></tbody></table>
       </div>
-      <div id="chart-card" hidden>
-        <svg id="results-chart"></svg><ul id="chart-legend"></ul>
+      <div id="figure-card" hidden>
+        <p id="figure-note" hidden></p><div id="figure-panels"></div>
       </div>`;
     /** @param {string} id */
     const byId = (id) => /** @type {any} */ (document.getElementById(id));
@@ -844,13 +839,19 @@ describe('createResultsView', () => {
       tableNote: byId('table-note'),
       tableHeadRow: byId('table-head-row'),
       tableBody: byId('table-body'),
-      chartCard: byId('chart-card'),
-      chartSvg: byId('results-chart'),
-      chartLegend: byId('chart-legend'),
+      figureCard: byId('figure-card'),
+      figurePanels: byId('figure-panels'),
+      figureNote: byId('figure-note'),
     };
   }
 
-  /** @param {Record<string, {status: number, body: any}>} routes */
+  /**
+   * `routes` is read on every call rather than captured, so a test can swap a
+   * route between poll ticks — which is the only way to drive "this tick
+   * failed, the last one did not".
+   *
+   * @param {Record<string, {status: number, body: any}>} routes
+   */
   function stubFetch(routes) {
     return vi.fn(async (/** @type {string} */ url) => {
       const route = routes[url];
@@ -874,6 +875,45 @@ describe('createResultsView', () => {
     truncated: false,
   };
 
+  /**
+   * What `GET /runs/{id}/figure` serves: a bare `Figure`, no wrapper. Typed
+   * against the renderer's own wire typedef so a fixture that drifts from the
+   * bridge's shape fails typecheck rather than quietly testing a fiction.
+   *
+   * @type {import('../../../src/osprey/interfaces/bluesky_panels/panels/bluesky/figure-renderer.js').Figure}
+   */
+  const FIGURE = {
+    panels: [
+      {
+        title: 'signal',
+        x_label: 'time',
+        y_label: 'signal',
+        x_units: 's',
+        y_units: 'counts',
+        annotations: [],
+        mark: {
+          kind: 'lines',
+          series: [
+            {
+              label: 'signal',
+              points: [
+                { x: 1, y: 10 },
+                { x: 2, y: 20 },
+              ],
+              decimated: false,
+              source_points: 2,
+            },
+          ],
+          decimated: false,
+          source_points: 2,
+        },
+      },
+    ],
+    partial: false,
+    source: 'live',
+    reason: null,
+  };
+
   /** @type {ReturnType<typeof createResultsView>|undefined} */
   let view;
 
@@ -893,12 +933,13 @@ describe('createResultsView', () => {
     expect(view.currentRunId()).toBeNull();
   });
 
-  test('a completed run renders its record, table, and trace', async () => {
+  test('a completed run renders its record, its raw table, and its figure', async () => {
     vi.stubGlobal(
       'fetch',
       stubFetch({
         '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'orm' } },
         '/runs/r1/data': { status: 200, body: DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
       })
     );
     const elements = mountElements();
@@ -910,7 +951,90 @@ describe('createResultsView', () => {
     expect(elements.meta.textContent).toContain('orm');
     expect(elements.tableBody.querySelectorAll('tr')).toHaveLength(2);
     expect(elements.tableNote.textContent).toBe('2 rows');
-    expect(elements.chartCard.hidden).toBe(false);
+
+    // The figure is drawn by the renderer, into the container this view hands
+    // it — one section per panel, plus the provenance line.
+    expect(elements.figureCard.hidden).toBe(false);
+    expect(elements.figurePanels.querySelectorAll('.figure-panel')).toHaveLength(1);
+    expect(elements.figureNote.hidden).toBe(false);
+    expect(elements.figureNote.textContent).toContain('live data');
+  });
+
+  test('a default figure carries its reason and is drawn like any other', async () => {
+    // A `reason` means the bridge could not run the plan's own render() and
+    // plotted the raw columns instead. That is a fallback VIEW, not an error
+    // state: nothing about it may be styled or hidden as a failure.
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed' } },
+        '/runs/r1/data': { status: 200, body: DATA },
+        '/runs/r1/figure': { status: 200, body: { ...FIGURE, reason: 'no_render' } },
+      })
+    );
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.figureCard.hidden).toBe(false));
+
+    expect(elements.figurePanels.querySelectorAll('.figure-panel')).toHaveLength(1);
+    // The renderer humanizes the wire vocabulary — `no_render` reads as
+    // "no render" — but it never drops the reason.
+    expect(elements.figureNote.textContent).toContain('no render');
+    expect(elements.emptyState.classList.contains('error')).toBe(false);
+  });
+
+  test('a settled run re-draws its figure on a theme change, with no poll tick', async () => {
+    // The reason `lastFigure` is retained at all: a settled run has STOPPED
+    // polling, so nothing else will ever redraw it. Without this, flipping to
+    // light mode would leave a finished scan in the dark palette until the
+    // operator picked another run.
+    const fetchMock = stubFetch({
+      '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed' } },
+      '/runs/r1/data': { status: 200, body: DATA },
+      '/runs/r1/figure': { status: 200, body: FIGURE },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.figureCard.hidden).toBe(false));
+
+    const drawn = elements.figurePanels.querySelector('.figure-panel');
+    const callsBefore = fetchMock.mock.calls.length;
+
+    setTheme('light');
+
+    // The renderer replaces the container's children wholesale, so a new node
+    // in place of the old one IS the re-render — and no request was made to
+    // get it.
+    const redrawn = elements.figurePanels.querySelector('.figure-panel');
+    expect(redrawn).not.toBeNull();
+    expect(redrawn).not.toBe(drawn);
+    expect(fetchMock.mock.calls.length).toBe(callsBefore);
+  });
+
+  test('the theme subscription is released on destroy', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed' } },
+        '/runs/r1/data': { status: 200, body: DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+      })
+    );
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.figureCard.hidden).toBe(false));
+
+    view.destroy();
+    view = undefined;
+    const drawn = elements.figurePanels.querySelector('.figure-panel');
+    setTheme('dark');
+    // A destroyed view still holding a live subscription would keep drawing
+    // into a container the panel has moved on from.
+    expect(elements.figurePanels.querySelector('.figure-panel')).toBe(drawn);
   });
 
   test('a run the manager has rotated away still shows its stored data', async () => {
@@ -921,6 +1045,7 @@ describe('createResultsView', () => {
       stubFetch({
         '/runs/old': { status: 404, body: { detail: "unknown run 'old'" } },
         '/runs/old/data': { status: 200, body: DATA },
+        '/runs/old/figure': { status: 200, body: { ...FIGURE, source: 'tiled' } },
       })
     );
     const elements = mountElements();
@@ -928,6 +1053,7 @@ describe('createResultsView', () => {
     view.follow('old');
     await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
 
+    expect(elements.figureCard.hidden).toBe(false);
     expect(elements.note.hidden).toBe(false);
     expect(elements.note.textContent).toContain('no longer in the queue');
     expect(elements.statusBadge.hidden).toBe(true);
@@ -941,6 +1067,7 @@ describe('createResultsView', () => {
       stubFetch({
         '/runs/r2': { status: 200, body: { id: 'r2', status: 'running' } },
         '/runs/r2/data': { status: 404, body: { detail: "unknown run 'r2'" } },
+        '/runs/r2/figure': { status: 404, body: { detail: "unknown run 'r2'" } },
       })
     );
     const elements = mountElements();
@@ -949,6 +1076,256 @@ describe('createResultsView', () => {
     await vi.waitFor(() => expect(elements.emptyState.textContent).toContain('No data recorded'));
     expect(elements.emptyState.classList.contains('error')).toBe(false);
     expect(elements.statusBadge.textContent).toBe('running');
+    // A figure 404 is the same "neither source knows this run" as a data 404;
+    // there is nothing to draw, so the card stays away.
+    expect(elements.figureCard.hidden).toBe(true);
+  });
+
+  test('a transient figure failure leaves the last good figure on screen', async () => {
+    // Mirrors what the table already does with its last good rows. A 502 is
+    // the bridge restarting mid-scan — the figure it served a second ago is
+    // still the best thing the operator can be shown.
+    vi.useFakeTimers();
+    /** @type {Record<string, {status: number, body: any}>} */
+    const routes = {
+      '/runs/r1': { status: 200, body: { id: 'r1', status: 'running' } },
+      '/runs/r1/data': { status: 200, body: { ...DATA, partial: true } },
+      '/runs/r1/figure': { status: 200, body: { ...FIGURE, partial: true } },
+    };
+    vi.stubGlobal('fetch', stubFetch(routes));
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(elements.figurePanels.querySelectorAll('.figure-panel')).toHaveLength(1);
+
+    routes['/runs/r1/figure'] = { status: 502, body: { detail: 'bluesky bridge unreachable' } };
+    await vi.advanceTimersByTimeAsync(1100);
+
+    expect(elements.figureCard.hidden).toBe(false);
+    expect(elements.figurePanels.querySelectorAll('.figure-panel')).toHaveLength(1);
+  });
+
+  test('an empty figure never replaces a good one', async () => {
+    // `source_unavailable` is served as a 200 with no panels: the store could
+    // not be read THIS tick, which says nothing about the figure drawn last
+    // tick. Blanking here would flicker a settled scan away and back.
+    vi.useFakeTimers();
+    /** @type {Record<string, {status: number, body: any}>} */
+    const routes = {
+      '/runs/r1': { status: 200, body: { id: 'r1', status: 'running' } },
+      '/runs/r1/data': { status: 200, body: { ...DATA, partial: true } },
+      '/runs/r1/figure': { status: 200, body: { ...FIGURE, partial: true } },
+    };
+    vi.stubGlobal('fetch', stubFetch(routes));
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(elements.figurePanels.querySelectorAll('.figure-panel')).toHaveLength(1);
+
+    routes['/runs/r1/figure'] = {
+      status: 200,
+      body: { panels: [], partial: true, source: 'tiled', reason: 'source_unavailable' },
+    };
+    await vi.advanceTimersByTimeAsync(1100);
+
+    expect(elements.figureCard.hidden).toBe(false);
+    expect(elements.figurePanels.querySelectorAll('.figure-panel')).toHaveLength(1);
+  });
+
+  test('a 200 that is not a figure is transient, and never kills the poll tick', async () => {
+    // What a misconfigured proxy answering for the bridge looks like. The
+    // figure read shares its tick with the record and table reads, so a body
+    // this view cannot parse must not throw: that would take the whole tick
+    // down and freeze the panel with no visible reason.
+    vi.useFakeTimers();
+    /** @type {Record<string, {status: number, body: any}>} */
+    const routes = {
+      '/runs/r1': { status: 200, body: { id: 'r1', status: 'running' } },
+      '/runs/r1/data': { status: 200, body: { ...DATA, partial: true } },
+      '/runs/r1/figure': { status: 200, body: { ...FIGURE, partial: true } },
+    };
+    const fetchMock = stubFetch(routes);
+    vi.stubGlobal('fetch', fetchMock);
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+
+    await vi.advanceTimersByTimeAsync(0);
+    routes['/runs/r1/figure'] = { status: 200, body: [] };
+    await vi.advanceTimersByTimeAsync(1100);
+
+    // A tick beyond the bad one, because the bad tick's own requests go out
+    // before its body is read — counting them would prove nothing.
+    const afterBadPoll = fetchMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(afterBadPoll);
+
+    // Table still updating, last good figure still drawn.
+    expect(elements.tableCard.hidden).toBe(false);
+    expect(elements.figurePanels.querySelectorAll('.figure-panel')).toHaveLength(1);
+  });
+
+  test('a null record body mid-poll keeps the tick alive and holds the table', async () => {
+    // The read proxy's `safe_json` relays a null body on a 200, so every read
+    // in this tick can arrive as 200 + null. Unchecked, `body.status` would
+    // throw and abandon the tick — no reschedule, and the activity marker
+    // stuck on with nothing on screen to explain it.
+    vi.useFakeTimers();
+    /** @type {Record<string, {status: number, body: any}>} */
+    const routes = {
+      '/runs/r1': { status: 200, body: { id: 'r1', status: 'running' } },
+      '/runs/r1/data': { status: 200, body: { ...DATA, partial: true } },
+      '/runs/r1/figure': { status: 200, body: { ...FIGURE, partial: true } },
+    };
+    const fetchMock = stubFetch(routes);
+    vi.stubGlobal('fetch', fetchMock);
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+
+    await vi.advanceTimersByTimeAsync(0);
+    routes['/runs/r1'] = { status: 200, body: null };
+    await vi.advanceTimersByTimeAsync(1100);
+
+    // The tick that SAW the null body has to have rescheduled itself. Counting
+    // requests right after it would prove nothing — its own three requests go
+    // out before the body is ever read, so that count rises even when the tick
+    // then dies. Only a further tick proves it survived.
+    const afterBadPoll = fetchMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(afterBadPoll);
+
+    expect(elements.note.textContent).toContain('Could not load the run record');
+    // And the halves that DID answer are still on screen.
+    expect(elements.tableCard.hidden).toBe(false);
+    expect(elements.tableBody.querySelectorAll('tr')).toHaveLength(2);
+    expect(elements.figurePanels.querySelectorAll('.figure-panel')).toHaveLength(1);
+  });
+
+  test('a null data body mid-poll keeps the tick alive and holds the last rows', async () => {
+    // Same hazard on the table's read: `renderTable` walks `columns` and
+    // `rows`, so a body with neither is transient, and transient means the
+    // last good window stays where the operator can still read it.
+    vi.useFakeTimers();
+    /** @type {Record<string, {status: number, body: any}>} */
+    const routes = {
+      '/runs/r1': { status: 200, body: { id: 'r1', status: 'running' } },
+      '/runs/r1/data': { status: 200, body: { ...DATA, partial: true } },
+      '/runs/r1/figure': { status: 200, body: { ...FIGURE, partial: true } },
+    };
+    const fetchMock = stubFetch(routes);
+    vi.stubGlobal('fetch', fetchMock);
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+
+    await vi.advanceTimersByTimeAsync(0);
+    routes['/runs/r1/data'] = { status: 200, body: null };
+    await vi.advanceTimersByTimeAsync(1100);
+
+    // Same reasoning as the record case: only a tick AFTER the bad one proves
+    // the bad one rescheduled rather than died.
+    const afterBadPoll = fetchMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(afterBadPoll);
+
+    expect(elements.tableCard.hidden).toBe(false);
+    expect(elements.tableBody.querySelectorAll('tr')).toHaveLength(2);
+    expect(elements.statusBadge.textContent).toBe('running');
+    // Not an error state: a read that failed this tick is not a claim that
+    // the run went wrong.
+    expect(elements.emptyState.hidden).toBe(true);
+  });
+
+  test('a run that exists in neither source clears the figure and goes quiet', async () => {
+    // The one genuinely terminal case. The banner must not sit over a plot of
+    // a run that no longer exists, so whatever was drawn is cleared first —
+    // and with nothing left to wait for, the poll stops.
+    vi.useFakeTimers();
+    const fetchMock = stubFetch({
+      '/runs/gone': { status: 404, body: { detail: "unknown run 'gone'" } },
+      '/runs/gone/data': { status: 404, body: { detail: "unknown run 'gone'" } },
+      '/runs/gone/figure': { status: 404, body: { detail: "unknown run 'gone'" } },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('gone');
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(elements.emptyState.textContent).toContain('No record and no data');
+    expect(elements.emptyState.classList.contains('error')).toBe(true);
+    expect(elements.figureCard.hidden).toBe(true);
+
+    const afterFirstPoll = fetchMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(fetchMock.mock.calls.length).toBe(afterFirstPoll);
+  });
+
+  test('a renderer that throws does not take the poll tick down with it', async () => {
+    // A body whose `panels` array is well-formed but whose contents are not
+    // gets past the wire check and reaches the renderer. Containing the throw
+    // here is what keeps the record and table reads — which share this tick —
+    // alive, and the tab's activity marker honest.
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    /** @type {Record<string, {status: number, body: any}>} */
+    const routes = {
+      '/runs/r1': { status: 200, body: { id: 'r1', status: 'running' } },
+      '/runs/r1/data': { status: 200, body: { ...DATA, partial: true } },
+      '/runs/r1/figure': { status: 200, body: { ...FIGURE, panels: [{ nonsense: true }] } },
+    };
+    const fetchMock = stubFetch(routes);
+    vi.stubGlobal('fetch', fetchMock);
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+
+    await vi.advanceTimersByTimeAsync(0);
+    const afterBadPoll = fetchMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1100);
+
+    // The first tick already hit the throwing panel, so a further tick is what
+    // proves the throw was contained rather than fatal.
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(afterBadPoll);
+    expect(elements.tableCard.hidden).toBe(false);
+    // Named specifically, because the theme bridges also log to console.error
+    // in this environment (no stylesheet, so the sentinel token reads empty) —
+    // a bare "was called" assertion here would pass without a throw at all.
+    expect(consoleError).toHaveBeenCalledWith(
+      'osprey bluesky results: the figure renderer threw',
+      expect.any(Error)
+    );
+    // And the draw genuinely failed: the card was never revealed.
+    expect(elements.figureCard.hidden).toBe(true);
+    consoleError.mockRestore();
+  });
+
+  test('a run whose figure is still partial keeps polling after its data settles', async () => {
+    // The Tiled-served case the bridge documents: a run with no stop document
+    // reports `partial: true` on the figure even once its record reads
+    // terminal and its data window looks settled. Either half still filling in
+    // has to keep the poll alive.
+    vi.useFakeTimers();
+    const fetchMock = stubFetch({
+      '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed' } },
+      '/runs/r1/data': { status: 200, body: DATA },
+      '/runs/r1/figure': { status: 200, body: { ...FIGURE, partial: true, source: 'tiled' } },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    view = createResultsView({ api: (p) => p, elements: mountElements() });
+    view.follow('r1');
+
+    await vi.advanceTimersByTimeAsync(0);
+    const afterFirstPoll = fetchMock.mock.calls.length;
+    expect(afterFirstPoll).toBe(3);
+
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(afterFirstPoll);
   });
 
   test('a rotated-away run whose data is still partial keeps polling', async () => {
@@ -959,6 +1336,8 @@ describe('createResultsView', () => {
     const fetchMock = stubFetch({
       '/runs/old': { status: 404, body: { detail: "unknown run 'old'" } },
       '/runs/old/data': { status: 200, body: { ...DATA, partial: true } },
+      // Settled, so the data half alone is what keeps this alive.
+      '/runs/old/figure': { status: 200, body: { ...FIGURE, source: 'tiled' } },
     });
     vi.stubGlobal('fetch', fetchMock);
     view = createResultsView({ api: (p) => p, elements: mountElements() });
@@ -966,19 +1345,21 @@ describe('createResultsView', () => {
 
     await vi.advanceTimersByTimeAsync(0);
     const afterFirstPoll = fetchMock.mock.calls.length;
-    expect(afterFirstPoll).toBe(2);
+    expect(afterFirstPoll).toBe(3);
 
     await vi.advanceTimersByTimeAsync(1100);
     expect(fetchMock.mock.calls.length).toBeGreaterThan(afterFirstPoll);
   });
 
   test('a settled rotated-away run stops polling', async () => {
-    // The negative control for the test above: without `partial`, a 404 record
-    // is the end of the story and the panel must go quiet.
+    // The negative control for both tests above: with neither half reporting
+    // `partial`, a 404 record is the end of the story and the panel must go
+    // quiet.
     vi.useFakeTimers();
     const fetchMock = stubFetch({
       '/runs/old': { status: 404, body: { detail: "unknown run 'old'" } },
       '/runs/old/data': { status: 200, body: DATA },
+      '/runs/old/figure': { status: 200, body: { ...FIGURE, source: 'tiled' } },
     });
     vi.stubGlobal('fetch', fetchMock);
     view = createResultsView({ api: (p) => p, elements: mountElements() });
@@ -1091,12 +1472,16 @@ describe('bundle wiring', () => {
   // repo root.
   const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_panels/panels/bluesky/`;
 
-  test('every element id the shell and queue view look up exists in index.html', () => {
+  test('every element id the shell, queue view and figure renderer look up exists in index.html', () => {
     // The bundle has no build step and is served as authored, so a renamed id
     // fails only at runtime, in the operator's browser, as a silently dead
     // control. This is the drift-net for that. (plans-view.js gets the same
     // guard in draft-client.test.mjs.)
-    const source = [`${BUNDLE}panel.js`, `${BUNDLE}queue-view.js`]
+    //
+    // figure-renderer.js contributes nothing today — it is handed its
+    // containers and looks nothing up — and is scanned precisely so that stays
+    // true: the first `byId` added there has to name a real element.
+    const source = [`${BUNDLE}panel.js`, `${BUNDLE}queue-view.js`, `${BUNDLE}figure-renderer.js`]
       .map((path) => readFileSync(path, 'utf-8'))
       .join('\n');
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');

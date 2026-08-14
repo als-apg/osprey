@@ -238,8 +238,12 @@ def test_enqueue_on_an_idle_queue_is_ungated_and_threads_the_run_id(
     assert add_kwargs["item"]["item_type"] == "plan"
     assert add_kwargs["item"]["name"] == "grid_scan"
     assert add_kwargs["item"]["kwargs"] == _GRID_SCAN_ARGS
-    # The OSPREY run id rides the item metadata into start docs.
-    assert add_kwargs["item"]["meta"] == {qb.RUN_ID_META_KEY: body["run_id"]}
+    # The OSPREY run id and the plan's identity ride the item metadata into
+    # start docs.
+    assert add_kwargs["item"]["meta"] == {
+        qb.RUN_ID_META_KEY: body["run_id"],
+        qb.PLAN_META_KEY: {"name": "grid_scan", "kwargs": _GRID_SCAN_ARGS},
+    }
 
     # Arming checks bypass the client's status cache: the capability probe is
     # a plain read, but the pre-check and the unarmed post-add re-check MUST

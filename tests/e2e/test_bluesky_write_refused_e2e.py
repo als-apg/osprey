@@ -140,6 +140,7 @@ def test_bluesky_write_tools_structurally_disallowed(tmp_path: Path) -> None:
     # Reads stay structurally available.
     assert "mcp__bluesky__get_run" not in disallowed
     assert "mcp__bluesky__get_run_data" not in disallowed
+    assert "mcp__bluesky__get_run_figure" not in disallowed
 
 
 def test_query_refuses_queue_arming_tools(tmp_path: Path) -> None:

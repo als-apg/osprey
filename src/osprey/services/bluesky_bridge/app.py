@@ -27,18 +27,37 @@ import logging
 import os
 import re
 from contextlib import asynccontextmanager, suppress
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import ValidationError
 
-from . import document_plane, draft, live_rows, queue, runs
+from . import document_plane, draft, figure_cache, live_rows, queue, runs
+from .figure import (
+    DEFAULT_MAX_POINTS,
+    REASON_NO_RENDER,
+    REASON_PARAMS_MISMATCH,
+    REASON_PLAN_IDENTITY_UNAVAILABLE,
+    REASON_RENDER_FAILED,
+    REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS,
+    REASON_SOURCE_UNAVAILABLE,
+    BarsMark,
+    Figure,
+    LinesMark,
+    Point,
+    RowWindow,
+    Series,
+    decimate,
+    default_figure,
+    rows_from_columnar,
+)
 from .models import (
     PlanSessionWriteRequest,
     PlanValidateRequest,
 )
 from .plan_types import Provenance
 from .plan_validation import hash_plan_body, validate_plan
-from .queue_backend import QueueBackendError
+from .queue_backend import PLAN_META_KEY, QueueBackendError
 from .session_dir import resolve_session_plan_dir
 from .session_upload import get_session_uploader, upload_after_validation
 from .validation import _assert_limits_readable_if_writable
@@ -772,6 +791,67 @@ def _window(
     }
 
 
+def _tiled_client() -> Any | None:
+    """A client for the configured Tiled catalog, or ``None`` when unconfigured.
+
+    ``BLUESKY_TILED_API_KEY`` is read with ``.get``, never a bare subscript: a
+    token-less catalog is a working configuration (`from_uri` accepts
+    ``api_key=None``), not a ``KeyError`` on the first read that needs it.
+
+    `tiled` is imported here, never at module level, so `app.py` stays
+    import-clean of it (`_BRIDGE_ONLY_MODULES`) even when Tiled *is* configured
+    for this deploy.
+    """
+    uri = os.environ.get(_TILED_URI_ENV)
+    if not uri:
+        logger.info(
+            "tiled read: %s is unset; Tiled is not configured for this deploy", _TILED_URI_ENV
+        )
+        return None
+
+    from tiled.client import from_uri
+
+    return from_uri(uri, api_key=os.environ.get(_TILED_API_KEY_ENV))
+
+
+def _newest_run_node(client: Any, run_id: str) -> Any | None:
+    """The catalog node for *run_id* — the newest ``start.time`` when several match.
+
+    A re-run of an interrupted item records a second start document under the
+    same OSPREY run id, so the search can legitimately return several nodes;
+    ``matches[0]`` would leave the choice to whatever order the server answers
+    in. The newest start is the run the id currently means — the same "latest
+    occupant wins" rule the live buffer applies by overwriting on start.
+
+    The start doc `TiledWriter.start` records lives under ``metadata["start"]``
+    on the run container — a bare ``Key("osprey_run_id")`` matches nothing.
+    """
+    from tiled.queries import Key
+
+    matches = list(client.search(Key("start.osprey_run_id") == run_id).values())
+    if not matches:
+        return None
+
+    def _start_time(node: Any) -> float:
+        time = dict(node.metadata).get("start", {}).get("time")
+        return time if isinstance(time, int | float) else float("-inf")
+
+    return max(matches, key=_start_time)
+
+
+def _data_columns(table: Any) -> list[str]:
+    """The stored table's data columns, projected onto the live buffer's set.
+
+    Tiled's stored rows carry ``seq_num``, ``time``, and per-signal ``ts_*``
+    timestamp columns the live buffer never had (see `LiveRowRecorder`). Both
+    Tiled readers — `_from_tiled` for the data route, `_figure_source_from_tiled`
+    for the figure route — project them away HERE, so "a run replayed from
+    Tiled has the identical column set it had live" is one rule in one place
+    rather than two filters that happen to agree.
+    """
+    return [c for c in table.columns if c != "seq_num" and c != "time" and not c.startswith("ts_")]
+
+
 def _from_tiled(
     run_id: str, max_rows: int, offset: int | None, tail: bool
 ) -> dict[str, Any] | None:
@@ -791,23 +871,12 @@ def _from_tiled(
     `tiled` is imported here, never at module level, so `app.py` stays import-clean of it
     (`_BRIDGE_ONLY_MODULES`) even when Tiled *is* configured for this deploy.
     """
-    uri = os.environ.get(_TILED_URI_ENV)
-    if not uri:
-        logger.info(
-            "_from_tiled: %s is unset; Tiled is not configured for this deploy", _TILED_URI_ENV
-        )
+    client = _tiled_client()
+    if client is None:
         return None
-
-    from tiled.client import from_uri
-    from tiled.queries import Key
-
-    client = from_uri(uri, api_key=os.environ[_TILED_API_KEY_ENV])
-    # The start doc `TiledWriter.start` records lives under `metadata["start"]`
-    # on the run container — a bare `Key("osprey_run_id")` matches nothing.
-    matches = list(client.search(Key("start.osprey_run_id") == run_id).values())
-    if not matches:
+    run_node = _newest_run_node(client, run_id)
+    if run_node is None:
         return None
-    run_node = matches[0]
 
     run_uid = dict(run_node.metadata).get("start", {}).get("uid")
 
@@ -829,12 +898,7 @@ def _from_tiled(
         # `.base` container.
         internal_table = run_node["primary"].base["internal"]
         table = internal_table.read()
-        # Tiled's stored rows carry `seq_num`, `time`, and per-signal `ts_*`
-        # timestamp columns the live buffer never had (see `LiveRowRecorder`)
-        # — project those away so both sources return the identical column set.
-        columns = [
-            c for c in table.columns if c != "seq_num" and c != "time" and not c.startswith("ts_")
-        ]
+        columns = _data_columns(table)
         rows = table[columns].values.tolist()
         total_seen = len(table)
 
@@ -899,3 +963,339 @@ def get_run_data(
         return tiled_result
 
     raise HTTPException(status_code=404, detail=f"unknown run {run_id!r}")
+
+
+# ---------------------------------------------------------------------------
+# Run figures
+# ---------------------------------------------------------------------------
+
+
+class _CachedFigure(NamedTuple):
+    """What the settled-figure cache stores: the served figure plus check data.
+
+    `figure_cache` stores values opaquely, so the route wraps what it needs
+    beside the figure: ``total_seen`` lets the live branch re-validate a hit
+    against the buffer snapshot it already holds (a recycled run id whose
+    eviction has not landed yet shows up as a row-count mismatch — a free
+    check, costing no extra source read), and ``run_uid`` is carried on Tiled
+    entries for logging only.
+    """
+
+    figure: Figure
+    total_seen: int
+    run_uid: str | None
+
+
+def _figure_source_from_tiled(run_id: str) -> dict[str, Any] | None:
+    """Read a run's FULL stored table from Tiled for the figure route.
+
+    Unlike `_from_tiled`, which windows rows for `get_run_data`, this returns
+    every stored row: a figure is computed over the whole run (a windowed ORM
+    fit is silently wrong), sorted by ``seq_num`` so rows are in emission order
+    however the catalog returns them, then projected onto the live-buffer
+    column set exactly as the data path is.
+
+    The figure route also needs the run's story, not just its rows: the plan
+    stamp the enqueue path recorded onto the start document, and whether the
+    run has settled — decided by the stop document's presence, the same signal
+    ``partial`` means everywhere, never the run record.
+
+    Returns ``None`` when Tiled is unconfigured or no run matches; the caller
+    turns either into `get_run_data`'s exact 404.
+    """
+    client = _tiled_client()
+    if client is None:
+        return None
+    run_node = _newest_run_node(client, run_id)
+    if run_node is None:
+        return None
+
+    metadata = dict(run_node.metadata)
+    start = metadata.get("start") or {}
+
+    if "primary" not in run_node:
+        # Start doc landed but no Event ever arrived — a real, empty run. See
+        # `_from_tiled` for why this is a membership check on `"primary"` and
+        # never a broad `try`/`except KeyError` around the traversal.
+        columns: list[str] = []
+        rows: list[Any] = []
+        total_seen = 0
+    else:
+        table = run_node["primary"].base["internal"].read()
+        if "seq_num" in table.columns:
+            table = table.sort_values("seq_num", kind="stable")
+        columns = _data_columns(table)
+        rows = table[columns].values.tolist()
+        total_seen = len(table)
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "total_seen": total_seen,
+        "partial": metadata.get("stop") is None,
+        "plan": start.get(PLAN_META_KEY),
+        "run_uid": start.get("uid"),
+    }
+
+
+def _decimate_figure(figure: Figure) -> Figure:
+    """Bound every lines/bars series to `DEFAULT_MAX_POINTS`, truthfully flagged.
+
+    Mutates *figure* in place and returns it. Only marks that actually exceed
+    the budget are touched — an already-bounded mark keeps whatever
+    ``decimated``/``source_points`` truth its author set, and a touched mark's
+    aggregates are recomputed from its per-series truth. `BarsMark` carries no
+    `Point` list, so its values ride through `decimate` as index-valued points
+    and the kept indices select the surviving category/value pairs — same
+    stride, same endpoint rule, and a ``None`` value survives as a gap.
+    """
+    for panel in figure.panels:
+        mark = panel.mark
+        if isinstance(mark, LinesMark):
+            if not any(len(series.points) > DEFAULT_MAX_POINTS for series in mark.series):
+                continue
+            mark.series = [
+                series
+                if len(series.points) <= DEFAULT_MAX_POINTS
+                else Series(
+                    label=series.label,
+                    **decimate(
+                        series.points,
+                        source_points=series.source_points,
+                        decimated=series.decimated,
+                    )._asdict(),
+                )
+                for series in mark.series
+            ]
+            mark.decimated = any(series.decimated for series in mark.series)
+            mark.source_points = sum(series.source_points for series in mark.series)
+        elif isinstance(mark, BarsMark) and len(mark.values) > DEFAULT_MAX_POINTS:
+            indexed = [Point(x=float(i), y=value) for i, value in enumerate(mark.values)]
+            thinned = decimate(indexed, source_points=mark.source_points, decimated=mark.decimated)
+            kept = [int(point.x) for point in thinned.points]
+            mark.categories = [mark.categories[i] for i in kept]
+            mark.values = [mark.values[i] for i in kept]
+            mark.decimated = thinned.decimated
+            mark.source_points = thinned.source_points
+    return figure
+
+
+def _stamp_name(plan_stamp: Any) -> str | None:
+    """The stamp's plan name, or ``None`` unless it is an actual string.
+
+    The stamp is opaque data off a document: a malformed one (non-dict, or a
+    name that is a list/number) must degrade to `plan_identity_unavailable`
+    like any other unusable identity — never reach a catalog lookup or a cache
+    key, where a non-str, possibly unhashable name would raise.
+    """
+    if not isinstance(plan_stamp, dict):
+        return None
+    name = plan_stamp.get("name")
+    return name if isinstance(name, str) else None
+
+
+def _compose_figure(
+    *,
+    columns: list[str],
+    rows: list[Any],
+    total_seen: int,
+    plan_stamp: Any,
+    partial: bool,
+    source: Literal["live", "tiled"],
+) -> tuple[Figure, bool]:
+    """One source snapshot in, one servable figure out — total, never raises.
+
+    Returns ``(figure, cacheable)``. ``cacheable`` is False only when the
+    figure describes a *transient* failure of this process rather than a truth
+    about the run — today, a plan catalog that raised — so the route must not
+    stick it to a settled run; every other outcome, genuine no-owner lookups
+    included, caches normally.
+
+    Every fallback is the default figure carrying its machine-readable
+    ``reason``; ``partial`` and ``source`` are stamped from the SOURCE's truth
+    on every path, plan-rendered figures included — a `render` sees rows, not
+    their provenance, so both of its own values are placeholders by convention
+    (see `plans_core/orm.py`).
+
+    The reason ladder, in the order it is walked:
+
+    - ``plan_identity_unavailable`` — no plan stamp on the source, a stamp
+      with no name (a run enqueued before stamping existed, or driven directly
+      at the worker), or a malformed stamp whose name is not a string. The
+      stamp is the ONLY identity source; the run record is never consulted.
+    - ``no_render`` — the stamped name has no current owner in the plan
+      catalog (removed or renamed since the run), its spec carries no
+      ``render``, or the catalog itself failed to load (logged; the one
+      non-cacheable case). Figures are always computed by the plan code
+      *currently* owning the name.
+    - ``render_not_supported_for_session_plans`` — the name resolves to a
+      session/unreviewed spec. Decided on provenance, not on ``render is
+      None``, so the authoring agent learns *why* rather than seeing a plain
+      ``no_render``.
+    - ``params_mismatch`` — the stamped kwargs no longer validate against the
+      plan's current schema (schema drift since the run), or the source
+      snapshot itself is structurally broken (`rows_from_columnar` refuses a
+      window claiming more rows than its run, or ragged rows — same treatment:
+      the stored shape no longer matches what the code expects).
+    - ``render_failed`` — the plan's `render` raised, returned a non-`Figure`,
+      or produced marks whose decimation truth is inconsistent.
+    """
+    try:
+        window = rows_from_columnar(columns, rows, total_seen)
+    except ValueError:
+        logger.warning("figure: malformed row snapshot; serving the default figure", exc_info=True)
+        window = RowWindow(
+            rows=[], columns=list(columns), rows_complete=False, total_seen=max(total_seen, 0)
+        )
+        figure = _decimate_figure(
+            default_figure(window, reason=REASON_PARAMS_MISMATCH, partial=partial, source=source)
+        )
+        return figure, True
+
+    def _default(reason: str) -> Figure:
+        return _decimate_figure(
+            default_figure(window, reason=reason, partial=partial, source=source)
+        )
+
+    plan_name = _stamp_name(plan_stamp)
+    if plan_name is None:
+        return _default(REASON_PLAN_IDENTITY_UNAVAILABLE), True
+
+    try:
+        from .plan_loader import get_facility_plans
+
+        spec = get_facility_plans().plans.get(plan_name)
+    except Exception:
+        # A failing catalog is this process's transient trouble, not a truth
+        # about the run — hence cacheable=False, so it never sticks to a
+        # settled run the way a genuine no-owner lookup legitimately would.
+        logger.warning(
+            "figure: plan catalog unavailable; serving the default figure", exc_info=True
+        )
+        return _default(REASON_NO_RENDER), False
+    if spec is None:
+        return _default(REASON_NO_RENDER), True
+    if spec.provenance in ("session", "unreviewed"):
+        return _default(REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS), True
+    if spec.render is None:
+        return _default(REASON_NO_RENDER), True
+
+    kwargs = plan_stamp.get("kwargs")
+    try:
+        params = spec.schema.model_validate({} if kwargs is None else kwargs)
+    except ValidationError:
+        return _default(REASON_PARAMS_MISMATCH), True
+
+    try:
+        rendered = spec.render(window.rows, params)
+        if not isinstance(rendered, Figure):
+            raise TypeError(f"render returned {type(rendered).__name__}, not a Figure")
+        figure = _decimate_figure(
+            rendered.model_copy(update={"partial": partial, "source": source})
+        )
+        return figure, True
+    except Exception:
+        logger.warning(
+            "figure: plan %r render failed; serving the default figure",
+            plan_name,
+            exc_info=True,
+        )
+        return _default(REASON_RENDER_FAILED), True
+
+
+@app.get("/runs/{run_id}/figure")
+def get_run_figure(run_id: str) -> dict:
+    """A run's figure: its plan's own view of the rows, or the default view.
+
+    Total over known runs — every run a DATA source knows has a figure, and
+    every degradation is a 200 default figure with a machine-readable
+    ``reason`` (this route is polled at 1 Hz; a flaky catalog must never
+    become a 500). ``partial`` and ``source`` are always present. 404 only
+    when neither the live buffer nor Tiled knows the run — byte-for-byte
+    `get_run_data`'s 404; the run RECORD is never consulted anywhere here (it
+    would need an awaited manager RPC from this sync def, could raise on a
+    never-non-200 route, and would make /figure and /data disagree about a
+    pending run).
+
+    Settledness comes from the SOURCE only — the live buffer's ``partial``
+    flag, or the stop document's presence in Tiled — never from the run
+    record, whose terminal status can precede the last rows and survives a
+    re-run of an interrupted item under the same run id. Settled figures are
+    cached (`figure_cache`) so a second GET on a settled Tiled run issues zero
+    Tiled calls; recycled run ids are handled by the document plane's
+    invalidate-on-write eviction plus the generation compare-and-set on store.
+    Live runs recompute per tick — ~50 ms end-to-end at facility scale, of
+    which the vectorized fit is ~15 ms.
+
+    A plain sync ``def`` (threadpool, like `get_run_data`) — no awaits, no
+    single-flight; losers of a cache race simply recompute.
+    """
+    # Generation before the source snapshot: if an eviction (a new start doc
+    # for this id) lands between the two reads, the CAS put below must lose.
+    # Read the other way around, a snapshot of the OLD rows could be stored
+    # under the NEW generation — a poisoned settled entry.
+    generation = figure_cache.snapshot_generation(run_id)
+
+    buf = live_rows.get(run_id)
+    if buf is not None:
+        plan_stamp = buf["plan"]
+        partial = bool(buf["partial"])
+        key = figure_cache.make_key(run_id, _stamp_name(plan_stamp), "live")
+        if not partial:
+            cached = figure_cache.get(key)
+            if isinstance(cached, _CachedFigure) and cached.total_seen == buf["total_seen"]:
+                return cached.figure.model_dump()
+        figure, cacheable = _compose_figure(
+            columns=buf["columns"],
+            rows=buf["rows"],
+            total_seen=buf["total_seen"],
+            plan_stamp=plan_stamp,
+            partial=partial,
+            source="live",
+        )
+        if not partial and cacheable:
+            figure_cache.put(key, _CachedFigure(figure, buf["total_seen"], None), generation)
+        return figure.model_dump()
+
+    cached = figure_cache.get_for_source(run_id, "tiled")
+    if isinstance(cached, _CachedFigure):
+        logger.debug(
+            "figure: settled Tiled cache hit for run %r (run_uid=%s)", run_id, cached.run_uid
+        )
+        return cached.figure.model_dump()
+
+    try:
+        snapshot = _figure_source_from_tiled(run_id)
+    except Exception:
+        # `partial=True` because settledness is unknowable without the source:
+        # the panel keeps its last good figure and keeps polling, which is the
+        # behavior that recovers when the catalog does.
+        logger.warning(
+            "figure: Tiled read failed for run %r; serving the default figure",
+            run_id,
+            exc_info=True,
+        )
+        window = RowWindow(rows=[], columns=[], rows_complete=False, total_seen=0)
+        return default_figure(
+            window, reason=REASON_SOURCE_UNAVAILABLE, partial=True, source="tiled"
+        ).model_dump()
+
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail=f"unknown run {run_id!r}")
+
+    plan_stamp = snapshot["plan"]
+    figure, cacheable = _compose_figure(
+        columns=snapshot["columns"],
+        rows=snapshot["rows"],
+        total_seen=snapshot["total_seen"],
+        plan_stamp=plan_stamp,
+        partial=snapshot["partial"],
+        source="tiled",
+    )
+    if not snapshot["partial"] and cacheable:
+        figure_cache.put(
+            figure_cache.make_key(run_id, _stamp_name(plan_stamp), "tiled"),
+            _CachedFigure(figure, snapshot["total_seen"], snapshot["run_uid"]),
+            generation,
+        )
+    return figure.model_dump()

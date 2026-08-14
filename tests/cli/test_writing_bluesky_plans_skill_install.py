@@ -182,6 +182,53 @@ class TestWritingBlueskyPlansSkillStructure:
         assert "contribute" in skill_text.lower()
         assert "promote" not in skill_text.lower()
 
+    # --- the plan's own view ---
+
+    def test_documents_the_render_contract(self, skill_text):
+        """``render`` is optional, but the three things an author gets wrong
+        about it are not: its signature, that it must never raise, and that its
+        labels come from the run rather than from a facility."""
+        assert "render(rows, params)" in skill_text
+        prose = _prose(skill_text)
+        assert "render() must never raise" in prose
+        assert "render_failed" in skill_text
+        assert "stay facility-neutral" in prose
+
+    def test_documents_the_figure_vocabulary(self, skill_text):
+        """One panel carries exactly one mark; an author has to know which
+        three exist before choosing between them."""
+        for name in ("Figure", "Panel", "LinesMark", "BarsMark", "HeatmapMark"):
+            assert name in skill_text, f"Missing figure model: {name}"
+
+    def test_documents_the_osprey_modules_a_plan_may_import(self, skill_text):
+        """Keyed to the validator's own constant, and bidirectional.
+
+        Set equality rather than a membership loop: a loop catches a WIDENED
+        allowlist (a new module the prose never mentions) but not a narrowed
+        one, which would leave the skill telling authors to import something
+        the validator now rejects -- stale prose staying green. The dotted
+        ``osprey.*`` strings in this skill are exactly the allow-listed modules
+        (``_osprey_connector`` in the pattern-scan section has no dot and does
+        not match), so equality holds today and fails on drift in either
+        direction. It also pins the "Exactly two" claim in the prose without
+        asserting on that wording.
+        """
+        named = set(re.findall(r"osprey\.[\w.]*\w", skill_text))
+        assert named == set(plan_validation._ALLOWED_OSPREY_SUBMODULES)
+
+    def test_documents_the_session_tier_render_exclusion(self, skill_text):
+        """A session plan's ``render`` is never run -- and the reason an author
+        needs is that nothing about running the plan changes, only the drawing,
+        so this never reads as a plan that half-works."""
+        assert "render_not_supported_for_session_plans" in skill_text
+        prose = _prose(skill_text)
+        assert "nothing about the execution surface changes" in prose
+
+    def test_documents_the_figure_watch_tool(self, skill_text):
+        """A plan that ships a view is exactly the case where the figure read
+        beats the row read."""
+        assert "get_run_figure" in skill_text
+
     # --- explicit out-of-scope guidance ---
 
     def test_explicitly_rules_out_bba_and_tune_scan(self, skill_text):

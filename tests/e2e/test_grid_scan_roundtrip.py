@@ -58,6 +58,7 @@ from typing import Any
 
 import pytest
 
+from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 
@@ -273,7 +274,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
     corrector_col = _find_column(columns, corrector_name)
     bpm_col = _find_column(columns, bpm_name)
 
-    rows = [dict(zip(columns, values, strict=True)) for values in data["rows"]]
+    rows = rows_from_columnar(columns, data["rows"], data["row_count"]).rows
     assert len(rows) == NUM_POINTS
 
     corrector_values = [row[corrector_col] for row in rows]

@@ -504,6 +504,153 @@ def wait_for_health(url: str, timeout: float) -> None:
     raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
+#: The bridge's compose SERVICE name -- the key under ``services:`` in
+#: ``services/bluesky/docker-compose.yml.j2``, and what a compose subcommand
+#: takes. Distinct from the CONTAINER name the same template pins with
+#: ``container_name:`` (``<project>-bluesky-bridge``, see
+#: :func:`bridge_container`), which is what ``docker inspect``/``docker logs``
+#: take.
+BRIDGE_SERVICE = "bluesky-bridge"
+
+#: Budget for the ``compose restart`` call itself. A restart stops and starts
+#: one already-built container -- no image build, no dependency resolution --
+#: so this is headroom over a healthy stop/start, not a build allowance.
+RESTART_TIMEOUT_SEC = 120
+
+#: Budget for the bridge to answer ``/health`` again after a restart. Far
+#: shorter than a cold deploy's health wait: the image exists and the container
+#: exists, so this covers one process start plus its manager reconnect.
+RESTART_HEALTH_TIMEOUT_SEC = 180.0
+
+
+def bridge_container(project_name: str) -> str:
+    """``<project>-bluesky-bridge`` for ``project_name`` -- the CONTAINER name
+    the bridge compose template pins with ``container_name:``.
+
+    Derived from :func:`project_prefix` rather than hardcoded, for the same
+    reason the image helpers are: the name is project-scoped, and a host-global
+    literal would be wrong for every other deployed project.
+    """
+    return f"{project_prefix(project_name)}-{BRIDGE_SERVICE}"
+
+
+def _container_started_at(container: str) -> str:
+    """``.State.StartedAt`` of ``container``, as docker reports it.
+
+    Compared across a restart to prove the process was actually replaced -- the
+    whole point of :func:`restart_bridge`, and the one thing a zero exit code
+    from compose does not establish on its own.
+    """
+    result = subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.StartedAt}}", container],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"could not inspect {container} (rc={result.returncode}): "
+            f"{(result.stderr or result.stdout).strip()}"
+        )
+    return result.stdout.strip()
+
+
+def restart_bridge(
+    project_name: str,
+    *,
+    bridge_url: str,
+    health_timeout: float = RESTART_HEALTH_TIMEOUT_SEC,
+) -> None:
+    """Restart ONLY the bluesky-bridge container of a deployed stack, then wait
+    for it to answer ``/health`` again.
+
+    Why an e2e needs this: the bridge holds a run's rows in an in-process ring
+    buffer (``live_rows``), and nothing an HTTP client can call empties it --
+    ``live_rows._clear()`` is in-process, and eviction needs 50 further runs.
+    Restarting the process is the only way a test can drop that buffer and so
+    force the read paths (``/runs/{id}/data``, ``/runs/{id}/figure``) onto their
+    Tiled branch. Everything else keeps running: the queueserver, its Redis, the
+    Tiled catalog and the Virtual Accelerator are untouched, so the completed
+    run's documents are still in the catalog and the scan stack is still
+    deployed.
+
+    Restarting the bridge cannot lose documents, because the bridge is not what
+    writes them: the ``TiledWriter`` subscription lives in the QUEUESERVER
+    WORKER (``qserver_startup``), on the other side of this restart. What dies
+    with the bridge process is its READ-side live buffer, which is exactly the
+    state a test wants gone.
+
+    WHAT THIS PROVES, AND WHAT IT DOES NOT. The health wait proves the bridge
+    process is UP and serving. It says nothing about TiledWriter having flushed
+    the run to the catalog -- that is a separate, asynchronous fact. A caller
+    that needs the Tiled branch to actually answer must poll for it (a bounded
+    poll on the route it cares about until ``source == "tiled"``), never infer
+    it from this function returning. That poll belongs to the caller, whose
+    route knows what "answered from Tiled" looks like -- see
+    ``test_orm_roundtrip.py``, which waits on ``/runs/{id}/figure`` reporting
+    both ``source == "tiled"`` and ``partial == false``.
+
+    Nor does it restore enqueue readiness: the RE worker environment is opened
+    by the bridge off its readiness path, so a caller that goes on to enqueue
+    after a restart must re-wait via ``_queue_drive.wait_for_worker_environment``.
+
+    Container safety: the compose invocation is pinned to THIS deployment's
+    project (``-p <project>``, resolved exactly as the deploy pins
+    ``COMPOSE_PROJECT_NAME``) and names one exact service, so it can never reach
+    another session's containers. No ``-f`` is passed: compose resolves the
+    project from the running containers' own labels, which is what makes this a
+    one-service operation on a live stack rather than a re-read of a render.
+
+    :param project_name: The name the stack was built/deployed under (the raw
+        name, as passed to ``build_project_subprocess``) -- the compose project
+        and container names are derived from it here.
+    :param bridge_url: The bridge's base URL, e.g. ``http://localhost:18102``.
+        ``/health`` is appended to it.
+    :param health_timeout: Seconds to wait for ``/health`` after the restart.
+    :raises AssertionError: if the restart fails, if the container was not
+        actually replaced, or if ``/health`` does not come back.
+    """
+    container = bridge_container(project_name)
+    started_before = _container_started_at(container)
+
+    # --no-deps is what makes "only the bridge" structural rather than
+    # incidental: compose's default service selection follows depends_on edges
+    # whose `restart: true` flag is set, and the bluesky-panels template
+    # declares `depends_on: bluesky-bridge` in this same project. No template
+    # sets that flag today, so the selection happens to be one service -- an
+    # accident this flag stops depending on.
+    restart = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-p",
+            project_prefix(project_name),
+            "restart",
+            "--no-deps",
+            BRIDGE_SERVICE,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=RESTART_TIMEOUT_SEC,
+    )
+    if restart.returncode != 0:
+        raise AssertionError(
+            f"compose restart {BRIDGE_SERVICE} failed (rc={restart.returncode}):\n"
+            f"--- stdout ---\n{restart.stdout}\n--- stderr ---\n{restart.stderr}"
+        )
+
+    started_after = _container_started_at(container)
+    if started_after == started_before:
+        raise AssertionError(
+            f"compose reported success but {container} was not restarted "
+            f"(StartedAt still {started_before}) -- the in-process live buffer "
+            "is therefore still populated and any Tiled-branch assertion after "
+            "this would be vacuous"
+        )
+
+    wait_for_health(f"{bridge_url}/health", health_timeout)
+
+
 def select_correctors(
     limits: dict[str, Any], count: int | None = DEFAULT_CORRECTOR_COUNT
 ) -> dict[str, tuple[str, str]]:

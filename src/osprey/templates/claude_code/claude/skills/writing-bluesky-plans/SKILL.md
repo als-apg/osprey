@@ -22,7 +22,8 @@ run directly.
 
 ## The plan-file format
 
-A plan file is a single Python module exposing exactly three things:
+A plan file is a single Python module exposing three required things (plus one
+optional fourth, `render` — see *The plan's own view* below):
 
 1. **`PLAN_METADATA`** — a plain dict with five required keys, all required
    (a plan missing one is rejected at load time, not defaulted):
@@ -106,6 +107,13 @@ any of which can reject it outright before the next ever runs:
      `itertools`, `functools`, `pydantic`, `typing`, and `logging`
      (except `logging.config` and `logging.handlers`, which are denied —
      they resolve callables by string, an import-by-string bypass).
+   - Exactly two OSPREY modules, both spelled in full and imported
+     absolutely: `osprey.services.bluesky_bridge.figure` (the figure
+     vocabulary an optional `render()` returns) and
+     `osprey.services.bluesky_bridge.orm_analysis` (the numeric helpers
+     behind the `orm` plan's own view). Both are inert — models and numeric
+     code, no I/O and no control system. Bare `import osprey` and every other
+     `osprey.*` module are rejected.
    - Everything else (`epics`, `os`, `subprocess`, `ctypes`, `importlib`,
      `socket`, ...) is rejected.
 2. **CA/connector pattern scan** — rejects any body matching `caput(`,
@@ -128,6 +136,70 @@ step, status update, or stop request can be serviced until it returns.
 cooperatively, so the run stays responsive. `time` is on the import
 allowlist for ordinary bookkeeping (computing a delay, timestamping) — it is
 never a substitute for `bps.sleep` inside a plan's own control flow.
+
+---
+
+## The plan's own view: `render(rows, params)`
+
+A plan file may expose one optional extra: a module-level
+
+```python
+def render(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
+```
+
+`rows` are the run's event `data` dicts in emission order, `params` are the
+parameters the run was launched with, and the return value is a `Figure` from
+`osprey.services.bluesky_bridge.figure` — a list of `Panel`s, each carrying a
+title, axis labels and units, `annotations` (short sentences saying what the
+panel does *not* show), and exactly **one** mark: `LinesMark` (named x/y
+series), `BarsMark` (one value per named category), or `HeatmapMark` (a
+labelled 2-D grid). A panel showing two things is two panels. The bridge serves
+that figure from `GET /runs/{id}/figure`, the operator's BLUESKY panel draws
+it, and `get_run_figure` reads it — one view, three places.
+
+Import the figure vocabulary **absolutely**, never relatively: plan files are
+loaded by path with no parent package, so `from ..figure import ...` fails at
+load time and takes the plan out of the catalog with it.
+
+```python
+from osprey.services.bluesky_bridge.figure import Figure, LinesMark, Panel, Point, Series
+```
+
+**A plan with no `render` is complete and ordinary.** Watchers then see the
+bridge's **default view** — every numeric column the run recorded, plotted
+against the scan's own x axis — carrying the reason `no_render`. That is a real
+view of real data, not a missing one, so `render()` is worth writing only when
+the plan can say something the columns cannot say for themselves.
+
+Four rules govern one:
+
+- **`render()` must never raise.** A figure is a view, not a result. If it
+  raises — or returns anything other than a `Figure` — the run's data is
+  untouched and the bridge quietly serves the default view with the reason
+  `render_failed`, but the plan's own view is gone for everyone watching until
+  the code is fixed. Write it to degrade instead: guard the parts that can
+  fail, drop a panel rather than the figure, and return the panels that still
+  stand.
+- **Stay facility-neutral.** Label panels from `params` and the row keys — the
+  device names the run actually used — exactly as `build_plan` resolves its
+  devices by string name. Never hard-code a facility's device names, PV
+  strings, or a fixed device count in the drawing code.
+- **`partial` and `source` are placeholders.** `render()` sees rows, not where
+  they came from, so set them to anything (the exemplar returns
+  `partial=True, source="live"`) and let the route stamp the truth onto both.
+- **A session-tier `render()` is never run.** It would run in the bridge's own
+  process on every poll of every watching client, so it is honored only for
+  plans from the reviewed, installed tiers — shipped, preset and facility. A
+  session-tier file that declares one still loads, queues, runs and records
+  data exactly as it would otherwise; only the drawing is skipped, and
+  watchers see the default view with the reason
+  `render_not_supported_for_session_plans`. Nothing about the execution
+  surface changes. So write `render()` when authoring for a facility library;
+  while a plan is session-tier, the default view is what everyone sees.
+
+`plans_core/orm.py`'s `render` is the worked pattern — sweep traces first, then
+the fitted matrix and its anomaly-score bars, with each stage guarded so a
+failure downgrades the figure instead of losing it.
 
 ---
 
@@ -172,7 +244,9 @@ never a substitute for `bps.sleep` inside a plan's own control flow.
    `detail.code` starts with `session_plan_` (`session_plan_unvalidated`,
    `session_plan_not_in_namespace`) means exactly one thing: re-validate the
    plan and try again. Use `get_run(run_id)` / `get_run_data(run_id, ...)` to
-   watch it. The `operating-bluesky-scans` skill covers this run flow in full
+   watch it, and `get_run_figure(run_id)` for the figure — the better watch for
+   a plan that ships a `render()`, and still a real view of the data for one
+   that does not. The `operating-bluesky-scans` skill covers this run flow in full
    — staging the complete configuration, the two-step add/start, refusal
    handling, and stopping.
 5. **Contribute to the permanent catalog** — a session plan stays
@@ -193,7 +267,10 @@ never a substitute for `bps.sleep` inside a plan's own control flow.
   only scan patterns this framework ships.
 - **Never** hard-code a facility device name inside `build_plan` — resolve
   every device by string name through the injected `devices` dict, exactly
-  like both exemplars.
+  like both exemplars. The same holds for `render()`: label its panels from
+  `params` and the row keys, never from a name written into the file.
+- **Never** let `render()` raise — guard what can fail and drop a panel
+  instead, or every watcher gets the default view in place of the plan's own.
 - **Never** treat a passing dry run as proof the plan is safe against real
   hardware — it proves the plan *runs*, not that its device motion is
   physically sound. Human approval at queue start is the real backstop.

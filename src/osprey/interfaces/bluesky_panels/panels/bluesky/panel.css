@@ -7,8 +7,8 @@
  * single dot), a dominant detail pane, mono identifiers/values, hairline
  * separators, and a live mono "readout" next to the launch action. The queue
  * reads as a dense ordered list; the running item gets the one piece of chrome
- * that moves (its progress bar); the results view is the same table + trace
- * pair the panel has always shown.
+ * that moves (its progress bar); the results view pairs the raw table with the
+ * run's figure.
  *
  * Layout, outside in: the panel chrome, then the view switcher, then the
  * persistent status strip (queue state + the two halts — on screen for every
@@ -142,7 +142,7 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
   flex-direction: column;
 }
 /* Queue and Results are scrolling documents held to a reading measure. The
-   width is what keeps `#results-table`/`#results-chart` (both `min-width:
+   width is what keeps `#results-table` and the figure plots (both `min-width:
    480px`) full-width rather than squeezed into a column. */
 .view-scroll {
   display: block;
@@ -1323,7 +1323,7 @@ button.queue-label:focus-visible {
   color: var(--text-muted);
 }
 
-/* ---- Results: meta, empty state, table, chart ---- */
+/* ---- Results: meta, empty state, table, figure ---- */
 
 .run-meta {
   margin: 0 0 10px;
@@ -1399,47 +1399,125 @@ button.queue-label:focus-visible {
   background: var(--neutral-tint-08);
 }
 
-.chart-caption {
-  margin: 12px 0 10px;
+/* ---- Results figure ----
+ *
+ * `figure-renderer.js` owns everything inside `#figure-panels`: one
+ * `<section class="figure-panel" data-mark="lines|heatmap|bars">` per panel,
+ * each holding a title, an inline `<svg class="figure-plot">` (or a
+ * `.figure-empty` line in its place), a legend and its annotations.
+ *
+ * The renderer sets every color as an SVG presentation attribute read from the
+ * live theme, and re-reads the theme on each render. So nothing here paints:
+ * these rules are layout and typography only, and both themes come out right
+ * because the colors never came from this file in the first place. */
+
+#figure-card {
+  margin-top: 14px;
+}
+
+/* The figure-level provenance line ("live data · still filling in"). Mono and
+   quiet, the same readout treatment as `.table-note` — deliberately unlike
+   `#run-note` above it, which is prose about the run RECORD in the display
+   font. The two can be on screen at once saying unrelated things, and the
+   typography is what keeps them from reading as one paragraph. */
+.figure-note {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
 }
 
-.chart-scroll {
+#figure-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Each panel scrolls its OWN plot: a wide heatmap must not drag the line plot
+   sideways with it, and the page body must never scroll horizontally — the
+   `overflow-x` is what stops a plot at its 480px floor from reaching the body.
+   Title, legend and annotations ride inside that scroll box; they wrap to the
+   visible width, so on a narrow host only the plot is actually pushed out. */
+.figure-panel {
   overflow-x: auto;
+  padding: 10px 12px 12px;
   border: 1px solid var(--border-default);
   border-radius: 6px;
   background: var(--chart-plot-bg);
 }
 
-#results-chart {
+.figure-panel-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* Below ~480px of usable width the plot stops shrinking and the panel scrolls
+   instead — the same floor `#results-table` holds, and for the same reason:
+   axis labels squeezed past it are decoration, not a reading. The viewBox
+   carries the aspect ratio, so `height: auto` sizes the box. */
+.figure-plot {
   display: block;
   width: 100%;
   min-width: 480px;
-  height: 220px;
+  height: auto;
 }
 
-.chart-legend {
+/* Axis text: family only. Sizes and fills arrive as presentation attributes
+   from the renderer's theme read, and are left alone. */
+.figure-tick {
+  font-family: var(--font-mono);
+}
+.figure-axis-title {
+  font-family: var(--font-display);
+}
+
+.figure-legend {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   padding: 0;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-secondary);
 }
-.chart-legend li {
+.figure-legend li {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
-.chart-legend .swatch {
+.figure-legend .swatch {
   display: inline-block;
   width: 10px;
   height: 10px;
   border-radius: 2px;
+}
+
+/* What the plot could not show: decimation and gap counts. Quiet, but never
+   hidden — they are the plot's honesty, not its footnotes. */
+.figure-annotations {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.figure-annotations li + li {
+  margin-top: 2px;
+}
+
+/* Stands in for the plot when a panel has nothing plottable yet. Styled as an
+   ordinary quiet line, NOT as an error: a run still filling in, and a default
+   view that declined to render, are both normal states. */
+.figure-empty {
+  margin: 0;
+  padding: 20px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 /* =========================================================================
@@ -1472,8 +1550,8 @@ button.queue-label:focus-visible {
  * and strips the expert scaffolding: the Source (raw code) tab, the
  * shared-draft binding chrome, the trust/provenance internals (sidebar status
  * dots, provenance folder headers, the detail status line), the connector-
- * arming footnote, the raw data table, the mono run-meta line, the per-item
- * parameter summaries, and the plot's technical caption. Validation still
+ * arming footnote, the raw data table, the mono run-meta line, and the
+ * per-item parameter summaries. Validation still
  * surfaces in plain language: the unvalidated-note, the launch-outcome banner,
  * the draft-rejected banner and the root error all stay visible, and the live
  * parameter readout is kept as friendly guidance. Add-to-queue is promoted to
@@ -1502,11 +1580,12 @@ html[data-ui-mode="simple"] .detail-foot .footnote {
   display: none;
 }
 
-/* Drop the queue/results internals. */
+/* Drop the queue/results internals. The figure is NOT among them: its titles,
+   axes and annotations are the plain-language answer to "what did the run do",
+   which is exactly what Simple keeps. */
 html[data-ui-mode="simple"] #run-meta,
 html[data-ui-mode="simple"] #table-card,
-html[data-ui-mode="simple"] .queue-params,
-html[data-ui-mode="simple"] .chart-caption {
+html[data-ui-mode="simple"] .queue-params {
   display: none;
 }
 

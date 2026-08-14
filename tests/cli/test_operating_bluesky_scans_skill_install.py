@@ -128,7 +128,7 @@ class TestOperatingBlueskyScansSkillStructure:
         assert "two steps" in lowered
 
     def test_documents_watch_tools(self, skill_text):
-        for tool in ("get_run", "get_run_data", "list_runs", "list_plans"):
+        for tool in ("get_run", "get_run_data", "get_run_figure", "list_runs", "list_plans"):
             assert tool in skill_text, f"Missing run tool: {tool}"
 
     # --- the choreography ---
@@ -286,6 +286,79 @@ class TestOperatingBlueskyScansStopHonesty:
                 f"the skill still carries pre-abort wording {retired!r} -- it now "
                 f"contradicts stop_run"
             )
+
+
+class TestOperatingBlueskyScansFigureNarration:
+    """Safety pins: how the skill tells an agent to read a run's figure.
+
+    A figure is the one read whose payload can be misread into a claim about
+    the machine. Each pin below guards a specific misreading that the
+    ``get_run_figure`` docstring already refuses to make, so the skill and the
+    tool cannot drift into telling an operator different stories:
+
+    * a ``reason`` is the bridge's default view, which is real data -- prose
+      that lets it read as a failure turns "this plan draws no view of its own"
+      into "the scan went wrong";
+    * a decimated series is thinned, not short, and a ``null`` is a gap rather
+      than a zero or a count of missed readings;
+    * a ``heatmap_summary``'s largest cells are the strongest readings, NOT an
+      outlier test -- the ``orm`` plan ships real anomaly-score panels, and
+      calling the summary's cells anomalies contradicts them.
+    """
+
+    @pytest.fixture()
+    def skill_text(self):
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        return path.read_text(encoding="utf-8")
+
+    def test_documents_the_figure_read(self, skill_text):
+        """The mark vocabulary an agent dispatches on has to be named."""
+        assert "get_run_figure" in skill_text
+        for kind in ("lines", "bars", "heatmap", "heatmap_summary"):
+            assert kind in skill_text, f"Missing figure mark kind: {kind}"
+
+    def test_points_at_the_tool_for_the_bounds(self, skill_text):
+        """The projection's numbers live in the tool's docstring, which is the
+        agent-facing statement of them. Restating them here is how the two
+        drift into disagreeing about the budget."""
+        prose = _prose(skill_text)
+        assert "docstring states the bounds and the mark vocabulary in full" in prose
+        assert "2000" not in skill_text, "the point budget belongs to the tool, not to prose"
+
+    def test_a_reason_is_a_default_view_not_an_error(self, skill_text):
+        prose = _prose(skill_text)
+        assert "a reason is a default view, never an error" in prose
+        assert "no_render" in prose
+        assert "there is nothing wrong to report" in prose
+
+    def test_empty_panels_mean_unreadable_not_empty(self, skill_text):
+        """``source_unavailable`` is the only reason with no panels, and the
+        difference between "could not read" and "recorded nothing" is the
+        difference between a retry and a wrong conclusion about the run."""
+        prose = _prose(skill_text)
+        assert "source_unavailable" in prose
+        assert 'never "the run recorded nothing"' in prose
+
+    def test_partial_means_read_again(self, skill_text):
+        prose = _prose(skill_text)
+        assert "read it again rather than calling it final" in prose
+
+    def test_decimation_is_narrated_as_thinning(self, skill_text):
+        prose = _prose(skill_text)
+        assert "n of source_points points shown" in prose
+        assert "never report the returned count as how many points the run took" in prose
+
+    def test_nulls_are_gaps_never_zeros_or_counts(self, skill_text):
+        prose = _prose(skill_text)
+        assert "a null value is a gap, never a zero" in prose
+        assert "never say how many readings were missed" in prose
+
+    def test_heatmap_summary_cells_are_not_anomalies(self, skill_text):
+        """The pin that protects the ``orm`` plan's real anomaly panels."""
+        prose = _prose(skill_text)
+        assert "largest_magnitude" in prose
+        assert "do not call them anomalies" in prose
+        assert "never state a cell value the summary does not contain" in prose
 
 
 class TestOperatingBlueskyScansInstall:
