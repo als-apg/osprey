@@ -2298,22 +2298,42 @@ def _write_dispatch_stack_config(project_path: Path, deployed: list[str]) -> Pat
 
 
 # METADATA for the fixture wheel _write_fixture_wheel builds: two plain base
-# deps, one dep kept behind a non-extra (python_version) marker, and two
-# extra-gated deps that must stay OUT of the local-requirements manifest.
+# deps, one dep kept behind a non-extra (python_version) marker, two extra-gated
+# deps that must stay OUT of the local-requirements manifest, and the
+# osprey-connectors workspace requirement that must ALSO stay out — the
+# connectors wheel is staged beside this one, so a PyPI requirement for it
+# would fail until a satisfying release exists there.
 _FIXTURE_WHEEL_METADATA = (
     "Metadata-Version: 2.1\n"
     "Name: osprey-framework\n"
     "Version: 0.0.0\n"
     "Requires-Dist: softioc>=4.5\n"
     "Requires-Dist: aiohttp\n"
+    "Requires-Dist: osprey-connectors<0.2.0,>=0.1.0\n"
     'Requires-Dist: tomli>=2; python_version < "3.11"\n'
     'Requires-Dist: pytest>=8; extra == "dev"\n'
     'Requires-Dist: sphinx; extra == "docs"\n'
 )
 
-# The manifest _FIXTURE_WHEEL_METADATA must produce: extras excluded, non-extra
-# markers verbatim, sorted, one per line, trailing newline.
-_FIXTURE_WHEEL_EXPECTED_MANIFEST = 'aiohttp\nsoftioc>=4.5\ntomli>=2; python_version < "3.11"\n'
+# METADATA for the fixture connectors wheel: one base dep of its own (which
+# must reach the manifest), one shared with the framework (which must not
+# duplicate), and one extra-gated dep (excluded like the framework's).
+_FIXTURE_CONNECTORS_WHEEL_METADATA = (
+    "Metadata-Version: 2.1\n"
+    "Name: osprey-connectors\n"
+    "Version: 0.0.0\n"
+    "Requires-Dist: numpy>=1.24\n"
+    "Requires-Dist: aiohttp\n"
+    'Requires-Dist: pytest>=8; extra == "dev"\n'
+)
+
+# The manifest the two fixture wheels must produce together: extras and the
+# workspace-local osprey-connectors requirement excluded, the shared dep
+# deduplicated, non-extra markers verbatim, sorted, one per line, trailing
+# newline.
+_FIXTURE_WHEEL_EXPECTED_MANIFEST = (
+    'aiohttp\nnumpy>=1.24\nsoftioc>=4.5\ntomli>=2; python_version < "3.11"\n'
+)
 
 
 def _write_fixture_wheel(path: Path) -> None:
@@ -2322,6 +2342,16 @@ def _write_fixture_wheel(path: Path) -> None:
 
     with zipfile.ZipFile(path, "w") as whl:
         whl.writestr("osprey_framework-0.0.0.dist-info/METADATA", _FIXTURE_WHEEL_METADATA)
+
+
+def _write_fixture_connectors_wheel(path: Path) -> None:
+    """Write a minimal valid osprey-connectors wheel zip with real METADATA."""
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as whl:
+        whl.writestr(
+            "osprey_connectors-0.0.0.dist-info/METADATA", _FIXTURE_CONNECTORS_WHEEL_METADATA
+        )
 
 
 @pytest.fixture
@@ -2343,7 +2373,15 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
         if isinstance(cmd, list) and cmd[1:3] == ["-m", "build"]:
             calls.append(list(cmd))
             outdir = cmd[cmd.index("--outdir") + 1]
-            _write_fixture_wheel(Path(outdir, "osprey_framework-0.0.0-py3-none-any.whl"))
+            # The build cwd says WHICH workspace member is being built: the
+            # framework builds at the checkout root, the connectors wheel in
+            # its packages/ subdirectory.
+            if str(kwargs.get("cwd", "")).endswith("osprey-connectors"):
+                _write_fixture_connectors_wheel(
+                    Path(outdir, "osprey_connectors-0.0.0-py3-none-any.whl")
+                )
+            else:
+                _write_fixture_wheel(Path(outdir, "osprey_framework-0.0.0-py3-none-any.whl"))
             return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
         return real_run(cmd, **kwargs)
 
@@ -2378,14 +2416,19 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     assert _copy_local_framework_for_override(str(project_image_ctx)) is True
     assert _copy_local_framework_for_override(str(persona_ctx)) is True
 
-    assert len(spy_wheel_build) == 1, (
-        f"the wheel build subprocess must run exactly once, ran {len(spy_wheel_build)}x"
+    assert len(spy_wheel_build) == 2, (
+        f"the wheel build subprocess must run exactly once per distribution "
+        f"(framework + connectors), ran {len(spy_wheel_build)}x"
     )
     service_ctx = tmp_path / "build" / "services" / "event_dispatcher"
     for ctx in (service_ctx, project_image_ctx, persona_ctx):
-        assert list(ctx.glob("*.whl")), f"no wheel staged into {ctx}"
+        staged = sorted(w.name for w in ctx.glob("*.whl"))
+        assert staged == [
+            "osprey_connectors-0.0.0-py3-none-any.whl",
+            "osprey_framework-0.0.0-py3-none-any.whl",
+        ], f"expected both wheels staged into {ctx}, found {staged}"
         assert (ctx / "osprey-local-requirements.txt").is_file(), (
-            f"no local-requirements manifest staged next to the wheel in {ctx}"
+            f"no local-requirements manifest staged next to the wheels in {ctx}"
         )
 
 
@@ -2401,8 +2444,9 @@ def test_dev_wheel_builds_once_across_rebuild_deployment_renders(
     prepare_compose_files(str(config_path), dev_mode=True)
     prepare_compose_files(str(config_path), dev_mode=True)
 
-    assert len(spy_wheel_build) == 1, (
-        f"the wheel build subprocess must run exactly once, ran {len(spy_wheel_build)}x"
+    assert len(spy_wheel_build) == 2, (
+        f"the wheel build subprocess must run exactly once per distribution "
+        f"(framework + connectors), ran {len(spy_wheel_build)}x"
     )
 
 
@@ -2703,8 +2747,11 @@ def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
     attempts = 3
     all_samples: list[dict[str, str]] = []
     for attempt in range(attempts):
-        wheels: list[Path] = []
-        digests: list[str] = []
+        # Both staged wheels (framework + connectors), keyed by distribution
+        # name — BuildKit content-hashes each COPY'd wheel, so both must be
+        # reproducible for the layer cache to hold.
+        wheels: list[dict[str, Path]] = []
+        digests: list[dict[str, str]] = []
         # Four samples: before and after each of the two builds. Only when all
         # four agree did both builds provably read the same bytes.
         samples: list[dict[str, str]] = []
@@ -2717,9 +2764,12 @@ def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
             _reset_wheel_build_cache()
             if not _copy_local_framework_for_override(str(out_dir)):
                 pytest.skip("dev wheel build unavailable in this environment")
-            [wheel] = out_dir.glob("*.whl")
-            wheels.append(wheel)
-            digests.append(hashlib.sha256(wheel.read_bytes()).hexdigest())
+            staged = {w.name.split("-")[0]: w for w in out_dir.glob("*.whl")}
+            assert sorted(staged) == ["osprey_connectors", "osprey_framework"]
+            wheels.append(staged)
+            digests.append(
+                {name: hashlib.sha256(w.read_bytes()).hexdigest() for name, w in staged.items()}
+            )
             samples.append(_packaged_source_snapshot(source_root))
         all_samples.extend(samples)
         if all(sample == samples[0] for sample in samples):
@@ -2742,12 +2792,14 @@ def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
             f"mutated the checkout mid-run."
         )
 
-    assert digests[0] == digests[1], (
-        "two wheel builds from identical source must be byte-identical — a "
-        "nondeterministic wheel invalidates the Docker layer cache on every "
-        "--dev rebuild. The source tree was verified unchanged across both "
-        "builds, so this is the build itself:\n" + _wheel_difference_report(wheels[0], wheels[1])
-    )
+    for name in wheels[0]:
+        assert digests[0][name] == digests[1][name], (
+            f"two {name} wheel builds from identical source must be byte-identical — a "
+            "nondeterministic wheel invalidates the Docker layer cache on every "
+            "--dev rebuild. The source tree was verified unchanged across both "
+            "builds, so this is the build itself:\n"
+            + _wheel_difference_report(wheels[0][name], wheels[1][name])
+        )
 
 
 # ---------------------------------------------------------------------------

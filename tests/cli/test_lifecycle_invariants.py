@@ -224,8 +224,6 @@ _PROJECT_FLAG_ALLOWLIST = {
     # History, deliberately: the module's opening paragraph names the four rules
     # it replaced, and --project was one of them.
     "src/osprey/cli/repo_resolver.py": "narrates the retired rule it replaced",
-    # A docstring contrasting this helper's contract with a `--project` verb's.
-    "src/osprey/utils/config.py": "contrast with the exempt commands' contract",
 }
 
 #: ``--project`` not followed by ``-`` or a word character, so the docker-compose
