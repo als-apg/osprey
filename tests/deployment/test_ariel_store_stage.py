@@ -42,7 +42,7 @@ def ariel_stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle, "compose_base_cmd", lambda *a, **k: ["docker", "compose"]
     )
-    monkeypatch.setattr(container_lifecycle, "_env_file_args", lambda root=None: [])
+    monkeypatch.setattr(container_lifecycle, "_env_file_args", lambda root=None, provider=None: [])
     monkeypatch.setattr(
         container_lifecycle,
         "run_captured",

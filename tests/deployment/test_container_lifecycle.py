@@ -248,7 +248,7 @@ def captured_web_runs(monkeypatch, tmp_path):
     here — but still records that it was called with the config.
 
     Defaults to registry mode (no ``image_source`` key), so a
-    ``.env.production`` marker is pre-written to ``tmp_path``:
+    ``.env.users`` marker is pre-written to ``tmp_path``:
     ``ensure_env_production``'s registry-mode branch only exists-checks (see
     its own tests), so without this every test using this fixture would hit
     its "not found" RuntimeError before ever reaching a compose call.
@@ -257,7 +257,7 @@ def captured_web_runs(monkeypatch, tmp_path):
     written: list = []
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     monkeypatch.setattr(
         container_lifecycle,
         "prepare_compose_files",
@@ -452,9 +452,9 @@ def captured_combined_runs(monkeypatch, tmp_path):
     token_calls: list[dict] = []
 
     monkeypatch.chdir(tmp_path)
-    # Registry mode (default) -- pre-write .env.production so
+    # Registry mode (default) -- pre-write .env.users so
     # ensure_env_production's exists-check passes (see captured_web_runs).
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     monkeypatch.setattr(
         container_lifecycle,
         "prepare_compose_files",
@@ -503,7 +503,7 @@ def test_combined_services_and_web_deploy_two_detached_up_calls(captured_combine
     two DIFFERENT directories, so they must never be merged into one `-f ...
     -f docker-compose.web.yml` argv -- a real `osprey up` with both
     enabled failed immediately with "env file .../build/services/
-    .env.production not found" until this was split into two invocations.
+    .env.users not found" until this was split into two invocations.
     """
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
@@ -606,7 +606,7 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
     """The post-up hook wires enable_linger(config, run_env) -- the same
     COMPOSE_PROJECT_NAME-pinned env the compose calls around it use."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     monkeypatch.setattr(
         container_lifecycle,
         "prepare_compose_files",
@@ -682,7 +682,7 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     verify_runtime_is_running, get_runtime_command, write_web_terminal_artifacts,
     and a captured subprocess.run that returns a 0-exit CompletedProcess stand-in
     (needed because run_verify_script inspects .returncode on every call it
-    makes, not just compose's). Deliberately does NOT pre-write .env.production
+    makes, not just compose's). Deliberately does NOT pre-write .env.users
     or .env -- each test supplies exactly what its mode needs to exercise
     ensure_env_production's own branches.
     """
@@ -719,13 +719,13 @@ def test_local_mode_never_emits_a_pull_argv(monkeypatch, tmp_path, _mode_wiring_
     cmds = [c["cmd"] for c in _mode_wiring_collab]
     assert not any("pull" in cmd for cmd in cmds)
     assert any("up" in cmd and "-d" in cmd for cmd in cmds)
-    # ensure_env_production generated .env.production from .env since neither
+    # ensure_env_production generated .env.users from .env since neither
     # was present -- local mode's own branch, exercised end-to-end here.
-    assert (tmp_path / ".env.production").is_file()
+    assert (tmp_path / ".env.users").is_file()
 
 
 def test_registry_mode_still_pulls(monkeypatch, tmp_path, _mode_wiring_collab):
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
@@ -740,7 +740,7 @@ def test_up_hot_reloads_nginx_after_web_stack_up(monkeypatch, tmp_path, _mode_wi
     """`up -d` never restarts a running nginx whose bind-mounted config CONTENT
     changed (the container definition is unchanged), so the post-up hook must
     issue a `compose exec nginx nginx -s reload` — after the web stack's up."""
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
@@ -759,7 +759,7 @@ def test_up_hot_reloads_nginx_after_web_stack_up(monkeypatch, tmp_path, _mode_wi
 def test_nginx_reload_failure_is_advisory(monkeypatch, tmp_path, _mode_wiring_collab):
     """A failing nginx reload (e.g. container still starting) warns but never
     fails a deploy that did reconcile."""
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
@@ -775,7 +775,7 @@ def test_nginx_reload_failure_is_advisory(monkeypatch, tmp_path, _mode_wiring_co
 def test_registry_mode_raises_before_any_compose_call_when_env_production_missing(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """Neither .env.production nor .env present -- ensure_env_production raises
+    """Neither .env.users nor .env present -- ensure_env_production raises
     its registry-mode "not found" error before compose ever runs."""
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
@@ -893,7 +893,7 @@ def test_local_mode_passes_resolve_personas_output_to_build_persona_images(
 
 
 def test_registry_mode_never_calls_build_persona_images(monkeypatch, tmp_path, _mode_wiring_collab):
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
@@ -915,7 +915,7 @@ def test_registry_mode_never_verifies_persona_renders(monkeypatch, tmp_path, _mo
     registry path, mirroring the build_persona_images guard. A recording spy
     overrides the fixture's inert stub so a stray call would be caught, not
     swallowed."""
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
@@ -971,7 +971,7 @@ def test_registry_mode_calls_ensure_env_production_before_pull_before_up(
 def test_post_up_hook_order_is_linger_then_seed_then_verify(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
@@ -997,7 +997,7 @@ def test_deploy_up_runs_verify_script_when_present_ignoring_exit_code(
     """A nonzero verify.sh exit must not propagate out of `osprey up` --
     advisory only, per the script's own convention and run_verify_script's
     contract."""
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
     verify_path = scripts_dir / "verify.sh"
@@ -1024,7 +1024,7 @@ def test_deploy_up_runs_verify_script_when_present_ignoring_exit_code(
 def test_deploy_up_skips_verify_script_silently_when_absent(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
@@ -1203,7 +1203,7 @@ def _capture_services_down_and_web_down(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle,
         "deploy_down_web_terminals",
-        lambda config, env, env_file_args: captured.update(
+        lambda config, env, env_file_args, **kwargs: captured.update(
             web_down_config=config, web_down_order=next(order)
         ),
     )
@@ -1419,7 +1419,7 @@ def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path
     pre-delegation rebuild ran only the plain services path, so nginx and the
     persona containers never came back up after clean."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     monkeypatch.setattr(
         container_lifecycle,
         "prepare_compose_files",
@@ -1545,7 +1545,7 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     never `up --build` in one call. Needs a non-empty deployed_services (the
     services block is guarded on it), which captured_web_runs lacks."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("", encoding="utf-8")
     monkeypatch.setattr(
         container_lifecycle,
         "prepare_compose_files",
@@ -1855,7 +1855,7 @@ def test_deploy_up_summarizes_even_when_nothing_deploys(_wiring_calls, monkeypat
 
 # ---------------------------------------------------------------------------
 # deploy_up ordering: the web-terminal preflight (persona render check +
-# .env.production credential gate) must run BEFORE the expensive project-image
+# .env.users credential gate) must run BEFORE the expensive project-image
 # build -- a missing provider secret aborts in seconds, not after minutes of
 # docker build.
 # ---------------------------------------------------------------------------

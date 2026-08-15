@@ -80,6 +80,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from osprey.deployment.compose_generator import (
+    compose_provider_env,
     resolve_project_name,
     resolve_repo_root,
     resolve_user_volume_names,
@@ -661,6 +662,7 @@ def _reconcile_auth_after_user_removal(
     # module-level import would pull the whole deploy stack into every
     # lifecycle verb.
     from osprey.deployment.web_terminals.provision import (
+        _resolved_compose_provider,
         force_recreate_auth_sidecar,
         web_stack_compose_cmd,
     )
@@ -715,9 +717,17 @@ def _reconcile_auth_after_user_removal(
     # nginx serving the removed user's route until the next deploy. Advisory
     # and never raises (it warns).
     if rerendered:
+        # One provider governs BOTH halves of the invocation. The shape that
+        # carries no `--project-directory` in argv takes the project directory
+        # from `COMPOSE_PROJECT_DIR` instead, so an argv built for that shape
+        # and an environment built without it would point the reload at
+        # whatever directory the roster verb happened to be typed in. Resolved
+        # here (rather than left to `web_stack_compose_cmd`'s own probe) only so
+        # the env can be built over the same answer; the probe is memoized.
+        provider = _resolved_compose_provider(config, None)
         reload_nginx_config(
-            web_stack_compose_cmd(config, repo_root=repo_root),
-            runtime_env(config, ignore_orphans=True),
+            web_stack_compose_cmd(config, repo_root=repo_root, provider=provider),
+            runtime_env(config, compose_provider_env(provider, repo_root), ignore_orphans=True),
         )
 
     recreate_error: OSError | subprocess.CalledProcessError | CapturedProcessError | None = None

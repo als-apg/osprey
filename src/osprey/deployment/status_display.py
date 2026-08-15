@@ -705,7 +705,7 @@ def _artifact_drift(repo_root, build_dir, config):
     question at all.
 
     The two override arguments are not optional decoration — they mirror the
-    ones ``osprey build`` passes on its own three-zone regen. ``project_root``
+    ones ``osprey build`` passes on its own four-zone regen. ``project_root``
     is the repo root (or, for a ``--runtime-root`` build, the path the render
     will run at inside a container), and the venv the artifacts launch from
     lives at ``build/.venv`` rather than beside the tree being compared. A dry
@@ -970,21 +970,35 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
     from the directory and address a project that has no containers, printing
     nothing at all and looking like a deployment that logs nothing.
 
+    Both halves of the invocation are provider-shaped
+    (:func:`~osprey.deployment.compose_generator.compose_base_cmd`): the argv a
+    provider cannot parse fails loudly, but a project directory left to the
+    working directory does not — compose would read a project that has no
+    containers and print nothing, which is indistinguishable here from a
+    deployment whose services log nothing.
+
     :param repo_root: The deployment repo
     :param service: One compose service name, or ``None`` for all of them
     :param follow: Pass ``-f``, so the runtime streams until interrupted
     :param tail: Pass ``--tail N``; ``None`` leaves compose's own default alone
     :return: ``(argv, env)``
     :raises NoComposeFilesError: When ``build/`` holds no compose files to read
+    :raises UnsupportedComposeProviderError: The host's compose provider is not
+        one OSPREY can invoke correctly
     """
     import os
 
     from osprey.deployment.compose_generator import (
         COMPOSE_ENV_FILENAME,
         compose_base_cmd,
-        compose_env_file_args,
+        compose_provider_env,
     )
-    from osprey.deployment.container_lifecycle import as_built_compose_files, as_built_config_path
+    from osprey.deployment.container_lifecycle import (
+        _compose_provider,
+        _env_file_args,
+        as_built_compose_files,
+        as_built_config_path,
+    )
     from osprey.deployment.runtime_helper import runtime_env, with_plain_progress
     from osprey.deployment.web_terminals.artifacts import web_compose_file
 
@@ -1010,20 +1024,25 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
             remedy="Render them:\n    osprey build",
         )
 
+    provider = _compose_provider(config)
+
     # The shared resolver answers `[]` for a missing `.env` and warns that
     # "services will start with default/empty environment variables" on its way
     # out — true for every OTHER caller, and false here, where nothing starts.
     # Short-circuiting to the same `[]` keeps the resolver's rule as the only
     # spelling of it and drops a sentence about starting services from a verb
-    # that only reads them.
+    # that only reads them. Everything past the short-circuit goes through the
+    # provider-shaped resolver, which is also where the merged file the podman
+    # shape reads is (re)generated — `logs` reads what the next `up` would.
     env_file_args = (
-        compose_env_file_args(repo_root) if (repo_root / COMPOSE_ENV_FILENAME).exists() else []
+        _env_file_args(repo_root, provider) if (repo_root / COMPOSE_ENV_FILENAME).exists() else []
     )
     cmd = compose_base_cmd(
         with_plain_progress(get_runtime_command(config)),
         compose_files,
         repo_root,
         env_file_args,
+        provider,
     )
     cmd.append("logs")
     if follow:
@@ -1032,7 +1051,7 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
         cmd.extend(("--tail", str(tail)))
     if service:
         cmd.append(service)
-    return cmd, runtime_env(config, os.environ.copy())
+    return cmd, runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)})
 
 
 def follow_logs(repo_root, *, service=None, follow=False, tail=None):

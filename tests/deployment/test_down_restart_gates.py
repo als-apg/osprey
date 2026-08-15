@@ -107,7 +107,7 @@ def no_web(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle,
         "deploy_down_web_terminals",
-        lambda config, env, env_file_args: calls.append(config),
+        lambda config, env, env_file_args, **kwargs: calls.append(config),
     )
     return calls
 
@@ -173,7 +173,8 @@ def test_down_pins_the_project_directory_and_env_file_to_the_repo(lifecycle_repo
 
     argv = argv_for(runtime, "down")
     assert argv[argv.index("--project-directory") + 1] == str(lifecycle_repo)
-    assert argv[argv.index("--env-file") + 1] == str(lifecycle_repo / ".env")
+    env_files = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--env-file"]
+    assert env_files[-1] == str(lifecycle_repo / ".env")
 
 
 def test_down_never_removes_volumes(lifecycle_repo, runtime, no_web):
@@ -199,7 +200,7 @@ def test_down_stops_the_web_stack_before_the_services(lifecycle_repo, runtime, m
     monkeypatch.setattr(
         container_lifecycle,
         "deploy_down_web_terminals",
-        lambda config, env, env_file_args: order.append("web"),
+        lambda config, env, env_file_args, **kwargs: order.append("web"),
     )
     render_build(lifecycle_repo, config=_WEB_CONFIG)
 
@@ -656,7 +657,8 @@ def test_restart_mints_into_the_repo_env_from_any_directory(
     assert parse_dotenv_file(lifecycle_repo / ".env")["EVENT_DISPATCHER_TOKEN"]
     assert not (elsewhere / ".env").exists()
     argv = argv_for(runtime, "up")
-    assert argv[argv.index("--env-file") + 1] == str(lifecycle_repo / ".env")
+    env_files = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--env-file"]
+    assert env_files[-1] == str(lifecycle_repo / ".env")
 
 
 def test_the_working_directory_survives_a_restart(lifecycle_repo, runtime, no_web):

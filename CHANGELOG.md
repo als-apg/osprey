@@ -144,6 +144,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   bridges to the host network instead of the compose bridge, for facilities
   whose control system answers only on the host. `osprey build` re-reads what
   it rendered and refuses a shape that cannot start.
+- `podman-compose` now works as a container provider alongside Docker Compose
+  v2. OSPREY detects which one is present and shapes the deploy to match; the
+  two differ in how they resolve relative paths and how they order `--env-file`
+  precedence.
 - An archiver read that comes back empty now says why: the response carries a
   coverage verdict — the window predates or postdates the archive, the channel
   was never recorded, or the window holds a genuine gap — with the archive's

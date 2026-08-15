@@ -62,6 +62,26 @@ def test_copy_service_templates_copies_root_when_no_services(tmp_path: Path) -> 
     )
 
 
+def test_copy_service_templates_ships_the_shared_template_partials(tmp_path: Path) -> None:
+    """The build lands the macro files service templates import.
+
+    Service compose templates import shared partials by a path relative to the
+    PROJECT root (``services/_network_axis.j2``) — where the deploy-time
+    renderer's loader is rooted — so the partial has to be copied alongside
+    them or the render dies with ``TemplateNotFound`` at ``osprey up``, long
+    after the build that could have caught it. Asserted with EMPTY
+    deployed_services for the same reason the root template is: a project may
+    enable a service later by editing config.yml, with no rebuild in between.
+    """
+    _write_config(tmp_path, deployed_services=[])
+
+    _copy_service_templates(tmp_path)
+
+    assert (tmp_path / "services" / "_network_axis.j2").is_file(), (
+        "the network-axis macro must ship with the templates that import it"
+    )
+
+
 def test_prepare_compose_files_no_services_renders_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -132,6 +152,10 @@ def _render_worker_template(
     env_present: bool,
     project_name: str = _WORKER_PROJECT_NAME,
     deployed_services: list[str] | None = None,
+    env_chain: list[str] | None = None,
+    dispatch_worker: dict | None = None,
+    services_extra: dict | None = None,
+    config_extra: dict | None = None,
 ) -> str:
     """Render the worker compose through the real generator injection.
 
@@ -141,49 +165,74 @@ def _render_worker_template(
     context — exactly the ctx ``render_template`` passes in production. This proves
     the rendered layout path equals the injected project name (M1 alignment) rather
     than asserting against a value the test itself hardcoded into the ctx.
+
+    The render goes through ``_packaged_compose_template`` rather than a bare
+    ``jinja2.Template``: the template imports the shared network-axis macros, and
+    an import needs a loader.
+
+    ``dispatch_worker`` supplies the ``services.dispatch_worker`` block (the
+    network axis, worker count, port base/stride live there), ``services_extra``
+    adds sibling service blocks the template reads, and ``config_extra`` sets
+    top-level config keys. ``env_chain`` names the env-chain files the render
+    found, defaulting to what ``env_present`` implies.
     """
-    from importlib import resources
-
-    from jinja2 import Template
-
     from osprey.deployment.compose_generator import _inject_project_metadata
 
+    services: dict = {"dispatch_worker": dict(dispatch_worker or {})}
+    services.update(services_extra or {})
     config = _inject_project_metadata(
         {
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "services": {"dispatch_worker": {}},
+            "services": services,
             "system": {"timezone": "UTC"},
             "deployed_services": list(deployed_services or []),
+            **(config_extra or {}),
         }
     )
-    # ``_inject_project_metadata`` sets osprey_env_present from the deploy CWD;
-    # override it here so the mount gating is exercised deterministically.
-    config["osprey_env_present"] = env_present
+    # ``_inject_project_metadata`` probes the deploy repo for the env chain;
+    # override the three views of that probe here so the ``env_file:`` gating is
+    # exercised deterministically rather than from whatever the CWD holds.
+    chain = list(env_chain) if env_chain is not None else (["./.env"] if env_present else [])
+    config["osprey_env_chain"] = chain
+    config["osprey_env_present"] = "./.env" in chain
+    config["osprey_env_shared_present"] = "./.env.shared" in chain
 
-    tpl = resources.files("osprey").joinpath(
-        "templates/services/dispatch_worker/docker-compose.yml.j2"
-    )
-    template = Template(tpl.read_text(encoding="utf-8"))
+    template = _packaged_compose_template("services/dispatch_worker/docker-compose.yml.j2")
     return template.render(**config)
 
 
-def _render_dispatcher_template() -> str:
-    from importlib import resources
+#: Path of the dispatcher's compose template, from the packaged templates root.
+_DISPATCHER_TEMPLATE = "services/event_dispatcher/docker-compose.yml.j2"
 
-    from jinja2 import Template
 
-    tpl = resources.files("osprey").joinpath(
-        "templates/services/event_dispatcher/docker-compose.yml.j2"
-    )
-    template = Template(tpl.read_text(encoding="utf-8"))
-    return template.render(
-        services={"event_dispatcher": {}},
-        deployment={},
-        system={"timezone": "UTC"},
-        osprey_labels={"project_name": "p", "project_root": "/r", "deployed_at": "now"},
-        osprey_version="",
-    )
+def _dispatcher_context(**service_overrides: object) -> dict:
+    """The render context the dispatcher template sees, plus per-test overrides.
+
+    ``service_overrides`` land on the ``services.event_dispatcher`` block —
+    ``network``, ``bind`` and ``port`` are the keys the network axis reads. An
+    empty block is how a deployment that never heard of the axis renders, so
+    the default carries no keys at all rather than spelling defaults the
+    template is supposed to supply itself.
+    """
+    return {
+        "services": {"event_dispatcher": dict(service_overrides)},
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+        "osprey_labels": {"project_name": "p", "project_root": "/r", "deployed_at": "now"},
+        "osprey_version": "",
+    }
+
+
+def _render_dispatcher_template(**service_overrides: object) -> str:
+    """Render the packaged dispatcher template through the production lookup.
+
+    Goes through ``_packaged_compose_template`` rather than a bare
+    ``jinja2.Template``: the template imports the shared network-axis macros,
+    and an unloaded template raises ``TemplateNotFound`` on that import.
+    """
+    template = _packaged_compose_template(_DISPATCHER_TEMPLATE)
+    return template.render(**_dispatcher_context(**service_overrides))
 
 
 def test_dispatcher_build_context_is_project_dir_relative() -> None:
@@ -250,6 +299,270 @@ def test_inject_project_metadata_flags_env_presence(
 
     (tmp_path / ".env").write_text("ALS_APG_API_KEY=x\n")
     assert _inject_project_metadata({})["osprey_env_present"] is True
+
+
+# ---------------------------------------------------------------------------
+# The env chain: what the render sees, what it hands compose, what it records
+# ---------------------------------------------------------------------------
+# A deployment's env is a chain of files — `.env.shared` (committed defaults)
+# then `.env` (local, secret) — read in ascending precedence, so the later file
+# wins on any key both set. Three things downstream of one probe: the flags a
+# template gates its `env_file:` list on, the `--env-file` flags the invocation
+# carries, and the record of which files were there when the render ran.
+
+
+def _chain_context(repo_root: Path) -> dict:
+    """The render context ``_inject_project_metadata`` builds for *repo_root*."""
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    return _inject_project_metadata({"project_root": str(repo_root)})
+
+
+class TestRenderChainPresence:
+    """What a render learns about the chain, in the shape templates consume."""
+
+    def test_no_chain_file_leaves_every_flag_off(self, tmp_path: Path) -> None:
+        context = _chain_context(tmp_path)
+
+        assert context["osprey_env_chain"] == []
+        assert context["osprey_env_present"] is False
+        assert context["osprey_env_shared_present"] is False
+
+    def test_local_only_renders_exactly_as_before_the_chain_existed(self, tmp_path: Path) -> None:
+        """The overwhelmingly common shape, and the byte-identity case.
+
+        A project with no ``.env.shared`` must render precisely what it rendered
+        before the chain existed — one ``env_file:`` entry, the same flag still
+        true — so adopting the chain is invisible to every deployment that does
+        not use it.
+        """
+        (tmp_path / ".env").write_text("KEY=local\n", encoding="utf-8")
+
+        context = _chain_context(tmp_path)
+
+        assert context["osprey_env_chain"] == ["./.env"]
+        assert context["osprey_env_present"] is True
+        assert context["osprey_env_shared_present"] is False
+
+    def test_shared_only_is_a_chain_of_its_own(self, tmp_path: Path) -> None:
+        """Committed defaults with no local file is a real deployment shape."""
+        (tmp_path / ".env.shared").write_text("KEY=shared\n", encoding="utf-8")
+
+        context = _chain_context(tmp_path)
+
+        assert context["osprey_env_chain"] == ["./.env.shared"]
+        assert context["osprey_env_shared_present"] is True
+        assert context["osprey_env_present"] is False
+
+    def test_both_files_are_listed_lowest_precedence_first(self, tmp_path: Path) -> None:
+        """The order IS the precedence: compose applies a later entry over an earlier one."""
+        (tmp_path / ".env.shared").write_text("KEY=shared\n", encoding="utf-8")
+        (tmp_path / ".env").write_text("KEY=local\n", encoding="utf-8")
+
+        context = _chain_context(tmp_path)
+
+        assert context["osprey_env_chain"] == ["./.env.shared", "./.env"]
+        assert context["osprey_env_shared_present"] is True
+        assert context["osprey_env_present"] is True
+
+    def test_the_listed_paths_are_project_directory_relative(self, tmp_path: Path) -> None:
+        """Not absolute, and not bare.
+
+        Every path in a compose file resolves against the pinned project
+        directory (the repo root), so the entries are spelled ``./<name>`` —
+        the same spelling the template carried for ``.env`` alone. An absolute
+        path would name the machine the build ran on.
+        """
+        (tmp_path / ".env.shared").write_text("KEY=shared\n", encoding="utf-8")
+        (tmp_path / ".env").write_text("KEY=local\n", encoding="utf-8")
+
+        listed = _chain_context(tmp_path)["osprey_env_chain"]
+
+        assert all(entry.startswith("./") for entry in listed)
+        assert str(tmp_path) not in "".join(listed)
+
+    def test_the_probe_follows_the_repo_not_the_working_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The chain lives at the repo root; a verb may run from a subdirectory."""
+        (tmp_path / ".env").write_text("KEY=local\n", encoding="utf-8")
+        elsewhere = tmp_path / "data" / "somewhere"
+        elsewhere.mkdir(parents=True)
+        monkeypatch.chdir(elsewhere)
+
+        assert _chain_context(tmp_path)["osprey_env_present"] is True
+
+
+class TestComposeEnvFileArgs:
+    """The ``--env-file`` fragment: one flag per chain file, in chain order."""
+
+    def test_local_only_is_todays_fragment_unchanged(self, tmp_path: Path) -> None:
+        from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME, compose_env_file_args
+
+        (tmp_path / ".env").write_text("KEY=local\n", encoding="utf-8")
+
+        assert compose_env_file_args(tmp_path) == [
+            "--env-file",
+            str(tmp_path / COMPOSE_ENV_FILENAME),
+        ]
+
+    def test_both_files_are_passed_as_repeated_flags_local_last(self, tmp_path: Path) -> None:
+        """Both files reach interpolation, and ``.env`` is the one that wins.
+
+        Repeated ``--env-file`` is how the docker shape sees the whole chain;
+        the last file given wins on any key both set, which is what makes the
+        flag order the precedence order.
+        """
+        from osprey.deployment.compose_generator import compose_env_file_args
+
+        (tmp_path / ".env.shared").write_text("KEY=shared\n", encoding="utf-8")
+        (tmp_path / ".env").write_text("KEY=local\n", encoding="utf-8")
+
+        assert compose_env_file_args(tmp_path) == [
+            "--env-file",
+            str(tmp_path / ".env.shared"),
+            "--env-file",
+            str(tmp_path / ".env"),
+        ]
+
+    def test_shared_only_is_still_handed_to_compose(self, tmp_path: Path) -> None:
+        from osprey.deployment.compose_generator import compose_env_file_args
+
+        (tmp_path / ".env.shared").write_text("KEY=shared\n", encoding="utf-8")
+
+        assert compose_env_file_args(tmp_path) == ["--env-file", str(tmp_path / ".env.shared")]
+
+    def test_an_empty_chain_passes_no_flag_at_all(self, tmp_path: Path) -> None:
+        """Compose hard-fails on an ``--env-file`` that is not there."""
+        from osprey.deployment.compose_generator import compose_env_file_args
+
+        assert compose_env_file_args(tmp_path) == []
+
+    def test_the_fragment_is_anchored_on_the_repo_not_the_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from osprey.deployment.compose_generator import compose_env_file_args
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".env.shared").write_text("KEY=shared\n", encoding="utf-8")
+        (repo / ".env").write_text("KEY=local\n", encoding="utf-8")
+        away = tmp_path / "away"
+        away.mkdir()
+        monkeypatch.chdir(away)
+
+        assert compose_env_file_args(repo) == [
+            "--env-file",
+            str(repo / ".env.shared"),
+            "--env-file",
+            str(repo / ".env"),
+        ]
+
+    def test_the_invocation_carries_the_whole_chain(self, tmp_path: Path) -> None:
+        """The fragment reaches argv through the one pinned base every verb builds from."""
+        from osprey.deployment.compose_generator import compose_base_cmd
+
+        (tmp_path / ".env.shared").write_text("KEY=shared\n", encoding="utf-8")
+        (tmp_path / ".env").write_text("KEY=local\n", encoding="utf-8")
+
+        cmd = compose_base_cmd(
+            ["docker", "compose"], ["build/services/docker-compose.yml"], tmp_path
+        )
+
+        assert cmd[-4:] == [
+            "--env-file",
+            str(tmp_path / ".env.shared"),
+            "--env-file",
+            str(tmp_path / ".env"),
+        ]
+
+
+class TestEnvChainMembershipMarker:
+    """The render's record of which chain files it found, for the deploy to check."""
+
+    @staticmethod
+    def _render(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        config_path = _write_config(repo, deployed_services=[])
+        monkeypatch.chdir(repo)
+        prepare_compose_files(str(config_path))
+
+    def test_a_render_records_the_chain_it_found(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from osprey.deployment.compose_generator import read_rendered_env_chain
+
+        (tmp_path / ".env.shared").write_text("KEY=shared\n", encoding="utf-8")
+        (tmp_path / ".env").write_text("KEY=local\n", encoding="utf-8")
+
+        self._render(tmp_path, monkeypatch)
+
+        assert read_rendered_env_chain(tmp_path) == [".env.shared", ".env"]
+
+    def test_an_empty_chain_is_recorded_as_empty_not_as_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The distinction the record exists to make.
+
+        "Rendered against no chain file" and "no record at all" are different
+        findings: the first is a known membership a later deploy can be checked
+        against, the second is a render that predates the record. Only the
+        second may be passed over in silence.
+        """
+        from osprey.deployment.compose_generator import read_rendered_env_chain
+
+        self._render(tmp_path, monkeypatch)
+
+        assert read_rendered_env_chain(tmp_path) == []
+
+    def test_the_record_names_files_never_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A build renders in a staging tree that is moved afterwards.
+
+        Anything recording where that render happened names a directory that no
+        longer exists by the time a deploy reads it.
+        """
+        from osprey.deployment.compose_generator import ENV_CHAIN_MARKER_FILENAME
+
+        (tmp_path / ".env").write_text("KEY=local\n", encoding="utf-8")
+
+        self._render(tmp_path, monkeypatch)
+
+        recorded = (tmp_path / "build" / ENV_CHAIN_MARKER_FILENAME).read_text(encoding="utf-8")
+        assert ".env" in recorded
+        assert str(tmp_path) not in recorded
+
+    def test_no_marker_reads_as_no_record(self, tmp_path: Path) -> None:
+        from osprey.deployment.compose_generator import read_rendered_env_chain
+
+        assert read_rendered_env_chain(tmp_path) is None
+
+    def test_an_unreadable_marker_reads_as_no_record(self, tmp_path: Path) -> None:
+        """Silence, not a refusal: a mismatch is a refusal, and this is not one."""
+        from osprey.deployment.compose_generator import (
+            ENV_CHAIN_MARKER_FILENAME,
+            read_rendered_env_chain,
+        )
+
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / ENV_CHAIN_MARKER_FILENAME).write_text("{not json", encoding="utf-8")
+
+        assert read_rendered_env_chain(tmp_path) is None
+
+    def test_the_record_matches_what_the_render_told_the_templates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One probe behind both, so a compose file cannot describe another chain."""
+        from osprey.deployment.compose_generator import read_rendered_env_chain
+
+        (tmp_path / ".env.shared").write_text("KEY=shared\n", encoding="utf-8")
+        (tmp_path / ".env").write_text("KEY=local\n", encoding="utf-8")
+
+        self._render(tmp_path, monkeypatch)
+
+        recorded = read_rendered_env_chain(tmp_path)
+        assert [f"./{name}" for name in recorded] == _chain_context(tmp_path)["osprey_env_chain"]
 
 
 # ---------------------------------------------------------------------------
@@ -445,25 +758,7 @@ def test_worker_agent_data_volume_shared_mode_targets_project_layout() -> None:
     mount at the agent-data root under ``/app/<project>``."""
     rendered = _render_worker_template(env_present=True)
     # Re-render with shared mode via a config that sets workspace_mode.
-    from importlib import resources
-
-    from jinja2 import Template
-
-    from osprey.deployment.compose_generator import _inject_project_metadata
-
-    config = _inject_project_metadata(
-        {
-            "project_name": _WORKER_PROJECT_NAME,
-            "project_root": f"/r/{_WORKER_PROJECT_NAME}",
-            "services": {"dispatch_worker": {"workspace_mode": "shared"}},
-            "system": {"timezone": "UTC"},
-        }
-    )
-    config["osprey_env_present"] = True
-    tpl = resources.files("osprey").joinpath(
-        "templates/services/dispatch_worker/docker-compose.yml.j2"
-    )
-    shared = Template(tpl.read_text(encoding="utf-8")).render(**config)
+    shared = _render_worker_template(env_present=True, dispatch_worker={"workspace_mode": "shared"})
     root = f"/app/{_WORKER_PROJECT_NAME}/{DEFAULT_AGENT_DATA_BASE_DIR}"
     assert f"- dispatch_workspace:{root}" in shared
     # The isolated-mode default (from the other fixture) uses the per-worker name.
@@ -480,26 +775,9 @@ def test_worker_agent_data_volume_honors_an_absolute_base_dir() -> None:
     every dispatch run's records are discarded at the next recreate with nothing
     logged at mount time to say so.
     """
-    from importlib import resources
-
-    from jinja2 import Template
-
-    from osprey.deployment.compose_generator import _inject_project_metadata
-
-    config = _inject_project_metadata(
-        {
-            "project_name": _WORKER_PROJECT_NAME,
-            "project_root": f"/r/{_WORKER_PROJECT_NAME}",
-            "agent_data": {"base_dir": "/data/agent"},
-            "services": {"dispatch_worker": {}},
-            "system": {"timezone": "UTC"},
-        }
+    rendered = _render_worker_template(
+        env_present=True, config_extra={"agent_data": {"base_dir": "/data/agent"}}
     )
-    config["osprey_env_present"] = True
-    tpl = resources.files("osprey").joinpath(
-        "templates/services/dispatch_worker/docker-compose.yml.j2"
-    )
-    rendered = Template(tpl.read_text(encoding="utf-8")).render(**config)
 
     assert "- dispatch_workspace_1:/data/agent" in rendered
     assert f"/app/{_WORKER_PROJECT_NAME}//data/agent" not in rendered, (
@@ -517,24 +795,9 @@ def test_worker_template_inactivity_defaults_to_120() -> None:
 def test_worker_template_inactivity_reflects_injected_value() -> None:
     """A configured services.dispatch_worker.inactivity_sec flows to the worker's
     DISPATCH_INACTIVITY_SEC env, so a long single step is not cut off at 120s."""
-    from importlib import resources
-
-    from jinja2 import Template
-
-    from osprey.deployment.compose_generator import _inject_project_metadata
-
-    config = _inject_project_metadata(
-        {
-            "project_name": "p",
-            "project_root": "/r/p",
-            "services": {"dispatch_worker": {"inactivity_sec": 600}},
-            "system": {"timezone": "UTC"},
-        }
+    rendered = _render_worker_template(
+        env_present=False, project_name="p", dispatch_worker={"inactivity_sec": 600}
     )
-    tpl = resources.files("osprey").joinpath(
-        "templates/services/dispatch_worker/docker-compose.yml.j2"
-    )
-    rendered = Template(tpl.read_text(encoding="utf-8")).render(**config)
     assert 'DISPATCH_INACTIVITY_SEC: "600"' in rendered
 
 
@@ -543,6 +806,258 @@ def test_worker_command_unchanged() -> None:
     dispatch-worker MCP server, unchanged by the image/layout repoint."""
     rendered = _render_worker_template(env_present=True)
     assert 'command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]' in rendered
+
+
+# ---------------------------------------------------------------------------
+# The dispatch worker: the network axis and the env chain
+#
+# The worker is the one service whose address changes shape with the axis. On
+# the compose bridge each worker owns a network namespace, so every one of them
+# listens on the SAME port and is told apart by its service name. On the host
+# namespace they share one port space, so worker `i` takes
+# ``base + (i - 1) * stride`` — the rule the dispatch route and the host-port
+# preflight derive too, which is why the template derives it from the same two
+# config keys rather than restating the step.
+#
+# Host mode also moves every address the worker is HANDED. The store links
+# below name compose service DNS, which resolves to nothing outside the
+# network; on the host they become localhost plus the port each store
+# publishes. And the worker binds loopback rather than every interface, because
+# there its socket is a host socket with no network boundary in front of it.
+#
+# Under bridge — the default, and what a config that never heard of the axis
+# renders — every block here is the one this file carried before, so adopting
+# the axis moves no existing deployment.
+# ---------------------------------------------------------------------------
+
+#: Rendered by the worker's ``env_file:`` block, lowest precedence first.
+_ENV_CHAIN_BOTH = ["./.env.shared", "./.env"]
+
+
+def _worker_service(rendered: str, index: int = 1) -> dict:
+    """The parsed compose block for ``dispatch-worker-<index>``."""
+    return yaml.safe_load(rendered)["services"][f"dispatch-worker-{index}"]
+
+
+def test_worker_without_the_axis_joins_the_compose_network() -> None:
+    """No ``network:`` key renders today's membership and file-level stanza."""
+    rendered = _render_worker_template(env_present=True)
+
+    assert "\n    networks:\n      - osprey-network\n" in rendered
+    assert rendered.endswith("\nnetworks:\n  osprey-network:")
+    assert "network_mode" not in rendered
+    assert "DISPATCH_WORKER_BIND" not in rendered, (
+        "on the compose bridge the worker must keep the code default (0.0.0.0), "
+        "which is what makes it reachable by its service name at all"
+    )
+
+
+def test_worker_on_the_host_namespace_declares_no_network() -> None:
+    """``network: host`` swaps membership AND drops the file-level stanza.
+
+    Half-applying it would leave compose creating a network no service joins.
+    """
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"network": "host"})
+    document = yaml.safe_load(rendered)
+
+    assert _worker_service(rendered)["network_mode"] == "host"
+    assert "networks" not in _worker_service(rendered)
+    assert "networks" not in document, (
+        "a file whose only service runs on the host namespace must declare no network"
+    )
+    assert "osprey-network" not in rendered
+
+
+def test_worker_binds_loopback_only_on_the_host_namespace() -> None:
+    """The worker's socket is a host socket there, so it binds loopback."""
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"network": "host"})
+    assert _worker_service(rendered)["environment"]["DISPATCH_WORKER_BIND"] == "127.0.0.1"
+
+
+def test_worker_publishes_no_ports_in_either_mode() -> None:
+    """The worker is reached in-network (bridge) or on the host's own port (host).
+
+    Neither mode publishes a port map, so there is nothing for host mode to have
+    to suppress — asserted anyway, because a ``ports:`` block added by hand later
+    is exactly the one that would survive into a host-mode render, where compose
+    rejects it on some runtimes and ignores it on others.
+    """
+    for network in (None, "host"):
+        dispatch_worker = {} if network is None else {"network": network}
+        rendered = _render_worker_template(env_present=True, dispatch_worker=dispatch_worker)
+        assert "ports:" not in rendered
+
+
+@pytest.mark.parametrize("network", [None, "host"])
+def test_worker_honours_its_own_axis_not_a_siblings(network: str | None) -> None:
+    """A co-deployed service's mode must not move the worker's own."""
+    rendered = _render_worker_template(
+        env_present=True,
+        dispatch_worker={} if network is None else {"network": network},
+        services_extra={"gchat_bridge": {"trigger": "t", "network": "host"}},
+    )
+    on_host = network == "host"
+    assert ("network_mode: host" in rendered) is on_host
+    assert ("- osprey-network" in rendered) is not on_host
+
+
+def test_worker_port_is_shared_across_workers_on_the_bridge() -> None:
+    """Every bridge worker listens on the base port: separate namespaces, one port."""
+    rendered = _render_worker_template(
+        env_present=True, dispatch_worker={"worker_count": 3, "worker_port_base": 9500}
+    )
+
+    for index in (1, 2, 3):
+        service = _worker_service(rendered, index)
+        assert service["environment"]["DISPATCH_WORKER_PORT"] == "9500"
+        assert "http://localhost:9500/health" in service["healthcheck"]["test"][1]
+
+
+def test_worker_port_steps_per_worker_on_the_host_namespace() -> None:
+    """Host workers share one port space, so each takes base + (i-1) * stride.
+
+    Both the env var the worker listens on and the healthcheck that probes it
+    move together — a probe left on the base port would report worker 2 healthy
+    whenever worker 1 was.
+    """
+    rendered = _render_worker_template(
+        env_present=True,
+        dispatch_worker={
+            "network": "host",
+            "worker_count": 3,
+            "worker_port_base": 9500,
+            "worker_port_stride": 1,
+        },
+    )
+
+    ports = []
+    for index in (1, 2, 3):
+        service = _worker_service(rendered, index)
+        port = service["environment"]["DISPATCH_WORKER_PORT"]
+        ports.append(port)
+        assert f"http://localhost:{port}/health" in service["healthcheck"]["test"][1]
+    assert ports == ["9500", "9501", "9502"]
+
+
+def test_worker_port_follows_a_configured_stride() -> None:
+    """The step is read, never assumed — a project that spaces its workers out
+    (leaving room for another service between them) gets that spacing."""
+    rendered = _render_worker_template(
+        env_present=True,
+        dispatch_worker={
+            "network": "host",
+            "worker_count": 2,
+            "worker_port_base": 9500,
+            "worker_port_stride": 5,
+        },
+    )
+
+    assert _worker_service(rendered, 1)["environment"]["DISPATCH_WORKER_PORT"] == "9500"
+    assert _worker_service(rendered, 2)["environment"]["DISPATCH_WORKER_PORT"] == "9505"
+
+
+def test_worker_port_defaults_hold_when_the_axis_keys_are_absent() -> None:
+    """Under bridge NEITHER host-only key is written, so both defaults live here.
+
+    A render that inherited an undefined stride would emit ``9190None`` or die on
+    the arithmetic; a render that lost the base would emit an unreachable port.
+    """
+    rendered = _render_worker_template(env_present=True, dispatch_worker={"network": "host"})
+    assert _worker_service(rendered)["environment"]["DISPATCH_WORKER_PORT"] == "9190"
+    assert "http://localhost:9190/health" in _worker_service(rendered)["healthcheck"]["test"][1]
+
+
+def test_worker_telemetry_host_follows_the_axis() -> None:
+    """The store is the compose service on the bridge, localhost on the host.
+
+    Left unset the emitter's own fallback sees a container and reaches for the
+    service name, which under host resolves to nothing — so host mode has to
+    say localhost rather than simply omit the variable.
+    """
+    bridge = _render_worker_template(env_present=True)
+    host = _render_worker_template(env_present=True, dispatch_worker={"network": "host"})
+
+    assert _worker_service(bridge)["environment"]["OSPREY_OTEL_OPENOBSERVE_HOST"] == "openobserve"
+    assert _worker_service(host)["environment"]["OSPREY_OTEL_OPENOBSERVE_HOST"] == "localhost"
+
+
+def test_worker_archiver_link_uses_the_published_port_on_the_host_namespace() -> None:
+    """Host mode reaches the store where it PUBLISHES, not at its container port."""
+    rendered = _render_worker_template(
+        env_present=True,
+        deployed_services=["mongodb"],
+        dispatch_worker={"network": "host"},
+        services_extra={"mongodb": {"port_host": 27117}},
+    )
+    environment = _worker_service(rendered)["environment"]
+
+    assert environment["OSPREY_ARCHIVER_MONGODB_HOST"] == "localhost"
+    assert environment["OSPREY_ARCHIVER_MONGODB_PORT"] == "27117", (
+        "the host-side link must carry the store's published port, never the "
+        "27017 it listens on inside its own container"
+    )
+
+
+def test_worker_archiver_link_keeps_the_network_alias_on_the_bridge() -> None:
+    rendered = _render_worker_template(env_present=True, deployed_services=["mongodb"])
+    environment = _worker_service(rendered)["environment"]
+
+    assert environment["OSPREY_ARCHIVER_MONGODB_HOST"] == "archiver-mongodb"
+    assert environment["OSPREY_ARCHIVER_MONGODB_PORT"] == "27017"
+
+
+@pytest.mark.parametrize("network", [None, "host"])
+def test_worker_archiver_link_stays_gated_on_a_deployed_store(network: str | None) -> None:
+    """An external archiver's config block is already right from anywhere.
+
+    Overriding it in either mode would point the worker at an address this
+    project does not own — so the axis changes the address, never the gate.
+    """
+    rendered = _render_worker_template(
+        env_present=True, dispatch_worker={} if network is None else {"network": network}
+    )
+    assert "OSPREY_ARCHIVER_MONGODB_HOST" not in rendered
+
+
+@pytest.mark.parametrize("network", [None, "host"])
+def test_worker_carries_the_env_digest_label(network: str | None) -> None:
+    """The chain's content hash rides in as a label, in both modes.
+
+    A label is compose's own recreate trigger: neither provider diffs a running
+    container against the env FILES it was started from, so without this an edit
+    to a chain file never reaches a running worker.
+    """
+    rendered = _render_worker_template(
+        env_present=True, dispatch_worker={} if network is None else {"network": network}
+    )
+    assert _worker_service(rendered)["labels"]["osprey.env.digest"] == "${OSPREY_ENV_DIGEST:-}"
+
+
+def test_worker_env_file_lists_the_whole_chain_in_precedence_order() -> None:
+    """Both chain files are delivered, lowest precedence first.
+
+    Compose lets a later ``env_file:`` entry win on any key an earlier one also
+    sets, so the order IS the precedence — reversing it would let a committed
+    default overwrite the local secret it exists to be overridden by.
+    """
+    rendered = _render_worker_template(env_present=True, env_chain=_ENV_CHAIN_BOTH)
+    assert _worker_service(rendered)["env_file"] == _ENV_CHAIN_BOTH
+    assert "env_file:\n      - ./.env.shared\n      - ./.env\n" in rendered
+
+
+def test_worker_env_file_lists_only_the_chain_files_that_exist() -> None:
+    """A shared-only chain lists exactly that file.
+
+    The list can only name files present at render time: an ``env_file:`` entry
+    whose path is missing errors ``compose up`` outright.
+    """
+    rendered = _render_worker_template(env_present=False, env_chain=["./.env.shared"])
+    assert _worker_service(rendered)["env_file"] == ["./.env.shared"]
+
+
+def test_worker_env_file_block_is_absent_for_an_empty_chain() -> None:
+    rendered = _render_worker_template(env_present=False, env_chain=[])
+    assert "env_file" not in _worker_service(rendered)
 
 
 def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1840,6 +2355,28 @@ def test_recorder_publishes_no_ports_declares_no_healthcheck_and_reads_no_bulk_e
 # thus every depends_on / EPICS_CA_NAME_SERVERS / tiled URI / dispatch route)
 # is left untouched; only the host-global container_name is namespaced.
 # ---------------------------------------------------------------------------
+def _packaged_compose_template(rel_path: str):
+    """Compile a packaged compose template, addressed from the templates root.
+
+    Service templates import the shared network-axis macros by a path relative
+    to the PROJECT root (``services/_network_axis.j2``) — where
+    ``compose_generator``'s own ``FileSystemLoader`` is rooted, and where
+    ``osprey build`` places the macro file in a project. A bare
+    ``jinja2.Template`` has no loader, so that import raises ``TemplateNotFound``;
+    every test render therefore goes through an Environment rooted at the
+    packaged ``templates/`` directory instead. Nothing else changes: the default
+    Undefined mode is production's, so ``| default(...)`` chains behave exactly
+    as they do under ``osprey up``, and the lookup stays CWD-independent.
+    """
+    from importlib import resources
+
+    from jinja2 import Environment, FileSystemLoader
+
+    templates_root = resources.files("osprey").joinpath("templates")
+    env = Environment(loader=FileSystemLoader(str(templates_root)), autoescape=False)
+    return env.get_template(rel_path)
+
+
 def _render_service_template(rel_path: str, project_name: str, **overrides: object) -> str:
     """Render a service compose template with a broad, sibling-agnostic context.
 
@@ -1847,12 +2384,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
     context for any system-1 service template and lets a caller override any top
     key (e.g. ``services`` to flip ``tiled_enabled`` or bump ``worker_count``).
     """
-    from importlib import resources
-
-    from jinja2 import Template
-
-    tpl = resources.files("osprey").joinpath(f"templates/services/{rel_path}")
-    template = Template(tpl.read_text(encoding="utf-8"))
+    template = _packaged_compose_template(f"services/{rel_path}")
     ctx: dict = {
         "services": {
             "virtual_accelerator": {"port": 5064},
@@ -2229,10 +2761,6 @@ def test_tiled_external_image_stays_unprefixed() -> None:
 def test_worker_template_fallback_matches_worker_image_target_python_fallback() -> None:
     """With a null ``dispatch_worker:`` key (setdefault can't fire), the rendered
     worker image fallback must equal ``_worker_image_target``'s ``<project>:local``."""
-    from importlib import resources
-
-    from jinja2 import Template
-
     from osprey.deployment.compose_generator import _inject_project_metadata
     from osprey.deployment.container_lifecycle import _worker_image_target
 
@@ -2249,10 +2777,8 @@ def test_worker_template_fallback_matches_worker_image_target_python_fallback() 
         "precondition: the setdefault path must NOT have injected an image"
     )
 
-    tpl = resources.files("osprey").joinpath(
-        "templates/services/dispatch_worker/docker-compose.yml.j2"
-    )
-    rendered = Template(tpl.read_text(encoding="utf-8")).render(**injected)
+    template = _packaged_compose_template("services/dispatch_worker/docker-compose.yml.j2")
+    rendered = template.render(**injected)
 
     expected = _worker_image_target(config, env={})
     assert expected == "fbk-proj:local"
@@ -2923,7 +3449,7 @@ def test_staging_fails_closed_when_manifest_write_fails(
 #     the container that faces the external Nextcloud instance.
 # ---------------------------------------------------------------------------
 
-_NEXTCLOUD_BRIDGE_TEMPLATE = "templates/services/nextcloud_bridge/docker-compose.yml.j2"
+_NEXTCLOUD_BRIDGE_TEMPLATE = "services/nextcloud_bridge/docker-compose.yml.j2"
 
 # Credentials and tokens that must render as bare ``${VAR}``. The three secrets
 # (the Talk app password and both dispatch tokens) are the security-critical
@@ -2961,17 +3487,12 @@ def _render_nextcloud_bridge_template(
 ) -> str:
     """Render the packaged nextcloud-bridge compose template.
 
-    Loads the packaged template directly (CWD-independent) and renders it with
-    bare ``jinja2.Template``, the same default-Undefined mode
+    Loads the packaged template through ``_packaged_compose_template`` — the
+    same CWD-independent lookup and the same default-Undefined mode
     ``compose_generator``'s Environment uses, so ``| default(...)`` chains behave
-    exactly as in production.
+    exactly as in production and the template's macro import resolves.
     """
-    from importlib import resources
-
-    from jinja2 import Template
-
-    tpl = resources.files("osprey").joinpath(_NEXTCLOUD_BRIDGE_TEMPLATE)
-    template = Template(tpl.read_text(encoding="utf-8"))
+    template = _packaged_compose_template(_NEXTCLOUD_BRIDGE_TEMPLATE)
     deployed = ["nextcloud_bridge"]
     if dispatcher_deployed:
         deployed.append("event_dispatcher")
@@ -3604,7 +4125,7 @@ def test_nextcloud_bridge_template_is_bundled_into_a_declaring_project(tmp_path:
 # store (the subscription's own ack state is the ingestion cursor).
 # ---------------------------------------------------------------------------
 
-_GCHAT_BRIDGE_TEMPLATE = "templates/services/gchat_bridge/docker-compose.yml.j2"
+_GCHAT_BRIDGE_TEMPLATE = "services/gchat_bridge/docker-compose.yml.j2"
 
 # Credentials and tokens that must render as bare ``${VAR}``. All five are
 # security- or destination-critical: a default would authenticate the bridge as
@@ -3635,17 +4156,12 @@ def _render_gchat_bridge_template(
 ) -> str:
     """Render the packaged gchat-bridge compose template.
 
-    Loads the packaged template directly (CWD-independent) and renders it with
-    bare ``jinja2.Template``, the same default-Undefined mode
+    Loads the packaged template through ``_packaged_compose_template`` — the
+    same CWD-independent lookup and the same default-Undefined mode
     ``compose_generator``'s Environment uses, so ``| default(...)`` chains behave
-    exactly as in production.
+    exactly as in production and the template's macro import resolves.
     """
-    from importlib import resources
-
-    from jinja2 import Template
-
-    tpl = resources.files("osprey").joinpath(_GCHAT_BRIDGE_TEMPLATE)
-    template = Template(tpl.read_text(encoding="utf-8"))
+    template = _packaged_compose_template(_GCHAT_BRIDGE_TEMPLATE)
     deployed = ["gchat_bridge"]
     if dispatcher_deployed:
         deployed.append("event_dispatcher")
@@ -4450,3 +4966,557 @@ def test_the_worker_address_is_the_one_the_connector_would_dial() -> None:
 
     with mock.patch.dict(os.environ, exported, clear=False):
         assert address_overrides() == ("archiver-mongodb", 27017)
+
+
+# ---------------------------------------------------------------------------
+# Bridge templates: the network axis
+#
+# Both chat bridges render their network membership and the file-level
+# `networks:` stanza through the shared macro rather than spelling either out.
+# Three properties are asserted here, and only the first is about today:
+#
+#   * with no `network:` declared the rendered bytes are the ones these files
+#     carried before they adopted the macro — blank line and all — so adopting
+#     it moves no existing deployment;
+#   * `network: host` swaps membership for the host's namespace AND drops the
+#     file-level stanza, which no template may half-apply: a service on the host
+#     namespace with a network still declared leaves compose creating a network
+#     nobody joins;
+#   * the axis a bridge honours is its OWN. The dispatch pair's mode must not
+#     move it — a bridge left on the compose network while the pair goes to the
+#     host is a real (and legal) mixed topology, caught by the pair-parity check
+#     rather than silently rewritten here.
+#
+# Neither bridge publishes a port in either mode: they are outbound-only
+# clients, so there is nothing for `ports()` to emit and nothing for host mode
+# to suppress. Asserted anyway, because a `ports:` block added by hand later
+# would be the one that host mode fails to suppress.
+# ---------------------------------------------------------------------------
+
+#: (config key under `services:`, compose service key), for both bridges.
+_AXIS_BRIDGES = [
+    pytest.param("gchat_bridge", "gchat-bridge", id="gchat"),
+    pytest.param("nextcloud_bridge", "nextcloud-bridge", id="nextcloud"),
+]
+
+
+def _render_bridge_with_axis(
+    config_key: str, network: str | None = None, *, pair_network: str | None = None
+) -> str:
+    """Render a bridge template with an explicit ``network:`` on one or both sides.
+
+    ``network`` sets the bridge's own axis; ``pair_network`` sets the co-deployed
+    dispatch pair's. ``None`` leaves the key off entirely, which is how a
+    deployment that never heard of the axis renders.
+    """
+    bridge: dict = {"trigger": "t"}
+    if network is not None:
+        bridge["network"] = network
+    pair: dict = {} if pair_network is None else {"network": pair_network}
+    services = {
+        config_key: bridge,
+        "event_dispatcher": dict(pair),
+        "dispatch_worker": dict(pair),
+    }
+    render = (
+        _render_gchat_bridge_template
+        if config_key == "gchat_bridge"
+        else _render_nextcloud_bridge_template
+    )
+    return render(services=services)
+
+
+@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+def test_bridge_without_the_axis_renders_todays_network_blocks(
+    config_key: str, service_key: str
+) -> None:
+    """An undeclared axis reproduces the pre-macro bytes exactly.
+
+    Asserted on raw text, not on parsed YAML: the whole point of the macro's
+    whitespace contract is that adopting it moves not one byte, and a parsed
+    comparison would pass on a render that gained or lost a blank line.
+    """
+    rendered = _render_bridge_with_axis(config_key)
+
+    # Service-level membership, in place directly after the state volume.
+    assert "_data:/data\n    networks:\n      - osprey-network\n\nvolumes:\n" in rendered
+
+    # The file-level stanza still closes the file, still one blank line after
+    # the volumes block.
+    assert rendered.endswith('com.osprey.repo-id: ""\n\nnetworks:\n  osprey-network:'), (
+        f"unexpected file tail: {rendered[-80:]!r}"
+    )
+
+    # `bridge` is only the name of the behaviour the unset axis already had.
+    assert _render_bridge_with_axis(config_key, "bridge") == rendered
+
+
+@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+def test_bridge_on_host_swaps_membership_and_drops_the_stanza(
+    config_key: str, service_key: str
+) -> None:
+    """`network: host` moves BOTH halves of the axis, never just one.
+
+    A service on the host namespace that still declares a network leaves compose
+    creating one nobody joins; a network membership left behind on a host-mode
+    service is a compose error. Neither is a template's to get half right, which
+    is why both come from the same macro pair.
+    """
+    rendered = _render_bridge_with_axis(config_key, "host")
+    doc = yaml.safe_load(rendered)
+    svc = doc["services"][service_key]
+
+    assert svc["network_mode"] == "host"
+    assert "networks" not in svc, "host mode must not also join a network"
+    assert "networks" not in doc, (
+        "no service in the file joins a network under host mode, so declaring "
+        "one leaves compose creating a network nobody attaches to"
+    )
+    # The volumes block still closes the file cleanly — the suppressed stanza
+    # must not take the state volume's declaration with it.
+    assert doc["volumes"], "the bridge's state volume must survive host mode"
+
+
+@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+def test_bridge_honours_its_own_axis_not_the_dispatch_pairs(
+    config_key: str, service_key: str
+) -> None:
+    """A host-mode dispatch pair does not drag the bridge onto the host.
+
+    The bridge reads `services.<bridge>.network` and nothing else. A mixed
+    topology is a legal render — the build's pair-parity check is what decides
+    whether it is a deployable one, and it can only do that if the template
+    reports the topology honestly instead of quietly matching the pair.
+    """
+    rendered = _render_bridge_with_axis(config_key, pair_network="host")
+    svc = yaml.safe_load(rendered)["services"][service_key]
+
+    assert svc["networks"] == ["osprey-network"]
+    assert "network_mode" not in svc
+
+
+@pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
+@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+def test_bridge_publishes_no_ports_in_any_network_mode(
+    config_key: str, service_key: str, network: str | None
+) -> None:
+    """Neither bridge opens a listening socket, so neither publishes a port.
+
+    Under host mode a published port is not merely redundant: compose rejects
+    `ports:` alongside `network_mode: host` on some runtimes and ignores it on
+    others. A future port belongs in the macro's `ports()` call, which suppresses
+    it under host — never in a hand-written block that would not be.
+    """
+    svc = yaml.safe_load(_render_bridge_with_axis(config_key, network))["services"][service_key]
+
+    assert "ports" not in svc
+
+
+# ---------------------------------------------------------------------------
+# Bridge templates: the co-deployed dispatch pair's addresses
+#
+# A bridge reaches the dispatcher and the worker by URL, and which URL is
+# correct is decided by the BRIDGE's own network axis. On the compose network
+# the pair answers to its service keys. On the host namespace those keys are
+# not names anything resolves, so a render that kept them would produce a stack
+# whose containers all report healthy while every dispatch POST and every
+# status poll fails — the failure mode worth a test, because nothing else in
+# the stack reports it.
+#
+# The localhost form assumes the pair is on the host too. That is the build's
+# pair-parity check's guarantee, not this template's: the mixed topology (host
+# bridge, network-joined pair) is refused before a deploy, so the assumption
+# holds wherever the render is used.
+#
+# The worker address is DERIVED — `base + (i - 1) * stride`, the same walk the
+# worker template renders its own ports from — rather than restated as the
+# base, so the stride cannot move the workers out from under the bridge.
+# ---------------------------------------------------------------------------
+
+#: The two address lines a network-joined bridge must render, exactly.
+_BRIDGE_COMPOSE_URL_LINES = (
+    "      DISPATCHER_URL: http://event-dispatcher:8020\n",
+    "      WORKER_URL: http://dispatch-worker-1:9190\n",
+)
+
+
+def _render_bridge_pair_urls(
+    config_key: str,
+    *,
+    network: str | None = None,
+    pair_network: str | None = None,
+    dispatcher: dict | None = None,
+    worker: dict | None = None,
+    pair_deployed: bool = True,
+) -> str:
+    """Render a bridge whose dispatch-pair blocks carry explicit port config.
+
+    Separate from ``_render_bridge_with_axis`` because these cases need the
+    pair's own keys — the dispatcher's ``port`` and the worker's
+    ``worker_port_base``/``worker_port_stride`` — which are what the two
+    addresses are built from. ``pair_deployed=False`` drops both halves from
+    ``deployed_services``, the externally-hosted-pair case.
+    """
+    bridge: dict = {"trigger": "t"}
+    if network is not None:
+        bridge["network"] = network
+    pair: dict = {} if pair_network is None else {"network": pair_network}
+    services = {
+        config_key: bridge,
+        "event_dispatcher": {**pair, **(dispatcher or {})},
+        "dispatch_worker": {**pair, **(worker or {})},
+    }
+    render = (
+        _render_gchat_bridge_template
+        if config_key == "gchat_bridge"
+        else _render_nextcloud_bridge_template
+    )
+    return render(
+        services=services,
+        dispatcher_deployed=pair_deployed,
+        worker_deployed=pair_deployed,
+    )
+
+
+def _bridge_pair_urls(config_key: str, service_key: str, **kwargs: object) -> tuple[str, str]:
+    """Return the rendered ``(DISPATCHER_URL, WORKER_URL)`` pair."""
+    rendered = _render_bridge_pair_urls(config_key, **kwargs)  # type: ignore[arg-type]
+    env = yaml.safe_load(rendered)["services"][service_key]["environment"]
+    return env["DISPATCHER_URL"], env["WORKER_URL"]
+
+
+@pytest.mark.parametrize("network", [None, "bridge"], ids=["unset", "bridge"])
+@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+def test_bridge_on_a_network_addresses_the_pair_by_its_compose_keys(
+    config_key: str, service_key: str, network: str | None
+) -> None:
+    """A network-joined bridge keeps the service-key addresses, byte for byte.
+
+    Pinned on the raw lines rather than the parsed values: these two are the
+    render that every existing deployment already runs, and the host-mode
+    branch beside them must not shift so much as their indentation.
+    """
+    rendered = _render_bridge_pair_urls(config_key, network=network)
+
+    for line in _BRIDGE_COMPOSE_URL_LINES:
+        assert line in rendered, f"missing {line.strip()!r}"
+
+
+@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+def test_bridge_on_host_addresses_the_pair_over_loopback(config_key: str, service_key: str) -> None:
+    """On the host namespace both addresses become the host's own.
+
+    The compose service keys are not resolvable names there, and the failure
+    they cause is silent: the bridge boots, reports healthy, and fails every
+    dispatch POST and every status poll for as long as it runs.
+    """
+    dispatcher_url, worker_url = _bridge_pair_urls(
+        config_key, service_key, network="host", pair_network="host"
+    )
+
+    assert dispatcher_url == "http://localhost:8020"
+    assert worker_url == "http://localhost:9190"
+
+
+@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+def test_bridge_host_addresses_follow_the_pairs_configured_ports(
+    config_key: str, service_key: str
+) -> None:
+    """Loopback is the host part; the ports stay the pair's own.
+
+    A facility that moves either half's port moves the bridge's address for it
+    — the alternative being a bridge that dials the default forever.
+    """
+    dispatcher_url, worker_url = _bridge_pair_urls(
+        config_key,
+        service_key,
+        network="host",
+        pair_network="host",
+        dispatcher={"port": 8123},
+        worker={"worker_port_base": 9500},
+    )
+
+    assert dispatcher_url == "http://localhost:8123"
+    assert worker_url == "http://localhost:9500"
+
+
+@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+def test_bridge_host_worker_address_is_the_first_step_of_the_port_walk(
+    config_key: str, service_key: str
+) -> None:
+    """The worker port is derived from the walk, not restated as the base.
+
+    Workers share one port space on the host namespace, so worker `i` listens
+    on `base + (i - 1) * stride`. The dispatcher routes to worker 1 only, whose
+    step is the base — so a widened stride must leave this address alone while
+    moving every OTHER worker. A hardcoded base would pass the first half of
+    that and silently fail the day routing reaches worker 2.
+    """
+    _, worker_url = _bridge_pair_urls(
+        config_key,
+        service_key,
+        network="host",
+        pair_network="host",
+        worker={"worker_port_base": 9500, "worker_port_stride": 10},
+    )
+
+    assert worker_url == "http://localhost:9500"
+
+
+@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+def test_bridge_addresses_follow_its_own_axis_not_the_pairs(
+    config_key: str, service_key: str
+) -> None:
+    """A host-mode pair does not rewrite a network-joined bridge's addresses.
+
+    The bridge is IN the compose network there, so the service keys are exactly
+    what resolves for it and loopback would be its own container. The mixed
+    topology is the build's pair-parity check to reject, which it can only do
+    if the render reports the topology honestly instead of quietly matching.
+    """
+    dispatcher_url, worker_url = _bridge_pair_urls(config_key, service_key, pair_network="host")
+
+    assert dispatcher_url == "http://event-dispatcher:8020"
+    assert worker_url == "http://dispatch-worker-1:9190"
+
+
+@pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
+@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
+    config_key: str, service_key: str, network: str | None
+) -> None:
+    """Host mode addresses a CO-DEPLOYED pair, never an absent one.
+
+    With the pair hosted elsewhere there is no port on this machine to point
+    at, so both variables stay the required (`:?`) references that abort the
+    boot by name — the alternative being a bridge that dials its own loopback
+    and answers no one.
+    """
+    dispatcher_url, worker_url = _bridge_pair_urls(
+        config_key, service_key, network=network, pair_deployed=False
+    )
+
+    assert dispatcher_url.startswith("${DISPATCHER_URL:?")
+    assert worker_url.startswith("${WORKER_URL:?")
+
+
+# ---------------------------------------------------------------------------
+# The event-dispatcher template: the network axis and the env-chain digest
+#
+# The dispatcher is the first service where all three halves of the axis meet:
+# it joins a network, it publishes a port, and it binds an address of its own.
+# Host mode moves all three together — membership becomes the host's namespace,
+# the published port disappears (there is no port map left to publish), and the
+# bind narrows from every interface to loopback, because on the host network
+# "every interface" is every interface the MACHINE has rather than every
+# interface of a private compose network.
+#
+# The digest label is the one deliberate change to today's bytes. It carries
+# the fingerprint of the env chain the deploy read, so an edit to `.env`
+# changes the service definition and the container is recreated; without it the
+# runtime would leave the old environment running. It is unconditional — every
+# mode, every project — and interpolates to the empty string when nothing set
+# the variable, which is a valid label rather than an error.
+# ---------------------------------------------------------------------------
+
+#: The label line the dispatcher gained, exactly as it must render.
+_DIGEST_LABEL_LINE = '      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"\n'
+
+
+def _head_dispatcher_render() -> str:
+    """Render the dispatcher template as of ``HEAD`` in the same Environment.
+
+    The comparison this feeds is the byte-identity promise: adopting the shared
+    macros must move no byte of a default (network-unset) render. Rendering the
+    committed template rather than pinning a copied literal keeps the promise
+    anchored to the file the repository actually shipped.
+
+    Skips rather than fails when the committed template cannot be read (no git,
+    or a test run against an ``osprey`` installed from somewhere other than this
+    checkout), and proves the two are the same file first so the skip can never
+    hide a real drift.
+    """
+    import subprocess
+    from importlib import resources
+
+    repo_root = Path(__file__).resolve().parents[2]
+    rel = f"src/osprey/templates/{_DISPATCHER_TEMPLATE}"
+    on_disk = repo_root / rel
+    packaged = resources.files("osprey").joinpath(f"templates/{_DISPATCHER_TEMPLATE}")
+    if not on_disk.is_file() or on_disk.read_bytes() != packaged.read_bytes():
+        pytest.skip(f"packaged template is not this checkout's {rel}")
+
+    try:
+        head_source = subprocess.run(
+            ["git", "show", f"HEAD:{rel}"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover - env-dependent
+        pytest.skip(f"cannot read the committed template: {exc}")
+
+    # Reuse the packaged Environment so the Undefined mode, the loader and the
+    # trailing-newline handling are identical on both sides of the comparison.
+    environment = _packaged_compose_template(_DISPATCHER_TEMPLATE).environment
+    return environment.from_string(head_source).render(**_dispatcher_context())
+
+
+def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_label() -> None:
+    """One enumerated delta, byte for byte, and nothing else.
+
+    Asserted on raw text rather than parsed YAML: the macros' whole whitespace
+    contract is that a default render moves no byte, and a parsed comparison
+    would pass on a render that gained or lost a blank line. The label is
+    removed from BOTH sides so the check keeps its meaning once the template is
+    committed — what it pins is "the digest label is the only difference",
+    which stays true either way.
+    """
+    rendered = _render_dispatcher_template()
+
+    assert rendered.count(_DIGEST_LABEL_LINE) == 1, "the digest label renders exactly once"
+    assert rendered.replace(_DIGEST_LABEL_LINE, "", 1) == _head_dispatcher_render().replace(
+        _DIGEST_LABEL_LINE, "", 1
+    )
+
+
+@pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
+def test_dispatcher_carries_the_env_chain_digest_label_in_every_mode(network: str | None) -> None:
+    """The label is a property of the deployment, not of its topology.
+
+    Its value is left as the unresolved ``${OSPREY_ENV_DIGEST:-}`` reference:
+    the render happens at build time, the chain is hashed at deploy time, and
+    an empty default is what a project with no chain files legitimately gets.
+    """
+    overrides = {} if network is None else {"network": network}
+    rendered = _render_dispatcher_template(**overrides)
+
+    assert _DIGEST_LABEL_LINE in rendered
+    labels = yaml.safe_load(rendered)["services"]["event-dispatcher"]["labels"]
+    assert labels["osprey.env.digest"] == "${OSPREY_ENV_DIGEST:-}"
+
+
+def test_dispatcher_without_the_axis_renders_todays_network_blocks() -> None:
+    """An undeclared axis reproduces the pre-macro blocks exactly.
+
+    Substrings rather than a parsed document, for the same reason as above: the
+    indentation and the placement are the contract, and both survive a parse
+    that would not notice them changing.
+    """
+    rendered = _render_dispatcher_template()
+
+    # Published port, still between `restart:` and the environment block, still
+    # spelled bind-address:host-port:container-port.
+    assert (
+        '    restart: unless-stopped\n    ports:\n      - "127.0.0.1:8020:8020"\n    environment:\n'
+        in rendered
+    )
+    # Network membership, still directly after the config.yml mount.
+    assert "/config.yml:ro\n    networks:\n      - osprey-network\n    healthcheck:\n" in rendered
+    # The file-level stanza still closes the file, still one blank line after
+    # the healthcheck.
+    assert rendered.endswith("      start_period: 30s\n\nnetworks:\n  osprey-network:"), (
+        f"unexpected file tail: {rendered[-80:]!r}"
+    )
+
+    # `bridge` is only the name of the behaviour the unset axis already had.
+    assert _render_dispatcher_template(network="bridge") == rendered
+
+
+def test_dispatcher_on_host_swaps_membership_and_drops_the_stanza() -> None:
+    """`network: host` moves BOTH halves of the axis, never just one.
+
+    A service on the host namespace that still declares a network leaves the
+    runtime creating one nobody joins; a membership left behind on a host-mode
+    service is a compose error. Neither is a template's to get half right.
+    """
+    rendered = _render_dispatcher_template(network="host")
+    doc = yaml.safe_load(rendered)
+    svc = doc["services"]["event-dispatcher"]
+
+    assert svc["network_mode"] == "host"
+    assert "networks" not in svc, "host mode must not also join a network"
+    assert "networks" not in doc, (
+        "no service in the file joins a network under host mode, so declaring "
+        "one leaves the runtime creating a network nobody attaches to"
+    )
+    # The suppressed stanza must not take the healthcheck with it.
+    assert svc["healthcheck"]["retries"] == 5
+
+
+def test_dispatcher_on_host_publishes_no_ports() -> None:
+    """Under host mode there is no port map left to publish.
+
+    Not merely redundant: the runtime rejects `ports:` alongside
+    `network_mode: host` on some versions and ignores it on others. The port
+    the service listens on is simply the host's.
+    """
+    rendered = _render_dispatcher_template(network="host")
+
+    assert "ports:" not in rendered
+    assert "ports" not in yaml.safe_load(rendered)["services"]["event-dispatcher"]
+
+
+def test_dispatcher_published_port_follows_the_configured_bind_and_port() -> None:
+    """The macro-rendered entry carries the values it always carried.
+
+    Moving the block into the macro must not quietly drop the bind address or
+    stop honouring the service's own port — the entry is handed to the macro
+    unquoted precisely so the macro can add the quotes that keep a
+    ``host:container`` mapping off the YAML sexagesimal path.
+    """
+    template = _packaged_compose_template(_DISPATCHER_TEMPLATE)
+    ctx = _dispatcher_context(port=8123)
+    ctx["deployment"] = {"bind_address": "0.0.0.0"}
+
+    svc = yaml.safe_load(template.render(**ctx))["services"]["event-dispatcher"]
+
+    assert svc["ports"] == ["0.0.0.0:8123:8123"]
+
+
+def test_dispatcher_binds_every_interface_on_a_network_and_loopback_on_the_host() -> None:
+    """The default bind narrows with the blast radius, not with the port.
+
+    On the compose network the only addresses that reach the server are that
+    network's own, so binding every interface exposes nothing by itself. On the
+    host network the same value would offer the dispatcher to every machine
+    that can route to this one, which is not a default anybody asked for.
+    """
+    assert "FASTMCP_HOST: 0.0.0.0" in _render_dispatcher_template()
+    assert "FASTMCP_HOST: 0.0.0.0" in _render_dispatcher_template(network="bridge")
+    assert "FASTMCP_HOST: 127.0.0.1" in _render_dispatcher_template(network="host")
+
+
+@pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
+def test_dispatcher_bind_is_overridable_from_the_service_config(network: str | None) -> None:
+    """A site that genuinely wants remote callers says so, in either mode.
+
+    The loopback default is a default, not a lock: the deploy's exposure
+    reconciliation is what arms the token rules once a host-mode service binds
+    something that is not loopback.
+    """
+    overrides: dict[str, object] = {"bind": "10.0.0.5"}
+    if network is not None:
+        overrides["network"] = network
+
+    env = yaml.safe_load(_render_dispatcher_template(**overrides))["services"]["event-dispatcher"][
+        "environment"
+    ]
+
+    assert env["FASTMCP_HOST"] == "10.0.0.5"
+
+
+def test_dispatcher_port_still_drives_env_and_healthcheck_under_host() -> None:
+    """Host mode suppresses the port MAPPING, not the port.
+
+    The server still listens on the configured port and the healthcheck still
+    probes it; what disappears is only the published mapping, which the host
+    namespace makes meaningless.
+    """
+    svc = yaml.safe_load(_render_dispatcher_template(network="host", port=8123))["services"][
+        "event-dispatcher"
+    ]
+
+    assert svc["environment"]["FASTMCP_PORT"] == "8123"
+    assert "http://localhost:8123/health" in svc["healthcheck"]["test"][1]

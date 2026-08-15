@@ -576,7 +576,8 @@ def test_logs_is_built_through_the_pinned_compose_contract(lifecycle_repo, runti
     argv = logs_argv(lifecycle_repo)
 
     assert argv[argv.index("--project-directory") + 1] == str(lifecycle_repo)
-    assert argv[argv.index("--env-file") + 1] == str(lifecycle_repo / ".env")
+    env_files = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--env-file"]
+    assert env_files[-1] == str(lifecycle_repo / ".env")
     compose_files = [argv[i + 1] for i, token in enumerate(argv) if token == "-f"]
     assert compose_files
     assert all(path.startswith(str(lifecycle_repo / "build")) for path in compose_files)
