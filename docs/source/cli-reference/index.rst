@@ -656,7 +656,7 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
    ``--shell TEXT`` — Shell command to run (default: ``claude``).
 
-   ``--project DIRECTORY`` — Project directory (default: current directory).
+   ``--repo PATH`` — Deployment repo to act on (default: nearest ``profile.yml`` at or above cwd).
 
    ``--detach`` — Run in background (PID written to ``.osprey-web.pid``).
 
