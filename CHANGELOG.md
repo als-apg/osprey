@@ -519,8 +519,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   everyone's as down.
 
 - The `vllm`, `deepseek`, `ollama` and `argo` providers now ship a base URL that
-  can actually be reached, and `ARGO_BASE_URL` is declared where the credential
-  tooling can see it.
+  can actually be reached.
+
+- New projects reach Argo again. The scaffolded `config.yml` pointed at
+  `https://argo-bridge.cels.anl.gov`, which no longer serves; it now uses
+  `https://apps.inside.anl.gov/argoapi/v1` and reads `ARGO_BASE_URL`, so you can
+  redirect a deployed project at another gateway without editing the file.
 
 - Logbook watch results keep `entries_updated`, which was dropped between the
   service and the CLI, so an update reported as zero changes.
