@@ -352,9 +352,12 @@ def test_a_build_without_its_compose_files_is_not_silently_started(lifecycle_rep
 
     assert result.exit_code == 1
     # Rendered on the console by the shared unmet-precondition handler: the
-    # reason, then the one remedy.
-    assert "no compose files were rendered" in result.output
-    assert "osprey build" in result.output
+    # reason, then the one remedy. Collapse whitespace before matching -- the
+    # console wraps to the terminal width, so a phrase this long straddles a
+    # line break and would not be found verbatim.
+    flowed = " ".join(result.output.split())
+    assert "no compose files were rendered" in flowed
+    assert "osprey build" in flowed
     assert not started
 
 
