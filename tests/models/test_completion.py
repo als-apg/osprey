@@ -131,6 +131,40 @@ class TestConvertTypedDictToPydantic:
         assert fields["items"].annotation is list
 
 
+# Every provider that both requires a base_url and declares its own default
+# endpoint, with the endpoint it must resolve to when nothing else supplies one.
+# Kept explicit so a new provider forces a deliberate entry here rather than
+# silently inheriting whichever behavior its class attributes happen to give it.
+PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT = [
+    ("als-apg", "https://llm.gianlucamartino.com"),
+    ("argo", "https://apps.inside.anl.gov/argoapi/v1"),
+    ("ds4", "http://127.0.0.1:8000/v1"),
+    ("ollama", "http://localhost:11434"),
+    ("stanford", "https://aiapi-prod.stanford.edu/v1"),
+    ("vllm", "http://localhost:8000/v1"),
+]
+
+# Providers that require a base_url and declare no default: nothing but config
+# (or an env override) can supply their endpoint, so the gate must keep
+# rejecting them.
+PROVIDERS_WITH_NO_ENDPOINT_SOURCE = ["amsc-i2", "asksage", "cborg"]
+
+
+def _clear_base_url_overrides(monkeypatch):
+    """Remove every provider's base_url env override for the duration of a test.
+
+    An override supplies a base_url and would hide exactly what these tests
+    check. The overrides' own behavior is covered in the provider-adapter tests.
+    """
+    from osprey.models.provider_registry import get_provider_registry
+
+    registry = get_provider_registry()
+    for name in registry.list_providers():
+        provider_class = registry.get_provider(name)
+        if provider_class is not None and provider_class.base_url_env_var:
+            monkeypatch.delenv(provider_class.base_url_env_var, raising=False)
+
+
 class TestBaseUrlRequirementHonorsProviderDefaults:
     """The ``requires_base_url`` gate must agree with what the provider resolves.
 
@@ -148,19 +182,9 @@ class TestBaseUrlRequirementHonorsProviderDefaults:
 
     @pytest.fixture(autouse=True)
     def _no_ambient_override(self, monkeypatch):
-        # The env override would supply a base_url and hide exactly what is under
-        # test. Cleared for every case here; the override's own behavior is
-        # covered in the provider-adapter tests.
-        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
-        monkeypatch.delenv("STANFORD_BASE_URL", raising=False)
+        _clear_base_url_overrides(monkeypatch)
 
-    @pytest.mark.parametrize(
-        ("provider", "expected"),
-        [
-            ("als-apg", "https://llm.gianlucamartino.com"),
-            ("stanford", "https://aiapi-prod.stanford.edu/v1"),
-        ],
-    )
+    @pytest.mark.parametrize(("provider", "expected"), PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT)
     def test_a_declared_default_satisfies_the_requirement(self, provider, expected):
         from osprey.models.provider_registry import get_provider_registry
 
@@ -185,16 +209,41 @@ class TestBaseUrlRequirementHonorsProviderDefaults:
         provider_class = get_provider_registry().get_provider("als-apg")
         assert provider_class.effective_base_url("https://configured") == "https://configured"
 
-    def test_a_provider_with_no_default_still_resolves_to_none(self):
+    @pytest.mark.parametrize("provider", PROVIDERS_WITH_NO_ENDPOINT_SOURCE)
+    def test_a_provider_with_no_default_still_resolves_to_none(self, provider):
         # The gate must keep rejecting a provider that genuinely has no endpoint
         # source; the fix widens what counts as "supplied", not what counts as
-        # required.
+        # required. These providers declare no default_base_url at all, so config
+        # is their only source — unlike vllm, which does declare one.
         from osprey.models.provider_registry import get_provider_registry
 
-        provider_class = get_provider_registry().get_provider("vllm")
-        if provider_class is None or provider_class.apply_default_base_url_fallback:
-            pytest.skip("no registered provider without the default fallback to check")
+        provider_class = get_provider_registry().get_provider(provider)
+        assert provider_class is not None
+        assert provider_class.requires_base_url
+        assert provider_class.default_base_url is None
         assert provider_class.effective_base_url(None) is None
+
+    def test_no_registered_provider_declares_an_unreachable_default(self):
+        # The sweep, so a provider added later cannot reintroduce the shape:
+        # requires_base_url + a declared default that the resolver never returns,
+        # which the gate then rejects as "missing" while the adapter body would
+        # have used it.
+        from osprey.models.provider_registry import get_provider_registry
+
+        registry = get_provider_registry()
+        unreachable = []
+        for name in registry.list_providers():
+            provider_class = registry.get_provider(name)
+            if provider_class is None or not provider_class.default_base_url:
+                continue
+            if not provider_class.requires_base_url:
+                continue
+            if provider_class.effective_base_url(None) != provider_class.default_base_url:
+                unreachable.append(name)
+
+        assert unreachable == [], (
+            f"providers declare a default_base_url the requirement gate rejects: {unreachable}"
+        )
 
 
 class TestGetChatCompletionAcceptsAProviderDefault:
@@ -209,10 +258,14 @@ class TestGetChatCompletionAcceptsAProviderDefault:
 
     @pytest.fixture(autouse=True)
     def _no_ambient_override(self, monkeypatch):
-        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        _clear_base_url_overrides(monkeypatch)
 
-    def test_no_base_url_anywhere_reaches_the_provider_on_its_default(self, monkeypatch):
+    @pytest.mark.parametrize(("provider", "expected"), PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT)
+    def test_no_base_url_anywhere_reaches_the_provider_on_its_default(
+        self, provider, expected, monkeypatch
+    ):
         from osprey.models import completion as completion_module
+        from osprey.models.provider_registry import get_provider_registry
 
         seen: dict = {}
 
@@ -225,18 +278,17 @@ class TestGetChatCompletionAcceptsAProviderDefault:
         monkeypatch.setattr(
             completion_module,
             "get_provider_config",
-            lambda provider: {"api_key": "k", "default_model_id": "claude-haiku-4-5-20251001"},
+            lambda provider: {"api_key": "k", "default_model_id": "a-model"},
         )
-        from osprey.models.providers.als_apg import ALSAPGProviderAdapter
-
-        monkeypatch.setattr(ALSAPGProviderAdapter, "execute_completion", fake_execute)
+        provider_class = get_provider_registry().get_provider(provider)
+        monkeypatch.setattr(provider_class, "execute_completion", fake_execute)
 
         result = completion_module.get_chat_completion(
-            message="ping", provider="als-apg", max_tokens=4
+            message="ping", provider=provider, max_tokens=4
         )
 
         assert result == "ok"
-        assert seen["base_url"] == "https://llm.gianlucamartino.com"
+        assert seen["base_url"] == expected
 
     def test_a_provider_with_no_endpoint_source_is_still_rejected(self, monkeypatch):
         # The gate must not become a rubber stamp: a requires_base_url provider

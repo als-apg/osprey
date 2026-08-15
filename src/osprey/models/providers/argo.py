@@ -59,7 +59,7 @@ def _execute_argo_structured_output(
     message: str,
     output_format: type[BaseModel],
     api_key: str | None,
-    base_url: str | None,
+    base_url: str,
     max_tokens: int = 1024,
     temperature: float = 0.0,
     is_typed_dict_output: bool = False,
@@ -69,10 +69,11 @@ def _execute_argo_structured_output(
     The Argo API does not support the response_format parameter, so we use
     a system prompt + schema instructions to get JSON output, then validate
     against the Pydantic model.
+
+    ``base_url`` is already resolved by the caller
+    (:meth:`ArgoProviderAdapter.execute_completion`): resolving it a second time
+    here is how the ARGO_BASE_URL override came to apply on this path only.
     """
-    base_url = (
-        base_url or os.environ.get("ARGO_BASE_URL") or "https://apps.inside.anl.gov/argoapi/v1"
-    )
     api_key = api_key or os.environ.get("ARGO_API_KEY")
 
     url = f"{base_url.rstrip('/')}/chat/completions"
@@ -145,6 +146,14 @@ class ArgoProviderAdapter(BaseProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = "https://apps.inside.anl.gov/argoapi/v1"
+    # Break-glass redirect: a set ARGO_BASE_URL beats config and the default on
+    # every request path (structured output goes out over httpx, plain text
+    # through litellm), so a deployment with a baked-in URL can be pointed at a
+    # different gateway at runtime.
+    base_url_env_var = "ARGO_BASE_URL"
+    # Argo routes openai-compatible; without a base_url litellm would fall
+    # through to api.openai.com, so a missing base_url resolves to the default.
+    apply_default_base_url_fallback = True
     default_model_id = "claudesonnet45"  # Claude 4.5 Sonnet via ARGO for general use
     health_check_model_id = "gpt5mini"  # Fast and cost-effective for health checks
     available_models = [
@@ -185,7 +194,7 @@ class ArgoProviderAdapter(BaseProvider):
             return cls._models_cache
 
         api_key = api_key or os.environ.get("ARGO_API_KEY")
-        base_url = base_url or os.environ.get("ARGO_BASE_URL") or cls.default_base_url
+        base_url = cls.effective_base_url(base_url)
 
         if not api_key or not base_url:
             cls._models_cache = cls.available_models
@@ -238,7 +247,11 @@ class ArgoProviderAdapter(BaseProvider):
 
         Structured output is handled directly via httpx (Argo API does not
         support response_format). Plain text completions go through LiteLLM.
+        Both paths use the endpoint resolved here, once, so the ARGO_BASE_URL
+        override and the declared default cannot apply to only one of them.
         """
+        base_url = self.require_effective_base_url(base_url)
+
         # Ensure models list is populated for any UI callers that rely on metadata
         try:
             self.get_available_models(api_key=api_key, base_url=base_url)
@@ -282,7 +295,7 @@ class ArgoProviderAdapter(BaseProvider):
         return check_litellm_health(
             provider=self.name,
             api_key=api_key,
-            base_url=base_url,
+            base_url=self.require_effective_base_url(base_url),
             timeout=timeout,
             model_id=model_id or self.health_check_model_id,
         )

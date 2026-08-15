@@ -37,6 +37,7 @@ class IngestResult:
 @dataclass
 class WatchOnceResult:
     entries_added: int
+    entries_updated: int
     entries_failed: int
     duration_seconds: float
     since: datetime | None
@@ -440,6 +441,7 @@ async def run_watch(
 
             return WatchOnceResult(
                 entries_added=result.entries_added,
+                entries_updated=result.entries_updated,
                 entries_failed=result.entries_failed,
                 duration_seconds=result.duration_seconds,
                 since=result.since,
@@ -457,7 +459,7 @@ async def run_watch(
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, lambda: asyncio.ensure_future(scheduler.stop()))
 
-        await scheduler.start()
+        await scheduler.run_forever()
         return None
 
 

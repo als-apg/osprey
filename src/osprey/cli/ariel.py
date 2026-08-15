@@ -248,6 +248,7 @@ def watch_command(
             click.echo(
                 f"\n{prefix}Poll complete: "
                 f"{result.entries_added} added, "
+                f"{result.entries_updated} updated, "
                 f"{result.entries_failed} failed "
                 f"({result.duration_seconds:.1f}s)"
             )

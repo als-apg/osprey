@@ -2,9 +2,22 @@
 
 from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from pydantic import BaseModel
 
 from osprey.models.providers.argo import ArgoProviderAdapter
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_base_url_override(monkeypatch):
+    """Clear ARGO_BASE_URL so these tests describe the adapter, not the host.
+
+    The adapter honors this variable at request time by design, so a CI runner
+    (or a developer shell) that exports it would otherwise rewrite the base_url
+    every assertion below is about. Tests that exercise the override set it
+    explicitly, which still wins — the fixture runs first.
+    """
+    monkeypatch.delenv("ARGO_BASE_URL", raising=False)
 
 
 class SampleOutput(BaseModel):
@@ -103,6 +116,7 @@ class TestArgoGetAvailableModels:
 
     def test_get_available_models_with_valid_response(self):
         """Test parsing valid API response."""
+        original_models = list(ArgoProviderAdapter.available_models)
         with patch("httpx.Client") as mock_client:
             mock_resp = Mock()
             mock_resp.json.return_value = {
@@ -122,8 +136,10 @@ class TestArgoGetAvailableModels:
             assert "model2" in models
             assert "model3" in models
 
-        # Clean up
+        # Restore class state: get_available_models() replaces available_models,
+        # which would otherwise leak into sibling tests under random ordering.
         ArgoProviderAdapter._models_cache = None
+        ArgoProviderAdapter.available_models = original_models
 
 
 class TestArgoHealthCheck:
@@ -233,3 +249,149 @@ class TestArgoExecuteCompletion:
         # ARGO uses openai/ prefix for LiteLLM
         assert call_kwargs["model"] == "openai/test-model"
         assert call_kwargs["api_base"] == "https://test.url"
+
+
+class TestArgoBaseURLEnvOverride:
+    """ARGO_BASE_URL redirects the adapter on BOTH of its request paths.
+
+    Argo splits its traffic: structured output goes out over httpx directly (the
+    Argo API rejects ``response_format``), plain text goes through LiteLLM. The
+    override used to be an inline ``os.environ.get`` read inside the structured
+    path only, so one deployment answered to it on one path and ignored it on the
+    other. Declaring it as ``base_url_env_var`` makes it one rule both paths
+    resolve through, and introspectable rather than buried in a function body.
+    """
+
+    def test_declares_the_env_var_name(self):
+        assert ArgoProviderAdapter.base_url_env_var == "ARGO_BASE_URL"
+
+    @patch("osprey.models.providers.argo.httpx.post")
+    def test_env_var_redirects_the_structured_output_path(self, mock_post, monkeypatch):
+        monkeypatch.setenv("ARGO_BASE_URL", "https://fallback.example.org/v1")
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"result": "ok", "value": 1}'}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        ArgoProviderAdapter().execute_completion(
+            message="Extract",
+            model_id="gpt5mini",
+            api_key="test-key",
+            base_url="https://baked-in",
+            output_format=SampleOutput,
+        )
+
+        call_url = mock_post.call_args[1].get("url") or mock_post.call_args[0][0]
+        assert call_url == "https://fallback.example.org/v1/chat/completions"
+
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    def test_env_var_redirects_the_plain_text_path(self, mock_completion, monkeypatch):
+        """The half that was dark: LiteLLM used to get the raw config value."""
+        monkeypatch.setenv("ARGO_BASE_URL", "https://fallback.example.org/v1")
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(tool_calls=None, content="ok"))]
+        )
+
+        ArgoProviderAdapter().execute_completion(
+            message="Hello",
+            model_id="gpt5mini",
+            api_key="test-key",
+            base_url="https://baked-in",
+        )
+
+        assert mock_completion.call_args[1]["api_base"] == "https://fallback.example.org/v1"
+
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    def test_empty_env_var_is_ignored(self, mock_completion, monkeypatch):
+        """An empty export must not blank the URL — fall through to the default."""
+        monkeypatch.setenv("ARGO_BASE_URL", "")
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(tool_calls=None, content="ok"))]
+        )
+
+        ArgoProviderAdapter().execute_completion(
+            message="Hello", model_id="gpt5mini", api_key="test-key", base_url=None
+        )
+
+        assert mock_completion.call_args[1]["api_base"] == ArgoProviderAdapter.default_base_url
+
+    @patch("osprey.models.providers.argo.check_litellm_health")
+    def test_env_var_redirects_check_health_too(self, mock_health, monkeypatch):
+        monkeypatch.setenv("ARGO_BASE_URL", "https://fallback.example.org/v1")
+        mock_health.return_value = (True, "ok")
+
+        ArgoProviderAdapter().check_health(api_key="test-key", base_url="https://baked-in")
+
+        assert mock_health.call_args.kwargs["base_url"] == "https://fallback.example.org/v1"
+
+    def test_env_var_redirects_the_model_list_probe(self, monkeypatch):
+        monkeypatch.setenv("ARGO_BASE_URL", "https://fallback.example.org/v1")
+        original_models = list(ArgoProviderAdapter.available_models)
+        ArgoProviderAdapter._models_cache = None
+        try:
+            with patch("httpx.Client") as mock_client:
+                mock_resp = Mock()
+                mock_resp.json.return_value = {"data": [{"id": "model1"}]}
+                mock_resp.raise_for_status = Mock()
+                probe = mock_client.return_value.__enter__.return_value.get
+                probe.return_value = mock_resp
+
+                ArgoProviderAdapter.get_available_models(
+                    api_key="test", base_url="https://baked-in", force_refresh=True
+                )
+
+            assert probe.call_args[0][0] == "https://fallback.example.org/v1/models"
+        finally:
+            ArgoProviderAdapter._models_cache = None
+            ArgoProviderAdapter.available_models = original_models
+
+
+class TestArgoDefaultBaseURLIsReachable:
+    """A missing base_url resolves to the declared default on both paths.
+
+    Argo routes openai-compatible, so without a base_url LiteLLM would fall
+    through to api.openai.com — which is why the default has to be applied here
+    rather than left to whatever the caller happened to configure.
+    """
+
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    def test_plain_text_path_uses_the_default(self, mock_completion):
+        mock_completion.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(tool_calls=None, content="ok"))]
+        )
+
+        ArgoProviderAdapter().execute_completion(
+            message="Hello", model_id="gpt5mini", api_key="test-key", base_url=None
+        )
+
+        assert mock_completion.call_args[1]["api_base"] == ArgoProviderAdapter.default_base_url
+
+    @patch("osprey.models.providers.argo.httpx.post")
+    def test_structured_path_uses_the_default(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"result": "ok", "value": 1}'}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        ArgoProviderAdapter().execute_completion(
+            message="Extract",
+            model_id="gpt5mini",
+            api_key="test-key",
+            base_url=None,
+            output_format=SampleOutput,
+        )
+
+        call_url = mock_post.call_args[1].get("url") or mock_post.call_args[0][0]
+        assert call_url.startswith(ArgoProviderAdapter.default_base_url)
+
+    @patch("osprey.models.providers.argo.check_litellm_health")
+    def test_check_health_uses_the_default(self, mock_health):
+        mock_health.return_value = (True, "ok")
+
+        ArgoProviderAdapter().check_health(api_key="test-key", base_url=None)
+
+        assert mock_health.call_args.kwargs["base_url"] == ArgoProviderAdapter.default_base_url

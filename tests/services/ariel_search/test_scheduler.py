@@ -500,8 +500,8 @@ class TestIngestionScheduler:
         assert fail_args[0] == ("e1", "semantic_processor", "model unavailable")
 
     @pytest.mark.asyncio
-    async def test_start_exits_after_max_failures(self, repository) -> None:
-        """start() exits after max_consecutive_failures without hanging."""
+    async def test_run_forever_exits_after_max_failures(self, repository) -> None:
+        """run_forever() exits after max_consecutive_failures without hanging."""
         config = _make_config(max_failures=2, poll_interval=0)
 
         with (
@@ -519,15 +519,15 @@ class TestIngestionScheduler:
             # Make poll_once always raise
             scheduler.poll_once = AsyncMock(side_effect=ConnectionError("API down"))
 
-            # start() should exit after 2 failures, not hang
-            await asyncio.wait_for(scheduler.start(), timeout=5.0)
+            # run_forever() should exit after 2 failures, not hang
+            await asyncio.wait_for(scheduler.run_forever(), timeout=5.0)
 
         assert scheduler._consecutive_failures == 2
         assert scheduler.poll_once.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_start_resets_failures_on_success(self, repository) -> None:
-        """start() resets _consecutive_failures to 0 after a successful poll."""
+    async def test_run_forever_resets_failures_on_success(self, repository) -> None:
+        """run_forever() resets _consecutive_failures to 0 after a successful poll."""
         config = _make_config(max_failures=5, poll_interval=0)
 
         with (
@@ -564,7 +564,7 @@ class TestIngestionScheduler:
 
             scheduler.poll_once = AsyncMock(side_effect=_poll_sequence)
 
-            await asyncio.wait_for(scheduler.start(), timeout=5.0)
+            await asyncio.wait_for(scheduler.run_forever(), timeout=5.0)
 
         # After call 1 (fail): _consecutive_failures = 1
         # After call 2 (success): _consecutive_failures = 0 (reset at line 78)
@@ -573,7 +573,7 @@ class TestIngestionScheduler:
 
     @pytest.mark.asyncio
     async def test_stop_event(self, config, repository) -> None:
-        """start() exits when stop_event is set."""
+        """run_forever() exits when stop_event is set."""
         repository.get_last_successful_run = AsyncMock(
             return_value=datetime(2024, 1, 1, tzinfo=UTC)
         )
@@ -595,8 +595,8 @@ class TestIngestionScheduler:
                 await asyncio.sleep(0.01)
                 await scheduler.stop()
 
-            # Run start() and stop in parallel
-            await asyncio.gather(scheduler.start(), _stop_after_poll())
+            # Run run_forever() and stop in parallel
+            await asyncio.gather(scheduler.run_forever(), _stop_after_poll())
 
         # Verify it ran at least one poll and stopped
         repository.start_ingestion_run.assert_called()

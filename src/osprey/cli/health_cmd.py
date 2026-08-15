@@ -106,25 +106,25 @@ def _resolve_anchors(project_path: Path) -> tuple[Path, Path, Path]:
     directory for both gives a half-right answer from either stance — no config
     from the repo root, no credentials from the render.
 
-    So the config is looked up the way :func:`osprey.utils.workspace.resolve_config_path`
-    looks it up (render first, then the flat spelling a container project
-    directory uses), the repo root is derived from wherever that landed, and the
-    ``.env`` comes from :func:`osprey.utils.workspace.deployment_env_path` —
-    the same repo-root-with-container-fallback rule the loader uses, spelled
-    once so the two cannot disagree.
+    So the config is looked up through
+    :func:`osprey.cli.project_utils.project_config_path` (render first, then the
+    flat spelling a container project directory uses — the same order
+    :func:`osprey.utils.workspace.resolve_config_path` reads, and the same one
+    the ``channel-finder`` group resolves through), the repo root is derived from
+    wherever that landed, and the ``.env`` comes from
+    :func:`osprey.utils.workspace.deployment_env_path` — the same
+    repo-root-with-container-fallback rule the loader uses, spelled once so the
+    two cannot disagree.
 
     Returns:
         ``(config_path, repo_root, env_path)``. Nothing is required to exist;
         a missing config is reported by the ``configuration`` category.
     """
-    from osprey.utils.workspace import (
-        deployment_env_path,
-        rendered_config_path,
-        repo_root_for_config,
-    )
+    from osprey.utils.workspace import deployment_env_path, repo_root_for_config
 
-    rendered = rendered_config_path(project_path)
-    config_path = rendered if rendered.is_file() else project_path / "config.yml"
+    from .project_utils import project_config_path
+
+    config_path = project_config_path(project_path)
     return config_path, repo_root_for_config(config_path), deployment_env_path(config_path)
 
 
@@ -199,9 +199,8 @@ async def _run_suite(
 @click.command()
 @click.option(
     "--project",
-    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Deployment repo or rendered project directory (default: the current directory)",
+    help="Deployment repo or rendered project directory. Default: the repo enclosing cwd.",
 )
 @click.option(
     "--verbose", "-v", is_flag=True, help="Show per-warning and per-error details in the summary"
@@ -240,6 +239,11 @@ def health(
     providers, and the agent CLI — grouped into categories. Cheap poll-class
     categories run by default; costly on_demand categories (live model chat
     completions, pinned-CLI verification) run only with --full.
+
+    With no --project, the report covers the deployment repo enclosing the
+    working directory, found the same way every other verb finds it — so any
+    subdirectory of a repo reports on that repo. --project names a different
+    repo, or a rendered project directory directly.
 
     Exit codes:
 

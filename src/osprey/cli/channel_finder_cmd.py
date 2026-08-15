@@ -18,6 +18,11 @@ from osprey.cli.styles import Messages, Styles, console
 def _setup_config(project: str | None):
     """Resolve and set CONFIG_FILE from project path.
 
+    Resolution is :func:`osprey.cli.project_utils.resolve_config_path`'s, so this
+    group reads the same config ``osprey health`` reports on from the same
+    stance: the render of the deployment repo enclosing the working directory,
+    or the flat config of a rendered project directory named outright.
+
     Args:
         project: Optional project directory path.
 
@@ -30,9 +35,9 @@ def _setup_config(project: str | None):
     if not os.path.exists(config_path):
         raise click.ClickException(
             f"Configuration file not found: {config_path}\n"
-            "Run 'osprey init my-project --preset hello-world' to create a deployment "
-            "repo, then 'osprey build' from inside it, "
-            "or use --project to specify the project directory."
+            "No built deployment was found there, and no deployment repo encloses it. "
+            "Run 'osprey init my-project --preset hello-world' to create one, then "
+            "'osprey build' from inside it, or name a project with --project."
         )
     os.environ["CONFIG_FILE"] = str(config_path)
 
@@ -117,9 +122,8 @@ def _profile_data_root(project_dir):
 @click.group("channel-finder")
 @click.option(
     "--project",
-    "-p",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    help="Project directory (default: the current directory)",
+    help="Deployment repo or rendered project directory. Default: the repo enclosing cwd.",
 )
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging")
 @click.pass_context
@@ -687,14 +691,22 @@ def benchmark(
         BenchmarkRunner,
     )
 
-    # Resolve project directory
-    project_dir = Path(ctx.obj.get("project") or os.getcwd())
-    config_path = project_dir / "config.yml"
+    from .project_utils import project_config_path, resolve_project_path
+
+    # The group's one resolution rule, not a third spelling of it: the repo
+    # enclosing the working directory, or the project directory named outright.
+    config_path = project_config_path(resolve_project_path(ctx.obj.get("project")))
     if not config_path.exists():
         raise click.ClickException(
-            f"config.yml not found in {project_dir}\n"
-            "Run this from an OSPREY project directory or use --project."
+            f"config.yml not found: {config_path}\n"
+            "Run this from a built deployment repo, or name one with --project."
         )
+
+    # The runner reads `config.yml` at its own root, so it is handed the
+    # directory holding the config — the `build/` render on a host, the project
+    # directory itself in a container. Its outputs land beside it for the same
+    # reason: a benchmark result is exhaust from that render, not repo source.
+    project_dir = config_path.parent
 
     out_directory = (
         Path(output_dir) if output_dir else project_dir / "data" / "benchmarks" / "results"

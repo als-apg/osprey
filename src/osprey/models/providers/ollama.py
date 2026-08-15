@@ -25,6 +25,11 @@ class OllamaProviderAdapter(BaseProvider):
     requires_model_id = True
     supports_proxy = False
     default_base_url = "http://localhost:11434"
+    # A local Ollama on the default port is the normal case, so a config that
+    # omits base_url means "the default" rather than "unconfigured". Without the
+    # fallback the requires_base_url check in get_chat_completion rejects such a
+    # config, and this adapter's own URL probing is handed None.
+    apply_default_base_url_fallback = True
     default_model_id = "mistral:7b"  # Mistral 7B as recommended default
     health_check_model_id = "mistral:7b"  # Same for health check (local, no cost)
     available_models = ["mistral:7b", "gpt-oss:20b", "gpt-oss:120b"]
@@ -72,8 +77,17 @@ class OllamaProviderAdapter(BaseProvider):
         except Exception:
             return False
 
-    def _resolve_base_url(self, base_url: str) -> str:
-        """Resolve working base URL with fallback support."""
+    def _resolve_base_url(self, base_url: str | None) -> str:
+        """Resolve a reachable base URL, probing container/localhost variants.
+
+        The configured value is resolved through
+        :meth:`~osprey.models.providers.base.BaseProvider.require_effective_base_url`
+        first, so this method never has to interpret ``None`` — the connectivity
+        fallbacks below all do substring matching, which a ``None`` breaks with an
+        unhelpful ``TypeError``.
+        """
+        base_url = self.require_effective_base_url(base_url)
+
         # Test primary URL first
         if self._test_connection(base_url):
             logger.debug(f"Successfully connected to Ollama at {base_url}")
@@ -135,14 +149,22 @@ class OllamaProviderAdapter(BaseProvider):
         timeout: float = 5.0,
         model_id: str | None = None,
     ) -> tuple[bool, str]:
-        """Check Ollama connectivity (no API key needed)."""
-        if not base_url:
-            return False, "Base URL not configured"
+        """Check Ollama connectivity (no API key needed).
+
+        Probes the same endpoint ``execute_completion`` would use, so a missing
+        base_url is reported against the declared default rather than as
+        "unconfigured" — the health check must not disagree with what a request
+        will actually reach.
+        """
+        try:
+            probe_url = self.require_effective_base_url(base_url)
+        except ValueError as e:
+            return False, str(e)
 
         try:
-            if self._test_connection(base_url):
-                return True, f"Accessible at {base_url}"
+            if self._test_connection(probe_url):
+                return True, f"Accessible at {probe_url}"
             else:
-                return False, f"Not accessible at {base_url}"
+                return False, f"Not accessible at {probe_url}"
         except Exception as e:
             return False, f"Connection test failed: {str(e)[:50]}"

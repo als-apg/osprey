@@ -560,6 +560,63 @@ class TestThreeZoneAnchors:
         assert env_row is not None and env_row["status"] == "ok"
 
 
+class TestSubdirectoryStance:
+    """A subdirectory of a deployment repo is that deployment, not a broken one.
+
+    The bug: with no ``--project`` the stance was literally ``Path.cwd()``, so
+    ``osprey health`` run from ``<repo>/data/raw`` looked for a ``config.yml``
+    there, found none, and exited 2 with a configuration ERROR row — which a CI
+    gate and an operator both read as "this deployment is broken" when the only
+    fault was the working directory. Every other repo-scoped verb walks up.
+    """
+
+    @staticmethod
+    def _repo(tmp_path: Path) -> Path:
+        repo = tmp_path / "repo"
+        (repo / "build").mkdir(parents=True)
+        (repo / "profile.yml").write_text("name: canary\ndata_bundle: hello_world\n")
+        (repo / "build" / "config.yml").write_text(_VALID_CONFIG)
+        return repo
+
+    def _configuration_rows(self, cli_runner) -> list[dict]:
+        with _no_container_runtime():
+            result = cli_runner.invoke(health, ["--json", "--category", "configuration"])
+        return json.loads(result.stdout)["results"]
+
+    def test_subdirectory_stance_finds_the_rendered_config(self, cli_runner, tmp_path, monkeypatch):
+        repo = self._repo(tmp_path)
+        subdir = repo / "data" / "raw"
+        subdir.mkdir(parents=True)
+        monkeypatch.chdir(subdir)
+
+        rows = self._configuration_rows(cli_runner)
+
+        config_row = _find(rows, "config_file_exists")
+        assert config_row is not None, rows
+        assert config_row["status"] == "ok", config_row
+        assert "build" in config_row["message"], config_row
+
+    def test_subdirectory_stance_does_not_exit_2(self, cli_runner, tmp_path, monkeypatch):
+        repo = self._repo(tmp_path)
+        subdir = repo / "data" / "raw"
+        subdir.mkdir(parents=True)
+        monkeypatch.chdir(subdir)
+
+        with _no_container_runtime():
+            result = cli_runner.invoke(health, ["--category", "configuration"])
+        assert result.exit_code != 2, result.output
+
+    def test_short_p_is_not_the_project_flag(self, cli_runner):
+        """``-p`` means ``--port`` on every serving verb; it must not mean this.
+
+        One letter cannot mean "the deployment to report on" here and "the port
+        to bind" on ``osprey web``/``artifacts web``/``ariel``/``theme-lab``.
+        """
+        result = cli_runner.invoke(health, ["--help"])
+        assert "--project" in result.output
+        assert "-p," not in result.output
+
+
 # --------------------------------------------------------------------------- #
 # --json machine-clean wire contract
 # --------------------------------------------------------------------------- #

@@ -97,12 +97,18 @@ def _async_return(value: Any) -> AsyncMock:
     return AsyncMock(return_value=value)
 
 
-def _poll_result(added: int = 0, failed: int = 0, duration: float = 0.5, since: Any = None):
+def _poll_result(
+    added: int = 0,
+    failed: int = 0,
+    duration: float = 0.5,
+    since: Any = None,
+    updated: int = 0,
+):
     from osprey.services.ariel_search.ingestion.scheduler import IngestionPollResult
 
     return IngestionPollResult(
         entries_added=added,
-        entries_updated=0,
+        entries_updated=updated,
         entries_failed=failed,
         duration_seconds=duration,
         since=since,
@@ -124,15 +130,15 @@ class _StubScheduler:
         self.config = config
         self.repository = repository
         self.poll_calls: list[dict[str, Any]] = []
-        self.start_calls = 0
+        self.run_forever_calls = 0
         self.stop_calls = 0
 
     async def poll_once(self, dry_run: bool = False, limit: int | None = None):
         self.poll_calls.append({"dry_run": dry_run, "limit": limit})
         return self.poll_result
 
-    async def start(self) -> None:
-        self.start_calls += 1
+    async def run_forever(self) -> None:
+        self.run_forever_calls += 1
 
     async def stop(self) -> None:
         self.stop_calls += 1
@@ -589,6 +595,29 @@ class TestRunWatchOnce:
         # block is left behind even though the call is rejected.
         assert config_dict["ingestion"] == {"poll_interval_seconds": 45}
 
+    async def test_the_updated_count_survives_the_projection(self, monkeypatch, mock_repository):
+        """``entries_updated`` reaches the CLI result, not just the poll result.
+
+        ``poll_once`` hardcodes 0 today, so this is only observable through a
+        scheduler double -- but the projection is where a real upsert/update
+        split would be silently dropped, and ``watch --once`` would then
+        under-report every entry it refreshed rather than inserted.
+        """
+        _patch_scheduler(monkeypatch, _poll_result(added=2, updated=7, failed=1))
+        _patch_service(monkeypatch, _StubService(mock_repository))
+
+        out = await ops.run_watch(
+            _config(source_url=_SOURCE),
+            source=None,
+            adapter=None,
+            once=True,
+            interval=None,
+            dry_run=False,
+        )
+
+        assert out is not None
+        assert (out.entries_added, out.entries_updated, out.entries_failed) == (2, 7, 1)
+
     async def test_dry_run_flag_reaches_poll_once_and_the_result(
         self, monkeypatch, mock_repository
     ):
@@ -631,7 +660,7 @@ class TestRunWatchDaemon:
             )
 
             assert out is None
-            assert schedulers[0].start_calls == 1
+            assert schedulers[0].run_forever_calls == 1
             assert schedulers[0].poll_calls == []
             assert messages == [
                 f"Watching: {_SOURCE}",

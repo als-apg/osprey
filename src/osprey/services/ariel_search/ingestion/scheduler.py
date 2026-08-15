@@ -62,11 +62,12 @@ class IngestionScheduler:
         self._stop_event = asyncio.Event()
         self._consecutive_failures = 0
 
-    async def start(self) -> None:
-        """Run the poll loop until stopped.
+    async def run_forever(self) -> None:
+        """Run the poll loop until stopped -- this blocks; it is not a handle.
 
         Each iteration calls poll_once(), then sleeps for the configured
-        interval (with backoff on failures). Exits when stop() is called.
+        interval (with backoff on failures). Returns when stop() is called or
+        after ``max_consecutive_failures`` failed cycles in a row.
         """
         logger.info("Ingestion scheduler started")
 
