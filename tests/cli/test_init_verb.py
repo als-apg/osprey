@@ -23,6 +23,7 @@ different kinds of thing:
 
 from __future__ import annotations
 
+import io
 import stat
 import subprocess
 import sys
@@ -32,6 +33,7 @@ import click
 import pytest
 import yaml
 from click.testing import CliRunner
+from rich.console import Console
 
 from osprey.cli.init_cmd import (
     CI_EMITTED_PATHS,
@@ -41,7 +43,9 @@ from osprey.cli.init_cmd import (
     init,
 )
 from osprey.cli.main import cli
+from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.profile_conventions import unknown_root_entries
+from osprey.cli.styles import osprey_theme
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, exemplar_source_files
 
 #: The exemplar's display name — what ``init`` derives from the directory it
@@ -700,6 +704,101 @@ def test_unused_exported_keys_are_reported_not_dropped_silently(
     # The shell origin is the load-bearing half: it is why they are seeing this
     # at all, and without it the omission is unaccountable.
     assert "Your shell exports them" in result.output
+
+
+# ---------------------------------------------------------------------------
+# The report, and the terminal it shares with the live region
+# ---------------------------------------------------------------------------
+#
+# On a terminal the reporter mounts a live region that owns the cursor, so the
+# report is written through the reporter's console rather than straight at
+# stdout -- a raw write would land inside the region instead of above it. That
+# is a change to WHERE the bytes go, and the contract is that off a terminal it
+# changes nothing whatsoever.
+
+
+#: Exactly what ``_report`` writes for the exemplar, in the order it writes it.
+#: A golden rather than a handful of substrings, because every failure worth
+#: catching here is one a substring assertion sails past: a line re-wrapped at
+#: the console's width, a swallowed blank, a reordering, a lost trailing
+#: newline. The trailing blank line is real -- the git note is written with a
+#: leading newline, which is what separates it from the entry list.
+EXEMPLAR_REPORT = f"""\
+✓ Created {EXEMPLAR_DIRNAME}
+
+  profile.yml   your assistant's settings; edit this
+  data/         channel lists and facility docs; edit these
+  personas/     one per web login: readonly, readwrite
+  .env          empty; copy .env.example and add your API key
+  README.md     what everything here does
+
+  Started a git repo and made the first commit.
+"""
+
+
+def test_the_report_off_a_terminal_is_byte_for_byte_what_it_always_was(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    result = init_exemplar(runner, tmp_path / EXEMPLAR_DIRNAME)
+
+    assert result.exit_code == 0, result.output
+    assert EXEMPLAR_REPORT in result.stdout
+
+
+def test_a_report_line_past_the_console_width_is_not_wrapped(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rich wraps at 80 columns by default; ``click.echo`` never wrapped at all.
+
+    The skipped-keys note is the report's longest line and the one an operator
+    is most likely to copy a name out of, so it is the one this pins. Folding it
+    would not be cosmetic: it would put half a variable name on each of two
+    lines.
+    """
+    for name in ("OPENAI_API_KEY", "GOOGLE_API_KEY", "CBORG_API_KEY"):
+        monkeypatch.setenv(name, "not-a-real-key")
+
+    result = init_exemplar(runner, tmp_path / EXEMPLAR_DIRNAME)
+
+    note = (
+        "  Left out OPENAI_API_KEY, GOOGLE_API_KEY, CBORG_API_KEY. Your shell exports "
+        "them, but this assistant uses a different provider."
+    )
+    assert result.exit_code == 0, result.output
+    assert len(note) > 80
+    assert f"\n{note}\n" in result.stdout
+
+
+def test_the_report_is_written_through_the_reporters_console(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """The routing itself, asserted where it is visible.
+
+    Byte parity off a terminal is what the two tests above pin, and it is a
+    property ``click.echo`` also has -- so on its own it cannot tell the report
+    is going through the reporter at all. Installing a reporter whose console
+    records separates the two: the report lands in the recording console, and
+    the process's own stdout never sees it.
+    """
+    buffer = io.StringIO()
+    recorder = Console(file=buffer, width=200, theme=osprey_theme)
+
+    class Recording(PhaseReporter):
+        def out(self) -> Console:
+            return recorder
+
+    # Installed before the verb runs, so `lifecycle_reporter` reuses it rather
+    # than installing one of its own. Nothing is mounted and no thread starts:
+    # this is the plain reporter with its console swapped.
+    previous = install_reporter(Recording(color=False))
+    try:
+        result = init_exemplar(runner, tmp_path / EXEMPLAR_DIRNAME)
+    finally:
+        install_reporter(previous)
+
+    assert result.exit_code == 0, result.output
+    assert EXEMPLAR_REPORT in buffer.getvalue()
+    assert "Created" not in result.stdout
 
 
 # ---------------------------------------------------------------------------

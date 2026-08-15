@@ -17,6 +17,7 @@ from typing import cast
 
 from osprey.build.claude_code_resolver import load_provider_spec
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
     resolve_project_name,
@@ -155,6 +156,7 @@ def _persona_image_build_cmd(
     cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={_resolve_pip_spec(dev_mode=dev_mode)}"])
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
+    with_plain_build_progress(cmd)
     cmd.append(context)
     return cmd
 
@@ -726,18 +728,28 @@ def build_persona_images(
                 project_label,
                 dev_mode and wheel_staged,
             )
-            logger.key_info("Building persona image %s-%s:local:", project, persona_name)
+            image_tag = f"{project}-{persona_name}:local"
+            logger.key_info("Building persona image %s:", image_tag)
             logger.debug("Running command:\n    %s", " ".join(cmd))
-            run_captured(
-                cmd,
-                env=env,
-                spool_name=f"build-persona-{project}-{persona_name}",
-                repo_root=repo_root,
-            )
+            # Function-level import for the same cycle reason as
+            # `_resolve_pip_spec` above: container_lifecycle imports this module
+            # at its own top level.
+            from osprey.deployment.container_lifecycle import single_image_build_reporter
+
+            # Watched for the duration of the build and no longer; the step line
+            # below is what reports the finished image.
+            with (report := single_image_build_reporter(image_tag)):
+                run_captured(
+                    cmd,
+                    env=env,
+                    spool_name=f"build-persona-{project}-{persona_name}",
+                    repo_root=repo_root,
+                    on_line=report,
+                )
             # One line per image, after its own build: the slowest step of a
             # local-mode deploy, and the only progress an operator gets while
             # a handful of multi-minute builds run one after another.
-            _report_step(f"persona image {project}-{persona_name}:local")
+            _report_step(f"persona image {image_tag}")
         finally:
             # Remove BOTH staged artifacts (wheel + requirements manifest) so
             # neither can poison a later non-dev build in this context.

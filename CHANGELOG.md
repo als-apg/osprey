@@ -13,6 +13,18 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Lifecycle commands no longer go quiet while they work. `osprey init`,
+  `build`, `up`, `restart`, `down` and `reset` keep a spinner and a running
+  elapsed under the phase they are in, and while images are building there is
+  a row per service naming the step it is on, what that step is doing right
+  now, and how long it has been at it; a service drops off the list as its
+  image lands. Phases that have finished keep the lines they always printed.
+  Where there is no terminal to repaint — piped to a file, or a CI log — each
+  service still building appends a line roughly every thirty seconds instead,
+  so a build that takes a quarter of an hour is never silent either way. No
+  percent bars, no estimated finish times, and nothing is kept about how long
+  earlier builds took.
+
 - Onboarding output is now written for the people who run accelerators rather
   than for the people who wrote OSPREY. `osprey init` prints the five entries
   you edit instead of a forty-line tour; the generated `profile.yml`,

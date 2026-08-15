@@ -254,12 +254,32 @@ def lifecycle_reporter() -> Iterator["PhaseReporter"]:
 
     ctx = click.get_current_context(silent=True)
     verbose = bool(ctx.find_root().params.get("verbose")) if ctx is not None else False
-    reporter: PhaseReporter = NullReporter(verbose=True) if verbose else PhaseReporter()
+    reporter: PhaseReporter = NullReporter(verbose=True) if verbose else _tty_aware_reporter()
     previous = install_reporter(reporter)
     try:
+        reporter.start_rendering()
         yield reporter
     finally:
+        # The swap stops whatever the reporter had running: the monitor thread
+        # first, then the live region. Nothing else here needs to know which.
         install_reporter(previous)
+
+
+def _tty_aware_reporter() -> "PhaseReporter":
+    """The reporter for this stdout: live on a terminal, plain lines otherwise.
+
+    Asked once, here, rather than per line: a verb whose output is piped or
+    redirected gets the plain-line reporter for its whole run, and the live
+    region is never mounted at all. ``stdout`` is asked directly rather than the
+    console, which is ``force_terminal`` on win32.
+
+    The reporter is built immediately before it is installed, which is what
+    binds the live region's console to the themed one the rest of the CLI is
+    already using.
+    """
+    from .phase_reporter import LiveReporter, PhaseReporter
+
+    return LiveReporter() if sys.stdout.isatty() else PhaseReporter()
 
 
 def main():

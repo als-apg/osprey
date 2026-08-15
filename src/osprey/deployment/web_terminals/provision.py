@@ -23,6 +23,7 @@ from pathlib import Path
 import yaml
 
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
     _stage_dev_wheel_for_context,
     compose_base_cmd,
@@ -546,11 +547,22 @@ def build_auth_sidecar_image(config: dict, dev_mode: bool, env: dict[str, str]) 
     ]
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
+    with_plain_build_progress(cmd)
     cmd.append(str(context_dir))
 
     logger.key_info("Building auth sidecar image %s:", tag)
     logger.debug("Running command:\n    %s", " ".join(cmd))
-    run_captured(cmd, env=env, spool_name="build-auth-sidecar", repo_root=repo_root)
+    # Function-level import, like `compose_build_step_reporter` below:
+    # container_lifecycle imports this module at its own top level, so the
+    # favour cannot be returned there.
+    from osprey.deployment.container_lifecycle import single_image_build_reporter
+
+    # Watched for the duration of the build and no longer; the step line below
+    # is what reports the finished image.
+    with (report := single_image_build_reporter(tag)):
+        run_captured(
+            cmd, env=env, spool_name="build-auth-sidecar", repo_root=repo_root, on_line=report
+        )
     _report_step(f"auth sidecar image {tag}")
 
 
@@ -960,13 +972,16 @@ def deploy_up_web_terminals(
 
             services_build = services_base + ["build"]
             logger.debug(f"Running command:\n    {' '.join(services_build)}")
-            run_captured(
-                services_build,
-                env=run_env,
-                spool_name="build-services",
-                repo_root=repo_root,
-                on_line=compose_build_step_reporter(),
-            )
+            # Watched only for as long as the build runs — same scope as the
+            # plain path's build (see _start_stack).
+            with (report := compose_build_step_reporter()):
+                run_captured(
+                    services_build,
+                    env=run_env,
+                    spool_name="build-services",
+                    repo_root=repo_root,
+                    on_line=report,
+                )
             _report_step("built service images")
         services_cmd = services_base + ["up"]
         if dev_mode:

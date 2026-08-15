@@ -18,7 +18,7 @@ import logging
 
 import pytest
 
-from osprey.cli.phase_reporter import install_reporter
+from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.deployment import compose_generator
 
 
@@ -32,9 +32,20 @@ class _RecordingPhase:
         self.steps.append(name)
 
 
-class _RecordingReporter:
+class _RecordingReporter(PhaseReporter):
+    """A reporter whose only job is to hand ``clean_deployment`` an open phase.
+
+    Subclasses the real reporter rather than duck-typing it, and must keep doing
+    so: the reporter's terminal-ownership hooks (``stop_rendering`` today, and
+    the no-ops the deploy call sites invoke unconditionally) are defined on the
+    base class, so a standalone fake breaks on each one as it arrives.
+
+    ``current_phase`` is a read-only property on the base, hence ``_phase``.
+    """
+
     def __init__(self, phase):
-        self.current_phase = phase
+        super().__init__(color=False)
+        self._phase = phase
 
 
 @pytest.fixture(autouse=True)

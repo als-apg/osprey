@@ -24,9 +24,10 @@ import pytest
 SRC = Path(__file__).resolve().parents[2] / "src" / "osprey"
 
 #: Calls whose string arguments land on a terminal, by attribute or bare name.
-#: ``emit`` is the phase reporter's, ``echo``/``secho`` are click's, ``print``
-#: is rich's console and the builtin.
-_PRINTERS = frozenset({"echo", "secho", "emit", "print"})
+#: ``emit``, ``echo`` and ``echo_error`` are the phase reporter's (``echo`` is
+#: also click's, along with ``secho``), and ``print`` is rich's console and the
+#: builtin.
+_PRINTERS = frozenset({"echo", "echo_error", "secho", "emit", "print"})
 
 #: In-house vocabulary. Each of these has a plain equivalent that costs no
 #: precision, and none of them is defined anywhere the reader will have been.

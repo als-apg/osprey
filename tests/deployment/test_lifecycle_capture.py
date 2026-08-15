@@ -35,11 +35,15 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 
+from osprey.cli import phase_reporter
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.deployment import container_lifecycle
 from osprey.simulation import archiver_seed as seed_mod
@@ -64,6 +68,18 @@ class RecordingReporter(PhaseReporter):
         return [
             _DURATION.sub("", line.strip()[2:]) for line in self.lines if line.startswith("  ·")
         ]
+
+
+@pytest.fixture(autouse=True)
+def parked_monitor(monkeypatch):
+    """Park the monitor's tick, so no thread of it lands mid-test.
+
+    Registering a build starts a real thread on the real clock, while these
+    tests drive builds from synthetic timestamps. One tick arriving mid-test
+    emits heartbeats measured against boot time and silences every assertion
+    after it -- an ordering-dependent flake with no visible cause.
+    """
+    monkeypatch.setattr(phase_reporter, "_MONITOR_INTERVAL", 3600.0)
 
 
 @pytest.fixture
@@ -188,7 +204,7 @@ def test_the_image_step_is_reported_after_the_build(reporter, image_build_stubs,
     charged to whatever step came next.
     """
 
-    def _marking(cmd, *, env=None, spool_name, repo_root=None, check=True):
+    def _marking(cmd, *, env=None, spool_name, repo_root=None, check=True, on_line=None):
         reporter.lines.append("<<ran>>")
         return subprocess.CompletedProcess(list(cmd), 0)
 
@@ -390,12 +406,12 @@ def start_stack_stubs(monkeypatch):
     )
 
 
-def _start(repo: Path, *, dev_mode: bool = False) -> None:
+def _start(repo: Path, *, dev_mode: bool = False, detached: bool = True) -> None:
     container_lifecycle._start_stack(
         {"project_name": "proj", "deployed_services": ["postgresql"]},
         ["build/services/docker-compose.0.yml"],
         repo,
-        detached=True,
+        detached=detached,
         dev_mode=dev_mode,
         env_path=repo / ".env",
     )
@@ -507,6 +523,67 @@ def test_unfinished_naming_lines_report_nothing(reporter):
     assert reporter.steps == []
 
 
+@contextmanager
+def _watch_spy(reporter, watched):
+    """Record every model registered for watching, then register it for real."""
+    real = reporter.watch_build
+
+    @contextmanager
+    def spy(model):
+        watched.append(model)
+        with real(model) as watched_model:
+            yield watched_model
+
+    previous, reporter.watch_build = reporter.watch_build, spy
+    try:
+        yield
+    finally:
+        reporter.watch_build = previous
+
+
+def test_the_watcher_and_the_step_lines_share_one_model(reporter):
+    """One stream, one parse. The live view and the step lines are two readings
+    of the SAME model — a second parser over the same output would double every
+    line's cost and could drift from what the operator was just told."""
+    watched: list = []
+    report = container_lifecycle.compose_build_step_reporter()
+
+    with _watch_spy(reporter, watched), report:
+        report("#7 [va 1/8] RUN pip install torch")
+        report("#37 naming to docker.io/library/proj-va:local done")
+
+    assert watched == [report.model]
+    assert [row.service for row in report.model.snapshot()] == ["va"]
+    assert reporter.steps == ["service image proj-va:local"]
+
+
+def test_a_failed_build_stops_being_watched(reporter):
+    """The watch is scoped to the run, and a build that raised is over: a live
+    row still heartbeating after the failure line would claim work is ongoing."""
+    report = container_lifecycle.compose_build_step_reporter()
+
+    with pytest.raises(RuntimeError):
+        with report:
+            report("#7 [va 1/8] RUN pip install torch")
+            raise RuntimeError("compose build failed")
+
+    # An hour later — long past any heartbeat interval — nothing is due.
+    assert reporter._heartbeat_pass(time.monotonic() + 3600) == []
+
+
+def test_the_dev_build_watches_the_model_it_feeds(
+    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path
+):
+    """The wiring the site must get right: the model registered for the live
+    view is the very object handed to ``run_captured`` as ``on_line``."""
+    watched: list = []
+
+    with _watch_spy(reporter, watched):
+        _start(_repo(tmp_path), dev_mode=True)
+
+    assert watched == [captured.call("compose-build")["on_line"].model]
+
+
 def test_the_dev_build_streams_per_image_progress(
     captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path
 ):
@@ -548,3 +625,84 @@ def test_steps_are_silent_without_an_open_phase(captured, start_stack_stubs, tmp
     _start(_repo(tmp_path), dev_mode=True)
 
     assert captured.spool_names == ["compose-rm", "compose-build", "compose-up"]
+
+
+# ---------------------------------------------------------------------------
+# Handing the terminal to compose
+# ---------------------------------------------------------------------------
+
+
+def _exec_spy(reporter, monkeypatch):
+    """One mock recording the hand-off and the exec in the order they happen.
+
+    Attached to a single manager rather than spied separately: the bug this
+    guards against is the two happening in the WRONG order, which every
+    "both were called" assertion passes cleanly. ``wraps`` keeps the real
+    hand-off running, so the reporter is genuinely quiesced by the time the
+    exec is recorded.
+    """
+    manager = mock.Mock()
+    manager.attach_mock(mock.Mock(wraps=reporter.hand_off), "hand_off")
+    manager.attach_mock(mock.Mock(), "execvpe")
+    monkeypatch.setattr(reporter, "hand_off", manager.hand_off)
+    monkeypatch.setattr(container_lifecycle.os, "execvpe", manager.execvpe)
+    # execvp too: an exec that lost its env would otherwise replace the test
+    # process instead of failing an assertion.
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvp",
+        lambda *a: pytest.fail("the attached start must exec WITH its env"),
+    )
+    return manager
+
+
+def test_the_attached_start_hands_the_terminal_over_before_it_execs(
+    captured, reporter, start_stack_stubs, monkeypatch, tmp_path
+):
+    """``os.execvpe`` replaces this process with compose.
+
+    A live region still mounted at that moment leaves the cursor hidden and
+    its last frame half-drawn under compose's own output, in a process that no
+    longer exists to take it down. So the hand-off has to land BEFORE the exec
+    -- reversed, it is dead code that never runs at all.
+    """
+    manager = _exec_spy(reporter, monkeypatch)
+
+    _start(_repo(tmp_path), detached=False)
+
+    assert [name for name, _, _ in manager.mock_calls] == ["hand_off", "execvpe"]
+    assert "up" in manager.execvpe.call_args.args[1]
+
+
+def test_the_attached_start_hands_off_inside_its_open_phase(
+    captured, reporter, start_stack_stubs, monkeypatch, tmp_path
+):
+    """The hand-off commits the open phase, and closes nothing.
+
+    Committing is what leaves the operator a permanent reading of the phase
+    that never gets its own closing line. It only has something to commit
+    while the phase is open -- and it deliberately leaves it open, so an
+    ``execvpe`` that raises (a missing compose binary) still gets its ``✗``.
+    """
+    _exec_spy(reporter, monkeypatch)
+
+    _start(_repo(tmp_path), detached=False)
+
+    assert reporter._phase is not None, "the hand-off closed the phase it committed"
+
+
+def test_the_detached_start_hands_nothing_over(
+    captured, reporter, start_stack_stubs, monkeypatch, tmp_path
+):
+    """``-d`` returns to a process that keeps the terminal.
+
+    The hand-off degrades the reporter to plain lines permanently, so making
+    it unconditional here would silence the phases and the summary card of
+    every detached deploy.
+    """
+    handed_off = mock.Mock(wraps=reporter.hand_off)
+    monkeypatch.setattr(reporter, "hand_off", handed_off)
+
+    _start(_repo(tmp_path))
+
+    handed_off.assert_not_called()

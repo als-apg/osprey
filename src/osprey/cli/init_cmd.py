@@ -1187,22 +1187,32 @@ def _report(
     the entries they make decisions about. The plumbing they never open --
     ``.gitignore``, ``.env.example``, ``ci-extra.yml``, ``build/`` -- is in the
     README, which the last row points at.
+
+    Written through the reporter rather than with ``click.echo``: on a terminal
+    the reporter's console owns a live region, and a raw write to the same
+    stream lands INSIDE it -- half a report under a table that repaints over it.
+    See :meth:`~osprey.cli.phase_reporter.PhaseReporter.echo`; off a terminal it
+    is byte-for-byte what ``click.echo`` wrote, which is the parity the tests
+    pin.
     """
+    from .phase_reporter import current_reporter
     from .profile_cmd import _skipped_keys_note
 
-    click.echo(f"✓ Created {target.name}")
-    click.echo("")
+    echo = current_reporter().echo
+
+    echo(f"✓ Created {target.name}")
+    echo("")
     for line in _entry_list(target, materialized):
-        click.echo(line)
-    click.echo(f"\n  {git_note}")
+        echo(line)
+    echo(f"\n  {git_note}")
 
     if materialized.skipped_shell_keys:
         # Named rather than dropped in silence: they exported these, and have to
         # be able to account for the omission.
-        click.echo(f"  {_skipped_keys_note(materialized.skipped_shell_keys)}")
+        echo(f"  {_skipped_keys_note(materialized.skipped_shell_keys)}")
 
     for line in _ci_report(deploy_files, target):
-        click.echo(line)
+        echo(line)
 
 
 def _entry_list(target: Path, materialized: _MaterializedProfile) -> list[str]:

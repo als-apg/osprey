@@ -37,13 +37,17 @@ def captured_argv(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, **kwargs):
         captured["cmd"] = cmd
         # run_captured hangs its spool path off the result, so the stand-in has
         # to be an object, and it passes redirection kwargs this ignores.
         return subprocess.CompletedProcess(list(cmd), 0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    # Stubbed at `run_captured`, the one seam every deploy child goes through:
+    # a watched capture (the image builds pass `on_line=`) reads its child
+    # through a pipe instead of `subprocess.run`, so a `subprocess.run` stub
+    # would be walked straight past and this test would run a real build.
+    monkeypatch.setattr(container_lifecycle, "run_captured", _fake_run)
     return captured
 
 
@@ -159,8 +163,8 @@ def test_bluesky_alongside_dispatch_mints_both_independently(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
     monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
+        container_lifecycle,
+        "run_captured",
         lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0),
     )
 
