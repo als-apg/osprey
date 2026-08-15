@@ -447,6 +447,27 @@ services:
          back only on an unset variable, never on an empty one. #}
       - ARIEL_DB_PASSWORD=${ARIEL_DB_PASSWORD:-ariel}
 {%- endif %}
+{%- if svc.wants_launch_token %}
+      {#- The Bluesky queue's launch token, for a persona entitled to arm a queue
+         start. The consumer is the `bluesky` MCP server inside this container:
+         holding this token is what lets the agent start the queue on the
+         operator's approval of that one tool call, with no second confirmation
+         step anywhere else. A persona without it is refused by the bridge, and
+         the operator starts the queue from the BLUESKY panel themselves.
+
+         Per-user for the same reason as the two credentials above, and more
+         sharply: this one arms physical hardware motion. A read-only persona
+         reads the same `.env.production` as everyone else, so a token placed
+         there would hand queue-start capability to exactly the personas that
+         must never have it.
+
+         `${VAR:-}` is resolved by compose from the deploy `.env`, so the secret
+         is never written into this rendered file. The `:-` default keeps compose
+         from warning, and an empty value is falsy to `resolve_launch_token`,
+         which then resolves no token and refuses the launch client-side — the
+         same fail-closed outcome as never emitting this line at all. #}
+      - BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}
+{%- endif %}
     volumes:
       - {{ svc.user }}-claude-config:/data/claude-config
       {#- Mount target comes from render.py's _container_agent_data_dir, which

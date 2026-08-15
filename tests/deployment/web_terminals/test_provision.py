@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment.web_terminals import provision
+from osprey.deployment.web_terminals.artifacts import BashLaunchTokenConflictError
 from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     PW_HASH_VAR_PREFIX,
@@ -903,3 +904,103 @@ def test_force_recreate_auth_sidecar_is_a_warning_not_a_failure_without_a_stack(
         provision.force_recreate_auth_sidecar({"project_name": "myproj"}, [])
 
     assert "docker-compose.web.yml" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# preflight_web_terminals -- the Bash/launch-token conflict gate
+#
+# The guard also lives at the render seam (tests/.../test_artifacts.py), which is
+# what covers the lifecycle re-render paths that never reach a preflight. What
+# only THIS placement can give is timing: the refusal has to land before
+# `ensure_env_production`, or a doomed deploy has already paid for the project
+# image build and minted -- and printed -- credentials for a stack that will
+# never come up. A regression that dropped this call would leave the render-seam
+# tests green, so it needs its own assertion.
+# ---------------------------------------------------------------------------
+
+
+def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) -> str:
+    """Write a persona project under *root*; return its relative project_path."""
+    import json
+
+    import yaml
+
+    project_dir = root / "profiles" / name
+    (project_dir / ".claude").mkdir(parents=True)
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump({"project_name": name, "control_system": {"writes_enabled": writes}}),
+        encoding="utf-8",
+    )
+    deny = ["Bash", "Edit"] if denies_bash else ["Edit"]
+    (project_dir / ".claude" / "settings.json").write_text(
+        json.dumps({"permissions": {"deny": deny}}), encoding="utf-8"
+    )
+    return f"profiles/{name}"
+
+
+def _persona_roster_config(root: Path, *, denies_bash: bool) -> dict:
+    """A registry-mode roster whose single persona both enables writes and runs bluesky."""
+    return {
+        "facility": {"prefix": "als"},
+        "modules": {
+            "web_terminals": {
+                "users": [{"name": "alice", "index": 0, "persona": "readwrite"}],
+                "auth": {"method": "none"},
+                "personas": {
+                    "readwrite": {
+                        "project": "rw",
+                        "project_path": _persona_project(
+                            root, "rw", writes=True, denies_bash=denies_bash
+                        ),
+                    }
+                },
+            }
+        },
+    }
+
+
+def test_preflight_refuses_a_bash_permitting_launch_token_persona(monkeypatch, tmp_path):
+    """The fail-fast gate: an entitled persona shipping no shell deny stops the
+    deploy in seconds, naming the persona.
+
+    `ensure_env_production` is deliberately NOT stubbed here. It raises on this
+    root too, so demanding specifically a `BashLaunchTokenConflictError` proves
+    the conflict is what the operator is told about — a guard moved below it
+    would surface the wrong error and fail this test.
+    """
+    monkeypatch.chdir(tmp_path)
+    config = _persona_roster_config(tmp_path, denies_bash=False)
+
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        provision.preflight_web_terminals(config)
+
+    assert "readwrite" in str(excinfo.value)
+
+
+def test_preflight_refuses_before_any_credential_is_minted(monkeypatch, tmp_path):
+    """THE reason this placement exists. `preflight_web_terminals`' docstring
+    commits to not writing (and printing) passwords for a stack that never comes
+    up; the conflict refusal has to sit ahead of `ensure_env_production` to honour
+    that, not merely somewhere in the function."""
+    monkeypatch.chdir(tmp_path)
+    reached: list[str] = []
+    monkeypatch.setattr(
+        provision, "ensure_env_production", lambda config, root: reached.append("env_production")
+    )
+    monkeypatch.setattr(
+        provision, "_provision_auth_secrets", lambda wt, root: reached.append("auth_secrets")
+    )
+
+    with pytest.raises(BashLaunchTokenConflictError):
+        provision.preflight_web_terminals(_persona_roster_config(tmp_path, denies_bash=False))
+
+    assert reached == []
+
+
+def test_preflight_passes_a_persona_that_denies_bash(monkeypatch, tmp_path):
+    """The negative control: the same entitled persona shipping the shell deny
+    clears the gate, so the guard cannot be passing by refusing everything."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
+
+    provision.preflight_web_terminals(_persona_roster_config(tmp_path, denies_bash=True))

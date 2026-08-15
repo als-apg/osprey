@@ -38,6 +38,7 @@ from osprey.deployment.runtime_helper import (
 )
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.artifacts import (
+    check_bash_launch_token_conflict,
     web_compose_file,
     write_web_terminal_artifacts,
 )
@@ -77,7 +78,10 @@ def preflight_web_terminals(config: dict) -> None:
 
     ``deploy_up`` invokes this ahead of its (minutes-long) project-image
     build so the deploy aborts that need no image at all — an
-    unresolvable persona catalog, a missing provider auth secret
+    unresolvable persona catalog, a persona that would hold
+    ``BLUESKY_LAUNCH_TOKEN`` while its agent may also run a shell
+    (:func:`~osprey.deployment.web_terminals.artifacts.check_bash_launch_token_conflict`),
+    a missing provider auth secret
     (:func:`ensure_env_production`'s fail-closed gate), a registry-mode
     deployment with no ``auth.image`` (:func:`_require_auth_sidecar_image`) and
     an auth credential that could not be established
@@ -114,6 +118,14 @@ def preflight_web_terminals(config: dict) -> None:
         registry_cfg = config.get("registry") or {}
         resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
         verify_persona_renders(config, resolved_users, repo_root=Path(repo_root))
+    # BEFORE ensure_env_production, for the same reason auth provisioning runs
+    # last: a persona that would hold BLUESKY_LAUNCH_TOKEN while its shipped
+    # settings still permit `Bash` is a deploy that must not come up, and
+    # discovering that after the image build would have already minted (and
+    # printed) credentials for it. The render seam and `decommission_user` check
+    # again — see check_bash_launch_token_conflict for why all three call sites
+    # are load-bearing.
+    check_bash_launch_token_conflict(config, repo_root)
     ensure_env_production(config, repo_root)
     # BEFORE the mint, deliberately: a registry-mode deploy that forgot
     # auth.image is already doomed, and minting here first would write (and

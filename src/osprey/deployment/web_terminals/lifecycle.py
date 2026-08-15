@@ -90,7 +90,10 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
     verify_runtime_is_running,
 )
-from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
+from osprey.deployment.web_terminals.artifacts import (
+    check_bash_launch_token_conflict,
+    write_web_terminal_artifacts,
+)
 from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     PW_PLAINTEXT_VAR_PREFIX,
@@ -192,6 +195,11 @@ def decommission_user(
         ValueError: If ``user`` is not present in ``modules.web_terminals.users``.
         RuntimeError: If the container runtime daemon is not running, or volume
             destruction was requested but not confirmed.
+        BashLaunchTokenConflictError: If a persona that survives this removal
+            would hold ``BLUESKY_LAUNCH_TOKEN`` while its shipped settings still
+            permit ``Bash``. Raised before ``config.yml`` is touched, so nothing
+            is half-applied; removing the offending persona's own last user is
+            unaffected, because the check reads the post-removal roster.
     """
     config_path = Path(config_path)
     config = ConfigBuilder(str(config_path)).raw_config
@@ -222,6 +230,24 @@ def decommission_user(
         )
         if not confirm_destroy(prompt, assume_yes, expected=user):
             raise RuntimeError(f"Decommission of {user!r} aborted: confirmation did not match.")
+
+    # Refuse a conflicted deployment BEFORE touching config.yml, not at the
+    # re-render below. The re-render would catch it either way, but only after
+    # `config_replace_list` had already written the roster edit — leaving the file
+    # updated, the artifacts stale, and the container/volume removal never run.
+    # The probe roster is the POST-removal one, which is what preserves the
+    # escape hatch: decommissioning the offending persona's last user drops it
+    # from the referenced set, so that removal still succeeds.
+    check_bash_launch_token_conflict(
+        {
+            **config,
+            "modules": {
+                **as_dict(config.get("modules")),
+                "web_terminals": {**web_terminals, "users": remaining},
+            },
+        },
+        repo_root,
+    )
 
     # Roster edit + artifact re-render happen before container/volume removal:
     # they are recoverable by re-running `osprey up`, unlike volume removal.

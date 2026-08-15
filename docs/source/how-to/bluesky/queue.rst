@@ -70,7 +70,6 @@ One queue, three ways to drive it
 
          POST /queue/items          add the current draft revision
          POST /queue/start          start draining (needs the launch token)
-         POST /queue/start-request  ask a token holder to start — arms nothing
          POST /queue/stop           stop after the running item
          POST /queue/abort          abort the running plan — never gated
          GET  /queue                what is queued and running
@@ -119,9 +118,6 @@ quirks worth knowing:
         - The launch token — this hands work straight to a moving machine.
       * - Start the queue
         - The launch token.
-      * - Ask for a start (file a start request)
-        - Nothing — the request arms nothing. Confirming it *is* the
-          token-gated start, done from the queue panel.
       * - Stop the queue / abort the running plan
         - Nothing. Ever. Anywhere.
       * - Withdraw a pending stop
@@ -133,13 +129,13 @@ quirks worth knowing:
    anything, even on an idle queue. Its halts and its read tools are never
    taken away.
 
-   In a deployed control room the agent's environment never holds the launch
-   token at all — the token lives with the operator panels. The agent's
-   ``queue_start`` then files a **start request**: it appears in the BLUESKY
-   queue panel beside the queue it would drain, with *Confirm start* and
-   *Dismiss* controls. Confirming fires the panel's own token-carrying start;
-   dismissing starts nothing. Either way, the human's click is the arming
-   decision.
+   In a deployed control room the agent holds the launch token only where the
+   deployment grants it — to a persona configured for control-system writes
+   that also runs the bluesky MCP server. Where it is granted, the agent's
+   ``queue_start`` arms the queue itself, and your approval of that tool call
+   is the arming decision. Where it is not, ``queue_start`` is refused with
+   ``launch_token_required`` and the start stays with you, from the BLUESKY
+   queue panel's own **Start queue** button.
 
 .. dropdown:: When something is refused
    :color: info
@@ -154,12 +150,9 @@ quirks worth knowing:
 
    ``launch_token_required``
       The operation was armed and the caller held no valid token. Nothing was
-      started. (An agent asking for a plain start never hits this — it files a
-      start request for the panel instead.)
-
-   ``queue_empty``
-      A start was requested with nothing queued, so there was nothing a
-      confirmation could run. Stage and add a plan first.
+      started. An agent meets this where the deployment did not grant it a
+      token, where the token it holds does not match the bridge's, or where
+      no launch token is configured at all — hand the start to the operator.
 
    ``browse_only_connector``
       This deployment cannot execute scans at all — it is pointed at the

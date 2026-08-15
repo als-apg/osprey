@@ -227,6 +227,35 @@ def wait_for_terminal_status(
     return last
 
 
+def assert_start_request_route_is_gone(base_url: str) -> None:
+    """Assert the deployed bridge exposes NO ``POST /queue/start-request``.
+
+    ``POST /queue/start`` is the only route that starts a queue. The route this
+    probes used to be the second half of a two-action arming flow: an agent
+    without the launch token filed a start REQUEST here, and an operator then
+    confirmed it from the queue panel. Both halves are gone -- the agent either
+    holds the token and starts the queue outright, or is refused.
+
+    Worth probing over HTTP rather than by grepping the source, because this is
+    the only assertion in the suite that can see the DEPLOYED bridge. Every
+    other test of this path mocks the MCP server's HTTP client, so an MCP
+    server posting to a route the bridge no longer serves stays green
+    everywhere else -- which is exactly the two-party break the deletion could
+    have left behind, in either direction.
+
+    A 404 is the pass. Anything else means a route answers there: 405 would say
+    the path exists under another method, and a 2xx/4xx from the app itself
+    would say the mechanism is still deployed.
+    """
+    status, body = request(base_url, "/queue/start-request", "POST", {})
+    assert status == 404, (
+        f"POST /queue/start-request answered {status} ({body!r}) -- the bridge "
+        "still serves a start-request route. Starting a queue is one action "
+        "through POST /queue/start; a second route that files a request for an "
+        "operator to confirm is the flow that was removed"
+    )
+
+
 def run_scan(
     base_url: str,
     plan_name: str,

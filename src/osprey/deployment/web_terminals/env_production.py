@@ -206,24 +206,43 @@ def _build_env_production_subset(
     including read-only ones, whose entire purpose is not to hold write-capable
     credentials. A per-user entitlement therefore has to be expressed somewhere
     that can distinguish users, and that is the per-user ``environment:`` block
-    in ``docker-compose.web.yml`` (see
-    :func:`osprey.deployment.web_terminals.render.render_web_terminals`'s
-    ``dispatcher_personas``, which grants ``EVENT_DISPATCHER_TOKEN`` only to
-    users whose persona declares the EVENTS panel, interpolated by compose from
-    the deploy ``.env`` so the secret never lands in a rendered artifact).
+    in ``docker-compose.web.yml``. See
+    :func:`osprey.deployment.web_terminals.render.render_web_terminals`, whose
+    ``dispatcher_personas``, ``ariel_personas`` and ``launch_token_personas``
+    arguments each carry the subset of the roster entitled to one credential —
+    ``EVENT_DISPATCHER_TOKEN``, ``ARIEL_DB_PASSWORD`` and
+    ``BLUESKY_LAUNCH_TOKEN`` respectively — emitted into that user's own
+    ``environment:`` block and interpolated by compose from the deploy ``.env``,
+    so the secret never lands in a rendered artifact either.
 
     So this is NOT the claim that no web terminal ever presents a service token —
-    the EVENTS panel's proxy presents exactly this one, server-side, so the
-    browser never holds it. It is the narrower and still-load-bearing claim that
-    no service token is granted *rosterwide from here*. Note what that buys and
-    what it does not: a container that receives the dispatcher token shares its
-    process namespace with the agent, which can read it, so the grant is a
-    deliberate per-persona decision and never a default. The bluesky MCP
-    server's ``${BLUESKY_LAUNCH_TOKEN:-}`` stays tokenless in every persona for
-    that reason — an agent must not hold a write-ARMING bearer (any Bash or
-    Python it runs could read it and arm the queue with no approval), so its
-    ``queue_start`` files a panel start request and the operator's panels
-    sidecar, which does receive the token, answers it.
+    the EVENTS panel's proxy presents the dispatcher token server-side, so the
+    browser never holds it, and the ``bluesky`` MCP server presents the launch
+    token to the bridge from inside the terminal container. It is the narrower
+    and still-load-bearing claim that no
+    service token is granted *rosterwide from here*. Note what that buys and
+    what it does not: a container that receives one of these tokens shares its
+    process namespace with the agent, which can read it, so every grant is a
+    deliberate per-persona decision and never a default.
+
+    ``BLUESKY_LAUNCH_TOKEN`` is the sharpest case, because it arms a queue start
+    — an agent that holds it can put hardware in motion. Its entitlement
+    predicate,
+    :func:`osprey.deployment.web_terminals.personas.config_needs_launch_token`,
+    requires BOTH ``control_system.writes_enabled: true`` AND an enabled
+    ``bluesky`` MCP server in that persona's own rendered config. A read-only
+    persona is spelled ``writes_enabled: false``, so it cannot satisfy that pair
+    and can never be handed the token. That guarantee exists only because the
+    grant is per-persona; a copy of the token in this file would hand it to
+    exactly the personas the predicate is there to exclude.
+
+    One nuance applies to all three credentials alike. A roster entry that names
+    no persona — the zero-migration path, where the web image IS the deploy
+    project — consults no persona set at all; the render answers it straight
+    from the deploy config, via ``config_needs_launch_token``,
+    ``config_needs_dispatcher_token`` or ``config_needs_ariel_password``. An
+    empty persona set therefore does NOT mean "this credential is granted
+    nowhere": persona-less entries are decided independently of it.
 
     This is the security spec for this function: a var absent from the
     enumerated list above can never appear in the returned dict, regardless of

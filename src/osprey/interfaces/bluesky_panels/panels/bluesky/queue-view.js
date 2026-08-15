@@ -47,7 +47,6 @@ import {
   createQueueStream,
   describeProgress,
   describeQueueStatus,
-  describeStartRequest,
   historyChanged,
   historyEmptyState,
   historyRecords,
@@ -59,7 +58,6 @@ import {
   queueEmptyState,
   reduceQueueFrame,
   refusalTone,
-  startRequest,
   stopButtonClass,
   stopButtonLabel,
   writeOutcomeTone,
@@ -106,10 +104,6 @@ export function createQueueView({ root, api, onSelectRun }) {
   const queueNote = byId('queue-note');
   const queueBanner = byId('queue-banner');
   const startBtn = /** @type {HTMLButtonElement} */ (byId('start-btn'));
-  const startRequestCard = byId('start-request-card');
-  const startRequestText = byId('start-request-text');
-  const confirmStartBtn = /** @type {HTMLButtonElement} */ (byId('confirm-start-btn'));
-  const dismissRequestBtn = /** @type {HTMLButtonElement} */ (byId('dismiss-request-btn'));
   const stopBtn = /** @type {HTMLButtonElement} */ (byId('stop-btn'));
   const stopNote = byId('stop-note');
   const abortBtn = /** @type {HTMLButtonElement} */ (byId('abort-btn'));
@@ -276,18 +270,6 @@ export function createQueueView({ root, api, onSelectRun }) {
     const controls = queueControls(queue);
     startBtn.disabled = controls.start.disabled;
     startBtn.title = controls.start.reason || '';
-
-    // The pending start request, when the summary carries one. Confirm is the
-    // SAME arming action as the Start button — the sidecar attaches the launch
-    // token the requester never held — so it shares Start's usability gate and
-    // its reason tooltip. Dismiss is never gated: declining is always safe.
-    const request = startRequest(queue);
-    startRequestCard.hidden = request === null;
-    if (request !== null) {
-      startRequestText.textContent = describeStartRequest(request);
-      confirmStartBtn.disabled = controls.start.disabled;
-      confirmStartBtn.title = controls.start.reason || '';
-    }
 
     // The stop button is never disabled — see `queueControls`. Whatever this
     // panel believes about the manager is a tooltip, not a gate.
@@ -575,31 +557,6 @@ export function createQueueView({ root, api, onSelectRun }) {
       {},
       'Queue started — it is now draining toward hardware.',
       writeOutcomeTone(true)
-    );
-  });
-
-  // Confirming a start request fires the same token-carrying start as the
-  // Start button — the bridge clears the request record on a successful
-  // start, and the next SSE frame hides this card. One click, like Start:
-  // the human reading this card IS the deliberation the flow exists for.
-  confirmStartBtn.addEventListener('click', () => {
-    if (confirmStartBtn.disabled) return;
-    void queueWrite(
-      'POST',
-      '/queue/start',
-      {},
-      'Start confirmed — the queue is now draining toward hardware.',
-      writeOutcomeTone(true)
-    );
-  });
-
-  dismissRequestBtn.addEventListener('click', () => {
-    void queueWrite(
-      'DELETE',
-      '/queue/start-request',
-      undefined,
-      'Start request dismissed — nothing was started.',
-      writeOutcomeTone(false)
     );
   });
 

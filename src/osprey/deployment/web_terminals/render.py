@@ -19,12 +19,12 @@ from jinja2 import Environment, FileSystemLoader
 
 from osprey.deployment.compose_generator import repo_identity, resolve_repo_root
 from osprey.deployment.web_terminals.personas import (
-    EVENTS_PANEL_ID,
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     as_dict,
-    config_declares_panel,
-    config_uses_ariel,
+    config_needs_ariel_password,
+    config_needs_dispatcher_token,
+    config_needs_launch_token,
     effective_image_source,
     env_var_suffix,
     env_var_suffix_collisions,
@@ -145,6 +145,7 @@ def render_web_terminals(
     auth_env_digest: str | None = None,
     dispatcher_personas: set[str] | None = None,
     ariel_personas: set[str] | None = None,
+    launch_token_personas: set[str] | None = None,
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -169,7 +170,7 @@ def render_web_terminals(
         dispatcher_personas: Persona names whose project declares the EVENTS
             panel, and whose users therefore need the event dispatcher's bearer
             token. Resolved from disk by
-            :func:`osprey.deployment.web_terminals.personas.personas_declaring_panel`
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_dispatcher_token`
             and passed in for the same reason ``auth_env_digest`` is: this
             function reads no filesystem. Each such user gets
             ``EVENT_DISPATCHER_TOKEN`` in its OWN ``environment:`` block,
@@ -184,7 +185,7 @@ def render_web_terminals(
         ariel_personas: Persona names whose project configures ARIEL, and whose
             users therefore need the Postgres password ``osprey up`` minted into
             the deploy ``.env`` (see
-            :func:`osprey.deployment.web_terminals.personas.personas_using_ariel`).
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_ariel_password`).
             Same placement and same reason as ``dispatcher_personas``: both ARIEL
             consumers inside the container — the panel's server and the ``ariel``
             MCP server — resolve their DSN through
@@ -193,6 +194,16 @@ def render_web_terminals(
             back to the shipped default, so a container that never receives it
             authenticates with the wrong password against a Postgres initialized
             with the minted one. ``None`` emits no line.
+        launch_token_personas: Persona names entitled to arm a Bluesky queue
+            start, resolved from disk by
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_launch_token`.
+            Same placement and same reason as ``dispatcher_personas`` — see that
+            argument for why a per-persona credential belongs in the per-user
+            ``environment:`` block and never in the shared ``.env.production``.
+            The tier boundary bites hardest here: ``BLUESKY_LAUNCH_TOKEN`` is
+            what lets the ``bluesky`` MCP server arm a queue start without a
+            second confirmation, so a read-only persona holding it would be able
+            to move hardware. ``None`` emits no line.
 
     Returns:
         Mapping of output-relative-path to rendered content, for exactly three
@@ -303,7 +314,7 @@ def render_web_terminals(
                 "wants_dispatcher": (
                     entry["persona"] in (dispatcher_personas or set())
                     if entry.get("persona")
-                    else config_declares_panel(root, EVENTS_PANEL_ID)
+                    else config_needs_dispatcher_token(root)
                 ),
                 # Whether this user's container gets the ARIEL Postgres password
                 # (see the `ariel_personas` arg). Persona-less entries are
@@ -312,7 +323,16 @@ def render_web_terminals(
                 "wants_ariel_db": (
                     entry["persona"] in (ariel_personas or set())
                     if entry.get("persona")
-                    else config_uses_ariel(root)
+                    else config_needs_ariel_password(root)
+                ),
+                # Whether this user's container gets the Bluesky queue's launch
+                # token (see the `launch_token_personas` arg). Persona-less
+                # entries are answered from this same config, with no disk read,
+                # exactly as above.
+                "wants_launch_token": (
+                    entry["persona"] in (launch_token_personas or set())
+                    if entry.get("persona")
+                    else config_needs_launch_token(root)
                 ),
             }
         )

@@ -25,6 +25,7 @@ import {
   ABORT_LABEL,
   CONFIRM_ABORT_LABEL,
   CONFIRM_WITHDRAW_STOP_LABEL,
+  QUEUE_ACTIVE_MANAGER_STATES,
   STOP_LABEL,
   WITHDRAW_STOP_LABEL,
   abortButtonClass,
@@ -38,7 +39,6 @@ import {
   createQueueStream,
   describeProgress,
   describeQueueStatus,
-  describeStartRequest,
   historyChanged,
   historyEmptyState,
   historyRecords,
@@ -50,7 +50,6 @@ import {
   queueEmptyState,
   reduceQueueFrame,
   refusalTone,
-  startRequest,
   stopButtonClass,
   stopButtonLabel,
   writeOutcomeTone,
@@ -200,75 +199,6 @@ describe('describeQueueStatus', () => {
   });
 });
 
-describe('start request (the tokenless agent asking this panel to arm)', () => {
-  test('startRequest surfaces the summary record, and only a real one', () => {
-    const record = {
-      request_id: 'r1',
-      requested_by: 'agent',
-      requested_at: '2026-08-12T20:00:00+00:00',
-      items_in_queue: 2,
-    };
-    const withRequest = reduceQueueFrame(
-      createInitialQueueState(),
-      frame({ status: summary({ start_request: record }) })
-    );
-    expect(startRequest(withRequest)).toEqual(record);
-
-    const without = reduceQueueFrame(createInitialQueueState(), frame());
-    expect(startRequest(without)).toBeNull();
-
-    // A summary that never mentions the key, a null status, and a malformed
-    // (non-object) record all read as "nothing to render", never a throw.
-    expect(startRequest(createInitialQueueState())).toBeNull();
-    const malformed = reduceQueueFrame(
-      createInitialQueueState(),
-      frame({ status: summary({ start_request: 'yes please' }) })
-    );
-    expect(startRequest(malformed)).toBeNull();
-  });
-
-  test('the request survives a manager outage frame — it is bridge state', () => {
-    const record = { request_id: 'r1', requested_by: 'agent', items_in_queue: 1 };
-    const outage = reduceQueueFrame(
-      createInitialQueueState(),
-      frame({
-        status: {
-          available: false,
-          reason: 'manager_unreachable',
-          start_request: record,
-        },
-      })
-    );
-    expect(startRequest(outage)).toEqual(record);
-  });
-
-  test('describeStartRequest names who asked, how much, and when', () => {
-    const sentence = describeStartRequest({
-      request_id: 'r1',
-      requested_by: 'agent',
-      requested_at: '2026-08-12T20:00:00+00:00',
-      items_in_queue: 2,
-    });
-    expect(sentence).toContain('The agent asks to start the queue');
-    expect(sentence).toContain('2 items at the time');
-    expect(sentence).toContain('requested ');
-    expect(sentence).toContain('exactly as listed below');
-  });
-
-  test('describeStartRequest omits what it cannot state truthfully', () => {
-    const sentence = describeStartRequest({ request_id: 'r1' });
-    expect(sentence).toContain('The agent asks to start the queue');
-    expect(sentence).toContain('the queued items');
-    expect(sentence).not.toContain('requested ');
-
-    // A singular count reads as one item, not "1 items".
-    expect(describeStartRequest({ items_in_queue: 1 })).toContain('1 item at the time');
-
-    // An unparseable timestamp is dropped, never rendered as "Invalid Date".
-    expect(describeStartRequest({ requested_at: 'not-a-date' })).not.toContain('Invalid');
-  });
-});
-
 describe('queueControls', () => {
   /**
    * @param {any} status
@@ -300,6 +230,57 @@ describe('queueControls', () => {
     const draining = queueControls(stateWith(summary({ manager_state: 'executing_queue' }), [item()]));
     expect(draining.start.disabled).toBe(true);
     expect(draining.start.reason).toContain('already running');
+  });
+
+  test('the three start states carry the exact words the operator reads', () => {
+    // The reason is the whole explanation an operator gets for a dead button,
+    // so each one is pinned verbatim rather than by substring.
+    expect(queueControls(stateWith(summary(), [item()])).start).toEqual({
+      disabled: false,
+      reason: null,
+    });
+    expect(queueControls(stateWith(summary())).start).toEqual({
+      disabled: true,
+      reason: 'Nothing is queued.',
+    });
+    const running = queueControls(
+      stateWith(summary({ manager_state: 'executing_queue' }), [item()])
+    );
+    expect(running.start).toEqual({ disabled: true, reason: 'The queue is already running.' });
+  });
+
+  test('a running queue reads as running even when nothing is left to start', () => {
+    // Both gates are shut at once here — active AND empty. The running one
+    // wins, because 'Nothing is queued.' would read as an invitation to queue
+    // something and then click a button that is dead for another reason.
+    const controls = queueControls(stateWith(summary({ manager_state: 'executing_queue' })));
+    expect(controls.start).toEqual({ disabled: true, reason: 'The queue is already running.' });
+  });
+
+  test('every active manager state closes start, and a drained one opens it', () => {
+    for (const managerState of QUEUE_ACTIVE_MANAGER_STATES) {
+      const controls = queueControls(stateWith(summary({ manager_state: managerState }), [item()]));
+      expect(controls.start).toEqual({ disabled: true, reason: 'The queue is already running.' });
+    }
+    // `idle` is where the bridge parks a drained manager, and it is the state
+    // an operator starts from.
+    const idle = queueControls(stateWith(summary({ manager_state: 'idle' }), [item()]));
+    expect(idle.start).toEqual({ disabled: false, reason: null });
+  });
+
+  test('an unreadable manager outranks whatever else the summary claims', () => {
+    // A summary that could not be read is not evidence the queue is idle, so
+    // that reason is the one shown even when a populated queue and a state
+    // this panel can still see would otherwise light the button up.
+    expect(queueControls(stateWith(null, [item()])).start).toEqual({
+      disabled: true,
+      reason: 'The queue manager could not be read.',
+    });
+    const stale = queueControls(stateWith({ available: false, manager_state: 'idle' }, [item()]));
+    expect(stale.start).toEqual({
+      disabled: true,
+      reason: 'The queue manager could not be read.',
+    });
   });
 
   test('the halt has NO disabled state in any queue condition', () => {

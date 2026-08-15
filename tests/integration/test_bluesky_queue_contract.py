@@ -551,8 +551,8 @@ def test_the_queue_read_publishes_a_bounded_status_summary(
     client: TestClient, manager: MockQueueServer
 ) -> None:
     """`GET /queue` reports the manager's queue, and only the status keys the
-    contract names (plus the bridge-local ``start_request``) — the raw status
-    document carries 0MQ material that must never reach a consumer."""
+    contract names — the raw status document carries 0MQ material that must
+    never reach a consumer."""
     revision = _draft_revision(client)
     assert client.post("/queue/items", json={"draft_revision": revision}).status_code == 200
 
@@ -561,7 +561,7 @@ def test_the_queue_read_publishes_a_bounded_status_summary(
     assert set(body) == {"status", "items", "running_item"}
     assert [item["item_uid"] for item in body["items"]] == ["item-1"]
     assert body["running_item"] is None
-    assert set(body["status"]) == {"available", "start_request", *queue._SUMMARY_KEYS}
+    assert set(body["status"]) == {"available", *queue._SUMMARY_KEYS}
     assert body["status"]["available"] is True
     assert body["status"]["items_in_queue"] == 1
     assert "zmq_secret_key" not in json.dumps(body)
@@ -692,194 +692,6 @@ def test_all_three_arming_routes_refuse_with_one_code(
     assert "item_add" not in names
     assert "queue_stop_cancel" not in names
     assert draft._last_launched_revision == 0
-
-
-# ---------------------------------------------------------------------------
-# POST /queue/start-request — an untokened caller asks a token holder to start
-# ---------------------------------------------------------------------------
-
-
-def _enqueue(client: TestClient, num_points: int = 3) -> None:
-    resp = client.post("/queue/items", json={"draft_revision": _draft_revision(client, num_points)})
-    assert resp.status_code == 200, resp.text
-
-
-def test_filing_a_start_request_parks_it_and_starts_nothing(
-    client: TestClient, manager: MockQueueServer
-) -> None:
-    """The request is a published record, not an action: the manager sees no
-    start, and the queue summary carries the record for every consumer."""
-    _enqueue(client)
-
-    resp = client.post("/queue/start-request", json={"requested_by": "agent"})
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert "code" not in body
-    record = body["start_request"]
-    assert record["requested_by"] == "agent"
-    assert record["items_in_queue"] == 1
-    assert isinstance(record["request_id"], str) and record["request_id"]
-    assert isinstance(record["requested_at"], str) and record["requested_at"]
-
-    # Nothing was armed: no start reached the manager, the item still sits there.
-    assert "queue_start" not in manager.method_names()
-    assert manager.manager_state == "idle"
-
-    # The record rides the queue summary — the same place panels read state.
-    summary = client.get("/queue").json()["status"]
-    assert summary["start_request"] == record
-
-
-def test_a_start_request_defaults_its_requester(
-    client: TestClient, manager: MockQueueServer
-) -> None:
-    """No body at all is a valid filing; the requester defaults to 'agent'."""
-    _enqueue(client)
-    resp = client.post("/queue/start-request")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["start_request"]["requested_by"] == "agent"
-
-
-def test_refiling_replaces_the_pending_start_request(
-    client: TestClient, manager: MockQueueServer
-) -> None:
-    """One pending request at a time: refiling replaces, never queues a second."""
-    _enqueue(client)
-    first = client.post("/queue/start-request").json()["start_request"]
-    second = client.post("/queue/start-request").json()["start_request"]
-    assert second["request_id"] != first["request_id"]
-    summary = client.get("/queue").json()["status"]
-    assert summary["start_request"]["request_id"] == second["request_id"]
-
-
-def test_a_start_request_refuses_an_empty_queue(
-    client: TestClient, manager: MockQueueServer
-) -> None:
-    """Nothing to start is a coded refusal, not a dangling request."""
-    resp = client.post("/queue/start-request")
-    assert resp.status_code == 409
-    detail = resp.json()["detail"]
-    assert detail["code"] == "queue_empty"
-    assert isinstance(detail["detail"], str) and detail["detail"]
-    assert client.get("/queue").json()["status"]["start_request"] is None
-
-
-def test_a_start_request_refuses_while_the_queue_is_already_moving(
-    client: TestClient, manager: MockQueueServer
-) -> None:
-    """A running queue has nothing to confirm — same code as a premature start."""
-    _enqueue(client)
-    _enqueue(client, num_points=5)
-    manager.begin_running()
-
-    resp = client.post("/queue/start-request")
-    assert resp.status_code == 409
-    assert resp.json()["detail"]["code"] == "manager_not_idle"
-    assert client.get("/queue").json()["status"]["start_request"] is None
-
-
-def test_a_browse_only_deployment_refuses_a_start_request(
-    client: TestClient,
-    manager: MockQueueServer,
-    connector: Callable[[str | Exception], None],
-) -> None:
-    """A deployment that can never execute must not park confirmable requests."""
-    connector("mock")
-    resp = client.post("/queue/start-request")
-    assert resp.status_code == 409
-    detail = resp.json()["detail"]
-    assert detail["code"] == "browse_only_connector"
-    assert detail["capability"]["can_execute"] is False
-
-
-def test_dismissing_a_start_request_is_ungated_and_idempotent(
-    client: TestClient, manager: MockQueueServer
-) -> None:
-    """Withdrawing a request is the safe direction — no token, ever."""
-    _enqueue(client)
-    client.post("/queue/start-request")
-
-    dismissed = client.delete("/queue/start-request")
-    assert dismissed.status_code == 200
-    assert dismissed.json() == {"dismissed": True}
-    assert client.get("/queue").json()["status"]["start_request"] is None
-
-    again = client.delete("/queue/start-request")
-    assert again.status_code == 200
-    assert again.json() == {"dismissed": False}
-
-
-def test_a_confirmed_start_clears_the_pending_request(
-    client: TestClient, manager: MockQueueServer, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The token-gated start IS the confirmation — the record does not outlive it."""
-    monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
-    _enqueue(client)
-    client.post("/queue/start-request")
-
-    started = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
-    assert started.status_code == 200, started.text
-    assert client.get("/queue").json()["status"]["start_request"] is None
-
-
-def test_a_refused_start_leaves_the_pending_request_in_place(
-    client: TestClient, manager: MockQueueServer, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Only a start that actually armed consumes the request; a refused
-    confirmation (wrong token here) leaves it for the next attempt."""
-    monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
-    _enqueue(client)
-    record = client.post("/queue/start-request").json()["start_request"]
-
-    refused = client.post("/queue/start", headers={"X-Launch-Token": "not-the-token"})
-    assert refused.status_code == 403
-    assert client.get("/queue").json()["status"]["start_request"] == record
-
-
-def test_filing_a_start_request_never_arms_anything_even_with_a_token(
-    client: TestClient, manager: MockQueueServer, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The route declares no token header at all — there is nothing a header
-    could elevate it to. Negative control for accidental gating-by-edit."""
-    monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
-    _enqueue(client)
-    resp = client.post("/queue/start-request", headers={"X-Launch-Token": _TOKEN})
-    assert resp.status_code == 200
-    assert "queue_start" not in manager.method_names()
-    assert manager.manager_state == "idle"
-
-
-async def test_the_event_stream_reports_a_start_request_and_its_dismissal(
-    connector: Callable[[str | Exception], None], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Filing and dismissing both reach a panel within one poll tick, on the
-    same full-snapshot frames every other queue change rides."""
-    monkeypatch.setattr(queue, "_POLL_INTERVAL_S", 0.01)
-    connector("virtual_accelerator")
-    mock = MockQueueServer()
-    app_module.set_queue_backend(QueueBackend(mock))
-
-    response = await queue.queue_events()
-    frames = response.body_iterator
-    try:
-        hello = _parse_frame(await asyncio.wait_for(frames.__anext__(), timeout=5))
-        assert hello["status"]["start_request"] is None
-
-        revision = await _draft_revision_direct()
-        await queue.add_queue_item(
-            queue.QueueAddRequest(draft_revision=revision), x_launch_token=""
-        )
-        await queue.request_queue_start(queue.StartRequestBody(requested_by="agent"))
-        frame = await _frame_where(frames, lambda f: f["status"]["start_request"] is not None)
-        assert frame["status"]["start_request"]["requested_by"] == "agent"
-
-        await queue.dismiss_queue_start_request()
-        await _frame_where(
-            frames,
-            lambda f: f["status"]["start_request"] is None and f["status"]["items_in_queue"] == 1,
-        )
-    finally:
-        await frames.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -1207,7 +1019,7 @@ def _assert_snapshot_frame(frame: dict[str, Any]) -> None:
     """Every frame on this stream is a full snapshot in one fixed shape."""
     assert set(frame) == {"type", "status", "items", "running_item"}
     assert frame["type"] in ("hello", "queue")
-    assert set(frame["status"]) == {"available", "start_request", *queue._SUMMARY_KEYS}
+    assert set(frame["status"]) == {"available", *queue._SUMMARY_KEYS}
     assert frame["status"]["available"] is True
     # Negative control: a snapshot is never a refusal, and never leaks the raw
     # status document's 0MQ material.

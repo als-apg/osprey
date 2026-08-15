@@ -77,15 +77,19 @@ Compatibility is documented in release notes, not encoded in the version string.
   time budget now cap their test step below it, so a hang fails that step and
   the capture still runs, rather than the whole job being cancelled mid-teardown.
 
-- A tokenless `queue_start` now files a **start request** the operator confirms
-  in the BLUESKY queue panel, instead of dead-ending in a refusal. Deployed
-  web terminals never hold the scan launch token by design; the agent stages
-  and queues, the request appears in the queue panel beside the queue it would
-  drain, and the human's *Confirm start* click — the panel's own token-gated
-  start — is what arms it. Dismissing the request is always available and
-  starts nothing. Skill and error-message guidance across the scan stack now
-  explains this posture so agents hand the start to the human instead of
-  chasing the token in configuration.
+- The OSPREY agent can start a Bluesky queue on a single approval: approving
+  its `queue_start` call in chat arms and runs the queue, with no separate
+  confirmation step elsewhere. The token that arms a start is granted only to a
+  persona configured for control-system writes that also runs the bluesky MCP
+  server, so a read-only persona still cannot start anything. The BLUESKY
+  panel's own **Start queue** control is unchanged.
+
+  A deploy refuses to grant that token to a persona that is also permitted to
+  run a shell: the approval gates the `queue_start` tool, not a shell, so such
+  an agent could read the token out of its own environment and arm a queue with
+  no approval at all. Restore `Bash` to that persona's `permissions.deny` and
+  rebuild its image — or republish and re-pull it, if you deploy from a
+  registry — or move the persona off the bluesky server or off writes.
 
 - An archiver read that comes back empty now says why: the response carries a
   coverage verdict — the window predates or postdates the archive, the channel
