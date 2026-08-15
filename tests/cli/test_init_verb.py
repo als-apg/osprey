@@ -730,6 +730,7 @@ EXEMPLAR_REPORT = f"""\
   data/         channel lists and facility docs; edit these
   personas/     one per web login: readonly, readwrite
   .env          empty; copy .env.example and add your API key
+  .env.shared   settings shared by every host; your .env wins
   README.md     what everything here does
 
   Started a git repo and made the first commit.

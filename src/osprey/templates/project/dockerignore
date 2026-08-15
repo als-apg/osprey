@@ -16,8 +16,14 @@
 # Claude Code artifacts at all.
 
 # Secrets — must never enter the image (pass at runtime: --env-file .env).
-# Every variant is excluded, the deploy-generated .env.production included;
+# Every variant is excluded, the deploy-generated .env.users included;
 # .env.example carries no secrets and is useful in the image, so it stays.
+#
+# .env.shared is deliberately NOT re-included. Git tracks it because it holds
+# no secrets, but it is still a host file the runtime reads at start, alongside
+# the .env beside it — an image carrying a stale copy of one site's defaults is
+# exactly the confusion runtime env exists to avoid. The `.env*` glob above
+# covers it; leave it covered.
 .env*
 !.env.example
 
@@ -40,6 +46,13 @@ __pycache__/
 # Personal (non-shared) Claude Code settings
 .claude/settings.local.json
 CLAUDE.local.md
+
+# The compose document a deploy merges at the repo root when the container
+# runtime needs a single file. Machine-written on the host, rewritten by every
+# `osprey up`, and meaningless inside an image — the build already keeps it out
+# of the context, and this is the second guard that says so where the rest of
+# the exclusions live.
+.osprey-compose.yml
 
 # The image doesn't need its own build recipe. Note: .dockerignore itself is
 # NOT excluded — the wheel layer's `COPY .dockerignore *.wh[l]` relies on it as a

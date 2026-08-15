@@ -112,6 +112,11 @@ def create_project_structure(
     ``.env.example`` is rendered here: it carries no values, documents
     what the repo's ``.env`` may hold, and is safe to commit.
 
+    No ``.env.shared`` either, for the same reason as ``.env``. It is committed
+    rather than secret, but it is still one of the two files the deployment's
+    env chain is read from at the repo root, and a copy inside the render would
+    be a second one to keep in step. ``osprey init`` authors the repo's, once.
+
     Args:
         template_root: Path to osprey's bundled templates directory
         jinja_env: Jinja2 environment for template rendering

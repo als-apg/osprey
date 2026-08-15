@@ -17,11 +17,14 @@ dist/
 htmlcov/
 
 # Environment
-# Every .env variant carries secrets — the deploy-generated .env.production
-# included. .env.example is the documented variable list and carries none, so
-# it is the single exception.
+# Every .env variant carries secrets — the deploy-generated .env.users
+# included. Two carry none and are therefore committed: .env.example, the
+# documented variable list, and .env.shared, the deployment's shared defaults
+# (`.env` beside it holds this host's own values, and wins on any key set in
+# both).
 .env*
 !.env.example
+!.env.shared
 .venv
 env/
 venv/
@@ -49,6 +52,14 @@ Thumbs.db
 # and git would then silently skip such a path on `git add` — the failure mode
 # is a file that looks committed but never was.
 /data/bluesky_curve/
+
+# The compose document a deploy merges at the repo root when the container
+# runtime needs a single file. Machine-written, rewritten by every `osprey up`
+# and removed by `osprey reset`, so it is never committed.
+#
+# Leading slash for the same reason as above: it must match this one root file
+# and nothing of that name deeper in the tree.
+/.osprey-compose.yml
 
 # STATE zone — the agent's memory, sessions and audit log. Durable,
 # host-local, and nobody else's business. Tracks `agent_data.base_dir` in
