@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 14, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 15, 2026"/>
   </head>
   
   
@@ -608,10 +608,12 @@ be queued only once, so a double-click cannot queue a duplicate.</p></li>
 process with its own copy of the devices. That is why the queue survives
 restarts of everything around it.</p></li>
 <li><p class="sd-card-text"><strong>Start queue</strong> is checked against a <strong>launch token</strong> the deployment
-holds. In deployed control rooms the agent never holds it — asking the
-agent to start a scan gets you a <strong>start request</strong> to confirm in the
-queue panel. For the agent, starting is additionally switched off
-entirely whenever the project’s control-system writes are disabled.</p></li>
+holds. Whether the agent holds one too is the deployment’s choice: where
+it grants the token, asking the agent to start a scan starts the scan —
+your approval of that one tool call is the decision. Where it does not,
+the agent’s start is refused and it tells you so; you start it from the
+queue panel yourself. For the agent, starting is additionally switched
+off entirely whenever the project’s control-system writes are disabled.</p></li>
 </ul>
 </div>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
