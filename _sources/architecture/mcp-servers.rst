@@ -64,7 +64,7 @@ enough to fit in a single context window.
 
 **Tools:**
 
-- ``query_channels`` -- Answer a natural-language question about channels; an inner LLM call sees the full channel database as context and returns the answer text together with tokenizer-estimated input/output token counts (used by the benchmark harness for cost accounting).
+- ``ask_channels`` -- Answer a natural-language question about channels; an inner LLM call sees the full channel database as context and returns the answer text together with tokenizer-estimated input/output token counts (used by the benchmark harness for cost accounting).
 
 ``channel_finder_middle_layer``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -84,7 +84,7 @@ lookups and validation.
 - ``inspect_fields`` -- Inspect the field structure of a device family.
 - ``validate`` -- Validate that channel names exist in the database.
 - ``statistics`` -- Get database statistics (total channels, systems, families).
-- ``query_channels`` -- Run a read-only SQL query directly against the channel finder DuckDB database (``channels``, ``systems``, ``families`` tables).
+- ``run_sql`` -- Run a read-only SQL query directly against the channel finder DuckDB database (``channels``, ``systems``, ``families`` tables).
 
 Workspace
 ---------
@@ -102,8 +102,11 @@ tools into several functional areas.
 
 - ``artifact_save`` -- Save a file or generated content as a gallery artifact.
 - ``artifact_get`` -- Look up an artifact by ID to get its file path and metadata.
+- ``artifact_list`` -- List stored artifacts, optionally narrowed by category, tool or agent.
+- ``artifact_read`` -- Read a stored artifact's full content (small artifacts only).
 - ``artifact_delete`` -- Delete an artifact from the gallery.
-- ``artifact_delete_all`` -- Delete all artifacts from the gallery in a single call.
+- ``artifact_delete_all`` -- Delete a whole scope of artifacts (one category, or everything)
+  in a single call. The ``scope`` argument is required.
 - ``artifact_export`` -- Export an artifact to a different format (e.g., PNG, SVG, PDF).
 - ``artifact_focus`` -- Select an artifact in the gallery so the user sees it.
 - ``artifact_pin`` -- Pin or unpin an artifact for quick-access filtering.
@@ -115,12 +118,13 @@ tools into several functional areas.
 - ``create_dashboard`` -- Execute Panel/Bokeh code to produce a live dashboard app.
 - ``create_document`` -- Compile LaTeX source to PDF (Beamer slides or article reports).
 
-**Data Context:**
+**Stored data:**
 
-- ``data_list`` -- List all data entries in the workspace with optional filters.
-- ``data_read`` -- Read the full data content of a data entry.
-- ``data_delete`` -- Delete a data entry from the workspace.
-- ``archiver_downsample`` -- Downsample an archiver data entry to a target point count.
+Datasets are not a separate namespace -- an archiver read or a scan result is an
+artifact with a ``category``, so the artifact tools above list, read and delete
+them (``artifact_list(category="archiver_data")``).
+
+- ``archiver_downsample`` -- Downsample an archiver artifact to a target point count.
 
 **Lattice Dashboard:**
 
@@ -138,7 +142,10 @@ tools into several functional areas.
 **Panels:**
 
 - ``list_panels`` -- List the panels available in the Web Terminal (built-in and custom).
-- ``switch_panel`` -- Switch the Web Terminal to show a specific panel tab.
+- ``open_panel`` -- Put a panel on screen in front of the operator.
+- ``close_panel`` -- Take a panel's tile off screen, leaving it on the rail.
+- ``add_panel_to_rail`` -- Make a panel launchable from the rail in one click.
+- ``remove_panel_from_rail`` -- Take a panel off the rail (and off screen with it).
 
 **Screen Capture:**
 

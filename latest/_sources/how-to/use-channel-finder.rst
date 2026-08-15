@@ -137,7 +137,7 @@ Middle Layer Pipeline
 A React agent explores the database using query tools
 (``list_systems``, ``list_families``, ``inspect_fields``,
 ``list_channels``, ``get_common_names``, ``statistics``, ``validate``, and —
-when DuckDB is installed — ``query_channels``).
+when DuckDB is installed — ``run_sql``).
 
 The database follows MATLAB Middle Layer (MML) functional organization
 (System -> Family -> Field -> ChannelNames). Convert from MML exports:

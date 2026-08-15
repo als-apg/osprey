@@ -608,8 +608,8 @@ as side-effecting (e.g. <code class="docutils literal notranslate"><span class="
 <code class="docutils literal notranslate"><span class="pre">mcp__python__execute_file</span></code>, <code class="docutils literal notranslate"><span class="pre">mcp__osprey_workspace__setup_patch</span></code>),
 derived from the server registry so the blocked set tracks the framework
 rather than a hand-maintained copy.</p></li>
-<li><p><strong>Destructive workspace tools</strong> — <code class="docutils literal notranslate"><span class="pre">data_delete</span></code>, <code class="docutils literal notranslate"><span class="pre">artifact_delete</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code>, which permanently remove stored data/artifacts.</p></li>
+<li><p><strong>Destructive workspace tools</strong> — <code class="docutils literal notranslate"><span class="pre">artifact_delete</span></code> and
+<code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code>, which permanently remove stored artifacts.</p></li>
 <li><p><strong>Facility-custom write tools</strong> — any tool a custom MCP server in
 <code class="docutils literal notranslate"><span class="pre">claude_code.servers</span></code> marks under <code class="docutils literal notranslate"><span class="pre">permissions.ask</span></code> (or a custom server
 that writes-check-gates all its tools) is blocked too. Declare custom write

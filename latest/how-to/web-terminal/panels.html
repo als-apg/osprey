@@ -602,8 +602,9 @@ Members must be enabled built-in panels or custom panels you have declared; an
 unknown id is dropped with a warning, and a layout with no valid members is
 skipped. When no <code class="docutils literal notranslate"><span class="pre">web.presets</span></code> are configured — the default — the <code class="docutils literal notranslate"><span class="pre">+</span></code> menu is
 unchanged, so layouts never add clutter to a deployment that has not opted in.</p>
-<p>Layouts are just a shortcut over the ordinary show/hide of panels, so the OSPREY
-agent can achieve the same result with its <code class="docutils literal notranslate"><span class="pre">show_panel</span></code> / <code class="docutils literal notranslate"><span class="pre">hide_panel</span></code> tools;
+<p>Layouts are just a shortcut over adding and removing rail entries, so the OSPREY
+agent can achieve the same result with its <code class="docutils literal notranslate"><span class="pre">add_panel_to_rail</span></code> /
+<code class="docutils literal notranslate"><span class="pre">remove_panel_from_rail</span></code> tools;
 <code class="docutils literal notranslate"><span class="pre">list_panels</span></code> reports the configured layouts so the agent can honor a request
 like “set up for machine setup.”</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">

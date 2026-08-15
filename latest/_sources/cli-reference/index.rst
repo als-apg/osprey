@@ -477,7 +477,7 @@ Run comprehensive system health check.
 
    osprey health [OPTIONS]
 
-``-p, --project DIRECTORY`` -- Deployment repository or rendered project directory (default: current directory).
+``--project DIRECTORY`` -- Deployment repository or rendered project directory (default: the repository enclosing the current directory).
 
 ``-v, --verbose`` -- Show per-warning and per-error details in the summary.
 
@@ -545,7 +545,7 @@ osprey channel-finder
 Tools for building, validating, previewing, and serving control system
 channel databases.
 
-Options: ``-p, --project PATH``, ``-v, --verbose``
+Options: ``--project PATH``, ``-v, --verbose``
 
 ``osprey channel-finder build-database``
    Build a channel database from a CSV file.
