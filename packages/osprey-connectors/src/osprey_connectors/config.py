@@ -313,25 +313,36 @@ def dotenv_shell_overrides() -> dict[str, str]:
 
 
 def load_project_dotenv() -> None:
-    """Load ``./.env`` into ``os.environ``, overriding existing values.
+    """Load the cwd's env chain into ``os.environ``, overriding existing values.
 
-    This is the ``.env`` → environ passthrough the framework depends on: it
+    This is the env → environ passthrough the framework depends on: it
     feeds the ``${VAR}`` references Claude Code expands in ``.mcp.json`` at MCP
     server launch time (``EPICS_CA_ADDR_LIST``, ``PHOEBUS_BRIDGE_URL``,
-    ``BLUESKY_*``), and it makes ``.env`` the source of truth for API keys over
-    a stale shell export. Every key in the file is passed through, not a
+    ``BLUESKY_*``), and it makes the chain the source of truth for API keys over
+    a stale shell export. Every key in the files is passed through, not a
     declared subset — narrowing it would drop Channel Access addressing with no
     error.
+
+    The chain is ``.env.shared`` then ``.env``
+    (:data:`osprey_connectors.dotenv.ENV_CHAIN_FILENAMES`), each loaded with
+    ``override=True``, so the host-local ``.env`` wins over the committed
+    defaults on a key both set — the same local-wins precedence every other
+    delivery path applies. A project with no ``.env.shared`` behaves exactly as
+    it did when ``.env`` was the whole chain.
 
     What the override replaces is not discarded: the shell's own differing
     values are recorded (:func:`dotenv_shell_overrides`) so the deploy path can
     still see — and warn about — an export that disagrees with the store, and
-    hand compose an environment with the shell's precedence intact.
+    hand compose an environment with the shell's precedence intact. The record
+    is taken once per key against the *merged* chain, before any file is
+    loaded: the value a key ends up with is the local file's, so that is the
+    value the shell's export is judged against, and a key both files set is
+    recorded once rather than twice.
 
     ``override=True`` and the breadth of the copy are exactly why this must be
     called deliberately. Call it from process entry points only; never at
     import time, and never from library code that a host application merely
-    imports. Missing file, missing ``python-dotenv``, and an unreadable file
+    imports. Missing files, missing ``python-dotenv``, and an unreadable file
     are all non-fatal.
     """
     try:
@@ -340,19 +351,21 @@ def load_project_dotenv() -> None:
         logger.warning("python-dotenv not available, skipping .env file loading")
         return
 
-    dotenv_path = Path.cwd() / ".env"
+    repo_root = Path.cwd()
     try:
-        if not dotenv_path.exists():
-            logger.debug(f"No .env file found at {dotenv_path}")
+        from osprey_connectors.dotenv import chain_files, merge_chain
+
+        paths = chain_files(repo_root)
+        if not paths:
+            logger.debug(f"No .env file found at {repo_root}")
             return
-        from osprey_connectors.dotenv import parse_dotenv_file
 
         # Accumulate, never clear: this runs more than once per process, and
-        # after the first load os.environ already matches the file — a later
+        # after the first load os.environ already matches the chain — a later
         # call sees no difference and must not erase the genuine shell values
         # the first one recorded. First-seen wins; only the pre-load value is
         # the shell's own.
-        pinned = parse_dotenv_file(dotenv_path)
+        pinned = merge_chain(repo_root)
         for name, value in pinned.items():
             if (
                 name in os.environ
@@ -360,14 +373,15 @@ def load_project_dotenv() -> None:
                 and name not in _dotenv_shell_overrides
             ):
                 _dotenv_shell_overrides[name] = os.environ[name]
-        load_dotenv(dotenv_path, override=True)
-        logger.debug(f"Loaded .env file from {dotenv_path}")
+        for path in paths:
+            load_dotenv(path, override=True)
+            logger.debug(f"Loaded .env file from {path}")
     except OSError as e:
         # e.g. a 0600 .env owned by another uid mounted into a non-root
         # container (dispatch worker on a uid-mismatched host). Provider
         # env should already be in os.environ by the time config is built,
         # so degrade gracefully instead of crash-looping the process.
-        logger.warning(f"Could not read .env file at {dotenv_path}: {e}")
+        logger.warning(f"Could not read the .env chain at {repo_root}: {e}")
 
 
 class ConfigBuilder:
@@ -406,10 +420,11 @@ class ConfigBuilder:
 
         Args:
             config_path: Path to the config.yml file. If None, looks in current directory.
-            load_env: When True (the default), load ``.env`` from the current
-                working directory into ``os.environ``. This ``.env`` → environ
-                passthrough is load-bearing: it feeds the ``${VAR}`` references
-                Claude Code expands in ``.mcp.json`` at MCP server launch time.
+            load_env: When True (the default), load the env chain from the
+                current working directory into ``os.environ``. This env →
+                environ passthrough is load-bearing: it feeds the ``${VAR}``
+                references Claude Code expands in ``.mcp.json`` at MCP server
+                launch time.
                 Pass False only when the caller has already populated the
                 environment (or must not mutate it) and wants a config load with
                 no side effects on ``os.environ``.

@@ -133,6 +133,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   rebuild its image — or republish and re-pull it, if you deploy from a
   registry — or move the persona off the bluesky server or off writes.
 
+- Environment now resolves from a two-tier `.env` chain. `.env.shared` carries
+  the values that are the same on every host and is tracked in git; the `.env`
+  beside it carries the secrets and any per-host override, and wins on any key
+  both set. `osprey init` writes both. Previously a single `.env` had to hold
+  both, so a shared default could not be committed without committing the file
+  that held the provider keys.
+
 - An archiver read that comes back empty now says why: the response carries a
   coverage verdict — the window predates or postdates the archive, the channel
   was never recorded, or the window holds a genuine gap — with the archive's

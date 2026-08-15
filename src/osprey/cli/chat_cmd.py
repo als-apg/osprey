@@ -37,19 +37,22 @@ from .repo_resolver import find_repo_root, repo_option
 
 
 def _overlay_repo_env(repo_root: Path) -> None:
-    """Load the repo's ``.env`` into ``os.environ``, overriding what is there.
+    """Load the repo's env chain into ``os.environ``, overriding what is there.
 
     The SECRETS zone is at the repo root while the render is under ``build/``,
-    so the ``.env`` and the ``config.yml`` this verb needs do not live in one
+    so the env chain and the ``config.yml`` this verb needs do not live in one
     directory. This overlay is what closes that gap *before* the provider spec
     is resolved: a custom provider's ``base_url: ${ARGO_PROD_URL}`` is expanded
-    at spec-resolution time, and the value it expands from is a ``.env`` key.
+    at spec-resolution time, and the value it expands from is a chain key.
 
-    ``.env`` wins over a stale shell export, which is the same precedence every
-    other launch path applies. Every key is copied, not a declared subset — the
-    agent CLI expands ``.mcp.json`` ``${VAR}`` references (Channel Access
-    addressing among them) out of this environment, so a narrowed copy would
-    silently mis-address the control system rather than fail.
+    The chain is loaded in ascending precedence — ``.env.shared`` then ``.env``,
+    each with ``override=True`` — so the host-local file wins over the committed
+    defaults, and both win over a stale shell export. That is the same
+    local-wins precedence every other launch path applies. Every key is copied,
+    not a declared subset — the agent CLI expands ``.mcp.json`` ``${VAR}``
+    references (Channel Access addressing among them) out of this environment,
+    so a narrowed copy would silently mis-address the control system rather
+    than fail.
 
     Copying everything is not the same as *honoring* everything. The invariant
     on both paths out of this overlay is one of provenance: ``.env`` cannot
@@ -65,8 +68,9 @@ def _overlay_repo_env(repo_root: Path) -> None:
         from dotenv import load_dotenv
     except ImportError:
         return
-    env_file = repo_root / ".env"
-    if env_file.is_file():
+    from osprey.utils.dotenv import chain_files
+
+    for env_file in chain_files(repo_root):
         load_dotenv(env_file, override=True)
 
 

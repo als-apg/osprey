@@ -30,6 +30,7 @@ from osprey.build.claude_code_telemetry import (
     _running_in_container,
 )
 from osprey.models.tiers import VALID_TIERS
+from osprey.utils.dotenv import chain_files
 
 logger = logging.getLogger("osprey.build.claude_code_resolver")
 
@@ -86,7 +87,7 @@ def provider_auth_secret_env(provider_name: str, api_providers: dict | None = No
 
     The single source of the secret-var naming rule, shared by
     :meth:`ClaudeCodeModelResolver.resolve` (which injects the secret at
-    launch) and the web-terminal ``.env.production`` generator (which must
+    launch) and the web-terminal ``.env.users`` generator (which must
     ship the same var into per-user containers): built-in providers declare
     ``auth_secret_env`` in :data:`CLAUDE_CODE_PROVIDERS`; a custom proxy
     defined under ``api.providers`` derives ``<NAME>_API_KEY``. Returns
@@ -265,28 +266,41 @@ def format_managed_policy_conflicts(conflicts: dict[str, tuple[str, str]]) -> st
 
 
 def _load_dotenv(project_dir: Path) -> dict[str, str]:
-    """Load a project ``.env`` into a plain dict — the shared raw loader.
+    """Load a project's env chain into one plain dict — the shared raw loader.
 
-    Returns the non-``None`` entries of ``dotenv_values(project_dir/.env)``, or
-    ``{}`` when the file is absent or ``python-dotenv`` is not importable. Pure:
-    it never touches ``os.environ``, expands no ``${VAR}`` refs, and applies no
-    secret or precedence logic — callers own the overlay, expansion, and auth
-    handling. The single load shared by :func:`inject_provider_env`,
-    ``provider_env_for_project``, and :func:`load_provider_spec`, so all three
-    see the same file the same way.
+    Reads the chain files that exist under ``project_dir`` in ascending
+    precedence (``.env.shared`` then ``.env``) and lays each over the last, so
+    a key both files set arrives with the host-local value. Returns the
+    non-``None`` entries, or ``{}`` when no chain file is present or
+    ``python-dotenv`` is not importable. Pure: it never touches ``os.environ``,
+    applies no secret logic, and leaves the overlay, ``${VAR}`` expansion, and
+    auth handling to its callers. The single load shared by
+    :func:`inject_provider_env`, ``provider_env_for_project``, and
+    :func:`load_provider_spec`, so all three see the same chain the same way.
+
+    Each file is read with ``dotenv_values`` rather than the plain parser
+    because these values reach a launched agent's environment, and the CLI's
+    own loaders read the same chain with python-dotenv — one parser across
+    both halves keeps a quoted or multi-line secret meaning the same thing
+    wherever it is read.
     """
-    env_file = Path(project_dir) / ".env"
-    if not env_file.is_file():
+    paths = chain_files(Path(project_dir))
+    if not paths:
         return {}
     try:
         from dotenv import dotenv_values
     except ImportError:
         return {}
-    return {key: value for key, value in dotenv_values(env_file).items() if value is not None}
+    merged: dict[str, str] = {}
+    for path in paths:
+        merged.update(
+            {key: value for key, value in dotenv_values(path).items() if value is not None}
+        )
+    return merged
 
 
 def _env_lookup(project_dir: Path) -> dict[str, str]:
-    """Return ``os.environ`` overlaid with the project ``.env`` (``.env`` wins).
+    """Return ``os.environ`` overlaid with the project's env chain (chain wins).
 
     Never mutates global ``os.environ``. Shared by :func:`load_provider_spec`
     and ``osprey.agent_runner.primitives.provider_env_for_project`` — both need
@@ -364,30 +378,31 @@ def inject_provider_env(
     spec: ClaudeCodeModelSpec,
     project_dir: Path | None = None,
 ) -> list[str]:
-    """Scrub managed vars, then overlay the project ``.env``, provider env
+    """Scrub managed vars, then overlay the project's env chain, provider env
     block, and auth into ``environ``.
 
     Mutates environ in-place. Returns list of injected var names for logging.
 
-    The ``.env`` step copies **every** project ``.env`` key into ``environ``,
-    not just API keys: on the host launch paths the ``claude`` CLI expands
-    ``.mcp.json`` ``${VAR}`` references (``EPICS_CA_ADDR_LIST``,
+    The env step copies **every** key of the project's env chain into
+    ``environ``, not just API keys: on the host launch paths the ``claude`` CLI
+    expands ``.mcp.json`` ``${VAR}`` references (``EPICS_CA_ADDR_LIST``,
     ``PHOEBUS_BRIDGE_URL``, ``BLUESKY_*``) from ``os.environ``, so this is a
     full host-propagation contract — narrowing it would silently break control-
-    system MCP addressing. ``.env`` wins over a stale shell export. An
-    unparseable ``HTTP_PROXY`` (from ``.env`` or the shell) is carried straight
-    through but reported via :func:`_warn_on_invalid_proxy_env` — #352.
+    system MCP addressing. The chain is merged local-over-shared before the
+    overlay, and the result wins over a stale shell export. An unparseable
+    ``HTTP_PROXY`` (from the chain or the shell) is carried straight through
+    but reported via :func:`_warn_on_invalid_proxy_env` — #352.
 
     Args:
         environ: Environment dict to mutate (typically os.environ).
         spec: Resolved provider specification.
-        project_dir: Project directory containing .env file. If provided, the
-            full ``.env`` is copied into ``environ`` (see above) before the auth
-            secret is read, so project-level values take precedence over stale
-            shell exports.
+        project_dir: Project directory holding the env chain. If provided, the
+            full merged chain is copied into ``environ`` (see above) before the
+            auth secret is read, so project-level values take precedence over
+            stale shell exports.
     """
-    # Overlay the full project .env onto environ (host-propagation contract —
-    # see docstring). .env wins over stale shell exports.
+    # Overlay the full project env chain onto environ (host-propagation
+    # contract — see docstring). The chain wins over stale shell exports.
     if project_dir is not None:
         for key, value in _load_dotenv(project_dir).items():
             environ[key] = value
