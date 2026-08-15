@@ -91,3 +91,28 @@ Direct {{ protocol_name }} calls skip all of these protections.
 For scripts that write to the control system, use the `execute` MCP tool directly
 with `execution_mode: "write"` —
 the `execute` tool defaults to readonly mode, which blocks write operations.
+{% if "bluesky" in enabled_servers | default([]) %}
+
+## Starting a Bluesky Queue
+
+Starting a queue moves accelerator hardware. Arming a start needs
+`BLUESKY_LAUNCH_TOKEN`, which a persona is granted only when its config sets
+`control_system.writes_enabled: true` **and** runs the `bluesky` MCP server.
+A read-only persona never holds it.
+
+Where it is granted, one approval is the whole gate: approving `queue_start` in
+chat starts the queue. There is no second confirmation step anywhere else.
+
+A deploy refuses to grant this token to a persona whose settings permit `Bash`.
+The approval gates the `queue_start` tool, not a shell — an agent with a shell
+could read the token out of its own environment and arm a queue with no approval
+at all.
+
+If `queue_start` is refused with `launch_token_required`, this agent cannot arm
+the queue here — it was not granted a token, the token it holds does not match
+the bridge's, or this deployment has no launch token configured at all. Do not
+go looking for the token in the environment, in config, or through a shell. Tell
+the operator what you have staged and that the
+start was refused for a missing or mismatched token, and let them start the
+queue from the BLUESKY panel.
+{% endif -%}
