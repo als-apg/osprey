@@ -1,0 +1,145 @@
+# The dispatch-worker runs the full PROJECT image (<project>:local) that
+# `osprey up` builds from the project root — the same image the web
+# terminal runs, baking the facility overlays and data/ into /app/<project>.
+# It overrides only `command:` to launch the dispatch-worker MCP server instead
+# of the web UI. OSPREY_WORKER_IMAGE overrides with a prebuilt/published image.
+#
+# NOTE: Multi-worker load distribution is NOT yet implemented.
+# The dispatcher routes to dispatch-worker-1 only (hardcoded in tutorial_triggers.yml dispatch_target).
+# Additional workers declared here are provisioned but idle until routing is implemented.
+
+
+
+services:
+
+  dispatch-worker-1:
+    image: ${OSPREY_WORKER_IMAGE:-golden-project:local}
+    # NO build: block here on purpose. The project image (<project>:local) is
+    # built once by `osprey up` (deployment/container_lifecycle.py) from
+    # the project root before `docker compose up` runs; the worker just
+    # references that prebuilt tag. Declaring a second `build:` for it would race
+    # the sole builder to tag the same image. `depends_on` keeps the worker
+    # ordered after the event-dispatcher. A prebuilt OSPREY_WORKER_IMAGE override
+    # is pulled normally instead.
+    depends_on:
+      - event-dispatcher
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy workers on one host without colliding on
+    # one name. The dispatcher routes to the compose service key
+    # `dispatch-worker-1` (see tutorial_triggers.yml dispatch_target),
+    # unchanged here — so this rename needs no network alias.
+    container_name: golden-project-dispatch-worker-1
+    command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
+    labels:
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
+      osprey.deployed.at: "2026-01-01T00:00:00"
+      # Content fingerprint of the env chain this deploy read (runtime_helper's
+      # env_chain_digest, carried in by OSPREY_ENV_DIGEST). It is a label, not
+      # documentation: compose recreates a container when the compose document
+      # changes, and neither provider diffs a running container against the env
+      # FILES it was started from — so without this, editing a chain file left
+      # the running worker on the old values. Folding the chain's hash into a
+      # label makes such an edit a document change. Empty when the invocation
+      # did not set the variable (a hand-run `docker compose up`).
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+    restart: unless-stopped
+
+    # Provider auth: the worker's startup hook (inject_provider_env) resolves
+    # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
+    # the process environment. `env_file:` is read by the compose CLI on the
+    # HOST (as the file's owner), so it works even though the repo's .env is
+    # deliberately 0600 and the worker itself runs as non-root `osprey` and
+    # cannot open it.
+    #
+    # The deployment's env is a CHAIN of files at the repo root, listed here in
+    # ASCENDING precedence — committed defaults (.env.shared) first, the local
+    # secret file (.env) last — because compose lets a later entry win on any
+    # key an earlier one also sets. That is the same order the invocation's
+    # own `--env-file` flags carry, so what interpolates into this document and
+    # what lands in the container agree.
+    #
+    # Only files that EXIST at render time are listed: an `env_file:` entry
+    # naming a missing path errors `compose up` outright. Every path is relative
+    # to the pinned compose project directory, which is the deployment REPO
+    # ROOT — so these are the deployment's own chain files, not copies inside
+    # the disposable render.
+    env_file:
+      - ./.env.shared
+      - ./.env
+
+    environment:
+      # No :-default (see event_dispatcher compose): fail closed on an unset token.
+      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
+      DISPATCH_WORKER_PORT: "9190"
+      DISPATCH_TIMEOUT_SEC: "300"
+      DISPATCH_INACTIVITY_SEC: "120"
+      OSPREY_PROJECT_DIR: /app/golden-project
+      # The worker process reads OSPREY config directly (e.g. get_facility_timezone
+      # while building the agent's system prompt), and spawns a CLI subprocess with
+      # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
+      # subprocess resolve config from the mounted project (via env inheritance),
+      # independent of CWD. It points at the STAGED config.yml bind-mounted below
+      # (the deploy-time config), not the copy baked into the image.
+      #
+      # Under the project directory, in build/ — the same four-zone shape the
+      # repo has, because this worker runs the PROJECT image and its .mcp.json is
+      # rendered as `{project_root}/build/config.yml` (registry/mcp.py, with
+      # project_root = this /app/<project> root). A flat config.yml here would be
+      # a path the agent's own MCP servers never read. The standalone service
+      # images are the opposite case and stay flat: nothing inside them renders
+      # anything against a project root.
+      CONFIG_FILE: /app/golden-project/build/config.yml
+      TZ: UTC
+      # OpenObserve telemetry (opt-in): the worker and its CLI subprocess run on
+      # this bridge network, so the store is reachable by its compose service
+      # DNS name, not localhost. Declaring the host here — rather than sniffing
+      # the container runtime — is what makes emit work under docker AND podman.
+      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
+      OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
+
+    # Bind-mount sources are relative to the pinned compose project directory,
+    # which is the deployment REPO ROOT — hence the build/services/ prefix on
+    # the render output below.
+    volumes:
+      # The staged runtime config overlays the config.yml baked into the image,
+      # so the worker reads the deploy-time config.
+      - ./build/services/dispatch_worker/config.yml:/app/golden-project/build/config.yml:ro
+      # The image creates the agent-data directory (and its subdirs) and
+      # `chown -R osprey:osprey /app/<project>` before switching to USER osprey,
+      # so a fresh named volume initialized from that path inherits osprey
+      # ownership — the non-root worker can write it without any user: override.
+      # The mount target is rendered whole by compose_generator from the SAME
+      # `agent_data.base_dir` the mounted config.yml declares, so the volume
+      # cannot end up mounted anywhere but where the worker writes. It arrives
+      # already joined onto /app/<project> — the join is done there because an
+      # ABSOLUTE base_dir names the same path inside the container and must not
+      # be re-anchored under the project directory, which a template-level
+      # concatenation here could not tell apart from a relative one.
+
+      - dispatch_workspace_1:/app/golden-project/var/agent_data
+
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9190/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — first run provisions Claude
+      # artifacts and injects provider env, which takes a few seconds.
+      start_period: 30s
+
+
+volumes:
+
+
+  dispatch_workspace_1:
+    labels:
+      com.osprey.repo-id: "0123456789ab"
+
+
+
+networks:
+  osprey-network:
