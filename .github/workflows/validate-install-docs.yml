@@ -1,8 +1,13 @@
 name: Validate Install Docs
 
-# Builds a wheel from the current SHA, installs it via `uv tool`, and runs
-# the bash blocks extracted from installation.rst and osprey-build-interview.rst.
+# Builds every workspace package from the current SHA, installs osprey via
+# `uv tool` against those wheels, and runs the bash blocks extracted from
+# installation.rst and osprey-build-interview.rst.
 # This catches doc-vs-wheel drift before it reaches a release tag.
+#
+# `uv tool install` runs outside the uv workspace, so `[tool.uv.sources]` does
+# not apply and workspace siblings would otherwise be pulled from PyPI rather
+# than from the commit under test. `--find-links dist` keeps them local.
 
 on:
   pull_request:
@@ -28,11 +33,11 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Build wheel from current SHA
-        run: uv build
+      - name: Build wheels from current SHA
+        run: uv build --all-packages
 
-      - name: Install osprey from built wheel (NOT PyPI)
-        run: uv tool install ./dist/osprey_framework-*.whl
+      - name: Install osprey from built wheels (NOT PyPI)
+        run: uv tool install --find-links dist ./dist/osprey_framework-*.whl
 
       - name: Verify osprey on PATH
         run: osprey --version
