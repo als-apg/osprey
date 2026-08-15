@@ -27,6 +27,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 import osprey
+from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
 
 from .build_profile_deploy import DeployConfig
 from .build_profile_emit import effective_web_terminals
@@ -71,9 +72,13 @@ BUILD_DIR: str = BUILD_OUTPUT_DIR
 STATE_DIR_PATH: str = STATE_DIR
 VERIFY_PATH: str = "scripts/verify.sh"
 
-#: What ``osprey users env-production --output`` writes on the deploy host,
-#: at the repo root where compose reads it.
-ENV_PRODUCTION_NAME: str = ".env.production"
+#: What ``osprey users env --output`` writes on the deploy host, at the repo
+#: root where compose reads it. Aliased from the writer's own constant rather
+#: than spelled again: the pipeline renders this file one line before ``osprey
+#: up`` reads it, so a second spelling here would let the pipeline write a name
+#: the deploy does not look for — and the deploy would then run on whatever
+#: stale file the previous pipeline left behind.
+USERS_ENV_NAME: str = USERS_ENV_FILENAME
 
 #: Probes run on the deploy host itself, so every target is loopback regardless
 #: of how the outside world reaches the service.
@@ -231,7 +236,7 @@ def render(template_name: str, context: CIContext | VerifyContext) -> str:
         build_dir=BUILD_DIR,
         state_dir=STATE_DIR_PATH,
         verify_path=VERIFY_PATH,
-        env_production_name=ENV_PRODUCTION_NAME,
+        users_env_name=USERS_ENV_NAME,
     )
 
 

@@ -381,7 +381,7 @@ def _seed_repo(
     *,
     name: str,
     env_text: str = "",
-    write_env_production: bool = True,
+    write_users_env: bool = True,
 ) -> Path:
     """A throwaway three-zone deployment repo whose ``build/`` is the fixture config.
 
@@ -404,7 +404,7 @@ def _seed_repo(
         name: The profile name, for ``profile.yml``.
         env_text: Contents of the repo's ``.env``. Empty is fine — ``up``
             requires the file to exist, not to hold anything.
-        write_env_production: Write an empty ``.env.production`` beside ``.env``.
+        write_users_env: Write an empty ``.env.users`` beside ``.env``.
             The web compose file names it unconditionally, so compose fails to
             parse without one; the local-mode persona test turns this off
             because generating that file from ``.env`` is its subject.
@@ -423,12 +423,12 @@ def _seed_repo(
 
     # `osprey up` refuses to start a repo with no .env — it is the file every
     # compose invocation is pointed at with --env-file. The web tier's
-    # .env.production sits beside it: the rendered web compose file lives in
+    # .env.users sits beside it: the rendered web compose file lives in
     # build/, but compose resolves its env_file entries against the project
     # directory, which every OSPREY compose invocation pins to the repo root.
     (dest / ".env").write_text(env_text, encoding="utf-8")
-    if write_env_production:
-        (dest / ".env.production").write_text("", encoding="utf-8")
+    if write_users_env:
+        (dest / ".env.users").write_text("", encoding="utf-8")
 
     for state_dir in ("var/agent_data", "var/audit"):
         (dest / state_dir).mkdir(parents=True, exist_ok=True)
@@ -966,8 +966,8 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path, stub_image: str)
 # config.yml — real render output isn't needed, only what
 # resolve_personas()/build_persona_images() actually read) alongside a
 # facility config referencing them, and ONLY a `.env` file — no
-# `.env.production`, no registry, no CI. `osprey up` must derive
-# `.env.production` from `.env`, build both persona images locally (never
+# `.env.users`, no registry, no CI. `osprey up` must derive
+# `.env.users` from `.env`, build both persona images locally (never
 # pulling — a purely local, never-pushed tag would make `compose pull`
 # hard-fail, so a green `osprey up` here is itself proof the pull-guard held),
 # and bring up a heterogeneous roster (two users sharing the default persona,
@@ -1006,7 +1006,7 @@ HETERO_ALT_PROJECT = f"{HETERO_PREFIX}-alt"
 HETERO_DEFAULT_TAG = f"{HETERO_DEFAULT_PROJECT}-{HETERO_DEFAULT_PERSONA}:local"
 HETERO_ALT_TAG = f"{HETERO_ALT_PROJECT}-{HETERO_ALT_PERSONA}:local"
 
-# The .env fixture content: one var the generated .env.production MUST carry
+# The .env fixture content: one var the generated .env.users MUST carry
 # (the LLM key, copied unconditionally), and three it must NEVER carry
 # regardless of what's in .env -- the registry token, an external-registry-
 # project token, and a service token OSPREY mints for its own containers
@@ -1132,7 +1132,7 @@ def _hetero_config_dict(default_persona_path: Path, alt_persona_path: Path) -> d
 
 def _make_hetero_repo(tmp_path: Path) -> Path:
     """Build the throwaway checkout: two persona project dirs + the deployment
-    repo that references them, with ONLY a ``.env`` (no ``.env.production``) --
+    repo that references them, with ONLY a ``.env`` (no ``.env.users``) --
     the exact "checkout with only a .env" shape the local-mode acceptance
     scenario needs.
     """
@@ -1152,7 +1152,7 @@ def _make_hetero_repo(tmp_path: Path) -> Path:
         ),
         name=HETERO_PROJECT_NAME,
         env_text=_HETERO_ENV_CONTENT,
-        write_env_production=False,
+        write_users_env=False,
     )
 
 
@@ -1215,7 +1215,7 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path, stub_image
     """
     osprey_bin = _find_osprey_console_script()
     repo = _make_hetero_repo(tmp_path)
-    env_production_path = repo / ".env.production"
+    users_env_path = repo / ".env.users"
 
     alice_c = f"{HETERO_PREFIX}-web-alice"
     bob_c = f"{HETERO_PREFIX}-web-bob"
@@ -1225,10 +1225,10 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path, stub_image
     try:
         # Precondition: exactly the "checkout with only a .env" shape.
         assert (repo / ".env").is_file()
-        assert not env_production_path.exists()
+        assert not users_env_path.exists()
 
         # --------------------------------------------------------------
-        # up: local build of both referenced persona images, .env.production
+        # up: local build of both referenced persona images, .env.users
         # generation, and bring-up of a heterogeneous roster. A local-only,
         # never-pushed tag makes `compose pull` hard-fail -- a green return
         # here is itself proof the local-mode pull-guard held (no `pull` ran).
@@ -1240,18 +1240,18 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path, stub_image
             assert _container_id(name) is not None, f"{name} not created by 'osprey up'"
 
         # --------------------------------------------------------------
-        # .env.production: generated, 0600, module-conditional subset --
+        # .env.users: generated, 0600, module-conditional subset --
         # carries the LLM key, never the registry/external-project tokens or
         # OSPREY's own minted service tokens, all of which are in .env.
         # --------------------------------------------------------------
-        assert env_production_path.is_file(), ".env.production was not generated from .env"
-        mode = env_production_path.stat().st_mode & 0o777
-        assert mode == 0o600, f".env.production mode {oct(mode)} != 0600"
-        content = env_production_path.read_text(encoding="utf-8")
+        assert users_env_path.is_file(), ".env.users was not generated from .env"
+        mode = users_env_path.stat().st_mode & 0o777
+        assert mode == 0o600, f".env.users mode {oct(mode)} != 0600"
+        content = users_env_path.read_text(encoding="utf-8")
         assert "ANTHROPIC_API_KEY=fake-llm-key-value" in content
         for excluded in ("REGISTRY_TOKEN", "EVENT_DISPATCHER_TOKEN", "EXTERNAL_PROJECT_TOKEN"):
             assert excluded not in content, (
-                f"{excluded} leaked into generated .env.production:\n{content}"
+                f"{excluded} leaked into generated .env.users:\n{content}"
             )
 
         # --------------------------------------------------------------
@@ -1308,7 +1308,7 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path, stub_image
 
         # The web stack's compose file is build output, and every OSPREY
         # compose invocation pins the repo root as the project directory --
-        # which is what lets a file under build/ name .env.production at the
+        # which is what lets a file under build/ name .env.users at the
         # root. This targeted recreate has to pin it the same way.
         compose_web_file = repo / BUILD_DIRNAME / "docker-compose.web.yml"
         assert compose_web_file.is_file()

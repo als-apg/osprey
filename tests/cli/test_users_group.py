@@ -42,7 +42,7 @@ VERB_OPTIONS = {
     "prune": {"--repo", "--archive", "--purge", "--yes", "-y", "--dry-run"},
     "seed": {"--repo"},
     "passwd": {"--repo"},
-    "env-production": {"--repo", "--env-file", "--output", "-o"},
+    "env": {"--repo", "--env-file", "--output", "-o"},
 }
 
 
@@ -69,9 +69,9 @@ def _config(users_list, *, project_name="demo-project", facility_prefix="dls"):
     }
 
 
-#: A config exercising the ``.env.production`` render: one provider credential
+#: A config exercising the ``.env.users`` render: one provider credential
 #: that belongs in a web terminal, one build-time token that never does.
-ENV_PRODUCTION_CONFIG = textwrap.dedent(
+USERS_ENV_CONFIG = textwrap.dedent(
     """
     project_name: demo-project
     facility:
@@ -930,17 +930,17 @@ class TestProfileRosterWrite:
         assert (repo_root / "profile.yml").read_text(encoding="utf-8") == before
 
 
-class TestEnvProduction:
+class TestUsersEnv:
     """Rendering the file the web terminals run with."""
 
     def test_renders_the_subset_to_stdout(self, cli_runner, tmp_path, monkeypatch):
-        repo_root = _make_repo(tmp_path, ENV_PRODUCTION_CONFIG)
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text(
             "CBORG_API_KEY=llm-secret\nTEST_REGISTRY_TOKEN=registry-secret\n", encoding="utf-8"
         )
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env-production"])
+        result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert "CBORG_API_KEY=llm-secret" in result.output
@@ -948,12 +948,12 @@ class TestEnvProduction:
 
     def test_the_root_env_is_the_default_source(self, cli_runner, tmp_path, monkeypatch):
         """The single root .env, not anything under build/."""
-        repo_root = _make_repo(tmp_path, ENV_PRODUCTION_CONFIG)
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / "build" / ".env").write_text("CBORG_API_KEY=from-build\n", encoding="utf-8")
         (repo_root / ".env").write_text("CBORG_API_KEY=from-root\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env-production"])
+        result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert "CBORG_API_KEY=from-root" in result.output
@@ -962,7 +962,7 @@ class TestEnvProduction:
         self, cli_runner, tmp_path, monkeypatch
     ):
         """Not to the repo root the verb chdirs into."""
-        repo_root = _make_repo(tmp_path, ENV_PRODUCTION_CONFIG)
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
         (elsewhere / "prod.env").write_text("CBORG_API_KEY=from-elsewhere\n", encoding="utf-8")
@@ -971,7 +971,7 @@ class TestEnvProduction:
         result = cli_runner.invoke(
             users,
             [
-                "env-production",
+                "env",
                 "--repo",
                 str(repo_root),
                 "--env-file",
@@ -988,11 +988,11 @@ class TestEnvProduction:
         assert not (repo_root / "rendered.env").exists()
 
     def test_the_output_file_is_created_at_mode_0600(self, cli_runner, tmp_path, monkeypatch):
-        repo_root = _make_repo(tmp_path, ENV_PRODUCTION_CONFIG)
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env-production", "--output", "out.env"])
+        result = cli_runner.invoke(users, ["env", "--output", "out.env"])
 
         assert result.exit_code == 0
         mode = stat.S_IMODE((repo_root / "out.env").stat().st_mode)
@@ -1008,7 +1008,7 @@ class TestEnvProduction:
         prompt. The render still proceeds (seeing the gap is the point), but it
         says which persona and which path.
         """
-        config = yaml.safe_load(ENV_PRODUCTION_CONFIG)
+        config = yaml.safe_load(USERS_ENV_CONFIG)
         config["modules"]["web_terminals"]["users"] = [{"name": "alice", "persona": "readonly"}]
         config["modules"]["web_terminals"]["personas"] = {
             "readonly": {"project": "ca-readonly", "project_path": "../ca-readonly"}
@@ -1018,7 +1018,7 @@ class TestEnvProduction:
         monkeypatch.chdir(repo_root)
 
         with caplog.at_level(logging.WARNING):
-            result = cli_runner.invoke(users, ["env-production"])
+            result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert "readonly" in caplog.text
@@ -1030,13 +1030,13 @@ class TestEnvProduction:
         assert "CBORG_API_KEY=llm-secret" in result.output
 
     def test_stdout_carries_the_file_and_nothing_else(self, cli_runner, tmp_path, monkeypatch):
-        """`osprey users env-production > .env.production` has to produce a usable
-        file, so nothing but assignments may reach stdout — no banner, no summary."""
-        repo_root = _make_repo(tmp_path, ENV_PRODUCTION_CONFIG)
+        """`osprey users env > .env.users` has to produce a usable file, so
+        nothing but assignments may reach stdout — no banner, no summary."""
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env-production"])
+        result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         for line in result.stdout.splitlines():
@@ -1045,12 +1045,12 @@ class TestEnvProduction:
     def test_long_values_are_not_wrapped(self, cli_runner, tmp_path, monkeypatch):
         """Rendered lines are file bytes, not console output — a 200-character
         secret must arrive on one line rather than re-wrapped by Rich."""
-        repo_root = _make_repo(tmp_path, ENV_PRODUCTION_CONFIG)
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         long_secret = "sk-" + "x" * 200
         (repo_root / ".env").write_text(f"CBORG_API_KEY={long_secret}\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env-production"])
+        result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert f"CBORG_API_KEY={long_secret}" in result.stdout.splitlines()
@@ -1060,12 +1060,12 @@ class TestEnvProduction:
         os.environ at startup, so a variable living solely in the environment
         must not be picked up — otherwise the render would depend on the
         caller's shell rather than on the file it names."""
-        repo_root = _make_repo(tmp_path, ENV_PRODUCTION_CONFIG)
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=from-dotenv\n", encoding="utf-8")
         monkeypatch.setenv("TEST_REGISTRY_TOKEN", "from-shell-only")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env-production"])
+        result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code == 0
         assert "CBORG_API_KEY=from-dotenv" in result.output
@@ -1074,12 +1074,12 @@ class TestEnvProduction:
     def test_output_keeps_stdout_clean(self, cli_runner, tmp_path, monkeypatch, caplog):
         """With --output the file is the product, so stdout stays empty and the
         path is reported through the log instead."""
-        repo_root = _make_repo(tmp_path, ENV_PRODUCTION_CONFIG)
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
         with caplog.at_level(logging.INFO):
-            result = cli_runner.invoke(users, ["env-production", "--output", "out.env"])
+            result = cli_runner.invoke(users, ["env", "--output", "out.env"])
 
         assert result.exit_code == 0
         assert result.stdout == ""
@@ -1088,22 +1088,22 @@ class TestEnvProduction:
 
     def test_output_overwrites_an_existing_file(self, cli_runner, tmp_path, monkeypatch):
         """An explicit --output is an instruction, so a re-render replaces it —
-        unlike a deploy, which never overwrites an existing .env.production."""
-        repo_root = _make_repo(tmp_path, ENV_PRODUCTION_CONFIG)
+        unlike a deploy, which never overwrites an existing .env.users."""
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")
         (repo_root / "out.env").write_text("STALE=leftover\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env-production", "--output", "out.env"])
+        result = cli_runner.invoke(users, ["env", "--output", "out.env"])
 
         assert result.exit_code == 0
         assert "STALE" not in (repo_root / "out.env").read_text(encoding="utf-8")
 
     def test_a_missing_secrets_file_aborts(self, cli_runner, tmp_path, monkeypatch, caplog):
-        repo_root = _make_repo(tmp_path, ENV_PRODUCTION_CONFIG)
+        repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         monkeypatch.chdir(repo_root)
 
-        result = cli_runner.invoke(users, ["env-production"])
+        result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code != 0
         assert "does not exist" in caplog.text

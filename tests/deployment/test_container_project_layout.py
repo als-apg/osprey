@@ -155,7 +155,7 @@ def test_the_container_context_carries_no_secret_and_no_host_state(tmp_path: Pat
     (repo / ".git").mkdir()
     (repo / PROFILE_FILENAME).write_text("name: facility\n", encoding="utf-8")
     (repo / ".env").write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
-    (repo / ".env.production").write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
+    (repo / ".env.users").write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
     (repo / "data").mkdir()
     (repo / "data" / ".env").write_text("NESTED=sk-secret\n", encoding="utf-8")
     (repo / "data" / "channels.yml").write_text("channels: []\n", encoding="utf-8")

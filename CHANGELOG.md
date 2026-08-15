@@ -94,6 +94,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   can only partly serve reports both counts rather than passing itself off as
   complete.
 
+- `osprey users env-production` is now `osprey users env`, and the file it
+  writes is `.env.users` instead of `.env.production` — the old name read as an
+  environment name in a tool that has no environments. `osprey up` does the
+  rename for you on the next deploy. A stack you stop before deploying again
+  still carries the old name, and `osprey down` fails until it is renamed; the
+  deploy guide gives the one-line fix.
+
 - The control-assistant preset's two-user roster now ships alice as the
   write-capable operator and bob as the read-only viewer. The tiers differ
   visibly, not just in enforcement: the write-armed terminal keeps the full

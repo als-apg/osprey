@@ -453,7 +453,7 @@ secret — it is the identifier your provider already publishes for that person.
 .. warning::
 
    **No secret may contain a dollar sign** — not in ``.env.auth``, and not in
-   the ``.env`` and ``.env.production`` that carry your provider API key and
+   the ``.env`` and ``.env.users`` that carry your provider API key and
    facility passwords. Depending on which container stack reads these files,
    ``$`` sequences inside the *values* are substituted on the way through —
    with Docker Compose, ``secret$abc`` arrives as ``secret`` and ``P@$$w0rd``
@@ -562,7 +562,7 @@ no passwords at all. The usual cause either way is permissions on ``.env.auth``
 or on the project directory.
 
 The hashes and signing keys live in ``.env.auth`` in the project root — mode
-``0600``, listed in the generated ``.gitignore`` next to ``.env.production``,
+``0600``, listed in the generated ``.gitignore`` next to ``.env.users``,
 and handed to the authentication service alone. No terminal container ever sees
 it.
 

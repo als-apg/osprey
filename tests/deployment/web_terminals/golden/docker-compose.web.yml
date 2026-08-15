@@ -29,7 +29,7 @@ services:
     network_mode: host
     labels:
       com.osprey.repo-id: "@REPO_ID@"
-    env_file: .env.production
+    env_file: .env.users
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
       - HOME=/data/claude-config
@@ -71,7 +71,7 @@ services:
     network_mode: host
     labels:
       com.osprey.repo-id: "@REPO_ID@"
-    env_file: .env.production
+    env_file: .env.users
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
       - HOME=/data/claude-config

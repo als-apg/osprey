@@ -131,7 +131,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> s
     * :func:`preflight_web_terminals` — the fail-fast gate. Refusing there is what
       keeps a conflicted deploy from paying for the minutes-long project-image
       build, the archiver/ARIEL store staging, and the minting *and printing* of
-      ``.env.production`` and auth credentials for a stack that will never come up.
+      ``.env.users`` and auth credentials for a stack that will never come up.
       That last part is the property ``preflight_web_terminals``' own docstring
       commits to, so the check belongs ahead of :func:`ensure_env_production`.
     * :func:`~osprey.deployment.web_terminals.lifecycle.decommission_user` — ahead

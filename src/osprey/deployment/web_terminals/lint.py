@@ -1439,7 +1439,7 @@ def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> lis
     # A roster entry's `oidc_subject` is the one OIDC value that travels through
     # the compose *document* (an `environment:` entry on the sidecar), not an
     # env_file — so the deploy-time `$` scan over `.env`/`.env.auth`/
-    # `.env.production` never sees it, and compose-document interpolation
+    # `.env.users` never sees it, and compose-document interpolation
     # rewrites any `$` sequence on the way through. The sidecar would then match
     # logins against an identity the IdP never issues: that one user can never
     # log in, silently. Subjects are near-universally UUIDs or emails, so a `$`

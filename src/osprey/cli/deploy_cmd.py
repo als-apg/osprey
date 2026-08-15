@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 logger = get_logger("deploy")
 
 # ---------------------------------------------------------------------------
-# osprey up — the three-zone start verb
+# osprey up — the four-zone start verb
 # ---------------------------------------------------------------------------
 
 #: Section header the ``.env`` preflight writes its harvested keys under. Says
@@ -253,7 +253,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
 
     Only the deployment's own provider, deliberately. A persona that
     authenticates elsewhere needs its key in the same file, but that gap belongs
-    to ``.env.production`` generation further down the deploy, which names the
+    to ``.env.users`` generation further down the deploy, which names the
     persona and the variable it is missing; anticipating it here would mean
     re-deriving the persona sweep for a prompt whose whole job is to get the
     file into existence.

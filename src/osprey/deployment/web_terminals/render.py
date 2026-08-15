@@ -176,7 +176,7 @@ def render_web_terminals(
             ``EVENT_DISPATCHER_TOKEN`` in its OWN ``environment:`` block,
             interpolated by compose from the deploy ``.env`` — never written
             into this rendered artifact, and never into the shared
-            ``.env.production``, which every user's container reads (see
+            ``.env.users``, which every user's container reads (see
             :func:`osprey.deployment.web_terminals.env_production._build_env_production_subset`).
             That split IS the tier boundary: a read-only persona must not hold a
             credential that can fire triggers. ``None`` (the default, and the
@@ -199,7 +199,7 @@ def render_web_terminals(
             :func:`osprey.deployment.web_terminals.personas.personas_needing_launch_token`.
             Same placement and same reason as ``dispatcher_personas`` — see that
             argument for why a per-persona credential belongs in the per-user
-            ``environment:`` block and never in the shared ``.env.production``.
+            ``environment:`` block and never in the shared ``.env.users``.
             The tier boundary bites hardest here: ``BLUESKY_LAUNCH_TOKEN`` is
             what lets the ``bluesky`` MCP server arm a queue start without a
             second confirmation, so a read-only persona holding it would be able
