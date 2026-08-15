@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS, ClaudeCodeModelResolver
+from osprey.models.provider_registry import get_provider_registry
 
 FACILITY_GATEWAY = "https://llm.facility.example.org"
 
@@ -197,6 +198,39 @@ class TestEnvVarBreakGlassOverride:
             environ={"ALS_APG_BASE_URL": f"{FACILITY_GATEWAY}/v1"},
         )
         assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
+
+
+class TestEnvVarParityWithProviderAdapters:
+    """Both provider tables must name the same override var for a provider.
+
+    ``CLAUDE_CODE_PROVIDERS`` (the Claude Code launch path) and the provider
+    adapter classes (the LiteLLM path) are separate tables on purpose: they
+    resolve the URL by deliberately different rules, since :meth:`resolve`
+    refuses to read ``os.environ`` — see
+    :class:`TestResolveNeverReadsAmbientEnviron` — while
+    :meth:`BaseProvider.effective_base_url` must. What they cannot disagree on
+    is the *name* of the variable an operator exports. A drift there gives the
+    documented break-glass lever a silent half-life: it redirects one path and
+    not the other, which reads as "the override didn't work" with nothing in
+    any log to say why.
+
+    Deriving one table from the other would force :mod:`osprey.build` to import
+    the adapter classes, defeating the registry's lazy loading (the point of
+    which is to keep air-gapped machines from triggering import side effects).
+    The duplication is therefore deliberate, and a guard is the honest way to
+    hold it together.
+    """
+
+    def test_every_claude_code_provider_has_an_adapter(self):
+        """Non-vacuity guard: the parametrized case below asserts nothing without this."""
+        registry = get_provider_registry()
+        missing = [name for name in CLAUDE_CODE_PROVIDERS if registry.get_provider(name) is None]
+        assert not missing, f"no provider adapter resolves for: {missing}"
+
+    @pytest.mark.parametrize("provider", sorted(CLAUDE_CODE_PROVIDERS))
+    def test_tables_agree_on_the_override_var(self, provider):
+        adapter = get_provider_registry().get_provider(provider)
+        assert CLAUDE_CODE_PROVIDERS[provider].get("base_url_env_var") == adapter.base_url_env_var
 
 
 class TestResolveNeverReadsAmbientEnviron:
