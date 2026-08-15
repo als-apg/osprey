@@ -119,7 +119,7 @@ function wire() {
 
 // The gesture's natural terminators, mirroring dock-workspace.js's
 // onDragGesture. HTML5 delivers dragend only to the drag's SOURCE element —
-// a rail entry removed mid-drag (SSE hide_panel, arrange prune, another
+// a rail entry removed mid-drag (SSE remove_panel_from_rail, arrange prune, another
 // client) can never fire it, and native drags suppress mouseup/pointerup
 // until the pointer is released. Relying on the entry's own dragend alone
 // therefore left the shields up FOREVER on a lost gesture: every panel

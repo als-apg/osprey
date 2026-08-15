@@ -205,11 +205,11 @@ describe('suppression: active panel self-signals', () => {
   test('panel-kind frame while that panel is active is suppressed, shown otherwise', () => {
     activePanel = 'lattice';
     const strip = makeStrip();
-    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'switch_panel'));
+    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'open_panel'));
     expect(mount.children.length).toBe(0);
 
     activePanel = 'artifacts';
-    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'switch_panel'));
+    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'open_panel'));
     expect(mount.textContent).toContain('Lattice');
   });
 });
@@ -266,9 +266,10 @@ describe('config and ui kinds', () => {
 describe('panel action verbs', () => {
   /** @type {[string, string][]} tool → verb */
   const cases = [
-    ['hide_panel', 'agent closed'],
-    ['show_panel', 'agent opened'],
-    ['switch_panel', 'agent focused'],
+    ['remove_panel_from_rail', 'agent removed'],
+    ['add_panel_to_rail', 'agent made available'],
+    ['open_panel', 'agent opened'],
+    ['close_panel', 'agent closed'],
     ['register_panel', 'agent added'],
   ];
 
@@ -286,7 +287,7 @@ describe('panel action verbs', () => {
 
   test('an id the catalog does not know falls back to the raw id', () => {
     const strip = makeStrip();
-    strip.handleActivity(frame({ kind: 'panel', panel: 'my-custom-panel' }, 'show_panel'));
+    strip.handleActivity(frame({ kind: 'panel', panel: 'my-custom-panel' }, 'open_panel'));
 
     expect(mount.textContent).toContain('agent opened');
     expect(mount.textContent).toContain('my-custom-panel');
@@ -295,7 +296,7 @@ describe('panel action verbs', () => {
   test('with no label closure injected, panel ids render raw', () => {
     const strip = createActivityStrip({ mount, getActivePanel: () => activePanel });
     strips.push(strip);
-    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'hide_panel'));
+    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'close_panel'));
 
     expect(mount.textContent).toContain('agent closed');
     expect(mount.textContent).toContain('lattice');
@@ -311,11 +312,11 @@ describe('panel action verbs', () => {
   test('the suppression table is unchanged: a hide of the active panel stays silent', () => {
     activePanel = 'lattice';
     const strip = makeStrip();
-    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'hide_panel'));
+    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'close_panel'));
     expect(mount.children.length).toBe(0);
 
     activePanel = 'ariel';
-    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'hide_panel'));
+    strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, 'close_panel'));
     expect(mount.textContent).toContain('agent closed');
   });
 });
@@ -449,7 +450,7 @@ describe('history popover: open, fetch, render', () => {
 
   test('history rows are worded by the same verbs and labels as the live line', async () => {
     const strip = makeStrip(undefined, stubHistory([
-      pastFrame({ kind: 'panel', panel: 'lattice' }, 3, 'hide_panel'),
+      pastFrame({ kind: 'panel', panel: 'lattice' }, 3, 'close_panel'),
       pastFrame({ kind: 'panel', panel: 'ariel' }, 9, 'arrange_workspace'),
     ]).fetchRecent);
     await strip.openHistory();

@@ -4,7 +4,7 @@ The hook injects two independent context parts:
 
 1. a web-surface line derived from ``OSPREY_WEB_UX`` (``simple`` | ``expert``),
    set per session by the web terminal's launchers — the simple line carries
-   the "show_panel('artifacts') when you produce an artifact" instruction that
+   the "open_panel('artifacts') when you produce an artifact" instruction that
    backs the chat-only simple onboarding;
 2. the panel inventory fetched from ``GET /api/panels``.
 
@@ -78,10 +78,10 @@ def test_simple_surface_with_inventory(hook_runner, monkeypatch, panels_server):
     context = _context(hook_runner(HOOK, "", {}))
     # Surface line first, with the artifact-reveal instruction …
     assert "SIMPLE surface" in context
-    assert 'show_panel("artifacts")' in context
+    assert 'open_panel("artifacts")' in context
     # … then the ordinary inventory.
-    assert "WORKSPACE (id=artifacts, shown)" in context
-    assert "ARIEL (id=ariel, hidden)" in context
+    assert "WORKSPACE (id=artifacts, on rail)" in context
+    assert "ARIEL (id=ariel, off rail)" in context
 
 
 def test_expert_surface_with_inventory(hook_runner, monkeypatch, panels_server):
@@ -91,8 +91,8 @@ def test_expert_surface_with_inventory(hook_runner, monkeypatch, panels_server):
     context = _context(hook_runner(HOOK, "", {}))
     assert "EXPERT surface" in context
     # The artifact-reveal onboarding line is simple-only.
-    assert 'show_panel("artifacts")' not in context
-    assert "WORKSPACE (id=artifacts, shown)" in context
+    assert 'open_panel("artifacts")' not in context
+    assert "WORKSPACE (id=artifacts, on rail)" in context
 
 
 def test_simple_surface_survives_down_web_terminal(hook_runner, monkeypatch):
@@ -117,7 +117,7 @@ def test_no_marker_keeps_inventory_only_behavior(hook_runner, monkeypatch, panel
 
     context = _context(hook_runner(HOOK, "", {}))
     assert "surface" not in context
-    assert "WORKSPACE (id=artifacts, shown)" in context
+    assert "WORKSPACE (id=artifacts, on rail)" in context
 
 
 def test_unknown_marker_is_ignored(hook_runner, monkeypatch):

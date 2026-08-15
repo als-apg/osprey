@@ -186,6 +186,80 @@ class TestStatusMapping:
         assert rows["web_panels.plan"].status is Status.OK
 
 
+class TestBuiltinAddressResolution:
+    """The probe must resolve addresses through the one canonical resolver.
+
+    Re-deriving host/port from the config section alone made the multi-user
+    deployment unprobeable: compose exports ``OSPREY_<CONFIG_KEY>_PORT`` per user
+    (per-user containers share the host network namespace), so the panel listens
+    on the env port while the probe knocked on the config port.
+    """
+
+    async def test_port_env_override_is_honoured(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_ARIEL_PORT", "9391")
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return httpx.Response(200)
+
+        cfg = _cfg({"ariel": True}, ariel={"web": {"port": 8085}})
+        await _run(cfg, handler=handler)
+
+        assert "http://127.0.0.1:9391/health" in seen
+        assert "http://127.0.0.1:8085/health" not in seen
+
+    async def test_port_env_override_applies_to_flat_sections_too(self, monkeypatch):
+        """`okf` reads its port straight off `facility_knowledge`, not a subkey."""
+        monkeypatch.setenv("OSPREY_FACILITY_KNOWLEDGE_PORT", "9691")
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return httpx.Response(200)
+
+        await _run(_cfg({"okf": True}, facility_knowledge={"port": 8093}), handler=handler)
+
+        assert "http://127.0.0.1:9691/health" in seen
+
+    async def test_panel_id_namespace_is_read_from_the_registry(self):
+        """Every built-in panel id resolves to a registry entry — no local table.
+
+        The health category's own copy of the panel-id → registry-key map had
+        already drifted from the CLI's copy (it carried an `artifacts` entry the
+        CLI omitted). Derived from the registry, the two cannot disagree.
+        """
+        from osprey.profiles.web_panels import BUILTIN_PANELS
+        from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY
+
+        assert set(PANEL_ID_TO_REGISTRY_KEY) == BUILTIN_PANELS
+
+
+class TestMisplacedConfigKeys:
+    """A key at the wrong nesting depth is reported, never silently ignored."""
+
+    async def test_wrong_depth_port_is_reported_not_silently_ignored(self):
+        """`ariel.port` (correct: `ariel.web.port`) must not read back as 8085."""
+        rows = await _run(_cfg({"ariel": True}, ariel={"port": 9999}))
+        row = rows["web_panels.ariel"]
+        assert row.status is Status.WARNING
+        assert row.value == "misconfigured"
+        assert "ariel.port" in row.details
+        assert "ariel.web.port" in row.details
+
+    async def test_wrong_depth_on_a_flat_section_is_reported(self):
+        """`artifact_server.web.port` is inert — the section is read flat."""
+        rows = await _run(_cfg({}, artifact_server={"web": {"port": 9999}}))
+        row = rows["web_panels.artifacts"]
+        assert row.value == "misconfigured"
+        assert "artifact_server.web.port" in row.details
+
+    async def test_a_misconfigured_panel_does_not_suppress_the_others(self):
+        rows = await _run(_cfg({"ariel": True, "okf": True}, ariel={"auto_launch": False}))
+        assert rows["web_panels.ariel"].value == "misconfigured"
+        assert rows["web_panels.okf"].value == "up"
+
+
 class TestRegistration:
     def test_category_is_registered_and_config_dependent(self):
         """Registered as a core category, and degrades when config is unavailable."""

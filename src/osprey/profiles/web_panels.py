@@ -4,20 +4,30 @@ The web terminal (``interfaces/web_terminal/app.py``), the template manifest
 validator (``cli/templates/manifest.py``), and the preset profile validator
 (``cli/build_profile_model.py``) all gate on this set. Drift between them is what
 let unknown panel IDs slip past for two registries simultaneously.
+
+The set itself is derived from ``registry.web.FRAMEWORK_WEB_SERVERS`` — the panel
+ids and the companion servers behind them are one fact, and every place that
+kept its own copy of the panel-id ↔ registry-key relation drifted from the
+others. Cross between the two namespaces via
+``registry.web.PANEL_ID_TO_REGISTRY_KEY`` or ``WebServerDefinition.panel_id``,
+never a local table.
 """
 
 from __future__ import annotations
 
+from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+
 UNIVERSAL_PANELS: set[str] = {"artifacts"}
 
-BUILTIN_PANELS: set[str] = {
-    "artifacts",
-    "ariel",
-    "channel-finder",
-    "lattice",
-    "okf",
-    "system-health",
-}
+#: Every panel id the framework serves itself, derived from the companion
+#: web-server registry rather than re-listed here.
+#:
+#: Registering a companion server IS registering its panel: the registry entry
+#: already declares the panel id it is reached by
+#: (``WebServerDefinition.panel_id``), and a second hand-written copy of that
+#: namespace could only ever agree with the first by luck. Keeping it derived
+#: also means a new panel needs no edit in this file at all.
+BUILTIN_PANELS: set[str] = {definition.panel_id for definition in FRAMEWORK_WEB_SERVERS.values()}
 
 # The event-dispatcher dashboard (``events``) is intentionally NOT a builtin: it
 # is a URL-backed custom panel (the control-assistant preset sets

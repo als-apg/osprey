@@ -43,6 +43,7 @@ import pytest
 import requests
 from fastapi import Request
 
+from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
 # The Fake* SDK-message doubles live with the operator_session unit tests; reuse
@@ -234,8 +235,8 @@ def _live_chat_server(tmp_path, ui_mode: str = "simple"):
             return_value=({"artifacts"}, [], None),
         ),
         patch(
-            "osprey.interfaces.web_terminal.app._launch_artifact_server",
-            side_effect=lambda a: setattr(a.state, "artifact_server_url", None),
+            "osprey.interfaces.web_terminal.app._launch_panel_server",
+            side_effect=publish_artifact_url(None),
         ),
         # ---- Claude Agent SDK seam ----
         patch(f"{_SEAM}.CLAUDE_SDK_AVAILABLE", True),

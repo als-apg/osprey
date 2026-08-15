@@ -135,8 +135,9 @@ unknown id is dropped with a warning, and a layout with no valid members is
 skipped. When no ``web.presets`` are configured — the default — the ``+`` menu is
 unchanged, so layouts never add clutter to a deployment that has not opted in.
 
-Layouts are just a shortcut over the ordinary show/hide of panels, so the OSPREY
-agent can achieve the same result with its ``show_panel`` / ``hide_panel`` tools;
+Layouts are just a shortcut over adding and removing rail entries, so the OSPREY
+agent can achieve the same result with its ``add_panel_to_rail`` /
+``remove_panel_from_rail`` tools;
 ``list_panels`` reports the configured layouts so the agent can honor a request
 like "set up for machine setup."
 

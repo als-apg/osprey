@@ -30,7 +30,7 @@ Coverage:
       show right after is the positive control proving the glow probe armed.
   (7) the history popover: five rapid frames render as five rows, newest
       first, and the same rows — including a hide mirrored into the server
-      ring by the panel routes and worded "agent closed …" — come back after
+      ring by the panel routes and worded "agent removed …" — come back after
       a reload, served from ``GET /api/agent-activity/recent``.
   (8) badge acknowledgment across a reload: a badge the operator cleared by
       surfacing the panel stays cleared, while a newer unseen event restores
@@ -66,6 +66,7 @@ from unittest.mock import patch
 import pytest
 import requests
 
+from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
 if TYPE_CHECKING:
@@ -215,8 +216,8 @@ def _hub_server(workspace_dir: Path) -> Iterator[str]:
             return_value=({"artifacts"}, [_CUSTOM_DATA_VIZ], None),
         ),
         patch(
-            "osprey.interfaces.web_terminal.app._launch_artifact_server",
-            side_effect=lambda a: setattr(a.state, "artifact_server_url", "http://127.0.0.1:8086"),
+            "osprey.interfaces.web_terminal.app._launch_panel_server",
+            side_effect=publish_artifact_url(),
         ),
     ]
     with _apply_all(patches):
@@ -343,7 +344,7 @@ def test_panel_activity_badges_rail_entry_and_activation_clears_it(tmp_path, chr
         expect(rail_btn).not_to_have_class(_ATTENTION_RE)
 
         r = _post_activity(
-            base_url, {"tool": "switch_panel", "target": {"kind": "panel", "panel": "data-viz"}}
+            base_url, {"tool": "open_panel", "target": {"kind": "panel", "panel": "data-viz"}}
         )
         assert r.status_code == 200, r.text
         assert r.json() == {"ok": True}
@@ -420,7 +421,7 @@ def test_malformed_post_422_and_no_dom_change(tmp_path, chromium_browser):
         page = _open_hub_page(chromium_browser, base_url)
 
         # Unknown target kind.
-        r = _post_activity(base_url, {"tool": "switch_panel", "target": {"kind": "widget"}})
+        r = _post_activity(base_url, {"tool": "open_panel", "target": {"kind": "widget"}})
         assert r.status_code == 422, r.text
         # Missing tool.
         r = _post_activity(base_url, {"target": {"kind": "panel", "panel": "data-viz"}})
@@ -428,7 +429,7 @@ def test_malformed_post_422_and_no_dom_change(tmp_path, chromium_browser):
 
         # Ordering sentinel: a valid frame POSTed after the malformed ones.
         r = _post_activity(
-            base_url, {"tool": "switch_panel", "target": {"kind": "panel", "panel": "data-viz"}}
+            base_url, {"tool": "open_panel", "target": {"kind": "panel", "panel": "data-viz"}}
         )
         assert r.status_code == 200, r.text
         expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_have_class(
@@ -683,15 +684,15 @@ def test_agent_switch_glows_the_tile_body_not_only_the_rail(tmp_path, chromium_b
 # ---------------------------------------------------------------------------
 
 
-def test_agent_hide_reports_on_the_strip_and_glows_nothing(tmp_path, chromium_browser):
-    """An agent hide is reported in words; there is nothing left to glow.
+def test_agent_rail_removal_reports_on_the_strip_and_glows_nothing(tmp_path, chromium_browser):
+    """An agent rail removal is reported in words; there is nothing left to glow.
 
     The rail entry is removed by the same operation, so a glow would have
     nowhere to land and the strip line is the whole feedback. The line is
     asserted verbatim — verb AND catalog label, not the raw panel id — because
     "some entry appeared" is equally consistent with the unlabelled fallback.
 
-    The agent SHOW at the end is the positive control: it proves the flash
+    The agent rail ADD at the end is the positive control: it proves the flash
     probe was armed and capable of recording a glow throughout, so the
     preceding empty `__flashLog` is evidence rather than an artefact.
     """
@@ -709,8 +710,8 @@ def test_agent_hide_reports_on_the_strip_and_glows_nothing(tmp_path, chromium_br
             {"panel": "data-viz", "visible": False, "source": "agent"},
         )
 
-        expect(entry).to_have_text("agent closedDATA VIZ", timeout=5_000)
-        # The hide really happened: membership is gone, not just narrated.
+        expect(entry).to_have_text("agent removedDATA VIZ", timeout=5_000)
+        # The removal really happened: membership is gone, not just narrated.
         expect(rail_btn).to_have_count(0, timeout=5_000)
         # Nothing flashed anywhere — no rail glow (the entry is gone) and no
         # tile glow (the visibility path never calls glowPanel).
@@ -724,7 +725,7 @@ def test_agent_hide_reports_on_the_strip_and_glows_nothing(tmp_path, chromium_br
             {"panel": "data-viz", "visible": True, "source": "agent"},
         )
         expect(rail_btn).to_have_count(1, timeout=5_000)
-        expect(entry).to_have_text("agent openedDATA VIZ", timeout=5_000)
+        expect(entry).to_have_text("agent made availableDATA VIZ", timeout=5_000)
         page.wait_for_function(
             "() => (window.__flashLog || []).some((c) => c.includes('panel-rail-button'))",
             timeout=10_000,
@@ -783,13 +784,13 @@ def test_history_popover_lists_every_frame_of_a_rapid_burst(tmp_path, chromium_b
         page.close()
 
 
-def test_history_popover_rows_survive_a_reload_including_a_hide(tmp_path, chromium_browser):
+def test_history_popover_rows_survive_a_reload_including_a_rail_removal(tmp_path, chromium_browser):
     """After a reload the popover shows the same history, read from the server.
 
     The history is the server's ring, not page state, and this is what makes
     that observable: nothing in the reloaded page ever saw these frames live.
-    The hide is the discriminating row — it reaches the ring only because the
-    panel ROUTE mirrors an agent-origin visibility change as ``hide_panel``
+    The rail removal is the discriminating row — it reaches the ring only because the
+    panel ROUTE mirrors an agent-origin rail change as ``remove_panel_from_rail``
     (an SSE frame alone would leave no trace to re-read), and the popover must
     word it exactly as the live strip did before the reload.
     """
@@ -813,7 +814,7 @@ def test_history_popover_rows_survive_a_reload_including_a_hide(tmp_path, chromi
 
         # Pre-reload wording, from the live client-synthesised frame.
         expect(page.locator("#activity-strip .activity-strip-entry")).to_have_text(
-            "agent closedDATA VIZ", timeout=5_000
+            "agent removedDATA VIZ", timeout=5_000
         )
 
         _reload_hub_page(page)
@@ -823,7 +824,7 @@ def test_history_popover_rows_survive_a_reload_including_a_hide(tmp_path, chromi
         popover = _open_history_popover(page)
         expect(popover.locator(".activity-history-row")).to_have_count(3, timeout=5_000)
         assert popover.locator(".activity-history-verb").all_text_contents() == [
-            "agent closed",
+            "agent removed",
             "agent wrote",
             "agent wrote",
         ]
@@ -870,7 +871,7 @@ def test_acknowledged_badge_stays_cleared_across_reload_and_a_newer_one_returns(
 
         # --- The operator sees an agent action and serves it -----------------
         r = _post_activity(
-            base_url, {"tool": "switch_panel", "target": {"kind": "panel", "panel": "data-viz"}}
+            base_url, {"tool": "open_panel", "target": {"kind": "panel", "panel": "data-viz"}}
         )
         assert r.status_code == 200, r.text
         expect(rail_btn).to_have_class(_ATTENTION_RE, timeout=5_000)
@@ -900,7 +901,7 @@ def test_acknowledged_badge_stays_cleared_across_reload_and_a_newer_one_returns(
 
         # --- A newer action the operator never served ------------------------
         r = _post_activity(
-            base_url, {"tool": "switch_panel", "target": {"kind": "panel", "panel": "data-viz"}}
+            base_url, {"tool": "open_panel", "target": {"kind": "panel", "panel": "data-viz"}}
         )
         assert r.status_code == 200, r.text
         expect(page.locator(_DATA_VIZ_RAIL)).to_have_class(_ATTENTION_RE, timeout=5_000)

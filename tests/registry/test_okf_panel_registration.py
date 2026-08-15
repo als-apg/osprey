@@ -12,8 +12,6 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
-import pytest
-
 from osprey.infrastructure import server_launcher
 from osprey.interfaces.web_terminal import app as web_terminal_app
 from osprey.interfaces.web_terminal.routes import proxy as proxy_module
@@ -76,97 +74,6 @@ def test_ensure_okf_server_alias_delegates_to_okf_key(monkeypatch):
 
 def test_proxy_state_map_wires_okf_to_okf_server_url():
     assert proxy_module._PANEL_STATE_MAP["okf"] == "okf_server_url"
-
-
-def test_launch_okf_server_sets_proxy_state_and_invokes_launcher(monkeypatch):
-    """_launch_okf_server stores the state attr the proxy reads and delegates.
-
-    Behavioural replacement for the source-text checks that the launch fn
-    references ``app.state.okf_server_url`` and ``ensure_okf_server``.
-    """
-    import osprey.utils.workspace as workspace
-
-    ensure_calls: list[bool] = []
-    monkeypatch.setattr(
-        workspace, "load_osprey_config", lambda: {"facility_knowledge": {"bundle_path": "/b"}}
-    )
-    monkeypatch.setattr(server_launcher, "ensure_okf_server", lambda: ensure_calls.append(True))
-    monkeypatch.delenv("OSPREY_FACILITY_KNOWLEDGE_PORT", raising=False)
-
-    app = SimpleNamespace(state=SimpleNamespace())
-    web_terminal_app._launch_okf_server(app)
-
-    # The proxy reads app.state.okf_server_url; it must be populated (not a dead tab).
-    assert getattr(app.state, "okf_server_url", None)
-    # And the launch delegated to the launcher.
-    assert ensure_calls == [True]
-
-
-def test_lifespan_gates_okf_launch_on_enabled_panels():
-    """The lifespan launches okf only when the bare "okf" panel id is enabled.
-
-    Driving the full async lifespan here is disproportionate, so this stays a
-    source guard — but reads the module source fresh from disk (deterministic)
-    rather than via inspect.getsource.
-    """
-    assert hasattr(web_terminal_app, "_launch_okf_server")
-    module_src = _fresh_source(web_terminal_app)
-    assert '"okf" in enabled_panels' in module_src
-    assert "_launch_okf_server(app)" in module_src
-
-
-def _launch_side_port(monkeypatch, fake_config, env_value):
-    """Port that _launch_okf_server stores in app.state.okf_server_url (app side)."""
-    import osprey.utils.workspace as workspace
-    from osprey.interfaces.web_terminal import app as wt
-
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: fake_config)
-    monkeypatch.setattr(server_launcher, "ensure_okf_server", lambda: None)  # no real launch
-    if env_value is None:
-        monkeypatch.delenv("OSPREY_FACILITY_KNOWLEDGE_PORT", raising=False)
-    else:
-        monkeypatch.setenv("OSPREY_FACILITY_KNOWLEDGE_PORT", env_value)
-
-    app = SimpleNamespace(state=SimpleNamespace())
-    wt._launch_okf_server(app)
-    url = getattr(app.state, "okf_server_url", None)
-    assert url, "launch fn crashed → app.state.okf_server_url is None (silent dead tab)"
-    return int(url.rsplit(":", 1)[1])
-
-
-def _launcher_side_port(monkeypatch, fake_config, env_value):
-    """Port that ServerLauncher's config reader resolves (the port uvicorn binds)."""
-    import osprey.utils.workspace as workspace
-
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: fake_config)
-    if env_value is None:
-        monkeypatch.delenv("OSPREY_FACILITY_KNOWLEDGE_PORT", raising=False)
-    else:
-        monkeypatch.setenv("OSPREY_FACILITY_KNOWLEDGE_PORT", env_value)
-    # The wired launcher's own reader, so this compares what uvicorn actually binds.
-    _host, port = server_launcher._launchers["okf"]._config_reader()
-    return port
-
-
-@pytest.mark.parametrize(
-    "env_value",
-    [
-        None,  # no override → port_default 8093 on both sides
-        "9099",  # explicit override → both sides honour it
-        "",  # SET-BUT-EMPTY (compose `VAR=`) → must not crash the launch (regression)
-    ],
-)
-def test_launch_and_launcher_agree_on_port(monkeypatch, env_value):
-    """The proxied URL's port MUST equal the port uvicorn binds, for every env case.
-
-    Regression guard for the empty-string override: int("") would raise inside
-    _launch_okf_server → swallowed → okf_server_url=None → dead tab, while the
-    launcher would bind 8093. Both sides must resolve the same port.
-    """
-    fake = {"facility_knowledge": {"bundle_path": "/some/bundle"}}
-    app_port = _launch_side_port(monkeypatch, fake, env_value)
-    bound_port = _launcher_side_port(monkeypatch, fake, env_value)
-    assert app_port == bound_port
 
 
 def test_three_way_okf_consistency():

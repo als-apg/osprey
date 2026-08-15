@@ -46,6 +46,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
 if TYPE_CHECKING:
@@ -143,8 +144,8 @@ def _hub_with_artifacts(tmp_path: Path, ui_mode: str) -> Iterator[tuple[str, obj
                 return_value=({"artifacts"}, [], None),
             ),
             patch(
-                "osprey.interfaces.web_terminal.app._launch_artifact_server",
-                side_effect=lambda a: setattr(a.state, "artifact_server_url", artifact_url),
+                "osprey.interfaces.web_terminal.app._launch_panel_server",
+                side_effect=publish_artifact_url(artifact_url),
             ),
         ]
         with _apply_all(patches):

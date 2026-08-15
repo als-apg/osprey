@@ -228,7 +228,7 @@ describe('railDragStart / railDragEnd — payload + shields', () => {
 
   test('a document-level terminator lowers the shields when the source\'s dragend is lost', async () => {
     // HTML5 delivers dragend only to the drag's SOURCE element; a rail entry
-    // removed mid-drag (SSE hide_panel / arrange prune) can never fire it, and
+    // removed mid-drag (SSE remove_panel_from_rail / arrange prune) can never fire it, and
     // during a native drag mouseup/pointerup are suppressed. Without a
     // document-level fallback the shields stay up forever and every panel
     // iframe is left pointer-events:none — the "frozen workspace" bug.

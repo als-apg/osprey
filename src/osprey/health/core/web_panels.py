@@ -13,13 +13,18 @@ browser involved.
 Panels come from two places and are probed accordingly:
 
 * **Built-in panels** (``web.panels.<id>`` enabled, id in ``BUILTIN_PANELS``) —
-  host/port resolved from :data:`FRAMEWORK_WEB_SERVERS` the same way
-  ``server_launcher`` resolves them, then ``GET /health``.
+  host/port resolved by ``registry.web.resolve_web_server_address``, the one
+  resolver ``server_launcher`` itself is bound to, then ``GET /health``.
 * **Custom panels** (any other ``web.panels.<id>`` with a ``url``) — ``GET
   url + health_endpoint`` when one is configured. When it isn't (the scan
   ``plan``/``results`` panels declare none), the panel's own entry ``path`` is
   fetched instead and any non-5xx answer counts as reachable; the row says so
   rather than implying a real health contract exists.
+
+A built-in panel whose own config section writes ``host``/``port`` at a depth
+nothing reads has no address to probe at all; it gets a row saying so, naming the
+key and the depth it belongs at, instead of being probed at a port the operator
+never chose.
 
 Rows are advisory (``ok``/``warning``), matching the ``ariel`` and ``containers``
 categories: a panel that is configured but down is a warning, never a suite
@@ -38,7 +43,11 @@ import httpx
 
 from osprey.health.models import CheckResult, Status
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS, UNIVERSAL_PANELS
-from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+from osprey.registry.web import (
+    PANEL_ID_TO_REGISTRY_KEY,
+    WebServerConfigDepthError,
+    resolve_web_server_address,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -49,20 +58,6 @@ if TYPE_CHECKING:
 CATEGORY = "web_panels"
 
 _PROBE_TIMEOUT_S = 5.0
-_DEFAULT_BIND = "127.0.0.1"
-
-#: Panel id (as it appears under ``web.panels``) → registry key in
-#: :data:`FRAMEWORK_WEB_SERVERS`. The two namespaces differ for some panels
-#: (``artifacts``/``artifact``, ``lattice``/``lattice_dashboard``), so the
-#: mapping is explicit rather than derived by string munging.
-_PANEL_TO_REGISTRY_KEY: dict[str, str] = {
-    "artifacts": "artifact",
-    "ariel": "ariel",
-    "channel-finder": "channel_finder",
-    "lattice": "lattice_dashboard",
-    "okf": "okf",
-    "system-health": "system_health",
-}
 
 
 class _Target(NamedTuple):
@@ -94,7 +89,7 @@ def web_panels(
 
     Args:
         config: Parsed config mapping (``None`` when config is unavailable).
-            Read for ``web.panels`` and ``deployment.bind_address``.
+            Read for ``web.panels`` and each panel's own config section.
         context: Health runtime. Unused — panels are probed over HTTP, no
             control-system connector is needed.
         transport: Optional httpx transport for dependency injection in tests
@@ -106,18 +101,19 @@ def web_panels(
     cfg: Mapping[str, Any] = config or {}
 
     async def _run() -> list[CheckResult]:
-        targets = _resolve_targets(cfg)
+        targets, config_rows = _resolve_targets(cfg)
         if not targets:
-            return []
+            return config_rows
         # Probe concurrently: a facility can enable half a dozen panels, and
         # serially waiting out the timeout on each unreachable one would push
         # the category past the suite deadline on its own.
-        return list(await asyncio.gather(*(_probe(t, transport) for t in targets)))
+        probed = list(await asyncio.gather(*(_probe(t, transport) for t in targets)))
+        return sorted(probed + config_rows, key=lambda row: row.name)
 
     return _run
 
 
-def _resolve_targets(cfg: Mapping[str, Any]) -> list[_Target]:
+def _resolve_targets(cfg: Mapping[str, Any]) -> tuple[list[_Target], list[CheckResult]]:
     """Enumerate the enabled panels and the URL each should be probed at.
 
     Mirrors ``web_terminal.app._load_panel_config``'s read of ``web.panels``:
@@ -125,18 +121,22 @@ def _resolve_targets(cfg: Mapping[str, Any]) -> list[_Target]:
     ``enabled: false``; anything else is a custom panel carrying its own url.
     Universal panels (``artifacts``) are always on, exactly as the terminal
     treats them.
+
+    Returns:
+        ``(targets, config_rows)`` — the panels to probe, plus ready-made rows
+        for panels whose own config section is malformed and therefore has no
+        probeable address at all.
     """
     web_cfg = cfg.get("web")
     if not isinstance(web_cfg, dict):
-        return []
+        return [], []
     panels_cfg = web_cfg.get("panels")
     if not isinstance(panels_cfg, dict):
         panels_cfg = {}
 
-    bind = (cfg.get("deployment") or {}).get("bind_address", _DEFAULT_BIND)
-
     enabled_builtin: set[str] = set(UNIVERSAL_PANELS)
     targets: list[_Target] = []
+    config_rows: list[CheckResult] = []
 
     for panel_id, spec in panels_cfg.items():
         if panel_id in BUILTIN_PANELS:
@@ -150,40 +150,58 @@ def _resolve_targets(cfg: Mapping[str, Any]) -> list[_Target]:
             targets.append(target)
 
     for panel_id in sorted(enabled_builtin):
-        target = _builtin_target(panel_id, cfg, bind)
+        try:
+            target = _builtin_target(panel_id, cfg)
+        except WebServerConfigDepthError as exc:
+            config_rows.append(_misconfigured_row(panel_id, exc))
+            continue
         if target is not None:
             targets.append(target)
 
     targets.sort(key=lambda t: t.panel_id)
-    return targets
+    return targets, config_rows
 
 
-def _builtin_target(panel_id: str, cfg: Mapping[str, Any], bind: str) -> _Target | None:
+def _builtin_target(panel_id: str, cfg: Mapping[str, Any]) -> _Target | None:
     """Resolve a built-in panel's ``/health`` URL from the web-server registry.
 
-    Host/port are read the way ``server_launcher`` reads them — the registry
-    entry's ``config_key`` (optionally nested under ``config_web_subkey``) with
-    the definition's defaults as fallback — so a facility that moves a panel's
-    port in config is probed at the port it actually runs on.
+    Host and port come from ``registry.web.resolve_web_server_address`` — the one
+    resolver ``ServerLauncher`` is partial-bound to. Re-deriving them here read
+    the config section only, which meant a multi-user deployment (where compose
+    exports ``OSPREY_<CONFIG_KEY>_PORT`` per user because the per-user containers
+    share the host network namespace) was probed at the config port while the
+    panel listened on the env port — every panel reported offline.
+
+    Raises:
+        WebServerConfigDepthError: The panel's config section writes host/port at
+            a depth nothing reads, so no address can be resolved.
     """
-    registry_key = _PANEL_TO_REGISTRY_KEY.get(panel_id)
+    registry_key = PANEL_ID_TO_REGISTRY_KEY.get(panel_id)
     if registry_key is None:
         return None
-    defn = FRAMEWORK_WEB_SERVERS.get(registry_key)
-    if defn is None:
-        return None
 
-    section = cfg.get(defn.config_key) or {}
-    if not isinstance(section, dict):
-        section = {}
-    if defn.config_web_subkey:
-        nested = section.get(defn.config_web_subkey) or {}
-        section = nested if isinstance(nested, dict) else {}
-
-    host = section.get("host", defn.host_default) or bind
-    port = section.get("port", defn.port_default)
+    host, port = resolve_web_server_address(registry_key, cfg)
     label = BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper())
     return _Target(panel_id, label, f"http://{host}:{port}/health", contract=True)
+
+
+def _misconfigured_row(panel_id: str, exc: WebServerConfigDepthError) -> CheckResult:
+    """Report a panel whose config section cannot yield an address.
+
+    A warning, not an error, to keep the category advisory: the loud refusal
+    belongs to the launch path (``osprey web``'s pre-flight fails, the launcher
+    declines to start the panel). What this row owes the operator is the exact
+    key to fix.
+    """
+    label = BUILTIN_PANEL_LABELS.get(panel_id, panel_id.upper())
+    return CheckResult(
+        f"{CATEGORY}.{panel_id.replace('-', '_')}",
+        CATEGORY,
+        Status.WARNING,
+        f"{label}: misconfigured",
+        value="misconfigured",
+        details=str(exc),
+    )
 
 
 def _custom_target(panel_id: str, spec: Mapping[str, Any]) -> _Target | None:

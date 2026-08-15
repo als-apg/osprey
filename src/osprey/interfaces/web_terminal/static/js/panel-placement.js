@@ -154,7 +154,7 @@ export function dropPanelAt(panelId, position) {
 }
 
 /**
- * Apply an agent switch_panel: bring the panel into view without ever taking a
+ * Apply an agent open_panel: bring the panel into view without ever taking a
  * tile away from the operator. A panel that already holds a tile is simply
  * focused (no move); one without a tile opens as a NEW tile beside the active
  * group — the same placement the rail's ⊞ corner uses — so whatever the

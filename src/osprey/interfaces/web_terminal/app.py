@@ -31,6 +31,7 @@ from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
 from osprey.interfaces.web_terminal.url_prefix import apply_url_prefix, compute_url_prefix
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
@@ -66,166 +67,76 @@ templates.env.globals["prefixed"] = _prefixed
 logger = __import__("logging").getLogger(__name__)
 
 
-def _launch_artifact_server(app: FastAPI) -> None:
-    """Auto-launch the artifact gallery server if configured.
+def _launch_enabled_panel_servers(app: FastAPI, enabled_panels: set[str]) -> None:
+    """Launch the companion server behind every enabled built-in panel.
 
-    The URL published here is the *only* input to panel availability
-    (``/api/artifact-server``), so it must never outrun the server itself.
-    ``artifact_server.auto_launch: false`` makes ``ensure_artifact_server()`` a
-    no-op; publishing a URL anyway left the operator an enabled WORKSPACE tab
-    whose iframe returned a bare 502. Leaving it unset disables the tab instead,
-    which is what a suppressed server should look like.
+    The lifespan used to gate each panel on its own ``if "<id>" in
+    enabled_panels`` line, which made registering a companion server a two-place
+    edit — and left the universal/domain split spelled a second time here, out of
+    sync with :func:`_load_panel_config`, which already folds
+    ``UNIVERSAL_PANELS`` into ``enabled_panels`` unconditionally.
+
+    Args:
+        app: The web-terminal application whose ``state`` the URLs are published on.
+        enabled_panels: Enabled panel ids from :func:`_load_panel_config`. Ids with
+            no companion server behind them (URL-backed custom panels such as
+            ``events``) are skipped — the framework serves nothing for those.
     """
+    for panel_id in sorted(enabled_panels & BUILTIN_PANELS):
+        _launch_panel_server(app, PANEL_ID_TO_REGISTRY_KEY[panel_id])
+
+
+def _launch_panel_server(app: FastAPI, key: str) -> None:
+    """Auto-launch the companion web server *key* and publish its panel URL.
+
+    One implementation for all six panels. The URL published here is the *only*
+    input to panel availability (``/api/<panel>-server`` and the ``/panel/<id>/``
+    proxy), so it must never outrun the server itself: ``auto_launch: false``
+    makes the launch a no-op, and publishing a URL anyway left the operator an
+    enabled tab whose iframe returned a bare 502. Leaving it unset disables the
+    tab instead, which is what a suppressed server should look like.
+
+    Both the gate and the address come from the shared registry derivations —
+    :func:`~osprey.infrastructure.server_launcher.is_auto_launch_enabled` and
+    :func:`~osprey.registry.web.resolve_web_server_base_url`, the same ones
+    ``ServerLauncher`` itself uses. That is what keeps the port advertised here
+    identical to the port uvicorn binds, including the set-but-empty env
+    override (compose ``OSPREY_<CONFIG_KEY>_PORT=``) that an inline ``int()``
+    turns into a ValueError and a silently dead tab.
+
+    Args:
+        app: The web-terminal application whose ``state`` the URL is published on.
+        key: Key into ``registry.web.FRAMEWORK_WEB_SERVERS``, e.g. ``"artifact"``.
+    """
+    attr = panel_url_state_attr(key)
     try:
         from osprey.infrastructure.server_launcher import (
-            ensure_artifact_server,
+            ensure_web_server,
             is_auto_launch_enabled,
         )
-        from osprey.registry.web import resolve_web_server_base_url
+        from osprey.registry.web import FRAMEWORK_WEB_SERVERS, resolve_web_server_base_url
 
-        if not is_auto_launch_enabled("artifact"):
-            logger.info("Artifact server auto-launch is disabled; WORKSPACE tab unavailable")
+        definition = FRAMEWORK_WEB_SERVERS[key]
+
+        # Covers require_section too: a server whose config section is absent
+        # reports auto-launch off, so a panel with nothing behind it stays dark.
+        if not is_auto_launch_enabled(key):
+            logger.info(
+                "%s auto-launch is disabled; the %s panel is unavailable",
+                definition.name,
+                definition.panel_id,
+            )
+            setattr(app.state, attr, None)
             return
 
-        # Same resolver the launcher itself uses, so the URL published here and
-        # the port uvicorn binds cannot drift — including the set-but-empty env
-        # override (compose `OSPREY_ARTIFACT_SERVER_PORT=`), which the previous
-        # inline int() turned into a ValueError and a dead tab.
-        app.state.artifact_server_url = resolve_web_server_base_url("artifact")
-        ensure_artifact_server()
-        logger.info("Artifact server available at %s", app.state.artifact_server_url)
+        setattr(app.state, attr, resolve_web_server_base_url(key))
+        ensure_web_server(key)
+        logger.info("%s available at %s", definition.name, getattr(app.state, attr))
     except Exception:
-        logger.warning("Could not auto-launch artifact server", exc_info=True)
+        logger.warning("Could not auto-launch companion server %r", key, exc_info=True)
         # No fallback URL: a launch we could not complete must not be advertised
         # as an available panel. Retract any URL assigned before the failure.
-        app.state.artifact_server_url = None
-
-
-def _launch_ariel_server(app: FastAPI) -> None:
-    """Auto-launch the ARIEL logbook server if configured."""
-    try:
-        from osprey.infrastructure.server_launcher import ensure_ariel_server
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        ariel_web = config.get("ariel", {}).get("web", {})
-        host = ariel_web.get("host", "127.0.0.1")
-        port = int(os.environ.get("OSPREY_ARIEL_PORT", ariel_web.get("port", 8085)))
-
-        app.state.ariel_server_url = f"http://{host}:{port}"
-        ensure_ariel_server()
-        logger.info("ARIEL server available at %s", app.state.ariel_server_url)
-    except Exception:
-        logger.warning("Could not auto-launch ARIEL server", exc_info=True)
-        app.state.ariel_server_url = None
-
-
-def _launch_channel_finder_server(app: FastAPI) -> None:
-    """Auto-launch the Channel Finder web server if configured."""
-    try:
-        from osprey.infrastructure.server_launcher import ensure_channel_finder_server
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        cf = config.get("channel_finder", {})
-        if not cf:
-            return
-        cf_web = cf.get("web", {})
-        host = cf_web.get("host", "127.0.0.1")
-        port = int(os.environ.get("OSPREY_CHANNEL_FINDER_PORT", cf_web.get("port", 8092)))
-
-        app.state.channel_finder_server_url = f"http://{host}:{port}"
-        ensure_channel_finder_server()
-        logger.info("Channel Finder server available at %s", app.state.channel_finder_server_url)
-    except Exception:
-        logger.warning("Could not auto-launch Channel Finder server", exc_info=True)
-        app.state.channel_finder_server_url = None
-
-
-def _launch_lattice_dashboard_server(app: FastAPI) -> None:
-    """Auto-launch the lattice dashboard server if configured."""
-    try:
-        from osprey.infrastructure.server_launcher import ensure_lattice_dashboard_server
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        ld = config.get("lattice_dashboard", {})
-        if not ld:
-            return
-        host = ld.get("host", "127.0.0.1")
-        port = int(os.environ.get("OSPREY_LATTICE_DASHBOARD_PORT", ld.get("port", 8097)))
-
-        app.state.lattice_dashboard_server_url = f"http://{host}:{port}"
-        ensure_lattice_dashboard_server()
-        logger.info("Lattice dashboard available at %s", app.state.lattice_dashboard_server_url)
-    except Exception:
-        logger.warning("Could not auto-launch lattice dashboard", exc_info=True)
-        app.state.lattice_dashboard_server_url = None
-
-
-def _launch_okf_server(app: FastAPI) -> None:
-    """Auto-launch the OKF knowledge panel server if configured.
-
-    The (host, port) computed here MUST match what ``ServerLauncher`` resolves
-    for the ``okf`` definition (``registry/web.py``): host/port read directly
-    from the ``facility_knowledge`` section (no ``web`` subkey), with the
-    ``OSPREY_FACILITY_KNOWLEDGE_PORT`` env override. Otherwise the proxied URL
-    stored here would point at a different port than the one uvicorn binds.
-    """
-    try:
-        from osprey.infrastructure.server_launcher import ensure_okf_server
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        fk = config.get("facility_knowledge", {})
-        if not fk:
-            return
-        host = fk.get("host", "127.0.0.1")
-        # Guard a set-but-empty env override (e.g. compose `OSPREY_FACILITY_KNOWLEDGE_PORT=`):
-        # int("") would raise and kill this launch (silent dead tab). This mirrors
-        # registry.web.resolve_web_server_address's empty-value guard so both sides
-        # resolve the SAME port — the launcher would otherwise bind 8093 while we'd die.
-        env_port = os.environ.get("OSPREY_FACILITY_KNOWLEDGE_PORT")
-        port = int(env_port) if env_port else int(fk.get("port", 8093))
-
-        app.state.okf_server_url = f"http://{host}:{port}"
-        ensure_okf_server()
-        logger.info("OKF knowledge panel available at %s", app.state.okf_server_url)
-    except Exception:
-        logger.warning("Could not auto-launch OKF knowledge panel", exc_info=True)
-        app.state.okf_server_url = None
-
-
-def _launch_system_health_server(app: FastAPI) -> None:
-    """Auto-launch the System Health dashboard server if enabled.
-
-    The (host, port) computed here MUST match what ``ServerLauncher`` resolves
-    for the ``system_health`` definition (``registry/web.py``): host/port read
-    from the nested ``health.web`` subkey, with the ``OSPREY_HEALTH_PORT`` env
-    override. ``require_section`` is False, so unlike the okf/channel-finder
-    launchers there is no early return on a missing section — the health
-    framework ships a usable default, so the panel is always launchable.
-    """
-    try:
-        from osprey.infrastructure.server_launcher import ensure_system_health_server
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        health_web = config.get("health", {}).get("web", {})
-        host = health_web.get("host", "127.0.0.1")
-        # Guard a set-but-empty env override (e.g. compose `OSPREY_HEALTH_PORT=`):
-        # int("") would raise and kill this launch (silent dead tab). This mirrors
-        # registry.web.resolve_web_server_address's empty-value guard so both sides
-        # resolve the SAME port — the launcher would otherwise bind 8094 while we'd die.
-        env_port = os.environ.get("OSPREY_HEALTH_PORT")
-        port = int(env_port) if env_port else int(health_web.get("port", 8094))
-
-        app.state.system_health_server_url = f"http://{host}:{port}"
-        ensure_system_health_server()
-        logger.info("System Health dashboard available at %s", app.state.system_health_server_url)
-    except Exception:
-        logger.warning("Could not auto-launch System Health dashboard", exc_info=True)
-        app.state.system_health_server_url = None
+        setattr(app.state, attr, None)
 
 
 def _load_theme_registry() -> tuple[list[ThemeManifestEntry], dict[str, dict[str, str]]]:
@@ -1005,20 +916,7 @@ def _create_lifespan(
         except Exception:
             logger.warning("Local panel discovery failed; continuing.", exc_info=True)
 
-        # Universal servers — always launched
-        _launch_artifact_server(app)
-
-        # Domain servers — template-controlled
-        if "ariel" in enabled_panels:
-            _launch_ariel_server(app)
-        if "channel-finder" in enabled_panels:
-            _launch_channel_finder_server(app)
-        if "lattice" in enabled_panels:
-            _launch_lattice_dashboard_server(app)
-        if "okf" in enabled_panels:
-            _launch_okf_server(app)
-        if "system-health" in enabled_panels:
-            _launch_system_health_server(app)
+        _launch_enabled_panel_servers(app, enabled_panels)
 
         # Hook env placeholder — hooks read config.yml directly for
         # hot-reloadable settings (no env var propagation needed).

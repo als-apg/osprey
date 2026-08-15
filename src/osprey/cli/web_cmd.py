@@ -218,31 +218,19 @@ def _preflight_vendor_check() -> None:
     raise SystemExit(1)
 
 
-# FRAMEWORK_WEB_SERVERS keys don't line up 1:1 with the panel ids
-# _load_panel_config() reports: channel_finder/lattice_dashboard use
-# underscores while profiles.web_panels.BUILTIN_PANELS uses the hyphenated/
-# short ids the frontend and web.panels config actually key on
-# ("channel-finder", "lattice"). "artifact" is intentionally absent — it's a
-# UNIVERSAL_PANELS entry the lifespan launches unconditionally (see
-# _create_lifespan in web_terminal/app.py), so it is never gated on
-# web.panels membership.
-_PANEL_ID_FOR_REGISTRY_KEY: dict[str, str] = {
-    "ariel": "ariel",
-    "channel_finder": "channel-finder",
-    "lattice_dashboard": "lattice",
-    "okf": "okf",
-    "system_health": "system-health",
-}
-
-
 def _probe_companion_ports() -> list[str]:
     """Probe 1: TCP-connect-probe every companion panel port the lifespan will bind.
 
     Resolves the panel set the same way ``_create_lifespan`` does: enabled via
-    ``web.panels`` (or ``artifact``, which is always launched) AND actually
+    ``web.panels`` (or a UNIVERSAL panel, which is always launched) AND actually
     launchable per ``auto_launch``/``require_section``. A panel that is
     enabled but not launched (e.g. ``channel_finder`` with an unmet
     ``require_section``) is excluded — its port is never probed.
+
+    Panel ids come from each registry entry's own ``panel_id`` — the registry
+    keys are a different namespace from the ids ``web.panels`` and the frontend
+    use (``artifact``/``artifacts``, ``channel_finder``/``channel-finder``), and
+    a local translation table here drifted from the health category's copy.
 
     A listener already bound to a companion port before we start ours is
     foreign: at best it steals the panel's tab, at worst it silently
@@ -255,17 +243,29 @@ def _probe_companion_ports() -> list[str]:
         _make_auto_launch_checker,
     )
     from osprey.interfaces.web_terminal.app import _load_panel_config
-    from osprey.registry.web import FRAMEWORK_WEB_SERVERS, resolve_web_server_address
+    from osprey.profiles.web_panels import UNIVERSAL_PANELS
+    from osprey.registry.web import (
+        FRAMEWORK_WEB_SERVERS,
+        WebServerConfigDepthError,
+        resolve_web_server_address,
+    )
 
     enabled_panels, _custom_panels, _default_panel = _load_panel_config()
 
     failures: list[str] = []
     for key, defn in FRAMEWORK_WEB_SERVERS.items():
-        if key != "artifact" and _PANEL_ID_FOR_REGISTRY_KEY.get(key) not in enabled_panels:
+        if defn.panel_id not in UNIVERSAL_PANELS and defn.panel_id not in enabled_panels:
             continue  # panel disabled in web.panels — the lifespan never calls its launcher
-        if not _make_auto_launch_checker(defn)():
-            continue  # auto_launch off, or require_section unmet
-        host, port = resolve_web_server_address(key)
+        try:
+            if not _make_auto_launch_checker(defn)():
+                continue  # auto_launch off, or require_section unmet
+            host, port = resolve_web_server_address(key)
+        except WebServerConfigDepthError as exc:
+            # A misplaced host/port/auto_launch key is a config defect, not a
+            # port clash — report it here rather than letting it traceback out
+            # of pre-flight, so `osprey web` names the key and the fix.
+            failures.append(str(exc))
+            continue
         if _launchers[key]._port_has_listener(host, port):
             failures.append(
                 f"Companion panel '{key}' ({defn.name}) port {port} is already in use "
@@ -607,7 +607,7 @@ def web(
 
     # Publish the ACTUAL port to every child process (PTY shells, their MCP
     # servers): web_terminal_url() resolves OSPREY_WEB_PORT first, and
-    # without this, panel tools (switch_panel etc.) fire-and-forget their
+    # without this, panel tools (open_panel etc.) fire-and-forget their
     # focus POSTs at the config default (8087) whenever --port differs —
     # reporting success while the real terminal never hears the event.
     os.environ["OSPREY_WEB_PORT"] = str(port)

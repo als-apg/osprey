@@ -24,8 +24,21 @@ class WebServerDefinition:
         factory_path: Dotted import path with colon separator, e.g.
             ``"osprey.interfaces.artifacts.app:create_app"``.
         config_key: Top-level ``config.yml`` key, e.g. ``"artifact_server"``.
+        panel_id: The id this server's panel is keyed on everywhere OUTSIDE the
+            registry — ``web.panels.<panel_id>`` in config, the frontend tab,
+            the ``/panel/<panel_id>/`` proxy mount, and
+            ``profiles.web_panels.BUILTIN_PANELS``. It is a second namespace,
+            not a spelling variant of the registry key: the gallery is registry
+            key ``artifact`` and panel ``artifacts``, and the hyphenated ids
+            (``channel-finder``, ``system-health``) are not valid registry keys.
+            Declared here so the two namespaces are related in exactly one
+            place — every consumer that needs to cross between them reads
+            :data:`PANEL_ID_TO_REGISTRY_KEY` or this field instead of carrying
+            its own table.
         config_web_subkey: Optional nested subkey for host/port/auto_launch,
-            e.g. ``"web"`` when config is ``ariel.web.host``.
+            e.g. ``"web"`` when config is ``ariel.web.host``. Navigating it is
+            :func:`web_server_config_section`'s job, never a caller's — see that
+            function for why writing the key at the other depth is an error.
         host_default: Fallback host when not in config.
         port_default: Fallback port when not in config.
         pass_workspace: If True, ``workspace_root`` is passed to the factory.
@@ -54,6 +67,7 @@ class WebServerDefinition:
     name: str
     factory_path: str
     config_key: str
+    panel_id: str
     config_web_subkey: str | None = None
     host_default: str = "127.0.0.1"
     port_default: int = 8080
@@ -83,6 +97,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         name="Artifact gallery",
         factory_path="osprey.interfaces.artifacts.app:create_app",
         config_key="artifact_server",
+        panel_id="artifacts",
         port_default=8086,
         pass_workspace=True,
         multi_user_base_port=9291,
@@ -91,6 +106,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         name="ARIEL server",
         factory_path="osprey.interfaces.ariel.app:create_app",
         config_key="ariel",
+        panel_id="ariel",
         config_web_subkey="web",
         port_default=8085,
         multi_user_base_port=9391,
@@ -99,6 +115,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         name="Channel Finder",
         factory_path="osprey.interfaces.channel_finder.app:create_app",
         config_key="channel_finder",
+        panel_id="channel-finder",
         config_web_subkey="web",
         port_default=8092,
         require_section=True,
@@ -108,6 +125,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         name="Lattice dashboard",
         factory_path="osprey.interfaces.lattice_dashboard.app:create_app",
         config_key="lattice_dashboard",
+        panel_id="lattice",
         port_default=8097,
         pass_workspace=True,
         require_section=True,
@@ -124,6 +142,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         name="OKF Knowledge Panel",
         factory_path="osprey.interfaces.okf_panel.app:create_app",
         config_key="facility_knowledge",
+        panel_id="okf",
         port_default=8093,
         require_section=True,
         factory_config_kwargs={"bundle_path": "facility_knowledge.bundle_path"},
@@ -138,12 +157,146 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         name="System Health Dashboard",
         factory_path="osprey.interfaces.health.app:create_app",
         config_key="health",
+        panel_id="system-health",
         config_web_subkey="web",
         port_default=8094,
         require_section=False,
         multi_user_base_port=9791,
     ),
 }
+
+
+#: Panel id (as it appears under ``web.panels``, in the frontend tab set and in
+#: the ``/panel/<id>/`` proxy mount) → key into :data:`FRAMEWORK_WEB_SERVERS`.
+#:
+#: Derived from :attr:`WebServerDefinition.panel_id`, never hand-listed. The two
+#: namespaces genuinely differ (``artifacts``/``artifact``,
+#: ``channel-finder``/``channel_finder``, ``lattice``/``lattice_dashboard``,
+#: ``system-health``/``system_health``), and every consumer that used to keep its
+#: own copy of that table — the health panel probe, the ``osprey web``
+#: port pre-flight, the web terminal's panel proxy — drifted from the others.
+#: Read this instead of writing a fifth one.
+PANEL_ID_TO_REGISTRY_KEY: dict[str, str] = {
+    definition.panel_id: key for key, definition in FRAMEWORK_WEB_SERVERS.items()
+}
+
+
+def panel_url_state_attr(key: str) -> str:
+    """The ``app.state`` attribute a companion server's panel URL is published under.
+
+    The convention is the registry key plus ``_server_url``. Two modules depend
+    on it: the web terminal's lifespan writes it (``web_terminal/app.py``) and
+    the panel reverse proxy reads it (``web_terminal/routes/proxy.py``). Nothing
+    else would notice if one side changed its spelling — the panel would simply
+    report unavailable, which is indistinguishable from a server that is legitimately
+    switched off. It lives here, beside the other two cross-namespace facts
+    (:attr:`WebServerDefinition.panel_id` and
+    :attr:`WebServerDefinition.port_env_var`), because the two modules that share
+    it cannot import each other: ``app`` already imports the route package.
+
+    Args:
+        key: Key into :data:`FRAMEWORK_WEB_SERVERS`, e.g. ``"artifact"``.
+
+    Returns:
+        The ``app.state`` attribute name, e.g. ``"artifact_server_url"``.
+    """
+    return f"{key}_server_url"
+
+
+#: The keys whose meaning depends entirely on their nesting depth.
+_ADDRESS_KEYS: tuple[str, ...] = ("host", "port", "auto_launch")
+
+
+class WebServerConfigDepthError(ValueError):
+    """A companion server's address key is written at the wrong nesting depth.
+
+    Raised instead of silently ignoring the key. ``ariel.auto_launch: false``
+    (correct depth: ``ariel.web.auto_launch``) used to read back as the default
+    ``True`` and launch the panel the operator had just switched off; the
+    mirror-image mistake, ``artifact_server.web.port``, left the gallery on
+    8086 while the operator believed they had moved it.
+
+    Subclasses ``ValueError`` so the launch surfaces that already fail open on a
+    bad config section (``osprey chat``'s per-server guard, the web terminal's
+    per-panel guard) keep failing open — but loudly, and with the panel *not*
+    started, which is the outcome ``auto_launch: false`` asked for anyway.
+    """
+
+
+def web_server_config_section(
+    definition: WebServerDefinition,
+    config: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Return the mapping holding *definition*'s host/port/auto_launch.
+
+    The single navigation of :attr:`WebServerDefinition.config_web_subkey`. The
+    six companion servers disagree about depth — three take ``<section>.web.*``
+    (ariel, channel_finder, system_health), three take ``<section>.*`` (artifact,
+    lattice_dashboard, okf) — because three of the sections are shared with
+    non-web config and three are the panel's own. That disagreement is a shipped,
+    documented config format, so this function reconciles it in one place and
+    rejects the wrong depth rather than letting each caller re-derive it.
+
+    Args:
+        definition: The server whose config section to locate.
+        config: Already-loaded ``config.yml`` mapping.
+
+    Returns:
+        The mapping to read ``host``/``port``/``auto_launch`` from; empty when
+        the server has no config section at all.
+
+    Raises:
+        WebServerConfigDepthError: An address key sits at the other depth, where
+            nothing reads it.
+    """
+    top = config.get(definition.config_key)
+    top = top if isinstance(top, Mapping) else {}
+
+    if definition.config_web_subkey:
+        _reject_stray_keys(definition, top, wrong_depth="")
+        nested = top.get(definition.config_web_subkey)
+        return nested if isinstance(nested, Mapping) else {}
+
+    nested = top.get("web")
+    if isinstance(nested, Mapping):
+        _reject_stray_keys(definition, nested, wrong_depth="web")
+    return top
+
+
+def _reject_stray_keys(
+    definition: WebServerDefinition,
+    section: Mapping[str, Any],
+    *,
+    wrong_depth: str,
+) -> None:
+    """Raise if *section* — a level nothing reads — holds any address key.
+
+    Args:
+        definition: The server being configured.
+        section: The mapping at the depth that is NOT read for this server.
+        wrong_depth: The subkey *section* sits under, ``""`` for the top level of
+            the server's config section. Used to spell both paths in the message.
+
+    Raises:
+        WebServerConfigDepthError: *section* holds at least one address key.
+    """
+    stray = [key for key in _ADDRESS_KEYS if key in section]
+    if not stray:
+        return
+
+    def _path(depth: str, key: str) -> str:
+        return ".".join(part for part in (definition.config_key, depth, key) if part)
+
+    right_depth = definition.config_web_subkey or ""
+    listed = ", ".join(_path(wrong_depth, key) for key in stray)
+    raise WebServerConfigDepthError(
+        f"{definition.name}: {listed} "
+        f"{'is' if len(stray) == 1 else 'are'} at the wrong nesting depth and "
+        f"nothing reads {'it' if len(stray) == 1 else 'them'}. "
+        f"Write {' and '.join(_path(right_depth, key) for key in stray)} instead. "
+        "OSPREY refuses the config rather than starting a panel you switched off "
+        "or binding a port you did not ask for."
+    )
 
 
 def resolve_web_server_address(
@@ -177,6 +330,8 @@ def resolve_web_server_address(
 
     Raises:
         KeyError: *key* is not a known companion web server.
+        WebServerConfigDepthError: The config writes ``host``/``port``/
+            ``auto_launch`` at the depth this server does not read.
     """
     import os
 
@@ -187,9 +342,7 @@ def resolve_web_server_address(
 
         config = load_osprey_config()
 
-    section: Mapping[str, Any] = config.get(definition.config_key) or {}
-    if definition.config_web_subkey:
-        section = section.get(definition.config_web_subkey) or {}
+    section = web_server_config_section(definition, config)
 
     host = section.get("host") or definition.host_default
     port = int(section.get("port") or definition.port_default)

@@ -21,7 +21,7 @@
  * Beyond the prefix contract this file also pins the SSE-driven behavior the
  * rail and the dock share — agent activity styling, rail membership, the
  * simple-UX chat-only boot, and (with a hand-built DockviewApi published
- * through the mocked dock-workspace module) the placement an agent switch_panel
+ * through the mocked dock-workspace module) the placement an agent open_panel
  * produces: focus the panel's own tile, or open one BESIDE, never evicting the
  * tile the operator is watching.
  *
@@ -570,7 +570,7 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
     expect(workspaceOpen().active).toBe('artifacts');
   });
 
-  test("agent show_panel (panel_visibility) reveals the workspace on that panel", async () => {
+  test("agent add_panel_to_rail (panel_visibility) reveals the workspace on that panel", async () => {
     const { emit } = await boot({ mode: 'simple', hasArtifacts: false });
     expect(workspaceOpen().iframe).toBeNull();
 
@@ -580,7 +580,7 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
     expect(workspaceOpen().active).toBe('artifacts');
   });
 
-  test('agent switch_panel (panel_focus) reveals the workspace', async () => {
+  test('agent open_panel (panel_focus) reveals the workspace', async () => {
     const { emit } = await boot({ mode: 'simple', hasArtifacts: false });
     expect(workspaceOpen().iframe).toBeNull();
 
@@ -773,7 +773,7 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     expect(strip).toHaveBeenCalledTimes(1);
     expect(strip.mock.calls[0][0]).toMatchObject({
       type: 'agent_activity',
-      tool: 'hide_panel',
+      tool: 'remove_panel_from_rail',
       target: { kind: 'panel', panel: 'artifacts' },
     });
   });
@@ -789,9 +789,39 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     expect(strip).toHaveBeenCalledTimes(1);
     expect(strip.mock.calls[0][0]).toMatchObject({
       type: 'agent_activity',
-      tool: 'show_panel',
+      tool: 'add_panel_to_rail',
       target: { kind: 'panel', panel: 'ariel' },
     });
+  });
+
+  test('an agent close takes the tile but LEAVES the rail entry', async () => {
+    // The whole reason the on-screen axis is its own frame: the operator must
+    // still be able to bring the panel back in one click.
+    const { emit, mod } = await bootMembership();
+    const strip = vi.fn();
+    mod.setActivityStripHandler(strip);
+
+    emit({ type: 'panel_close', panel: 'artifacts', source: 'agent' });
+
+    expect(entry('artifacts')).not.toBeNull();
+    expect(mod.getHiddenPanels().map((p) => p.id)).not.toContain('artifacts');
+    expect(strip).toHaveBeenCalledTimes(1);
+    expect(strip.mock.calls[0][0]).toMatchObject({
+      type: 'agent_activity',
+      tool: 'close_panel',
+      target: { kind: 'panel', panel: 'artifacts' },
+    });
+  });
+
+  test('a human close is applied without reporting agent activity', async () => {
+    const { emit, mod } = await bootMembership();
+    const strip = vi.fn();
+    mod.setActivityStripHandler(strip);
+
+    emit({ type: 'panel_close', panel: 'artifacts' });
+
+    expect(entry('artifacts')).not.toBeNull();
+    expect(strip).not.toHaveBeenCalled();
   });
 
   test('the SESSION (terminal) entry is always present and enabled', async () => {
@@ -998,7 +1028,7 @@ async function bootWorkspace({ panels = ['artifacts', 'ariel'], visible, unhealt
 const posts = (/** @type {{url: string, opts: any}[]} */ calls) =>
   calls.filter((c) => c.opts?.method === 'POST').map((c) => c.url);
 
-describe("agent switch_panel (panel_focus source:'agent') — focus or open BESIDE, never evict", () => {
+describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE, never evict", () => {
   afterEach(() => {
     document.documentElement.removeAttribute('data-ui-mode');
   });
@@ -1725,7 +1755,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
         { type: 'agent_activity', tool: 'read_channel', target: { kind: 'channel', detail: 'SR01C:BPM1:X' }, ts: 2000 },
         { type: 'agent_activity', tool: 'run_scan', target: { kind: 'run', detail: 'orm-3' }, ts: 1999 },
         // A panel-kind row with no rail entry has nothing to badge either.
-        { type: 'agent_activity', tool: 'switch_panel', target: { kind: 'panel', panel: 'no-such-panel' }, ts: 1998 },
+        { type: 'agent_activity', tool: 'open_panel', target: { kind: 'panel', panel: 'no-such-panel' }, ts: 1998 },
       ],
     });
 

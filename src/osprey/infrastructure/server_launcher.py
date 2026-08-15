@@ -22,6 +22,7 @@ from osprey.registry.web import (
     FRAMEWORK_WEB_SERVERS,
     WebServerDefinition,
     resolve_web_server_address,
+    web_server_config_section,
 )
 from osprey.utils.workspace import load_osprey_config
 
@@ -255,15 +256,23 @@ class ServerLauncher:
 
 
 def _make_auto_launch_checker(defn: WebServerDefinition) -> Callable[[], bool]:
-    """Return a callable that checks whether auto-launch is enabled."""
+    """Return a callable that checks whether auto-launch is enabled.
+
+    Navigation into the server's config section goes through
+    ``registry.web.web_server_config_section``, the same one
+    ``resolve_web_server_address`` uses, so ``auto_launch`` and the port it
+    guards can never be read from different depths — and so an ``auto_launch``
+    written at the depth this server does not read raises instead of quietly
+    reading back as the default and launching a panel the operator switched off.
+    """
 
     def _checker() -> bool:
         config = load_osprey_config()
         top = config.get(defn.config_key, {})
         if defn.require_section and not top:
             return False
-        section = top.get(defn.config_web_subkey, {}) if defn.config_web_subkey else top
-        return section.get("auto_launch", defn.auto_launch_default)
+        section = web_server_config_section(defn, config)
+        return bool(section.get("auto_launch", defn.auto_launch_default))
 
     return _checker
 

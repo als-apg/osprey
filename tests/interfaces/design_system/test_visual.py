@@ -48,6 +48,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 import osprey.interfaces.design_system as design_system_pkg
+from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
 if TYPE_CHECKING:
@@ -115,8 +116,8 @@ def _hub_live_server(workspace_dir: Path, artifact_server_url: str) -> Iterator[
             return_value=({"artifacts"}, [], None),
         ),
         patch(
-            "osprey.interfaces.web_terminal.app._launch_artifact_server",
-            side_effect=lambda a: setattr(a.state, "artifact_server_url", artifact_server_url),
+            "osprey.interfaces.web_terminal.app._launch_panel_server",
+            side_effect=publish_artifact_url(artifact_server_url),
         ),
     ]
     with _apply_all(patches):

@@ -27,14 +27,17 @@ happens. Everything below is built around that.
 ## The workspace, in the words you'll narrate
 
 The left **rail** is a membership list: an entry exists only while its panel is a
-member; a hidden panel waits in the "+" catalog. The workspace shows **one panel
-per tile**, each with its own header bar. `switch_panel` swaps which panel holds
-the focused tile — the active marker moves on the rail, and the previous panel
-stays one rail-click away with its state intact. `hide_panel` removes the rail
-entry *and* closes its tile; `show_panel` adds the entry back (with a glow) but
-does not put the panel on screen — follow it with `switch_panel` when the audience
-should see the content. The chat is the SESSION tile, operator-only — never script
-the agent driving it.
+member; an off-rail panel waits in the "+" catalog. The workspace shows **one
+panel per tile**, each with its own header bar.
+
+Two axes, and the verb names which one it moves. `open_panel` puts a panel on
+screen — the tile appears, the active marker moves on the rail, and the panel it
+replaced stays one rail-click away with its state intact; `close_panel` takes the
+tile away again and leaves the entry. `add_panel_to_rail` and
+`remove_panel_from_rail` move membership instead: adding brings the entry back
+with a glow but puts nothing on screen, and removing takes the entry away (and
+with it any open tile — an unlaunchable panel is not left stranded). The chat is
+the SESSION tile, operator-only — never script the agent driving it.
 
 ## Pick a workflow
 
@@ -63,7 +66,7 @@ audience cannot follow three simultaneous changes, and the demo's whole claim is
 that each step is legible.
 
 **Narrate what it means, not what it is.** "Switching to CHANNELS — this is where
-I search the channel database" beats "calling switch_panel with panel_id
+I search the channel database" beats "calling open_panel with panel_id
 channel-finder." The audience is watching a colleague work, not reading a log.
 
 **Leave the workspace as you found it.** Record the active panel and the rail
@@ -98,15 +101,16 @@ the agent can reach every one of them.
 
 1. **Inventory** — from `list_panels`, name the panels that are here and what each
    is for, in one line each. Say which one holds the tile now.
-2. **Switch** — `switch_panel` through two or three of them, pausing on each with a
+2. **Switch** — `open_panel` through two or three of them, pausing on each with a
    sentence about what an operator uses it for. Tell the audience to watch the
    tile swap and the active marker move on the rail. Choose panels that look
    different from each other; three similar-looking pages is a dull tour.
-3. **Reshape** — `hide_panel` one panel: its rail entry vanishes and its tile
-   closes — say it now waits in the "+" catalog. Then `show_panel` it back and
-   point at the glow as its entry returns. The rail is the set of surfaces
-   relevant to the task at hand, and it can be trimmed to fit.
-4. **Restore** — `switch_panel` back to whatever was active at the start, and
+3. **Reshape** — `remove_panel_from_rail` on one panel: its rail entry vanishes
+   and its tile closes — say it now waits in the "+" catalog. Then
+   `add_panel_to_rail` it back and point at the glow as its entry returns. The
+   rail is the set of surfaces relevant to the task at hand, and it can be
+   trimmed to fit.
+4. **Restore** — `open_panel` back to whatever was active at the start, and
    confirm the workspace is as it was.
 
 ## 2. Artifact drop
@@ -118,9 +122,9 @@ workspace as a real object the operator can open, keep, and come back to.
    Plotly figure. Accelerator-physics content fits the setting (a beam profile, an
    orbit, a tune scan); a single well-labelled panel beats a dense multi-panel grid
    on a projector. Call `save_artifact(fig, "Title")` at the end of the code.
-2. **Surface the gallery** — in Expert mode, `switch_panel` to the artifacts panel
+2. **Surface the gallery** — in Expert mode, `open_panel` on the artifacts panel
    so the gallery is on screen before you point at it. In Simple mode on a
-   chat-only page, `show_panel` on the artifacts panel *is* the beat: the
+   chat-only page, that same call *is* the beat: the
    workspace column arrives, already showing the gallery — the single strongest
    moment these demos have, so announce it first.
 3. **Focus it** — `artifact_focus` on the returned artifact id. The gallery jumps
@@ -140,7 +144,7 @@ different surfaces on the rail.
 
 1. Read `presets` from `list_panels`.
 2. **If the deployment defines presets** — pick one, name it, and apply it by
-   composing `show_panel` / `hide_panel` so the member panels are on the rail and
+   composing `add_panel_to_rail` / `remove_panel_from_rail` so the member panels are on the rail and
    the others are not — the audience watches entries appear and vanish, one glow
    at a time. Say the line that lands: this is exactly what a human's click on
    that layout resolves to — same primitive, same result, just reached by asking.
@@ -180,8 +184,8 @@ hear — and skip the beat.
   the demo lands as "nothing happened."
 - **Guessed panel IDs.** Always from `list_panels`. A demo that opens with an error
   never recovers.
-- **`show_panel` as a reveal in Expert mode.** It only adds a rail entry; the
-  audience sees content when `switch_panel` follows.
+- **`add_panel_to_rail` as a reveal in Expert mode.** It only adds a rail entry;
+  the audience sees content when `open_panel` follows.
 - **Walking away from a rearranged workspace.** Restore before you finish.
 - **Turning it into demo-gallery.** One or two artifacts here. Four is the other
   skill's job.

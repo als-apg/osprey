@@ -5,7 +5,9 @@ builtin, its ``WebServerDefinition`` constructs with the required fields, and th
 wiring is consistent across every site. Two facts are specific to this panel:
 
 * the panel **id** ``system-health`` (hyphen) differs from the registry **key**
-  ``system_health`` (underscore); ``cli/web_cmd.py`` maps between them;
+  ``system_health`` (underscore); the definition's own ``panel_id`` field is the
+  one place that relation is stated (see
+  ``tests/registry/test_web_panel_namespaces.py``);
 * the id ``system-health`` was chosen to avoid the already-occupied ``health``
   id (the Bluesky scan-stack tab). The collision guard asserts no ``_inject_*``
   build step registers a ``system-health`` panel, and that the Bluesky ``health``
@@ -18,7 +20,6 @@ import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from fastapi.testclient import TestClient
 
 from osprey.cli import web_cmd
@@ -26,7 +27,11 @@ from osprey.infrastructure import server_launcher
 from osprey.interfaces.web_terminal import app as web_terminal_app
 from osprey.interfaces.web_terminal.routes import proxy as proxy_module
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
-from osprey.registry.web import FRAMEWORK_WEB_SERVERS, WebServerDefinition
+from osprey.registry.web import (
+    FRAMEWORK_WEB_SERVERS,
+    PANEL_ID_TO_REGISTRY_KEY,
+    WebServerDefinition,
+)
 
 PANEL_ID = "system-health"
 REGISTRY_KEY = "system_health"
@@ -98,87 +103,12 @@ def test_proxy_state_map_wires_system_health_to_server_url():
     assert proxy_module._PANEL_STATE_MAP[PANEL_ID] == "system_health_server_url"
 
 
-def test_web_cmd_maps_registry_key_to_panel_id():
-    # Key ≠ id: the enabled-panels gate resolves the hyphenated panel id.
-    assert web_cmd._PANEL_ID_FOR_REGISTRY_KEY[REGISTRY_KEY] == PANEL_ID
-
-
-# -- web-terminal launch helper + gate -----------------------------------------
-
-
-def test_launch_system_health_server_sets_proxy_state_and_invokes_launcher(monkeypatch):
-    import osprey.utils.workspace as workspace
-
-    ensure_calls: list[bool] = []
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"health": {"web": {}}})
-    monkeypatch.setattr(
-        server_launcher, "ensure_system_health_server", lambda: ensure_calls.append(True)
-    )
-    monkeypatch.delenv("OSPREY_HEALTH_PORT", raising=False)
-
-    app = SimpleNamespace(state=SimpleNamespace())
-    web_terminal_app._launch_system_health_server(app)
-
-    # The proxy reads app.state.system_health_server_url; it must be populated.
-    assert getattr(app.state, "system_health_server_url", None)
-    assert ensure_calls == [True]
-
-
-def test_lifespan_gates_system_health_launch_on_enabled_panels():
-    assert hasattr(web_terminal_app, "_launch_system_health_server")
-    module_src = _fresh_source(web_terminal_app)
-    assert '"system-health" in enabled_panels' in module_src
-    assert "_launch_system_health_server(app)" in module_src
-
-
-# -- launch/launcher port agreement (okf regression pattern) -------------------
-
-
-def _launch_side_port(monkeypatch, fake_config, env_value):
-    """Port that _launch_system_health_server stores in app.state (app side)."""
-    import osprey.utils.workspace as workspace
-
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: fake_config)
-    monkeypatch.setattr(server_launcher, "ensure_system_health_server", lambda: None)
-    if env_value is None:
-        monkeypatch.delenv("OSPREY_HEALTH_PORT", raising=False)
-    else:
-        monkeypatch.setenv("OSPREY_HEALTH_PORT", env_value)
-
-    app = SimpleNamespace(state=SimpleNamespace())
-    web_terminal_app._launch_system_health_server(app)
-    url = getattr(app.state, "system_health_server_url", None)
-    assert url, "launch fn crashed → system_health_server_url is None (silent dead tab)"
-    return int(url.rsplit(":", 1)[1])
-
-
-def _launcher_side_port(monkeypatch, fake_config, env_value):
-    """Port that ServerLauncher's config reader resolves (the port uvicorn binds)."""
-    import osprey.utils.workspace as workspace
-
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: fake_config)
-    if env_value is None:
-        monkeypatch.delenv("OSPREY_HEALTH_PORT", raising=False)
-    else:
-        monkeypatch.setenv("OSPREY_HEALTH_PORT", env_value)
-    # The wired launcher's own reader, so this compares what uvicorn actually binds.
-    _host, port = server_launcher._launchers[REGISTRY_KEY]._config_reader()
-    return port
-
-
-@pytest.mark.parametrize(
-    "env_value",
-    [
-        None,  # no override → port_default 8094 on both sides
-        "9099",  # explicit override → both sides honour it
-        "",  # SET-BUT-EMPTY (compose `VAR=`) → must not crash the launch (regression)
-    ],
-)
-def test_launch_and_launcher_agree_on_port(monkeypatch, env_value):
-    fake = {"health": {"web": {}}}
-    app_port = _launch_side_port(monkeypatch, fake, env_value)
-    bound_port = _launcher_side_port(monkeypatch, fake, env_value)
-    assert app_port == bound_port
+def test_the_definition_carries_the_hyphenated_panel_id():
+    # Key ≠ id: the enabled-panels gate in `osprey web` resolves the panel id
+    # off the definition, so the relation is declared once.
+    assert FRAMEWORK_WEB_SERVERS[REGISTRY_KEY].panel_id == PANEL_ID
+    assert PANEL_ID_TO_REGISTRY_KEY[PANEL_ID] == REGISTRY_KEY
+    assert "_PANEL_ID_FOR_REGISTRY_KEY" not in inspect.getsource(web_cmd)
 
 
 # -- consistency across the wiring sites ---------------------------------------
@@ -186,12 +116,12 @@ def test_launch_and_launcher_agree_on_port(monkeypatch, env_value):
 
 def test_id_and_key_consistency_across_sites():
     # The panel id is used at the builtin/proxy/frontend sites; the registry key
-    # at the definition site; web_cmd is the single id↔key bridge.
+    # at the definition site; the definition's `panel_id` is the single bridge.
     assert PANEL_ID in BUILTIN_PANELS
     assert PANEL_ID in proxy_module._PANEL_STATE_MAP
     assert proxy_module._PANEL_STATE_MAP[PANEL_ID] == f"{REGISTRY_KEY}_server_url"
     assert REGISTRY_KEY in FRAMEWORK_WEB_SERVERS
-    assert web_cmd._PANEL_ID_FOR_REGISTRY_KEY[REGISTRY_KEY] == PANEL_ID
+    assert PANEL_ID_TO_REGISTRY_KEY[PANEL_ID] == REGISTRY_KEY
 
 
 # -- panels config endpoint ----------------------------------------------------

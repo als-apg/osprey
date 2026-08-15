@@ -19,7 +19,7 @@
  * state: an entry exists iff its panel is in the rail, at full brightness.
  * Which member currently holds the workspace tile is per-client layout state
  * and is reflected only by the `.active` accent — never by dimming. Panels
- * removed from the rail ("×", agent hide_panel) lose their entry entirely and
+ * removed from the rail ("×", agent remove_panel_from_rail) lose their entry
  * live in the "+" catalog until re-added.
  *
  * This module holds NO panel state and issues NO fetches or POSTs. The caller
@@ -231,7 +231,7 @@ export function createRail(railEl, panels, options = {}) {
 
 /**
  * Append a single entry without disturbing existing ones — the non-destructive
- * path for membership additions (agent show_panel, "+" menu pick, runtime
+ * path for membership additions (agent add_panel_to_rail, "+" menu pick, runtime
  * registration).
  *
  * Idempotent by id: if an entry for `panel.id` already exists it is returned
@@ -252,7 +252,7 @@ export function addEntry(railEl, panel, options = {}) {
 
 /**
  * Remove a panel's entry from the rail — the membership-removal twin of
- * {@link addEntry} ("×", agent hide_panel). The node is taken out of the DOM
+ * {@link addEntry} ("×", agent remove_panel_from_rail). The node is taken out of the DOM
  * entirely; the panel lives on in the caller's catalog and a later addEntry
  * rebuilds a fresh entry. No-op for an unknown id.
  * @param {HTMLElement} railEl

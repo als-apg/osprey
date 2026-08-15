@@ -72,15 +72,15 @@ def test_inventory_lists_enabled_panels_with_visibility():
         "active": "archiver",
     }
     result = panels._build_inventory(data)
-    assert "Archiver (id=archiver, shown)" in result
-    assert "Scan (id=scan, hidden)" in result
+    assert "Archiver (id=archiver, on rail)" in result
+    assert "Scan (id=scan, off rail)" in result
     assert "Active tab: archiver." in result
 
 
 def test_inventory_label_falls_back_to_uppercase_id():
     data = {"enabled": ["tuning"], "labels": {}, "visible": []}
     result = panels._build_inventory(data)
-    assert "TUNING (id=tuning, hidden)" in result
+    assert "TUNING (id=tuning, off rail)" in result
 
 
 def test_inventory_includes_custom_panels():
@@ -91,14 +91,14 @@ def test_inventory_includes_custom_panels():
         "custom": [{"id": "mypanel", "label": "My Panel"}],
     }
     result = panels._build_inventory(data)
-    assert "My Panel (id=mypanel, shown)" in result
+    assert "My Panel (id=mypanel, on rail)" in result
 
 
 def test_inventory_skips_custom_panel_without_id():
     data = {"enabled": [], "custom": [{"label": "No Id"}, {"id": "ok", "label": "OK"}]}
     result = panels._build_inventory(data)
     assert "No Id" not in result
-    assert "OK (id=ok, hidden)" in result
+    assert "OK (id=ok, off rail)" in result
 
 
 def test_inventory_no_active_tab_phrase():
@@ -115,7 +115,8 @@ def test_inventory_empty_returns_none():
 def test_inventory_mentions_control_tools():
     data = {"enabled": ["scan"], "labels": {"scan": "Scan"}, "visible": ["scan"]}
     result = panels._build_inventory(data)
-    assert "show_panel" in result and "hide_panel" in result
+    assert "open_panel" in result and "close_panel" in result
+    assert "add_panel_to_rail" in result and "remove_panel_from_rail" in result
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +308,7 @@ def test_main_emits_additional_context_envelope(monkeypatch, capsys):
     envelope = json.loads(out)
     hook_out = envelope["hookSpecificOutput"]
     assert hook_out["hookEventName"] == "SessionStart"
-    assert "Scan (id=scan, shown)" in hook_out["additionalContext"]
+    assert "Scan (id=scan, on rail)" in hook_out["additionalContext"]
 
 
 def test_main_empty_inventory_writes_nothing(monkeypatch, capsys):
@@ -368,7 +369,7 @@ def test_main_appends_tile_state_to_context(monkeypatch, capsys):
     assert panels.main() == 0
 
     context = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
-    assert "WORKSPACE (id=artifacts, shown)" in context
+    assert "WORKSPACE (id=artifacts, on rail)" in context
     assert "Open tiles: [lattice, artifacts], active artifacts." in context
 
 
@@ -399,7 +400,7 @@ def test_main_omits_tile_line_for_dockless_client(monkeypatch, capsys, temp_snap
     out = capsys.readouterr().out
     assert "Open tiles" not in out
     # The inventory is still known and still worth injecting.
-    assert "WORKSPACE (id=artifacts, shown)" in out
+    assert "WORKSPACE (id=artifacts, on rail)" in out
     snapshot = json.loads((temp_snapshot_dir / "osprey-workspace-sess-1.json").read_text())
     assert snapshot["tiles"] is None
 

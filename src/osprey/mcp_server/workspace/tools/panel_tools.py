@@ -1,13 +1,23 @@
-"""MCP tools: list_panels, show_panel, hide_panel, register_panel, switch_panel,
-arrange_workspace.
+"""MCP tools for the Web Terminal's panels.
 
-list_panels returns the panels available in the Web Terminal, their launcher-rail
-membership, and the tiles a browser last reported as being on screen.
-show_panel / hide_panel add and remove a panel's launcher-rail entry.
-register_panel dynamically registers a new panel (requires deployment opt-in).
-switch_panel brings a panel into the user's view; in the dock workspace it never
-evicts an open tile.
-arrange_workspace applies a whole-workspace tile layout in one declarative call.
+A panel sits on two independent axes, and each verb here names the one it moves:
+
+- **rail membership** — can the operator launch this panel in one click?
+  ``add_panel_to_rail`` / ``remove_panel_from_rail``.
+- **on screen** — is the panel's tile actually in front of the operator?
+  ``open_panel`` / ``close_panel``.
+
+Keeping the axes apart is the whole point of the names. The pairs used to be
+``show_panel``/``hide_panel``/``switch_panel``, where ``show_panel`` moved rail
+membership despite its name, ``hide_panel`` moved both axes at once, and the
+only verb that put anything on screen was the one named for switching. Nothing
+could close a tile without also making the panel unlaunchable, and the
+docstrings spent more lines redirecting to each other than describing what they
+did.
+
+``list_panels`` reports both axes. ``register_panel`` adds a panel the
+deployment did not ship (requires opt-in). ``arrange_workspace`` sets a whole
+tile layout in one declarative call.
 """
 
 import functools
@@ -19,6 +29,7 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import (
     fetch_panels,
     notify_panel_arrange,
+    notify_panel_close,
     notify_panel_focus,
     notify_panel_register,
     notify_panel_visibility,
@@ -66,7 +77,7 @@ async def list_panels() -> str:
 
     Returns:
         JSON with ``status``, ``active`` (the last focus the server recorded —
-        an operator's tab click, a ``switch_panel``, or the focus an arrange
+        an operator's tab click, an ``open_panel``, or the focus an arrange
         resolved to; it is an intent, so a client that could not honor it may
         be showing something else), ``panels``, ``open_tiles``,
         ``open_tiles_age_s``,
@@ -133,13 +144,13 @@ def _fetch_known_panel_ids() -> set[str] | None:
     return known
 
 
-def _set_panel_visibility(panel_id: str, visible: bool) -> str:
+def _set_rail_membership(panel_id: str, on_rail: bool) -> str:
     """Validate ``panel_id`` against the live inventory, then toggle its rail entry.
 
-    Shared by :func:`show_panel` and :func:`hide_panel`, which differ only in the
-    ``visible`` flag.  Returns the JSON string those tools hand back to the agent:
-    a structured error when the web terminal is unreachable or the id is unknown,
-    otherwise a success payload echoing the new ``visible`` state.
+    Shared by :func:`add_panel_to_rail` and :func:`remove_panel_from_rail`, which
+    differ only in the flag.  Returns the JSON string those tools hand back to
+    the agent: a structured error when the web terminal is unreachable or the id
+    is unknown, otherwise a success payload echoing the new ``on_rail`` state.
 
     Blocking: it makes two HTTP calls, so async callers run it in a worker
     thread rather than inline.
@@ -161,26 +172,23 @@ def _set_panel_visibility(panel_id: str, visible: bool) -> str:
                 ),
             }
         )
-    notify_panel_visibility(panel_id, visible)
-    return json.dumps({"status": "success", "panel": panel_id, "visible": visible})
+    notify_panel_visibility(panel_id, on_rail)
+    return json.dumps({"status": "success", "panel": panel_id, "on_rail": on_rail})
 
 
 @mcp.tool()
-async def show_panel(panel_id: str) -> str:
-    """Add a panel to the Web Terminal's launcher rail.
+async def add_panel_to_rail(panel_id: str) -> str:
+    """Make a panel launchable from the Web Terminal's rail, in one click.
 
-    This changes rail membership only.  In the expert (dock) UX it makes the
-    panel available to launch — it does NOT put the panel on screen.  To
-    surface a panel for the operator use ``switch_panel``; to lay several
-    tiles out at once use ``arrange_workspace``.
+    Rail membership only — this does NOT put the panel on screen.  Use
+    ``open_panel`` for that.
 
-    Use this when the user asks to make a panel available, add it back to
-    the rail, or re-enable one they hid earlier.
+    Use when the user asks to make a panel available, or to bring back one they
+    took off the rail earlier.
 
-    The Simple web UI has the same rail, but a single locked workspace slot
-    instead of a multi-tile dock.  There, showing a panel while the page is
-    chat-only also brings up the workspace column, on that panel when the slot
-    is still empty.
+    In the Simple web UI, which has the same rail but one locked workspace slot
+    instead of a dock, adding a panel while the page is chat-only also brings up
+    the workspace column — on that panel, when the slot is still empty.
 
     Panel IDs are provided in your context at session start; call
     ``list_panels`` to refresh the live state if needed.  Do NOT guess
@@ -190,24 +198,20 @@ async def show_panel(panel_id: str) -> str:
         panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'lattice').
 
     Returns:
-        JSON with status confirmation and the updated ``visible`` state
-        (rail membership).
+        JSON with status confirmation and the panel's new ``on_rail`` state.
     """
-    return await anyio.to_thread.run_sync(_set_panel_visibility, panel_id, True)
+    return await anyio.to_thread.run_sync(_set_rail_membership, panel_id, True)
 
 
 @mcp.tool()
-async def hide_panel(panel_id: str) -> str:
-    """Remove a panel from the launcher rail and from the screen.
+async def remove_panel_from_rail(panel_id: str) -> str:
+    """Take a panel off the Web Terminal's rail, so it can no longer be launched.
 
-    The subtractive single-panel verb: it removes the panel's rail entry and
-    closes its tile on every connected client.  (``arrange_workspace`` with a
-    preset also prunes rail membership, but for a whole layout at once.)  Use
-    this when the user asks to hide, remove, or get rid of a panel.
+    Any tile of it also closes on every connected client — a panel the operator
+    cannot launch must not be left stranded on screen.  To clear the screen
+    while keeping the panel one click away, use ``close_panel`` instead.
 
-    To clear the screen while keeping panels available to launch, use
-    ``arrange_workspace`` with the tiles that should stay open — that leaves
-    rail membership intact.
+    Use when the user asks to remove a panel or get rid of it for good.
 
     Panel IDs are provided in your context at session start; call
     ``list_panels`` to refresh the live state if needed.  Do NOT guess
@@ -217,10 +221,9 @@ async def hide_panel(panel_id: str) -> str:
         panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'lattice').
 
     Returns:
-        JSON with status confirmation and the updated ``visible`` state
-        (rail membership).
+        JSON with status confirmation and the panel's new ``on_rail`` state.
     """
-    return await anyio.to_thread.run_sync(_set_panel_visibility, panel_id, False)
+    return await anyio.to_thread.run_sync(_set_rail_membership, panel_id, False)
 
 
 @mcp.tool()
@@ -235,7 +238,7 @@ async def register_panel(
 
     Use this to add a custom panel (e.g. a Grafana dashboard or local web
     service) at runtime without restarting OSPREY.  The new panel joins the
-    launcher rail; it is not opened on screen — follow with ``switch_panel``
+    launcher rail; it is not opened on screen — follow with ``open_panel``
     once its upstream is ready.
 
     The current panel inventory is available in your context at session start;
@@ -290,31 +293,28 @@ async def register_panel(
 
 
 @mcp.tool()
-async def switch_panel(panel_id: str, url: str | None = None) -> str:
-    """Bring a panel into the user's view.
+async def open_panel(panel_id: str, url: str | None = None) -> str:
+    """Put a panel on screen in front of the operator.
 
-    This is the "look at this" verb: use it when the user asks to open, show,
-    or go to a panel, and after producing content the operator should see
-    (a new artifact, a drafted plan, a lattice view).
+    The "look at this" verb: use it when the user asks to open or go to a panel,
+    and after producing something they should see (a new artifact, a drafted
+    plan, a lattice view).
 
-    In the expert (dock) UX the panel is surfaced additively — an open tile is
-    never evicted:
+    Additive in the expert (dock) UX — an open tile is never evicted:
 
     - the panel's tile is already on screen → it is focused;
-    - the panel is in the launcher rail but has no tile → a tile opens
-      *beside* the one the operator is currently on;
-    - the panel is not in the rail → it is added to the rail, then opened
-      beside.
+    - the panel is on the rail but has no tile → a tile opens *beside* the one
+      the operator is currently on;
+    - the panel is not on the rail → it is added to the rail, then opened beside.
 
-    In the Simple web UI there is a single workspace slot, so the panel takes
-    it over (and the workspace column appears if the page was chat-only).
+    In the Simple web UI there is a single workspace slot, so the panel takes it
+    over (and the workspace column appears if the page was chat-only).
 
-    A panel whose backend is unhealthy does not surface: nothing opens and
-    focus is unchanged.
+    A panel whose backend is unhealthy does not open: nothing appears and focus
+    is unchanged.
 
-    ``switch_panel`` surfaces one panel.  For an explicit multi-tile end state
-    ("lattice next to artifacts", "set up for injection") use
-    ``arrange_workspace`` instead.
+    One panel.  For an explicit multi-tile end state ("lattice next to
+    artifacts", "set up for injection") use ``arrange_workspace`` instead.
 
     Panel IDs are provided in your context at session start; call
     ``list_panels`` to refresh the live state if needed.  Do NOT guess
@@ -323,12 +323,37 @@ async def switch_panel(panel_id: str, url: str | None = None) -> str:
     Args:
         panel_id: Panel identifier returned by list_panels (e.g.
             'artifacts', 'events', 'ariel', 'lattice', etc.).
-        url: Optional URL to navigate the panel iframe to before surfacing it.
+        url: Optional URL to navigate the panel iframe to before opening it.
 
     Returns:
         JSON with status confirmation.
     """
     await anyio.to_thread.run_sync(functools.partial(notify_panel_focus, panel_id, url=url))
+    return json.dumps({"status": "success", "panel": panel_id})
+
+
+@mcp.tool()
+async def close_panel(panel_id: str) -> str:
+    """Take a panel's tile off the screen, leaving it one click away on the rail.
+
+    The operator can reopen it from the rail with its state intact.  Use when
+    the user asks to close, dismiss, or clear a panel but keep it available.  To
+    take it off the rail as well use ``remove_panel_from_rail``; to state a whole
+    layout at once use ``arrange_workspace``.
+
+    Closing a panel with no tile open is a no-op, not an error.
+
+    Panel IDs are provided in your context at session start; call
+    ``list_panels`` to refresh the live state if needed.  Do NOT guess
+    panel IDs — they vary between deployments.
+
+    Args:
+        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'lattice').
+
+    Returns:
+        JSON with status confirmation.
+    """
+    await anyio.to_thread.run_sync(notify_panel_close, panel_id)
     return json.dumps({"status": "success", "panel": panel_id})
 
 
@@ -342,7 +367,7 @@ async def arrange_workspace(
 
     Use this when the user describes an arrangement rather than a single panel
     — "put lattice next to artifacts", "just the orbit tools", "set up for
-    injection".  For surfacing one panel, use ``switch_panel`` instead.
+    injection".  For putting one panel on screen, use ``open_panel`` instead.
 
     This is a declarative end state, not a set of steps.  After it is applied:
 

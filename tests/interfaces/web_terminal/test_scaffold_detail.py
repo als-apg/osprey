@@ -53,6 +53,7 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _run_app_server
 
 if TYPE_CHECKING:
@@ -132,8 +133,8 @@ def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
             return_value=({"artifacts"}, [], None),
         ),
         patch(
-            "osprey.interfaces.web_terminal.app._launch_artifact_server",
-            side_effect=lambda a: setattr(a.state, "artifact_server_url", "http://127.0.0.1:8086"),
+            "osprey.interfaces.web_terminal.app._launch_panel_server",
+            side_effect=publish_artifact_url(),
         ),
     ):
         from osprey.interfaces.web_terminal.app import create_app

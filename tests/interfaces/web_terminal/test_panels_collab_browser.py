@@ -42,6 +42,7 @@ from unittest.mock import patch
 import pytest
 import requests
 
+from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _free_port, _run_app_server
 
 # ---------------------------------------------------------------------------
@@ -148,8 +149,8 @@ def _live_server(
             return_value=(enabled_panels, custom_panels, None),
         ),
         patch(
-            "osprey.interfaces.web_terminal.app._launch_artifact_server",
-            side_effect=lambda a: setattr(a.state, "artifact_server_url", "http://127.0.0.1:8086"),
+            "osprey.interfaces.web_terminal.app._launch_panel_server",
+            side_effect=publish_artifact_url(),
         ),
     ):
         from osprey.interfaces.web_terminal.app import create_app
@@ -483,7 +484,7 @@ def test_agent_switch_opens_beside_and_posts_nothing_back(tmp_path, chromium_bro
         expect(_service_tab(page, "WORKSPACE")).to_have_count(1, timeout=15_000)
         _open_beside(page, "data-viz")
         # scope is a rail member from config but holds no tile — the exact state
-        # switch_panel's "open beside" branch exists for.
+        # open_panel's "open beside" branch exists for.
         assert "scope" in _rail_ids(page)
         expect(_service_tab(page, "SCOPE")).to_have_count(0)
 
@@ -495,7 +496,7 @@ def test_agent_switch_opens_beside_and_posts_nothing_back(tmp_path, chromium_bro
         page.wait_for_timeout(800)
         posts = _track_panel_posts(page)
 
-        # Act — the agent's switch_panel, as the MCP tool issues it.
+        # Act — the agent's open_panel, as the MCP tool issues it.
         r = requests.post(
             f"{base_url}/api/panel-focus",
             json={"panel": "scope", "source": "agent"},
