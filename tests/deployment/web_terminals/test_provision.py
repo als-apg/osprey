@@ -610,7 +610,11 @@ def _capture_build(monkeypatch):
         recorded.append(list(cmd))
         return _FakeCompletedProcess()
 
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    # Stubbed at `run_captured`, not at `subprocess.run`: the sidecar build is
+    # watched (`on_line=`), and a watched capture reads its child through a pipe
+    # rather than writing it straight to the spool — so a `subprocess.run` stub
+    # would be walked straight past and this test would run a real build.
+    monkeypatch.setattr(provision, "run_captured", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
     return recorded
 

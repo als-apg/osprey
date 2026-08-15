@@ -218,6 +218,41 @@ def test_default_view_hides_buildkit_lines_but_the_spool_keeps_them(
         assert line in spooled
 
 
+def test_persona_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path, reporter):
+    """A single-image build's BuildKit headers name no service (`#10 [ 2/13]`),
+    so the watcher carries the image tag as its label. Without it the whole
+    build parses into nothing — silently, with no error — so the assertion is
+    behavioural: a nameless header must come back attributed to the tag."""
+    _stub_persona_builds(monkeypatch, tmp_path, [_unit("demo", "ops", tmp_path)])
+    recorder = RunRecorder()
+    monkeypatch.setattr(persona_images, "run_captured", recorder)
+
+    persona_images.build_persona_images(_persona_config(), [], False, {})
+
+    watcher = recorder.by_spool("build-persona-demo-ops")["on_line"]
+    assert watcher is not None, "the persona build runs unwatched"
+    watcher("#10 [ 2/13] RUN pip install --no-cache-dir osprey-framework")
+    (row,) = watcher.model.snapshot()
+    assert row.service == "demo-ops:local"
+    assert row.step == "2/13"
+
+
+def test_persona_image_build_cmd_pins_plain_progress_on_docker(tmp_path):
+    """The live view is parsed from BuildKit's plain stream, so plain is pinned
+    rather than left to `auto` degrading under the capture pipe."""
+    cmd = persona_images._persona_image_build_cmd("docker", str(tmp_path), "demo", "ops", "demo")
+    assert cmd[cmd.index("--progress") + 1] == "plain"
+    assert cmd[-1] == str(tmp_path)  # the flag lands ahead of the context
+
+
+def test_persona_image_build_cmd_omits_plain_progress_on_podman(tmp_path):
+    """`podman build` has no `--progress` — the same caveat `with_plain_progress`
+    carries for compose. An unknown flag there would fail the deploy outright."""
+    cmd = persona_images._persona_image_build_cmd("podman", str(tmp_path), "demo", "ops", "demo")
+    assert "--progress" not in cmd
+    assert cmd[-1] == str(tmp_path)
+
+
 # --------------------------------------------------------------------------
 # provision.build_auth_sidecar_image
 # --------------------------------------------------------------------------
@@ -251,6 +286,54 @@ def test_auth_sidecar_build_is_captured_and_reported(monkeypatch, tmp_path, repo
     assert call["repo_root"] == tmp_path
     assert call["check"] is True
     assert reporter.steps == [f"auth sidecar image {provision.auth_sidecar_local_tag(config)}"]
+
+
+def _sidecar_build(monkeypatch, tmp_path, runtime: str) -> tuple[RunRecorder, dict]:
+    """Run the sidecar build against `runtime`; return the recorder and config."""
+    monkeypatch.chdir(tmp_path)
+    context = tmp_path / "build" / "auth"
+    context.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: [runtime])
+    monkeypatch.setattr(
+        provision, "_materialize_auth_build_context", lambda repo_root, dev_mode: context
+    )
+    recorder = RunRecorder()
+    monkeypatch.setattr(provision, "run_captured", recorder)
+    config = {
+        "project_name": "demo",
+        "modules": {"web_terminals": {"image_source": "local", "auth": {"method": "password"}}},
+    }
+    provision.build_auth_sidecar_image(config, False, {})
+    return recorder, config
+
+
+def test_auth_sidecar_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path, reporter):
+    """Same single-image trap as the persona build: the sidecar's BuildKit
+    headers name no service, so an unlabeled watcher would parse the whole
+    build into nothing without ever erroring."""
+    recorder, config = _sidecar_build(monkeypatch, tmp_path, "docker")
+
+    watcher = recorder.by_spool("build-auth-sidecar")["on_line"]
+    assert watcher is not None, "the auth sidecar build runs unwatched"
+    watcher("#10 [ 2/13] RUN apk add --no-cache nginx")
+    (row,) = watcher.model.snapshot()
+    assert row.service == provision.auth_sidecar_local_tag(config)
+    assert row.step == "2/13"
+
+
+def test_auth_sidecar_build_pins_plain_progress_on_docker(monkeypatch, tmp_path, reporter):
+    recorder, _ = _sidecar_build(monkeypatch, tmp_path, "docker")
+
+    cmd = recorder.by_spool("build-auth-sidecar")["cmd"]
+    assert cmd[cmd.index("--progress") + 1] == "plain"
+    assert cmd[-1].endswith("auth")  # the flag lands ahead of the context
+
+
+def test_auth_sidecar_build_omits_plain_progress_on_podman(monkeypatch, tmp_path, reporter):
+    """`podman build` has no `--progress`; passing it would fail the deploy."""
+    recorder, _ = _sidecar_build(monkeypatch, tmp_path, "podman")
+
+    assert "--progress" not in recorder.by_spool("build-auth-sidecar")["cmd"]
 
 
 # --------------------------------------------------------------------------

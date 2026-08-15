@@ -256,9 +256,17 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
     exported = os.environ.get(secret_var) if secret_var else None
 
     if exported and _stdin_is_a_terminal():
-        if click.confirm(
-            f"No .env in {repo_root}. Seed one from your shell ({secret_var})?", default=True
-        ):
+        from .phase_reporter import current_reporter
+
+        # The prompt and the reporter want the same terminal: a live region
+        # left mounted repaints over the question while the operator is still
+        # reading it. Suspended for the prompt only — the seed write below is
+        # the verb's own work and belongs back under the reporter.
+        with current_reporter().suspended():
+            seed_it = click.confirm(
+                f"No .env in {repo_root}. Seed one from your shell ({secret_var})?", default=True
+            )
+        if seed_it:
             from osprey.utils.dotenv import append_profile_env
 
             append_profile_env(env_path, {secret_var: exported}, _UP_SEEDED_ENV_BANNER)

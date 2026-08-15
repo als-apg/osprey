@@ -1625,6 +1625,62 @@ def test_project_image_build_cmd_dev_adds_osprey_dev_build_arg():
 
 
 # ---------------------------------------------------------------------------
+# `--progress plain` on the project image build, docker only. The live build
+# view is parsed from BuildKit's plain stream; relying on `auto` degrading to
+# plain under the capture pipe would make that parse depend on undocumented
+# behaviour. Podman is excluded for the same reason `with_plain_progress`
+# excludes it: `podman build` has no such flag and would fail the deploy.
+# ---------------------------------------------------------------------------
+
+
+def test_project_image_build_cmd_pins_plain_progress_on_docker():
+    cmd = container_lifecycle._project_image_build_cmd(
+        {"project_name": "myfacility"}, "docker", "/proj"
+    )
+    assert cmd[cmd.index("--progress") + 1] == "plain"
+    assert cmd[-1] == "/proj"  # the flag lands ahead of the context, not after
+
+
+def test_project_image_build_cmd_omits_plain_progress_on_podman():
+    cmd = container_lifecycle._project_image_build_cmd(
+        {"project_name": "myfacility"}, "podman", "/proj"
+    )
+    assert "--progress" not in cmd
+    assert cmd[-1] == "/proj"
+
+
+# ---------------------------------------------------------------------------
+# The project image build is watched, labeled with its own tag. A single-image
+# build's BuildKit headers name no service (`#10 [ 2/13]`), so an unlabeled
+# model parses the whole build into nothing -- silently, with no error. The
+# assertion is therefore behavioural: feed the watcher a nameless header and
+# require the row to come back under the image tag.
+# ---------------------------------------------------------------------------
+
+
+def test_build_project_image_watches_the_build_under_its_image_tag(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(container_lifecycle, "get_runtime_command", lambda config: ["docker"])
+    calls = []
+    monkeypatch.setattr(
+        container_lifecycle,
+        "run_captured",
+        lambda cmd, **kwargs: calls.append(kwargs) or _FakeCompletedProcess(),
+    )
+    config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
+
+    container_lifecycle._build_project_image(config, dev_mode=False, env={})
+
+    (kwargs,) = calls
+    watcher = kwargs["on_line"]
+    assert watcher is not None, "the project image build runs unwatched"
+    watcher("#10 [ 2/13] RUN pip install --no-cache-dir osprey-framework")
+    (row,) = watcher.model.snapshot()
+    assert row.service == "myfacility:local"
+    assert row.step == "2/13"
+
+
+# ---------------------------------------------------------------------------
 # _build_project_image -- OSPREY_DEV is keyed on ACTUAL wheel-staging success
 # (fail-closed). A --dev build whose wheel build/staging failed must NOT pass
 # the pin-relaxing OSPREY_DEV=1 arg: with an unreleased pin that arg would
@@ -1646,9 +1702,13 @@ def _project_image_dev_build_cmds(monkeypatch, tmp_path, staging_result):
         lambda project_root: staging_result,
     )
     calls = []
+    # Stubbed at `run_captured`, not at `subprocess.run`: the build is watched
+    # (`on_line=`), and a watched capture reads the child through a pipe rather
+    # than writing it straight to the spool — so a `subprocess.run` stub would
+    # be walked straight past and this test would launch a real `docker build`.
     monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
+        container_lifecycle,
+        "run_captured",
         lambda cmd, **k: calls.append(cmd) or _FakeCompletedProcess(),
     )
     config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
@@ -1683,7 +1743,7 @@ def test_build_project_image_dev_cleans_staged_wheel_and_manifest(monkeypatch, t
         container_lifecycle, "_copy_local_framework_for_override", _fake_wheel_and_manifest_stage
     )
     monkeypatch.setattr(
-        container_lifecycle.subprocess, "run", lambda cmd, **k: _FakeCompletedProcess()
+        container_lifecycle, "run_captured", lambda cmd, **k: _FakeCompletedProcess()
     )
     config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
 
@@ -1705,7 +1765,7 @@ def test_build_project_image_dev_cleans_staged_artifacts_on_build_failure(monkey
     def _failing_build(cmd, **k):
         raise subprocess.CalledProcessError(1, cmd)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _failing_build)
+    monkeypatch.setattr(container_lifecycle, "run_captured", _failing_build)
     config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
 
     with pytest.raises(subprocess.CalledProcessError):

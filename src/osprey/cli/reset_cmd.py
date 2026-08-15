@@ -109,15 +109,32 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
     # reaches — the shared teardown helpers, which capture their subprocesses
     # and need a reporter to report a failure to, and which must stream instead
     # of spooling when `--verbose` was asked for.
-    with lifecycle_reporter():
+    with lifecycle_reporter() as reporter:
         try:
-            outcome = reset_deployment(
-                repo_root,
-                dry_run=dry_run,
-                assume_yes=assume_yes,
-                purge_audit=purge_audit,
-                emit=click.echo,
-            )
+            # The typed destruction confirmation is inside `reset_deployment`,
+            # and it reads the terminal through `input()` — which writes its
+            # prompt to the real stdout, underneath anything Rich has mounted
+            # there. So the region comes down for the call that contains it.
+            #
+            # The block spans the whole call rather than the prompt alone
+            # because the prompt is not reachable from here, and it costs
+            # nothing to hold: reset opens no phase and registers no build, so
+            # its region is zero-height from the first line to the last. What
+            # `suspended()` guarantees — it restarts only what it actually
+            # paused, and it is reentrant — is what makes the wider scope safe
+            # for anything reset later reaches that does open a phase.
+            with reporter.suspended():
+                # `echo`, never the reporter's `emit`: under the global
+                # `--verbose` that is a NullReporter and swallows its argument,
+                # and the plan is the one thing this verb may never go quiet
+                # about.
+                outcome = reset_deployment(
+                    repo_root,
+                    dry_run=dry_run,
+                    assume_yes=assume_yes,
+                    purge_audit=purge_audit,
+                    emit=reporter.echo,
+                )
         except ForeignCheckoutError as e:
             # Shown verbatim rather than summarized: the message is already the
             # whole explanation, and it is carefully scoped to what the labels
@@ -135,11 +152,15 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
             # state on disk, and this path leaves exactly the state a stuck removal
             # leaves. Reporting 1 here would tell a caller "nothing was touched"
             # about a half-wiped deployment.
-            click.echo(
+            #
+            # `echo_error` rather than `click.echo(err=True)`: piped, this is
+            # stderr verbatim, which is the channel a caller reading stdout for
+            # the plan watches for trouble; on a terminal it goes through the
+            # console that owns the region instead of into the middle of it.
+            reporter.echo_error(
                 "Reset interrupted while it was removing things. It does not roll back, so "
                 "this deployment is in a partly-reset state. Re-run `osprey reset` to finish; "
-                "it re-reads what is actually there.",
-                err=True,
+                "it re-reads what is actually there."
             )
             raise click.exceptions.Exit(PARTIAL_RESET_EXIT_CODE) from None
         except RuntimeError as e:

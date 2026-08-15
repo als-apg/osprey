@@ -10,14 +10,18 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from pathlib import Path
+from types import TracebackType
 from typing import NamedTuple
 
 import yaml
 
+from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_step as _report_step
+from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
     REPO_ID_LABEL,
@@ -1506,6 +1510,7 @@ def _project_image_build_cmd(
     ]
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
+    with_plain_build_progress(cmd)
     cmd.append(project_root)
     return cmd
 
@@ -1594,12 +1599,16 @@ def _build_project_image(
         cmd = _project_image_build_cmd(config, runtime, project_root, dev_mode and wheel_staged)
         logger.debug("Building dispatch worker project image %s:", project_image)
         logger.debug("Running command:\n    %s", " ".join(cmd))
-        run_captured(
-            cmd,
-            env=env,
-            spool_name="build-project-image",
-            repo_root=resolve_repo_root(config),
-        )
+        # Watched for the duration of the build and no longer; the step line
+        # below is what reports the finished image.
+        with (report := single_image_build_reporter(project_image)):
+            run_captured(
+                cmd,
+                env=env,
+                spool_name="build-project-image",
+                repo_root=resolve_repo_root(config),
+                on_line=report,
+            )
         _report_step(f"project image {project_image}")
     finally:
         # Remove BOTH staged artifacts (wheel + requirements manifest) so
@@ -2591,42 +2600,117 @@ def deploy_up(
         )
 
 
-#: One image's completion in BuildKit's plain-progress stream: ``naming to``
-#: is the export stage assigning the built image its tag, and only the line
-#: carrying ``done`` marks it finished — the bare form appears while the
-#: export is still running. The optional duration is BuildKit's own
-#: (``naming to <ref> 0.1s done``).
-_IMAGE_NAMED_LINE = re.compile(r"naming to (?P<ref>\S+?)(?: \d+(?:\.\d+)?s)? done\s*$")
+class BuildProgressReporter:
+    """One build's captured stream, parsed once into one :class:`BuildModel`.
+
+    A build site wants a live view of what each service is doing right now, and
+    some sites want a step line each time an image finishes — and the one thing
+    none of them may do is parse the stream twice. So this is every half at once
+    over a single model:
+
+    * the ``on_line`` **callable** handed to :func:`run_captured`, and
+    * the **context manager** that registers that model with the phase reporter
+      for the duration of the run::
+
+          with (report := compose_build_step_reporter()):
+              run_captured(..., on_line=report)
+
+    Registration is scoped to the block: a build that has returned or raised
+    stops being watched immediately, however it left. Used as a bare callable
+    (no ``with``) it still reports its step lines — nothing here requires a
+    watcher, which is what keeps library callers and tests working.
+
+    Constructed through :func:`compose_build_step_reporter` or
+    :func:`single_image_build_reporter` rather than directly: the two of them
+    are what the arguments below mean at a real call site.
+
+    ``label`` names the service for a single-image build, whose BuildKit
+    headers carry no service name of their own; a ``compose build`` names every
+    service itself and passes none. ``step_prefix`` is the step line's wording
+    (``service image <ref>``); a site whose finished images are already
+    reported elsewhere passes ``None`` and gets the live view alone.
+    """
+
+    def __init__(self, label: str | None = None, *, step_prefix: str | None = None) -> None:
+        self._step_prefix = step_prefix
+        #: The one model. Exposed so a caller can snapshot it directly.
+        self.model = BuildModel(label, on_finished_image=self._report_image)
+        self._watch: AbstractContextManager[BuildModel] | None = None
+
+    def __call__(self, line: str) -> None:
+        """Absorb one line of the child's output, timestamped on arrival."""
+        self.model.feed(line, time.monotonic())
+
+    def __enter__(self) -> "BuildProgressReporter":
+        self._watch = current_reporter().watch_build(self.model)
+        self._watch.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Stop watching, whatever left the block — and never swallow it."""
+        watch, self._watch = self._watch, None
+        if watch is not None:
+            watch.__exit__(exc_type, exc, tb)
+
+    def _report_image(self, ref: str) -> None:
+        """Report one finished image as a step of the open phase.
+
+        Fires for every image BuildKit names, including one on a vertex too
+        anonymous to attribute to a service row — "an image is done" is a fact
+        about the build, and a step line for it must not go missing because the
+        stream's shape defeated attribution.
+        """
+        if self._step_prefix is not None:
+            _report_step(f"{self._step_prefix} {ref}")
 
 
-def compose_build_step_reporter() -> Callable[[str], None]:
+def compose_build_step_reporter() -> BuildProgressReporter:
     """Per-image progress steps for a ``compose build``, from BuildKit's own stream.
 
     ``compose build`` builds every service image in one parallel invocation —
     the longest step of a dev deploy, half an hour cold — and a single step
     line printed at the end reads as a hang for the whole build. Splitting the
     build per service would give progress at the price of the parallelism, so
-    the steps are derived instead: fed to :func:`run_captured` as ``on_line``,
-    this watches the captured stream and reports each image the moment BuildKit
-    finishes it.
+    the progress is derived instead: fed to :func:`run_captured` as ``on_line``,
+    this watches the captured stream, reports each image the moment BuildKit
+    finishes it, and — inside its ``with`` block — keeps the phase reporter's
+    live view of what every service is working on.
 
     Deduplicated per image, because BuildKit repeats the ``naming to`` line
     (bare, then with a duration). The implicit ``docker.io/library/`` prefix is
     stripped as registry noise; a real registry in the tag is the operator's
-    own naming and stays.
+    own naming and stays. Both behaviours live in :class:`BuildModel`.
     """
-    seen: set[str] = set()
+    return BuildProgressReporter(step_prefix="service image")
 
-    def report(line: str) -> None:
-        match = _IMAGE_NAMED_LINE.search(line)
-        if match is None:
-            return
-        ref = match.group("ref").removeprefix("docker.io/library/")
-        if ref not in seen:
-            seen.add(ref)
-            _report_step(f"service image {ref}")
 
-    return report
+def single_image_build_reporter(image_tag: str) -> BuildProgressReporter:
+    """The live view for one image's own ``<runtime> build``, labeled by its tag.
+
+    :func:`compose_build_step_reporter`'s counterpart for the sites that build a
+    single image directly — the dispatch worker's project image, a persona
+    image, the auth sidecar. Two things differ from the compose case, and both
+    are silent when a call site gets them wrong:
+
+    * A single-image build's BuildKit headers name no service (``#10 [ 2/13]``
+      where compose writes ``#10 [va 2/13]``), so an unlabeled model parses the
+      whole build into nothing — no rows, no error. The image tag is that label,
+      and its row then reads as the image the build is producing.
+    * No step lines. Each of these sites already reports its finished image as a
+      step of its own once the build returns, so a line from the parser would
+      report the same image twice. This is the live view alone.
+
+    Used exactly like its compose sibling::
+
+        with (report := single_image_build_reporter(tag)):
+            run_captured(..., on_line=report)
+    """
+    return BuildProgressReporter(image_tag, step_prefix=None)
 
 
 def _start_stack(
@@ -2865,13 +2949,17 @@ def _start_stack(
         # service that has no published upstream tag to pull.
         build_cmd = base_cmd + ["build"]
         logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
-        run_captured(
-            build_cmd,
-            env=run_env,
-            spool_name="compose-build",
-            repo_root=repo_root,
-            on_line=compose_build_step_reporter(),
-        )
+        # Watched for the duration of the build and no longer: the live view
+        # (and its heartbeats) must go quiet the moment compose returns, before
+        # the closing step line below.
+        with (report := compose_build_step_reporter()):
+            run_captured(
+                build_cmd,
+                env=run_env,
+                spool_name="compose-build",
+                repo_root=repo_root,
+                on_line=report,
+            )
         _report_step("service images built")
 
     # --remove-orphans reconciles away containers whose service left the
@@ -2895,6 +2983,14 @@ def _start_stack(
         # execvpe replaces this process, so the summary must print first —
         # compose's own output follows it.
         log_endpoint_summary(config, compose_files)
+        # The terminal belongs to compose from the next line on, and this
+        # process will not exist to take anything down: whatever is rendering
+        # has to stop here, and the open start phase — which never closes on
+        # this path — has to be committed as a permanent line while there is
+        # still a process to write it. Unconditional: a no-op on a reporter
+        # with nothing to hand over, and inside the phase because a hand-off
+        # after it would find nothing left to commit.
+        current_reporter().hand_off()
         os.execvpe(cmd[0], cmd, run_env)
 
 
