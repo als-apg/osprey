@@ -215,7 +215,8 @@ def test_up_starts_the_compose_files_the_build_left(lifecycle_repo, started):
         str(lifecycle_repo / "build" / "services" / "docker-compose.yml"),
         str(lifecycle_repo / "build" / "services" / "event_dispatcher" / "docker-compose.yml"),
     ]
-    assert argv[argv.index("--env-file") + 1] == str(lifecycle_repo / ".env")
+    env_files = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--env-file"]
+    assert env_files[-1] == str(lifecycle_repo / ".env")
 
 
 def test_up_is_correct_from_a_subdirectory(lifecycle_repo, started, monkeypatch):
@@ -705,7 +706,7 @@ def test_minted_tokens_land_in_the_repo_env_and_are_copied_nowhere(
     assert env["DISPATCH_WORKER_TOKEN"]
 
     # `.env.example` is documentation and carries no values; `.env.auth` /
-    # `.env.production` are the web stack's own, written only when it deploys.
+    # `.env.users` are the web stack's own, written only when it deploys.
     copies = [
         path
         for path in lifecycle_repo.rglob(".env")
@@ -772,7 +773,7 @@ def test_a_web_terminal_deploy_counts_as_exposed(lifecycle_repo, started, monkey
     import yaml
 
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
-    (lifecycle_repo / ".env.production").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    (lifecycle_repo / ".env.users").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "preflight_web_terminals", lambda *a, **k: None)
     render_build(
@@ -1009,7 +1010,7 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, started, monkey
 
     # Registry mode expects CI to have rendered this already; the mint runs
     # after that gate, and the mint is what this test is about.
-    (lifecycle_repo / ".env.production").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    (lifecycle_repo / ".env.users").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo, config=yaml.safe_dump(config), with_compose=False)
     monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", lambda *a, **k: None)
 
@@ -1148,7 +1149,8 @@ def test_minting_targets_the_repo_env_from_any_directory(lifecycle_repo, started
     assert not (elsewhere / ".env").exists()
     # And the --env-file the invocation carries is that same file.
     argv = up_argv(started)
-    assert argv[argv.index("--env-file") + 1] == str(lifecycle_repo / ".env")
+    env_files = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--env-file"]
+    assert env_files[-1] == str(lifecycle_repo / ".env")
 
 
 # ---------------------------------------------------------------------------

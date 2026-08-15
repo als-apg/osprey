@@ -95,7 +95,7 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
     # Check registry file (if specified in config).
     #
     # Read from the config mapping this function was already handed, rather than
-    # re-reading `cwd/config.yml` off disk. Under the three-zone layout the two
+    # re-reading `cwd/config.yml` off disk. Under the four-zone layout the two
     # anchors are not the same directory: `.env` lives at the repo ROOT while
     # the rendered config lives in `build/`, so whichever single directory a
     # caller passes as `cwd`, a re-read there finds the config or the `.env` but

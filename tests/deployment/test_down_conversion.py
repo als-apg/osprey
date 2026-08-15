@@ -181,7 +181,7 @@ def test_the_web_stack_still_comes_down_before_the_services(monkeypatch, tmp_pat
     monkeypatch.setattr(
         container_lifecycle,
         "deploy_down_web_terminals",
-        lambda config, env, env_file_args: order.append("web"),
+        lambda config, env, env_file_args, **kwargs: order.append("web"),
     )
 
     def _fake(cmd, **kwargs):

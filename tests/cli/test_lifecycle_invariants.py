@@ -394,6 +394,12 @@ _RETIRED_SPELLINGS = {
     # Both spellings: a click docstring IS the terminal help text, and the one
     # that named this flag wrote it without the program name.
     "the retired `build --force` flag": re.compile(r"\bbuild --force\b"),
+    # The roster verb that renders the web tier's runtime secrets is now
+    # `osprey users env`, and the file it writes is `.env.users`. Matched
+    # without the group name so prose about "the env-production verb" is caught
+    # too, and with a leading word boundary that still fires inside the older
+    # `deploy render-env-production` spelling.
+    "the renamed `users env-production` verb": re.compile(r"\benv-production\b"),
     "the retired sibling-profile layout": re.compile(r"-profile/profile\.yml"),
     "the retired positional build invocation": re.compile(r"\bosprey build \S+ \S*profile\.ya?ml"),
 }
@@ -419,6 +425,7 @@ _RETIRED_SPELLING_EXAMPLES = {
     "the deleted `claude` group": "osprey claude regen rewrites the artifacts",
     "the deleted `config` subcommands": "config set-control-system epics",
     "the retired `build --force` flag": "re-run osprey build --force to rebuild",
+    "the renamed `users env-production` verb": "osprey users env-production --output .env.users",
     "the retired sibling-profile layout": "reads my-facility-profile/profile.yml",
     "the retired positional build invocation": "osprey build my-app ./my-profile/profile.yml",
 }

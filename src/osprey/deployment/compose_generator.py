@@ -13,6 +13,7 @@ that answers a question rather than performing a render —
 because its wrong answer is an empty list rather than an error.
 """
 
+import json
 import os
 import re
 import shutil
@@ -22,7 +23,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.cli.phase_reporter import report_step
-from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
+from osprey.deployment.runtime_helper import ComposeProvider, get_runtime_command, runtime_env
 from osprey.deployment.subprocess_capture import run_captured
 
 # The dev-wheel build, per-process cache, and staging-copy helpers live in
@@ -36,6 +37,7 @@ from osprey.deployment.wheel_build import (
 from osprey.deployment.wheel_build import (
     _reset_wheel_build_cache as _reset_wheel_build_cache,
 )
+from osprey.utils import dotenv
 from osprey.utils.config import ConfigBuilder, load_project_config
 from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
@@ -54,6 +56,32 @@ COMPOSE_FILE_NAME = "docker-compose.yml"
 #: from there — never from the render, which every build re-creates.
 COMPOSE_ENV_FILENAME = ".env"
 
+#: The committed, non-secret defaults file beside it — lower precedence than
+#: :data:`COMPOSE_ENV_FILENAME` wherever both are delivered. Taken from
+#: :mod:`osprey.utils.dotenv` rather than re-typed, so the renderer that lists
+#: the chain and the helpers that merge it cannot disagree about the filename.
+ENV_SHARED_FILENAME = dotenv.ENV_SHARED_FILENAME
+
+#: Machine-readable record of WHICH env-chain files a render found, written into
+#: the render's output base beside the compose files it explains. The render
+#: fixes chain membership: whichever files existed then are the ones the
+#: rendered ``env_file:`` lists name and the ones the invocation's ``--env-file``
+#: flags point at. A deploy that finds a different set on disk is running
+#: compose files that describe a different chain, which is why ``osprey up``
+#: reads this back and refuses on a mismatch rather than discovering it as a
+#: missing value inside a container.
+#:
+#: Deliberately a sidecar rather than a comment inside a rendered compose file:
+#: the record has to exist for a deployment with no services at all, and every
+#: rendered compose file stays byte-identical to what it was before the chain
+#: existed. Deliberately JSON with plain filenames, not paths: a build renders
+#: in a staging tree that is later moved, so an absolute path recorded here
+#: would name a directory that no longer exists by the time anything reads it.
+ENV_CHAIN_MARKER_FILENAME = "env-chain.json"
+
+#: The key holding the ordered filename list inside that file.
+ENV_CHAIN_MARKER_KEY = "env_chain"
+
 #: Where a project image holds its deployment repo: ``templates/project/
 #: Dockerfile.j2``'s ``WORKDIR /app/<project_name>``. Spelled here so the one
 #: template that mounts a volume INTO that repo takes the path from the same
@@ -67,9 +95,10 @@ def resolve_repo_root(config=None, config_path=None):
     Every path a compose file spells relatively — bind-mount sources, build
     contexts, ``env_file`` entries — is resolved by compose against ONE
     directory, the compose project directory. This function answers what that
-    directory is, and :func:`compose_base_cmd` pins it with
-    ``--project-directory`` so it is never inferred from the first ``-f``
-    file's location.
+    directory is, and :func:`compose_base_cmd` pins it — with
+    ``--project-directory``, or, for a provider that does not parse that flag,
+    with the shape described there — so it is never inferred from the working
+    directory the verb happened to be typed in.
 
     Resolution order, most authoritative first:
 
@@ -147,42 +176,142 @@ def repo_identity(repo_root):
     return hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
 
 
-def compose_env_file_args(repo_root):
-    """``["--env-file", "<repo>/.env"]`` when that file exists, else ``[]``.
+def env_chain_names(repo_root):
+    """Filenames of the env-chain files present at *repo_root*, in chain order.
 
-    Spelled absolute, and anchored on the repo rather than on the working
-    directory: ``--env-file`` decides which values compose substitutes into
-    every ``${VAR}`` in every compose file, so resolving it anywhere but the
-    deployment's own secret store starts the stack with empty credentials and
-    no error. The empty list (rather than a missing file passed anyway) is
-    deliberate — compose hard-fails on an ``--env-file`` that is not there.
+    The single probe every part of a render asks its chain question through —
+    the per-file flags the templates gate on, the membership marker
+    (:func:`record_env_chain_membership`) and the ``--env-file`` fragment
+    (:func:`compose_env_file_args`) — so a render cannot list one chain in a
+    compose file and record or pass a different one.
+
+    Bare filenames rather than paths, because that is what all three want: the
+    templates spell them relative to the pinned compose project directory, and
+    the marker has to survive the render being moved.
+
+    :param repo_root: The deployment repo root.
+    :return: e.g. ``[".env.shared", ".env"]`` — lowest precedence first, missing
+        members skipped.
+    """
+    return [path.name for path in dotenv.chain_files(Path(repo_root))]
+
+
+def compose_env_file_args(repo_root):
+    """One ``--env-file`` flag per env-chain file at *repo_root*, in chain order.
+
+    ``--env-file`` decides which values compose substitutes into every
+    ``${VAR}`` in every compose file, so each path is spelled absolute and
+    anchored on the repo rather than on the working directory. Resolved against
+    anything but the deployment's own chain, it starts the stack with empty
+    credentials and no error at all.
+
+    The flag is REPEATED — ``--env-file <repo>/.env.shared --env-file
+    <repo>/.env`` — so both files are visible to interpolation, with ``.env``
+    last and therefore winning on any key both set. That is the Docker Compose
+    v2 reading of repeated ``--env-file``, and this fragment is the docker
+    shape; a provider that instead keeps only the last file it is handed is
+    given one pre-merged file by the invocation seam
+    (:func:`osprey.deployment.container_lifecycle._env_file_args`) rather than
+    this list, because passing this list to it would silently drop
+    ``.env.shared``.
+
+    A repo with no chain file at all gets the empty list rather than a missing
+    file passed anyway — compose hard-fails on an ``--env-file`` that is not
+    there. The warning is for that case only: a repo carrying just
+    ``.env.shared`` has an env chain, and telling its operator the environment
+    is empty would be false.
 
     :param repo_root: The deployment repo root.
     :return: The argv fragment, ready to splice into a compose invocation.
     """
-    env_file = Path(repo_root) / COMPOSE_ENV_FILENAME
-    if env_file.exists():
-        return ["--env-file", str(env_file)]
-    logger.warning(
-        "No .env file found - services will start with default/empty environment variables"
+    chain = dotenv.chain_files(Path(repo_root))
+    if not chain:
+        logger.warning(
+            "No .env file found - services will start with default/empty environment variables"
+        )
+        logger.info("To configure API keys: cp .env.example .env && edit .env")
+        return []
+
+    args = []
+    for env_file in chain:
+        args.extend(("--env-file", str(env_file)))
+    return args
+
+
+def record_env_chain_membership(out_base, chain_names):
+    """Write the render's chain membership to *out_base*, and return the path.
+
+    Called once per render, from :func:`prepare_compose_files`, so the record
+    describes the same probe the rendered compose files were built from. See
+    :data:`ENV_CHAIN_MARKER_FILENAME` for what a reader does with it.
+
+    :param out_base: The render's output base — where the compose files land.
+    :param chain_names: Chain filenames in chain order (:func:`env_chain_names`).
+    :return: Path to the written marker.
+    """
+    base = Path(out_base)
+    base.mkdir(parents=True, exist_ok=True)
+    marker = base / ENV_CHAIN_MARKER_FILENAME
+    marker.write_text(
+        json.dumps({ENV_CHAIN_MARKER_KEY: list(chain_names)}, indent=2) + "\n",
+        encoding="utf-8",
     )
-    logger.info("To configure API keys: cp .env.example .env && edit .env")
-    return []
+    return marker
 
 
-def compose_base_cmd(runtime_cmd, compose_files, repo_root, env_file_args=None):
+def read_rendered_env_chain(repo_root, build_dir=None):
+    """The chain membership a render recorded, or ``None`` when there is none.
+
+    The read side of :data:`ENV_CHAIN_MARKER_FILENAME`, for the deploy-time
+    check that the chain on disk still matches the one the compose files
+    describe.
+
+    ``None`` — no marker, an unreadable one, or a payload that is not a list of
+    filenames — means "this render recorded nothing", which is what a render
+    from before the marker existed looks like. The caller decides what to do
+    with that; it is deliberately not reported as a mismatch, because a
+    mismatch is a refusal and "no record" is not evidence of one.
+
+    :param repo_root: The deployment repo root.
+    :param build_dir: The render zone's name, when it is not the default
+        ``build``.
+    :return: Recorded chain filenames in chain order, or ``None``.
+    """
+    from osprey.utils.workspace import BUILD_DIR_NAME
+
+    marker = Path(repo_root) / (build_dir or BUILD_DIR_NAME) / ENV_CHAIN_MARKER_FILENAME
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    recorded = payload.get(ENV_CHAIN_MARKER_KEY) if isinstance(payload, dict) else None
+    if not isinstance(recorded, list) or not all(isinstance(name, str) for name in recorded):
+        return None
+    return recorded
+
+
+def compose_base_cmd(runtime_cmd, compose_files, repo_root, env_file_args=None, provider=None):
     """Pin a compose argv to one deployment repo, before any subcommand.
 
     The single spelling of the invocation contract (TR-3). Every compose
     command OSPREY runs — ``up``, ``down``, ``restart``, ``rm``, ``build``,
     ``pull``, ``logs``, the web stack's own invocations — is built from here,
     so no path in any rendered compose file can resolve against a different
-    base depending on which verb ran it::
+    base depending on which verb ran it.
+
+    TWO SHAPES, ONE PROJECT DIRECTORY
+    =================================
+
+    Both providers OSPREY supports must end up resolving every relative path in
+    every rendered compose file against the repo root. They are told so in
+    different ways, because they parse different flags.
+
+    Docker Compose v2 (and the default when no probe result is threaded down)::
 
         <runtime> compose [--progress plain]
             --project-directory <repo-root>
             -f <repo-root>/build/<file> ...
-            [--env-file <repo-root>/.env]
+            [--env-file <repo-root>/.env.shared --env-file <repo-root>/.env]
 
     ``--project-directory`` is what makes the rest true. Without it compose
     derives the project directory from the FIRST ``-f`` file's location, so a
@@ -192,33 +321,104 @@ def compose_base_cmd(runtime_cmd, compose_files, repo_root, env_file_args=None):
     could never share an invocation. With the repo root pinned, one base holds
     for both, and every relative path in every template is spelled against it.
 
-    ``-f`` paths are anchored on the repo too, so an invocation is correct from
-    any working directory rather than only from the root the verbs chdir into.
-    An already-absolute path is passed through untouched.
+    podman-compose::
+
+        <runtime> compose [--progress plain]
+            -f <repo-root>/.osprey-compose.yml
+            [--env-file <repo-root>/build/.env.merged]
+
+    No podman-compose version parses ``--project-directory``, so the pin has to
+    be made a property of the ``-f`` list instead: the rendered files are merged
+    into ONE document at the repo root
+    (:func:`~osprey.deployment.compose_merge.write_merged_compose`), which puts
+    the only ``-f`` file's own directory at the root. That is where every
+    version chdir's — the ones that follow ``COMPOSE_PROJECT_DIR`` and the ones
+    that override it with the first compose file's dirname — so the same
+    relative paths resolve to the same files on all of them. The environment
+    half of the same pin is :func:`compose_provider_env`; a caller that builds
+    this argv without it is handing the newer versions a project directory of
+    wherever the operator happened to be standing.
+
+    The ``--env-file`` fragment differs for the same kind of reason: repeated
+    flags mean "merge these" to docker and "keep the last one" to
+    podman-compose, so the podman shape is handed a single pre-merged file. Both
+    fragments come from
+    :func:`osprey.deployment.container_lifecycle._env_file_args`, which is also
+    where the merged file is (re)generated.
+
+    Neither shape uses compose ``profiles:``/``--profile``: podman-compose's
+    support for them differs by version, and a service silently left out of a
+    deploy is exactly the failure this seam exists to prevent.
 
     The runtime argv is taken as an argument rather than resolved here, for the
     same reason :func:`osprey.deployment.runtime_helper.with_plain_progress`
     takes one: each call site reaches its runtime through the
     ``get_runtime_command`` name bound in its own module, which is the seam the
-    deploy tests patch.
+    deploy tests patch. The probe result is passed in for the same reason.
 
     :param runtime_cmd: Resolved compose argv base, e.g. ``["docker", "compose"]``
         (optionally already carrying ``--progress plain``). Never mutated.
     :param compose_files: Compose files for this invocation, in ``-f`` order.
+        For the podman-compose shape these are the inputs to the merge, in the
+        same order — the merged document is rewritten on every invocation, so it
+        always describes the files this invocation was given.
     :param repo_root: The deployment repo root — the compose project directory.
     :param env_file_args: An already-resolved ``--env-file`` fragment, for
-        callers that thread one down. ``None`` resolves it here through
-        :func:`compose_env_file_args`.
+        callers that thread one down. ``None`` resolves it here, provider-shaped.
+    :param provider: The detected compose provider
+        (:class:`~osprey.deployment.runtime_helper.ComposeProvider`), when the
+        caller has probed for one. ``None`` selects the docker shape.
     :return: A new argv list, ready for its subcommand.
+    :raises ComposeMergeError: The podman-compose shape's merge input is
+        missing, unparseable, or not a compose document.
     """
     root = Path(repo_root).expanduser().absolute()
     cmd = list(runtime_cmd)
-    cmd.extend(("--project-directory", str(root)))
-    for compose_file in compose_files:
-        path = Path(compose_file)
-        cmd.extend(("-f", str(path if path.is_absolute() else root / path)))
-    cmd.extend(compose_env_file_args(root) if env_file_args is None else env_file_args)
+    if provider is ComposeProvider.PODMAN_COMPOSE:
+        from osprey.deployment.compose_merge import write_merged_compose
+
+        cmd.extend(("-f", str(write_merged_compose(root, compose_files))))
+    else:
+        cmd.extend(("--project-directory", str(root)))
+        for compose_file in compose_files:
+            path = Path(compose_file)
+            cmd.extend(("-f", str(path if path.is_absolute() else root / path)))
+    if env_file_args is None:
+        # Deferred: the provider-shaped resolver lives with the merged file it
+        # (re)writes, in the module that owns the lifecycle verbs, and that
+        # module imports this one.
+        from osprey.deployment.container_lifecycle import _env_file_args
+
+        env_file_args = _env_file_args(root, provider)
+    cmd.extend(env_file_args)
     return cmd
+
+
+def compose_provider_env(provider, repo_root):
+    """The environment half of the provider-shaped invocation, if it needs one.
+
+    :func:`compose_base_cmd` pins the project directory in argv for the docker
+    shape and cannot for the podman-compose one, which parses no
+    ``--project-directory``. podman-compose 1.4.1+ read ``COMPOSE_PROJECT_DIR``
+    instead, and older versions chdir to the merged document's own directory —
+    the repo root either way, but only if the variable is actually set. Left
+    unset, 1.4.1+ take the working directory as the project directory, and every
+    relative path in the merged document resolves against wherever the operator
+    typed the verb.
+
+    Kept beside the argv builder, and taking the same two inputs, because the
+    two halves are one contract: a call site that threads the probe result into
+    one and not the other emits an invocation that is internally inconsistent.
+
+    :param provider: The detected compose provider, or ``None`` for the default
+        (docker) shape.
+    :param repo_root: The deployment repo root — the compose project directory.
+    :return: Variables to layer onto the compose subprocess environment. Empty
+        for every shape that carries the pin in argv.
+    """
+    if provider is not ComposeProvider.PODMAN_COMPOSE:
+        return {}
+    return {"COMPOSE_PROJECT_DIR": str(Path(repo_root).expanduser().absolute())}
 
 
 def find_service_config(config, service_name):
@@ -415,14 +615,27 @@ def _inject_project_metadata(config):
     }
     config_with_labels["osprey_version"] = osprey_version
 
-    # Whether this deployment repo has a ``.env``. The dispatch worker mounts it
-    # read-only so ``inject_provider_env`` can read provider auth at startup;
-    # gating the mount on existence avoids docker auto-creating a stray empty
-    # ``.env`` directory when none is present. Probed at the repo root, not in
-    # the working directory: that single root ``.env`` is the deployment's whole
-    # secret store (TR-3), and a cwd probe answered "no" for any invocation made
-    # from a subdirectory — silently dropping provider auth from the worker.
-    config_with_labels["osprey_env_present"] = (repo_root / COMPOSE_ENV_FILENAME).exists()
+    # Which env-chain files this deployment repo has, for the templates that
+    # deliver them to a container. A service reads the chain through an
+    # ``env_file:`` list, and compose hard-fails on an entry that is not there,
+    # so the list can only name files that exist — which fixes chain membership
+    # at RENDER time and is why the same probe is recorded for the deploy to
+    # check against (:data:`ENV_CHAIN_MARKER_FILENAME`).
+    #
+    # Probed at the repo root, not in the working directory: the chain at that
+    # single root is the deployment's whole env (TR-3), and a cwd probe answered
+    # "no" for any invocation made from a subdirectory — silently dropping
+    # provider auth from the worker.
+    #
+    # Three views of one probe, because templates need different ones: the
+    # ordered list to emit an ``env_file:`` block from (lowest precedence first,
+    # so the later entry wins, matching the ``--env-file`` order in
+    # :func:`compose_env_file_args`), and a per-file flag to gate anything that
+    # is about one specific member.
+    chain_names = env_chain_names(repo_root)
+    config_with_labels["osprey_env_chain"] = [f"./{name}" for name in chain_names]
+    config_with_labels["osprey_env_shared_present"] = ENV_SHARED_FILENAME in chain_names
+    config_with_labels["osprey_env_present"] = COMPOSE_ENV_FILENAME in chain_names
 
     # Bind-mount source for the Virtual Accelerator's scenario state directory,
     # derived here rather than hardcoded in the template: the mount must follow
@@ -1150,7 +1363,7 @@ def find_existing_compose_files(config, deployed_services, quiet=False, base=Non
     return compose_files
 
 
-def clean_deployment(compose_files, config=None):
+def clean_deployment(compose_files, config=None, repo_root=None):
     """Clean up containers, images, volumes, and networks for a fresh deployment.
 
     This function provides comprehensive cleanup capabilities for container
@@ -1162,24 +1375,41 @@ def clean_deployment(compose_files, config=None):
     :type compose_files: list[str]
     :param config: Optional configuration dictionary for runtime detection
     :type config: dict, optional
+    :param repo_root: The deployment repo this clean acts on, when the caller
+        already resolved one (it holds the config *path*, which this function is
+        not given). ``None`` resolves it from ``config`` alone, whose last
+        resort is the working directory.
+    :type repo_root: str or pathlib.Path, optional
+    :raises UnsupportedComposeProviderError: The host's compose provider is not
+        one OSPREY can invoke correctly. A clean that guessed the shape would
+        leave the containers and volumes it claimed to remove.
     """
     logger.key_info("Cleaning up deployment...")
 
-    # Pin COMPOSE_PROJECT_NAME so `down --volumes` targets THIS deploy's project
-    # and volumes; unpinned it derives the shared "services" project and would
-    # destroy a sibling deploy's data volumes.
-    run_env = runtime_env(config, os.environ.copy())
+    # Deferred for the same reason compose_base_cmd defers it: the lifecycle
+    # module owns the probe seam and the merged env file, and it imports this one.
+    from osprey.deployment.container_lifecycle import _compose_provider, _env_file_args
 
     # Both invocations below share the one pinned base (TR-3): the same repo
-    # root, the same repo-anchored -f list, and the same repo-root .env — which
-    # is also what stops a `--env-file .env` from being resolved against
-    # whatever directory the operator happened to stand in.
-    repo_root = resolve_repo_root(config)
-    env_file_args = compose_env_file_args(repo_root)
+    # root, the same repo-anchored -f list, and the same env chain — which is
+    # also what stops a `--env-file .env` from being resolved against whatever
+    # directory the operator happened to stand in. Resolved before the probe so
+    # both halves of the provider-shaped invocation are anchored on it.
+    repo_root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
+    provider = _compose_provider(config)
+    env_file_args = _env_file_args(repo_root, provider)
+
+    # Pin COMPOSE_PROJECT_NAME so `down --volumes` targets THIS deploy's project
+    # and volumes; unpinned it derives the shared "services" project and would
+    # destroy a sibling deploy's data volumes. The provider overlay rides in on
+    # the same env: for the shape that cannot take the project directory in
+    # argv, this is where it is pinned instead — and a `down` addressed at the
+    # wrong project directory removes nothing while reporting success.
+    run_env = runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)})
 
     # Stop and remove containers, networks, volumes
     cmd_down = compose_base_cmd(
-        get_runtime_command(config), compose_files, repo_root, env_file_args
+        get_runtime_command(config), compose_files, repo_root, env_file_args, provider
     )
     cmd_down.extend(["down", "--volumes", "--remove-orphans"])
 
@@ -1193,7 +1423,9 @@ def clean_deployment(compose_files, config=None):
     )
 
     # Remove images built by the compose files
-    cmd_rmi = compose_base_cmd(get_runtime_command(config), compose_files, repo_root, env_file_args)
+    cmd_rmi = compose_base_cmd(
+        get_runtime_command(config), compose_files, repo_root, env_file_args, provider
+    )
     cmd_rmi.extend(["down", "--rmi", "all"])
 
     logger.info(f"Running: {' '.join(cmd_rmi)}")
@@ -1278,6 +1510,21 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False, out
     else:
         logger.warning("No deployed_services list found, no services will be processed")
         deployed_service_names = []
+
+    # Record which env-chain files this render found, beside the compose files
+    # it explains. Written for every render, including one that deploys no
+    # services at all: what the deploy checks is that the chain has not changed
+    # since the render, and a deployment with no services still delivers the
+    # chain to compose as ``--env-file`` flags. Probed through the same
+    # ``resolve_repo_root`` the render context uses, so the record and the
+    # rendered ``env_file:`` lists cannot disagree about which files were there.
+    # ``resolve_repo_root(config)`` without the config path, deliberately: a
+    # build renders from a staging tree, where the path resolves to the staging
+    # root while the config's ``project_root`` still names the repo whose chain
+    # the render is about — and the repo is the answer both need.
+    record_env_chain_membership(
+        config.get("build_dir", "./build"), env_chain_names(resolve_repo_root(config))
+    )
 
     compose_files = []
 

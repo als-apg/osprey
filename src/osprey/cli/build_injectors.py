@@ -36,6 +36,20 @@ if TYPE_CHECKING:
 
 logger = get_logger("build")
 
+# Spacing between consecutive dispatch workers' host-side ports: worker ``i``
+# binds ``worker_port_base + (i - 1) * _WORKER_PORT_STRIDE``. On the compose
+# bridge every worker has its own network namespace and they all listen on the
+# base port; on the host network they share one namespace, so the ports have to
+# fan out. The stride is recorded in the worker's service config (host mode
+# only) so the compose template and the host-port preflight derive the same
+# ports from the same declared rule rather than each hardcoding the step.
+_WORKER_PORT_STRIDE = 1
+
+
+def _worker_port(worker_port_base: int, index: int) -> int:
+    """Return the host-side port of dispatch worker ``index`` (1-based)."""
+    return worker_port_base + (index - 1) * _WORKER_PORT_STRIDE
+
 
 def _locate_pkg_services() -> Path:
     """Locate the OSPREY package's bundled ``templates/services`` directory.
@@ -90,6 +104,44 @@ def _refresh_service_dir(src_dir: Path, dest_dir: Path, name: str, owned: set[st
     return True
 
 
+#: Shared Jinja partials sitting at the packaged ``services/`` root — macro
+#: files a service compose template may import. Underscore-prefixed by
+#: convention, which is exactly what separates them from the root compose
+#: template beside them, and what lets a future partial ship without a code
+#: change here.
+_SHARED_SERVICE_PARTIALS = "_*.j2"
+
+
+def _copy_shared_service_partials(dest_services_root: Path) -> int:
+    """Copy the shared template partials into a project's ``services/`` tree.
+
+    A service compose template imports these by a path relative to the PROJECT
+    root (``{% import "services/_network_axis.j2" %}``), because that is where
+    the deploy-time renderer's loader is rooted. The partial therefore has to
+    travel with every template that imports it: a project holding the template
+    but not the partial fails the render outright, at ``osprey up`` time, with
+    ``TemplateNotFound`` — long after the build that should have caught it.
+
+    Called from every path that lands a service template, the whole-project
+    build and each single-service injector alike, because an injector may run on
+    its own and a project is only self-contained once the partial arrives with
+    the first template that needs it. Always refreshed, never skipped when
+    present: these are framework internals, not the user-editable service
+    directories ``scaffold claim`` protects, so there is no claim to honor.
+
+    Returns:
+        Number of partials copied.
+    """
+    pkg_services = _locate_pkg_services()
+    if not pkg_services.is_dir():
+        return 0
+
+    partials = sorted(pkg_services.glob(_SHARED_SERVICE_PARTIALS))
+    for partial in partials:
+        shutil.copy2(partial, dest_services_root / partial.name)
+    return len(partials)
+
+
 def _copy_service_templates(project_path: Path) -> int:
     """Copy service compose templates from the OSPREY package into the project.
 
@@ -124,6 +176,7 @@ def _copy_service_templates(project_path: Path) -> int:
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
 
     # Always copy the root compose template so `osprey up` works even
     # for presets with no deployed_services (the renderer references it
@@ -219,6 +272,7 @@ def _inject_profile_services(
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
     owned = _user_owned_services(project_path)
 
     count = 0
@@ -276,6 +330,16 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
        both in ``deployed_services``.
     4. Print a post-build hint (dashboard URL + sample curl + image prerequisite).
 
+    The pair shares one network: ``dispatch.network`` is written into BOTH
+    service configs, since a dispatcher on the compose bridge and workers on the
+    host network could not reach each other. On the host network the addresses
+    the build emits change with it — the dispatcher reaches a worker at
+    ``localhost``, not at a compose DNS name — so step 1a also rewrites the
+    copied triggers file's ``dispatch_target``, and the worker's per-index port
+    rule is recorded alongside it. Both are written only in host mode: an
+    unset (bridge) ``dispatch.network`` leaves every artifact exactly as it was
+    before the axis existed.
+
     Args:
         dispatch: Validated dispatch configuration from the build profile.
         profile_dir: Directory containing the build profile (triggers source).
@@ -287,6 +351,14 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     from ruamel.yaml import YAML
 
     from osprey.cli.build_profile import _triggers_dir
+    from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE
+
+    # The default is spelled twice on purpose (here and on ``DispatchConfig``):
+    # every read site of a build knob says what an omitted knob means, so this
+    # function is readable on its own and stays correct for a hand-built
+    # DispatchConfig that never went through the profile loader.
+    network = dispatch.network or DEFAULT_NETWORK_MODE
+    on_host_network = network == "host"
 
     # 1. Resolve + copy triggers file (profile-relative path or bundled triggers name).
     if (profile_dir / dispatch.triggers).is_file():
@@ -308,10 +380,21 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     _trigger_yaml.preserve_quotes = True
     with open(triggers_dest) as fh:
         triggers_doc = _trigger_yaml.load(fh)
+    #
+    # The same patch carries the routing address. ``dispatch_target`` in a
+    # triggers file names the first worker by its compose service DNS name
+    # (``http://dispatch-worker-1:9190``), which resolves only on the compose
+    # bridge. On the host network the dispatcher and the worker share the host's
+    # namespace, so the worker is reachable at ``localhost`` on the port it
+    # binds — worker 1's, i.e. the base port. Left alone in bridge mode, so a
+    # facility-authored target keeps whatever it points at.
     if triggers_doc is not None:
         dispatcher_block = triggers_doc.setdefault("dispatcher", {})
         dispatcher_block["max_concurrent_runs"] = dispatch.max_concurrent_runs
         dispatcher_block["max_queue_depth"] = dispatch.max_queue_depth
+        if on_host_network:
+            worker_one_port = _worker_port(dispatch.worker_port_base, 1)
+            dispatcher_block["dispatch_target"] = f"http://localhost:{worker_one_port}"
         with open(triggers_dest, "w") as fh:
             _trigger_yaml.dump(triggers_doc, fh)
 
@@ -320,6 +403,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
     owned = _user_owned_services(project_path)
 
     for name in ("event_dispatcher", "dispatch_worker"):
@@ -349,32 +433,43 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     # Override with OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE, or set
     # ``services.<name>.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
-    anchored_put(
-        config["services"],
-        "event_dispatcher",
-        {
-            "path": "./services/event_dispatcher",
-            "port": dispatch.dispatcher_port,
-            "facility_name": dispatch.facility_name,
-            "pv_strip_prefix": dispatch.pv_strip_prefix,
-            # Copy the project's triggers.yml into the service build context so the
-            # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
-            # container runtime auto-creates an empty directory at the mount source).
-            "additional_dirs": [{"src": "triggers.yml", "dst": "triggers.yml"}],
-        },
-    )
-    anchored_put(
-        config["services"],
-        "dispatch_worker",
-        {
-            "path": "./services/dispatch_worker",
-            "worker_count": dispatch.worker_count,
-            "worker_port_base": dispatch.worker_port_base,
-            "workspace_mode": dispatch.workspace_mode,
-            "timeout_sec": dispatch.timeout_sec,
-            "inactivity_sec": dispatch.inactivity_sec,
-        },
-    )
+    dispatcher_config: dict[str, Any] = {
+        "path": "./services/event_dispatcher",
+        "port": dispatch.dispatcher_port,
+        "facility_name": dispatch.facility_name,
+        "pv_strip_prefix": dispatch.pv_strip_prefix,
+        # Copy the project's triggers.yml into the service build context so the
+        # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
+        # container runtime auto-creates an empty directory at the mount source).
+        "additional_dirs": [{"src": "triggers.yml", "dst": "triggers.yml"}],
+    }
+    worker_config: dict[str, Any] = {
+        "path": "./services/dispatch_worker",
+        "worker_count": dispatch.worker_count,
+        "worker_port_base": dispatch.worker_port_base,
+        "workspace_mode": dispatch.workspace_mode,
+        "timeout_sec": dispatch.timeout_sec,
+        "inactivity_sec": dispatch.inactivity_sec,
+    }
+    if on_host_network:
+        # One profile knob, both halves: the compose templates read the mode off
+        # their own service block, so the single ``dispatch.network`` value is
+        # written into each. A directly-authored ``network:`` on either half is
+        # rejected by profile validation, which runs before this — nothing
+        # authored can be overwritten here.
+        #
+        # Written only off the default: with the axis unset, config.yml is
+        # byte-for-byte what it was before the knob existed, and the templates
+        # fall back to the same default the schema declares.
+        dispatcher_config["network"] = network
+        worker_config["network"] = network
+        # Per-worker port derivation, recorded rather than hardcoded in the
+        # template: worker ``i`` binds ``worker_port_base + (i - 1) * stride``.
+        # The compose render (per-worker DISPATCH_WORKER_PORT + healthcheck) and
+        # the host-port preflight both derive from these three keys.
+        worker_config["worker_port_stride"] = _WORKER_PORT_STRIDE
+    anchored_put(config["services"], "event_dispatcher", dispatcher_config)
+    anchored_put(config["services"], "dispatch_worker", worker_config)
     deployed = config.get("deployed_services", []) or []
     for name in ("event_dispatcher", "dispatch_worker"):
         if name not in [str(s) for s in deployed]:
@@ -468,6 +563,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "bluesky"
     _refresh_service_dir(src_dir, dest_dir, "bluesky", _user_owned_services(project_path))
 
@@ -566,6 +662,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "virtual_accelerator"
     _refresh_service_dir(
         src_dir, dest_dir, "virtual_accelerator", _user_owned_services(project_path)
@@ -709,6 +806,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "bluesky_panels"
     _refresh_service_dir(src_dir, dest_dir, "bluesky_panels", _user_owned_services(project_path))
 
@@ -836,6 +934,7 @@ def _inject_nextcloud_bridge(
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "nextcloud_bridge"
     _refresh_service_dir(src_dir, dest_dir, "nextcloud_bridge", _user_owned_services(project_path))
 
@@ -934,6 +1033,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
     dest_dir = dest_services_root / "gchat_bridge"
     _refresh_service_dir(src_dir, dest_dir, "gchat_bridge", _user_owned_services(project_path))
 
@@ -1032,6 +1132,7 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
     owned = _user_owned_services(project_path)
 
     for name in ("mongodb", "archiver_recorder"):

@@ -7,7 +7,7 @@ repository that is the deployment: one directory, four zones.
     │  ═ SOURCE — tracked, user-edited ═══════════════
     ├── profile.yml  triggers.yml  README.md
     ├── data/  personas/  web-terminal-context/
-    ├── .gitignore  .env.example  ci-extra.yml
+    ├── .gitignore  .env.example  .env.shared  ci-extra.yml
     ├── .gitlab-ci.yml  scripts/verify.sh   (with deploy coordinates)
     │  ═ SECRETS — ignored, durable ══════════════════
     ├── .env                       (seeded from the shell, when it has keys)
@@ -19,7 +19,7 @@ repository that is the deployment: one directory, four zones.
 The source zone is materialized by the same machinery every other
 materialization path uses (:func:`~.profile_cmd._materialize_profile_directory`,
 in its repo-root layout). What this module adds is the repo around it: the
-anchored three-zone ``.gitignore``, the README explaining the zones, the state
+anchored four-zone ``.gitignore``, the README explaining the zones, the state
 skeleton, the CI emission, and the initial commit.
 
 Usage::
@@ -38,7 +38,9 @@ from typing import TYPE_CHECKING
 
 import click
 
+from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.errors import BuildProfileError
+from osprey.utils.dotenv import ENV_SHARED_FILENAME
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import STATE_ZONE_DIRS
 
@@ -54,7 +56,7 @@ if TYPE_CHECKING:
 
 logger = get_logger("init")
 
-#: Where the post-deploy health check lands in a three-zone repo. The source
+#: Where the post-deploy health check lands in a four-zone repo. The source
 #: zone IS the repo root here, so the check sits exactly where the pipeline
 #: that invokes it says it does — there is no ``project/`` mirror in between.
 REPO_VERIFY_PATH: tuple[str, ...] = ("scripts", "verify.sh")
@@ -87,7 +89,7 @@ def _repo_gitignore() -> str:
     deliberate exception, being a name pattern rather than a path.
     """
     return f"""\
-# This repo is the deployment: the source zone is tracked, and the three
+# This repo is the deployment: the source zone is tracked, and the
 # generated or secret zones below never are. A fresh deployment has a clean
 # `git status` from birth.
 
@@ -106,8 +108,9 @@ def _repo_gitignore() -> str:
 /{HELD_SOURCE_ZONE_DIRNAME}/
 
 # SECRETS — provider keys you set plus the tokens `osprey up` mints, and the
-# lock file the write-back path creates beside them. .env.example carries no
-# values and is the single exception.
+# lock file the write-back path creates beside them. Two exceptions carry no
+# values a host may not share: .env.example, the documented variable list, and
+# .env.shared, this deployment's committed defaults.
 #
 # Every zone entry above is anchored to the repo root with a leading slash. An
 # unanchored `{BUILD_OUTPUT_DIR}/` or `.env*` would also swallow a same-named path anywhere
@@ -115,11 +118,58 @@ def _repo_gitignore() -> str:
 # silently.
 /.env*
 !/.env.example
+!/{ENV_SHARED_FILENAME}
+
+# The compose document a deploy merges here when the container runtime needs a
+# single file. Machine-written, rewritten by every `osprey up`, removed by
+# `osprey reset` — anchored for the same reason the zones above are.
+/{MERGED_COMPOSE_FILENAME}
 
 # OS / editor noise. Deliberately unanchored: these are junk at any depth.
 .DS_Store
 *.swp
 *.swo
+"""
+
+
+def _repo_env_shared(name: str) -> str:
+    """The committed half of the deployment's environment, as a commented starter.
+
+    Every line is commented out, because a deployment needs no shared defaults
+    to run: the file exists so that the first setting every host at a site needs
+    has an obvious home that is not each operator's own ``.env``. The proxy
+    block is here rather than in ``.env.example`` for exactly that reason — it
+    is a site fact, identical on every host, and it carries no secret.
+
+    The header is the file's whole job. A reader arriving at two env files in
+    one repo has one question, and it is answered in the first lines: this one
+    is committed and shared, ``.env`` beside it is local and wins.
+    """
+    return f"""\
+# {name} — shared, committed defaults.
+#
+# The non-secret half of this deployment's environment, and the one env file
+# that IS tracked in git. Every host that clones this repo starts from the
+# values here, so a setting the whole site needs — a proxy, a facility
+# hostname, a shared port — belongs in this file rather than in each
+# operator's own `.env`.
+#
+# Precedence, lowest first:
+#
+#   .env.shared   these defaults, committed, the same on every host
+#   .env          this host's own values and every secret — LOCAL WINS
+#
+# A key set in both files takes its value from `.env`. There is nothing more to
+# it than that: same syntax, same variables, lower precedence.
+#
+# Never put a secret here — this file is committed. An API key, a token or a
+# password goes in `.env`, which git ignores and which never leaves the host.
+# Neither file ever enters a container image; both are read at run time.
+
+# Proxy settings — uncomment if this site sits behind a corporate firewall.
+# NO_PROXY=localhost,127.0.0.1
+# HTTP_PROXY=http://proxy.example.com:8080
+# HTTPS_PROXY=http://proxy.example.com:8080
 """
 
 
@@ -149,6 +199,29 @@ In full, the first row is: {_source_zone_prose()}.
 
 `{BUILD_OUTPUT_DIR}/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
+
+## The `.env` files
+
+Two of these are yours to edit, one is documentation, and anything else
+starting with `.env` is generated by a deploy — kept out of git, and never
+edited by hand.
+
+| File | What it is for | In git? |
+| --- | --- | --- |
+| `{ENV_SHARED_FILENAME}` | edit — the settings that are the same on every host | yes |
+| `.env` | edit — this host's own values, and every key | no |
+| `.env.example` | documentation — every variable this deployment reads | yes |
+| `.env.merged` | generated — the settings a deploy hands the containers | no |
+
+`{ENV_SHARED_FILENAME}` and `.env` are read together, `.env` last: if the same
+setting appears in both, the one in `.env` wins. That is how a single host
+changes a shared default without affecting anyone else. None of these files go
+into a container image — they are all read when the deployment starts.
+
+`{MERGED_COMPOSE_FILENAME}` at the root is generated the same way, so a deploy
+can hand the container runtime one file instead of several. It is kept out of
+git, holds no keys, is rewritten by every `osprey up`, and `osprey reset`
+removes it.
 
 ## Everyday commands
 
@@ -299,11 +372,12 @@ def _repo_gitignore_for(_name: str) -> str:
 #: does not implement.
 WRITE_ONCE_FILES: Mapping[str, Callable[[str], str]] = {
     ".gitignore": _repo_gitignore_for,
+    ENV_SHARED_FILENAME: _repo_env_shared,
     "README.md": _repo_readme,
     _CI_EXTRA_FILENAME: _ci_extra_text,
 }
 
-#: Where the scaffolding engine puts the CI pair in a three-zone repo. Spelled
+#: Where the scaffolding engine puts the CI pair in a four-zone repo. Spelled
 #: here rather than imported because ``deploy_scaffold`` pulls the build-profile
 #: chain in with it (TR-2); a test cross-checks these against the engine's own
 #: ``CI_OUTPUT_NAMES`` and :data:`REPO_VERIFY_PATH` so the two cannot drift.
@@ -708,7 +782,7 @@ def _bootstrap_git(target: Path, *, no_git: bool) -> str:
     through git, the deploy host gets its copy by cloning, and the source zone
     is the record of what the deployment IS. Committing it here means the
     operator's first ``git status`` is clean, which is the property the
-    three-zone ``.gitignore`` exists to give them.
+    four-zone ``.gitignore`` exists to give them.
 
     Nothing is done when a repository already encloses the target. Two
     different situations reach that branch and both want the same answer:
@@ -1230,6 +1304,7 @@ def _entry_list(target: Path, materialized: _MaterializedProfile) -> list[str]:
         rows.append(("personas/", f"one per web login: {', '.join(personas)}"))
     rows += [
         (".env", _env_note(target, materialized)),
+        (ENV_SHARED_FILENAME, "settings shared by every host; your .env wins"),
         ("README.md", "what everything here does"),
     ]
 

@@ -24,7 +24,7 @@ refuses. These tests pin the guard at each boundary where a value OSPREY did not
 mint can reach a container:
 
 * ``.env.auth``   — the auth sidecar (includes the operator-appended OIDC secret)
-* ``.env.production`` — every per-user web terminal
+* ``.env.users`` — every per-user web terminal
 * ``.env``        — the compose document on every deploy, plus the dispatch
   worker, which receives the file wholesale
 
@@ -198,7 +198,7 @@ def test_ensure_service_tokens_passes_a_clean_env(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# .env.production -- every value is copied verbatim from the operator's .env
+# .env.users -- every value is copied verbatim from the operator's .env
 # ---------------------------------------------------------------------------
 
 
@@ -239,7 +239,7 @@ def test_env_production_refuses_a_dollar_bearing_secret(tmp_path) -> None:
     message = str(excinfo.value)
     assert "OLOG_PASSWORD" in message, "the offending variable must be named"
     assert "h0rse" not in message, "the secret value must never be echoed"
-    assert not (tmp_path / ".env.production").exists(), (
+    assert not (tmp_path / ".env.users").exists(), (
         "a refused deploy must not leave a half-written secrets file behind"
     )
 
@@ -268,7 +268,7 @@ def test_env_production_scans_a_file_it_did_not_generate(tmp_path) -> None:
     regenerated. Both hold values OSPREY never saw, so the generate-path check
     alone would leave the default deploy unguarded.
     """
-    (tmp_path / ".env.production").write_text("OLOG_PASSWORD=h0rse$battery\n", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("OLOG_PASSWORD=h0rse$battery\n", encoding="utf-8")
 
     with pytest.raises(ComposeInterpolationError) as excinfo:
         env_production.ensure_env_production(_CONFIG, tmp_path)
@@ -279,7 +279,7 @@ def test_env_production_scans_a_file_it_did_not_generate(tmp_path) -> None:
 
 def test_env_production_returns_an_existing_clean_file_untouched(tmp_path) -> None:
     """Regression: an existing clean file is still returned, never regenerated."""
-    existing = tmp_path / ".env.production"
+    existing = tmp_path / ".env.users"
     existing.write_text("OLOG_PASSWORD=cleanpassword\n", encoding="utf-8")
 
     path = env_production.ensure_env_production(_CONFIG, tmp_path)

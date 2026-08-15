@@ -253,7 +253,7 @@ def _create_sandbox_wrapper(
     exec_folder_str = str(execution_folder)
     workspace_str = str(workspace_root)
     # Required, with no parent-of-workspace-root fallback: that rule resolves to
-    # `<repo>/var` under the three-zone layout, and a default here would let a
+    # `<repo>/var` under the four-zone layout, and a default here would let a
     # caller that forgot to resolve the root get the wrong answer silently
     # rather than a TypeError.
     project_root_str = str(project_root)
@@ -660,7 +660,7 @@ async def execute_sandbox_code(
     workspace_root = resolve_workspace_root()
     # Resolved directly, NOT as the parent of the agent-data root: that only
     # agreed with the repo root while agent data sat exactly one level below it.
-    # Under the three-zone layout the root is `<repo>/var/agent_data`, so the
+    # Under the four-zone layout the root is `<repo>/var/agent_data`, so the
     # parent is `<repo>/var` — and for a project that relocated the root it was
     # never right at all. The sibling python executor documents the same
     # reasoning at `python_executor.executor._resolve_project_root`; this is the

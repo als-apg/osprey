@@ -46,8 +46,14 @@ from .build_profile_schema import (
     ProfileProvenance,
     ServiceDef,
     VAConfig,
+    network_mode_errors,
 )
 from .profile_conventions import validate_convention_sources
+
+DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
+"""The two services the ``dispatch:`` block deploys as one unit. They share a
+network by construction, so ``dispatch.network:`` is their only network knob
+and a per-half ``network:`` is rejected rather than honored."""
 
 # VALID_CHANNEL_FINDER_MODES / default_tier_for_mode / tier_mode_conflict are
 # imported from the build-time kernel (osprey.build.build_tiers) so the
@@ -376,6 +382,67 @@ class BuildProfile:
 
         return errors
 
+    def _validate_network_axis(self) -> list[str]:
+        """Return validation errors for every ``network:`` declaration.
+
+        Runs on the profile as authored, BEFORE the build injects anything, so
+        a ``network:`` on a dispatch-pair half is caught as something a person
+        wrote rather than as the value the build is about to write there
+        itself. Both authoring surfaces are checked — the ``services:`` block
+        and the dotted ``config:`` overrides — because either spelling reaches
+        the same key in the rendered ``config.yml``.
+
+        Returns:
+            Human-readable error messages; empty when every declaration names a
+            valid mode and the dispatch pair keeps its single knob.
+        """
+        errors: list[str] = []
+        pair_reported: set[str] = set()
+
+        def check(name: str, value: Any, key: str) -> None:
+            """Record the problem with one service's declared mode, if any."""
+            if name in DISPATCH_PAIR_SERVICES:
+                if name in pair_reported:
+                    return
+                pair_reported.add(name)
+                errors.append(
+                    f"{key} is not a per-service knob: the event dispatcher and its "
+                    f"workers share one network, set by dispatch.network: "
+                    f"(got {value!r}). Remove {key} and set dispatch.network instead."
+                )
+            else:
+                errors.extend(network_mode_errors(value, key))
+
+        if self.dispatch is not None:
+            errors.extend(network_mode_errors(self.dispatch.network, "dispatch.network"))
+
+        for name, svc in self.services.items():
+            # A bare `on:`/`no:` service name is read on the YAML 1.1 resolver
+            # as a boolean, which would reach the dotted-key formatting below as
+            # a non-string. Report the resolver rather than crash on it.
+            if not isinstance(name, str):
+                errors.append(
+                    f"services keys must be strings (got {name!r}); a bare "
+                    "yes/no/on/off in YAML parses as a boolean — quote the service name"
+                )
+                continue
+            if isinstance(svc.config, dict) and "network" in svc.config:
+                check(name, svc.config["network"], f"services.{name}.network")
+
+        if isinstance(self.config, dict):
+            for key, value in self.config.items():
+                if not isinstance(key, str):
+                    errors.append(
+                        f"config keys must be strings (got {key!r}); a bare "
+                        "yes/no/on/off in YAML parses as a boolean — quote the key"
+                    )
+                    continue
+                parts = key.split(".")
+                if len(parts) == 3 and parts[0] == "services" and parts[2] == "network":
+                    check(parts[1], value, key)
+
+        return errors
+
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
         errors: list[str] = []
@@ -461,6 +528,9 @@ class BuildProfile:
                     errors.append(f"Service '{name}' template dir not found: {tmpl_path}")
                 elif not (tmpl_path / "docker-compose.yml.j2").exists():
                     errors.append(f"Service '{name}' template dir missing docker-compose.yml.j2")
+
+        # Validate the network axis across both authoring surfaces
+        errors.extend(self._validate_network_axis())
 
         # Validate lifecycle steps
         for phase_name in ("pre_build", "post_build", "validate"):

@@ -53,27 +53,30 @@ from .repo_resolver import find_repo_root, repo_option
 
 
 def _overlay_repo_env(repo_root: Path) -> None:
-    """Load the repo's ``.env`` into ``os.environ``, overriding what is there.
+    """Load the repo's env chain into ``os.environ``, overriding what is there.
 
     The SECRETS zone is at the repo root while the render is under ``build/``,
-    so the ``.env`` and the ``config.yml`` this verb needs do not live in one
+    so the env chain and the ``config.yml`` this verb needs do not live in one
     directory — and the runner's own overlay
     (``osprey.build.claude_code_resolver._env_lookup``) looks beside the config
     it was handed. Without this the provider secret would simply not be found
     and the query would authenticate as whatever the ambient shell exported.
 
-    ``.env`` wins over a stale shell export, which is the precedence every other
-    launch path applies. Every key is copied, not a declared subset: the agent
-    expands ``.mcp.json`` ``${VAR}`` references (Channel Access addressing among
-    them) out of this environment, so a narrowed copy would silently mis-address
-    the control system rather than fail.
+    The chain is loaded in ascending precedence — ``.env.shared`` then ``.env``,
+    each with ``override=True`` — so the host-local file wins over the committed
+    defaults, and both win over a stale shell export. That is the precedence
+    every other launch path applies. Every key is copied, not a declared subset:
+    the agent expands ``.mcp.json`` ``${VAR}`` references (Channel Access
+    addressing among them) out of this environment, so a narrowed copy would
+    silently mis-address the control system rather than fail.
     """
     try:
         from dotenv import load_dotenv
     except ImportError:
         return
-    env_file = repo_root / ".env"
-    if env_file.is_file():
+    from osprey.utils.dotenv import chain_files
+
+    for env_file in chain_files(repo_root):
         load_dotenv(env_file, override=True)
 
 

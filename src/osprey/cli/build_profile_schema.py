@@ -18,6 +18,48 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+NetworkMode = Literal["bridge", "host"]
+"""How a deployed service attaches to the network."""
+
+VALID_NETWORK_MODES: tuple[NetworkMode, ...] = ("bridge", "host")
+"""The closed network vocabulary, in declaration order. ``bridge`` is the
+compose-managed project network every service has always used; ``host`` shares
+the host's network namespace, which is what a site needs when a service must
+see broadcast traffic (control-system protocols, discovery) or reach ports
+published on the host. Consumers branch on exactly these two, so a third mode
+is a deliberate addition here rather than a string a profile can invent."""
+
+DEFAULT_NETWORK_MODE: NetworkMode = "bridge"
+"""Attachment a service gets when it declares none — the behaviour that
+existed before the axis, so an unset ``network:`` renders as it always did."""
+
+
+def network_mode_errors(value: Any, key: str) -> list[str]:
+    """Return the problems with one ``network:`` declaration (empty when valid).
+
+    Accumulates rather than raising, the way :meth:`BuildProfile.validate`
+    does, so a profile author sees every axis problem at once.
+
+    Args:
+        value: The declared mode, exactly as it came out of the YAML.
+        key: Dotted path of the declaration (e.g. ``"dispatch.network"``),
+            used verbatim in the message so the author can find it.
+
+    Returns:
+        Human-readable error messages; empty when ``value`` names a mode in
+        :data:`VALID_NETWORK_MODES`.
+    """
+    if isinstance(value, str) and value in VALID_NETWORK_MODES:
+        return []
+    message = f"{key} must be one of {', '.join(VALID_NETWORK_MODES)} (got {value!r})"
+    if isinstance(value, bool):
+        # A bare `network: on` is read on the YAML 1.1 resolver as the bool
+        # True, so the author sees their own spelling reported back as a
+        # boolean they never wrote. Name the resolver rather than let them
+        # re-read the same line looking for a typo that is not there.
+        message += ". A bare yes/no/on/off in YAML parses as a boolean — quote the value."
+    return [message]
+
 
 @dataclass
 class ProfileProvenance:
@@ -160,10 +202,39 @@ class EnvironmentConfig:
 
 @dataclass
 class ServiceDef:
-    """Definition of a container service for ``osprey up``."""
+    """Definition of a container service for ``osprey up``.
+
+    :attr:`config` is a free-form pass-through: whatever a profile declares
+    under ``services.<name>.config`` is written to the rendered ``config.yml``
+    and is visible to the service's compose template. One key in it is
+    understood by the build itself — ``network:``, the service's attachment,
+    one of :data:`VALID_NETWORK_MODES` and defaulting to
+    :data:`DEFAULT_NETWORK_MODE`. It is validated by
+    :meth:`BuildProfile.validate` and read through :meth:`network_mode`.
+    """
 
     template: str  # Path to template dir (relative to profile dir)
     config: dict[str, Any] = field(default_factory=dict)
+
+    def network_mode(self) -> str:
+        """Return the service's declared network attachment.
+
+        The single place the axis default is applied for a declared service,
+        so a consumer never has to spell ``"bridge"`` itself.
+
+        Returns:
+            The declared mode, or :data:`DEFAULT_NETWORK_MODE` when the service
+            declares none. Guaranteed to name a mode in
+            :data:`VALID_NETWORK_MODES` for any profile that passed
+            :meth:`BuildProfile.validate`.
+        """
+        if not isinstance(self.config, dict):
+            return DEFAULT_NETWORK_MODE
+        mode = self.config.get("network", DEFAULT_NETWORK_MODE)
+        # A non-string here means the profile never passed validation (a bare
+        # `network: on` reaches this as a bool); fall back rather than hand a
+        # consumer a value it would compare against the vocabulary and miss.
+        return mode if isinstance(mode, str) else DEFAULT_NETWORK_MODE
 
 
 @dataclass
@@ -187,6 +258,18 @@ class DispatchConfig:
     inactivity_sec: int = 120
     facility_name: str = ""
     pv_strip_prefix: str = ""
+
+    network: NetworkMode = DEFAULT_NETWORK_MODE
+    """Network attachment for the dispatcher and its workers, one of
+    :data:`VALID_NETWORK_MODES`.
+
+    ONE knob covers the pair: the dispatcher and the workers talk to each other
+    over addresses the build emits, so a half on the compose network and a half
+    on the host's could not reach each other. A ``network:`` authored directly
+    on ``services.event_dispatcher`` or ``services.dispatch_worker`` is
+    therefore rejected by :meth:`BuildProfile.validate` — the build writes this
+    single value into both halves instead.
+    """
 
 
 @dataclass

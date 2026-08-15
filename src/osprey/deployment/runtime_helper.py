@@ -12,10 +12,16 @@ Examples:
         # Returns: ['docker', 'compose'] or ['podman', 'compose']
 """
 
+import hashlib
 import os
+import re
 import shutil
 import subprocess
-from collections.abc import Mapping
+import textwrap
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 #: Memoized detections, keyed on the runtimes a call would probe — which folds in
@@ -23,6 +29,12 @@ from typing import Any
 #: those inputs rather than memoizing a single answer per process keeps a
 #: config-less call from pinning the runtime for a later call that names one.
 _runtime_cmd_cache: dict[tuple[str, ...], list[str]] = {}
+
+#: Memoized compose provider probes, keyed on the compose argv base that was
+#: probed (``("podman", "compose")`` and friends). Keyed the same way as
+#: ``_runtime_cmd_cache`` so a probe of one runtime never answers for another,
+#: and cleared by the same :func:`reset_runtime_cache` test hook.
+_compose_provider_cache: dict[tuple[str, ...], "ComposeProviderInfo"] = {}
 
 
 def _runtimes_to_try(config: Mapping[str, Any] | None) -> tuple[str, ...]:
@@ -118,6 +130,267 @@ def reset_runtime_cache() -> None:
     probe pins the detected runtime for the rest of the process otherwise.
     """
     _runtime_cmd_cache.clear()
+    _compose_provider_cache.clear()
+
+
+class ComposeProvider(StrEnum):
+    """Which compose implementation actually runs behind a compose argv base.
+
+    The runtime binary does not answer this: ``podman compose`` is a dispatcher
+    that hands the work to whichever external provider the host has configured,
+    so a ``podman`` argv can be served by podman-compose *or* by Docker Compose
+    v2. The two providers need different invocation shapes, so callers branch on
+    this rather than on ``cmd[0]``.
+    """
+
+    DOCKER_V2 = "docker-compose-v2"
+    PODMAN_COMPOSE = "podman-compose"
+
+
+#: Oldest podman-compose OSPREY's compose invocation is compatible with. Chosen
+#: because it is what EPEL 8 ships stock (EPEL 9 ships 1.5.0), so facilities on
+#: distribution packages are covered without building anything from source.
+PODMAN_COMPOSE_MIN_VERSION: tuple[int, ...] = (1, 0, 6)
+
+#: Timeout for the banner probe. Generous compared to the runtime detection
+#: probes because ``podman compose version`` starts a Python provider process.
+_PROVIDER_PROBE_TIMEOUT = 15
+
+#: ``podman-compose version 1.0.6``, however it is embedded in the surrounding
+#: dispatcher chatter. Requires the literal hyphenated name, so the docker
+#: pattern below cannot match it.
+_PODMAN_COMPOSE_BANNER = re.compile(
+    r"podman-compose\s+version:?\s+v?(\d+(?:\.\d+)*)", re.IGNORECASE
+)
+
+#: ``Docker Compose version v2.24.5``. The space between the two words is
+#: load-bearing: Compose v1 announced itself as ``docker-compose version 1.29.2``
+#: and is not a supported provider, so it must fall through to the fail-closed
+#: branch rather than being read as a v2.
+_DOCKER_COMPOSE_BANNER = re.compile(
+    r"docker\s+compose\s+version:?\s+v?(\d+(?:\.\d+)*)", re.IGNORECASE
+)
+
+
+@dataclass(frozen=True)
+class ComposeProviderInfo:
+    """The provider behind a compose argv base, with the version it reported.
+
+    Attributes:
+        provider: Which supported implementation answered the probe.
+        version: Parsed version as an int tuple, directly comparable
+            (``info.version >= PODMAN_COMPOSE_MIN_VERSION``).
+        version_text: The version exactly as the provider printed it.
+        banner: The trimmed stdout+stderr of the probe, kept for diagnostics.
+    """
+
+    provider: ComposeProvider
+    version: tuple[int, ...]
+    version_text: str
+    banner: str
+
+
+class UnsupportedComposeProviderError(RuntimeError):
+    """Raised when the compose provider is not one OSPREY can invoke correctly.
+
+    A ``RuntimeError`` subclass so the existing "no usable runtime" handling in
+    this module and its callers keeps catching it.
+    """
+
+
+def _format_version(version: tuple[int, ...]) -> str:
+    return ".".join(str(part) for part in version)
+
+
+def _parse_version(text: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in text.split("."))
+
+
+def _unsupported_provider_message(base: Sequence[str], detail: str, banner: str) -> str:
+    """Fail-closed text: what was wrong, what is supported, what was reported."""
+    lines = [
+        f"Unsupported compose provider behind `{' '.join(base)}`: {detail}",
+        "",
+        "OSPREY supports Docker Compose v2 and podman-compose "
+        f"{_format_version(PODMAN_COMPOSE_MIN_VERSION)} or newer. See the container "
+        "runtime compatibility statement in the deployment guide "
+        "(docs/source/how-to/deploy-project.rst) for the supported providers and the "
+        "invocation shape each one gets.",
+    ]
+    if banner:
+        lines.extend(["", "The provider reported:", textwrap.indent(banner, "  ")])
+    return "\n".join(lines)
+
+
+def detect_compose_provider(
+    cmd: Sequence[str] | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> ComposeProviderInfo:
+    """Probe which compose implementation serves a compose argv base.
+
+    Runs ``<base> version`` and reads the banner from stdout *and* stderr —
+    ``podman compose`` prints its "executing external compose provider" notice
+    on stderr and the provider's own banner on stdout, and which stream carries
+    what varies by version, so both are scanned as one text.
+
+    Recognition is by banner, never by ``cmd[0]``: a host whose podman is
+    configured to delegate to Docker Compose v2 reports the Docker banner and is
+    reported as :attr:`ComposeProvider.DOCKER_V2`, because the invocation shape
+    follows the provider that parses the argv, not the binary that forwards it.
+
+    Anything else fails closed rather than guessing: an unrecognized banner, a
+    podman-compose older than :data:`PODMAN_COMPOSE_MIN_VERSION`, a Compose v1,
+    or a probe that could not be run at all. Guessing would mean emitting an
+    argv the provider silently mis-parses, which surfaces much later as a
+    deploy that came up against the wrong files.
+
+    Memoized per argv base and cleared by :func:`reset_runtime_cache`. Only
+    successful probes are cached, so a fail-closed run is re-probed after the
+    host is fixed rather than staying poisoned for the process.
+
+    Args:
+        cmd: Compose argv base to probe, e.g. ``["podman", "compose"]``.
+            Defaults to :func:`get_runtime_command`'s answer for ``config``.
+        config: Optional configuration mapping, used only when ``cmd`` is
+            omitted.
+
+    Returns:
+        The detected provider and its version.
+
+    Raises:
+        UnsupportedComposeProviderError: The provider is not supported, its
+            version is below the floor, or the probe could not be run.
+    """
+    base = list(cmd) if cmd is not None else get_runtime_command(config)
+    key = tuple(base)
+
+    cached = _compose_provider_cache.get(key)
+    if cached is not None:
+        return cached
+
+    try:
+        result = subprocess.run(
+            [*base, "version"],
+            capture_output=True,
+            text=True,
+            timeout=_PROVIDER_PROBE_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise UnsupportedComposeProviderError(
+            _unsupported_provider_message(
+                base, f"the version probe timed out after {_PROVIDER_PROBE_TIMEOUT}s", ""
+            )
+        ) from exc
+    except OSError as exc:
+        raise UnsupportedComposeProviderError(
+            _unsupported_provider_message(base, f"the version probe could not run ({exc})", "")
+        ) from exc
+
+    banner = "\n".join(
+        stream.strip() for stream in (result.stdout or "", result.stderr or "") if stream.strip()
+    )
+
+    podman_match = _PODMAN_COMPOSE_BANNER.search(banner)
+    if podman_match:
+        version = _parse_version(podman_match.group(1))
+        if version < PODMAN_COMPOSE_MIN_VERSION:
+            raise UnsupportedComposeProviderError(
+                _unsupported_provider_message(
+                    base,
+                    f"podman-compose {podman_match.group(1)} is older than the supported "
+                    f"floor {_format_version(PODMAN_COMPOSE_MIN_VERSION)}",
+                    banner,
+                )
+            )
+        info = ComposeProviderInfo(
+            provider=ComposeProvider.PODMAN_COMPOSE,
+            version=version,
+            version_text=podman_match.group(1),
+            banner=banner,
+        )
+        _compose_provider_cache[key] = info
+        return info
+
+    docker_match = _DOCKER_COMPOSE_BANNER.search(banner)
+    if docker_match:
+        version = _parse_version(docker_match.group(1))
+        if version < (2,):
+            raise UnsupportedComposeProviderError(
+                _unsupported_provider_message(
+                    base,
+                    f"Docker Compose {docker_match.group(1)} predates Compose v2",
+                    banner,
+                )
+            )
+        info = ComposeProviderInfo(
+            provider=ComposeProvider.DOCKER_V2,
+            version=version,
+            version_text=docker_match.group(1),
+            banner=banner,
+        )
+        _compose_provider_cache[key] = info
+        return info
+
+    if "podman-compose" in banner.lower():
+        # The dispatcher named podman-compose but no version came back, so the
+        # floor cannot be checked — the one thing that must not be assumed.
+        raise UnsupportedComposeProviderError(
+            _unsupported_provider_message(
+                base, "podman-compose reported no parseable version", banner
+            )
+        )
+
+    detail = "the version banner was not recognized"
+    if result.returncode != 0:
+        detail += f" (probe exited {result.returncode})"
+    raise UnsupportedComposeProviderError(_unsupported_provider_message(base, detail, banner))
+
+
+#: Environment variable carrying :func:`env_chain_digest`'s answer into a
+#: compose invocation. The rendered templates interpolate it into an
+#: ``osprey.env.digest`` container label, so the name is part of the compose
+#: contract and is spelled here once for every producer and consumer of it.
+ENV_DIGEST_VAR = "OSPREY_ENV_DIGEST"
+
+
+def env_chain_digest(repo_root: Path | str) -> str:
+    """Fingerprint of the env chain's *contents* under ``repo_root``.
+
+    THE recipe, spelled once so every reproducer agrees on it:
+
+    * take :func:`osprey.utils.dotenv.chain_files` for ``repo_root`` — the
+      existing members of ``.env.shared``, ``.env``, in that order;
+    * feed each file's raw bytes, unparsed and in that order, into one
+      ``sha256``; the files are concatenated into a single hash, not hashed
+      individually;
+    * return the hex digest — or the **empty string** when the chain has no
+      existing member at all, which is a valid project shape rather than an
+      error.
+
+    Nothing else is mixed in: not the file names, not their modification times,
+    not ``repo_root``. Two deployments whose chain files hold identical bytes
+    have identical digests, and a comment-only edit changes the digest just as a
+    value edit does. Parsing instead of hashing raw bytes would be a second,
+    subtly different answer to "did the env change?", so the bytes are hashed as
+    they sit on disk.
+
+    Membership is not encoded, deliberately: moving a key from ``.env.shared``
+    into ``.env`` byte-for-byte leaves the digest unchanged. Chain-set drift is
+    a build-time question, answered by the ``osprey up`` preflight, not by this
+    content fingerprint.
+
+    :param repo_root: Directory the chain lives in (the deployment repo root).
+    :return: Hex sha256 of the concatenated chain, or ``""`` for an empty chain.
+    """
+    from osprey.utils.dotenv import chain_files
+
+    paths = chain_files(Path(repo_root))
+    if not paths:
+        return ""
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 def runtime_env(
@@ -137,6 +410,23 @@ def runtime_env(
     ``project_root``). Every subprocess/exec call that shells out to a runtime
     command should build its env through this function rather than passing
     ``os.environ`` (or a copy of it) directly.
+
+    Also injects :data:`ENV_DIGEST_VAR` (:func:`env_chain_digest` of the repo
+    the invocation is pinned to), and injects it unconditionally rather than
+    on request. The rendered templates carry an ``osprey.env.digest`` label
+    interpolated from it, and a label is compose's own recreate trigger: podman-
+    compose does not diff a container's environment against the env files it was
+    built from, so an edit to ``.env`` reaches a *running* container only if
+    something in the compose document itself changed. Folding the chain's
+    content hash into a label makes that edit a document change, so the affected
+    containers are recreated on both providers.
+
+    Unconditional is the point. The value only works as a recreate trigger if
+    every invocation that can reach ``up`` computes the SAME one — a single call
+    site that skipped it would interpolate the label to the empty string, look
+    like a document change to compose, and recreate the whole stack for no
+    reason. That is also why the digest is not a caller's argument: it is
+    derived here, from the same repo root compose is pinned to, for all of them.
 
     ``ignore_orphans=True`` additionally sets ``COMPOSE_IGNORE_ORPHANS``, and
     is for the web-terminal call sites only. There it is structural, not
@@ -171,13 +461,17 @@ def runtime_env(
             Never combine with a ``--remove-orphans`` argv.
 
     Returns:
-        A new environment dict with ``COMPOSE_PROJECT_NAME`` set (and
-        ``COMPOSE_IGNORE_ORPHANS`` when requested).
+        A new environment dict with ``COMPOSE_PROJECT_NAME`` and
+        :data:`ENV_DIGEST_VAR` set (and ``COMPOSE_IGNORE_ORPHANS`` when
+        requested).
     """
-    from osprey.deployment.compose_generator import resolve_project_name
+    from osprey.deployment.compose_generator import resolve_project_name, resolve_repo_root
 
     env = dict(base_env if base_env is not None else os.environ)
     env["COMPOSE_PROJECT_NAME"] = resolve_project_name(config or {})
+    # Derived from the repo compose_base_cmd pins as --project-directory, so the
+    # digest covers the same chain files compose itself resolves ./.env* against.
+    env[ENV_DIGEST_VAR] = env_chain_digest(resolve_repo_root(config))
     if ignore_orphans:
         env["COMPOSE_IGNORE_ORPHANS"] = "1"
     return env

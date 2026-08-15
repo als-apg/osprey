@@ -170,7 +170,7 @@
      agent; the session signing key in `.env.auth` would let any user's agent
      mint a valid cookie for every other user, which is precisely the isolation
      this feature exists to establish. The inverse also holds: the sidecar never
-     reads `.env.production` — the per-user containers' shared env file — so no
+     reads `.env.users` — the per-user containers' shared env file — so no
      provider key or facility credential is in reach of the login surface.
   2. Secrets travel ONLY as `env_file` entries, never as `environment:` values,
      and every secret VALUE must be free of `$`. Both halves are load-bearing.
@@ -217,7 +217,7 @@
   Never against this file's own location, which is `build/`. That single pin is
   what lets one rendered file reference both zones correctly: the nginx config
   and landing page are render output and live under `./build/nginx/`, while
-  `.env.auth` and `.env.production` are durable secrets and live at the repo
+  `.env.auth` and `.env.users` are durable secrets and live at the repo
   root, where the roster verbs write them and `rm -rf build/` cannot touch them.
 
   NGINX MOUNT TARGET: nginx.conf.j2's rendered output is a `server{}` FRAGMENT, not a
@@ -380,7 +380,7 @@ services:
     network_mode: host
     labels:
       com.osprey.repo-id: "{{ repo_id }}"
-    env_file: .env.production
+    env_file: .env.users
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
       - HOME=/data/claude-config
@@ -417,7 +417,7 @@ services:
          terminal's panel proxy injects this server-side (routes/proxy.py) so the
          browser never holds it; without it the tab renders empty.
 
-         Deliberately HERE and not in `.env.production`: that file is handed to
+         Deliberately HERE and not in `.env.users`: that file is handed to
          every user's container alike, so a token in it would reach read-only
          personas too — and this one credential can fire triggers. Per-user is
          the only placement that can express the tier boundary.
@@ -439,7 +439,7 @@ services:
          and the ARIEL tab reports the database as unavailable.
 
          Per-user for the same reason as the dispatcher token above: a shared
-         `.env.production` cannot say "the personas that configure ARIEL".
+         `.env.users` cannot say "the personas that configure ARIEL".
 
          `:-ariel` mirrors the postgresql service template's own default, so a
          project deploying no minted password behaves here exactly as it does on
@@ -457,7 +457,7 @@ services:
 
          Per-user for the same reason as the two credentials above, and more
          sharply: this one arms physical hardware motion. A read-only persona
-         reads the same `.env.production` as everyone else, so a token placed
+         reads the same `.env.users` as everyone else, so a token placed
          there would hand queue-start capability to exactly the personas that
          must never have it.
 

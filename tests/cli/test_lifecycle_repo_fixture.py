@@ -152,7 +152,7 @@ def test_deploy_job_never_copies_over_the_durable_zones(
 def test_env_production_never_renders_to_the_job_log(
     lifecycle_repo_factory, tmp_path: Path
 ) -> None:
-    """``users env-production`` must carry ``--output``, or secrets hit stdout.
+    """``users env`` must carry ``--output``, or secrets hit stdout.
 
     ``--output`` is what selects file mode: without it the command echoes the
     fully assembled secrets file, and in a CI job stdout is the retained job
@@ -165,12 +165,10 @@ def test_env_production_never_renders_to_the_job_log(
         if not ln.lstrip().startswith("#")
     ]
 
-    renders = [ln for ln in directives if "users env-production" in ln]
-    assert renders, "the deploy job must render .env.production before starting containers"
+    renders = [ln for ln in directives if "users env" in ln]
+    assert renders, "the deploy job must render .env.users before starting containers"
     for line in renders:
-        assert "--output" in line, (
-            f"env-production without --output writes secrets to stdout: {line}"
-        )
+        assert "--output" in line, f"users env without --output writes secrets to stdout: {line}"
 
 
 # ── .gitignore ───────────────────────────────────────────────────────────────

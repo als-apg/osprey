@@ -1,0 +1,194 @@
+# The gchat-bridge service pulls Google Chat events from a Pub/Sub subscription
+# and dispatches mentions of the Chat app through the osprey.dispatch pair (see
+# src/osprey/bridges/google_chat/). It is a subscriber, not a server: it opens
+# no listening socket, so it publishes no ports and declares no healthcheck.
+# `osprey up` builds its image locally on first run; subsequent runs
+# reuse the local tag. To use a prebuilt/published image instead, set
+# OSPREY_GCHAT_BRIDGE_IMAGE (e.g. OSPREY_GCHAT_BRIDGE_IMAGE=my-registry/osprey-gchat-bridge:dev).
+# Use `osprey build --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+
+
+services:
+  gchat-bridge:
+    image: ${OSPREY_GCHAT_BRIDGE_IMAGE:-golden-project-gchat-bridge:local}
+    build:
+      # EVERY relative path here resolves against the pinned compose project
+      # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd) — never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env).
+      context: ./build/services/gchat_bridge
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "0.0.0"
+        OSPREY_PROJECT_NAME: "golden-project"
+
+
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy the bridge on one host without colliding
+    # on one name. Nothing reaches this service in-network (it only makes
+    # outbound calls), so the rename needs no network alias.
+    container_name: golden-project-gchat-bridge
+    command: ["python", "-m", "osprey.bridges.google_chat"]
+    labels:
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
+      osprey.deployed.at: "2026-01-01T00:00:00"
+    restart: unless-stopped
+    # Deliberately NO bulk .env passthrough. The project .env carries the
+    # provider keys the dispatch worker needs (CBORG/OpenAI/...), and this
+    # service — the one component that talks to Google's Chat and Pub/Sub APIs —
+    # never calls an LLM. Everything it does read arrives by interpolation into
+    # the block below, resolved from that same .env because `osprey up` runs
+    # compose with `--env-file .env`; an env-file mount is outranked by
+    # `environment:` in compose anyway, so it only ever widened what the
+    # container could see.
+    environment:
+      # ── Google Chat credentials and destinations ────────────────────────
+      # No :-default on ANY of these: an unset value must stay EMPTY so the
+      # entrypoint's require_startup() aborts at boot naming the missing vars,
+      # rather than the bridge coming up authenticating as nobody or pulling
+      # some other project's queue. Unlike the dispatch tokens below, these are
+      # never auto-generated — an operator creates the Chat app, its
+      # service-account key and the Pub/Sub subscription in their own GCP
+      # project and sets them in the project .env.
+      #
+      # Path to the service-account JSON key, mounted read-only at this same
+      # path below so one variable names the key on the host and in the
+      # container. The bridge builds its Pub/Sub and Chat clients from this file
+      # explicitly and never falls back to application-default credentials, so
+      # no GOOGLE_APPLICATION_CREDENTIALS is set here.
+      GCHAT_SA_KEY: ${GCHAT_SA_KEY}
+      # The fully-qualified pull subscription, projects/{project}/subscriptions/{sub}.
+      #
+      # SINGLE SUBSCRIBER: deploy exactly ONE bridge against a given
+      # subscription. Pub/Sub load-balances a subscription across all its
+      # consumers, so a second deployment (a staging stack, a leftover
+      # container, a second facility pointed at the same name) does not
+      # duplicate events — it SILENTLY SPLITS them, and each half answers only
+      # the messages it happened to receive. Give every deployment its own
+      # subscription on the topic instead.
+      GCHAT_SUBSCRIPTION: ${GCHAT_SUBSCRIPTION}
+      # The Chat app's own user id (users/1234567890). Also the mention target
+      # the space filter matches, so a wrong value makes the bridge ignore every
+      # message rather than fail loudly.
+      GCHAT_APP_ID: ${GCHAT_APP_ID}
+      # ── Dispatch pipeline ───────────────────────────────────────────────
+      # No :-default (see the event_dispatcher compose): an unset token must
+      # stay EMPTY so the bridge fails closed at boot rather than dispatching
+      # with a guessable secret. `osprey up` auto-generates strong random
+      # tokens into the project .env when unset.
+      EVENT_DISPATCHER_TOKEN: ${EVENT_DISPATCHER_TOKEN}
+      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
+      # The dispatcher trigger this channel fires (POST /webhook/{trigger}).
+      # Rendered from the build profile's gchat_bridge.trigger, which is the
+      # ONLY place the `gchat-question` default lives — deliberately no fallback
+      # here, so a config that lost the key fails at startup with the var named
+      # instead of silently firing some other facility's trigger.
+      DISPATCH_TRIGGER: ""
+
+      # External dispatcher: supplied by the deploy environment/.env, and
+      # REQUIRED (`:?`) rather than a bare reference. Compose resolves an unset
+      # bare ${VAR} to the empty string, not to an absent key, so
+      # CoreConfig.from_env's own localhost default would never fire and
+      # require_startup() does not cover these two: the stack would boot, then
+      # every dispatch POST would go to a protocol-less URL and fail — quietly,
+      # which is the problem. DispatchClient.run turns the transport error into
+      # an error result and the subscriber acks from a finally regardless, so
+      # nothing redelivers and nothing crashes; the bridge just answers no one.
+      # `:?` turns that silent per-event failure into a startup abort naming the
+      # missing variable.
+      DISPATCHER_URL: ${DISPATCHER_URL:?set DISPATCHER_URL when the dispatcher is not co-deployed}
+
+
+      # External worker: required for the same reason as DISPATCHER_URL above —
+      # an unset bare reference resolves to "" and the bridge would poll run
+      # status against a protocol-less URL forever instead of refusing to boot.
+      WORKER_URL: ${WORKER_URL:?set WORKER_URL when the dispatch worker is not co-deployed}
+
+      # Same var the worker itself reads, from the same config key, so the
+      # bridge's poll budget can never fall below the cap it must outlast.
+      DISPATCH_TIMEOUT_SEC: "300"
+      # ── Neutral tunables (passthrough) ──────────────────────────────────
+      # Deliberately passed through from the deploy environment with an EMPTY
+      # fallback rather than re-stating CoreConfig's defaults: an empty value
+      # makes CoreConfig.from_env fall back to its own default, so these knobs
+      # have exactly one definition (the dataclass). POLL_BUDGET is the one
+      # exception — its default is derived above from the worker's cap.
+      POLL_BUDGET: "${POLL_BUDGET:-330}"
+      POLL_INTERVAL: "${POLL_INTERVAL:-}"
+      DRAIN_INTERVAL: "${DRAIN_INTERVAL:-}"
+      RETRY_MIN_AGE: "${RETRY_MIN_AGE:-}"
+      RETRY_GIVE_UP: "${RETRY_GIVE_UP:-}"
+      RETRY_LIFETIME_CAP: "${RETRY_LIFETIME_CAP:-}"
+      # Outbound HTTP proxy honoring, off unless the site's bridge genuinely
+      # sits behind an egress proxy.
+      BRIDGE_TRUST_ENV: "${BRIDGE_TRUST_ENV:-}"
+      # GitLab give-up alerts (opt-in): unset means the site has no alert host,
+      # and the drain's health gate skips its alert-issue check entirely. `:-`
+      # here rather than a bare ref precisely because unset is the normal case —
+      # a bare ref would warn on every deploy that files no alert issues.
+      GITLAB_URL: "${GITLAB_URL:-}"
+      GITLAB_PROJECT: "${GITLAB_PROJECT:-}"
+      GITLAB_ISSUES_TOKEN: "${GITLAB_ISSUES_TOKEN:-}"
+      # ── Optional Google settings ────────────────────────────────────────
+      # Same empty-fallback discipline, and deliberately NOT in the fail-closed
+      # group above: without a bucket the bridge still answers, text-only (image
+      # delivery is what needs one), and without a version tag the ack simply
+      # omits it. require_startup() leaves all three out for that reason, so a
+      # bare reference here would only produce a compose warning on every deploy
+      # that does not publish artifacts.
+      GCS_BUCKET: "${GCS_BUCKET:-}"
+      GCS_PROJECT: "${GCS_PROJECT:-}"
+      APP_VERSION_DISPLAY: "${APP_VERSION_DISPLAY:-}"
+      # ── Bridge state paths ──────────────────────────────────────────────
+      # Declared here so relocating bridge state off the /data volume stays a
+      # .env setting even though this service reads no bulk env_file.
+      # These are the one group carrying a LITERAL `:-default`, for two reasons
+      # that both distinguish them from the blocks above. Unlike the
+      # credentials, an unset path is not a fail-closed question — nothing here
+      # is a secret, and require_startup() does not cover them. Unlike the
+      # neutral tunables, the empty `:-` form does not work: CoreConfig reads
+      # these with a plain `e.get(NAME, default)`, for which "" is a value the
+      # code accepts, so an empty fallback would point the stores at the empty
+      # path instead of letting the dataclass default fire. The literals
+      # therefore duplicate the dataclass defaults;
+      # test_gchat_bridge_state_paths_match_their_code_defaults binds the two
+      # sides so neither can drift alone.
+      DEDUP_PATH: "${DEDUP_PATH:-/data/dedup.json}"
+      HISTORY_PATH: "${HISTORY_PATH:-/data/history.json}"
+      TZ: UTC
+    volumes:
+      # The service-account key, read-only. Mounted at the SAME path it carries
+      # on the host so GCHAT_SA_KEY above names one file on both sides: a second
+      # "container path" variable would let the two drift, and a deployment that
+      # updated only one would authenticate against a path that does not exist.
+      # The `:-/dev/null` fallback is what keeps an UNSET key a boot-time abort
+      # rather than a deploy-time one: compose rejects the empty spec `::ro`
+      # outright, with an error that never names GCHAT_SA_KEY, whereas the
+      # sentinel mount is a harmless no-op and lets the container come up far
+      # enough for require_startup() to name the missing variable itself.
+      - ${GCHAT_SA_KEY:-/dev/null}:${GCHAT_SA_KEY:-/dev/null}:ro
+      # Bridge state, and the ONLY stateful thing this service owns: the dedup
+      # store (message_id -> run, the crash-safety ledger) and the
+      # per-conversation history store, whose DEDUP_PATH/HISTORY_PATH defaults
+      # above both sit under /data, making it the single state root. Without a
+      # persisted volume every restart would lose the in-flight ledger,
+      # re-answering or dropping questions that were mid-run. (There are no poll
+      # offsets to persist: ingestion is a Pub/Sub subscription, and the
+      # subscription's own ack state is what survives a restart.) Named (not a
+      # bind mount) so it is namespaced per compose project and survives
+      # `osprey down`.
+      - gchat_bridge_data:/data
+    networks:
+      - osprey-network
+
+volumes:
+  gchat_bridge_data:
+    labels:
+      com.osprey.repo-id: "0123456789ab"
+
+networks:
+  osprey-network:

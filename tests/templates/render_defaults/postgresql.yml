@@ -1,0 +1,69 @@
+services:
+  postgresql:
+    # Public upstream image, overridable like every other service image
+    # (env → config → default): set OSPREY_POSTGRES_IMAGE, or
+    # services.postgresql.image in config.yml, to point at a mirror or a
+    # pinned digest (e.g. for air-gapped registries).
+    image: ${OSPREY_POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    # container_name is a HOST-GLOBAL docker identifier: a bare `ariel-postgres`
+    # collides when two OSPREY projects deploy postgres on one host, forcing them
+    # to serialize. Namespace it per-project so concurrent deploys don't fight
+    # over one name. The DNS hostname the ARIEL DSN resolves (`ariel-postgres`) is
+    # pinned separately via a network alias below, so the DSN is unaffected.
+    container_name: golden-project-ariel-postgres
+    labels:
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
+      osprey.deployed.at: "2026-01-01T00:00:00"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1::5432"
+    environment:
+      POSTGRES_DB: ariel
+      POSTGRES_USER: ariel
+      # Sourced from the project .env: `osprey up` mints a strong
+      # ARIEL_DB_PASSWORD when unset, and the agent's DSN — derived from this
+      # `services.postgresql` block by `resolve_ariel_dsn` unless an explicit
+      # `ariel.database.uri` overrides it — reads the SAME env var, so the
+      # container and the agent authenticate with one value. Mirrors
+      # openobserve's ZO_ROOT_USER_PASSWORD convention. The `services.postgresql`
+      # block in config.yml carries no `password:` key — one set there would be
+      # read by nothing and would silently lose to the minted variable. The `ariel` fallback
+      # applies only before the first deploy or on a bare `docker compose up`.
+      # NOTE: Postgres reads POSTGRES_PASSWORD only when
+      # initializing a FRESH data volume; a pre-existing volume keeps its
+      # original password until recreated.
+      POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD:-ariel}
+      TZ: UTC
+    volumes:
+      - ariel_postgres_data:/var/lib/postgresql/data
+    networks:
+      # The container_name above is now per-project, but the ARIEL DSN
+      # (`postgresql://ariel:ariel@ariel-postgres:5432/ariel`) hosts the stable
+      # name `ariel-postgres`. Pin it as a network alias so in-network consumers
+      # keep resolving it regardless of the namespaced container_name — without
+      # this, the DSN breaks with "could not translate host name".
+      osprey-network:
+        aliases:
+          - ariel-postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ariel -d ariel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  # F2: this bind works only because pgvector/pgvector:pg16 already owns
+  # /var/lib/postgresql/data as uid 999 in its base image — the container's
+  # postgres process runs as that uid and needs write access to the mount.
+  # Changing PGDATA (moving the data directory elsewhere) or swapping the
+  # base image for one that owns the path under a different uid breaks this
+  # silently: the volume mounts fine, but postgres fails to start (or starts
+  # against an unwritable directory) with no error surfaced here.
+  ariel_postgres_data:
+    labels:
+      com.osprey.repo-id: "0123456789ab"
+
+networks:
+  osprey-network:

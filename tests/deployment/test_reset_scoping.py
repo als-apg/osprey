@@ -791,7 +791,7 @@ def test_purge_audit_does_not_claim_the_audit_log_is_kept(repo):
 
 
 # ---------------------------------------------------------------------------
-# .env.production / .env.auth — the web tier's write-once credential files
+# .env.users / .env.auth — the web tier's write-once credential files
 #
 # Neither is touched by a reset, and neither is inside build/ or var/, so
 # nothing else in the plan implies their fate. Undisclosed, an operator would
@@ -809,7 +809,7 @@ def _kept_section(repo: Path) -> str:
 @pytest.mark.parametrize(
     ("filename", "phrase"),
     [
-        (".env.production", "runtime secrets every web-terminal container reads"),
+        (".env.users", "runtime secrets every web-terminal container reads"),
         (".env.auth", "password hashes and cookie-signing secrets"),
     ],
 )
@@ -825,7 +825,7 @@ def test_the_plan_discloses_a_web_credential_file_it_will_keep(repo, filename, p
     assert "written once" in kept
 
 
-@pytest.mark.parametrize("filename", [".env.production", ".env.auth"])
+@pytest.mark.parametrize("filename", [".env.users", ".env.auth"])
 def test_a_web_credential_file_that_is_not_there_is_not_disclosed(repo, filename):
     """The kept section names what this deployment has, not what it could have.
 
@@ -844,7 +844,7 @@ def test_the_two_web_credential_files_disclose_different_refreshes(repo):
     of them, and this is the section an operator reads before typing a
     confirmation.
     """
-    (repo / ".env.production").write_text("OSPREY_API_KEY=x\n", encoding="utf-8")
+    (repo / ".env.users").write_text("OSPREY_API_KEY=x\n", encoding="utf-8")
     (repo / ".env.auth").write_text("OSPREY_AUTH_PW_HASH_ALICE=x\n", encoding="utf-8")
 
     kept = _kept_section(repo)
@@ -856,12 +856,12 @@ def test_the_two_web_credential_files_disclose_different_refreshes(repo):
 
 def test_reset_keeps_both_web_credential_files_on_disk(repo, no_down):
     """The disclosure and the behaviour, asserted against each other."""
-    (repo / ".env.production").write_text("OSPREY_API_KEY=x\n", encoding="utf-8")
+    (repo / ".env.users").write_text("OSPREY_API_KEY=x\n", encoding="utf-8")
     (repo / ".env.auth").write_text("OSPREY_AUTH_PW_HASH_ALICE=x\n", encoding="utf-8")
 
     run_reset(repo, FakeRuntime())
 
-    assert (repo / ".env.production").read_text(encoding="utf-8") == "OSPREY_API_KEY=x\n"
+    assert (repo / ".env.users").read_text(encoding="utf-8") == "OSPREY_API_KEY=x\n"
     assert (repo / ".env.auth").read_text(encoding="utf-8") == "OSPREY_AUTH_PW_HASH_ALICE=x\n"
 
 

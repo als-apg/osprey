@@ -1,4 +1,4 @@
-"""Unit tests for ``.env.production`` generation.
+"""Unit tests for ``.env.users`` generation.
 
 Covers ``osprey.deployment.web_terminals.env_production`` in isolation: the
 module-conditional subset generator and its claude_code provider auth-secret
@@ -62,7 +62,7 @@ _FULL_CONFIG = {
     },
 }
 
-# Every secret .env.production must NEVER contain -- the build-time
+# Every secret .env.users must NEVER contain -- the build-time
 # credentials (CI, registry, external-project pulls) and the fixed-name tokens
 # OSPREY's own deployed services authenticate to each other with. This
 # exclusion list is the security spec for the generator, so a service token
@@ -80,7 +80,7 @@ _EXCLUDED_ENV = {
 }
 
 # Credentials the agent inside a web terminal presents to systems outside the
-# deploy -- the only kind that earns a place in .env.production.
+# deploy -- the only kind that earns a place in .env.users.
 _INCLUDED_ENV = {
     "CBORG_API_KEY": "llm-secret",
     "OLOG_USERNAME": "olog-user",
@@ -91,17 +91,17 @@ _INCLUDED_ENV = {
 
 def test_env_production_present_returned_as_is(tmp_path):
     marker = "# operator-authored, do not touch\nFOO=bar\n"
-    (tmp_path / ".env.production").write_text(marker, encoding="utf-8")
+    (tmp_path / ".env.users").write_text(marker, encoding="utf-8")
 
     result = env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
 
-    assert result == tmp_path / ".env.production"
+    assert result == tmp_path / ".env.users"
     assert result.read_text(encoding="utf-8") == marker
 
 
 def test_env_production_present_in_registry_mode_returned_as_is(tmp_path):
     marker = "FOO=bar\n"
-    (tmp_path / ".env.production").write_text(marker, encoding="utf-8")
+    (tmp_path / ".env.users").write_text(marker, encoding="utf-8")
     config = {**_FULL_CONFIG, "modules": {**_FULL_CONFIG["modules"], "web_terminals": {}}}
 
     result = env_production.ensure_env_production(config, tmp_path)
@@ -110,10 +110,10 @@ def test_env_production_present_in_registry_mode_returned_as_is(tmp_path):
 
 
 def test_env_production_neither_present_raises_actionably(tmp_path):
-    with pytest.raises(RuntimeError, match=r"\.env\.production.*\.env"):
+    with pytest.raises(RuntimeError, match=r"\.env\.users.*\.env"):
         env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
 
-    assert not (tmp_path / ".env.production").exists()
+    assert not (tmp_path / ".env.users").exists()
 
 
 def test_env_production_registry_mode_never_generates_even_with_env_present(tmp_path):
@@ -123,7 +123,7 @@ def test_env_production_registry_mode_never_generates_even_with_env_present(tmp_
     with pytest.raises(RuntimeError, match="Registry-mode"):
         env_production.ensure_env_production(config, tmp_path)
 
-    assert not (tmp_path / ".env.production").exists()
+    assert not (tmp_path / ".env.users").exists()
 
 
 def test_env_production_local_mode_generates_from_env(tmp_path):
@@ -131,7 +131,7 @@ def test_env_production_local_mode_generates_from_env(tmp_path):
 
     result = env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
 
-    assert result == tmp_path / ".env.production"
+    assert result == tmp_path / ".env.users"
     generated = env_production.parse_dotenv_file(result)
 
     # Included: llm key, module-gated olog/wiki credentials, ARIEL_DSN, TZ.
@@ -196,7 +196,7 @@ def test_env_production_created_with_restrictive_mode_atomically(monkeypatch, tm
     real_open = os.open
 
     def _spy_open(path, flags, mode=0o777):
-        if str(path).endswith(".env.production"):
+        if str(path).endswith(".env.users"):
             captured["flags"] = flags
             captured["mode"] = mode
         return real_open(path, flags, mode)
@@ -205,7 +205,7 @@ def test_env_production_created_with_restrictive_mode_atomically(monkeypatch, tm
 
     env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
 
-    assert captured, "os.open was never called for .env.production"
+    assert captured, "os.open was never called for .env.users"
     assert captured["mode"] == 0o600
     assert captured["flags"] & os.O_CREAT
 
@@ -253,7 +253,7 @@ def test_env_production_missing_var_in_env_is_skipped_not_fabricated(tmp_path):
 
 def test_env_production_local_mode_defaults_when_image_source_absent_is_registry(tmp_path):
     """No modules.web_terminals.image_source at all -> defaults to registry
-    (fail-closed), so an absent .env.production still raises rather than
+    (fail-closed), so an absent .env.users still raises rather than
     silently generating from a stray .env."""
     _write_dotenv(tmp_path / ".env", _INCLUDED_ENV)
     config = {"facility": {}, "llm": {}, "modules": {"web_terminals": {}}}
@@ -355,7 +355,7 @@ def test_env_production_missing_persona_claude_code_secret_raises_actionably(tmp
 
     assert "als-apg" in str(excinfo.value)
     assert "operator" in str(excinfo.value)
-    assert not (tmp_path / ".env.production").exists()
+    assert not (tmp_path / ".env.users").exists()
 
 
 def test_env_production_deploy_configs_own_secret_not_required_under_catalog(tmp_path):
@@ -411,7 +411,7 @@ def test_env_production_unknown_provider_is_skipped_not_raised(tmp_path):
 def test_env_production_stale_existing_file_without_credentials_warns(tmp_path, caplog):
     """The never-clobber rule keeps a stale pre-provider-change file in
     service; the deploy must at least say so, naming the missing var."""
-    (tmp_path / ".env.production").write_text("TZ=UTC\n", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("TZ=UTC\n", encoding="utf-8")
     config = _persona_config(tmp_path, {"operator": "als-apg"})
 
     with caplog.at_level("WARNING"):
@@ -423,7 +423,7 @@ def test_env_production_stale_existing_file_without_credentials_warns(tmp_path, 
 
 
 def test_env_production_existing_file_with_credential_does_not_warn(tmp_path, caplog):
-    (tmp_path / ".env.production").write_text("ALS_APG_API_KEY=ok\n", encoding="utf-8")
+    (tmp_path / ".env.users").write_text("ALS_APG_API_KEY=ok\n", encoding="utf-8")
     config = _persona_config(tmp_path, {"operator": "als-apg"})
 
     with caplog.at_level("WARNING"):
@@ -531,3 +531,112 @@ def test_env_production_never_carries_the_dispatcher_token(tmp_path):
         "BLUESKY_LAUNCH_TOKEN",
     ):
         assert service_token not in generated
+
+
+# ---------------------------------------------------------------------------
+# ensure_env_production -- env-chain derivation. The generator reads the whole
+# chain (.env.shared then .env, later winning), not the root .env alone, so a
+# key the committed defaults carry reaches the per-user containers and a
+# required auth var living only in the shared half is not a hard error.
+# ---------------------------------------------------------------------------
+
+
+def test_env_production_without_shared_matches_the_local_env_alone(tmp_path):
+    """The no-.env.shared shape is the pre-chain shape, byte for byte.
+
+    Pinned as literal bytes rather than a parsed dict: the chain change must be
+    invisible to every deployment that never adopts .env.shared, and only the
+    exact file content can say that.
+    """
+    _write_dotenv(tmp_path / ".env", {**_INCLUDED_ENV, **_EXCLUDED_ENV})
+
+    result = env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
+
+    assert result.read_text(encoding="utf-8") == (
+        "CBORG_API_KEY=llm-secret\n"
+        "OLOG_USERNAME=olog-user\n"
+        "OLOG_PASSWORD=olog-pass\n"
+        "CONFLUENCE_ACCESS_TOKEN=wiki-secret\n"
+        "ARIEL_DSN=postgresql://ariel:ariel@ariel-postgres:5432/ariel\n"
+        "TZ=America/Los_Angeles\n"
+    )
+
+
+def test_env_production_copies_a_key_only_the_shared_half_sets(tmp_path):
+    """A credential the committed defaults carry is as real a source for a web
+    terminal as one the host-local .env carries."""
+    _write_dotenv(tmp_path / ".env.shared", {"CONFLUENCE_ACCESS_TOKEN": "wiki-from-shared"})
+    _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": "llm-secret"})
+
+    result = env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
+
+    generated = env_production.parse_dotenv_file(result)
+    assert generated["CONFLUENCE_ACCESS_TOKEN"] == "wiki-from-shared"
+    assert generated["CBORG_API_KEY"] == "llm-secret"
+
+
+def test_env_production_local_env_wins_over_shared_on_a_shared_key(tmp_path):
+    _write_dotenv(tmp_path / ".env.shared", {"CBORG_API_KEY": "from-shared"})
+    _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": "from-local"})
+
+    result = env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
+
+    assert env_production.parse_dotenv_file(result)["CBORG_API_KEY"] == "from-local"
+
+
+def test_env_production_generates_from_the_shared_half_alone(tmp_path):
+    """No host-local .env at all: the chain is still non-empty, so there is
+    something to derive from and the deploy is not refused."""
+    _write_dotenv(tmp_path / ".env.shared", {"CBORG_API_KEY": "llm-secret"})
+
+    result = env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
+
+    assert env_production.parse_dotenv_file(result)["CBORG_API_KEY"] == "llm-secret"
+
+
+def test_env_production_required_auth_secret_in_shared_half_does_not_raise(tmp_path):
+    """The refusal asks whether the MERGED chain sets the var, so a provider
+    secret kept in the shared defaults produces authenticated terminals rather
+    than a refused deploy."""
+    _write_dotenv(tmp_path / ".env.shared", {"ALS_APG_API_KEY": "shared-secret"})
+    _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    assert env_production.parse_dotenv_file(result)["ALS_APG_API_KEY"] == "shared-secret"
+
+
+def test_env_production_missing_from_the_whole_chain_still_raises(tmp_path):
+    """Present in neither half: still a refusal, and the message names both
+    files it read plus the ONE file to add the variable to -- the host-local
+    .env, since the shared half is committed and holds no secrets."""
+    _write_dotenv(tmp_path / ".env.shared", {"SOMETHING_SHARED": "y"})
+    _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with pytest.raises(RuntimeError, match="ALS_APG_API_KEY") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    message = str(excinfo.value)
+    assert str(tmp_path / ".env.shared") in message
+    assert f"variable(s) to {tmp_path / '.env'}" in message
+    assert not (tmp_path / ".env.users").exists()
+
+
+def test_env_production_neither_chain_file_present_raises_naming_both(tmp_path):
+    with pytest.raises(RuntimeError, match=r"\.env\.shared, \.env"):
+        env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
+
+    assert not (tmp_path / ".env.users").exists()
+
+
+def test_env_production_quotes_a_value_that_would_not_survive_a_re_read(tmp_path):
+    """Written through format_env_line, so a value whose boundaries are
+    whitespace arrives at the container intact instead of stripped."""
+    (tmp_path / ".env").write_text('CBORG_API_KEY="  padded-secret  "\n', encoding="utf-8")
+
+    result = env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
+
+    assert 'CBORG_API_KEY="  padded-secret  "' in result.read_text(encoding="utf-8")
+    assert env_production.parse_dotenv_file(result)["CBORG_API_KEY"] == "  padded-secret  "

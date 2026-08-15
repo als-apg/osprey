@@ -74,7 +74,7 @@ EXPECTED_INVOCATIONS = [
     "osprey validate",
     "osprey build --skip-lifecycle --skip-deps",
     "osprey build",
-    "osprey users env-production --output .env.production",
+    "osprey users env --output .env.users",
     "osprey up -d",
 ]
 
@@ -162,15 +162,15 @@ def test_the_pipeline_runs_exactly_the_new_surface(rendered: dict[str, str]) -> 
 def test_the_secrets_render_still_writes_to_a_file(rendered: dict[str, str]) -> None:
     """``--output`` is not optional, and it is the file's only mention.
 
-    Without the flag ``osprey users env-production`` writes the assembled
+    Without the flag ``osprey users env`` writes the assembled
     secrets to stdout, which in this job is the retained CI log. The flag also
     creates the file at mode 0600 from its first byte, which a shell redirect
     would not. Asserted positively AND as the file's only mention, so neither
     dropping the flag nor reintroducing a CI-side assembly can pass.
     """
     pipeline = rendered[".gitlab-ci.yml"]
-    mentions = [line.strip() for line in pipeline.splitlines() if ".env.production" in line]
-    assert mentions == ["osprey users env-production --output .env.production"]
+    mentions = [line.strip() for line in pipeline.splitlines() if ".env.users" in line]
+    assert mentions == ["osprey users env --output .env.users"]
     assert ">" not in mentions[0]
     assert "ENVEOF" not in pipeline
 

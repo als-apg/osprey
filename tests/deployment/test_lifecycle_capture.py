@@ -259,7 +259,7 @@ def archiver_stubs(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle, "compose_base_cmd", lambda *a, **k: ["docker", "compose"]
     )
-    monkeypatch.setattr(container_lifecycle, "_env_file_args", lambda root=None: [])
+    monkeypatch.setattr(container_lifecycle, "_env_file_args", lambda root=None, provider=None: [])
     monkeypatch.setattr(
         container_lifecycle, "_archiver_seed_inputs", lambda config, project_dir: ([], None, {})
     )

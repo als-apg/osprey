@@ -46,7 +46,7 @@ def get_hook_input():
 def get_project_dir(hook_input=None):
     """Resolve project directory: CLAUDE_PROJECT_DIR env var > hook_input['cwd'].
 
-    This is the directory *Claude Code* runs in, which under the three-zone repo
+    This is the directory *Claude Code* runs in, which under the four-zone repo
     layout is the RENDER — ``<repo>/build`` — not the repo. It is the right
     answer for anything that belongs to the render (the agent's own settings,
     the hook debug log beside them) and the wrong one for durable agent state,

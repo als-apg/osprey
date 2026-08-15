@@ -13,7 +13,7 @@
 .git/
 .env
 .env.auth
-.env.production
+.env.users
 # Compose files + templates are runtime/deploy artifacts, not image inputs.
 docker-compose.yml
 docker-compose.web.yml

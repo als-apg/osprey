@@ -1,8 +1,8 @@
 """Build lifecycle-phase execution helpers.
 
 Runs the ``pre_build`` / ``post_build`` / ``validate`` command phases declared
-in a build profile, with the shared subprocess environment (project ``.env``
-vars, project venv on ``PATH``, ``_mcp_servers`` on ``PYTHONPATH``), streaming
+in a build profile, with the shared subprocess environment (the project's
+merged env chain, project venv on ``PATH``, ``_mcp_servers`` on ``PYTHONPATH``), streaming
 and quiet output modes, timeout handling, and the JUnit test-results summary.
 """
 
@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.errors import BuildProfileError
-from osprey.utils.dotenv import parse_dotenv_file as _load_dotenv
+from osprey.utils.dotenv import chain_files, merge_chain
 from osprey.utils.logger import get_logger
 
 logger = get_logger("build")
@@ -91,14 +91,19 @@ def _run_lifecycle_phase(
             If False, warn and continue (used for validate phase).
         stream: If True, stream stdout/stderr in real-time instead of capturing.
     """
-    # Auto-inject .env vars into subprocess environment
-    env_file = project_path / ".env"
-    if env_file.is_file():
-        dotenv_vars = _load_dotenv(env_file)
-        sub_env = {**os.environ, **dotenv_vars}
-        logger.info("Loaded %d vars from %s into lifecycle environment", len(dotenv_vars), env_file)
-    else:
-        sub_env = os.environ.copy()
+    # Auto-inject the project's env chain into the subprocess environment.
+    # `merge_chain` resolves `.env.shared` under `.env` first, so a key both
+    # files set arrives with the host-local value — the same local-wins
+    # precedence the launch paths apply.
+    env_files = chain_files(project_path)
+    dotenv_vars = merge_chain(project_path)
+    sub_env = {**os.environ, **dotenv_vars}
+    if env_files:
+        logger.info(
+            "Loaded %d vars from %s into lifecycle environment",
+            len(dotenv_vars),
+            ", ".join(str(path) for path in env_files),
+        )
 
     # Prepend project venv to PATH so `python` resolves to the project's
     # Python (with profile deps) rather than OSPREY's Python.

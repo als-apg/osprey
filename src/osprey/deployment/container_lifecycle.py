@@ -4,6 +4,9 @@ Manages the lifecycle of containerized service deployments using
 Docker or Podman compose.
 """
 
+import hashlib
+import ipaddress
+import json
 import os
 import re
 import subprocess
@@ -28,6 +31,7 @@ from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
     clean_deployment,
     compose_base_cmd,
+    compose_provider_env,
     prepare_compose_files,
     repo_identity,
     resolve_project_name,
@@ -45,6 +49,9 @@ from osprey.deployment.host_ports import (
     parse_host_port_bindings,
 )
 from osprey.deployment.runtime_helper import (
+    ComposeProvider,
+    UnsupportedComposeProviderError,
+    detect_compose_provider,
     get_runtime_command,
     runtime_env,
     verify_runtime_is_running,
@@ -62,6 +69,7 @@ from osprey.deployment.service_tokens import (
 )
 from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
 from osprey.deployment.subprocess_capture import run_captured
+from osprey.deployment.web_terminals.env_production import migrate_users_env
 from osprey.deployment.web_terminals.provision import (
     deploy_down_web_terminals,
     deploy_up_web_terminals,
@@ -70,8 +78,16 @@ from osprey.deployment.web_terminals.provision import (
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.config import config_anchored_at, load_project_config
 from osprey.utils.dotenv import (
+    ENV_CHAIN_FILENAMES,
+    ENV_LOCAL_FILENAME,
+    ENV_SHARED_FILENAME,
+    atomic_write,
+    chain_files,
     compose_unsafe_vars,
+    compose_unsafe_vars_in_chain,
+    merge_chain,
     parse_dotenv_file,
+    write_env_merged,
 )
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import container_image_context
@@ -1624,23 +1640,115 @@ def _build_project_image(
                 logger.warning("Could not remove staged dev artifact %s", artifact)
 
 
-def _env_file_args(repo_root: Path | str | None = None) -> list[str]:
-    """``["--env-file", "<repo>/.env"]`` if that file exists, else ``[]``.
+#: The merged env chain, written under the render zone for the delivery shapes
+#: that can be handed only ONE env file. The leading dot is load-bearing rather
+#: than cosmetic: every sweep that keeps secrets out of a build artifact or an
+#: image context already matches ``.env*``, so naming the file this way puts it
+#: inside all of them without a second list to keep in step. It is a machine
+#: artifact — regenerated from the chain on every compose invocation that needs
+#: it, never a place to edit a value.
+ENV_MERGED_RELPATH = Path(BUILD_DIRNAME) / ".env.merged"
 
-    Thin binding of :func:`osprey.deployment.compose_generator.compose_env_file_args`
-    into this module, kept because
-    :func:`osprey.deployment.web_terminals.provision.web_stack_compose_cmd`
-    resolves the fragment through this name when a caller has none to thread
-    down. The rule and its "no .env" warning have one definition, in the module
-    that owns the invocation contract.
 
-    :param repo_root: The deployment repo whose ``.env`` this is. ``None``
-        falls back to the working directory, which every repo-scoped verb has
-        already chdir'd into.
+def _write_env_merged_for_compose(repo_root: Path | str) -> Path:
+    """Regenerate ``<repo>/build/.env.merged`` from the env chain, and return it.
+
+    The whole chain collapsed into one file at :data:`ENV_MERGED_RELPATH`, at
+    mode ``0600``, for a compose provider that reads a single ``--env-file``
+    and would otherwise see only the last file it was handed — the merge has to
+    happen ahead of it for ``.env`` to keep winning over ``.env.shared``.
+
+    Regenerated on every call rather than when it looks stale: it is derived
+    from files a few kilobytes long, so recomputing it is cheaper than being
+    wrong about it. The two ways a cached copy goes wrong are both ordinary —
+    a project built but never brought up has no merged file at all, and a
+    hand-edited ``.env`` leaves a stale one that would start the stack on the
+    superseded value with nothing to show for it.
+
+    The chain-wide ``$``-scan runs BEFORE the write, so a value compose would
+    mangle stops the deploy while the chain is still the only copy of it,
+    rather than after it has been duplicated into a second file on disk. The
+    refusal carries variable names only — never values.
+
+    :param repo_root: The deployment repo the chain lives in.
+    :return: The merged file's path, for splicing into ``--env-file``.
+    :raises ComposeInterpolationError: A chain value contains ``$``.
+    """
+    root = Path(repo_root)
+    offenders = compose_unsafe_vars_in_chain(root)
+    if offenders:
+        raise ComposeInterpolationError(offenders, " + ".join(str(p) for p in chain_files(root)))
+    return write_env_merged(root, root / ENV_MERGED_RELPATH)
+
+
+def _compose_provider(config: dict | None) -> ComposeProvider:
+    """Which compose implementation this deployment's invocations are shaped for.
+
+    Resolved here rather than passed in from the CLI, because the answer is a
+    property of the HOST — and of the runtime this same module already resolves
+    through ``get_runtime_command`` — not of what the operator typed. Both names
+    are the ones bound in this module, which is the seam the deploy tests patch.
+    The probe is memoized per compose argv base, so a verb that asks more than
+    once (``down`` does) pays for one probe.
+
+    An unsupported provider stops the verb here rather than being guessed at
+    (see :func:`~osprey.deployment.runtime_helper.detect_compose_provider`).
+    That is the whole reason to probe: a provider handed the wrong argv shape
+    does not report an unsupported deployment, it starts a stack whose paths
+    resolve against the wrong directory.
+
+    :param config: The deploy config, for the runtime it names.
+    :return: The provider to shape argv and environment for.
+    :raises UnsupportedComposeProviderError: The host's compose provider is not
+        one OSPREY can invoke correctly.
+    """
+    return detect_compose_provider(get_runtime_command(config), config).provider
+
+
+def _env_file_args(
+    repo_root: Path | str | None = None,
+    provider: ComposeProvider | None = None,
+) -> list[str]:
+    """The ``--env-file`` fragment for one compose invocation, provider-shaped.
+
+    THE seam every lifecycle verb resolves its env-file argv through, and
+    therefore the one place the merged chain has to be (re)written: whichever
+    verb runs next — ``up``, ``down``, ``restart``, ``status``, a roster verb —
+    passes through here first, so the file handed to compose is regenerated
+    from the chain on that same invocation.
+
+    Two shapes, because the providers disagree about what a repeated
+    ``--env-file`` means:
+
+    * :attr:`~osprey.deployment.runtime_helper.ComposeProvider.PODMAN_COMPOSE`
+      keeps only the LAST file it is given, so a chain passed as several
+      fragments would silently drop everything but ``.env``. It gets the single
+      merged file instead (see :func:`_write_env_merged_for_compose`).
+    * Anything else — today's Docker Compose v2 shape, and the default when no
+      probe result is threaded down — resolves through
+      :func:`osprey.deployment.compose_generator.compose_env_file_args`, so the
+      rule and its "no .env" warning keep one definition, in the module that
+      owns the invocation contract.
+
+    A repo with no chain file at all takes the default branch either way: there
+    is nothing to merge, and delegating keeps the one warning about it (and the
+    empty fragment compose needs, since it hard-fails on an ``--env-file`` that
+    is not there) in that single definition.
+
+    :param repo_root: The deployment repo whose chain this is. ``None`` falls
+        back to the working directory, which every repo-scoped verb has already
+        chdir'd into.
+    :param provider: The detected compose provider, when the caller has probed
+        for one. ``None`` selects the default shape.
+    :raises ComposeInterpolationError: A chain value contains ``$`` and the
+        provider shape requires the merged file.
     """
     from osprey.deployment.compose_generator import compose_env_file_args
 
-    return compose_env_file_args(repo_root if repo_root is not None else Path.cwd())
+    root = Path(repo_root) if repo_root is not None else Path.cwd()
+    if provider is ComposeProvider.PODMAN_COMPOSE and chain_files(root):
+        return ["--env-file", str(_write_env_merged_for_compose(root))]
+    return compose_env_file_args(root)
 
 
 #: A shell-variable name as compose's interpolator recognises one.
@@ -1690,34 +1798,425 @@ def _compose_interpolated_vars(text: str) -> set[str]:
     return names
 
 
+#: Where the env chain's per-key fingerprints from the last deploy are kept.
+#:
+#: Machine zone, never committed and never hand-edited: it is derived from the
+#: chain the way ``build/.env.merged`` is, and lands in the same directory for
+#: the same reason — every sweep that keeps a secret out of a build artifact or
+#: an image context already matches ``.env*``, so the leading dot puts this file
+#: inside all of them without a second list to keep in step.
+#:
+#: It holds **digests, never values**. The stale-pin question is only ever asked
+#: as "are these two the same string?", which a per-key ``sha256`` answers
+#: exactly, so nothing is gained by keeping a second plaintext copy of the
+#: chain's secrets on disk — and a file that cannot leak a value is one fewer
+#: thing to reason about when a build directory is tarred up for a bug report.
+ENV_CHAIN_STATE_RELPATH = Path(BUILD_DIRNAME) / ".env.chain-state.json"
+
+#: Schema marker for :data:`ENV_CHAIN_STATE_RELPATH`. A file written by an older
+#: shape is discarded rather than migrated: the whole record is re-derivable
+#: from the next deploy, so the cost of dropping it is one deploy's worth of
+#: stale-pin history, against the cost of carrying migration code for a
+#: machine-generated cache.
+_ENV_CHAIN_STATE_VERSION = 1
+
+
+def _value_digest(value: str) -> str:
+    """Fingerprint ONE env value, so equality can be tested without keeping it.
+
+    Not a second spelling of
+    :func:`osprey.deployment.runtime_helper.env_chain_digest`, and not
+    substitutable for it in either direction — the two answer different
+    questions at different granularities. That one hashes the chain's whole
+    files into a single digest, which is what a container label needs ("did
+    anything at all change?") and is deliberately blind to which key moved.
+    The stale-pin comparison is per-key by nature, so it needs a digest per
+    value; deriving one from the other is not possible, and consolidating them
+    would silently break whichever caller lost its granularity.
+    """
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _read_chain_state(repo_root: Path) -> dict[str, str]:
+    """The shared-file key digests recorded by the previous deploy.
+
+    Empty for every ordinary "no history yet" case — no file, an unreadable one,
+    malformed JSON, a version this build does not recognise. A missing record
+    means the layering questions below are answered "no evidence", which is the
+    right answer when there genuinely is none, so none of these are errors.
+
+    :param repo_root: The deployment repo root.
+    :return: ``{KEY: sha256-of-value}`` as ``.env.shared`` stood at the last
+        deploy, or ``{}`` when there is no usable record.
+    """
+    try:
+        raw = json.loads((repo_root / ENV_CHAIN_STATE_RELPATH).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict) or raw.get("version") != _ENV_CHAIN_STATE_VERSION:
+        return {}
+    digests = raw.get("shared_value_digests")
+    if not isinstance(digests, dict):
+        return {}
+    return {str(key): str(value) for key, value in digests.items()}
+
+
+def _write_chain_state(repo_root: Path, shared_value_digests: Mapping[str, str]) -> None:
+    """Record the shared-file key digests for the next deploy to compare against.
+
+    Best-effort by design: this is an advisory's memory, not deployment state.
+    A repo whose ``build/`` cannot be written is a repo with bigger problems
+    than an unreported stale pin, and turning that into the reason a deploy
+    fails would be a preflight causing the outage it exists to prevent.
+
+    :param repo_root: The deployment repo root.
+    :param shared_value_digests: ``{KEY: sha256-of-value}`` to carry forward.
+    """
+    path = repo_root / ENV_CHAIN_STATE_RELPATH
+    payload = {
+        "version": _ENV_CHAIN_STATE_VERSION,
+        "recorded_at": datetime.now(UTC).isoformat(),
+        "shared_value_digests": dict(shared_value_digests),
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    except OSError as exc:
+        logger.debug("Could not record env chain state at %s: %s", path, exc)
+
+
+def _classify_local_overrides(
+    shared: Mapping[str, str],
+    local: Mapping[str, str],
+    previous_shared_digests: Mapping[str, str],
+) -> tuple[list[str], list[str]]:
+    """Split the keys ``.env`` overrides into deliberate ones and stale pins.
+
+    Both start from the same fact — a key ``.env.shared`` and ``.env`` disagree
+    about — and they deserve opposite volumes, which is the whole point of
+    reporting them separately:
+
+    * A **deliberate override** is the chain working exactly as designed. This
+      host wants its own value, so ``.env`` carries it and wins. It is worth one
+      line so the operator can see the list without opening two files, and worth
+      no more than that.
+    * A **stale pin** is the failure mode the layering makes possible. The
+      shared defaults moved on, and ``.env`` still holds the value they carried
+      *before* that change — the signature of a pin written to match the default
+      of the day and then forgotten, rather than a value anybody chose for this
+      host. The stack starts on the superseded value, looking healthy.
+
+    The distinction is exact, not heuristic: a key is stale only when the
+    recorded shared value from the last deploy differs from today's shared
+    value **and** equals today's local value. An override whose local value
+    matches neither is a value someone chose; an override on a shared key that
+    has not moved is simply current.
+
+    All three comparisons are string equality, so they are performed on digests
+    (see :data:`ENV_CHAIN_STATE_RELPATH`) rather than on the secrets themselves.
+
+    :param shared: Parsed ``.env.shared`` as it is now.
+    :param local: Parsed ``.env`` as it is now.
+    :param previous_shared_digests: Per-key digests of ``.env.shared`` as it
+        stood at the previous deploy (see :func:`_read_chain_state`).
+    :return: ``(deliberate, stale)``, each sorted, together covering every
+        overridden key exactly once.
+    """
+    deliberate: list[str] = []
+    stale: list[str] = []
+    for key in sorted(local):
+        if key not in shared or local[key] == shared[key]:
+            continue
+        was = previous_shared_digests.get(key)
+        if (
+            was is not None
+            and _value_digest(shared[key]) != was
+            and _value_digest(local[key]) == was
+        ):
+            stale.append(key)
+        else:
+            deliberate.append(key)
+    return deliberate, stale
+
+
+def _report_chain_overrides(repo_root: Path) -> tuple[list[str], list[str]]:
+    """Report what ``.env`` overrides in ``.env.shared``, at two severities.
+
+    The severity split *is* the feature. A deployment repo is expected to
+    override shared defaults — that is what the local file is for — so warning
+    about every override would train operators to scroll past the one case that
+    is not deliberate. Deliberate overrides get a single info line naming the
+    keys; the warning is reserved for stale pins (see
+    :func:`_classify_local_overrides`).
+
+    Answering the stale-pin question needs the shared file's *previous*
+    contents, so this both reads and advances the record at
+    :data:`ENV_CHAIN_STATE_RELPATH`. It advances it with one deliberate
+    exception: a key currently reported as stale keeps its recorded digest
+    rather than adopting today's shared value. Without that, the warning would
+    fire exactly once — the next deploy would find the shared value unchanged
+    since the record and fall silent while the pin was still stale. Holding the
+    entry back makes the report persist until the operator resolves it, either
+    by dropping the key from ``.env`` or by setting it to a value of their own.
+
+    Recorded at preflight rather than after ``compose up`` returns: this runs at
+    the last gate before the stack is started, and the non-detached start path
+    replaces this process outright, so there is no "afterwards" to write from on
+    every path. The record therefore means "the chain as of the most recent
+    deploy that got this far", which is what the comparison needs.
+
+    **Names only, never values** — on both severities, same rule as the
+    shadowing warning below.
+
+    :param repo_root: The deployment repo root, holding the chain.
+    :return: ``(deliberate, stale)`` key names, each sorted.
+    """
+    shared_path = repo_root / ENV_SHARED_FILENAME
+    local_path = repo_root / COMPOSE_ENV_FILENAME
+    shared = parse_dotenv_file(shared_path) if shared_path.is_file() else {}
+    local = parse_dotenv_file(local_path) if local_path.is_file() else {}
+    previous = _read_chain_state(repo_root)
+
+    deliberate, stale = _classify_local_overrides(shared, local, previous)
+
+    if deliberate:
+        logger.info(
+            "Local %s overrides %s for %d variable(s): %s. "
+            "That is the chain working as intended — the local file wins — so this is "
+            "reported once, by name, and never with a value.",
+            COMPOSE_ENV_FILENAME,
+            ENV_SHARED_FILENAME,
+            len(deliberate),
+            ", ".join(deliberate),
+        )
+
+    if stale:
+        logger.warning(
+            "Stale pin: %s still holds the value %s carried BEFORE it changed: %s\n"
+            "  These were last deployed with the shared default of the day copied into the "
+            "local file. The shared file has since moved on; the local pin has not, so the "
+            "stack starts on the superseded value and looks healthy doing it. Values are "
+            "never printed.\n"
+            "  To adopt the shared value: remove the listed name(s) from %s. To keep a local "
+            "value deliberately: set it to the value this host wants — an override that is "
+            "not just the old default is reported at info level, not here.",
+            COMPOSE_ENV_FILENAME,
+            ENV_SHARED_FILENAME,
+            ", ".join(stale),
+            local_path,
+        )
+
+    carried = {key: _value_digest(value) for key, value in shared.items()}
+    for key in stale:
+        carried[key] = previous[key]
+    _write_chain_state(repo_root, carried)
+
+    return deliberate, stale
+
+
+def _rendered_chain_members(compose_files: list[str], repo_root: Path) -> set[str] | None:
+    """Which chain files the rendered stack was built to read, or ``None``.
+
+    Chain membership is fixed at render time — the rendered compose documents
+    name the files that existed when ``osprey build`` ran — so the rendered
+    ``env_file:`` lists are the record of what the build decided. This reads
+    that record back out of them.
+
+    The **fallback** record, used only when a render left no explicit membership
+    marker (see
+    :func:`osprey.deployment.compose_generator.read_rendered_env_chain`), which
+    is what a project rendered before that marker existed looks like. Inferring
+    from ``env_file:`` is strictly weaker, and the weakness is the reason the
+    marker exists: see the ``None`` case below.
+
+    ``None`` means *no record*, which is not the same as "an empty chain". A
+    project that deploys no service with an ``env_file:`` block at all produces
+    exactly the same evidence as one rendered against an empty chain, and a
+    preflight that refused on that ambiguity would block deploys it has no
+    finding against. So an absent record is silence, and only a *disagreement*
+    between two known sets is drift. The explicit marker has no such blind spot
+    — it records the empty chain as the empty list — so a project rendered with
+    one is checked even in that case.
+
+    Compose files are parsed as YAML here rather than scanned as text: an
+    ``env_file:`` entry is structural (it is a list under a service), unlike the
+    interpolation scan next door, where compose substitutes before it parses and
+    a reference in an unparsed position still counts. Unreadable or unparseable
+    files are skipped, same reasoning as the shadowing preflight — a broken
+    render is the start's own error to raise.
+
+    :param compose_files: The compose files this deploy will start, in ``-f``
+        order. Relative entries resolve against *repo_root*.
+    :param repo_root: The deployment repo root.
+    :return: The chain file *names* the render binds, or ``None`` when no
+        rendered document names one.
+    """
+    members: set[str] = set()
+    for compose_file in compose_files:
+        path = Path(compose_file)
+        path = path if path.is_absolute() else repo_root / path
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(document, dict):
+            continue
+        for service in (document.get("services") or {}).values():
+            if not isinstance(service, dict):
+                continue
+            entries = service.get("env_file")
+            if isinstance(entries, str):
+                entries = [entries]
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                # Compose accepts a bare path or a mapping with a `path:` key.
+                spelled = entry.get("path") if isinstance(entry, dict) else entry
+                if isinstance(spelled, str) and Path(spelled).name in ENV_CHAIN_FILENAMES:
+                    members.add(Path(spelled).name)
+    return members or None
+
+
+def _preflight_env_chain_drift(compose_files: list[str], repo_root: Path | str) -> None:
+    """Refuse the deploy when the chain on disk is not the chain that was rendered.
+
+    Membership is a **build-time** decision. The rendered documents name the
+    chain files that existed when the project was built — in the worker's
+    ``env_file:`` list, and in what the interpolation delivery was shaped for —
+    so a file added or removed afterwards changes nothing about what the stack
+    reads. Adding ``.env.shared`` to a repo built without one does not put its
+    values into the containers; removing it from a repo built with one points a
+    rendered ``env_file:`` at a path that is gone.
+
+    Neither failure announces itself. The first comes up healthy on values the
+    operator believes they just set; the second fails inside compose with a path
+    error that names the file but not the reason it is expected. Both are one
+    re-render away from correct, so this refuses and names ``osprey build``.
+
+    A refusal rather than a warning, unlike the shadowing preflight next door,
+    because the two situations are not alike: exporting over the store is a
+    legitimate gesture with a legitimate outcome, while a chain that does not
+    match its render has no outcome anybody asked for.
+
+    Scoped to the SHARED half. ``.env`` is exempt on both sides: the deploy
+    creates it (the token mint, a few steps above this call) and refuses without
+    it, so its appearance between a build and a start is this command's own
+    doing rather than a drift an operator introduced.
+
+    What the render decided is read from the marker it wrote
+    (:func:`osprey.deployment.compose_generator.read_rendered_env_chain`),
+    falling back to what the rendered ``env_file:`` lists imply
+    (:func:`_rendered_chain_members`) for a project rendered before that marker
+    existed. Either way, a render that recorded nothing is silence rather than
+    a refusal — see the fallback's own note on why "no record" must not be read
+    as "an empty chain".
+
+    :param compose_files: The compose files this deploy will start, in ``-f``
+        order.
+    :param repo_root: The deployment repo root, holding the chain.
+    :raises RuntimeError: The rendered membership and the on-disk chain differ.
+    """
+    from osprey.deployment.compose_generator import read_rendered_env_chain
+
+    root = Path(repo_root).expanduser().absolute()
+    # The render's own marker is authoritative — it records what the build
+    # decided, including the empty chain, which nothing can be inferred from.
+    # Only a render that predates the marker falls back to the weaker reading.
+    recorded = read_rendered_env_chain(root)
+    rendered = (
+        set(recorded) if recorded is not None else _rendered_chain_members(compose_files, root)
+    )
+    if rendered is None:
+        return
+
+    # `.env` is compared away on BOTH sides, because its presence is never a
+    # build-time decision to drift from. It is the deployment's mandatory secret
+    # store: `osprey up` refuses outright when it is missing, and mints the
+    # service tokens INTO it a few steps above this check — so on a project
+    # built before it existed (the ordinary `init` -> `build` -> `up` order,
+    # where `init` writes only the shared half) the deploy would be reporting
+    # its own mint as operator drift and refusing the first start of every new
+    # deployment. What the render genuinely fixes, and what this therefore still
+    # compares, is the SHARED half: adding `.env.shared` to a project built
+    # without one puts none of its values into the containers, and removing one
+    # points a rendered `env_file:` at a path that is gone.
+    rendered = rendered - {ENV_LOCAL_FILENAME}
+    on_disk = {path.name for path in chain_files(root)} - {ENV_LOCAL_FILENAME}
+    if on_disk == rendered:
+        return
+
+    added = sorted(on_disk - rendered)
+    removed = sorted(rendered - on_disk)
+    detail = []
+    if added:
+        detail.append(f"  Added since the build, and NOT read by this stack: {', '.join(added)}")
+    if removed:
+        detail.append(f"  Expected by the build but gone from disk: {', '.join(removed)}")
+
+    logger.error(
+        "Env chain drift: this project was built to read %s, but %s is on disk now.\n"
+        "%s\n"
+        "  Which env files the stack reads is decided when the project is rendered, not when "
+        "it starts — so a file added afterwards contributes nothing, and one removed "
+        "afterwards leaves the render pointing at a path that is gone. Either way the stack "
+        "would start on a set of values nobody chose.\n"
+        "  Run `osprey build` to re-render against the chain as it stands, then `osprey up`.",
+        ", ".join(sorted(rendered)),
+        ", ".join(sorted(on_disk)) if on_disk else "no chain file at all",
+        "\n".join(detail),
+    )
+    raise RuntimeError(
+        "env chain preflight failed: the chain on disk does not match the one this project "
+        "was built to read (see report above). Run `osprey build`, then `osprey up`."
+    )
+
+
 def _preflight_env_shadowing(
     compose_files: list[str],
     repo_root: Path | str,
+    *,
     environ: Mapping[str, str] | None = None,
+    provider: ComposeProvider | None = None,
 ) -> list[str]:
-    """Warn when a shell export shadows the ``.env`` value compose would use.
+    """Warn when a shell export and the env chain disagree about a value.
 
-    ``<repo>/.env`` is the deployment's one secret store, and every compose
-    invocation is pointed at it explicitly (see
-    :func:`osprey.deployment.compose_generator.compose_env_file_args`). But
-    ``--env-file`` is the *lowest* precedence source for document interpolation:
-    a variable also exported in the calling shell wins, and compose says nothing
-    about it. So a stale export silently starts the stack on a value its volumes
-    were never initialized with — an openobserve that will not accept the
-    password in ``.env``, a database whose data directory answers to the pinned
-    value while the container is handed another one.
+    The chain under ``<repo>`` — ``.env.shared`` then ``.env``, later winning —
+    is the deployment's one secret store, and every compose invocation is
+    pointed at it explicitly (see :func:`_env_file_args`). But the env file is
+    not the last word on document interpolation, and *which* word it is depends
+    on the provider (see below). Either way a stale export means the stack can
+    start on a value its volumes were never initialized with — an openobserve
+    that will not accept the password in the chain, a database whose data
+    directory answers to the chain's value while the container is handed
+    another one.
 
     The same precedence the mint already designs to (``_ensure_service_tokens``
     skips a var the process env sets, so no divergent value is ever written
-    into ``.env``): the export is honoured, the store is left intact, and
+    into the chain): the export is honoured, the store is left intact, and
     nothing on either path tells the operator the two disagree. This is that
     telling.
 
+    **Which side wins is provider-scoped, and inverted between the two.** Docker
+    Compose substitutes the exported value — the env file is its lowest
+    precedence source — while podman-compose reads its env file *first* and
+    ignores the export. So the same divergence means "the stack runs on your
+    shell's value" under one provider and "your export is being silently
+    dropped" under the other, and a single wording could only be right for one
+    of them. With no *provider* given, both are named rather than guessing:
+    the ambiguity is the honest report, and the remedy that resolves it (unset
+    the name) is the same either way.
+
     Only variables the rendered compose files actually interpolate are compared,
-    against the file that will be passed as ``--env-file``. An exported name the
-    store does not pin is not a divergence (there is nothing for it to
-    contradict), and a pinned name no compose file reads cannot change what
+    against the merged chain — what the deployment's env files collectively say
+    after ``.env`` has been laid over ``.env.shared``, which is the value
+    compose is handed however the fragment is spelled. An exported name the
+    chain does not set is not a divergence (there is nothing for it to
+    contradict), and a chain key no compose file reads cannot change what
     starts.
+
+    The chain's own layering is reported separately, at two severities, by
+    :func:`_report_chain_overrides` — called from here so that one preflight
+    covers everything the env chain can quietly get wrong.
 
     **A warning, never a refusal.** Exporting a variable over the store is a
     legitimate gesture — a one-off run against another host's credentials, a
@@ -1736,23 +2235,28 @@ def _preflight_env_shadowing(
         them. Unreadable entries are skipped — a missing compose file is the
         start's own error to raise, not this advisory's.
     :param repo_root: The deployment repo root; both the compose project
-        directory and the home of the ``.env`` compose is pointed at.
+        directory and the home of the env chain compose is pointed at.
     :param environ: The process environment to compare against. ``None`` reads
         the live one, overlaid with the shell values the CLI's entry-time
         ``.env`` load replaced (:func:`~osprey.utils.config.dotenv_shell_overrides`)
         — the comparison is against what the operator's shell actually
         exported, which the in-process override would otherwise have erased.
+    :param provider: The detected compose provider, when the caller has probed
+        for one, selecting which precedence the warning states. ``None`` names
+        both.
     :return: The shadowed variable names, sorted. Empty when there is no
-        divergence, no ``.env``, or nothing interpolated.
+        divergence, no chain file, or nothing interpolated.
     """
     root = Path(repo_root).expanduser().absolute()
-    env_file = root / COMPOSE_ENV_FILENAME
-    if not env_file.is_file():
+    _report_chain_overrides(root)
+
+    chain = chain_files(root)
+    if not chain:
         # No store to be shadowed: compose is given no --env-file at all, so the
         # process env is the only source and nothing is being overridden.
         return []
 
-    pinned = parse_dotenv_file(env_file)
+    pinned = merge_chain(root)
     if not pinned:
         return []
 
@@ -1780,19 +2284,47 @@ def _preflight_env_shadowing(
     if not shadowed:
         return []
 
+    if provider is ComposeProvider.PODMAN_COMPOSE:
+        mechanics = (
+            "podman-compose resolves interpolation from the env file BEFORE the calling "
+            "shell, so the ENV-FILE value is the one substituted and the export you set "
+            "reaches nothing."
+        )
+        remedy = (
+            f"To change what starts: edit the chain — an export cannot reach this stack. "
+            f"To stop the disagreement: unset {' '.join(shadowed)}."
+        )
+    elif provider is ComposeProvider.DOCKER_V2:
+        mechanics = (
+            "Docker Compose substitutes the EXPORTED value into the compose files — "
+            "--env-file is its lower-precedence source — so the stack starts on the "
+            "shell's value while the chain keeps the one its volumes were initialized "
+            "with."
+        )
+        remedy = (
+            f"To start on the chain's value: unset {' '.join(shadowed)}. To adopt the "
+            f"exported one: edit the chain to match — but a volume that already exists "
+            f"keeps the credential it was created with, whichever value the container is "
+            f"handed."
+        )
+    else:
+        mechanics = (
+            "The supported providers invert this: Docker Compose substitutes the EXPORTED "
+            "value (--env-file is its lower-precedence source), while podman-compose reads "
+            "its env file first and ignores the export. The provider was not probed for "
+            "this message, so both are named rather than one guessed."
+        )
+        remedy = f"Either way, to leave the chain as the only source: unset {' '.join(shadowed)}."
+
     logger.warning(
-        "Shell export shadows this deployment's .env: %s\n"
-        "  Exported here with a value that differs from the one pinned in %s. Compose "
-        "substitutes the EXPORTED value into the compose files — --env-file is the "
-        "lower-precedence source — so the stack starts on the shell's value while the "
-        "store keeps the one its volumes were initialized with. Values are never "
-        "printed.\n"
-        "  To start on the pinned value: unset %s. To adopt the exported one: edit "
-        ".env to match — but a volume that already exists keeps the credential it was "
-        "created with, whichever value the container is handed.",
+        "Shell export disagrees with this deployment's env chain: %s\n"
+        "  Exported here with a value that differs from the one the chain resolves to "
+        "(%s). %s Values are never printed.\n"
+        "  %s",
         ", ".join(shadowed),
-        env_file,
-        " ".join(shadowed),
+        " + ".join(str(path) for path in chain),
+        mechanics,
+        remedy,
     )
     return shadowed
 
@@ -2196,7 +2728,9 @@ def _archiver_store_connection(config: dict, project_dir: Path) -> dict | None:
     return store
 
 
-def _stage_archiver_store(config, compose_files, env, project_dir, *, keep_base=False) -> None:
+def _stage_archiver_store(
+    config, compose_files, env, project_dir, *, keep_base=False, provider=None
+) -> None:
     """Start the archiver store on its own and seed its base history.
 
     Staged ahead of the full bring-up for one reason: the recorder writes into a
@@ -2227,6 +2761,9 @@ def _stage_archiver_store(config, compose_files, env, project_dir, *, keep_base=
     :param env: The environment the deploy hands compose.
     :param project_dir: Root of the built project (holds ``.env`` and ``data/``).
     :param keep_base: Leave a mismatched base in place instead of rebuilding it.
+    :param provider: The compose provider this deploy resolved, so the staging
+        invocation is shaped like the ``up`` that follows it. ``None`` is the
+        docker shape.
     :raises RuntimeError: if the store cannot be reached or authenticated.
     """
     from osprey.simulation.apply import archiver_collection
@@ -2257,15 +2794,19 @@ def _stage_archiver_store(config, compose_files, env, project_dir, *, keep_base=
     services = config.get("services") or {}
     compression = str((services.get(_ARCHIVER_STORE_SERVICE) or {}).get("compression") or "zstd")
 
-    run_env = runtime_env(config, env)
-    # The invocation contract, same as _start_stack: -f paths and --env-file
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
+    # The invocation contract, same as _start_stack: one provider-shaped base,
     # anchored on the repo root, so staging is correct from any working
-    # directory rather than only from a root the caller chdir'd into.
+    # directory rather than only from a root the caller chdir'd into. The store
+    # this brings up is the same compose project the `up` below it starts, so a
+    # shape that differed here would create its container against a different
+    # project directory than the one that goes on to run it.
     base_cmd = compose_base_cmd(
         get_runtime_command(config),
         compose_files,
         project_dir,
-        _env_file_args(project_dir),
+        _env_file_args(project_dir, provider),
+        provider,
     )
 
     up_cmd = base_cmd + ["up", "-d", _ARCHIVER_STORE_SERVICE]
@@ -2850,14 +3391,43 @@ def _start_stack(
     _ensure_bluesky_control_plane_keys(config, env_path)
     _ensure_bluesky_document_plane_certs(config, env_path)
 
-    # Advisory, and last of the .env preflights so it reads the file every
-    # provisioner above has finished writing: a shell export beats --env-file
-    # for compose's document interpolation, so an export that disagrees with the
-    # store silently starts the stack on a value its volumes never adopted.
-    # Names the variables, never the values -- see _preflight_env_shadowing.
-    # Before the image build below, so the operator sees it in seconds rather
-    # than after the minutes a build takes.
-    _preflight_env_shadowing(compose_files, repo_root)
+    # Carry a pre-rename .env.production onto .env.users before anything reads
+    # it -- the web-terminal preflight below is the first reader, and it would
+    # otherwise refuse a deploy whose secrets are sitting right there under the
+    # old name. Scoped to web-terminal deploys because they are the only ones
+    # that own the artifact; see migrate_users_env for the both-files rule.
+    if web_terminals_enabled:
+        migrate_users_env(repo_root)
+
+    # Refuse a chain that is not the one this project was rendered against:
+    # membership is fixed at build time, so a file added or removed since then
+    # changes nothing about what the stack reads. Ahead of the advisory below
+    # because there is no point reporting on a chain the render does not match.
+    _preflight_env_chain_drift(compose_files, repo_root)
+
+    # Which compose implementation is behind the resolved runtime, answered once
+    # for every invocation this start makes: the env-file fragment, the argv,
+    # the subprocess environment and the precedence the warning below states are
+    # all downstream of it.
+    #
+    # Below every refusal that reads only this deployment's own files, because
+    # this one asks the HOST a question (it runs `<runtime> compose version`).
+    # A deploy that is going to abort on a port collision, a missing dependency
+    # or a drifted env chain should not first go and start a provider process to
+    # be told something it will never use. Above the advisory below, which is
+    # the first thing whose wording depends on the answer.
+    provider = _compose_provider(config)
+
+    # Advisory, and last of the .env preflights so it reads the files every
+    # provisioner above has finished writing: the shell and the env chain can
+    # disagree, and which side compose substitutes is provider-scoped, so a
+    # stale export silently starts the stack on a value its volumes never
+    # adopted (or is silently dropped). Also reports what the local file
+    # overrides in the shared defaults -- one info line for the deliberate
+    # ones, a warning for a stale pin. Names the variables, never the values;
+    # see _preflight_env_shadowing. Before the image build below, so the
+    # operator sees it in seconds rather than after the minutes a build takes.
+    _preflight_env_shadowing(compose_files, repo_root, provider=provider)
 
     # Set up environment for containers. The shell values the CLI's entry-time
     # `.env` load replaced are restored on top: compose documents the OPPOSITE
@@ -2883,7 +3453,7 @@ def _start_stack(
     # by deploy_up_web_terminals' own re-render, and compose recreates on the
     # definition change.
     if web_terminals_enabled:
-        preflight_web_terminals(config)
+        preflight_web_terminals(config, repo_root=Path(repo_root))
 
     # Build the <project>:local image the dispatch worker references. The worker
     # has no compose build block (that would race the event-dispatcher on the
@@ -2900,7 +3470,12 @@ def _start_stack(
     # from, and every compose invocation on this path reads it with --env-file.
     if _archiver_store_deployed(config):
         _stage_archiver_store(
-            config, compose_files, env, Path(repo_root), keep_base=keep_archiver_base
+            config,
+            compose_files,
+            env,
+            Path(repo_root),
+            keep_base=keep_archiver_base,
+            provider=provider,
         )
 
     # Same placement and the same reason for ARIEL's store: the schema has to
@@ -2911,21 +3486,41 @@ def _start_stack(
     _stage_ariel_store(config, compose_files, env, Path(repo_root))
 
     if web_terminals_enabled:
-        deploy_up_web_terminals(config, compose_files, dev_mode, env, _env_file_args(repo_root))
+        # The provider goes down with the fragment it shaped: that fragment is
+        # already provider-specific (one merged file, or the repeated chain),
+        # and the web path builds its own argv and its own subprocess
+        # environment around it. Handed the fragment alone, it would splice a
+        # podman-shaped --env-file into a docker-shaped argv and run it with no
+        # COMPOSE_PROJECT_DIR at all. The repo root goes down with them for the
+        # same reason: all three describe ONE invocation, and the web path
+        # re-resolving the root can only answer the working directory — which
+        # is where the podman shape would then write its merged document.
+        deploy_up_web_terminals(
+            config,
+            compose_files,
+            dev_mode,
+            env,
+            _env_file_args(repo_root, provider),
+            provider,
+            repo_root=Path(repo_root),
+        )
         log_endpoint_summary(config, compose_files)
         return
 
     # Pin COMPOSE_PROJECT_NAME so this deploy owns its own compose project (and
     # volume namespace); without it compose derives the project from the first
     # -f file's directory, collapsing every deploy on the host into the shared
-    # "services" project whose up/down cross-adopts sibling stacks.
-    run_env = runtime_env(config, env)
+    # "services" project whose up/down cross-adopts sibling stacks. The provider
+    # overlay rides in on the same env: for the shape that cannot take the
+    # project directory in argv, this is where it is pinned instead.
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, repo_root)})
 
     base_cmd = compose_base_cmd(
         with_plain_progress(get_runtime_command(config)),
         compose_files,
         repo_root,
-        _env_file_args(repo_root),
+        _env_file_args(repo_root, provider),
+        provider,
     )
 
     # Self-heal before reconciling: an aborted prior deploy can leave this
@@ -3060,6 +3655,106 @@ def _published_on_all_interfaces(compose_files: list[str]) -> list[str]:
     )
 
 
+# The env vars the host-network templates render to name the interface a
+# service binds. Read off the RENDERED files rather than off the config keys
+# behind them: the rendered value is what the process binds, and a hand-authored
+# override (``services.event_dispatcher.bind``) reaches this check without this
+# module having to know the key exists.
+_HOST_BIND_ENV_VARS = ("FASTMCP_HOST", "DISPATCH_WORKER_BIND")
+
+# The one ``network_mode`` spelling that puts a service in the host's network
+# namespace. Mirrors host_ports._HOST_NETWORK_MODE, on the rendered side.
+_HOST_NETWORK_MODE = "host"
+
+
+def _binds_off_host(address: str) -> bool:
+    """Whether binding *address* makes a host-namespace service reachable off-host.
+
+    Loopback (``127.0.0.0/8``, ``::1``, ``localhost``) keeps the listening
+    socket on this machine; a wildcard or a concrete interface address does not.
+    Anything unparseable — a name, an uninterpolated ``${VAR}`` — is called
+    reachable, because this answer arms a fail-closed guard and the safe way to
+    be wrong is to arm it when it was not needed.
+    """
+    text = str(address).strip().strip("[]")
+    if not text:
+        return True  # an empty bind means every interface
+    if text == "localhost":
+        return False
+    try:
+        return not ipaddress.ip_address(text).is_loopback
+    except ValueError:
+        return True
+
+
+def _rendered_environment(service: Mapping) -> dict[str, str]:
+    """A rendered service's ``environment:`` block as a mapping.
+
+    Compose accepts both the mapping spelling the templates emit and a
+    ``KEY=value`` list; a rendered file that was hand-edited may hold either.
+    """
+    environment = service.get("environment")
+    if isinstance(environment, Mapping):
+        return {str(key): "" if value is None else str(value) for key, value in environment.items()}
+    if isinstance(environment, list):
+        pairs = {}
+        for entry in environment:
+            if isinstance(entry, str) and "=" in entry:
+                key, _, value = entry.partition("=")
+                pairs[key.strip()] = value.strip()
+        return pairs
+    return {}
+
+
+def _host_network_bound_off_host(compose_files: list[str]) -> list[tuple[str, str]]:
+    """Services in these compose files that bind off-host on the host network.
+
+    A service in the host's network namespace publishes nothing — compose has no
+    port map to publish — so :func:`_published_on_all_interfaces`, which reads
+    ``ports:`` entries, cannot see it at all. What decides its reach is the
+    interface it binds, which the host-mode templates render into a bind env var
+    (:data:`_HOST_BIND_ENV_VARS`). Loopback keeps it on this machine; anything
+    else is off-host reachable with no published port anywhere in the render.
+
+    Read out of the rendered files for the same reason the wildcard check is: a
+    start re-renders nothing, so the files are both what the build decided and
+    what compose will act on — including an edit made to them after the build.
+
+    A host-mode service naming no bind var at all counts as reachable: its
+    binding is then whatever the process defaults to, which this cannot see.
+
+    Returns:
+        ``(service, bind address)`` pairs, sorted by service. The address is the
+        rendered value, or ``""`` when the service names no bind var.
+    """
+    found: dict[str, str] = {}
+    for compose_file in compose_files:
+        try:
+            doc = yaml.safe_load(Path(compose_file).read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            # Debug, not a warning: the wildcard check just parsed this same
+            # file and has already said so at warning level.
+            logger.debug(
+                f"Could not read compose file {compose_file} for the exposure check: {exc}"
+            )
+            continue
+        services = doc.get("services") if isinstance(doc, Mapping) else None
+        if not isinstance(services, Mapping):
+            continue
+        for name, service in services.items():
+            if not isinstance(service, Mapping):
+                continue
+            if str(service.get("network_mode") or "").strip() != _HOST_NETWORK_MODE:
+                continue
+            environment = _rendered_environment(service)
+            binds = [environment[var] for var in _HOST_BIND_ENV_VARS if var in environment]
+            off_host = [bind for bind in binds if _binds_off_host(bind)]
+            if binds and not off_host:
+                continue
+            found[str(name)] = off_host[0] if off_host else ""
+    return sorted(found.items())
+
+
 def _reconcile_exposure(config: dict, compose_files: list[str]) -> bool:
     """Whether this start is reachable off-host, read off what was rendered.
 
@@ -3074,12 +3769,20 @@ def _reconcile_exposure(config: dict, compose_files: list[str]) -> bool:
     deployment gets the fail-closed token rules on the strength of what it
     publishes, not on the strength of anything the operator typed.
 
-    Two independent ways to be reachable, and both count. A services binding on
-    a wildcard address is the obvious one. The other is the web-terminal stack:
-    every service in it runs ``network_mode: host`` and its nginx "binds every
-    interface, unrestricted" (``docker-compose.web.yml.j2``), so a web deploy is
-    off-host reachable with no published port anywhere in ``compose_files`` —
-    which is exactly the case a wildcard-binding check alone would call private.
+    Three independent ways to be reachable, and each one counts on its own. A
+    services binding on a wildcard address is the obvious one. The second is the
+    web-terminal stack: every service in it runs ``network_mode: host`` and its
+    nginx "binds every interface, unrestricted" (``docker-compose.web.yml.j2``),
+    so a web deploy is off-host reachable with no published port anywhere in
+    ``compose_files`` — which is exactly the case a wildcard-binding check alone
+    would call private.
+
+    The third is a services-stack service the build put on the host network. It
+    publishes no port either, so only the interface it was rendered to bind says
+    whether it is reachable (:func:`_host_network_bound_off_host`). The
+    templates bind loopback there, which is what keeps the default host-mode
+    deployment private — but the bind is overridable, and an overridden one is
+    as reachable as any wildcard publication.
 
     Args:
         config: The rendered config, read for whether the web stack is part of
@@ -3091,11 +3794,15 @@ def _reconcile_exposure(config: dict, compose_files: list[str]) -> bool:
     """
     wildcard_services = _published_on_all_interfaces(compose_files)
     host_networked = _web_terminals_enabled(config)
+    host_bound = _host_network_bound_off_host(compose_files)
     reasons = []
     if wildcard_services:
         reasons.append(f"{', '.join(wildcard_services)} publish on 0.0.0.0")
     if host_networked:
         reasons.append("the web-terminal stack runs on the host network")
+    for service, address in host_bound:
+        where = f"binds {address}" if address else "names no bind address"
+        reasons.append(f"{service} runs on the host network and {where}")
 
     if reasons:
         logger.warning(
@@ -3117,7 +3824,7 @@ def up_as_built(
 ) -> None:
     """Start a deployment repo from ``build/`` exactly as it was built.
 
-    The three-zone start path. It reads ``build/config.yml`` and the compose
+    The four-zone start path. It reads ``build/config.yml`` and the compose
     files beside it and starts them, re-rendering nothing from ``profile.yml``,
     so the services that come up are the ones the last ``osprey build``
     produced and the ones ``osprey status`` will report. The caller has already
@@ -3480,7 +4187,7 @@ def _down_by_label(config: dict | None, repo_root: Path) -> None:
 def down_deployment(repo_root: Path | str) -> None:
     """Stop a deployment repo's stack, keeping every volume.
 
-    The three-zone stop path, and the mirror of :func:`up_as_built`: it acts on
+    The four-zone stop path, and the mirror of :func:`up_as_built`: it acts on
     what a build left in ``build/`` and renders nothing. Where the legacy
     :func:`deploy_down` re-renders the compose files when it cannot find them,
     this refuses to render at stop time — the compose files that declared
@@ -3519,17 +4226,39 @@ def down_deployment(repo_root: Path | str) -> None:
     compose_files = as_built_compose_files(config, repo_root) if config else []
 
     if config and _web_terminals_enabled(config):
-        deploy_down_web_terminals(config, os.environ.copy(), _env_file_args(repo_root))
+        # The refusal is caught, not propagated: a `down` whose compose provider
+        # is unsupported must still reach the label sweep below, which talks to
+        # the container runtime directly and is the whole recovery path for a
+        # deployment compose cannot act on. When there ARE compose files the
+        # same refusal is raised again below — this only keeps it from
+        # pre-empting the fallback.
+        try:
+            deploy_down_web_terminals(
+                config,
+                os.environ.copy(),
+                _env_file_args(repo_root, _compose_provider(config)),
+                repo_root=repo_root,
+            )
+        except UnsupportedComposeProviderError as exc:
+            logger.warning(
+                "Skipping the web-terminal stack's compose teardown: %s\n"
+                "  Its containers carry this deployment's own label, so the sweep "
+                "below removes them if there is nothing else to stop.",
+                exc,
+            )
 
     if not compose_files:
         _down_by_label(config, repo_root)
         return
 
+    provider = _compose_provider(config)
+
     cmd = compose_base_cmd(
         with_plain_progress(get_runtime_command(config)),
         compose_files,
         repo_root,
-        _env_file_args(repo_root),
+        _env_file_args(repo_root, provider),
+        provider,
     )
     cmd.append("down")
 
@@ -3540,7 +4269,7 @@ def down_deployment(repo_root: Path | str) -> None:
     # `down` targets the shared "services" project rather than this deploy's.
     result = run_captured(
         cmd,
-        env=runtime_env(config, os.environ.copy()),
+        env=runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)}),
         spool_name="compose-down",
         repo_root=repo_root,
         check=False,
@@ -3647,9 +4376,15 @@ def deploy_down(config_path, dev_mode=False):
     """
     config = load_project_config(config_path, wrap_errors=True)
     repo_root = resolve_repo_root(config, config_path)
+    provider = _compose_provider(config)
 
     if _web_terminals_enabled(config):
-        deploy_down_web_terminals(config, os.environ.copy(), _env_file_args(repo_root))
+        deploy_down_web_terminals(
+            config,
+            os.environ.copy(),
+            _env_file_args(repo_root, provider),
+            repo_root=repo_root,
+        )
 
     deployed_services = config.get("deployed_services", [])
     deployed_service_names = (
@@ -3673,7 +4408,11 @@ def deploy_down(config_path, dev_mode=False):
             logger.info(f"  - {f}")
 
     cmd = compose_base_cmd(
-        with_plain_progress(get_runtime_command(config)), compose_files, repo_root
+        with_plain_progress(get_runtime_command(config)),
+        compose_files,
+        repo_root,
+        _env_file_args(repo_root, provider),
+        provider,
     )
     cmd.append("down")
 
@@ -3683,7 +4422,7 @@ def deploy_down(config_path, dev_mode=False):
     # or (unpinned) tears down the shared "services" project. That pin is why
     # this used to `execvpe` rather than `execvp`; the captured run carries the
     # same environment through `env=`.
-    run_env = runtime_env(config, os.environ.copy())
+    run_env = runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)})
     # check=False, then exit on the child's own code: `down` is the last thing
     # this process does, and propagating the code verbatim keeps the exit
     # status callers see identical to the exec'd child's.
@@ -3746,15 +4485,21 @@ def deploy_restart(config_path, detached=False, expose_network=False):
         config, resolve_repo_root(config, config_path) / COMPOSE_ENV_FILENAME
     )
 
+    repo_root = resolve_repo_root(config, config_path)
+    provider = _compose_provider(config)
     cmd = compose_base_cmd(
         with_plain_progress(get_runtime_command(config)),
         compose_files,
-        resolve_repo_root(config, config_path),
+        repo_root,
+        _env_file_args(repo_root, provider),
+        provider,
     )
     cmd.append("restart")
 
     logger.debug(f"Running command:\n    {' '.join(cmd)}")
-    subprocess.run(cmd, env=runtime_env(config, os.environ.copy()))
+    subprocess.run(
+        cmd, env=runtime_env(config, {**os.environ, **compose_provider_env(provider, repo_root)})
+    )
 
     # If detached mode requested, detach after restart
     if detached:
@@ -3792,6 +4537,6 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
     if not is_running:
         raise RuntimeError(error_msg)
 
-    clean_deployment(compose_files, config)
+    clean_deployment(compose_files, config, repo_root=resolve_repo_root(config, config_path))
 
     deploy_up(config_path, detached=detached, dev_mode=dev_mode, expose_network=expose_network)

@@ -11,10 +11,16 @@ from osprey.deployment import host_ports
 from osprey.deployment.host_ports import (
     HostPortBinding,
     PortConflict,
+    derive_host_network_bindings,
     find_port_conflicts,
     format_conflict_report,
     parse_host_port_bindings,
 )
+
+
+def _host_config(**services):
+    """A rendered-config stand-in carrying only the service blocks under test."""
+    return {"services": services}
 
 
 def _write_compose(tmp_path, name, services):
@@ -234,3 +240,239 @@ class TestReport:
         # No foreign stack, so no shared-stack suggestion and no port_block.
         assert "shared services stack" not in report
         assert "port_block" not in report
+        # Nothing here binds on the host namespace, so that paragraph stays out.
+        assert "host network namespace" not in report
+
+
+class TestHostNetworkDerivation:
+    """Ports of services that bind on the host namespace and publish nothing."""
+
+    def test_bridge_and_absent_network_derive_nothing(self):
+        # Bridge mode writes no `network` key at all; an explicit spelling is
+        # accepted too. Neither binds a host port outside its compose network.
+        assert derive_host_network_bindings(_host_config()) == []
+        assert (
+            derive_host_network_bindings(
+                _host_config(
+                    event_dispatcher={"port": 8020},
+                    dispatch_worker={"worker_port_base": 9190, "worker_count": 3},
+                )
+            )
+            == []
+        )
+        assert (
+            derive_host_network_bindings(
+                _host_config(
+                    event_dispatcher={"network": "bridge", "port": 8020},
+                    dispatch_worker={"network": "bridge", "worker_port_base": 9190},
+                )
+            )
+            == []
+        )
+
+    def test_missing_or_null_blocks_derive_nothing(self):
+        # A null stanza parses to None, and a config may predate the services
+        # entirely; neither may raise.
+        assert derive_host_network_bindings(None) == []
+        assert derive_host_network_bindings({}) == []
+        assert derive_host_network_bindings({"services": None}) == []
+        assert derive_host_network_bindings(_host_config(event_dispatcher=None)) == []
+
+    def test_dispatcher_binds_its_configured_port_on_loopback(self):
+        (binding,) = derive_host_network_bindings(
+            _host_config(event_dispatcher={"network": "host", "port": 8055})
+        )
+        assert binding.service == "event-dispatcher"
+        assert (binding.host_ip, binding.host_port) == ("127.0.0.1", 8055)
+        assert binding.host_network is True
+        # It comes from the rendered config, not from any compose file.
+        assert "compose" not in binding.compose_file
+
+    def test_dispatcher_defaults_and_bind_override(self):
+        (default_port,) = derive_host_network_bindings(
+            _host_config(event_dispatcher={"network": "host"})
+        )
+        assert default_port.host_port == 8020
+
+        (overridden,) = derive_host_network_bindings(
+            _host_config(event_dispatcher={"network": "host", "port": 8020, "bind": "0.0.0.0"})
+        )
+        assert overridden.host_ip == "0.0.0.0"
+
+    def test_one_port_per_worker_by_the_stride_rule(self):
+        bindings = derive_host_network_bindings(
+            _host_config(
+                dispatch_worker={
+                    "network": "host",
+                    "worker_port_base": 9500,
+                    "worker_port_stride": 1,
+                    "worker_count": 3,
+                }
+            )
+        )
+        assert [b.service for b in bindings] == [
+            "dispatch-worker-1",
+            "dispatch-worker-2",
+            "dispatch-worker-3",
+        ]
+        # port(i) = base + (i - 1) * stride, i 1-based.
+        assert [b.host_port for b in bindings] == [9500, 9501, 9502]
+        assert {b.host_ip for b in bindings} == {"127.0.0.1"}
+        assert all(b.host_network for b in bindings)
+
+    def test_worker_defaults_match_the_template_fallbacks(self):
+        # Base, stride and count may all be absent from a hand-authored config;
+        # the derivation falls back exactly the way the compose template does.
+        bindings = derive_host_network_bindings(_host_config(dispatch_worker={"network": "host"}))
+        assert [(b.service, b.host_port) for b in bindings] == [("dispatch-worker-1", 9190)]
+
+    def test_custom_stride_spaces_the_workers(self):
+        bindings = derive_host_network_bindings(
+            _host_config(
+                dispatch_worker={
+                    "network": "host",
+                    "worker_port_base": 9190,
+                    "worker_port_stride": 10,
+                    "worker_count": 3,
+                }
+            )
+        )
+        assert [b.host_port for b in bindings] == [9190, 9200, 9210]
+
+    def test_both_halves_on_host_derive_both(self):
+        bindings = derive_host_network_bindings(
+            _host_config(
+                event_dispatcher={"network": "host", "port": 8020},
+                dispatch_worker={"network": "host", "worker_port_base": 9190, "worker_count": 2},
+            )
+        )
+        assert [(b.service, b.host_port) for b in bindings] == [
+            ("event-dispatcher", 8020),
+            ("dispatch-worker-1", 9190),
+            ("dispatch-worker-2", 9191),
+        ]
+
+
+class TestHostNetworkConflicts:
+    """The derived bindings join the same duplicate and external checks."""
+
+    @pytest.fixture
+    def _no_external_listeners(self, monkeypatch):
+        monkeypatch.setattr(host_ports, "_port_is_free", lambda host_ip, host_port: True)
+
+    def test_published_port_wins_and_the_worker_is_told_to_move(self, _no_external_listeners):
+        published = HostPortBinding("openobserve", "127.0.0.1", 9190, 5080, "a.yml")
+        config = _host_config(dispatch_worker={"network": "host", "worker_port_base": 9190})
+
+        conflicts = find_port_conflicts([published], project_name="proj", config=config)
+
+        assert len(conflicts) == 1
+        conflict = conflicts[0]
+        assert conflict.kind == "duplicate"
+        assert conflict.service == "dispatch-worker-1"
+        assert conflict.host_network is True
+        assert "openobserve" in conflict.holder
+        # One key moves the whole worker block, so the index is not in it.
+        assert conflict.remedy == "dispatch.worker_port_base"
+
+    def test_dispatcher_and_worker_on_one_port_collide(self, _no_external_listeners):
+        # Two derived bindings, no compose file involved: the pair share one
+        # host namespace, so a dispatcher port inside the worker range is fatal.
+        config = _host_config(
+            event_dispatcher={"network": "host", "port": 9191},
+            dispatch_worker={"network": "host", "worker_port_base": 9190, "worker_count": 2},
+        )
+        conflicts = find_port_conflicts([], project_name="proj", config=config)
+
+        assert [c.service for c in conflicts] == ["dispatch-worker-2"]
+        assert conflicts[0].kind == "duplicate"
+        assert "event-dispatcher" in conflicts[0].holder
+        assert conflicts[0].remedy == "dispatch.worker_port_base"
+
+    def test_bridge_mode_derives_nothing_to_collide_with(self, listening_port):
+        # Same port, same config shape, only the axis differs: with no host
+        # placement there is no derived binding, so nothing is probed at all.
+        _, port = listening_port
+        config = _host_config(event_dispatcher={"port": port})
+        assert find_port_conflicts([], project_name="proj", config=config) == []
+
+    def test_external_listener_on_a_derived_dispatcher_port(self, monkeypatch, listening_port):
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: "")
+        _, port = listening_port
+        config = _host_config(event_dispatcher={"network": "host", "port": port})
+
+        conflicts = find_port_conflicts([], project_name="proj", config=config)
+
+        assert len(conflicts) == 1
+        assert conflicts[0].kind == "external"
+        assert conflicts[0].service == "event-dispatcher"
+        assert conflicts[0].host_network is True
+        assert conflicts[0].remedy == "services.event_dispatcher.port"
+
+    def test_own_host_network_container_is_exempt(self, monkeypatch, listening_port):
+        # A host-network container publishes no port map, so `ps` cannot
+        # attribute its listener by port — an idempotent redeploy has to be
+        # recognised by the container's name instead.
+        _, port = listening_port
+        ps_json = json.dumps(
+            {
+                "Names": "proj-event-dispatcher",
+                "Ports": "",
+                "Labels": "com.docker.compose.project=proj",
+            }
+        )
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
+        config = _host_config(event_dispatcher={"network": "host", "port": port})
+
+        assert find_port_conflicts([], project_name="proj", config=config) == []
+
+    def test_another_projects_host_network_container_still_conflicts(
+        self, monkeypatch, listening_port
+    ):
+        _, port = listening_port
+        ps_json = json.dumps(
+            {
+                "Names": "other-event-dispatcher",
+                "Ports": "",
+                "Labels": "com.docker.compose.project=other",
+            }
+        )
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
+        config = _host_config(event_dispatcher={"network": "host", "port": port})
+
+        conflicts = find_port_conflicts([], project_name="proj", config=config)
+        assert len(conflicts) == 1
+        assert conflicts[0].kind == "external"
+
+    def test_no_config_leaves_published_checking_unchanged(self, _no_external_listeners):
+        bindings = [
+            HostPortBinding("postgresql", "127.0.0.1", 5432, 5432, "a.yml"),
+            HostPortBinding("other-db", "127.0.0.1", 5432, 5432, "b.yml"),
+        ]
+        conflicts = find_port_conflicts(bindings, project_name="proj")
+        assert [c.service for c in conflicts] == ["other-db"]
+        assert conflicts[0].host_network is False
+
+
+class TestHostNetworkReport:
+    def test_report_names_the_binding_and_explains_the_namespace(self):
+        conflicts = [
+            PortConflict(
+                host_port=9190,
+                bind_address="127.0.0.1",
+                service="dispatch-worker-1",
+                kind="external",
+                holder="an unknown host process",
+                remedy="dispatch.worker_port_base",
+                host_network=True,
+            )
+        ]
+        report = format_conflict_report(conflicts)
+
+        assert "dispatch-worker-1" in report
+        assert "(host network)" in report
+        assert "dispatch.worker_port_base" in report
+        # The paragraph that explains why a port with no published mapping is
+        # nonetheless contested by a second project on this host.
+        assert "host network namespace" in report
+        assert "its own ports" in report

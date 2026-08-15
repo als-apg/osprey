@@ -204,6 +204,27 @@ def test_inject_nextcloud_bridge_missing_config_yml_is_noop(tmp_path: Path) -> N
     assert (project_path / "services" / "nextcloud_bridge" / "Dockerfile").is_file()
 
 
+def test_inject_nextcloud_bridge_ships_the_partials_its_template_imports(tmp_path: Path) -> None:
+    """The injector lands the shared macro file the compose template imports.
+
+    The template imports ``services/_network_axis.j2`` by a path relative to the
+    PROJECT root, which is where the deploy-time renderer's loader is rooted. A
+    project that received the template but not the partial therefore renders
+    nothing at all: ``osprey up`` fails with ``TemplateNotFound``, one deploy too
+    late. The injector runs alone here, with no build behind it, because that is
+    exactly the path on which the partial would otherwise never arrive.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path, deployed=[])
+
+    _inject_nextcloud_bridge(NextcloudBridgeProfileConfig(), project_path=project_path)
+
+    assert (project_path / "services" / "_network_axis.j2").is_file(), (
+        "the compose template's own import target must travel with it"
+    )
+
+
 def test_inject_nextcloud_bridge_renders_without_dispatch_pair_deployed(tmp_path: Path) -> None:
     """The config block alone renders a valid compose for an EXTERNAL dispatcher.
 

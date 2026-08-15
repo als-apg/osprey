@@ -40,6 +40,7 @@ import json
 import re
 import sys
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,27 @@ SCAN_AGENTIC_TEST_FILE = "tests/e2e/test_scan_stack_agentic.py"
 SCAN_AGENTIC_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 ARCHIVER_JOB = "archiver-world-e2e"
 ARCHIVER_TEST_FILE = "tests/e2e/test_archiver_world_e2e.py"
+TWO_SHAPE_JOB = "two-shape-boot-e2e"
+TWO_SHAPE_TEST_FILE = "tests/e2e/test_two_shape_boot.py"
+TWO_SHAPE_BOOT_STEP = "Run two-shape boot E2E (podman)"
+TWO_SHAPE_PROVIDER_STEP = "Step 0 — assert the compose provider is podman-compose 1.0.6"
+#: The parse-only counterpart runs in a Tier 0 job, not a lane of its own —
+#: it needs no container runtime, only a renderer and a YAML parser.
+PARSE_ONLY_JOB = "static-checks"
+PARSE_ONLY_STEP = "Parse the merged podman topology (podman-compose config, no containers)"
+PODMAN_COMPOSE_PIN = "podman-compose==1.0.6"
+#: The containers.conf key that forces podman's choice of external provider.
+COMPOSE_PROVIDER_FORCE_KEY = "compose_providers"
+#: The env-var expression of the same choice, which sidesteps the config chain.
+COMPOSE_PROVIDER_FORCE_ENV = "PODMAN_COMPOSE_PROVIDER"
+PODMAN_PIN_STEP = "Pin podman-compose 1.0.6 as podman's compose provider"
+#: The runner-image presence guard. Matched with a negative lookahead rather
+#: than as a substring: ``command -v podman-compose`` contains the shorter
+#: string and appears in BOTH pin steps, so a plain ``in`` check reports the
+#: lane as guarded when it is not. Anchoring on the redirection that happens to
+#: follow it today would work but would break the moment someone writes
+#: ``command -v podman || ...``; the lookahead pins the command name itself.
+_PODMAN_PRESENCE_GUARD_RE = re.compile(r"command -v podman(?![-\w])")
 OVERLAY_JOB = "dispatch-overlay-e2e"
 OVERLAY_TEST_FILE = "tests/e2e/test_dispatch_overlay_visibility.py"
 CATALOG_JOB = "bluesky-catalog-e2e"
@@ -2425,3 +2447,980 @@ def test_unit_lane_does_not_set_faulthandler_timeout__mutation_restores_the_ini_
     )
     with pytest.raises(AssertionError):
         test_unit_lane_does_not_set_faulthandler_timeout(mutated)
+
+
+# The two-shape boot lane: podman-compose forced and PROVEN, the network axis
+# run under it, and an epic-base trigger so it runs where the axis is built
+# ---------------------------------------------------------------------------
+#
+# Two jobs are asserted here because the coverage is deliberately split in two.
+# `two-shape-boot-e2e` is the real thing — it boots the dispatcher/worker pair
+# twice, once per network shape, on a rootless podman runner. The parse-only
+# step in `static-checks` is the cheap half: it renders the same kind of
+# deployment and hands podman-compose OSPREY's own argv, so a merged document
+# that no longer parses, or an env chain that stops interpolating, is caught in
+# a Tier 0 job in seconds rather than after a ~20-minute image build.
+#
+# The provider is the load-bearing fact for both. `podman compose` delegates to
+# whichever external provider it finds, and on a GitHub runner the first one is
+# the docker-compose CLI plugin — the engine the docker lanes already cover,
+# and one that accepts the `--project-directory` this argv deliberately omits.
+# A lane that quietly ran the plugin would report green having tested nothing
+# new, which is why the pin, the force and the assertion are each checked
+# independently below.
+
+
+def _step_names(wf: dict[str, Any], job_name: str) -> list[str]:
+    return [step.get("name", "") for step in _jobs(wf)[job_name]["steps"]]
+
+
+def test_two_shape_boot_job_exists(workflow: dict[str, Any]) -> None:
+    assert TWO_SHAPE_JOB in _jobs(workflow)
+
+
+def test_two_shape_boot_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][TWO_SHAPE_JOB]
+    with pytest.raises(AssertionError):
+        assert TWO_SHAPE_JOB in _jobs(mutated)
+
+
+def test_two_shape_boot_job_runs_the_module_under_podman(workflow: dict[str, Any]) -> None:
+    """The module reads its runtime off ``OSPREY_E2E_RUNTIME`` and defaults to
+    docker. Without that variable the lane would install podman-compose, force
+    it, assert it — and then run the whole boot against the runner's docker
+    daemon, certifying the provider it was written to leave behind."""
+    step = _find_named_step(workflow, TWO_SHAPE_JOB, TWO_SHAPE_BOOT_STEP)
+    assert TWO_SHAPE_TEST_FILE in step["run"]
+    assert step.get("env", {}).get("OSPREY_E2E_RUNTIME") == "podman", (
+        f"the '{TWO_SHAPE_JOB}' boot step must set OSPREY_E2E_RUNTIME=podman; got {step.get('env')}"
+    )
+
+
+def test_two_shape_boot_job_runs_the_module_under_podman__mutation_drops_the_runtime() -> None:
+    """Dropping the variable while leaving the step must fail — the exact shape
+    of a lane that silently reverts to docker."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TWO_SHAPE_JOB, TWO_SHAPE_BOOT_STEP)
+    del step["env"]["OSPREY_E2E_RUNTIME"]
+    assert TWO_SHAPE_TEST_FILE in step["run"]  # the module is still named
+    with pytest.raises(AssertionError):
+        test_two_shape_boot_job_runs_the_module_under_podman(mutated)
+
+
+def test_two_shape_boot_job_runs_the_module_under_podman__mutation_drops_the_step() -> None:
+    """A lane with no pytest step passes every other check in this section and
+    runs nothing at all."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[TWO_SHAPE_JOB]["steps"]
+    _jobs(mutated)[TWO_SHAPE_JOB]["steps"] = [
+        s for s in steps if s.get("name") != TWO_SHAPE_BOOT_STEP
+    ]
+    with pytest.raises(AssertionError, match="no step named"):
+        test_two_shape_boot_job_runs_the_module_under_podman(mutated)
+
+
+def _podman_compose_is_pinned_and_forced(wf: dict[str, Any], job_name: str) -> list[str]:
+    """Which parts of the provider pin are MISSING from a job (empty = all).
+
+    Three independent mechanisms, and none implies the others. An unpinned
+    install drifts to whatever podman-compose release exists on the day. An
+    unforced provider lets podman pick the docker-compose CLI plugin no matter
+    which podman-compose sits beside it — podman's documented default order
+    tries docker-compose FIRST, which is exactly how "we installed it" and "it
+    executes" came apart in the neighbouring lane.
+
+    The env override is the third because the file has one gap: podman reads a
+    USER-level ``containers.conf.d/*.conf`` drop-in AFTER the user's
+    ``containers.conf``, so such a drop-in would outrank the file this lane
+    writes. ``PODMAN_COMPOSE_PROVIDER`` sidesteps the chain entirely. Nothing
+    in this repo writes such a drop-in, so this is hardening against a future
+    runner image rather than a fix for a live hole — an unpinned belt is how a
+    belt quietly disappears.
+    """
+    serialized = json.dumps(_jobs(wf)[job_name])
+    return [
+        label
+        for label, token in (
+            ("version pin", PODMAN_COMPOSE_PIN),
+            ("force", COMPOSE_PROVIDER_FORCE_KEY),
+            ("env override", COMPOSE_PROVIDER_FORCE_ENV),
+        )
+        if token not in serialized
+    ]
+
+
+@pytest.mark.parametrize("job_name", [TWO_SHAPE_JOB, PARSE_ONLY_JOB])
+def test_podman_compose_is_pinned_and_forced(workflow: dict[str, Any], job_name: str) -> None:
+    """Both jobs that speak podman-compose must pin the version AND force
+    podman to use it, for the reasons in this section's header."""
+    assert _podman_compose_is_pinned_and_forced(workflow, job_name) == []
+
+
+@pytest.mark.parametrize("job_name", [TWO_SHAPE_JOB, PARSE_ONLY_JOB])
+def test_podman_compose_is_pinned_and_forced__mutation_unpins_the_version(job_name: str) -> None:
+    """Installing an unpinned podman-compose must be reported: the floor this
+    branch is written against is 1.0.6, and a lane that silently moved off it
+    would report on an engine nobody chose."""
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][job_name] = json.loads(
+        json.dumps(mutated["jobs"][job_name]).replace(PODMAN_COMPOSE_PIN, "podman-compose")
+    )
+    assert _podman_compose_is_pinned_and_forced(mutated, job_name) == ["version pin"]
+
+
+@pytest.mark.parametrize("job_name", [TWO_SHAPE_JOB, PARSE_ONLY_JOB])
+def test_podman_compose_is_pinned_and_forced__mutation_drops_the_force(job_name: str) -> None:
+    """The dangerous half: podman-compose is installed, so the job LOOKS
+    provider-correct, but nothing tells podman to prefer it over the
+    docker-compose plugin already on the runner."""
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][job_name] = json.loads(
+        json.dumps(mutated["jobs"][job_name]).replace(COMPOSE_PROVIDER_FORCE_KEY, "unrelated_key")
+    )
+    assert _podman_compose_is_pinned_and_forced(mutated, job_name) == ["force"]
+
+
+@pytest.mark.parametrize("job_name", [TWO_SHAPE_JOB, PARSE_ONLY_JOB])
+def test_podman_compose_is_pinned_and_forced__mutation_drops_the_env_override(
+    job_name: str,
+) -> None:
+    """The quietest of the three to lose: the file still forces the provider, so
+    nothing observable changes until a runner image ships a user-level
+    containers.conf.d drop-in — at which point the lane silently runs the
+    engine it was written to leave behind."""
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][job_name] = json.loads(
+        json.dumps(mutated["jobs"][job_name]).replace(COMPOSE_PROVIDER_FORCE_ENV, "UNRELATED_VAR")
+    )
+    assert _podman_compose_is_pinned_and_forced(mutated, job_name) == ["env override"]
+
+
+def _assert_probes_the_provider(run_text: str) -> None:
+    """The content every provider-asserting step must carry, wherever it lives.
+
+    Extracted so the parse-only twin is held to the lane's standard rather than
+    inheriting its prose: deleting both assertions from the parse step's inline
+    Python used to fail nothing, which is the same regression class the lane's
+    own ordering test exists to prevent one job over.
+    """
+    assert "detect_compose_provider" in run_text, (
+        "must probe through OSPREY's own detector, so it answers the same "
+        "question the deploy asks rather than a lookalike"
+    )
+    assert "ComposeProvider.PODMAN_COMPOSE" in run_text, "must assert the provider it claims"
+    # The parsed tuple, never the text: `podman-compose==1.0.6` on the install
+    # line would satisfy a substring search over the job while the assertion
+    # itself checked nothing.
+    assert "(1, 0, 6)" in run_text, "must assert the parsed version, not just the banner"
+
+
+#: Every step that claims the provider, in the job it belongs to. Both are held
+#: to `_assert_probes_the_provider`; only the lane's is order-constrained,
+#: because only the lane has an expensive boot to run afterwards.
+PROVIDER_ASSERTION_STEPS = (
+    (TWO_SHAPE_JOB, TWO_SHAPE_PROVIDER_STEP),
+    (PARSE_ONLY_JOB, PARSE_ONLY_STEP),
+)
+
+
+@pytest.mark.parametrize(("job_name", "step_name"), PROVIDER_ASSERTION_STEPS)
+def test_every_provider_claiming_step_actually_probes(
+    workflow: dict[str, Any], job_name: str, step_name: str
+) -> None:
+    """Both jobs force podman-compose; both must SAY so falsifiably."""
+    _assert_probes_the_provider(_find_named_step(workflow, job_name, step_name)["run"])
+
+
+@pytest.mark.parametrize(("job_name", "step_name"), PROVIDER_ASSERTION_STEPS)
+def test_every_provider_claiming_step_actually_probes__mutation_drops_the_asserts(
+    job_name: str, step_name: str
+) -> None:
+    """Stripping the two assertions leaves a step that still runs the right
+    engine — the pin and the force are asserted elsewhere — but no longer
+    demonstrates it. That is precisely how a falsifiability check rots into a
+    comment."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, job_name, step_name)
+    step["run"] = "\n".join(
+        line
+        for line in step["run"].splitlines()
+        if "ComposeProvider.PODMAN_COMPOSE" not in line and "(1, 0, 6)" not in line
+    )
+    with pytest.raises(AssertionError):
+        test_every_provider_claiming_step_actually_probes(mutated, job_name, step_name)
+
+
+def test_two_shape_lane_asserts_its_provider_before_the_boot(workflow: dict[str, Any]) -> None:
+    """Step 0 is what makes the pin falsifiable rather than aspirational, and
+    its POSITION is half of what it is worth. Placed after the boot it would
+    still catch a wrong engine — but only after the lane had already spent the
+    image build and reported the axis certified under it.
+
+    The version is asserted as the parsed tuple the probe returns, not as text
+    anywhere in the job: ``podman-compose==1.0.6`` in the install line above
+    would satisfy a substring search while the assertion itself checked nothing.
+    """
+    names = _step_names(workflow, TWO_SHAPE_JOB)
+    assert TWO_SHAPE_PROVIDER_STEP in names, f"no provider assertion step; got {names}"
+    assert names.index(TWO_SHAPE_PROVIDER_STEP) < names.index(TWO_SHAPE_BOOT_STEP), (
+        "the provider assertion must run BEFORE the boot it certifies"
+    )
+    _assert_probes_the_provider(
+        _find_named_step(workflow, TWO_SHAPE_JOB, TWO_SHAPE_PROVIDER_STEP)["run"]
+    )
+
+
+def test_two_shape_lane_asserts_its_provider__mutation_moves_it_after_the_boot() -> None:
+    """Reordering must fail even though every step survives — the assertion
+    would then certify a boot that had already happened."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[TWO_SHAPE_JOB]["steps"]
+    probe = next(s for s in steps if s.get("name") == TWO_SHAPE_PROVIDER_STEP)
+    steps.remove(probe)
+    steps.append(probe)
+    assert TWO_SHAPE_PROVIDER_STEP in _step_names(mutated, TWO_SHAPE_JOB)  # still present
+    with pytest.raises(AssertionError, match="BEFORE the boot"):
+        test_two_shape_lane_asserts_its_provider_before_the_boot(mutated)
+
+
+def test_two_shape_lane_asserts_its_provider__mutation_drops_the_version_check() -> None:
+    """A step 0 that recognizes podman-compose but accepts any version is the
+    quiet half of the same failure: the lane keeps running after a release that
+    changed the argv it certifies."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TWO_SHAPE_JOB, TWO_SHAPE_PROVIDER_STEP)
+    step["run"] = step["run"].replace("(1, 0, 6)", "info.version")
+    assert "ComposeProvider.PODMAN_COMPOSE" in step["run"]  # the provider half survives
+    with pytest.raises(AssertionError, match="parsed version"):
+        test_two_shape_lane_asserts_its_provider_before_the_boot(mutated)
+
+
+def test_two_shape_boot_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+    """Every answer this lane reads comes off the runtime — published ports,
+    ``/proc/net/tcp``, container environment, the rendered compose document.
+    A secret appearing here would mean the lane's scope silently grew."""
+    assert not _job_declares_secret(workflow, TWO_SHAPE_JOB, SECRET_TOKEN)
+
+
+def test_two_shape_boot_job_has_no_llm_secret__mutation_adds_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][TWO_SHAPE_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        assert not _job_declares_secret(mutated, TWO_SHAPE_JOB, SECRET_TOKEN)
+
+
+def test_e2e_lane_ignores_two_shape_boot(workflow: dict[str, Any]) -> None:
+    """Named explicitly as well as swept up by the blanket ``dockerbuild``
+    guard above: this module builds two images and binds real host ports under
+    its host shape, so leaking it into the shared lane would collide with the
+    lane's own stacks rather than merely double-execute."""
+    assert _run_step_ignores_all(workflow, [TWO_SHAPE_TEST_FILE]) == []
+
+
+def test_e2e_lane_ignores_two_shape_boot__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], TWO_SHAPE_TEST_FILE)
+    assert _run_step_ignores_all(mutated, [TWO_SHAPE_TEST_FILE]) == [TWO_SHAPE_TEST_FILE]
+
+
+def _accepts_an_epic_base(job_if: str) -> bool:
+    """Whether a job's ``if:`` admits a PR whose base is an ``epic/*`` branch."""
+    return "epic/" in job_if
+
+
+def test_two_shape_lane_triggers_on_epic_base_prs(workflow: dict[str, Any]) -> None:
+    """Both halves of the trigger, and neither is sufficient alone.
+
+    The workflow must fire at all for a PR into an epic base — that is the
+    ``pull_request.branches`` list — and this job's own ``if:`` must then admit
+    it. The network axis and the podman-compose provider are built on phase
+    branches whose PRs target ``epic/<name>``, so a lane scoped to main alone
+    would skip on every PR that changes what it covers and first run once the
+    work had already landed. That is the opposite of a gate.
+    """
+    triggers = workflow[True]["pull_request"]["branches"]
+    assert "epic/**" in triggers, f"the workflow must fire on PRs into an epic base; got {triggers}"
+    job_if = _jobs(workflow)[TWO_SHAPE_JOB]["if"]
+    assert _accepts_an_epic_base(job_if), (
+        f"'{TWO_SHAPE_JOB}' must admit PRs based on epic/*; got: {job_if!r}"
+    )
+
+
+def test_two_shape_lane_triggers_on_epic_base_prs__mutation_drops_the_job_clause() -> None:
+    """Narrowing the job to main alone must fail even with the workflow-level
+    trigger left intact — the lane would be present, wired, and permanently
+    skipped on exactly the PRs it exists for."""
+    mutated = copy.deepcopy(_load_workflow())
+    job_if = _jobs(mutated)[TWO_SHAPE_JOB]["if"]
+    # Surgical: only the epic disjunct goes, leaving a well-formed condition
+    # that still admits same-repo PRs into main. A mutation that emptied the
+    # whole `if:` would fail the assertion for the wrong reason.
+    narrowed = job_if.replace(" || startsWith(github.event.pull_request.base.ref, 'epic/')", "")
+    assert narrowed != job_if, "no epic clause in the job's if: — mutation is stale"
+    assert "base.ref == 'main'" in narrowed, "the main clause must survive the narrowing"
+    _jobs(mutated)[TWO_SHAPE_JOB]["if"] = narrowed
+    assert "epic/**" in mutated[True]["pull_request"]["branches"]  # workflow trigger survives
+    with pytest.raises(AssertionError, match="must admit PRs based on"):
+        test_two_shape_lane_triggers_on_epic_base_prs(mutated)
+
+
+def test_two_shape_lane_triggers_on_epic_base_prs__mutation_drops_the_workflow_trigger() -> None:
+    """The other half: a job clause that would admit an epic base is inert if
+    the workflow never runs on those pull requests at all."""
+    mutated = copy.deepcopy(_load_workflow())
+    mutated[True]["pull_request"]["branches"] = ["main"]
+    assert _accepts_an_epic_base(_jobs(mutated)[TWO_SHAPE_JOB]["if"])  # job clause survives
+    with pytest.raises(AssertionError, match="must fire on PRs into an epic base"):
+        test_two_shape_lane_triggers_on_epic_base_prs(mutated)
+
+
+#: Literal shapes with no flag grammar to respect.
+#:
+#: ``"*"`` is deliberately BLUNT: it fires on any asterisk anywhere in the job's
+#: parsed form, shell comments inside ``run:`` blocks included. That is the
+#: right trade for a container-ops guard — a false positive costs one reworded
+#: comment and forces a human to look at a wildcard, while a false negative is a
+#: glob-matched removal on a host holding someone else's containers. It caught
+#: exactly one false positive in this lane (a comment naming a ``conf.d`` glob),
+#: which was reworded rather than the check being loosened.
+_PRUNE_LITERALS = ("prune", "*")
+
+#: The flag half, matched on WORD BOUNDARIES rather than as a substring. A tuple
+#: entry like ``" -a "`` cannot express "flag": it requires a trailing space, so
+#: it misses the two most natural spellings — a flag at end of line (``podman
+#: volume rm -a``) and a fused cluster (``podman rmi -af``). Both sailed past
+#: every assertion in this module until a mutation was written for them.
+#: ``-\w*a\w*`` catches any short cluster containing ``a``; the lookarounds are
+#: what make it a flag rather than any substring.
+_BLANKET_FLAG_RE = re.compile(r"(?<!\S)(-\w*a\w*|--all)(?!\S)")
+
+
+def _strings_in(value: Any) -> Iterator[str]:
+    """Every string leaf in a parsed-YAML structure.
+
+    The flag match MUST run against these rather than against ``json.dumps`` of
+    the job: serializing puts a closing quote immediately after a trailing
+    flag, so ``podman volume rm -a`` becomes ``...rm -a"`` and the ``(?!\\S)``
+    boundary can never fire. That is not hypothetical — it is why the first
+    version of this guard passed its own mutations.
+    """
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield str(key)
+            yield from _strings_in(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings_in(item)
+
+
+def _blanket_removal_shapes(wf: dict[str, Any], job_name: str) -> list[str]:
+    """Blanket-removal shapes present in a job (empty = exact-named throughout).
+
+    Reads the job's PARSED form, so YAML comments are invisible to it — which is
+    why the lane's prose may discuss prunes while the guard stays green. A step
+    NAME carrying one of these would legitimately trip it.
+    """
+    found: list[str] = []
+    for text in _strings_in(_jobs(wf)[job_name]):
+        found.extend(shape for shape in _PRUNE_LITERALS if shape in text)
+        found.extend(match.group(0) for match in _BLANKET_FLAG_RE.finditer(text))
+    return found
+
+
+def test_two_shape_lane_cleanup_is_exact_named(workflow: dict[str, Any]) -> None:
+    """The module documents a container-ops guardrail — every resource it
+    creates is exact-named, and nothing it runs is a prune, an ``-a``/``--all``
+    removal or a wildcard match. The lane's belt-and-suspenders cleanup runs on
+    a shared-shape runner and must honour the same rule: a blanket sweep here
+    would be indistinguishable from the module's own teardown right up until it
+    ran on a host that had something else on it."""
+    found = _blanket_removal_shapes(workflow, TWO_SHAPE_JOB)
+    assert found == [], f"'{TWO_SHAPE_JOB}' contains blanket-removal shape(s) {found}"
+
+
+def test_two_shape_lane_cleanup_is_exact_named__mutation_adds_a_prune() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[TWO_SHAPE_JOB]["steps"].append(
+        {"name": "sweep", "run": "podman system prune -f"}
+    )
+    with pytest.raises(AssertionError, match="blanket-removal"):
+        test_two_shape_lane_cleanup_is_exact_named(mutated)
+
+
+@pytest.mark.parametrize(
+    "swept",
+    [
+        "podman volume rm -a",  # trailing flag: the substring tuple's blind spot
+        "podman rmi -af",  # fused cluster: likewise
+        "podman rm --all",
+    ],
+)
+def test_two_shape_lane_cleanup_is_exact_named__mutation_adds_a_blanket_flag(swept: str) -> None:
+    """The shapes the substring tuple missed. Each sweeps every volume or image
+    on the host rather than the six this lane owns, and each left all of this
+    module's assertions green before the boundary match replaced the tuple. The
+    gap existed precisely because it had never been mutated."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[TWO_SHAPE_JOB]["steps"].append({"name": "sweep", "run": swept})
+    with pytest.raises(AssertionError, match="blanket-removal"):
+        test_two_shape_lane_cleanup_is_exact_named(mutated)
+
+
+def test_blanket_flag_match_respects_word_boundaries() -> None:
+    """The guard must not fire on the lane's legitimate argv. ``-f``, ``--type``
+    and a hyphenated path are all things the real steps run; a guard that
+    reddened on those would be reverted within a week, which is how a safety
+    check dies."""
+    for benign in ("podman rm -f name", "podman inspect --type container x", "/usr/bin/a-name"):
+        assert _BLANKET_FLAG_RE.search(benign) is None, f"false positive on {benign!r}"
+    for blanket in ("podman rmi -af", "podman volume rm -a", "podman rm --all"):
+        assert _BLANKET_FLAG_RE.search(blanket) is not None, f"missed {blanket!r}"
+
+
+# ---------------------------------------------------------------------------
+# The lane spells the module's resource names and ports by hand — so they are
+# pinned to the module's own constants rather than to a reader's memory
+# ---------------------------------------------------------------------------
+
+
+def _two_shape_module_constant(name: str) -> Any:
+    """A module-level literal from ``tests/e2e/test_two_shape_boot.py``.
+
+    Read with ``ast``, not imported: importing that module pulls in its e2e
+    dependencies and executes its runtime-selection guard, neither of which
+    this lane-wiring check has any business doing.
+    """
+    source = (CI_YML.parents[2] / TWO_SHAPE_TEST_FILE).read_text(encoding="utf-8")
+    for node in ast.parse(source).body:
+        # AnnAssign as well as Assign: `DISPATCHER_PORT: int = 21781` is a
+        # spelling already used elsewhere in this codebase, and handling only
+        # the bare form would make this helper RAISE the day someone annotates
+        # a constant. Loud rather than silent, but still a needless break.
+        if isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == name and node.value:
+                return ast.literal_eval(node.value)
+        elif isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == name for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"{TWO_SHAPE_TEST_FILE} defines no module-level {name}")
+
+
+def _two_shape_resource_names() -> list[str]:
+    """The exact resource names the lane hardcodes, derived the way the module
+    derives them. ``resolve_project_name`` is what turns the project name into
+    the compose prefix that the volume and network carry, so it is called here
+    rather than re-spelled.
+
+    Ports are deliberately NOT in this list — see
+    ``test_two_shape_lane_ports_match_the_module`` for why they need a narrower
+    scope than these do.
+    """
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    project = _two_shape_module_constant("PROJECT_NAME")
+    compose_project = resolve_project_name({"project_name": project})
+    return [
+        f"{project}-event-dispatcher",
+        f"{project}-dispatch-worker-1",
+        f"{compose_project}_dispatch_workspace_1",
+        f"{compose_project}_osprey-network",
+        f"{project}:local",
+        f"{project}-dispatch:local",
+    ]
+
+
+def test_two_shape_lane_names_match_the_module(workflow: dict[str, Any]) -> None:
+    """The lane's cleanup names resources the module creates, and YAML cannot
+    import a Python constant — so the two are pinned together here or not at
+    all. The drift fails quietly: a cleanup naming a container that no longer
+    exists removes nothing and reports success, leaving the real one stranded
+    to break the next run.
+
+    Job-wide scope is safe for these because no step NAME contains a container,
+    volume, network or image name; the only place they appear is the argv that
+    removes them.
+    """
+    job_text = json.dumps(_jobs(workflow)[TWO_SHAPE_JOB])
+    missing = [name for name in _two_shape_resource_names() if name not in job_text]
+    assert missing == [], (
+        f"the '{TWO_SHAPE_JOB}' lane does not name {missing} — these come from "
+        f"{TWO_SHAPE_TEST_FILE}'s own constants and must be kept in step with them"
+    )
+
+
+def test_two_shape_lane_names_match_the_module__mutation_drifts_a_name() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    volume = f"{_two_shape_module_constant('PROJECT_NAME')}_dispatch_workspace_1"
+    mutated["jobs"][TWO_SHAPE_JOB] = json.loads(
+        json.dumps(mutated["jobs"][TWO_SHAPE_JOB]).replace(volume, "stale_volume_name")
+    )
+    with pytest.raises(AssertionError, match="dispatch_workspace_1"):
+        test_two_shape_lane_names_match_the_module(mutated)
+
+
+def test_two_shape_lane_ports_match_the_module(workflow: dict[str, Any]) -> None:
+    """Scoped to the pre-flight step's ``run:`` text, NOT to the job.
+
+    The step is NAMED "Pre-flight — ports 21781 and 21791 must be free on the
+    runner", so both numbers are in the job's JSON no matter what the ``ss``
+    loop below them actually probes. A job-wide check is therefore satisfied by
+    the step's own title: rewriting the loop to test 8020/9190 left every
+    assertion in this module green, which is exactly the drift this guard
+    claims to prevent. Reading the assertion does not show that; running the
+    mutation does.
+
+    Same species as the ``or "{}"`` fallback caught one task over — an
+    assertion whose subject is wide enough to include the thing that describes
+    it, rather than only the thing that does it.
+    """
+    preflight_run = _find_named_step(workflow, TWO_SHAPE_JOB, PORT_PREFLIGHT_STEP)["run"]
+    ports = [str(_two_shape_module_constant(name)) for name in ("DISPATCHER_PORT", "WORKER_PORT")]
+    missing = [port for port in ports if port not in preflight_run]
+    assert missing == [], (
+        f"the pre-flight step's command does not probe {missing} — the module binds "
+        f"those ports, and a pre-flight checking others reports 'free' about ports "
+        f"nobody wanted"
+    )
+
+
+def test_two_shape_lane_ports_match_the_module__mutation_drifts_the_probed_ports() -> None:
+    """The mutation that matters: rewrite the LOOP and leave the step NAME
+    alone. The earlier whole-job mutation passed only because a JSON-wide
+    replace rewrote the title too, curing the symptom it was meant to expose."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TWO_SHAPE_JOB, PORT_PREFLIGHT_STEP)
+    step["run"] = step["run"].replace("21781", "8020").replace("21791", "9190")
+    assert "21781" in step["name"], "the step name must still carry the real ports"
+    with pytest.raises(AssertionError, match="does not probe"):
+        test_two_shape_lane_ports_match_the_module(mutated)
+
+
+def test_two_shape_lane_names_match_the_module__mutation_drops_the_network() -> None:
+    """The network is the one resource ``osprey down`` normally removes, which
+    is exactly why the belt-and-suspenders line matters: it exists for the run
+    where ``down`` failed midway."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[TWO_SHAPE_JOB]["steps"]
+    cleanup = steps[-1]
+    before = cleanup["run"]
+    cleanup["run"] = "\n".join(line for line in before.splitlines() if "network rm" not in line)
+    assert cleanup["run"] != before, "no network removal in the cleanup — mutation is stale"
+    with pytest.raises(AssertionError, match="osprey-network"):
+        test_two_shape_lane_names_match_the_module(mutated)
+
+
+# ---------------------------------------------------------------------------
+# Two pre-boot steps that exist to make a red lane READABLE
+# ---------------------------------------------------------------------------
+#
+# Neither tests the feature, and they are load-bearing to different degrees.
+#
+# The port pre-flight is a real precondition: under the host shape those ports
+# are bound on the runner itself, so anything already holding one makes the
+# module's exposure assertion fail on a foreign socket — a red that accuses the
+# feature for the runner's fault.
+#
+# The schema probe is informational. The module now reads the health field
+# schema-driven and refuses in seconds naming both spellings if neither exists,
+# so a spelling mismatch can no longer stall the lane; what the probe still
+# supplies is WHICH spelling this podman uses, which no lane in this repo has
+# ever established.
+#
+# Both are pinned anyway, because a lane whose red runs cannot be interpreted
+# gets muted, and a muted lane is not a gate.
+
+SCHEMA_PROBE_STEP = "Diagnostic — podman's inspect .State schema (health-field spelling)"
+PORT_PREFLIGHT_STEP = "Pre-flight — ports 21781 and 21791 must be free on the runner"
+
+
+def test_two_shape_lane_diagnoses_before_it_boots(workflow: dict[str, Any]) -> None:
+    """Both steps must exist AND precede the boot.
+
+    Ordering is not stylistic. A step placed after a failing step does not run
+    at all unless it carries its own ``if:``, so a pre-flight or a diagnostic
+    parked below the boot would be missing from precisely the runs that need
+    it — and the pre-flight would additionally be refusing a port collision
+    only after the collision had already failed the test.
+    """
+    names = _step_names(workflow, TWO_SHAPE_JOB)
+    for step_name in (PORT_PREFLIGHT_STEP, SCHEMA_PROBE_STEP):
+        assert step_name in names, f"missing pre-boot step {step_name!r}; got {names}"
+        assert names.index(step_name) < names.index(TWO_SHAPE_BOOT_STEP), (
+            f"{step_name!r} must run BEFORE the boot it exists to explain"
+        )
+
+
+@pytest.mark.parametrize("step_name", [PORT_PREFLIGHT_STEP, SCHEMA_PROBE_STEP])
+def test_two_shape_lane_diagnoses_before_it_boots__mutation_drops_a_step(step_name: str) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[TWO_SHAPE_JOB]["steps"]
+    _jobs(mutated)[TWO_SHAPE_JOB]["steps"] = [s for s in steps if s.get("name") != step_name]
+    with pytest.raises(AssertionError, match="missing pre-boot step"):
+        test_two_shape_lane_diagnoses_before_it_boots(mutated)
+
+
+@pytest.mark.parametrize("step_name", [PORT_PREFLIGHT_STEP, SCHEMA_PROBE_STEP])
+def test_two_shape_lane_diagnoses_before_it_boots__mutation_moves_a_step_late(
+    step_name: str,
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[TWO_SHAPE_JOB]["steps"]
+    moved = next(s for s in steps if s.get("name") == step_name)
+    steps.remove(moved)
+    steps.append(moved)
+    assert step_name in _step_names(mutated, TWO_SHAPE_JOB)  # still present
+    with pytest.raises(AssertionError, match="BEFORE the boot"):
+        test_two_shape_lane_diagnoses_before_it_boots(mutated)
+
+
+def test_schema_probe_cannot_red_the_lane(workflow: dict[str, Any]) -> None:
+    """It is a diagnostic, not an assertion. Every runtime call it makes is
+    guarded and it ends in an explicit ``exit 0``, because reddening a gate
+    over a throwaway busybox that would not start — or a registry hiccup
+    pulling it — would fail the lane for something that says nothing about the
+    feature under test.
+
+    It probes BOTH spellings rather than asserting either: which one this
+    podman presents is the open question, so the step's job is to answer it in
+    the log, not to prejudge it.
+    """
+    run_text = _find_named_step(workflow, TWO_SHAPE_JOB, SCHEMA_PROBE_STEP)["run"]
+    assert run_text.rstrip().endswith("exit 0"), (
+        "the schema probe must end in `exit 0` so it can never fail the lane"
+    )
+    # The epilogue alone is NOT sufficient, and pinning only it was the gap.
+    # `run:` executes under `bash -e`, so an unguarded `podman rm` on a runner
+    # where the container never started aborts the step BEFORE the trailing
+    # `exit 0` is ever reached — the step reds while still visibly ending in
+    # `exit 0`. The guards are what make the epilogue reachable.
+    assert run_text.count("|| true") >= 2, (
+        "every podman call in the probe must be `|| true`-guarded, or bash -e "
+        "aborts before the `exit 0` that is supposed to make this fail-open"
+    )
+    assert "if podman run" in run_text, (
+        "the throwaway's own start must be conditional — a failed image pull is "
+        "the most likely way this step does not get to run at all"
+    )
+    for field in (".State.Health", ".State.Healthcheck"):
+        assert field in run_text, f"the probe must report on {field}"
+
+
+def test_schema_probe_cannot_red_the_lane__mutation_drops_the_exit_guard() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TWO_SHAPE_JOB, SCHEMA_PROBE_STEP)
+    step["run"] = step["run"].rstrip()[: -len("exit 0")]
+    with pytest.raises(AssertionError, match="never fail the lane"):
+        test_schema_probe_cannot_red_the_lane(mutated)
+
+
+def test_schema_probe_cannot_red_the_lane__mutation_drops_the_call_guards() -> None:
+    """The subtle half: the step still ENDS in `exit 0`, so the epilogue check
+    stays green, but under `bash -e` a failed `podman rm` aborts long before
+    that line runs. A fail-open promise is only as good as its guards."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TWO_SHAPE_JOB, SCHEMA_PROBE_STEP)
+    step["run"] = step["run"].replace(" || true", "")
+    assert step["run"].rstrip().endswith("exit 0"), "the epilogue must survive this mutation"
+    with pytest.raises(AssertionError, match="bash -e"):
+        test_schema_probe_cannot_red_the_lane(mutated)
+
+
+def test_port_preflight_actually_refuses(workflow: dict[str, Any]) -> None:
+    """The pre-flight is the one new step that MUST be able to red the lane.
+
+    It is the mirror image of the schema probe above, and the pair is easy to
+    confuse: both inspect the runner before the boot, but a diagnostic that
+    fails is a bug while a precondition that cannot fail is decorative. Without
+    a non-zero exit this step would print a busy port and carry on into the
+    20-minute boot that the busy port has already doomed.
+    """
+    run_text = _find_named_step(workflow, TWO_SHAPE_JOB, PORT_PREFLIGHT_STEP)["run"]
+    assert "exit 1" in run_text, (
+        "the port pre-flight must REFUSE on a busy port, not merely report it"
+    )
+
+
+def test_port_preflight_actually_refuses__mutation_softens_the_exit() -> None:
+    """Softening `exit 1` to `true` leaves a step that still probes, still
+    prints, and never stops anything."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TWO_SHAPE_JOB, PORT_PREFLIGHT_STEP)
+    step["run"] = step["run"].replace("exit 1", "true")
+    with pytest.raises(AssertionError, match="must REFUSE"):
+        test_port_preflight_actually_refuses(mutated)
+
+
+def test_schema_probe_cannot_red_the_lane__mutation_probes_only_one_spelling() -> None:
+    """Probing only docker's spelling would report "no health field" on a
+    podman that simply calls it something else — the same wrong conclusion the
+    step exists to prevent, now printed with authority."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TWO_SHAPE_JOB, SCHEMA_PROBE_STEP)
+    step["run"] = step["run"].replace(".State.Healthcheck", ".State.Health")
+    assert ".State.Health" in step["run"]  # the docker spelling survives
+    with pytest.raises(AssertionError, match="Healthcheck"):
+        test_schema_probe_cannot_red_the_lane(mutated)
+
+
+def test_two_shape_lane_cleanup_runs_on_failure(workflow: dict[str, Any]) -> None:
+    """Without ``if: always()`` the cleanup is present but skipped on exactly
+    the runs it exists for — a failed boot is when something is left behind."""
+    cleanup = _jobs(workflow)[TWO_SHAPE_JOB]["steps"][-1]
+    assert cleanup.get("if") == "always()", (
+        f"the '{TWO_SHAPE_JOB}' cleanup must carry `if: always()`; got {cleanup.get('if')!r}"
+    )
+
+
+def test_two_shape_lane_cleanup_runs_on_failure__mutation_drops_the_condition() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _jobs(mutated)[TWO_SHAPE_JOB]["steps"][-1]["if"]
+    with pytest.raises(AssertionError, match="must carry"):
+        test_two_shape_lane_cleanup_runs_on_failure(mutated)
+
+
+def test_two_shape_boot_step_shares_step_zero_environment(workflow: dict[str, Any]) -> None:
+    """No ``DOCKER_HOST`` export in the boot step — the one environment delta
+    that could ever separate the step that PROVES the provider from the step
+    that USES it.
+
+    It cannot flip the provider today: selection is a file with an absolute
+    path, and podman-compose drives the ``podman`` CLI, which ignores
+    ``DOCKER_HOST``. That is an argument for deleting it rather than keeping
+    it. A future provider that DID consult the variable would reintroduce the
+    delegation this lane exists to prevent, with step 0 still green because
+    step 0 never sees it. The neighbouring multi-user podman lane exports it
+    legitimately — it runs the docker-compose plugin, which needs the socket —
+    so this guard exists because copying from that lane is the obvious mistake.
+    """
+    boot_run = _find_named_step(workflow, TWO_SHAPE_JOB, TWO_SHAPE_BOOT_STEP)["run"]
+    assert "DOCKER_HOST" not in boot_run, (
+        "the boot step must not export DOCKER_HOST — see this test's docstring"
+    )
+    assert "podman system service" not in boot_run, (
+        "the API socket belongs to the docker-compose-plugin lane, not this one"
+    )
+
+
+def test_two_shape_boot_step_shares_step_zero_environment__mutation_readds_the_socket() -> None:
+    """Re-adding the neighbour's four lines must fail, whichever half returns."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TWO_SHAPE_JOB, TWO_SHAPE_BOOT_STEP)
+    step["run"] = (
+        'podman system service --time=0 &\nexport DOCKER_HOST="unix://$SOCK"\n' + (step["run"])
+    )
+    with pytest.raises(AssertionError, match="must not export DOCKER_HOST"):
+        test_two_shape_boot_step_shares_step_zero_environment(mutated)
+
+
+def test_all_checks_passed_needs_two_shape_boot(workflow: dict[str, Any]) -> None:
+    """Both halves of the gate, for the reason spelled out on the gchat pair:
+    ``needs:`` makes the roll-up wait, ``check_pr_lane`` makes it care."""
+    assert TWO_SHAPE_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{TWO_SHAPE_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_two_shape_boot__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(TWO_SHAPE_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_two_shape_boot(mutated)
+
+
+def test_all_checks_passed_needs_two_shape_boot__mutation_drops_check_pr_lane_line() -> None:
+    """The dangerous half: the job is still waited on, but nothing reads its
+    result — the lane could go red forever inside a green check."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if TWO_SHAPE_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert TWO_SHAPE_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_two_shape_boot(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The parse-only counterpart: same provider, no containers, in a fast job
+# ---------------------------------------------------------------------------
+
+
+def test_parse_only_step_lives_in_a_fast_job(workflow: dict[str, Any]) -> None:
+    """The step's whole value is being cheap enough to run on every push while
+    the boot lane is PR-scoped. Parked in a lane that only runs on same-repo
+    PRs it would add nothing the boot lane does not already cover, so the host
+    job is asserted, not just the step's existence.
+
+    ``static-checks`` qualifies because it carries no ``if:`` at all — it runs
+    on pushes, schedules and fork PRs alike.
+    """
+    assert PARSE_ONLY_STEP in _step_names(workflow, PARSE_ONLY_JOB)
+    assert "if" not in _jobs(workflow)[PARSE_ONLY_JOB], (
+        f"'{PARSE_ONLY_JOB}' has grown an if: — the parse step no longer runs unconditionally"
+    )
+
+
+def test_parse_only_step_lives_in_a_fast_job__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[PARSE_ONLY_JOB]["steps"]
+    _jobs(mutated)[PARSE_ONLY_JOB]["steps"] = [s for s in steps if s.get("name") != PARSE_ONLY_STEP]
+    with pytest.raises(AssertionError):
+        test_parse_only_step_lives_in_a_fast_job(mutated)
+
+
+def test_parse_only_step_lives_in_a_fast_job__mutation_gates_the_host_job() -> None:
+    """Giving the host job a PR-only ``if:`` must fail: the step would survive
+    every other check here while quietly ceasing to run on pushes."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[PARSE_ONLY_JOB]["if"] = "github.event_name == 'pull_request'"
+    assert PARSE_ONLY_STEP in _step_names(mutated, PARSE_ONLY_JOB)  # the step survives
+    with pytest.raises(AssertionError, match="grown an if:"):
+        test_parse_only_step_lives_in_a_fast_job(mutated)
+
+
+def _parse_step_run(wf: dict[str, Any]) -> str:
+    return _find_named_step(wf, PARSE_ONLY_JOB, PARSE_ONLY_STEP)["run"]
+
+
+def test_parse_only_step_parses_osprey_own_argv(workflow: dict[str, Any]) -> None:
+    """What separates this from a YAML lint: the document handed to
+    podman-compose is written BY ``compose_base_cmd`` as a side effect of
+    building the argv, and the argv is what the step runs. A hand-rolled
+    ``podman-compose -f build/services/*.yml config`` would parse something
+    real and prove nothing about the merged topology the deploy actually ships.
+    """
+    run_text = _parse_step_run(workflow)
+    assert "compose_base_cmd" in run_text, "the step must run OSPREY's own argv, not a lookalike"
+    # Spelled as the argv is built, NOT as a bare `"config" in run_text`: the
+    # step's own body contains `load_config("build/config.yml")`, which supplies
+    # that substring for free. The bare form stayed green when the subcommand
+    # was rewritten to `ps` — an inert half of an otherwise load-bearing pair.
+    assert '[*argv, "config"]' in run_text, (
+        "the step must run the merged topology through `config`, not another subcommand"
+    )
+
+
+def test_parse_only_step_parses_osprey_own_argv__mutation_hand_rolls_the_argv() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, PARSE_ONLY_JOB, PARSE_ONLY_STEP)
+    step["run"] = step["run"].replace("compose_base_cmd", "_hand_rolled_cmd")
+    with pytest.raises(AssertionError, match="own argv"):
+        test_parse_only_step_parses_osprey_own_argv(mutated)
+
+
+def test_parse_only_step_parses_osprey_own_argv__mutation_swaps_the_subcommand() -> None:
+    """`config` is what parses and interpolates; `ps` merely talks to the
+    runtime. Swapping them leaves a step that still builds the real argv and
+    still exits 0, having proved nothing about the merged document."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, PARSE_ONLY_JOB, PARSE_ONLY_STEP)
+    step["run"] = step["run"].replace('[*argv, "config"]', '[*argv, "ps"]')
+    assert "compose_base_cmd" in step["run"]  # the argv half survives untouched
+    with pytest.raises(AssertionError, match="not another subcommand"):
+        test_parse_only_step_parses_osprey_own_argv(mutated)
+
+
+def test_parse_only_step_degrades_rather_than_reds_the_tier_0_gate(
+    workflow: dict[str, Any],
+) -> None:
+    """``static-checks`` carries no ``if:`` — it gates every push, schedule and
+    fork PR — so podman's absence from a future runner image must cost this
+    extra coverage, not the job that gates everything.
+
+    The skip is deliberately NOT the usual vacuous-green hazard, and the reason
+    is worth stating: the two-shape lane runs the same pin UNguarded, so a
+    runner that genuinely lost podman still reds there on the next PR. This
+    guard narrows the blast radius; it does not make the coverage revocable.
+    """
+    pin_run = _find_named_step(workflow, PARSE_ONLY_JOB, PODMAN_PIN_STEP)["run"]
+    assert _PODMAN_PRESENCE_GUARD_RE.search(pin_run), (
+        f"the '{PARSE_ONLY_JOB}' pin step must tolerate a runner image without podman"
+    )
+    lane_pin = _find_named_step(workflow, TWO_SHAPE_JOB, PODMAN_PIN_STEP)["run"]
+    assert not _PODMAN_PRESENCE_GUARD_RE.search(lane_pin), (
+        f"the '{TWO_SHAPE_JOB}' pin step must NOT be guarded — an unguarded lane is "
+        "what keeps the skip above from hiding a genuinely missing podman"
+    )
+
+
+def test_parse_only_step_degrades__mutation_drops_the_guard() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, PARSE_ONLY_JOB, PODMAN_PIN_STEP)
+    step["run"] = _PODMAN_PRESENCE_GUARD_RE.sub("true", step["run"])
+    with pytest.raises(AssertionError, match="without podman"):
+        test_parse_only_step_degrades_rather_than_reds_the_tier_0_gate(mutated)
+
+
+def test_podman_presence_guard_is_not_satisfied_by_podman_compose() -> None:
+    """The lookahead's whole job, pinned directly.
+
+    Both pin steps run ``command -v podman-compose``. A substring check reports
+    the LANE as guarded on the strength of that line alone, which inverts the
+    assertion above — it would then demand the opposite of what it means.
+    """
+    assert _PODMAN_PRESENCE_GUARD_RE.search(
+        'PODMAN_COMPOSE_BIN="$(command -v podman-compose)"'
+    ) is (None)
+    for guarded in (
+        "command -v podman >/dev/null",
+        "command -v podman || exit 0",
+        "command -v podman",
+    ):
+        assert _PODMAN_PRESENCE_GUARD_RE.search(guarded), f"missed {guarded!r}"
+
+
+def test_parse_only_step_degrades__mutation_guards_the_lane_too() -> None:
+    """Guarding the LANE as well would make podman's absence invisible
+    everywhere — both halves would skip quietly and the gate would stay green
+    with nothing behind it."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TWO_SHAPE_JOB, PODMAN_PIN_STEP)
+    step["run"] = "if ! command -v podman >/dev/null 2>&1; then exit 0; fi\n" + step["run"]
+    with pytest.raises(AssertionError, match="must NOT be guarded"):
+        test_parse_only_step_degrades_rather_than_reds_the_tier_0_gate(mutated)
+
+
+def test_parse_only_job_has_a_timeout(workflow: dict[str, Any]) -> None:
+    """The job now shells out to `osprey init`, `osprey build` and a compose
+    parse. None can hang in principle, but all are new shapes for a Tier 0 job
+    that otherwise inherits the 6-hour default."""
+    assert "timeout-minutes" in _jobs(workflow)[PARSE_ONLY_JOB], (
+        f"'{PARSE_ONLY_JOB}' must bound its runtime"
+    )
+
+
+def test_parse_only_job_has_a_timeout__mutation_drops_it() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _jobs(mutated)[PARSE_ONLY_JOB]["timeout-minutes"]
+    with pytest.raises(AssertionError, match="must bound its runtime"):
+        test_parse_only_job_has_a_timeout(mutated)
+
+
+def test_parse_only_step_proves_the_env_chain_interpolates(workflow: dict[str, Any]) -> None:
+    """The interpolation half, and it is asserted in the direction that can
+    fail. Seeding one value would only show that SOME env file was read; the
+    step writes the same key into both chain members with different values, so
+    the local one appearing — and the shared one not — is what distinguishes a
+    merged file that preserved precedence from one that merely exists."""
+    run_text = _parse_step_run(workflow)
+    for sentinel in ("local-wins", "shared-loses"):
+        assert sentinel in run_text, (
+            f"the parse step must seed and assert the {sentinel!r} chain sentinel"
+        )
+
+
+def test_parse_only_step_proves_the_env_chain_interpolates__mutation_drops_a_sentinel() -> None:
+    """Dropping the losing sentinel leaves a step that still reads an env file
+    but can no longer tell which one won."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, PARSE_ONLY_JOB, PARSE_ONLY_STEP)
+    step["run"] = step["run"].replace("shared-loses", "local-wins")
+    assert "local-wins" in step["run"]  # the other sentinel survives
+    with pytest.raises(AssertionError, match="shared-loses"):
+        test_parse_only_step_proves_the_env_chain_interpolates(mutated)

@@ -180,9 +180,14 @@ def test_build_renders_dispatch_wiring(dispatch_repo: Callable[..., Path]) -> No
     # The dispatcher builds its own project-prefixed dispatch image.
     assert f"${{OSPREY_DISPATCH_IMAGE:-{PROJECT_NAME}-dispatch:local}}" in dispatcher
 
-    # Provider-auth wiring: the repo's .env exists, so the worker gets its env_file.
+    # Provider-auth wiring: both chain files exist, so the worker reads both —
+    # in ASCENDING precedence, the local `.env` last, since compose lets a later
+    # entry win. Compared as a list rather than by substring: `- ./.env.shared`
+    # contains `- ./.env`, so an `in` check cannot tell the two apart and would
+    # pass on a render that dropped the local file entirely.
     assert "env_file:" in worker
-    assert "- ./.env" in worker
+    chain = [line.strip() for line in worker.splitlines() if line.strip().startswith("- ./.env")]
+    assert chain == ["- ./.env.shared", "- ./.env"], chain
 
     # Both tokens fail closed — no ":-" default that would boot with a guessable
     # secret instead of refusing.
@@ -192,18 +197,25 @@ def test_build_renders_dispatch_wiring(dispatch_repo: Callable[..., Path]) -> No
     assert "${EVENT_DISPATCHER_TOKEN:-" not in dispatcher
 
 
-def test_build_omits_env_file_without_dotenv(
+def test_build_omits_the_missing_local_env_from_the_chain(
     dispatch_repo: Callable[..., Path],
 ) -> None:
-    """Without the repo's ``.env`` the worker's provider-auth ``env_file`` block must
-    NOT render — the block is conditional on ``osprey_env_present``, and emitting a
-    non-existent ``env_file`` would make ``docker compose`` hard-fail at deploy.
+    """Without the repo's ``.env`` the chain must not name it.
+
+    Membership is fixed at render time and ``docker compose`` hard-fails on an
+    ``env_file:`` entry that is not there, so a missing file has to be left out.
+    The block itself still renders: ``osprey init`` writes ``.env.shared``, so a
+    repo with no ``.env`` still has a chain — a one-file one.
+
+    Matched per line rather than by substring, because ``- ./.env.shared``
+    contains ``- ./.env``: a substring check for the local file passes on the
+    shared one and would call this green no matter what rendered.
     """
     repo = dispatch_repo(with_env=False)
 
     worker = _rendered(repo, "dispatch_worker")
-    assert "env_file:" not in worker
-    assert "- ./.env" not in worker
+    chain = [line.strip() for line in worker.splitlines() if line.strip().startswith("- ./.env")]
+    assert chain == ["- ./.env.shared"], chain
     # The rest of the worker wiring is unaffected by the .env's absence.
     assert f"container_name: {PROJECT_NAME}-dispatch-worker-1" in worker
 

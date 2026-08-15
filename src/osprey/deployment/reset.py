@@ -4,7 +4,9 @@
 leaves behind, without touching the source zone: the stack is stopped, the
 containers and volumes carrying this checkout's identity are removed along with
 the images this deployment built, the agent's memory is destroyed, the tokens
-``osprey up`` minted are stripped out of ``.env``, and ``build/`` is deleted.
+``osprey up`` minted are stripped out of ``.env``, and every derived artifact —
+``build/`` and the merged compose document a deploy writes at the repo root —
+is deleted.
 (Images are scoped differently, and the boundary below says how.)
 
 **What survives is kept deliberately, and the printed plan says so out loud.**
@@ -103,10 +105,12 @@ from osprey.deployment.compose_generator import (
     repo_identity,
     resolve_project_name,
 )
+from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.deployment.container_lifecycle import as_built_config_path, down_deployment
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
+from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
 from osprey.deployment.web_terminals.lifecycle import confirm_destroy
 from osprey.utils.dotenv import parse_dotenv_text
 from osprey.utils.logger import get_logger
@@ -134,14 +138,12 @@ OSPREY_PROJECT_LABEL = "com.osprey.project"
 #:
 #: The refresh clauses are per-file because the two do NOT behave alike: the
 #: same removal that gets one re-derived costs every user their password in the
-#: other, and stops a registry-mode deploy outright. The ``.env.production``
-#: spelling is a literal because the module that writes it
-#: (:mod:`osprey.deployment.web_terminals.env_production`) has none to import;
-#: the disclosure is gated on the file being there, so a spelling that ever
-#: drifted apart would drop the line rather than promise something untrue.
+#: other, and stops a registry-mode deploy outright. Both spellings come from
+#: the modules that write them, so neither disclosure can name a file this
+#: system stopped producing.
 WEB_CREDENTIAL_FILES: tuple[tuple[str, str, str], ...] = (
     (
-        ".env.production",
+        USERS_ENV_FILENAME,
         "the runtime secrets every web-terminal container reads",
         "Remove it and a local-mode deploy re-derives one from .env; a registry-mode "
         "deploy expects it to be there already.",
@@ -778,7 +780,12 @@ class ResetPlan:
         if self.agent_data_dir is not None and path == self.agent_data_dir:
             return "  the agent's memory, sessions and artifacts — not recoverable"
         if path == self.repo_root / BUILD_DIRNAME:
-            return "  the render zone — regenerated in full by `osprey build`"
+            return (
+                "  the render zone — regenerated in full by `osprey build`, "
+                "including what a deploy writes into it"
+            )
+        if path == self.repo_root / MERGED_COMPOSE_FILENAME:
+            return "  the merged compose document — rewritten by the next `osprey up`"
         if path == self.audit_dir:
             return "  the safety audit log — not recoverable"
         return ""
@@ -1178,7 +1185,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
 
     agent_data, contained = resolve_agent_data_target(repo_root, config)
 
-    paths = [repo_root / BUILD_DIRNAME]
+    paths = [repo_root / BUILD_DIRNAME, repo_root / MERGED_COMPOSE_FILENAME]
     if contained:
         paths.insert(0, agent_data)
     if purge_audit:
@@ -1337,9 +1344,10 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
        downstream while masking the real error.
     2. containers, then volumes, then images — dependents before dependencies,
        which is the only order the runtime will accept.
-    3. the filesystem: ``var/agent_data`` and ``build/`` (and ``var/audit`` under
-       ``--purge-audit``), each removed and — for the state directories — left
-       behind empty, so the repo has the shape a fresh ``osprey init`` gives it.
+    3. the filesystem: ``var/agent_data``, ``build/`` and the merged compose
+       document (and ``var/audit`` under ``--purge-audit``), each removed and —
+       for the state directories — left behind empty, so the repo has the shape
+       a fresh ``osprey init`` gives it.
     4. ``.env`` last. It is the one file here that is edited rather than deleted,
        and doing it last means a failure anywhere above leaves the deployment's
        secrets exactly as they were.
@@ -1356,8 +1364,9 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     for resource in plan.images:
         probe.remove_image(resource.name)
 
+    derived = {plan.repo_root / BUILD_DIRNAME, plan.repo_root / MERGED_COMPOSE_FILENAME}
     for path in plan.paths:
-        _wipe_directory(path, recreate=path != plan.repo_root / BUILD_DIRNAME)
+        _wipe_directory(path, recreate=path not in derived)
 
     if plan.env_blocks:
         planned_keys = {key for block in plan.env_blocks for key in block.keys}
@@ -1367,10 +1376,12 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
 def _wipe_directory(path: Path, *, recreate: bool) -> None:
     """Delete *path*, optionally leaving an empty directory in its place.
 
-    ``build/`` is left absent — it is output, and its absence is what
-    ``osprey up`` reads as "no build found". The state directories are recreated
-    empty so the repo matches what ``osprey init`` produces, and so a bind-mount
-    source a container expects exists before the next start.
+    The derived artifacts are left absent — ``build/`` because its absence is
+    what ``osprey up`` reads as "no build found", and the merged compose
+    document because it is a FILE, written whole by the next deploy that needs
+    it. The state directories are recreated empty so the repo matches what
+    ``osprey init`` produces, and so a bind-mount source a container expects
+    exists before the next start.
     """
     if path.is_dir():
         shutil.rmtree(path)

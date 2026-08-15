@@ -450,8 +450,13 @@ jobs:
         "
 
   static-checks:
-    name: Tier 0 — Static (preset YAML, skill ↔ MCP-tool consistency)
+    name: Tier 0 — Static (preset YAML, skill ↔ MCP-tool consistency, podman-compose parse)
     runs-on: ubuntu-latest
+    # Matches the convention the other light lanes use. None of this job's work
+    # can hang in principle, but it now shells out to `osprey init`, `osprey
+    # build` and a compose parse — new shapes for a job that otherwise inherits
+    # the 6-hour default.
+    timeout-minutes: 20
 
     steps:
     - name: Checkout repository
@@ -472,7 +477,163 @@ jobs:
       run: uv sync --extra dev
 
     - name: Run Tier 0 static checks
+      timeout-minutes: 15
       run: uv run pytest tests/integration/test_preset_static.py -v --tb=short
+
+    - name: Pin podman-compose 1.0.6 as podman's compose provider
+      # Identical pin to the two-shape-boot-e2e lane below, for the identical
+      # reason: `podman compose` delegates to whichever provider it finds, and
+      # on a GitHub runner the first one is the docker-compose CLI plugin — a
+      # different engine that accepts `--project-directory`, the very flag the
+      # podman argv omits. A parse that ran under the plugin would certify
+      # nothing while reporting green. containers.conf names the binary by
+      # ABSOLUTE path so the choice cannot depend on PATH ordering.
+      #
+      # `podman ps` is not decoration: it is the first rootless podman call on
+      # the runner and pays the one-time storage-init cost here, where nothing
+      # is timing it. Left to the probe below it can outlast that probe's 5s
+      # timeout and be read as "no podman on this host".
+      #
+      # Unlike the two-shape lane's identical step, this one DEGRADES rather
+      # than fails when podman is absent. This job carries no `if:` — it gates
+      # every push, schedule and fork PR — so a future runner image dropping
+      # podman must not red the thing that gates everything for a reason
+      # unrelated to what it gates. The coverage is not silently revocable
+      # either way: the two-shape lane is not guarded, so podman disappearing
+      # still turns that lane red on the next PR.
+      run: |
+        if ! command -v podman >/dev/null 2>&1; then
+          echo "⏭️  podman is not on this runner image — the podman-compose parse"
+          echo "    coverage below will skip. The two-shape-boot-e2e lane is NOT"
+          echo "    guarded this way and will red if podman is genuinely gone."
+          echo "OSPREY_PARSE_SKIP=1" >> "$GITHUB_ENV"
+          exit 0
+        fi
+        pip install --user podman-compose==1.0.6
+        PODMAN_COMPOSE_BIN="$(command -v podman-compose || true)"
+        if [ -z "$PODMAN_COMPOSE_BIN" ]; then
+          echo "❌ podman-compose is not on PATH after install"
+          exit 1
+        fi
+        mkdir -p ~/.config/containers
+        cat > ~/.config/containers/containers.conf <<EOF
+        [engine]
+        compose_providers = ["$PODMAN_COMPOSE_BIN"]
+        EOF
+        # Second, independent expression of the same choice. The file above is
+        # authoritative for podman's own config chain, but a USER-level
+        # containers.conf.d drop-in loads after it and would outrank it; this
+        # env var sidesteps the chain entirely. Nothing in this repo writes such
+        # a drop-in — the exposure is a hypothetical property of a future runner
+        # image — so this is hardening, not a fix for a live hole.
+        echo "PODMAN_COMPOSE_PROVIDER=$PODMAN_COMPOSE_BIN" >> "$GITHUB_ENV"
+        podman --version
+        podman ps >/dev/null
+
+    - name: Parse the merged podman topology (podman-compose config, no containers)
+      env:
+        # Pins the runtime lookup to podman alone. Without it the probe would
+        # try docker first, find the runner's live docker daemon, and this step
+        # would assert the wrong engine's shape.
+        CONTAINER_RUNTIME: podman
+      # The cheap half of two-shape-boot-e2e: seconds instead of ~20 minutes,
+      # and no container is created. It renders a dispatch-enabled deployment,
+      # asks OSPREY for the argv it would hand podman-compose, and runs that
+      # argv's `config` — so what gets parsed is the REAL merged document and
+      # the REAL --env-file, not a hand-rolled lookalike. `osprey build
+      # --skip-deps --skip-lifecycle` stops at the render, which is why this
+      # fits in a Tier 0 job at all.
+      run: |
+        if [ "${OSPREY_PARSE_SKIP:-}" = "1" ]; then
+          echo "⏭️  skipped: podman is absent from this runner (see the pin step above)."
+          exit 0
+        fi
+        cat > /tmp/two-shape-parse-override.yml <<'EOF'
+        dispatch:
+          triggers: tutorial_triggers.yml
+          worker_count: 1
+          workspace_mode: isolated
+          network: bridge
+        config:
+          claude_code.telemetry.enabled: false
+          deployed_services: []
+        EOF
+        uv run osprey init parse-check --preset hello-world --no-git \
+          --override /tmp/two-shape-parse-override.yml
+        cd parse-check
+        # The two chain members carry the SAME key with DIFFERENT values, so
+        # the interpolated result below distinguishes "the merged env file was
+        # read" from "the merged env file preserved local-wins precedence".
+        printf '\nDISPATCH_WORKER_TOKEN=shared-loses\n' >> .env.shared
+        printf 'EVENT_DISPATCHER_TOKEN=local-wins\nDISPATCH_WORKER_TOKEN=local-wins\n' > .env
+        uv run osprey build --skip-deps --skip-lifecycle
+        uv run python - <<'PY'
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        from osprey.deployment.compose_generator import (
+            compose_base_cmd,
+            compose_provider_env,
+            resolve_repo_root,
+        )
+        from osprey.deployment.container_lifecycle import _env_file_args, as_built_compose_files
+        from osprey.deployment.runtime_helper import (
+            ComposeProvider,
+            detect_compose_provider,
+            get_runtime_command,
+        )
+        from osprey.utils.config import load_config
+
+        config = load_config("build/config.yml")
+        root = Path(resolve_repo_root(config)).resolve()
+        runtime_cmd = get_runtime_command(config)
+
+        info = detect_compose_provider(runtime_cmd, config)
+        print("provider banner:", info.banner)
+        assert info.provider is ComposeProvider.PODMAN_COMPOSE, info
+        assert info.version == (1, 0, 6), info
+
+        # Building the argv is what WRITES .osprey-compose.yml and
+        # build/.env.merged; `_env_file_args` is the seam that chooses the
+        # merged env file over the two-member chain, exactly as the deploy
+        # verbs call it.
+        argv = compose_base_cmd(
+            runtime_cmd,
+            as_built_compose_files(config, root),
+            root,
+            _env_file_args(root, info.provider),
+            info.provider,
+        )
+        print("argv:", " ".join(argv))
+        assert "--project-directory" not in argv, "podman-compose does not parse that flag"
+
+        env = {**os.environ, **compose_provider_env(info.provider, root)}
+        parsed = subprocess.run(
+            [*argv, "config"], capture_output=True, text=True, env=env, cwd=root, check=False
+        )
+        sys.stdout.write(parsed.stdout)
+        sys.stderr.write(parsed.stderr)
+        assert parsed.returncode == 0, "podman-compose could not parse the merged topology"
+
+        for service in ("event-dispatcher", "dispatch-worker-1"):
+            assert f"{service}:" in parsed.stdout, f"{service} missing from the merged document"
+        assert "local-wins" in parsed.stdout, "build/.env.merged did not interpolate the topology"
+        assert "shared-loses" not in parsed.stdout, ".env.shared outranked .env in the merge"
+        print("✅ merged topology parses under podman-compose 1.0.6, .env.merged interpolates it")
+        PY
+
+    # This lane creates no container — it only renders and parses. The capture
+    # still earns its place: when the parse dies, runner disk and the engine's
+    # own state are the evidence that separates a real topology error from an
+    # engine that was never usable on this runner.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: static-checks
+        engine: podman
 
   config-key-guard:
     name: Tier 0 — Config-key resurrection guard (manifest ↔ rendered templates)
@@ -982,6 +1143,7 @@ jobs:
             --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
             --ignore=tests/e2e/test_bluesky_panels_deploy.py \
             --ignore=tests/e2e/test_deploy_lifecycle.py \
+            --ignore=tests/e2e/test_two_shape_boot.py \
             --ignore=tests/e2e/test_deploy_writeback_e2e.py \
             --ignore=tests/e2e/test_nextcloud_talk_bridge_e2e.py \
             --ignore=tests/e2e/test_gchat_bridge_e2e.py \
@@ -2717,9 +2879,234 @@ jobs:
         podman rm -f osprey-e2e-mus-p3-registry || true
         podman compose -p osprey-e2e-mus-p3 down || true
 
+  two-shape-boot-e2e:
+    name: Two-Shape Boot E2E (bridge + host network axis, podman-compose)
+    runs-on: ubuntu-latest
+    # Headroom, not an estimate. The module rebuilds the full project image
+    # (Node + the Claude Code CLI) cold on every run — it `rmi -f`s its own
+    # images at teardown, so there is no warm-cache assumption to make — then
+    # boots twice and waits on healthchecks each time, against timeouts tuned
+    # on a warm macOS cache. The number is set so a slow run reports the
+    # module's OWN failure rather than being cut off mid-diagnosis here.
+    timeout-minutes: 75
+    # Secret-free: the module boots a dispatcher/worker pair and reads its
+    # answers off the runtime (published ports, /proc/net/tcp, container env),
+    # never off a model.
+    #
+    # The base-ref clause differs from multi-user-deploy-lifecycle-e2e-podman
+    # above ON PURPOSE. This lane certifies the network axis and the
+    # podman-compose provider, both of which are built on epic phase branches
+    # whose PRs target an `epic/*` integration base. Scoped to main alone it
+    # would skip on every PR that changes what it covers and only ever run once
+    # the work was already merged into the epic.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && (github.event.pull_request.base.ref == 'main'
+      || startsWith(github.event.pull_request.base.ref, 'epic/'))
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Pin podman-compose 1.0.6 as podman's compose provider
+      # This lane exists to certify OSPREY against podman-compose specifically:
+      # a different argv (no --project-directory), a single root-merged
+      # compose document, and one merged --env-file. `podman compose` on a
+      # GitHub runner would otherwise delegate to the docker-compose CLI
+      # plugin, which is the provider the docker lanes already cover — the lane
+      # would pass while testing the shape it was written to leave behind.
+      # The absolute path in containers.conf is what makes the choice
+      # independent of PATH ordering; `podman ps` pays the rootless storage-init
+      # cost before anything times a podman call.
+      run: |
+        pip install --user podman-compose==1.0.6
+        PODMAN_COMPOSE_BIN="$(command -v podman-compose || true)"
+        if [ -z "$PODMAN_COMPOSE_BIN" ]; then
+          echo "❌ podman-compose is not on PATH after install"
+          exit 1
+        fi
+        mkdir -p ~/.config/containers
+        cat > ~/.config/containers/containers.conf <<EOF
+        [engine]
+        compose_providers = ["$PODMAN_COMPOSE_BIN"]
+        EOF
+        # Second, independent expression of the same choice — see the identical
+        # line in static-checks. The file is authoritative for podman's config
+        # chain; a USER-level containers.conf.d drop-in would outrank it, and
+        # this env var sidesteps the chain entirely. Written to $GITHUB_ENV so
+        # it reaches EVERY later step in this job — step 0 and the boot alike,
+        # which is what keeps them in one environment.
+        echo "PODMAN_COMPOSE_PROVIDER=$PODMAN_COMPOSE_BIN" >> "$GITHUB_ENV"
+        podman --version
+        podman ps >/dev/null
+
+    - name: Step 0 — assert the compose provider is podman-compose 1.0.6
+      env:
+        CONTAINER_RUNTIME: podman
+      # The lane's own falsifiability check, and it runs BEFORE the ~20-minute
+      # boot rather than after it. It asks the same question the deploy asks —
+      # OSPREY's `detect_compose_provider`, against the same
+      # `get_runtime_command` argv — so agreeing here means the boot below
+      # cannot be running a provider this lane never named. Printing the raw
+      # banner alongside is what makes the claim auditable from the log instead
+      # of taken on the assertion's word.
+      run: |
+        podman compose version
+        uv run python - <<'PY'
+        from osprey.deployment.runtime_helper import (
+            ComposeProvider,
+            detect_compose_provider,
+            get_runtime_command,
+        )
+
+        runtime_cmd = get_runtime_command()
+        info = detect_compose_provider(runtime_cmd)
+        print("runtime command:", " ".join(runtime_cmd))
+        print("provider banner:", info.banner)
+        assert info.provider is ComposeProvider.PODMAN_COMPOSE, (
+            f"this lane must run podman-compose; probed {info.provider} instead"
+        )
+        assert info.version == (1, 0, 6), (
+            f"this lane pins podman-compose 1.0.6; probed {info.version_text}"
+        )
+        print("✅ compose provider is podman-compose 1.0.6")
+        PY
+
+    - name: Pre-flight — ports 21781 and 21791 must be free on the runner
+      # Under the host shape these are REAL binds on the runner, not
+      # publications into a VM as they were on the author's macOS host. If
+      # anything else already holds either port the module's exposure test
+      # reads a foreign socket out of the runner's own /proc/net/tcp and fails
+      # in a way that points at the feature rather than at the runner. Refusing
+      # here costs a second and names the actual cause.
+      #
+      # Fails open if `ss` is missing: an absent tool is not evidence of a busy
+      # port, and the module's own preflight would still refuse below.
+      run: |
+        for port in 21781 21791; do
+          if ss -ltnH "sport = :$port" 2>/dev/null | grep -q .; then
+            echo "❌ port $port is already bound on this runner:"
+            ss -ltnp "sport = :$port" || true
+            exit 1
+          fi
+        done
+        echo "✅ 21781 and 21791 are free"
+
+    - name: Diagnostic — podman's inspect .State schema (health-field spelling)
+      # INFORMATIONAL, not protective. The module reads the health field
+      # schema-driven — it accepts either `.State.Health.Status` or
+      # `.State.Healthcheck.Status` and refuses in seconds naming both if
+      # neither exists — so a spelling mismatch can no longer stall the lane.
+      # What it still cannot tell a human is WHICH spelling this podman uses,
+      # and no lane in this repo has ever read a health field under podman at
+      # all. That fact is worth one throwaway container.
+      #
+      # Placement before the boot is load-bearing for a duller reason than the
+      # rationale it replaced: a step AFTER a failing step does not run at all
+      # without its own `if:`, so a diagnostic parked below the boot would be
+      # missing from exactly the runs that need it.
+      #
+      # Diagnostic means it must never red the lane: every call is guarded and
+      # the step ends in an explicit `exit 0`, so a registry hiccup pulling
+      # busybox costs nothing. The throwaway is exact-named and removed
+      # immediately; the healthcheck flags are what make the field appear.
+      run: |
+        PROBE=osprey-e2e-two-shape-schema-probe
+        report_field() {
+          # A Go template naming a field the runtime does not have is an ERROR,
+          # not an empty render — which is what makes rc the answer here.
+          if podman inspect --type container -f "{{json $1}}" "$PROBE" >/dev/null 2>&1; then
+            echo "schema: podman DOES expose $1"
+          else
+            echo "schema: podman does NOT expose $1"
+          fi
+        }
+        podman rm -f "$PROBE" >/dev/null 2>&1 || true
+        if podman run -d --name "$PROBE" \
+             --health-cmd true --health-interval 2s --health-retries 2 \
+             docker.io/library/busybox:1.37 sleep 60 >/dev/null 2>&1; then
+          sleep 6
+          echo "--- podman inspect .State ---"
+          podman inspect --type container -f '{{json .State}}' "$PROBE" 2>/dev/null | head -c 900
+          echo
+          report_field .State.Health
+          report_field .State.Healthcheck
+          podman rm -f "$PROBE" >/dev/null 2>&1 || true
+        else
+          echo "(schema probe unavailable — the throwaway container did not start)"
+        fi
+        exit 0
+
+    - name: Run two-shape boot E2E (podman)
+      # Below the job cap, so a hang fails THIS step and the capture below still
+      # runs — a job-cap kill is a hard cancel that tears the containers down
+      # with their logs unread.
+      timeout-minutes: 70
+      env:
+        # The module's own runtime switch — it drives every podman CLI call it
+        # makes off this variable and fails at collection on any other value.
+        OSPREY_E2E_RUNTIME: podman
+        # The deploy side of the same choice: `osprey up` resolves its runtime
+        # through CONTAINER_RUNTIME, and pinning it to podman means a missing
+        # podman is a loud failure rather than a silent fall-through to the
+        # runner's live docker daemon.
+        CONTAINER_RUNTIME: podman
+      # NO `podman system service` / `DOCKER_HOST` export here, deliberately.
+      # The neighbouring multi-user-deploy-lifecycle-e2e-podman lane needs both
+      # because `podman compose` resolves to the docker-compose CLI plugin
+      # there, and the plugin speaks the Docker API over that socket. This lane
+      # forces podman-compose, which drives the `podman` CLI directly and reads
+      # no socket — so exporting DOCKER_HOST would buy nothing and cost the one
+      # thing that matters: it would be the only environment difference between
+      # the step that PROVES the provider and the step that USES it. A future
+      # provider that did consult DOCKER_HOST would then reintroduce exactly the
+      # delegation this lane exists to prevent, with step 0 still green because
+      # step 0 never sees that variable. Do not copy it in from the neighbour.
+      run: |
+        uv run pytest tests/e2e/test_two_shape_boot.py -v --tb=short
+
+    # Before the cleanup below, deliberately: teardown removes the containers,
+    # and with them the logs that say why the boot failed.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: two-shape-boot-e2e
+        engine: podman
+
+    # Belt-and-suspenders on top of the module's own try/finally teardown.
+    # Every name here is exact — never a prune, an -a/--all, or a wildcard —
+    # matching the container-ops guardrail the module documents. The host shape
+    # binds real host ports, so a stranded container from a killed run would
+    # break the next one rather than merely waste space.
+    - name: Clean up any stranded two-shape resources
+      if: always()
+      run: |
+        podman rm -f osprey-e2e-two-shape-event-dispatcher || true
+        podman rm -f osprey-e2e-two-shape-dispatch-worker-1 || true
+        podman rm -f osprey-e2e-two-shape-schema-probe || true
+        podman volume rm osprey-e2e-two-shape_dispatch_workspace_1 || true
+        podman network rm osprey-e2e-two-shape_osprey-network || true
+        podman rmi -f osprey-e2e-two-shape:local || true
+        podman rmi -f osprey-e2e-two-shape-dispatch:local || true
+
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, lean-wheel]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, lean-wheel, two-shape-boot-e2e]
     runs-on: ubuntu-latest
     if: always()
 
@@ -2827,6 +3214,7 @@ jobs:
         check_pr_lane "Deploy write-back E2E"         "${{ needs.deploy-writeback-e2e.result }}"
         check_pr_lane "Multi-user lifecycle E2E (docker)" "${{ needs.multi-user-deploy-lifecycle-e2e.result }}"
         check_pr_lane "Multi-user lifecycle E2E (podman)" "${{ needs.multi-user-deploy-lifecycle-e2e-podman.result }}"
+        check_pr_lane "Two-shape boot E2E (podman-compose)" "${{ needs.two-shape-boot-e2e.result }}"
         echo "✅ All CI checks passed!"
 
         # A green gate on a Dependabot PR is green-with-a-gap, and the gap is

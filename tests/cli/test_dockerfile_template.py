@@ -362,7 +362,7 @@ class TestDockerignore:
     def test_secrets_and_host_state_excluded(self, hello_project):
         entries = self._entries(hello_project)
         # Secrets and host state are excluded. The env exclusion is a glob:
-        # `.env` alone let the deploy-generated `.env.production` into the
+        # `.env` alone let the deploy-generated `.env.users` into the
         # image. `var/` is the STATE zone the container mounts its own volume
         # over, so the host's copy is dead weight in the image.
         for required in (".env*", ".venv", ".git", "var/"):
@@ -387,7 +387,7 @@ class TestDockerignore:
         """Named regression guard for the two files that carry live credentials.
 
         ``.env.auth`` holds the web-terminal password hashes and the sidecar's
-        session-signing secrets; ``.env.production`` holds the provider secrets
+        session-signing secrets; ``.env.users`` holds the provider secrets
         a multi-user deploy generates at the project root — the same root the
         persona images are then built from, so an unexcluded one is baked into
         every agent image.
@@ -421,7 +421,7 @@ class TestDockerignore:
                     ignored = not entry.startswith("!")
             return ignored
 
-        for secret in (".env.auth", ".env.production"):
+        for secret in (".env.auth", ".env.users"):
             assert _ignored(secret), f"{secret} would be baked into the image"
         # Positive control: the negation that keeps the documented variable
         # list in the image must still win over the glob that covers it.

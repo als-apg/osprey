@@ -1,0 +1,160 @@
+# The nextcloud-bridge service polls Nextcloud Talk rooms and dispatches
+# mentions of the bot account through the osprey.dispatch pair (see
+# src/osprey/bridges/nextcloud_talk/). It is a poller, not a server: it opens
+# no listening socket, so it publishes no ports and declares no healthcheck.
+# `osprey up` builds its image locally on first run; subsequent runs
+# reuse the local tag. To use a prebuilt/published image instead, set
+# OSPREY_NEXTCLOUD_BRIDGE_IMAGE (e.g. OSPREY_NEXTCLOUD_BRIDGE_IMAGE=my-registry/osprey-nextcloud-bridge:dev).
+# Use `osprey build --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+
+
+services:
+  nextcloud-bridge:
+    image: ${OSPREY_NEXTCLOUD_BRIDGE_IMAGE:-golden-project-nextcloud-bridge:local}
+    build:
+      # EVERY relative path here resolves against the pinned compose project
+      # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd) — never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env).
+      context: ./build/services/nextcloud_bridge
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "0.0.0"
+        OSPREY_PROJECT_NAME: "golden-project"
+
+
+    # Only when the dispatch pair is co-deployed: the bridge's boot sequence
+    # reconciles in-flight runs against the dispatcher before accepting a single
+    # new message, so start it after the dispatcher's health probe passes rather
+    # than letting the first reconcile pass fail against a booting server. A
+    # bridge deployed against an EXTERNAL dispatcher must NOT get this — compose
+    # errors on depends_on naming an undefined service.
+    depends_on:
+      event-dispatcher:
+        condition: service_healthy
+
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy the bridge on one host without colliding
+    # on one name. Nothing reaches this service in-network (it only makes
+    # outbound calls), so the rename needs no network alias.
+    container_name: golden-project-nextcloud-bridge
+    command: ["python", "-m", "osprey.bridges.nextcloud_talk"]
+    labels:
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
+      osprey.deployed.at: "2026-01-01T00:00:00"
+    restart: unless-stopped
+    # Deliberately NO bulk .env passthrough. The project .env carries the
+    # provider keys the dispatch worker needs (CBORG/OpenAI/...), and this
+    # service — the one component that talks to an external Nextcloud instance —
+    # never calls an LLM. Everything it does read arrives by interpolation into
+    # the block below, resolved from that same .env because `osprey up` runs
+    # compose with `--env-file .env`; an env-file mount is outranked by
+    # `environment:` in compose anyway, so it only ever widened what the
+    # container could see.
+    environment:
+      # ── Nextcloud Talk credentials ──────────────────────────────────────
+      # No :-default on ANY of these: an unset value must stay EMPTY so the
+      # entrypoint's require_startup() aborts at boot naming the missing vars,
+      # rather than the bridge coming up pointed at a guessable host or
+      # authenticating with a default password. Unlike the dispatch tokens
+      # below, these are never auto-generated — an operator creates a Talk bot
+      # account and an app password and sets them in the project .env.
+      NEXTCLOUD_BASE_URL: ${NEXTCLOUD_BASE_URL}
+      NEXTCLOUD_BOT_ACCOUNT: ${NEXTCLOUD_BOT_ACCOUNT}
+      NEXTCLOUD_APP_PASSWORD: ${NEXTCLOUD_APP_PASSWORD}
+      # Comma-separated Talk room tokens the bridge polls. Room membership is
+      # the access gate: whoever can post in a listed room can reach the agent.
+      NEXTCLOUD_ROOMS: ${NEXTCLOUD_ROOMS}
+      # ── Dispatch pipeline ───────────────────────────────────────────────
+      # No :-default (see the event_dispatcher compose): an unset token must
+      # stay EMPTY so the bridge fails closed at boot rather than dispatching
+      # with a guessable secret. `osprey up` auto-generates strong random
+      # tokens into the project .env when unset.
+      EVENT_DISPATCHER_TOKEN: ${EVENT_DISPATCHER_TOKEN}
+      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
+      # The dispatcher trigger this channel fires (POST /webhook/{trigger}).
+      # Rendered from the build profile's nextcloud_bridge.trigger, which is the
+      # ONLY place the `nextcloud-question` default lives — deliberately no
+      # fallback here, so a config that lost the key fails at startup with the
+      # var named instead of silently firing some other facility's trigger.
+      DISPATCH_TRIGGER: ""
+
+      # Co-deployed dispatcher, addressed across the HOST namespace: this
+      # bridge shares the host's network stack, where the compose service key
+      # `event-dispatcher` is not a name anything resolves. The dispatcher is
+      # on the host too (pair parity), so the port it listens on IS the host's.
+      DISPATCHER_URL: http://localhost:8020
+
+
+      # The bridge polls run status and fetches artifacts from the WORKER
+      # directly (not through the dispatcher), so it needs the worker's address
+      # too — here the host's, for the reason given at DISPATCHER_URL above.
+      # Workers share one port space on the host namespace, so each walks to
+      # its own port and this is worker 1's step of that walk.
+      WORKER_URL: http://localhost:9190
+
+      # Same var the worker itself reads, from the same config key, so the
+      # bridge's poll budget can never fall below the cap it must outlast.
+      DISPATCH_TIMEOUT_SEC: "300"
+      # ── Neutral tunables (passthrough) ──────────────────────────────────
+      # Deliberately passed through from the deploy environment with an EMPTY
+      # fallback rather than re-stating CoreConfig's defaults: an empty value
+      # makes CoreConfig.from_env fall back to its own default, so these knobs
+      # have exactly one definition (the dataclass). POLL_BUDGET is the one
+      # exception — its default is derived above from the worker's cap.
+      POLL_BUDGET: "${POLL_BUDGET:-330}"
+      POLL_INTERVAL: "${POLL_INTERVAL:-}"
+      DRAIN_INTERVAL: "${DRAIN_INTERVAL:-}"
+      RETRY_MIN_AGE: "${RETRY_MIN_AGE:-}"
+      RETRY_GIVE_UP: "${RETRY_GIVE_UP:-}"
+      RETRY_LIFETIME_CAP: "${RETRY_LIFETIME_CAP:-}"
+      # Outbound HTTP proxy honoring, off unless the site's bridge genuinely
+      # sits behind an egress proxy.
+      BRIDGE_TRUST_ENV: "${BRIDGE_TRUST_ENV:-}"
+      # GitLab give-up alerts (opt-in): unset means the site has no alert host,
+      # and the drain's health gate skips its alert-issue check entirely. `:-`
+      # here rather than a bare ref precisely because unset is the normal case —
+      # a bare ref would warn on every deploy that files no alert issues.
+      GITLAB_URL: "${GITLAB_URL:-}"
+      GITLAB_PROJECT: "${GITLAB_PROJECT:-}"
+      GITLAB_ISSUES_TOKEN: "${GITLAB_ISSUES_TOKEN:-}"
+      # ── Bridge state paths ──────────────────────────────────────────────
+      # Declared here so relocating bridge state off the /data volume stays a
+      # .env setting even though this service reads no bulk env_file.
+      # These are the one group carrying a LITERAL `:-default`, for two reasons
+      # that both distinguish them from the blocks above. Unlike the
+      # credentials, an unset path is not a fail-closed question — nothing here
+      # is a secret, and require_startup() does not cover them. Unlike the
+      # neutral tunables, the empty `:-` form does not work: CoreConfig and
+      # NextcloudBridgeConfig read these with a plain `e.get(NAME, default)`,
+      # for which "" is a value the code accepts, so an empty fallback would
+      # point the stores at the empty path instead of letting the dataclass
+      # default fire. The literals therefore duplicate the dataclass defaults;
+      # test_nextcloud_bridge_state_paths_match_their_code_defaults binds the
+      # two sides so neither can drift alone.
+      DEDUP_PATH: "${DEDUP_PATH:-/data/dedup.json}"
+      HISTORY_PATH: "${HISTORY_PATH:-/data/history.json}"
+      OFFSETS_PATH: "${OFFSETS_PATH:-/data/offsets.json}"
+      TZ: UTC
+    volumes:
+      # Bridge state, and the ONLY stateful thing this service owns: the dedup
+      # store (message_id -> run, the crash-safety ledger), the per-conversation
+      # history store, and the adapter's per-room poll offsets, whose
+      # DEDUP_PATH/HISTORY_PATH/OFFSETS_PATH defaults above all sit under /data,
+      # making it the single state root. Without a persisted volume every
+      # restart would lose the in-flight ledger (re-answering or dropping
+      # questions) and reset the poll offsets (replaying or skipping room
+      # history), so this volume is required, not an optimization. Named (not a
+      # bind mount) so it is namespaced per compose project and survives
+      # `osprey down`.
+      - nextcloud_bridge_data:/data
+    network_mode: host
+
+volumes:
+  nextcloud_bridge_data:
+    labels:
+      com.osprey.repo-id: "0123456789ab"

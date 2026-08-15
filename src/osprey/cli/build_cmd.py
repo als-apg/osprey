@@ -45,6 +45,7 @@ from typing import Any, NamedTuple
 
 import click
 
+from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import (
@@ -119,7 +120,7 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Three-zone repo build: the atomic render
+# Four-zone repo build: the atomic render
 # ---------------------------------------------------------------------------
 
 #: Staging root, inside the output zone it replaces. Inside rather than beside
@@ -128,12 +129,15 @@ __all__ = [
 _STAGE_DIRNAME = ".tmp"
 
 #: Repo-root entries that are NOT source, and so never enter a container image:
-#: the two derived zones, git's own directory, and every ``.env`` variant. This
-#: is the ``.gitignore`` the emitted repo ships, said in Python — a container
-#: gets what a fresh clone gets. Secrets are excluded here rather than left to
-#: the image's ``.dockerignore``, because this is the copy that decides what the
-#: build context contains at all.
-_NON_SOURCE_ROOT_ENTRIES: frozenset[str] = frozenset({BUILD_DIR_NAME, STATE_DIR_NAME, ".git"})
+#: the two derived zones, git's own directory, the merged compose document a
+#: deploy writes at the root, and every ``.env`` variant. This is the
+#: ``.gitignore`` the emitted repo ships, said in Python — a container gets what
+#: a fresh clone gets. Secrets are excluded here rather than left to the image's
+#: ``.dockerignore``, because this is the copy that decides what the build
+#: context contains at all.
+_NON_SOURCE_ROOT_ENTRIES: frozenset[str] = frozenset(
+    {BUILD_DIR_NAME, STATE_DIR_NAME, ".git", MERGED_COMPOSE_FILENAME}
+)
 
 #: The interpreter every OSPREY process inside a container image is launched
 #: with — MCP servers, framework hooks, and the registry's
@@ -311,7 +315,7 @@ def _swap_in_render(zones: _RenderZones) -> None:
 #: Runtime-state directories a renderer must never leave inside the tree it is
 #: rendering — the two spellings of "agent data anchored on the render root",
 #: from the layout where a project directory WAS its own runtime root. Under
-#: the three-zone layout the durable location is ``<repo>/var/agent_data``,
+#: the four-zone layout the durable location is ``<repo>/var/agent_data``,
 #: created by :func:`_ensure_state_zone` before the render and never touched by
 #: it, so either of these appearing under a render is state the next
 #: ``osprey build`` would discard along with the rest of ``build/``.
@@ -464,6 +468,476 @@ def _stamp_repo_manifest(
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
+# ---------------------------------------------------------------------------
+# The network axis, checked against what was actually rendered
+# ---------------------------------------------------------------------------
+
+#: The attachment that takes a service OFF the project network and onto the
+#: host's own namespace. Spelled here because the schema exports the vocabulary
+#: (:data:`~osprey.cli.build_profile_schema.VALID_NETWORK_MODES`) and its
+#: DEFAULT, not the non-default member; the test suite pins this value against
+#: that vocabulary so a change there cannot leave these checks reading a mode
+#: nothing renders.
+_HOST_NETWORK = "host"
+
+#: The variables a co-deployed consumer of the dispatch pair is rendered with to
+#: reach it. Both are written on an ASSUMPTION about the pair's network — the
+#: compose DNS name when the consumer is on the project network, the host's
+#: loopback and the pair's own ports when it is not — and neither template can
+#: check that assumption, because the pair's mode is not the consumer's to read
+#: at render time. :func:`_dispatch_parity_errors` is where it is checked, which
+#: is why the contract is named here rather than inferred: a rewritten address
+#: no longer carries the pair's name, so there is nothing left in the VALUE to
+#: recognize it by.
+_DISPATCH_PAIR_ADDRESS_VARS = ("DISPATCHER_URL", "WORKER_URL")
+
+#: The variable a host-mode service is rendered with to name the telemetry
+#: store, read by :mod:`osprey.build.claude_code_telemetry`. It carries a HOST
+#: and nothing else — see :data:`_OPENOBSERVE_ENDPOINT_PORT`.
+_OTEL_OPENOBSERVE_HOST_VAR = "OSPREY_OTEL_OPENOBSERVE_HOST"
+
+#: The port the OTLP endpoint derived from ``backend: openobserve`` is pinned
+#: at (``osprey/build/claude_code_telemetry.py``'s
+#: ``http://{host}:5080/api/{org}``). The pin is invisible under bridge
+#: networking, where the store is reached by its compose DNS name on the port it
+#: LISTENS on; under host networking the address is the port it PUBLISHES, which
+#: a project is free to move. The test suite binds this constant to the endpoint
+#: the resolver actually derives, so the two cannot drift apart.
+_OPENOBSERVE_ENDPOINT_PORT = 5080
+
+
+class _RenderedService(NamedTuple):
+    """One container stanza as this build rendered it.
+
+    The checks below reason about what came OUT of the templates rather than
+    what went in, which is the whole point of running them after the render: a
+    ``network:`` key that no template reads produces a config that says ``host``
+    and a compose file that says otherwise, and only the rendered side knows.
+    """
+
+    compose_name: str
+    """The compose service key — and so the DNS name it answers to on the
+    project network. Under ``network_mode: host`` it answers to nothing."""
+
+    config_key: str | None
+    """The ``services.<key>`` block this stanza was rendered from, or ``None``
+    for a stanza no declared service accounts for (the top-level file's own
+    contents, or a facility template that renders more than its own service)."""
+
+    on_host: bool
+    """Whether the rendered stanza declares ``network_mode: host``."""
+
+    environment: dict[str, str]
+    """The rendered ``environment:`` block, both compose spellings normalized
+    to a mapping of strings."""
+
+    compose_file: str
+    """Path of the rendered file this stanza came from, for the error text."""
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    """*value* when it is a mapping, an empty one otherwise.
+
+    The config these checks read is loaded from YAML a person edits, so any
+    block they describe may arrive as something else entirely. A check is not
+    the place to report that — the consumer of the key will, in its own words —
+    but it must not crash the build on the way past.
+    """
+    return value if isinstance(value, dict) else {}
+
+
+def _service_network_mode(service_block: Any) -> str:
+    """The network attachment one rendered ``services.<name>`` block declares.
+
+    Read through the schema's own accessor rather than by reaching for the key,
+    so the default lives in exactly one place and this module never spells the
+    default mode.
+    """
+    from .build_profile_schema import ServiceDef
+
+    return ServiceDef(template="", config=_mapping(service_block)).network_mode()
+
+
+def _compose_service_environment(service: dict[str, Any]) -> dict[str, str]:
+    """The rendered ``environment:`` of one compose service, as a mapping.
+
+    Compose accepts both the mapping form and the ``- KEY=value`` list form;
+    a facility template may use either, and a check that understood only one
+    would pass a service it never actually read.
+    """
+    declared = service.get("environment")
+    if isinstance(declared, dict):
+        return {str(key): "" if value is None else str(value) for key, value in declared.items()}
+    if isinstance(declared, list):
+        pairs = {}
+        for entry in declared:
+            key, separator, value = str(entry).partition("=")
+            pairs[key] = value if separator else ""
+        return pairs
+    return {}
+
+
+def _rendered_compose_path(build_dir: str, service_path: str) -> str:
+    """Where the render put one service's compose file, resolved.
+
+    Mirrors :func:`~osprey.deployment.compose_generator.setup_build_dir`'s own
+    derivation (the service's template directory, taken relative to the working
+    directory, under the output base) rather than assuming the directory is
+    named after the service — a facility declares its own ``path``, and the two
+    need not agree.
+    """
+    source_dir = os.path.relpath(service_path, os.getcwd())
+    return os.path.realpath(os.path.join(build_dir, source_dir, "docker-compose.yml"))
+
+
+def _index_rendered_services(
+    config: dict[str, Any], compose_files: Sequence[str]
+) -> list[_RenderedService]:
+    """Read every rendered compose file back into one list of stanzas.
+
+    Parsed rather than pattern-matched: the checks ask which services are on
+    the host namespace and what addresses they were handed, and both answers are
+    structure, not text.
+
+    A file that will not parse is skipped with a debug line. It was written by
+    this same render seconds ago, so an unreadable one is a rendering failure —
+    which the compose invocation reports in full, naming the file and the line.
+    Translating it here would only put a network-axis heading on it.
+    """
+    import yaml
+
+    owners = {}
+    build_dir = str(config.get("build_dir", "./build"))
+    for name, block in _mapping(config.get("services")).items():
+        if isinstance(block, dict) and block.get("path"):
+            owners[_rendered_compose_path(build_dir, str(block["path"]))] = str(name)
+
+    indexed: list[_RenderedService] = []
+    for path in compose_files:
+        try:
+            document = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            logger.debug("Network checks skipped %s: %s", path, exc)
+            continue
+        if not isinstance(document, dict):
+            continue
+        owner = owners.get(os.path.realpath(path))
+        for compose_name, service in _mapping(document.get("services")).items():
+            if not isinstance(service, dict):
+                continue
+            indexed.append(
+                _RenderedService(
+                    compose_name=str(compose_name),
+                    config_key=owner,
+                    on_host=service.get("network_mode") == _HOST_NETWORK,
+                    environment=_compose_service_environment(service),
+                    compose_file=str(path),
+                )
+            )
+    return indexed
+
+
+def _service_label(service: _RenderedService) -> str:
+    """How an error names one rendered service to the operator.
+
+    Its ``services.<key>`` spelling when the build knows which declaration
+    produced it — that is the line the remedy is applied to — and the compose
+    service key otherwise.
+    """
+    if service.config_key:
+        return f"services.{service.config_key}"
+    return f"the compose service '{service.compose_name}'"
+
+
+def _network_remedy_key(config_key: str | None, compose_name: str) -> str:
+    """The config key that moves one service onto the host network.
+
+    The dispatcher and its workers share ONE knob: a directly-authored
+    ``services.<half>.network`` is rejected by profile validation, so naming it
+    as the remedy would send the operator into a second error.
+    """
+    from .build_profile_model import DISPATCH_PAIR_SERVICES
+
+    if config_key in DISPATCH_PAIR_SERVICES:
+        return "dispatch.network"
+    return f"services.{config_key or compose_name}.network"
+
+
+def _names_service(value: str, dns_name: str) -> bool:
+    """Whether one rendered env value addresses *dns_name*.
+
+    Matched as an address rather than as a substring: the name must start the
+    value or follow something that is not part of a name (never a path
+    separator, except the ``//`` that opens a URL authority), and must be
+    followed by a port, a path, or the end of the value. So
+    ``http://event-dispatcher:8020``, ``event-dispatcher:8020`` and a bare
+    ``event-dispatcher`` all count, while ``/app/event-dispatcher`` and
+    ``event-dispatcher-external`` do not.
+    """
+    import re
+
+    pattern = rf"(?:(?<=//)|(?<![A-Za-z0-9_.\-/])){re.escape(dns_name)}(?=[:/]|$)"
+    return re.search(pattern, value) is not None
+
+
+def _inert_axis_errors(config: dict[str, Any], indexed: Sequence[_RenderedService]) -> list[str]:
+    """Services whose declared ``network: host`` no template acted on.
+
+    The axis is only real where a template renders it. A service template that
+    never adopted the shared macro silently keeps its ``networks:`` block, and
+    the deployment comes up on the compose bridge while the profile — and every
+    address the rest of the build derived from it — says host.
+    """
+    errors = []
+    services = _mapping(config.get("services"))
+    for name in [str(entry) for entry in (config.get("deployed_services") or [])]:
+        block = services.get(name)
+        if _service_network_mode(block) != _HOST_NETWORK:
+            continue
+        stranded = [
+            service for service in indexed if service.config_key == name and not service.on_host
+        ]
+        if not stranded:
+            continue
+        template = os.path.join(
+            str(_mapping(block).get("path") or f"./services/{name}"), "docker-compose.yml.j2"
+        )
+        errors.append(
+            f"services.{name}.network is '{_HOST_NETWORK}', but the compose file this "
+            f"build rendered for it declares no `network_mode: {_HOST_NETWORK}` "
+            f"({', '.join(sorted({service.compose_file for service in stranded}))}). "
+            f"The service's template does not render the network axis. In {template}, "
+            'import the shared macro — {% import "services/_network_axis.j2" as net %} '
+            "— and replace the service's `networks:` block with "
+            f"{{{{- net.network(services.{name}) }}}}."
+        )
+    return errors
+
+
+def _dispatch_parity_errors(
+    indexed: Sequence[_RenderedService],
+) -> tuple[list[str], set[str]]:
+    """Co-deployed dispatch consumers that do not share the pair's network.
+
+    The pair moves by ONE knob, and everything that talks to it has to move with
+    it. Both of the addresses a consumer is rendered with
+    (:data:`_DISPATCH_PAIR_ADDRESS_VARS`) are written for one side of the
+    boundary or the other, and the template writing them cannot know which side
+    the pair ended up on — so a consumer that disagrees with the pair is
+    rendered with addresses that are wrong in a way no other check can see:
+
+    * consumer on the bridge, pair on the host — the addresses are the pair's
+      compose DNS names, and a host-network service has none;
+    * consumer on the host, pair on the bridge — the addresses were rewritten
+      onto the host's loopback and the pair's own ports, of which the pair
+      publishes at most the dispatcher's.
+
+    The second direction is invisible to :func:`_cross_network_errors`,
+    precisely because the rewrite already happened: a ``localhost`` address
+    carries nothing to recognize the pair by. This check reads the variable
+    NAMES instead, which are osprey's own consumer contract.
+
+    Returns:
+        The errors, and the compose names of every consumer this check examined
+        — the pairing :func:`_cross_network_errors` must then leave alone, so
+        one topology mistake is reported once, in the words that name the knob.
+    """
+    from .build_profile_model import DISPATCH_PAIR_SERVICES
+
+    pair = [service for service in indexed if service.config_key in DISPATCH_PAIR_SERVICES]
+    if not pair:
+        return [], set()
+
+    pair_on_host = any(service.on_host for service in pair)
+    pair_named = ", ".join(sorted({_service_label(service) for service in pair}))
+    errors: list[str] = []
+    examined: set[str] = set()
+    for service in indexed:
+        if service.config_key in DISPATCH_PAIR_SERVICES:
+            continue
+        addresses = {
+            key: value
+            for key, value in service.environment.items()
+            if key in _DISPATCH_PAIR_ADDRESS_VARS and "${" not in value
+        }
+        if not addresses:
+            continue
+        examined.add(service.compose_name)
+        if service.on_host == pair_on_host:
+            continue
+        rendered = ", ".join(f"{key} -> {value}" for key, value in sorted(addresses.items()))
+        remedy = _network_remedy_key(service.config_key, service.compose_name)
+        if pair_on_host:
+            errors.append(
+                f"{_service_label(service)} is a co-deployed consumer of the dispatch pair "
+                f"({rendered}), but it stays on the compose bridge while {pair_named} run on "
+                "the host network, where they have no compose DNS name — so those addresses "
+                f"resolve to nothing. Put the consumer on the same network: set `{remedy}: "
+                f"{_HOST_NETWORK}`."
+            )
+        else:
+            errors.append(
+                f"{_service_label(service)} runs on the host network while the co-deployed "
+                f"{pair_named} stay on the compose bridge. The pair addresses it is rendered "
+                f"with ({rendered}) are written for a host-side pair — from the host "
+                "namespace they reach only what the pair publishes there, which is not the "
+                "worker. Put the two on one network: set `dispatch.network: "
+                f"{_HOST_NETWORK}` to move the pair onto the host as well, or drop "
+                f"`{remedy}` so the consumer rejoins the compose network."
+            )
+    return errors, examined
+
+
+def _cross_network_errors(
+    indexed: Sequence[_RenderedService], dispatch_consumers: set[str]
+) -> list[str]:
+    """Addresses that cross the boundary between the host namespace and the bridge.
+
+    A compose DNS name exists only for services on the project network, so any
+    rendered address that names one from the other side of that boundary
+    resolves to nothing — in both directions, and silently, at the first request
+    rather than at boot.
+
+    Osprey rewrites the addresses it emits itself onto ``localhost`` when it
+    moves a service to the host namespace, which is exactly why matching on the
+    DNS NAME is enough to leave those alone: a rewritten address no longer
+    carries one. What is left is the two cases the build cannot fix for the
+    operator — a consumer left behind on the bridge (whose target has no address
+    at all to rewrite to) and a hand-authored address (which osprey does not
+    rewrite by design) — so both fail the build with the remedy named.
+
+    Args:
+        indexed: Every stanza this build rendered.
+        dispatch_consumers: Compose names :func:`_dispatch_parity_errors` has
+            already answered for against the dispatch pair. Their addresses ARE
+            the pair's compose DNS names when they disagree with it, so without
+            this the same mistake would be reported twice — once naming the knob
+            that fixes it, once naming the name that broke.
+    """
+    from .build_profile_model import DISPATCH_PAIR_SERVICES
+
+    errors = []
+    for service in indexed:
+        for other in indexed:
+            if other.compose_name == service.compose_name or other.on_host == service.on_host:
+                continue
+            if (
+                service.compose_name in dispatch_consumers
+                and other.config_key in DISPATCH_PAIR_SERVICES
+            ):
+                continue
+            hits = {
+                key: value
+                for key, value in service.environment.items()
+                if _names_service(value, other.compose_name)
+            }
+            if not hits:
+                continue
+            rendered = ", ".join(f"{key} -> {value}" for key, value in sorted(hits.items()))
+            if service.on_host:
+                remedy = _network_remedy_key(other.config_key, other.compose_name)
+                errors.append(
+                    f"{_service_label(service)} runs on the host network, but its rendered "
+                    f"environment reaches {_service_label(other)} by its compose DNS name "
+                    f"'{other.compose_name}' ({rendered}). A host-network container is not "
+                    "on the compose network, so that name resolves to nothing there. Osprey "
+                    "does not rewrite hand-authored addresses: either put both services on "
+                    f"one network by setting `{remedy}: {_HOST_NETWORK}`, or point the "
+                    "variable at an address that is reachable from the host namespace "
+                    f"(the port {_service_label(other)} publishes on localhost)."
+                )
+            else:
+                remedy = _network_remedy_key(service.config_key, service.compose_name)
+                errors.append(
+                    f"{_service_label(other)} runs on the host network, where it has no "
+                    f"compose DNS name, but the co-deployed {_service_label(service)} stays "
+                    f"on the compose bridge and is still rendered with its name "
+                    f"'{other.compose_name}' ({rendered}) — an address that resolves to "
+                    f"nothing. Move it onto the same network: set `{remedy}: "
+                    f"{_HOST_NETWORK}`."
+                )
+    return errors
+
+
+def _openobserve_endpoint_errors(
+    config: dict[str, Any], indexed: Sequence[_RenderedService]
+) -> list[str]:
+    """A host-mode telemetry exporter aimed at a port the store does not publish.
+
+    ``OSPREY_OTEL_OPENOBSERVE_HOST`` carries a host and no port, and the
+    endpoint derived from it pins :data:`_OPENOBSERVE_ENDPOINT_PORT`. On the
+    bridge that is the port the store LISTENS on, which no project changes;
+    on the host namespace it is the port the store PUBLISHES, which
+    ``services.openobserve.port`` moves freely. The two disagreeing costs
+    nothing at boot and drops every metric and log afterwards.
+
+    Fails the build only when the derivation is live — telemetry enabled, the
+    openobserve backend, no explicit endpoint. Otherwise the variable is inert
+    and refusing to build would be an error about nothing; that case gets a
+    warning, because enabling telemetry later would break it silently.
+    """
+    published = _mapping(_mapping(config.get("services")).get("openobserve")).get("port")
+    if published is None or str(published) == str(_OPENOBSERVE_ENDPOINT_PORT):
+        return []
+
+    exporters = [
+        service
+        for service in indexed
+        if service.on_host and _OTEL_OPENOBSERVE_HOST_VAR in service.environment
+    ]
+    if not exporters:
+        return []
+
+    named = ", ".join(sorted({_service_label(service) for service in exporters}))
+    telemetry = _mapping(_mapping(config.get("claude_code")).get("telemetry"))
+    derived = (
+        bool(telemetry.get("enabled"))
+        and telemetry.get("backend") == "openobserve"
+        and not telemetry.get("endpoint")
+    )
+    org = _mapping(telemetry.get("openobserve")).get("org", "default")
+    if not derived:
+        logger.warning(
+            "  services.openobserve.port publishes the store on %s, while %s runs on the "
+            "host network and derives the telemetry endpoint's port from a pinned %s. "
+            "Nothing is broken today — claude_code.telemetry is not deriving an endpoint "
+            "— but enabling it with backend: openobserve will need "
+            "claude_code.telemetry.endpoint set explicitly.",
+            published,
+            named,
+            _OPENOBSERVE_ENDPOINT_PORT,
+        )
+        return []
+
+    return [
+        f"{named} runs on the host network and reaches the telemetry store over the host's "
+        f"own loopback ({_OTEL_OPENOBSERVE_HOST_VAR}), but claude_code.telemetry derives its "
+        f"OTLP endpoint from backend: openobserve with the store's port pinned at "
+        f"{_OPENOBSERVE_ENDPOINT_PORT}, while services.openobserve.port publishes it on "
+        f"{published}. The exporter would post to "
+        f"http://localhost:{_OPENOBSERVE_ENDPOINT_PORT}/api/{org}, where nothing is "
+        f"listening. Set `claude_code.telemetry.endpoint: http://localhost:{published}"
+        f"/api/{org}` — the variable carries a host only, so it has no port half to correct."
+    ]
+
+
+def _network_check_errors(config: dict[str, Any], compose_files: Sequence[str]) -> list[str]:
+    """Everything wrong with the network axis of the render that just happened.
+
+    Accumulated rather than raised one at a time, the way profile validation
+    reports, so an operator who moved a stack onto the host network sees every
+    consequence in one build instead of one per build.
+    """
+    indexed = _index_rendered_services(config, compose_files)
+    parity_errors, dispatch_consumers = _dispatch_parity_errors(indexed)
+    return [
+        *_inert_axis_errors(config, indexed),
+        *parity_errors,
+        *_cross_network_errors(indexed, dispatch_consumers),
+        *_openobserve_endpoint_errors(config, indexed),
+    ]
+
+
 def _render_compose_files(
     zones: _RenderZones, runtime_root: str | None = None, dev_mode: bool = False
 ) -> dict[str, Any] | None:
@@ -525,8 +999,14 @@ def _render_compose_files(
         config, compose_files = prepare_compose_files(
             str(zones.stage / "config.yml"), dev_mode=dev_mode, output_root="."
         )
+        # Read back inside the chdir: every path involved — the rendered files,
+        # the service directories the config names — is spelled relative to the
+        # staged tree, which is what the render itself was rooted at.
+        network_errors = _network_check_errors(config, compose_files)
     finally:
         os.chdir(previous)
+    if network_errors:
+        raise click.UsageError("Network axis check failed:\n  - " + "\n  - ".join(network_errors))
     logger.info("  ✓ Rendered %d compose file(s)", len(compose_files))
     return dict(config)
 
@@ -1868,7 +2348,7 @@ def _repo_render_context(
     skip_deps: bool,
     runtime_interpreter: str | None = None,
 ) -> dict[str, Any]:
-    """The template context for a three-zone render.
+    """The template context for a four-zone render.
 
     Two values in here are what make the render a *repo's* render rather than a
     directory's:

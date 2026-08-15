@@ -163,6 +163,69 @@ def test_explicit_load_records_what_it_overrode(tmp_path, monkeypatch):
         os.environ.pop("OSPREY_HYGIENE_FILE_ONLY", None)
 
 
+def test_explicit_load_reads_the_whole_chain_with_local_winning(tmp_path, monkeypatch):
+    """Both chain files are loaded, and the host-local ``.env`` wins a shared key.
+
+    The committed ``.env.shared`` carries defaults; ``.env`` carries what this
+    host overrides them with. Loading only one of the two would either drop the
+    defaults or let them shadow the operator's own settings.
+    """
+    import osprey.utils.config as config
+
+    (tmp_path / ".env.shared").write_text(
+        "OSPREY_HYGIENE_BOTH=from-shared\nOSPREY_HYGIENE_SHARED_ONLY=shared-only\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text(
+        "OSPREY_HYGIENE_BOTH=from-local\nOSPREY_HYGIENE_LOCAL_ONLY=local-only\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.chdir(tmp_path)
+
+    written = ("OSPREY_HYGIENE_BOTH", "OSPREY_HYGIENE_SHARED_ONLY", "OSPREY_HYGIENE_LOCAL_ONLY")
+    try:
+        config.load_project_dotenv()
+
+        assert os.environ["OSPREY_HYGIENE_BOTH"] == "from-local"
+        assert os.environ["OSPREY_HYGIENE_SHARED_ONLY"] == "shared-only"
+        assert os.environ["OSPREY_HYGIENE_LOCAL_ONLY"] == "local-only"
+        # Nothing was shadowed: the shell set none of these.
+        assert config.dotenv_shell_overrides() == {}
+    finally:
+        for name in written:
+            os.environ.pop(name, None)
+
+
+def test_chain_records_the_shell_value_once_per_key(tmp_path, monkeypatch):
+    """A key both chain files set is judged — once — against what the chain delivers.
+
+    The record is what the deploy path reconstructs the operator's shell from,
+    so it must name the shell's own value and no intermediate one. The
+    comparison is against the *winning* (local) value: a shell export that
+    agrees with it shadowed nothing, however the shared defaults spelled it.
+    """
+    import osprey.utils.config as config
+
+    (tmp_path / ".env.shared").write_text(
+        "OSPREY_HYGIENE_DIFFERS=from-shared\nOSPREY_HYGIENE_SHELL_WINS_TIE=from-shared\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text(
+        "OSPREY_HYGIENE_DIFFERS=from-local\nOSPREY_HYGIENE_SHELL_WINS_TIE=agreed\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OSPREY_HYGIENE_DIFFERS", "from-the-shell")
+    monkeypatch.setenv("OSPREY_HYGIENE_SHELL_WINS_TIE", "agreed")
+    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.chdir(tmp_path)
+
+    config.load_project_dotenv()
+
+    assert config.dotenv_shell_overrides() == {"OSPREY_HYGIENE_DIFFERS": "from-the-shell"}
+    assert os.environ["OSPREY_HYGIENE_DIFFERS"] == "from-local"
+
+
 # ===================================================================
 # Importing publishes nothing
 # ===================================================================

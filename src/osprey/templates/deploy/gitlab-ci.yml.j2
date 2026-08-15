@@ -169,7 +169,7 @@ external:{{ project.name }}:
 # host: an rsync of the working tree would have to be trusted not to delete
 # them.
 #
-# `osprey users env-production` turns the host's .env into the runtime secrets
+# `osprey users env` turns the host's .env into the runtime secrets
 # file the web-terminal containers read, before any container starts. `--output`
 # is what makes that safe, and it is not optional: without it the command writes
 # the assembled secrets to stdout, which here is the job log. It also creates
@@ -206,7 +206,7 @@ deploy:
       git fetch --prune origin
       git reset --hard $CI_COMMIT_SHA
       osprey build
-      osprey users env-production --output {{ env_production_name }}
+      osprey users env --output {{ users_env_name }}
       osprey up -d
       REMOTE
   environment:

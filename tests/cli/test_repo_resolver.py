@@ -294,7 +294,7 @@ def test_lifecycle_verbs_need_a_repo(command: str) -> None:
 
 @pytest.mark.parametrize(
     "command",
-    ["users seed", "users env-production", "scaffold ci", "web stop", "config"],
+    ["users seed", "users env", "scaffold ci", "web stop", "config"],
 )
 def test_repo_scoped_subcommands_need_a_repo(command: str) -> None:
     assert not is_repo_free(command)

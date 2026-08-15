@@ -94,6 +94,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   can only partly serve reports both counts rather than passing itself off as
   complete.
 
+- `osprey users env-production` is now `osprey users env`, and the file it
+  writes is `.env.users` instead of `.env.production` — the old name read as an
+  environment name in a tool that has no environments. `osprey up` does the
+  rename for you on the next deploy. A stack you stop before deploying again
+  still carries the old name, and `osprey down` fails until it is renamed; the
+  deploy guide gives the one-line fix.
+
 - The control-assistant preset's two-user roster now ships alice as the
   write-capable operator and bob as the read-only viewer. The tiers differ
   visibly, not just in enforcement: the write-armed terminal keeps the full
@@ -133,6 +140,21 @@ Compatibility is documented in release notes, not encoded in the version string.
   rebuild its image — or republish and re-pull it, if you deploy from a
   registry — or move the persona off the bluesky server or off writes.
 
+- Environment now resolves from a two-tier `.env` chain. `.env.shared` carries
+  the values that are the same on every host and is tracked in git; the `.env`
+  beside it carries the secrets and any per-host override, and wins on any key
+  both set. `osprey init` writes both. Previously a single `.env` had to hold
+  both, so a shared default could not be committed without committing the file
+  that held the provider keys.
+
+- A `network:` key in the build profile attaches the dispatch pair and the
+  bridges to the host network instead of the compose bridge, for facilities
+  whose control system answers only on the host. `osprey build` re-reads what
+  it rendered and refuses a shape that cannot start.
+- `podman-compose` now works as a container provider alongside Docker Compose
+  v2. OSPREY detects which one is present and shapes the deploy to match; the
+  two differ in how they resolve relative paths and how they order `--env-file`
+  precedence.
 - An archiver read that comes back empty now says why: the response carries a
   coverage verdict — the window predates or postdates the archive, the channel
   was never recorded, or the window holds a genuine gap — with the archive's

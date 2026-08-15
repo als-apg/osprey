@@ -2811,7 +2811,7 @@ def test_auth_env_isolation_secrets_reach_the_sidecar_only_through_env_file() ->
 
 
 def test_auth_env_isolation_sidecar_never_reads_env_production() -> None:
-    """The inverse of the isolation rule: `.env.production` is the per-user
+    """The inverse of the isolation rule: `.env.users` is the per-user
     containers' shared env file (provider keys, facility credentials). The login
     surface has no business reading it, and pulling it in would also drag the agent
     tier's variables into the process that mints sessions."""
@@ -2819,7 +2819,7 @@ def test_auth_env_isolation_sidecar_never_reads_env_production() -> None:
     auth = _compose(_auth_config())["services"]["auth"]
 
     # Assert
-    assert ".env.production" not in str(auth.get("env_file"))
+    assert ".env.users" not in str(auth.get("env_file"))
     assert not [name for name in _env_names(auth) if name.startswith("ANTHROPIC")]
 
 
@@ -2828,7 +2828,7 @@ def test_auth_env_isolation_no_web_service_carries_an_auth_variable() -> None:
     agent; the session signing key would let any user's agent mint a valid cookie for
     every other user, which is exactly the isolation this feature establishes. So no
     `web-*` service may carry an `OSPREY_AUTH_*` variable inline or reach `.env.auth`
-    through an env_file — while keeping the `.env.production` it has today."""
+    through an env_file — while keeping the `.env.users` it has today."""
     # Act
     compose = _compose(_auth_config())
 
@@ -2836,7 +2836,7 @@ def test_auth_env_isolation_no_web_service_carries_an_auth_variable() -> None:
     for name, service in compose["services"].items():
         if not name.startswith("web-"):
             continue
-        assert service["env_file"] == ".env.production"
+        assert service["env_file"] == ".env.users"
         assert AUTH_ENV_FILENAME not in str(service["env_file"])
         assert not [env for env in _env_names(service) if env.startswith("OSPREY_AUTH")]
 

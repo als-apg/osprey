@@ -573,7 +573,7 @@ NAMED_COMMANDS = {
     ("build",),
     ("scaffold", "ci"),
     ("up",),
-    ("users", "env-production"),
+    ("users", "env"),
     ("validate",),
 }
 

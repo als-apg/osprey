@@ -727,7 +727,12 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
             "at all, in which case the .env assertions below prove nothing:\n"
             f"{up2.stdout}\n{up2.stderr}"
         )
-        assert _needle("Shellexportshadows") in output, (
+        # The CONSEQUENCE, not the warning's headline: which side wins is now
+        # provider-specific (podman-compose reads its env file first and ignores
+        # the export, inverting Docker's answer), so the sentence that names the
+        # winner is the one an operator needs and the one worth pinning. This
+        # lane is Docker.
+        assert _needle("substitutestheEXPORTEDvalue") in output, (
             "the deploy named the variable but not what is happening to it; an "
             "operator has to be told the shell's value is the one compose will "
             f"substitute:\n{up2.stdout}\n{up2.stderr}"

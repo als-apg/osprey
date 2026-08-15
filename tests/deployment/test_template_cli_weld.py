@@ -92,7 +92,7 @@ EXPECTED_INVOCATIONS = [
     "osprey validate",
     "osprey build --skip-lifecycle --skip-deps",
     "osprey build",
-    "osprey users env-production --output .env.production",
+    "osprey users env --output .env.users",
     "osprey up -d",
 ]
 
@@ -294,7 +294,7 @@ def test_pipeline_runs_the_invocations_the_deployment_story_promises(
 def test_every_key_step_is_present(invocations: list[str]) -> None:
     """The three commands the deploy cannot happen without are all run."""
     joined = "\n".join(invocations)
-    for step in ("users env-production", "build", "up -d"):
+    for step in ("users env", "build", "up -d"):
         assert f"osprey {step}" in joined, f"the pipeline never runs 'osprey {step}'"
 
 
@@ -335,11 +335,11 @@ def test_the_secrets_render_takes_output_as_the_pipeline_writes_it(
     breaks on a real deploy with real credentials in it — and the failure mode
     without the flag is not a crash but a job log full of them.
     """
-    (secrets,) = [line for line in invocations if "env-production" in line]
+    (secrets,) = [line for line in invocations if "users env" in line]
     context = parse_or_fail(secrets, variables)
 
     output = context.params["output"]
-    assert Path(output).name == ".env.production"
+    assert Path(output).name == ".env.users"
     assert not Path(output).is_absolute()
 
 

@@ -14,10 +14,10 @@ keeping two specifications, which is one more than a specification can be.
 
 So what is asserted here is behaviour rather than bytes: the branches a
 registry turns on, and the security properties that hold whatever the profile
-says. A pipeline that assembled ``.env.production`` itself, from a heredoc of
+says. A pipeline that assembled ``.env.users`` itself, from a heredoc of
 masked CI variables, would need tests policing which tokens the heredoc may
 name. This pipeline assembles nothing: the deploy host runs
-``osprey users env-production`` against its own ``.env``, and the single
+``osprey users env`` against its own ``.env``, and the single
 allowlist in ``osprey.deployment.web_terminals.env_production`` decides what
 lands in that file. What this module pins is the absence half — no secret may
 reach a file, or the deploy host's command line, from here.
@@ -217,7 +217,7 @@ def test_pipeline_runs_the_expected_osprey_commands(rendered_ci: str) -> None:
         "osprey validate",
         "osprey build --skip-lifecycle --skip-deps",
         "osprey build",
-        "osprey users env-production --output .env.production",
+        "osprey users env --output .env.users",
         "osprey up -d",
     ]
     assert " -o " not in rendered_ci
@@ -316,24 +316,24 @@ def test_health_check_is_advisory(rendered_verify: str) -> None:
 def test_pipeline_never_assembles_env_production(rendered_ci: str, remote_script: str) -> None:
     """CI writes no secrets file of its own.
 
-    The legacy pipeline built ``.env.production`` from a heredoc of masked CI
+    The legacy pipeline built ``.env.users`` from a heredoc of masked CI
     variables and COPYed the result into the runtime image. Nothing here may
     do that again: the only thing that produces the file is the deploy host,
-    running ``osprey users env-production`` against its own ``.env``.
+    running ``osprey users env`` against its own ``.env``.
 
     The file is therefore *named* exactly once, as that command's destination
     on the host, and nowhere else — no CI-side assembly, no artifact, no COPY.
     """
     assert "ENVEOF" not in rendered_ci
-    assert "cat > .env.production" not in rendered_ci
+    assert "cat > .env.users" not in rendered_ci
 
-    mentions = [line.strip() for line in rendered_ci.splitlines() if ".env.production" in line]
-    assert mentions == ["osprey users env-production --output .env.production"]
+    mentions = [line.strip() for line in rendered_ci.splitlines() if ".env.users" in line]
+    assert mentions == ["osprey users env --output .env.users"]
     assert mentions[0] in remote_script
 
 
 def test_the_host_render_never_streams_secrets_to_the_job_log(remote_script: str) -> None:
-    """``users env-production`` must write to a file, not to stdout.
+    """``users env`` must write to a file, not to stdout.
 
     Without ``--output`` the command echoes the assembled subset — every
     credential the deployment runs on — and in this job stdout is the CI log,
@@ -348,10 +348,10 @@ def test_the_host_render_never_streams_secrets_to_the_job_log(remote_script: str
     render_lines = [
         line.strip()
         for line in remote_script.splitlines()
-        if "env-production" in line and "osprey" in line
+        if "users env" in line and "osprey" in line
     ]
     assert len(render_lines) == 1, render_lines
-    assert "--output .env.production" in render_lines[0]
+    assert "--output .env.users" in render_lines[0]
     assert ">" not in render_lines[0]
 
     # The written file must be the one `osprey up` then reads: both resolve it

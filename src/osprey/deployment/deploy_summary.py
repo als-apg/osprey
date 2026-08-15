@@ -3,7 +3,11 @@
 Every ``osprey up`` ends by saying what is reachable where, derived
 from the published host ports in the rendered compose files (the same source
 :mod:`osprey.deployment.host_ports` preflights) — so the summary needs no
-per-facility knowledge. A web-terminal line is always included: a project
+per-facility knowledge. A service on the host's network namespace publishes no
+port and appears in no ``ports:`` block, so its bound ports are derived from the
+rendered config the same way the preflight derives them; leaving them out would
+have made a host-mode deploy's summary silently short of the very services the
+operator asked for. A web-terminal line is always included: a project
 *without* a web tier says "(not configured)" explicitly, turning "nothing
 listens on the landing port" from a silent absence into a stated fact.
 """
@@ -13,7 +17,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from osprey.deployment.compose_generator import resolve_project_name
-from osprey.deployment.host_ports import _WILDCARD_HOSTS, parse_host_port_bindings
+from osprey.deployment.host_ports import (
+    _WILDCARD_HOSTS,
+    _WORKER_SERVICE_PREFIX,
+    derive_host_network_bindings,
+    parse_host_port_bindings,
+)
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.summary")
@@ -30,6 +39,17 @@ _HTTP_SERVICES = {
 }
 
 
+def _http_service(service: str) -> bool:
+    """Whether a service is fronted by HTTP, so its address is shown as a URL.
+
+    Workers are indexed (``dispatch-worker-1``, ``-2``, …) off one shared name,
+    so the index is dropped before the lookup — the same reduction
+    :mod:`osprey.deployment.host_ports` makes to find their remedy key. They
+    reach the summary only on the host network, where they bind directly.
+    """
+    return service in _HTTP_SERVICES or service.startswith(f"{_WORKER_SERVICE_PREFIX}-")
+
+
 def endpoint_entries(config: dict, compose_files: list[str]) -> list[tuple[str, str]]:
     """Where a deployment's services are reachable, as ``(service, address)`` pairs.
 
@@ -38,6 +58,12 @@ def endpoint_entries(config: dict, compose_files: list[str]) -> list[tuple[str, 
     no reader of a deployment can describe it differently from another. It says
     where a service *would* answer — the published ports are read out of the
     rendered compose files, not probed.
+
+    Two sources, because a deployment has two ways to reach a host port. What is
+    published lives in the compose files; what a host-namespace service binds
+    directly lives only in the rendered config, and is derived from it by the
+    same function the port preflight uses, so the summary and the preflight
+    cannot name different ports for the same service.
 
     :param config: Loaded configuration dictionary
     :param compose_files: Rendered compose file paths, spelled absolutely or
@@ -49,11 +75,17 @@ def endpoint_entries(config: dict, compose_files: list[str]) -> list[tuple[str, 
         bindings = parse_host_port_bindings(compose_files)
     except Exception:
         bindings = []
+    try:
+        bindings = bindings + derive_host_network_bindings(config)
+    except Exception:
+        pass
     for binding in sorted(bindings, key=lambda b: (b.service, b.host_port)):
         host = "127.0.0.1" if binding.host_ip in _WILDCARD_HOSTS else binding.host_ip
         address = f"{host}:{binding.host_port}"
-        if binding.service in _HTTP_SERVICES:
+        if _http_service(binding.service):
             address = f"http://{address}"
+        if binding.host_network:
+            address = f"{address}  (host network)"
         entries.append((binding.service, address))
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
