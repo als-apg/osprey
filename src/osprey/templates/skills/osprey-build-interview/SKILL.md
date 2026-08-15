@@ -239,11 +239,12 @@ osprey init <facility-name> --preset <closest-preset>
 a deployment, which a second pass through the interview will hit — move the old one aside
 or write into a fresh name, and tell the person which you did.
 
-What you get back is a git repository rather than a loose directory, laid out in three
+What you get back is a git repository rather than a loose directory, laid out in four
 zones. The repo ROOT is the editable source: `profile.yml` sits directly at the top,
 beside its `data/` tree, its convention directories, and the CI pipeline that lands there
-once the `deploy:` block is filled in. `build/` holds what `osprey build` renders and is
-kept out of git. `var/` holds runtime state. The map records the layout and what each
+once the `deploy:` block is filled in. `.env` holds the secrets — provider keys and the
+tokens `osprey up` mints — and is kept out of git alongside `build/`, which holds what
+`osprey build` renders. `var/` holds runtime state. The map records the layout and what each
 part is for. One consequence runs through everything below: every path you edit is a path
 at the repo root, and no command needs to be told where the repo is — they all find it by
 walking up from wherever you are standing.
