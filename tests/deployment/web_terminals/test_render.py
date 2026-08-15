@@ -3137,3 +3137,91 @@ def test_render_without_ariel_personas_emits_no_password_line() -> None:
     for service in ("web-alice", "web-bob"):
         env = compose["services"][service]["environment"]
         assert not any("ARIEL_DB_PASSWORD" in line for line in env)
+
+
+# ---------------------------------------------------------------------------
+# Write entitlement -> per-user Bluesky launch token
+#
+# `BLUESKY_LAUNCH_TOKEN` is what lets the `bluesky` MCP server arm a queue start
+# on the operator's chat approval alone. Per-user for the same reason as the two
+# credentials above, and more sharply: the shared `.env.production` is handed to
+# every user's container alike, so a launch token placed there would hand
+# queue-start capability -- physical hardware motion -- to the read-only
+# personas that must never hold it.
+# ---------------------------------------------------------------------------
+
+_LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
+
+
+def test_entitled_persona_gets_the_launch_token() -> None:
+    """A user whose persona is entitled to arm a queue start gets the launch token
+    in its own `environment:` block, interpolated from the deploy `.env` at compose
+    time so the secret is never written into a rendered artifact."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), launch_token_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    assert _LAUNCH_TOKEN_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_unentitled_persona_gets_no_launch_token() -> None:
+    """The tier boundary: a persona outside the entitled set must not receive the
+    credential that arms hardware motion -- which is exactly why this cannot live
+    in the shared .env.production that every user's container reads."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), launch_token_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("BLUESKY_LAUNCH_TOKEN" in line for line in bob_env)
+
+
+def test_render_without_launch_token_personas_emits_no_token_line() -> None:
+    """The no-project-root render path (`osprey scaffold web-terminals render`)
+    passes no persona set, so no user is armed. Harmless: every `osprey up`
+    re-renders through the artifacts seam, which resolves the set from disk."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    )
+
+    # Assert
+    for service in ("web-alice", "web-bob"):
+        env = compose["services"][service]["environment"]
+        assert not any("BLUESKY_LAUNCH_TOKEN" in line for line in env)
+
+
+def test_persona_less_roster_is_armed_from_the_config_itself() -> None:
+    """The zero-migration path -- roster entries that name no persona, where the web
+    image IS the deploy project -- has no persona to look up, so entitlement is read
+    from this same config with no disk read. That keeps the determinism contract
+    while still arming a deployment that never adopted personas.
+    """
+    # Arrange
+    config = copy.deepcopy(_config(["alice"]))
+    config["control_system"] = {"writes_enabled": True}
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    assert _LAUNCH_TOKEN_LINE in compose["services"]["web-alice"]["environment"]
+
+
+def test_persona_less_roster_without_writes_is_not_armed() -> None:
+    """The same path, read-only: writes were never granted, so there is nothing to
+    arm and no token is emitted."""
+    # Act
+    compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
+
+    # Assert
+    env = compose["services"]["web-alice"]["environment"]
+    assert not any("BLUESKY_LAUNCH_TOKEN" in line for line in env)

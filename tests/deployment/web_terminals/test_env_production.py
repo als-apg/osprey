@@ -65,13 +65,18 @@ _FULL_CONFIG = {
 # Every secret .env.production must NEVER contain -- the build-time
 # credentials (CI, registry, external-project pulls) and the fixed-name tokens
 # OSPREY's own deployed services authenticate to each other with. This
-# exclusion list is the security spec for the generator.
+# exclusion list is the security spec for the generator, so a service token
+# that is granted per-persona elsewhere belongs here too: BLUESKY_LAUNCH_TOKEN
+# reaches its entitled containers through the per-user compose `environment:`
+# block, and the whole point of that placement is that this rosterwide file
+# never carries it.
 _EXCLUDED_ENV = {
     "TEST_CI_TOKEN": "ci-secret",
     "TEST_REGISTRY_TOKEN": "registry-secret",
     "BEAM_VIEWER_DEPLOY_TOKEN": "external-project-secret",
     "EVENT_DISPATCHER_TOKEN": "dispatcher-secret",
     "DISPATCH_WORKER_TOKEN": "worker-secret",
+    "BLUESKY_LAUNCH_TOKEN": "launch-token-secret",
 }
 
 # Credentials the agent inside a web terminal presents to systems outside the

@@ -3,19 +3,26 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from osprey.deployment.web_terminals.personas import (
     EVENTS_PANEL_ID,
     config_declares_panel,
-    config_uses_ariel,
+    config_needs_ariel_password,
+    config_needs_dispatcher_token,
+    config_needs_launch_token,
     env_var_suffix,
     env_var_suffix_collisions,
     freeze_user_indices,
     normalize_users,
-    personas_declaring_panel,
-    personas_using_ariel,
+    personas_needing_ariel_password,
+    personas_needing_dispatcher_token,
+    personas_needing_launch_token,
+    personas_not_denying_bash,
     resolve_personas,
+    settings_json_denies_bash,
 )
 
 
@@ -1283,7 +1290,17 @@ def test_config_declares_panel_treats_disabled_as_undeclared() -> None:
     assert config_declares_panel(config, EVENTS_PANEL_ID) is False
 
 
-def test_personas_declaring_panel_selects_only_the_declaring_persona(tmp_path) -> None:
+def test_config_needs_dispatcher_token_reads_the_events_panel_declaration() -> None:
+    """A thin wrapper: it reads exactly what `config_declares_panel(config,
+    EVENTS_PANEL_ID)` reads, with no separate config key of its own."""
+    config = {"web": {"panels": {"events": {"label": "EVENTS"}}}}
+
+    # Assert
+    assert config_needs_dispatcher_token(config) is True
+    assert config_needs_dispatcher_token({}) is False
+
+
+def test_personas_needing_dispatcher_token_selects_only_the_declaring_persona(tmp_path) -> None:
     """The entitlement set is exactly the personas whose rendered project shows the
     panel -- the readonly tier is excluded by its own config, not by a separate key."""
     # Arrange
@@ -1306,13 +1323,13 @@ def test_personas_declaring_panel_selects_only_the_declaring_persona(tmp_path) -
     )
 
     # Act
-    result = personas_declaring_panel(config, tmp_path, EVENTS_PANEL_ID)
+    result = personas_needing_dispatcher_token(config, tmp_path)
 
     # Assert
     assert result == {"readwrite"}
 
 
-def test_personas_declaring_panel_skips_unrendered_persona_projects(tmp_path) -> None:
+def test_personas_needing_dispatcher_token_skips_unrendered_persona_projects(tmp_path) -> None:
     """A persona whose project isn't on disk contributes nothing: a credential is
     never granted on a guess."""
     # Arrange
@@ -1322,7 +1339,7 @@ def test_personas_declaring_panel_skips_unrendered_persona_projects(tmp_path) ->
     )
 
     # Act / Assert
-    assert personas_declaring_panel(config, tmp_path, EVENTS_PANEL_ID) == set()
+    assert personas_needing_dispatcher_token(config, tmp_path) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -1348,21 +1365,24 @@ def _write_persona_project_config(tmp_path, name: str, config: dict) -> str:
     return name
 
 
-def test_config_uses_ariel_reads_the_ariel_section() -> None:
+def test_config_needs_ariel_password_reads_the_ariel_section() -> None:
     """A project carrying an `ariel:` section resolves a DSN and needs the password."""
     # Assert
-    assert config_uses_ariel({"ariel": {"search_modules": {"keyword": {"enabled": True}}}}) is True
-    assert config_uses_ariel({}) is False
+    assert (
+        config_needs_ariel_password({"ariel": {"search_modules": {"keyword": {"enabled": True}}}})
+        is True
+    )
+    assert config_needs_ariel_password({}) is False
 
 
-def test_config_uses_ariel_ignores_an_empty_section() -> None:
+def test_config_needs_ariel_password_ignores_an_empty_section() -> None:
     """A key present but empty configures nothing, so it entitles nothing."""
     # Assert
-    assert config_uses_ariel({"ariel": None}) is False
-    assert config_uses_ariel({"ariel": {}}) is False
+    assert config_needs_ariel_password({"ariel": None}) is False
+    assert config_needs_ariel_password({"ariel": {}}) is False
 
 
-def test_personas_using_ariel_selects_only_the_ariel_persona(tmp_path) -> None:
+def test_personas_needing_ariel_password_selects_only_the_ariel_persona(tmp_path) -> None:
     """The entitlement set is exactly the personas whose rendered project configures
     ARIEL -- a persona with no logbook gets no logbook credential."""
     # Arrange
@@ -1389,13 +1409,13 @@ def test_personas_using_ariel_selects_only_the_ariel_persona(tmp_path) -> None:
     )
 
     # Act
-    result = personas_using_ariel(config, tmp_path)
+    result = personas_needing_ariel_password(config, tmp_path)
 
     # Assert
     assert result == {"readwrite"}
 
 
-def test_personas_using_ariel_skips_unrendered_persona_projects(tmp_path) -> None:
+def test_personas_needing_ariel_password_skips_unrendered_persona_projects(tmp_path) -> None:
     """A persona whose project isn't on disk contributes nothing: a credential is
     never granted on a guess."""
     # Arrange
@@ -1405,4 +1425,396 @@ def test_personas_using_ariel_skips_unrendered_persona_projects(tmp_path) -> Non
     )
 
     # Act / Assert
-    assert personas_using_ariel(config, tmp_path) == set()
+    assert personas_needing_ariel_password(config, tmp_path) == set()
+
+
+# ---------------------------------------------------------------------------
+# writes + bluesky server -> per-user queue launch token
+#
+# `BLUESKY_LAUNCH_TOKEN` arms a queue start, so it is gated on the intersection
+# of the two things that make arming meaningful: writes actually enabled, and
+# the bluesky MCP server (the token's consumer -- not the panel) actually run.
+# The two reads are asymmetric on purpose: `writes_enabled` must be explicitly
+# true, while the server's `enabled` override defaults to on when absent.
+# ---------------------------------------------------------------------------
+
+
+def _launch_config(writes_enabled: Any = "absent", bluesky_enabled: Any = "absent") -> dict:
+    """A project config with either read spelled out, or omitted via the sentinel."""
+    config: dict = {}
+    if writes_enabled != "absent":
+        config["control_system"] = {"writes_enabled": writes_enabled}
+    if bluesky_enabled != "absent":
+        config["claude_code"] = {"servers": {"bluesky": {"enabled": bluesky_enabled}}}
+    return config
+
+
+def test_config_needs_launch_token_requires_writes_and_the_bluesky_server() -> None:
+    """Both halves of the capability present -- the readwrite tier."""
+    # Assert
+    assert config_needs_launch_token(_launch_config(True, True)) is True
+
+
+def test_config_needs_launch_token_defaults_the_bluesky_server_to_enabled() -> None:
+    """`claude_code.servers.bluesky.enabled` is an override over an already-enabled
+    default, so its absence must not deny the token."""
+    # Assert
+    assert config_needs_launch_token(_launch_config(writes_enabled=True)) is True
+
+
+def test_config_needs_launch_token_denies_when_the_bluesky_server_is_off() -> None:
+    """Writes alone entitle nothing: with no bluesky server there is no consumer."""
+    # Assert
+    assert config_needs_launch_token(_launch_config(True, False)) is False
+
+
+def test_config_needs_launch_token_denies_the_readonly_tier() -> None:
+    """The read-only tier is `writes_enabled: false` and still runs the bluesky
+    server for browsing -- the server alone must never arm a queue start."""
+    # Assert
+    assert config_needs_launch_token(_launch_config(False, True)) is False
+
+
+def test_config_needs_launch_token_requires_writes_enabled_explicitly() -> None:
+    """Anything short of a literal `True` -- absent, null, or a truthy non-bool --
+    means writes were never granted."""
+    # Assert
+    assert config_needs_launch_token(_launch_config(bluesky_enabled=True)) is False
+    assert config_needs_launch_token(_launch_config(None, True)) is False
+    assert config_needs_launch_token(_launch_config("true", True)) is False
+    assert config_needs_launch_token(_launch_config(1, True)) is False
+
+
+def test_config_needs_launch_token_denies_an_empty_config() -> None:
+    """A config configuring neither half entitles nothing, and non-dict sections
+    are read defensively rather than raising."""
+    # Assert
+    assert config_needs_launch_token({}) is False
+    assert config_needs_launch_token(None) is False
+    assert config_needs_launch_token({"control_system": "on"}) is False
+
+
+def test_personas_needing_launch_token_selects_only_the_readwrite_persona(tmp_path) -> None:
+    """The entitlement set is exactly the personas whose rendered project both allows
+    writes and runs the bluesky server -- the read-only tier runs the same server (for
+    browsing) and must still be excluded, because it is `writes_enabled` that decides,
+    not whether the server is present. This is the tier boundary the whole feature
+    rests on: a read-only persona can never end up in this set."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_persona_project_config(
+                tmp_path,
+                "rw",
+                {
+                    "control_system": {"writes_enabled": True},
+                    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+                },
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_persona_project_config(
+                tmp_path,
+                "ro",
+                {
+                    "control_system": {"writes_enabled": False},
+                    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+                },
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "readwrite"},
+            {"name": "bob", "index": 1, "persona": "readonly"},
+        ],
+    )
+
+    # Act
+    result = personas_needing_launch_token(config, tmp_path)
+
+    # Assert
+    assert result == {"readwrite"}
+
+
+def test_personas_needing_launch_token_skips_unrendered_persona_projects(tmp_path) -> None:
+    """A persona whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
+    config = _catalog_config(
+        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
+        [{"name": "alice", "index": 0, "persona": "ghost"}],
+    )
+
+    # Act / Assert
+    assert personas_needing_launch_token(config, tmp_path) == set()
+
+
+# ---------------------------------------------------------------------------
+# Shipped-artifact reads: .claude/settings.json Bash deny
+# ---------------------------------------------------------------------------
+
+
+def _write_settings_json(tmp_path, name: str, body: Any) -> str:
+    """Render a persona project carrying a ``.claude/settings.json``.
+
+    ``body`` is written verbatim when it is a string (so a test can ship
+    unparseable bytes) and JSON-encoded otherwise. Returns the project_path.
+    """
+    import json as _json
+
+    claude_dir = tmp_path / name / ".claude"
+    claude_dir.mkdir(parents=True)
+    text = body if isinstance(body, str) else _json.dumps(body)
+    (claude_dir / "settings.json").write_text(text, encoding="utf-8")
+    return name
+
+
+def test_settings_json_denies_bash_reads_the_shipped_deny_list(tmp_path) -> None:
+    """The happy path: `Bash` listed in permissions.deny is a deny."""
+    # Arrange
+    _write_settings_json(
+        tmp_path, "locked", {"permissions": {"allow": ["Read(/x/**)"], "deny": ["Bash", "Edit"]}}
+    )
+
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "locked") is True
+
+
+def test_settings_json_denies_bash_false_when_bash_absent_from_a_well_formed_deny(
+    tmp_path,
+) -> None:
+    """A readable artifact that simply doesn't deny the shell -- the `remove_deny`
+    case this whole guard exists to catch."""
+    # Arrange
+    _write_settings_json(
+        tmp_path, "open", {"permissions": {"deny": ["Edit", "WebFetch"], "ask": ["Bash"]}}
+    )
+
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "open") is False
+
+
+def test_settings_json_denies_bash_ignores_a_scoped_bash_deny(tmp_path) -> None:
+    """`Bash(rm:*)` constrains one command family and leaves the shell usable, so it
+    is not a wholesale deny -- only the exact literal counts."""
+    # Arrange
+    _write_settings_json(tmp_path, "scoped", {"permissions": {"deny": ["Bash(rm:*)"]}})
+
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "scoped") is False
+
+
+def test_settings_json_denies_bash_fails_closed_on_a_missing_file(tmp_path) -> None:
+    """An unrendered project proves nothing about its permissions."""
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "never-rendered") is False
+
+
+def test_settings_json_denies_bash_fails_closed_on_invalid_json(tmp_path) -> None:
+    """A truncated or hand-mangled artifact is unreadable, not safe."""
+    # Arrange
+    _write_settings_json(tmp_path, "broken", '{"permissions": {"deny": ["Bash"')
+
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "broken") is False
+
+
+def test_settings_json_denies_bash_fails_closed_on_a_non_object_document(tmp_path) -> None:
+    """Valid JSON that isn't an object carries no permissions at all."""
+    # Arrange
+    _write_settings_json(tmp_path, "listy", ["Bash"])
+
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "listy") is False
+
+
+def test_settings_json_denies_bash_fails_closed_when_permissions_is_missing(tmp_path) -> None:
+    """No permissions block means nothing has been denied."""
+    # Arrange
+    _write_settings_json(tmp_path, "bare", {"hooks": {}})
+
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "bare") is False
+
+
+def test_settings_json_denies_bash_fails_closed_when_deny_is_missing(tmp_path) -> None:
+    """A permissions block with an allow list but no deny list denies nothing."""
+    # Arrange
+    _write_settings_json(tmp_path, "allow-only", {"permissions": {"allow": ["Read(/x/**)"]}})
+
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "allow-only") is False
+
+
+def test_settings_json_denies_bash_fails_closed_when_deny_is_not_a_list(tmp_path) -> None:
+    """A malformed deny value is unreadable, so it proves no deny -- including the
+    string "Bash", which must not be read as a one-element list."""
+    # Arrange
+    _write_settings_json(tmp_path, "stringly", {"permissions": {"deny": "Bash"}})
+    _write_settings_json(tmp_path, "nully", {"permissions": {"deny": None}})
+
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "stringly") is False
+    assert settings_json_denies_bash(tmp_path / "nully") is False
+
+
+def test_settings_json_denies_bash_ignores_non_string_deny_entries(tmp_path) -> None:
+    """Junk entries alongside a real deny neither raise nor suppress the deny."""
+    # Arrange
+    _write_settings_json(tmp_path, "mixed", {"permissions": {"deny": [None, 7, {}, "Bash"]}})
+
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "mixed") is True
+
+
+def test_personas_not_denying_bash_reports_only_the_permissive_persona(tmp_path) -> None:
+    """The roster form: the persona whose shipped settings dropped the Bash deny is
+    named; the locked-down one is not."""
+    # Arrange
+    catalog = {
+        "locked": {
+            "project": "locked",
+            "project_path": _write_settings_json(
+                tmp_path, "locked", {"permissions": {"deny": ["Bash", "Edit"]}}
+            ),
+        },
+        "shelly": {
+            "project": "shelly",
+            "project_path": _write_settings_json(
+                tmp_path, "shelly", {"permissions": {"deny": ["Edit"]}}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "persona": "locked"},
+            {"name": "bob", "index": 1, "persona": "shelly"},
+        ],
+    )
+
+    # Act
+    result = personas_not_denying_bash(config, tmp_path)
+
+    # Assert
+    assert result == {"shelly"}
+
+
+def test_personas_not_denying_bash_includes_unrendered_and_pathless_personas(tmp_path) -> None:
+    """Fail-closed at roster level too: a persona whose artifact cannot be located
+    is reported as permissive rather than silently skipped."""
+    # Arrange
+    config = _catalog_config(
+        {
+            "ghost": {"project": "ghost", "project_path": "../never-rendered"},
+            "pathless": {"project": "pathless"},
+        },
+        [
+            {"name": "alice", "index": 0, "persona": "ghost"},
+            {"name": "bob", "index": 1, "persona": "pathless"},
+        ],
+    )
+
+    # Act / Assert
+    assert personas_not_denying_bash(config, tmp_path) == {"ghost", "pathless"}
+
+
+def test_personas_not_denying_bash_covers_the_default_persona(tmp_path) -> None:
+    """`default_persona` is deployed by every roster entry that names none, so it is
+    walked alongside the explicitly referenced ones."""
+    # Arrange
+    catalog = {
+        "fallback": {
+            "project": "fallback",
+            "project_path": _write_settings_json(
+                tmp_path, "fallback", {"permissions": {"deny": ["Edit"]}}
+            ),
+        },
+    }
+    config = _catalog_config(catalog, [{"name": "alice", "index": 0}])
+    config["modules"]["web_terminals"]["default_persona"] = "fallback"
+
+    # Act / Assert
+    assert personas_not_denying_bash(config, tmp_path) == {"fallback"}
+
+
+def test_personas_not_denying_bash_ignores_unreferenced_catalog_entries(tmp_path) -> None:
+    """A persona nobody deploys cannot leak a token, so it is not reported."""
+    # Arrange
+    catalog = {
+        "unused": {
+            "project": "unused",
+            "project_path": _write_settings_json(tmp_path, "unused", {"permissions": {"deny": []}}),
+        },
+    }
+    config = _catalog_config(catalog, [])
+
+    # Act / Assert
+    assert personas_not_denying_bash(config, tmp_path) == set()
+
+
+def test_personas_not_denying_bash_reads_the_artifact_not_the_config(tmp_path) -> None:
+    """`osprey up` does not rebuild, so a config edited after the last build does not
+    change what ships. Both directions of that divergence are asserted here, because
+    the function must follow the artifact whichever way the two disagree.
+
+    `intent-permissive` has a config.yml that unblocks the shell while its rendered
+    settings.json still denies it -- it must NOT be reported.
+
+    `intent-safe` is the security-relevant inverse and the entire reason this function
+    reads the artifact at all: its config.yml looks safe (it removes nothing), while the
+    shipped settings.json is stale-permissive and omits the Bash deny. A config-reading
+    implementation would clear this persona for a launch token while the running image
+    still hands its agent a shell. It must be reported UNSAFE.
+    """
+    # Arrange
+    import yaml
+
+    def _write_config_yml(name: str, claude_code: dict) -> None:
+        (tmp_path / name / "config.yml").write_text(
+            yaml.safe_dump({"claude_code": claude_code}),
+            encoding="utf-8",
+        )
+
+    # Intent says the shell was unblocked; the built artifact still blocks it.
+    _write_settings_json(tmp_path, "intent-permissive", {"permissions": {"deny": ["Bash"]}})
+    _write_config_yml("intent-permissive", {"permissions": {"remove_deny": ["Bash"]}})
+
+    # Intent says the shell is blocked; the built artifact does not block it.
+    _write_settings_json(tmp_path, "intent-safe", {"permissions": {"deny": ["Edit"]}})
+    _write_config_yml("intent-safe", {"permissions": {"remove_deny": []}})
+
+    config = _catalog_config(
+        {
+            "intent-permissive": {
+                "project": "intent-permissive",
+                "project_path": "intent-permissive",
+            },
+            "intent-safe": {"project": "intent-safe", "project_path": "intent-safe"},
+        },
+        [
+            {"name": "alice", "index": 0, "persona": "intent-permissive"},
+            {"name": "bob", "index": 1, "persona": "intent-safe"},
+        ],
+    )
+
+    # Act
+    result = personas_not_denying_bash(config, tmp_path)
+
+    # Assert -- the verdict tracks the artifact, opposite to the intent, both ways
+    assert result == {"intent-safe"}
+
+
+def test_settings_json_denies_bash_reads_an_artifact_written_with_a_bom(tmp_path) -> None:
+    """`json.load` does not strip a UTF-8 BOM, so a hand-edited artifact saved with one
+    would fail to parse and a genuinely Bash-denying persona would read as permissive --
+    an opaque deploy refusal. The file is opened as utf-8-sig so the deny is seen."""
+    # Arrange
+    _write_settings_json(tmp_path, "bommed", '﻿{"permissions": {"deny": ["Bash", "Edit"]}}')
+
+    # Act / Assert
+    assert settings_json_denies_bash(tmp_path / "bommed") is True

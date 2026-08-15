@@ -18,6 +18,7 @@ from ruamel.yaml import YAML
 
 from osprey.deployment.compose_generator import resolve_user_volume_names
 from osprey.deployment.web_terminals import lifecycle
+from osprey.deployment.web_terminals.artifacts import BashLaunchTokenConflictError
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME, PW_HASH_VAR_PREFIX
 from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.provision import AUTH_SERVICE_NAME
@@ -2226,3 +2227,83 @@ def test_passwd_recreate_argv_addresses_the_repos_web_stack_from_any_directory(
     # `.env.auth` — and a byte-exact revert would then be skipped as unchanged.
     assert (repo / "build" / "nginx" / "nginx.conf").is_file()
     assert not (tmp_path / "build").exists()
+
+
+# =============================================================================
+# decommission_user + the Bash/launch-token conflict guard
+#
+# The guard also runs at the render seam this verb calls, so a conflicted
+# deployment was always refused. What these pin is WHERE: refusing at the
+# re-render would leave config.yml already rewritten, the artifacts stale, and
+# the container/volume removal below never run. The verb must refuse before it
+# touches the roster — and must NOT lose the escape hatch that lets an operator
+# decommission the offending persona's own user.
+# =============================================================================
+
+
+def _conflicted_persona_config(tmp_path, users, *, personas):
+    """A roster whose persona projects are really on disk under *tmp_path*.
+
+    `personas` maps a persona name to `(writes_enabled, denies_bash)`, so a case
+    can pair the launch-token entitlement with either shipped permission state.
+    """
+    import json as _json
+
+    catalog = {}
+    for name, (writes, denies_bash) in personas.items():
+        project_dir = tmp_path / "profiles" / name
+        (project_dir / ".claude").mkdir(parents=True)
+        (project_dir / "config.yml").write_text(
+            yaml.safe_dump({"project_name": name, "control_system": {"writes_enabled": writes}}),
+            encoding="utf-8",
+        )
+        (project_dir / ".claude" / "settings.json").write_text(
+            _json.dumps({"permissions": {"deny": ["Bash"] if denies_bash else []}}),
+            encoding="utf-8",
+        )
+        catalog[name] = {"project": name, "project_path": f"profiles/{name}"}
+    return _config(users, personas=catalog)
+
+
+_TIERED_PERSONAS = {"armed": (True, False), "safe": (False, True)}
+_TIERED_USERS = [
+    {"name": "alice", "index": 0, "persona": "armed"},
+    {"name": "bob", "index": 1, "persona": "safe"},
+]
+
+
+def test_decommission_refuses_before_touching_the_roster_when_a_survivor_is_conflicted(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """Removing bob while alice's persona is conflicted must abort cleanly. The
+    roster edit is precisely what makes a failed decommission half-applied, so
+    the refusal has to land before it — not at the re-render that follows."""
+    monkeypatch.chdir(tmp_path)
+    config = _conflicted_persona_config(tmp_path, _TIERED_USERS, personas=_TIERED_PERSONAS)
+    config_path = _write_config(tmp_path, config)
+
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        lifecycle.decommission_user(str(config_path), "bob", assume_yes=True)
+
+    assert "armed" in str(excinfo.value)
+    # config.yml untouched: both users still on the roster.
+    assert [entry["name"] for entry in _reload_users(config_path)] == ["alice", "bob"]
+    # And nothing downstream ran.
+    assert [c for c in fake_runtime if c[1] == "rm"] == []
+
+
+def test_decommission_of_the_conflicted_personas_own_user_still_succeeds(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """THE ESCAPE HATCH. Moving the check earlier must not cost the operator the
+    one remediation that needs no image rebuild: removing the conflicted
+    persona's last user. The probed roster is the POST-removal one, so that
+    persona stops being referenced and the conflict dissolves."""
+    monkeypatch.chdir(tmp_path)
+    config = _conflicted_persona_config(tmp_path, _TIERED_USERS, personas=_TIERED_PERSONAS)
+    config_path = _write_config(tmp_path, config)
+
+    lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
+
+    assert [entry["name"] for entry in _reload_users(config_path)] == ["bob"]
+    assert [c for c in fake_runtime if c[1] == "rm"] == [["docker", "rm", "-f", "dls-web-alice"]]

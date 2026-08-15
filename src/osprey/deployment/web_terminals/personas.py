@@ -12,6 +12,7 @@ sidecar and lint share so a user's credentials are keyed identically everywhere.
 Port arithmetic lives separately in :mod:`osprey.deployment.web_terminals.ports`.
 """
 
+import json
 import os
 import re
 from collections.abc import Iterable
@@ -60,7 +61,7 @@ def config_declares_panel(config: Any, panel_id: str) -> bool:
     """True if ``config`` declares ``web.panels.<panel_id>`` and hasn't disabled it.
 
     The one definition of "this project shows that panel", shared by the render
-    (for persona-less roster entries) and by :func:`personas_declaring_panel`
+    (for persona-less roster entries) and by :func:`personas_needing_dispatcher_token`
     (for catalog personas), so the two cannot answer differently for the same
     config. ``enabled: false`` counts as *not* declared: a panel switched off is
     one whose credential is not needed.
@@ -71,7 +72,20 @@ def config_declares_panel(config: Any, panel_id: str) -> bool:
     return panel.get("enabled", True) is not False
 
 
-def config_uses_ariel(config: Any) -> bool:
+def config_needs_dispatcher_token(config: Any) -> bool:
+    """True if ``config`` declares the EVENTS panel and so needs the dispatcher bearer.
+
+    A thin, named wrapper around :func:`config_declares_panel` for
+    :data:`EVENTS_PANEL_ID` specifically: the panel declaration IS the
+    entitlement (see that constant's docstring — there is no separate config
+    key to set, or to forget to set, alongside it), so this is the one
+    predicate every dispatcher-token call site should read rather than each
+    re-supplying the panel id itself.
+    """
+    return config_declares_panel(config, EVENTS_PANEL_ID)
+
+
+def config_needs_ariel_password(config: Any) -> bool:
     """True if ``config`` carries a non-empty ``ariel:`` section.
 
     The ARIEL counterpart of :func:`config_declares_panel`, and deliberately not
@@ -88,6 +102,43 @@ def config_uses_ariel(config: Any) -> bool:
     logbook, and so entitles nothing.
     """
     return bool(as_dict(as_dict(config).get("ariel")))
+
+
+def config_needs_launch_token(config: Any) -> bool:
+    """True if ``config`` both allows writes and runs the bluesky MCP server.
+
+    ``BLUESKY_LAUNCH_TOKEN`` arms a queue start — it is what turns an agent's
+    ``queue_start`` call into physical hardware motion — so it is granted only
+    where both halves of that capability are actually configured. The consumer
+    is the ``bluesky`` MCP server, not the BLUESKY panel, which is the same
+    reasoning :func:`config_needs_ariel_password` applies to its own credential:
+    a credential is gated on what its consumer reads, never on which panel tab
+    happens to be visible. A project that switched the panel off still runs the
+    agent's queue tools, and a project that shows the panel but runs no bluesky
+    server has nothing to arm.
+
+    The two conditions are deliberately asymmetric, because their defaults are:
+
+    * ``control_system.writes_enabled`` must be **explicitly** ``True``. This is
+      the read-only tier's whole boundary — a read-only persona expresses itself
+      as ``writes_enabled: false``, and an absent or null key means writes were
+      never granted. Anything other than a literal ``True`` therefore entitles
+      nothing.
+    * ``claude_code.servers.bluesky.enabled`` must merely be **not** ``False``.
+      That key is an *override* over the server's built-in default (see
+      :func:`osprey.registry.mcp.resolve_servers`, which likewise disables only
+      on a literal ``enabled: false``), so an absent key leaves the server
+      enabled. Reading absence as "disabled" here would deny the token to
+      correctly-configured projects that simply never wrote the override.
+
+    Neither condition entitles on its own: writes without the server have no
+    caller, and the server without writes has nothing it may arm.
+    """
+    root = as_dict(config)
+    if as_dict(root.get("control_system")).get("writes_enabled") is not True:
+        return False
+    servers = as_dict(as_dict(root.get("claude_code")).get("servers"))
+    return as_dict(servers.get("bluesky")).get("enabled", True) is not False
 
 
 def _referenced_personas(config: Any) -> tuple[dict[str, Any], set[str]]:
@@ -147,30 +198,54 @@ def _personas_whose_config(config: Any, project_root: Any, predicate) -> set[str
     return matching
 
 
-def personas_declaring_panel(config: Any, project_root: Any, panel_id: str) -> set[str]:
-    """Names of catalog personas whose rendered project declares ``panel_id``.
+def personas_needing_dispatcher_token(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project needs the dispatcher token.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
-    :param panel_id: The panel whose declaration is being looked for.
-    :return: The subset of referenced persona names that declare it.
+    :return: The subset of referenced persona names entitled to
+        ``EVENT_DISPATCHER_TOKEN`` (see :func:`config_needs_dispatcher_token`).
     """
-    return _personas_whose_config(
-        config, project_root, lambda persona: config_declares_panel(persona, panel_id)
-    )
+    return _personas_whose_config(config, project_root, config_needs_dispatcher_token)
 
 
-def personas_using_ariel(config: Any, project_root: Any) -> set[str]:
+def personas_needing_ariel_password(config: Any, project_root: Any) -> set[str]:
     """Names of catalog personas whose rendered project configures ARIEL.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
     :return: The subset of referenced persona names entitled to
-        ``ARIEL_DB_PASSWORD`` (see :func:`config_uses_ariel`).
+        ``ARIEL_DB_PASSWORD`` (see :func:`config_needs_ariel_password`).
     """
-    return _personas_whose_config(config, project_root, config_uses_ariel)
+    return _personas_whose_config(config, project_root, config_needs_ariel_password)
+
+
+def personas_needing_launch_token(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project may arm a queue start.
+
+    This is the tier boundary in roster form. :func:`config_needs_launch_token`
+    decides the question per project; this wrapper is where that decision
+    becomes a *set* a caller can hand a bearer token to, one persona at a
+    time -- and it is therefore also where the security property the whole
+    feature rests on actually holds: a read-only persona's rendered
+    ``config.yml`` carries ``control_system.writes_enabled: false``, which can
+    never satisfy the predicate, so a read-only persona can never appear in
+    this set and can never be handed ``BLUESKY_LAUNCH_TOKEN``. That guarantee
+    falls out of walking the same per-persona ``config.yml`` files
+    :func:`personas_needing_dispatcher_token` and
+    :func:`personas_needing_ariel_password` already walk -- there is no
+    separate roster-level flag to keep in sync with the tier, and so nothing
+    that a future persona addition could forget to set.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names entitled to
+        ``BLUESKY_LAUNCH_TOKEN`` (see :func:`config_needs_launch_token`).
+    """
+    return _personas_whose_config(config, project_root, config_needs_launch_token)
 
 
 def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
@@ -689,3 +764,119 @@ def resolve_personas(
         )
 
     return resolved
+
+
+# ---------------------------------------------------------------------------
+# Shipped-artifact reads
+#
+# Everything above answers a question about a persona's *config* — its authored
+# intent. The two functions below deliberately do not: they read the built
+# `.claude/settings.json` artifact instead, and so are kept out of the
+# entitlement-predicate cluster above rather than joining it.
+# ---------------------------------------------------------------------------
+
+
+#: The exact ``permissions.deny`` entry that blocks the agent's shell wholesale.
+#: A *scoped* deny (``Bash(rm:*)``) constrains one command family and leaves the
+#: shell otherwise usable, so only this literal counts as "Bash is denied".
+_BASH_DENY_ENTRY = "Bash"
+
+
+def settings_json_denies_bash(project_dir: Any) -> bool:
+    """True if ``<project_dir>/.claude/settings.json`` denies ``Bash`` outright.
+
+    Reads the **shipped build artifact**, not the ``config.yml`` that produced
+    it, and that distinction is the whole point of this function. ``osprey up``
+    does not rebuild (rebuilding is a separate operator step), so a persona's
+    config edited after its last build does not change what its image actually
+    ships. A caller that asked the config instead would see a permission set
+    that has never been rendered: an operator who removed ``Bash`` from
+    ``remove_deny`` would read as safe while the running image still permits the
+    shell.
+
+    The scope of that claim is the rendered project directory, which is what
+    ``COPY . /app/<project>/`` bakes into the persona image — so what this reads
+    equals the image's own ``.claude/settings.json`` **as of that image's last
+    build**, and the per-user compose services declare only ``image:``, with no
+    ``build:`` stanza to rebuild one at start. A guard built on this is
+    therefore sound *provided persona images are rebuilt after a render*, and
+    deliberately claims nothing beyond that: a render newer than its image can
+    report a deny the running image does not yet carry. Reading ``config.yml``
+    would not close that window either — it is one step further from the image,
+    not one step closer.
+
+    Only the exact ``"Bash"`` entry counts (see :data:`_BASH_DENY_ENTRY`).
+
+    Fails **closed**: an artifact that cannot be read and parsed into a
+    ``permissions.deny`` list is not evidence that anything is denied, so every
+    such case answers ``False`` rather than raising or defaulting to "safe".
+    That covers an absent file, unreadable or invalid JSON, a top-level value
+    that is not an object, and a missing or non-list ``permissions`` /
+    ``permissions.deny``.
+
+    Args:
+        project_dir: The rendered persona project directory (the one holding
+            ``config.yml`` and ``.claude/``).
+
+    Returns:
+        ``True`` only when the artifact was read, parsed, and lists ``"Bash"``
+        in ``permissions.deny``; ``False`` in every other case.
+    """
+    settings_json = Path(project_dir) / ".claude" / "settings.json"
+    try:
+        # utf-8-sig, not utf-8: `json.load` does not strip a BOM, so a hand-edited
+        # artifact saved with one would fail to parse and a genuinely Bash-denying
+        # persona would read as permissive — an opaque deploy refusal. The codec is
+        # a strict superset for BOM-less files, which is everything OSPREY renders.
+        with settings_json.open("r", encoding="utf-8-sig") as fh:
+            settings = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    deny = as_dict(as_dict(settings).get("permissions")).get("deny")
+    if not isinstance(deny, list):
+        return False
+    return _BASH_DENY_ENTRY in [entry for entry in deny if isinstance(entry, str)]
+
+
+def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
+    """Names of referenced personas whose shipped settings do **not** deny ``Bash``.
+
+    The roster-shaped form of :func:`settings_json_denies_bash`, phrased as the
+    *unsafe* set so its caller can name every offending persona in one error
+    rather than re-deriving them. A persona granted ``BLUESKY_LAUNCH_TOKEN``
+    while its agent may also run a shell can read that token out of its own
+    environment and arm a queue with a plain HTTP call, bypassing the chat
+    approval entirely — the approval gates the ``queue_start`` tool, not a
+    shell. Intersecting this set with :func:`personas_needing_launch_token`
+    therefore names exactly the personas a deploy must refuse.
+
+    Walks the roster itself rather than routing through the shared
+    ``config.yml`` engine the entitlement predicates use, because the question
+    is about the built artifact and not about intent — see
+    :func:`settings_json_denies_bash`. Membership is inclusive for the same
+    fail-closed reason: a persona with no ``project_path``, or one whose project
+    is not rendered, is reported here as not denying ``Bash``. That never
+    over-blocks a deploy, since a persona whose project is missing cannot
+    satisfy :func:`config_needs_launch_token` either and so drops out of the
+    intersection anyway.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+
+    Returns:
+        The subset of referenced persona names whose rendered
+        ``.claude/settings.json`` does not deny the shell.
+    """
+    catalog, referenced = _referenced_personas(config)
+
+    permitting: set[str] = set()
+    for persona_name in sorted(referenced):
+        project_path = as_dict(catalog.get(persona_name)).get("project_path")
+        if not isinstance(project_path, str) or not project_path:
+            permitting.add(persona_name)
+            continue
+        if not settings_json_denies_bash(Path(project_root, project_path)):
+            permitting.add(persona_name)
+    return permitting

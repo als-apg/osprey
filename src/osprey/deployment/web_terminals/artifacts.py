@@ -20,14 +20,17 @@ one helper makes that class of drift impossible.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from osprey.deployment.errors import DeploymentError
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.personas import (
-    EVENTS_PANEL_ID,
-    personas_declaring_panel,
-    personas_using_ariel,
+    personas_needing_ariel_password,
+    personas_needing_dispatcher_token,
+    personas_needing_launch_token,
+    personas_not_denying_bash,
 )
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.utils.workspace import BUILD_DIR_NAME
@@ -35,6 +38,141 @@ from osprey.utils.workspace import BUILD_DIR_NAME
 #: Filename of the rendered web-stack compose file, as
 #: :func:`~osprey.deployment.web_terminals.render.render_web_terminals` keys it.
 WEB_COMPOSE_FILENAME = "docker-compose.web.yml"
+
+
+class BashLaunchTokenConflictError(DeploymentError):
+    """A persona would hold ``BLUESKY_LAUNCH_TOKEN`` while its agent may run a shell.
+
+    ``BLUESKY_LAUNCH_TOKEN`` exists so a single chat approval is enough to arm a
+    Bluesky queue start, which is physical accelerator hardware motion. That
+    approval gates the ``queue_start`` MCP tool — and only that tool. An agent
+    that may also run ``Bash`` can read the token straight out of its own
+    environment and arm the queue with a plain HTTP call, reaching the same
+    hardware with no approval prompt at any point. The chat gate is then
+    decoration.
+
+    So the two are refused *together* rather than shipped and documented: the
+    deploy stops before a single web-terminal artifact is written, while the
+    operator still has the context to fix it. Fail-closed, like
+    :class:`~osprey.deployment.errors.ComposeInterpolationError` and for the same
+    reason — a warning about this would scroll past and leave a stack running.
+
+    Deliberately not a ``ValueError``. ``force_recreate_auth_sidecar`` catches
+    ``(ValueError, OSError)`` around its best-effort re-render and downgrades it
+    to a warning; a safety refusal that a credential rotation could swallow is
+    not a refusal.
+
+    Three boundaries this guard does **not** cover, none of them accidental:
+
+    * **Persona-less roster entries are out of reach.** Both sides of the
+      intersection are keyed on persona names, so a roster entry naming no
+      persona — the zero-migration path, where the web image *is* the deploy
+      project — appears in neither set and is not bound by this check.
+      :func:`~osprey.deployment.web_terminals.render.render_web_terminals`
+      answers that entry's entitlement independently, via
+      :func:`~osprey.deployment.web_terminals.personas.config_needs_launch_token`
+      on the deploy config itself. This is consistent with the feature's scope:
+      the single-user path already resolves this token today, so it is not new
+      exposure — but a reader who assumes the guard covers every entitled
+      container will be wrong.
+    * **The check is render-scoped, not image-scoped.** It reads the rendered
+      project directory, which equals the image's ``.claude/settings.json`` only
+      as of that image's last build: ``COPY . /app/<project>/`` bakes the
+      directory in, and the per-user compose services declare only ``image:``,
+      with no ``build:`` stanza to rebuild one at start. A render that *adds* a
+      ``Bash`` deny without an image rebuild therefore passes this guard while
+      the running image is still permissive. That is why the remedy below says
+      rebuild, not merely "restore the deny".
+    * **It assumes the agent does not run in bypass-permissions mode.** An agent
+      launched with permissions bypassed ignores its deny list wholesale, and a
+      ``Bash`` deny then proves nothing. No such flag appears anywhere on the
+      web-terminal launch path today, so the assumption holds — but nothing here
+      would fail if a future change broke it.
+
+    Args:
+        personas: The offending persona names — every persona that is both
+            entitled to the launch token and shipping a settings artifact that
+            does not deny ``Bash``. All of them are named in the message; an
+            operator fixing one at a time would otherwise redeploy once per
+            offender to discover the next.
+    """
+
+    def __init__(self, personas: Iterable[str]) -> None:
+        self.personas = sorted(personas)
+        named = ", ".join(repr(name) for name in self.personas)
+        super().__init__(
+            f"Refusing to deploy: {named} would be granted BLUESKY_LAUNCH_TOKEN "
+            f"while also permitted to run a shell. Each named persona is entitled to "
+            f"the token — its rendered config.yml sets control_system.writes_enabled: "
+            f"true AND leaves the bluesky MCP server enabled — and its shipped "
+            f'.claude/settings.json does not list "Bash" in permissions.deny (a '
+            f"missing or unparseable settings.json counts the same — it is not "
+            f"evidence of a deny). The token arms a queue start, which moves "
+            f"accelerator hardware; the chat approval gates only the queue_start "
+            f"tool, so an agent with a shell can read the token out of its own "
+            f"environment and arm a queue with no approval at all. Fix either half "
+            f'of the conflict: restore "Bash" to permissions.deny for that persona '
+            f"and REBUILD its image (or republish and re-pull it in registry mode) "
+            f"— a re-render alone is not enough, because the settings.json read here "
+            f"is the one baked into the image, and the per-user services declare only "
+            f"`image:`, so nothing rebuilds at start. Or withdraw the entitlement by "
+            f"moving that persona off the bluesky server "
+            f"(claude_code.servers.bluesky.enabled: false) or off writes "
+            f"(control_system.writes_enabled: false)."
+        )
+
+
+def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> set[str]:
+    """Refuse the deploy if any launch-token persona's shipped settings permit ``Bash``.
+
+    The whole guard in one callable, because it runs at **three** points and the
+    three must never be able to disagree about what a conflict is:
+
+    * :func:`preflight_web_terminals` — the fail-fast gate. Refusing there is what
+      keeps a conflicted deploy from paying for the minutes-long project-image
+      build, the archiver/ARIEL store staging, and the minting *and printing* of
+      ``.env.production`` and auth credentials for a stack that will never come up.
+      That last part is the property ``preflight_web_terminals``' own docstring
+      commits to, so the check belongs ahead of :func:`ensure_env_production`.
+    * :func:`~osprey.deployment.web_terminals.lifecycle.decommission_user` — ahead
+      of its ``config_replace_list`` roster edit. The seam below would refuse this
+      path anyway, but only *after* the roster edit had been written, leaving
+      ``config.yml`` updated, the artifacts stale, and the container and volume
+      removal never run. It is handed the **post-removal** roster, and that is
+      load-bearing rather than incidental: decommissioning the offending persona's
+      own last user drops that persona from the referenced set and so must still
+      succeed — it is the one remediation that needs no image rebuild. A future
+      change that probes the pre-removal roster silently takes that away.
+    * :func:`write_web_terminal_artifacts` — belt and braces, and the only cover
+      for :func:`~osprey.deployment.web_terminals.provision.force_recreate_auth_sidecar`,
+      whose pre-recreate re-render reaches the render seam through neither of the
+      call sites above. The seam has to answer for itself.
+
+    No call site is redundant; removing any one of them leaves a real path
+    uncovered. The decommission check is the easiest to mistake for duplication,
+    because the seam behind it means deleting it breaks no test about *safety* —
+    only the one about ordering
+    (``test_decommission_refuses_before_touching_the_roster_when_a_survivor_is_conflicted``).
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values resolve
+            against it.
+
+    Returns:
+        The personas entitled to ``BLUESKY_LAUNCH_TOKEN`` — returned rather than
+        recomputed so the caller that goes on to render hands the *same* set down,
+        and the set the guard cleared cannot drift from the set the render grants.
+
+    Raises:
+        BashLaunchTokenConflictError: One or more entitled personas ship a
+            ``.claude/settings.json`` that does not deny ``Bash``.
+    """
+    launch_token_personas = personas_needing_launch_token(config, project_root)
+    offenders = launch_token_personas & personas_not_denying_bash(config, project_root)
+    if offenders:
+        raise BashLaunchTokenConflictError(offenders)
+    return launch_token_personas
 
 
 def web_artifacts_dir(repo_root: Path | str) -> Path:
@@ -120,6 +258,17 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
 
     Returns:
         The list of files written, in the render mapping's iteration order.
+
+    Raises:
+        BashLaunchTokenConflictError: A persona is entitled to
+            ``BLUESKY_LAUNCH_TOKEN`` and its shipped ``.claude/settings.json``
+            does not deny ``Bash``. Raised before the render, so a refused
+            deploy writes nothing. Every writer routes through here, so every
+            path that could put such a stack on disk — bring-up, the roster
+            verbs' re-render, the pre-recreate re-render — refuses it. Two of
+            those refuse earlier still (see
+            :func:`check_bash_launch_token_conflict`); this is the backstop that
+            makes the property hold for all of them.
     """
     from osprey.deployment.compose_generator import resolve_repo_root
 
@@ -127,13 +276,26 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
     # Every disk-derived input is resolved HERE and passed down, because
     # render_web_terminals() reads no filesystem of its own (see its docstring):
     # the .env.auth digest, which personas declare the EVENTS panel and so need
-    # the dispatcher's bearer, and which configure ARIEL and so need its Postgres
-    # password — each in their own per-user environment block.
+    # the dispatcher's bearer, which configure ARIEL and so need its Postgres
+    # password, and which both allow writes and run the bluesky server and so may
+    # arm a queue start — each in their own per-user environment block.
+    # Fail closed BEFORE the render, so a refused deploy leaves no half-written
+    # artifacts behind: a persona holding BLUESKY_LAUNCH_TOKEN whose shipped
+    # settings still permit `Bash` can arm a queue start from a shell, with none
+    # of the chat approval the token exists to make sufficient. `osprey up` and
+    # `decommission_user` each already refused this earlier, where refusing is
+    # cheaper and cannot half-apply; force_recreate_auth_sidecar's pre-recreate
+    # re-render reaches here having passed neither, which is why the seam checks
+    # for itself. The entitled set comes back from the guard so the render is
+    # handed exactly the set that was cleared.
+    launch_token_personas = check_bash_launch_token_conflict(config, root)
+
     artifacts = render_web_terminals(
         config,
         auth_env_digest=auth_env_digest(root),
-        dispatcher_personas=personas_declaring_panel(config, root, EVENTS_PANEL_ID),
-        ariel_personas=personas_using_ariel(config, root),
+        dispatcher_personas=personas_needing_dispatcher_token(config, root),
+        ariel_personas=personas_needing_ariel_password(config, root),
+        launch_token_personas=launch_token_personas,
     )
     dest = web_artifacts_dir(root)
     written: list[Path] = []
