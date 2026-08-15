@@ -526,6 +526,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   `https://apps.inside.anl.gov/argoapi/v1` and reads `ARGO_BASE_URL`, so you can
   redirect a deployed project at another gateway without editing the file.
 
+- The CLI reference described a `--project` option on `osprey web` that the
+  command does not have. It takes `--repo`.
+
 - Logbook watch results keep `entries_updated`, which was dropped between the
   service and the CLI, so an update reported as zero changes.
 
