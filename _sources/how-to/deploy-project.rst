@@ -11,7 +11,8 @@ How to run a deployment's containerized services.
    - What ``osprey build`` and ``osprey up`` do, and when you need them
    - Configuring services in ``config.yml`` (minimal example)
    - Authoring ``docker-compose.yml.j2`` templates
-   - Network binding, ``.env`` loading, and the ``--dev`` workflow
+   - Which compose providers are supported, and what changes between them
+   - Network binding and attachment, the ``.env`` chain, and the ``--dev`` workflow
 
    **Prerequisites:** Docker or Podman installed locally.
 
@@ -19,8 +20,8 @@ How to run a deployment's containerized services.
 
    This page is the operator/service-author reference for the container side of
    a deployment. For the end-to-end walkthrough — deployment repository, CI
-   pipeline, stack up — follow :doc:`deploy-a-facility`; the judgment that goes
-   with running it day to day lives in the ``osprey-deploy-ops`` skill. For the
+   pipeline, stack up — follow :doc:`deploy-a-facility`, which also covers the
+   commands you run day to day once the stack is up. For the
    full ``services:`` schema as authored inside a build profile, see
    :ref:`profile-services`.
 
@@ -108,6 +109,122 @@ preferred, otherwise Podman is used. Force a specific runtime with the
 ``CONTAINER_RUNTIME`` environment variable or by setting
 ``container_runtime: docker|podman|auto`` at the root of ``config.yml``.
 
+.. _compose-provider-compatibility:
+
+Supported compose providers
+---------------------------
+
+Choosing the runtime is only half the answer. Before it starts anything,
+``osprey up`` asks that runtime which compose implementation stands behind it
+(``docker compose version`` / ``podman compose version``) and reads the banner
+that comes back. Two are supported:
+
+* **Docker Compose v2** — any 2.x release.
+* **podman-compose 1.0.6 or newer.** 1.0.6 is what EPEL 8 ships as standard
+  (EPEL 9 ships 1.5.0), so a site running distribution packages needs nothing
+  built from source.
+
+The answer comes from the banner, never from the command you typed.
+``podman compose`` is a dispatcher that hands the work to whichever provider
+the host has configured, so on a host that delegates to Docker Compose v2 a
+``podman`` command reports the Docker banner and is treated as Docker Compose
+v2. What matters is the provider that parses the command, not the binary that
+forwards it.
+
+Anything else is refused before a single container is touched: an unrecognized
+banner, Compose v1, a podman-compose below 1.0.6, or a probe that could not run
+at all. The refusal names what was wrong and prints what the provider reported,
+so you can see what the host actually has. Refusing rather than guessing is the
+point — a provider handed the wrong command shape does not report an
+unsupported deployment, it starts a stack whose file paths resolve against the
+wrong directory.
+
+What the provider changes
+-------------------------
+
+One deployment, two command shapes. Nothing you author picks between them;
+OSPREY shapes the command from what the probe found.
+
+Docker Compose v2 is handed the rendered files where they sit:
+
+.. code-block:: text
+
+   docker compose --project-directory <repo>
+       -f <repo>/build/services/<service>/docker-compose.yml   (one -f per rendered file)
+       --env-file <repo>/.env.shared --env-file <repo>/.env
+
+podman-compose is handed one document and one env file:
+
+.. code-block:: text
+
+   podman compose
+       -f <repo>/.osprey-compose.yml
+       --env-file <repo>/build/.env.merged
+   # plus COMPOSE_PROJECT_DIR=<repo> in the command's environment
+
+``.osprey-compose.yml`` is every rendered compose file merged into a single
+document at the repository root, and ``build/.env.merged`` is the env chain
+merged the same way (see :ref:`deployment-env-chain`). Both are machine
+artifacts: rewritten from scratch by every command that needs them, kept out of
+version control and out of every container build context, and removed by
+``osprey reset``. Neither holds a resolved secret — ``${VAR}`` references are
+copied through exactly as the rendered files spell them, so filling them in
+stays the runtime's job.
+
+The merge exists because of where podman-compose looks for relative paths.
+Versions 1.0.6 – 1.3.0 change directory twice while assembling a project and
+end up in the directory of the *first* ``-f`` file, overriding
+``COMPOSE_PROJECT_DIR``; 1.4.1 and newer change directory once, to
+``COMPOSE_PROJECT_DIR``. A ``-f`` list pointing into ``build/`` therefore
+resolves every relative path in the rendered files — ``env_file:`` entries,
+bind mounts — against ``build/`` on one version and against the repository root
+on the next, from identical inputs and without an error on either. One document
+at the repository root makes both readings land in the same place.
+
+No compose profiles
+-------------------
+
+OSPREY renders no ``profiles:`` key and passes no ``--profile``, anywhere.
+Which services a deployment runs is settled when it is built, by
+``deployed_services``: a service you did not deploy is absent from the render
+rather than present and switched off. podman-compose's handling of profiles
+varies between versions, and the failure it can produce is the worst kind — a
+service quietly left out of the project, with a deploy that reports success.
+Every deployed service is in the ``-f`` list, and everything in the ``-f`` list
+starts.
+
+If you write your own service template, leave ``profiles:`` out of it.
+
+.. _compose-interpolation-precedence:
+
+Where ``${VAR}`` values come from
+---------------------------------
+
+Compose fills in ``${VAR}`` placeholders in the rendered compose files from two
+sources: the env file(s) the command passes, and the environment of the shell
+you typed the command in. **The two supported providers disagree about which of
+those wins**, and the disagreement is a straight inversion:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Provider
+     - What gets substituted when both sources set a variable
+   * - Docker Compose v2
+     - The **exported shell value**. ``--env-file`` is its lower-precedence
+       source, so a variable exported in your shell overrides the env chain.
+   * - podman-compose
+     - The **env-file value**. It resolves from the env file before the calling
+       shell, so the export reaches nothing.
+
+You do not have to remember this. ``osprey up`` compares the two sources on
+every start, and when an exported variable disagrees with the value the env
+chain resolves to it warns by name — never by value — and states which value
+the provider it just probed will actually use, plus what to do about it. The
+reliable habit is to put the value in the env chain and leave your shell out of
+it: that is the one gesture that means the same thing on both providers.
+
 Deployment Workflow
 ===================
 
@@ -142,11 +259,12 @@ or in one step::
 
    osprey up --build -d
 
-Every build wipes and re-renders ``build/`` and preserves what you own: ``.env``
-(your provider keys, plus the service tokens and passwords your existing
-container volumes were initialized with), the agent's memory under ``var/``, and
-the repository's ``.git`` history. ``data/`` in the build zone is
-re-materialized from the profile; the source zone is never touched by a build.
+Every build wipes and re-renders ``build/`` and preserves what you own: the env
+chain (``.env.shared`` and ``.env`` — your provider keys, plus the service
+tokens and passwords your existing container volumes were initialized with),
+the agent's memory under ``var/``, and the repository's ``.git`` history.
+``data/`` in the build zone is re-materialized from the profile; the source
+zone is never touched by a build.
 
 Two guards make render drift visible:
 
@@ -221,9 +339,9 @@ profile the project was built from, where edits survive:
    osprey scaffold diff services/postgresql    # compare yours against the framework
    osprey scaffold unclaim services/postgresql # restore framework management
 
-Edit the moved copy under ``<profile>/services/postgresql/``, then rebuild with
-``--force`` to deploy it. Every build copies it back and marks it yours, so
-later re-renders leave it alone. ``osprey scaffold list`` shows what is
+Edit the moved copy under ``<profile>/services/postgresql/``, then run
+``osprey build`` again to deploy it. Every build copies it back and marks it
+yours, so later re-renders leave it alone. ``osprey scaffold list`` shows what is
 framework-managed and what is yours; the same mechanism covers the agent
 artifacts (rules, agents, skills, hooks). See :ref:`profile-claim` for the full
 workflow and the artifacts a claim refuses.
@@ -292,16 +410,125 @@ Container networking uses service names as hostnames (e.g.,
 ``postgresql:5432``). For host access from inside containers, use
 ``host.docker.internal`` (Docker) or ``host.containers.internal`` (Podman).
 
-Environment Variables (``.env``)
-=================================
+.. _deployment-network-attachment:
 
-The deploy system passes the repository's ``.env`` to Docker / Podman Compose
-via ``--env-file``. Compose uses these values to fill in ``${VAR}`` placeholders
-in the rendered compose files; a variable reaches a running container only where
-a template maps it in.
+Network attachment: ``bridge`` or ``host``
+------------------------------------------
 
-That ``.env`` is the deployment's one secret store, and a build never rewrites
-what is in it, so set a value there once:
+By default every service joins the compose-managed project network
+(``osprey-network``) and publishes the ports it wants reachable. That is
+``bridge``, and it is what a deployment gets when it says nothing.
+
+Some services cannot work that way. A service that has to see broadcast traffic
+— control-system protocols, device discovery — or that has to reach ports other
+software already publishes on the machine needs the host's own network
+namespace instead. That is ``host``:
+
+.. code-block:: yaml
+
+   # in profile.yml — the event dispatcher and its workers
+   dispatch:
+     network: host
+
+   # a facility-owned service
+   services:
+     my-service:
+       template: services/my-service
+       config:
+         network: host
+
+``dispatch.network`` is deliberately **one knob for two services**. The event
+dispatcher and its workers talk to each other over addresses the build writes,
+so a dispatcher on the compose network and workers on the host's could not
+reach each other at all. Writing ``network:`` on ``services.event_dispatcher``
+or ``services.dispatch_worker`` individually is rejected by ``osprey build``,
+which tells you to set ``dispatch.network`` instead.
+
+Under ``network: host`` the render changes in four ways:
+
+* No ``ports:`` block. There is nothing to publish — the container's listening
+  socket *is* a host socket, on the port the service was configured with.
+* ``network_mode: host`` replaces the service's ``osprey-network`` membership.
+* Services bind **loopback**, ``127.0.0.1``, rather than every interface. On
+  the compose network, binding every interface is what makes a service
+  reachable by name and the network itself is the boundary; on the host network
+  there is no such boundary, so the default is the private one. Reaching the
+  event dispatcher from off-host is then a deliberate act:
+  ``services.event_dispatcher.bind``.
+* Addresses OSPREY writes between services become ``localhost:<port>`` instead
+  of compose service names — the dispatcher's target for its workers, and the
+  Google Chat and Nextcloud bridges' URLs for the dispatch pair.
+
+Services that talk to each other have to be on the same side of that boundary,
+and ``osprey build`` refuses to render a deployment where they are not: a
+co-deployed bridge on the compose network with a host-mode dispatch pair, the
+reverse of that, or any address naming a service across the boundary. The build
+also refuses a service that declares ``network: host`` whose rendered compose
+file does not carry it, since the setting would otherwise be quietly inert.
+Every one of those failures names the service and the key to change.
+
+Running more than one project on one host
+-----------------------------------------
+
+Two OSPREY projects on the same machine compete for the same host ports, and
+compose's own report of that is a bare "address already in use" partway through
+starting. ``osprey up`` therefore checks every host port this deployment needs
+before it touches a container — ports two of its own services would both
+publish, and ports something else is already listening on — and stops if any is
+taken. Every conflict is listed with the config key that moves it
+(``services.postgresql.port_host``, ``dispatch.worker_port_base``, and so on).
+A listener that belongs to this project's own containers is not a conflict, so
+restarting a running stack stays quiet.
+
+Host-mode services are part of that check even though they publish no ports:
+their host bindings are worked out from the rendered configuration instead of
+read out of a ``ports:`` block. That covers the case most likely to catch you
+out — two projects whose dispatch pairs are both on the host network take the
+same default ports (``8020`` for the dispatcher, ``9190`` upward for the
+workers), and no ``ports:`` line anywhere would have shown it. Give the second
+project its own ``dispatch.dispatcher_port`` and ``dispatch.worker_port_base``.
+
+.. _deployment-env-chain:
+
+Environment Variables (the ``.env`` chain)
+==========================================
+
+A deployment reads its environment from two files at the repository root:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 55 25
+
+   * - File
+     - What belongs in it
+     - Tracked in git?
+   * - ``.env.shared``
+     - What the whole site shares: a proxy, a facility hostname, a port
+       everyone uses. Never a secret — this file is committed.
+     - yes
+   * - ``.env``
+     - This host's own values, and every secret: API keys, service tokens,
+       passwords.
+     - no
+
+**The local file wins.** A variable set in both takes its value from ``.env``,
+on every path that reads them — the deploy, the CLI, the containers. That is
+the whole rule: same syntax, same variables, ``.env.shared`` simply sits lower.
+Setting a key in ``.env`` is how one host departs from a shared default, and
+there is nothing else to do about it.
+
+Both files stay on the host. Neither ever enters a container image: they are
+read at run time and handed to the container runtime, which uses them to fill
+in the ``${VAR}`` placeholders in the rendered compose files. A variable reaches
+a running container only where a template maps it in. *How* the two files are
+handed over differs by compose provider (see
+:ref:`compose-provider-compatibility`); what they resolve to does not.
+
+``.env`` has to exist. Rather than start a stack whose every ``${VAR}``
+substitutes to nothing, ``osprey up`` refuses when the file is missing. On an
+interactive terminal it first offers to seed one, but only when your shell has
+the key to seed it with — this deployment's own provider auth variable,
+exported. Otherwise start from the example:
 
 .. code-block:: bash
 
@@ -310,28 +537,102 @@ what is in it, so set a value there once:
 
 See :ref:`profile-secrets`.
 
-``osprey up`` also *writes* to these files. On first deploy it mints any
-missing service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN``,
-``ZO_ROOT_USER_PASSWORD``, or ``ARIEL_DB_PASSWORD``) so services never start
-with blank or publicly-known credentials, restricts the file to owner-only
-permissions, and then writes those values **back into the profile's** ``.env``
-under a "Minted by deploy" heading. That is what makes the stack reproducible: a
-rebuild from the same profile comes up on the same credentials instead of
-minting a second set the running containers do not trust.
+The ``.env*`` family
+--------------------
 
-The write-back never overwrites. A value already in the profile wins — it is
-pinned by the docker volume that was initialized with it — and a deploy whose
-own value disagrees says so by variable name (never by value) and keeps using
-its own, leaving you to reconcile the two.
+Two files are yours to edit and one is documentation. The rest are written for
+you — most of them derived, rewritten whenever a command needs them, and not
+worth editing because the next command overwrites them:
 
-If the profile cannot be reached — it has moved or been deleted, or the project
-names none — the deploy still succeeds. The secrets stay in the project
-``.env``, a warning names the path that failed, and the project records that its
-``.env`` is the only copy; a later ``osprey build`` repeats that warning before
-it touches the directory. Back that file up.
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
 
-Keep both ``.env`` files out of version control (the profile's ``.gitignore``
-does this for you).
+   * - File
+     - Role
+   * - ``.env.shared``
+     - edit — shared defaults, the same on every host
+   * - ``.env``
+     - edit — this host's values and every secret
+   * - ``.env.example``
+     - docs — every variable this deployment reads, with no values
+   * - ``.env.users``
+     - machine — the env file every per-user web-terminal container runs with,
+       derived from the chain (multi-user deployments only)
+   * - ``.env.auth``
+     - both — the web terminals' password hashes and cookie-signing secrets,
+       minted by the deploy, but also where you put an OIDC client id and
+       secret by hand (multi-user deployments only; see :doc:`multi-user`)
+   * - ``build/.env.merged``
+     - machine — the chain collapsed into one file, for compose providers that
+       accept only one
+   * - ``build/.env.chain-state.json``
+     - machine — fingerprints of the shared values as of the last deploy, so a
+       stale local pin can be spotted. It stores digests, never values.
+
+The generated ``.gitignore`` keeps all of them out of version control except
+``.env.shared`` and ``.env.example``, which carry nothing a host may not share.
+
+.. note:: Upgrading a multi-user deployment
+
+   The web terminals' env file changed name to ``.env.users``. ``osprey up``
+   does the rename for you the next time you deploy, and if both names are
+   present it keeps the new one and removes the leftover, naming both paths.
+   Only ``osprey up`` does this, so a stack you stop before you next deploy
+   still carries the old name — and because the web stack's compose file names
+   ``.env.users``, ``osprey down`` fails with an env-file-not-found error until
+   the rename has happened. Do it yourself in that case:
+
+   .. code-block:: bash
+
+      mv .env.production .env.users
+
+What a deploy writes back
+-------------------------
+
+``osprey up`` also *writes* to ``.env``. On first deploy it mints any missing
+service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN``,
+``ZO_ROOT_USER_PASSWORD``, or ``ARIEL_DB_PASSWORD``) so no service ever starts
+on a blank or publicly-known credential, appends them under a "Minted by
+deploy" heading, and restricts the file to owner-only permissions.
+``osprey build`` appends the pointers it derives from what it just rendered,
+under a "Derived by build" heading.
+
+Both writers are append-only, and a value already on file always wins. That is
+what makes the stack reproducible: a later start comes up on the same
+credentials the running containers were initialized with, instead of minting a
+second set they do not trust. There is no second copy anywhere — the ``.env``
+beside ``profile.yml`` is the deployment's whole secret store — so back it up.
+
+Minted values only ever land in ``.env``, never in ``.env.shared``. A minted
+credential belongs to this host, and ``.env.shared`` is committed.
+
+What a deploy tells you about the chain
+---------------------------------------
+
+Two layered files make one new mistake possible, so every ``osprey up`` reports
+on the chain before it starts anything. Variable names are printed; values never
+are.
+
+* **Overrides** — the keys ``.env`` overrides in ``.env.shared`` are listed
+  once, by name, as information. That is the chain working as intended.
+* **Stale pins** — a warning, and it is reserved for one exact case: ``.env``
+  still holds the value ``.env.shared`` carried *before* the shared file
+  changed. That is the signature of a value copied from the default of the day
+  and then forgotten rather than one this host chose, and the stack starts on
+  the superseded value looking perfectly healthy. To adopt the shared value,
+  remove the key from ``.env``; to keep a local value deliberately, set it to
+  the value this host actually wants. The warning repeats until you do one or
+  the other.
+* **Chain drift** — a refusal. Which env files the stack reads is decided when
+  the project is rendered, not when it starts: adding ``.env.shared`` to a
+  project built without one puts none of its values into the containers, and
+  removing one leaves the render pointing at a file that is gone. ``osprey up``
+  refuses and names ``osprey build``. Re-render, then start.
+* **Shell exports** — when a variable exported in your shell disagrees with the
+  value the chain resolves to, ``osprey up`` names it and says which of the two
+  the compose provider it just probed will actually substitute (see
+  :ref:`compose-interpolation-precedence`).
 
 .. note::
 
@@ -342,9 +643,6 @@ does this for you).
    from ``services.postgresql`` — keeps such deployments working. To adopt
    the minted password, remove the ``ariel_postgres_data`` volume and redeploy
    (this deletes the stored logbook data — re-ingest afterwards).
-
-If no ``.env`` file is found, services start with default/empty environment
-variables and a warning is logged.
 
 Development Mode
 ================
@@ -390,6 +688,12 @@ inspect rendered files under ``build/services/<name>/``.
 
 **Daemon not running:** Both Docker and Podman print platform-specific
 hints; on macOS, start Docker Desktop or run ``podman machine start``.
+
+**"Unsupported compose provider":** the host's compose implementation is not
+one OSPREY can drive correctly, and it stopped before starting anything. The
+message prints the version banner it got; compare it against
+:ref:`compose-provider-compatibility` and either upgrade the provider or point
+``CONTAINER_RUNTIME`` at the other runtime.
 
 **``--dev`` issues:** Confirm the Osprey wheel (``.whl``) exists in the
 service build directory, and that the image was rebuilt after your source

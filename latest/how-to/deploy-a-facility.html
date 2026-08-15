@@ -942,12 +942,13 @@ two operators cannot interleave on the host. It re-renders on the host from the
 same commit rather than unpacking the artifact, which is what makes the running
 stack reproducible from git alone:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
-osprey<span class="w"> </span>users<span class="w"> </span>env-production<span class="w"> </span>--output<span class="w"> </span>.env.production
+osprey<span class="w"> </span>users<span class="w"> </span>env<span class="w"> </span>--output<span class="w"> </span>.env.users
 osprey<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">env-production</span></code> writes the env file every per-user web-terminal
-container runs with, from the deploy host’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code>. Passing
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">env</span></code> writes the env file every per-user web-terminal
+container runs with, from the deploy host’s own env chain — <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>
+then <code class="docutils literal notranslate"><span class="pre">.env</span></code>, with <code class="docutils literal notranslate"><span class="pre">.env</span></code> winning on any key both set. Passing
 <code class="docutils literal notranslate"><span class="pre">--output</span></code> is not optional: without it the command writes the assembled
 secrets to stdout, which in a pipeline is the job log. <code class="docutils literal notranslate"><span class="pre">--output</span></code> also creates
 the file at mode <code class="docutils literal notranslate"><span class="pre">0600</span></code> from its first byte, which a shell redirect would not.</p>
@@ -969,13 +970,21 @@ so the pipeline and health check match the new coordinates.</p>
 </section>
 <section id="operating-it">
 <h2>Operating it<a class="headerlink" href="#operating-it" title="Link to this heading">#</a></h2>
-<p>Everything past “the stack is up” — triaging a service that is down, deciding
-when to re-scaffold, and reconciling a secret a container volume adopted at
-first start — is judgment rather than a command sequence. Install the runbook
-and let the OSPREY agent work from it. From the repository root:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-deploy-ops<span class="w"> </span>--target<span class="w"> </span>.claude/skills
+<p>Everything past “the stack is up” runs from anywhere inside the repository:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>status<span class="w">                  </span><span class="c1"># what is running, where it answers</span>
+osprey<span class="w"> </span>logs<span class="w"> </span>event_dispatcher<span class="w">   </span><span class="c1"># one service&#39;s output; -f to follow</span>
+osprey<span class="w"> </span>health<span class="w">                  </span><span class="c1"># config, environment, providers, telemetry</span>
+osprey<span class="w"> </span>restart<span class="w">                 </span><span class="c1"># stop and start again</span>
+osprey<span class="w"> </span>down<span class="w">                    </span><span class="c1"># stop it, keeping the volumes</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> reads and reports — it starts nothing and renders nothing —
+so it is safe against a live stack and is the right first command when
+something looks wrong. It also says whether <code class="docutils literal notranslate"><span class="pre">build/</span></code> still matches
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, which is the same check <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses on.</p>
+<p>When the answer is not obvious from those, run them inside an OSPREY agent
+session in the repository: the agent reads the same output you do, and it has
+the deployment’s configuration and rendered files at hand.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">

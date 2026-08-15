@@ -93,7 +93,8 @@ What ``osprey init`` writes
      profile.yml     the full configuration — edit freely
      data/           facility content: channel databases, knowledge, lattice
      .env.example    every variable the agent reads, documented, no values
-     .env            your values (only when your shell had keys to seed)
+     .env.shared     shared, committed defaults — no secrets
+     .env            your values and secrets (only when your shell had keys to seed)
      README.md       explains the layout, for whoever opens the repository next
      triggers.yml    the events the agent runs on (dispatch profiles only)
      personas/       one delta per web-terminal persona (persona presets only)
@@ -472,12 +473,22 @@ the deployment repository. That file is the deployment's single secret store.
 A build never copies secrets into it or out of it, so a value you set once
 survives every rebuild, and wiping ``build/`` takes no secret with it.
 
-Two files, and the difference matters:
+Three files at the repository root, and the difference matters:
 
 - ``.env.example`` lists every variable the agent reads, with no values. It is
   safe to commit, and it is the file to read when you want to know what can be
   set.
-- ``.env`` holds the values. The generated ``.gitignore`` keeps it out of git.
+- ``.env.shared`` holds the settings the whole site shares — a proxy, a
+  facility hostname, a port everyone uses. It **is** committed, so nothing
+  secret belongs in it.
+- ``.env`` holds this host's own values and every secret. The generated
+  ``.gitignore`` keeps it out of git.
+
+``.env.shared`` and ``.env`` are read together, lowest first: a variable set in
+both takes its value from ``.env``. Setting a key locally is how one host
+departs from a shared default. :ref:`deployment-env-chain` covers the rest —
+what a deploy reports about the pair, and the machine-written ``.env*`` files
+that go with them.
 
 Seeding, once
 -------------
@@ -519,12 +530,15 @@ already on file always wins.** Nothing overwrites what you put there.
   currently the virtual accelerator's channel manifest — under a "Derived by
   build" heading.
 
-Both write to this one file. There is no second ``.env`` anywhere: ``build/``
-holds no secrets, and every service reads them from here.
+Both write to this one file, and to ``.env`` rather than ``.env.shared``: a
+minted credential belongs to this host, and the shared file is committed. There
+is no second copy anywhere — ``build/`` holds no secrets, and every service
+reads them from here — so this is the file to back up.
 
 The write-back is **append-only**. A key already in the profile keeps its value —
-it is pinned by the docker volume that was initialized with it — and a value that
-disagrees is reported by name (never by value) for you to resolve by hand.
+it is pinned by the docker volume that was initialized with it, and overwriting it
+would leave the stack authenticating with something its own volumes reject — and a
+value that disagrees is reported by name (never by value) for you to resolve by hand.
 
 If the profile cannot be reached — it has moved or been deleted, or the project
 names none — the deploy still works. The secrets stay in the project ``.env``, a
@@ -838,6 +852,17 @@ A service directory placed in the profile's ``services/`` convention directory i
 carried across the same way and marked as yours — that is what
 ``osprey scaffold claim services/<name>`` produces.
 
+One ``config`` key is read by the build itself: ``network``, which is either
+``bridge`` (the default — the service joins the compose network and publishes
+the ports it wants reachable) or ``host`` (it shares the host's network
+namespace, which is what a service needs to see broadcast traffic or reach
+ports other software publishes on the machine). Your template has to render the
+setting for it to mean anything, and ``osprey build`` refuses a service that
+declares ``network: host`` whose render does not carry it. See
+:ref:`deployment-network-attachment` for what host mode changes and for
+``dispatch.network``, the single knob that covers the event dispatcher and its
+workers.
+
 .. _profile-va-archiver:
 
 The ``va_archiver`` block
@@ -1004,8 +1029,8 @@ Environment variables
 =====================
 
 The ``env`` section declares what the deployment needs. It documents variables;
-it does not carry values — values live in the profile's ``.env``
-(see :ref:`profile-secrets`).
+it does not carry values — values live in the repository's ``.env.shared`` and
+``.env`` (see :ref:`profile-secrets`).
 
 .. code-block:: yaml
 
@@ -1016,17 +1041,13 @@ it does not carry values — values live in the profile's ``.env``
      defaults:
        LOG_LEVEL: info
 
-Both lists are rendered into the profile's ``.env.example``, so an operator
+Both lists are rendered into the repository's ``.env.example``, so an operator
 opening that file sees them alongside every other variable. Required names must
 match ``^[A-Z_][A-Z0-9_]*$``.
 
-To ship a pre-populated ``.env`` (non-secret defaults, say), use the ``file``
-key — a path relative to the profile directory:
-
-.. code-block:: yaml
-
-   env:
-     file: envs/dev.env        # copied to .env in the built project
+Non-secret values the whole site should start from do not belong here either.
+Put them in ``.env.shared``, which is committed with the repository and read by
+every host (see :ref:`deployment-env-chain`).
 
 
 Dependencies
@@ -1165,9 +1186,9 @@ to ``profile.yml`` and renders the whole ``build/`` zone from it.
    formatting intact — and then build. The profile always describes what the
    build will produce, so there is no layer that vanishes afterwards.
 
-Every build wipes and re-renders ``build/`` and preserves what you own: ``.env``,
-``var/``, and the repository's ``.git``. It never touches the source zone —
-only ``osprey init --force`` replaces that.
+Every build wipes and re-renders ``build/`` and preserves what you own: the env
+chain (``.env.shared`` and ``.env``), ``var/``, and the repository's ``.git``.
+It never touches the source zone — only ``osprey init --force`` replaces that.
 
 **Examples**
 
@@ -1208,18 +1229,19 @@ What the build does
    you named), writing any ``--set`` / ``-O`` / ``--tier`` into it.
 2. Resolve and validate the profile, including any persona delta merged over it.
 3. Check ``requires_osprey_version``; abort if unsatisfied.
-4. Handle ``--force`` — clear the rendered files, keeping ``.env``,
-   ``_agent_data/`` and ``.git``.
+4. Clear the previous render. ``build/`` is wiped whole and re-made; nothing
+   durable lives inside it to step around.
 5. Run ``pre_build`` commands.
 6. Create the project venv and install OSPREY plus the profile's dependencies.
-7. Render the base template and the profile's ``data/`` tree; derive the
-   project's ``.env`` from the profile's.
+7. Render the base template and the profile's ``data/`` tree. No env file is
+   carried in: the repository's own ``.env.shared`` and ``.env`` stay where
+   they are, and the containers are handed them at start time.
 8. Apply the ``config:`` overrides.
 9. Copy service templates and inject the profile's own services.
 10. Apply the convention directories, and register what was copied as yours.
 11. Persist ``mcp_servers:`` into ``config.yml``.
-12. Stamp the manifest (``.osprey-manifest.json``), including the profile path
-    the deploy later writes secrets back to.
+12. Stamp the manifest (``.osprey-manifest.json``), including the fingerprint
+    ``osprey up`` compares the profile against before it starts anything.
 13. Re-render the agent artifacts against the complete config, and validate that
     every tool an agent declares is backed by a permission.
 14. Initialize git, then run ``post_build`` and ``validate`` commands.
@@ -1247,8 +1269,7 @@ What gets generated
    ├── config.yml            # config with the profile's overrides applied
    ├── data/                 # the profile's data tree, materialized
    ├── _mcp_servers/         # facility server code from the profile
-   ├── .env                  # derived from the profile's .env
-   └── .env.example          # a copy of the profile's
+   └── .env.example          # every variable this deployment reads, no values
 
 Which built-in agents, rules, hooks and skills are installed comes from the
 ``agents:``, ``rules:``, ``hooks:`` and ``skills:`` lists in ``profile.yml``.
@@ -1282,8 +1303,18 @@ convention directory name.
 section. Move the files into the convention directory that matches what they
 are (see the table above), or into ``project/`` for anything without one.
 
-**"Directory 'X' already exists"** — use ``--force`` to rebuild the project in
-place, or pick a different project name. ``--force`` never replaces the profile.
+**"is already an OSPREY deployment repo"** — ``osprey init`` will not lay a
+source zone over one that is already there. To re-render the project, run
+``osprey build`` in the repo: it wipes and re-renders ``build/`` in place and
+leaves the source zone alone. To replace the source zone itself from the
+preset, re-run ``osprey init --force`` — which rewrites ``profile.yml``,
+``data/``, ``personas/``, ``triggers.yml``, ``web-terminal-context/`` and
+``.env.example``, losing any edit to them.
+
+**"already exists, is not empty, and is not an OSPREY deployment repo"** — a
+deployment repo is one directory that holds nothing else, so ``osprey init``
+will not write into a directory that is already someone's. Choose an empty or
+new path; ``--force`` does not apply here.
 
 **"OSPREY X does not satisfy requires_osprey_version"** — upgrade OSPREY, or
 relax the constraint in the profile.

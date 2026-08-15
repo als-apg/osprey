@@ -993,7 +993,8 @@ preset does not reach an existing deployment.</p>
   profile.yml     the full configuration — edit freely
   data/           facility content: channel databases, knowledge, lattice
   .env.example    every variable the agent reads, documented, no values
-  .env            your values (only when your shell had keys to seed)
+  .env.shared     shared, committed defaults — no secrets
+  .env            your values and secrets (only when your shell had keys to seed)
   README.md       explains the layout, for whoever opens the repository next
   triggers.yml    the events the agent runs on (dispatch profiles only)
   personas/       one delta per web-terminal persona (persona presets only)
@@ -1342,13 +1343,22 @@ facility’s own scan plans; see <a class="reference internal" href="bluesky/wri
 the deployment repository. That file is the deployment’s single secret store.
 A build never copies secrets into it or out of it, so a value you set once
 survives every rebuild, and wiping <code class="docutils literal notranslate"><span class="pre">build/</span></code> takes no secret with it.</p>
-<p>Two files, and the difference matters:</p>
+<p>Three files at the repository root, and the difference matters:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">.env.example</span></code> lists every variable the agent reads, with no values. It is
 safe to commit, and it is the file to read when you want to know what can be
 set.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">.env</span></code> holds the values. The generated <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> keeps it out of git.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> holds the settings the whole site shares — a proxy, a
+facility hostname, a port everyone uses. It <strong>is</strong> committed, so nothing
+secret belongs in it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">.env</span></code> holds this host’s own values and every secret. The generated
+<code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> keeps it out of git.</p></li>
 </ul>
+<p><code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env</span></code> are read together, lowest first: a variable set in
+both takes its value from <code class="docutils literal notranslate"><span class="pre">.env</span></code>. Setting a key locally is how one host
+departs from a shared default. <a class="reference internal" href="deploy-project.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a> covers the rest —
+what a deploy reports about the pair, and the machine-written <code class="docutils literal notranslate"><span class="pre">.env*</span></code> files
+that go with them.</p>
 <section id="seeding-once">
 <h3>Seeding, once<a class="headerlink" href="#seeding-once" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> seeds the new repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from your shell, and only
@@ -1384,11 +1394,14 @@ trust.</p></li>
 currently the virtual accelerator’s channel manifest — under a “Derived by
 build” heading.</p></li>
 </ul>
-<p>Both write to this one file. There is no second <code class="docutils literal notranslate"><span class="pre">.env</span></code> anywhere: <code class="docutils literal notranslate"><span class="pre">build/</span></code>
-holds no secrets, and every service reads them from here.</p>
+<p>Both write to this one file, and to <code class="docutils literal notranslate"><span class="pre">.env</span></code> rather than <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>: a
+minted credential belongs to this host, and the shared file is committed. There
+is no second copy anywhere — <code class="docutils literal notranslate"><span class="pre">build/</span></code> holds no secrets, and every service
+reads them from here — so this is the file to back up.</p>
 <p>The write-back is <strong>append-only</strong>. A key already in the profile keeps its value —
-it is pinned by the docker volume that was initialized with it — and a value that
-disagrees is reported by name (never by value) for you to resolve by hand.</p>
+it is pinned by the docker volume that was initialized with it, and overwriting it
+would leave the stack authenticating with something its own volumes reject — and a
+value that disagrees is reported by name (never by value) for you to resolve by hand.</p>
 <p>If the profile cannot be reached — it has moved or been deleted, or the project
 names none — the deploy still works. The secrets stay in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>, a
 warning names the path that failed, and the project records that its <code class="docutils literal notranslate"><span class="pre">.env</span></code> is
@@ -1715,6 +1728,16 @@ copied into the project’s <code class="docutils literal notranslate"><span cla
 <p>A service directory placed in the profile’s <code class="docutils literal notranslate"><span class="pre">services/</span></code> convention directory is
 carried across the same way and marked as yours — that is what
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">services/&lt;name&gt;</span></code> produces.</p>
+<p>One <code class="docutils literal notranslate"><span class="pre">config</span></code> key is read by the build itself: <code class="docutils literal notranslate"><span class="pre">network</span></code>, which is either
+<code class="docutils literal notranslate"><span class="pre">bridge</span></code> (the default — the service joins the compose network and publishes
+the ports it wants reachable) or <code class="docutils literal notranslate"><span class="pre">host</span></code> (it shares the host’s network
+namespace, which is what a service needs to see broadcast traffic or reach
+ports other software publishes on the machine). Your template has to render the
+setting for it to mean anything, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a service that
+declares <code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code> whose render does not carry it. See
+<a class="reference internal" href="deploy-project.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a> for what host mode changes and for
+<code class="docutils literal notranslate"><span class="pre">dispatch.network</span></code>, the single knob that covers the event dispatcher and its
+workers.</p>
 </section>
 <section id="the-va-archiver-block">
 <span id="profile-va-archiver"></span><h2>The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block<a class="headerlink" href="#the-va-archiver-block" title="Link to this heading">#</a></h2>
@@ -1892,8 +1915,8 @@ resolve to the project’s own Python.</p>
 <section id="environment-variables">
 <h2>Environment variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">env</span></code> section declares what the deployment needs. It documents variables;
-it does not carry values — values live in the profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
-(see <a class="reference internal" href="#profile-secrets"><span class="std std-ref">Secrets</span></a>).</p>
+it does not carry values — values live in the repository’s <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> (see <a class="reference internal" href="#profile-secrets"><span class="std std-ref">Secrets</span></a>).</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">env</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">required</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">API_KEY</span>
@@ -1902,15 +1925,12 @@ it does not carry values — values live in the profile’s <code class="docutil
 <span class="w">    </span><span class="nt">LOG_LEVEL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">info</span>
 </pre></div>
 </div>
-<p>Both lists are rendered into the profile’s <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>, so an operator
+<p>Both lists are rendered into the repository’s <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>, so an operator
 opening that file sees them alongside every other variable. Required names must
 match <code class="docutils literal notranslate"><span class="pre">^[A-Z_][A-Z0-9_]*$</span></code>.</p>
-<p>To ship a pre-populated <code class="docutils literal notranslate"><span class="pre">.env</span></code> (non-secret defaults, say), use the <code class="docutils literal notranslate"><span class="pre">file</span></code>
-key — a path relative to the profile directory:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">env</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">envs/dev.env</span><span class="w">        </span><span class="c1"># copied to .env in the built project</span>
-</pre></div>
-</div>
+<p>Non-secret values the whole site should start from do not belong here either.
+Put them in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>, which is committed with the repository and read by
+every host (see <a class="reference internal" href="deploy-project.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a>).</p>
 </section>
 <section id="dependencies">
 <h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading">#</a></h2>
@@ -2034,9 +2054,9 @@ at or above the working directory).</p></td>
 formatting intact — and then build. The profile always describes what the
 build will produce, so there is no layer that vanishes afterwards.</p>
 </div>
-<p>Every build wipes and re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code> and preserves what you own: <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
-<code class="docutils literal notranslate"><span class="pre">var/</span></code>, and the repository’s <code class="docutils literal notranslate"><span class="pre">.git</span></code>. It never touches the source zone —
-only <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--force</span></code> replaces that.</p>
+<p>Every build wipes and re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code> and preserves what you own: the env
+chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env</span></code>), <code class="docutils literal notranslate"><span class="pre">var/</span></code>, and the repository’s <code class="docutils literal notranslate"><span class="pre">.git</span></code>.
+It never touches the source zone — only <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--force</span></code> replaces that.</p>
 <p><strong>Examples</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># See what presets ship</span>
 osprey<span class="w"> </span>init<span class="w"> </span>--list-presets
@@ -2072,18 +2092,19 @@ variables — reporting every problem found, not just the first.</p>
 you named), writing any <code class="docutils literal notranslate"><span class="pre">--set</span></code> / <code class="docutils literal notranslate"><span class="pre">-O</span></code> / <code class="docutils literal notranslate"><span class="pre">--tier</span></code> into it.</p></li>
 <li><p>Resolve and validate the profile, including any persona delta merged over it.</p></li>
 <li><p>Check <code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code>; abort if unsatisfied.</p></li>
-<li><p>Handle <code class="docutils literal notranslate"><span class="pre">--force</span></code> — clear the rendered files, keeping <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
-<code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> and <code class="docutils literal notranslate"><span class="pre">.git</span></code>.</p></li>
+<li><p>Clear the previous render. <code class="docutils literal notranslate"><span class="pre">build/</span></code> is wiped whole and re-made; nothing
+durable lives inside it to step around.</p></li>
 <li><p>Run <code class="docutils literal notranslate"><span class="pre">pre_build</span></code> commands.</p></li>
 <li><p>Create the project venv and install OSPREY plus the profile’s dependencies.</p></li>
-<li><p>Render the base template and the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree; derive the
-project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from the profile’s.</p></li>
+<li><p>Render the base template and the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree. No env file is
+carried in: the repository’s own <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env</span></code> stay where
+they are, and the containers are handed them at start time.</p></li>
 <li><p>Apply the <code class="docutils literal notranslate"><span class="pre">config:</span></code> overrides.</p></li>
 <li><p>Copy service templates and inject the profile’s own services.</p></li>
 <li><p>Apply the convention directories, and register what was copied as yours.</p></li>
 <li><p>Persist <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> into <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
-<li><p>Stamp the manifest (<code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code>), including the profile path
-the deploy later writes secrets back to.</p></li>
+<li><p>Stamp the manifest (<code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code>), including the fingerprint
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> compares the profile against before it starts anything.</p></li>
 <li><p>Re-render the agent artifacts against the complete config, and validate that
 every tool an agent declares is backed by a permission.</p></li>
 <li><p>Initialize git, then run <code class="docutils literal notranslate"><span class="pre">post_build</span></code> and <code class="docutils literal notranslate"><span class="pre">validate</span></code> commands.</p></li>
@@ -2107,8 +2128,7 @@ profile at runtime.</p>
 ├── config.yml            # config with the profile&#39;s overrides applied
 ├── data/                 # the profile&#39;s data tree, materialized
 ├── _mcp_servers/         # facility server code from the profile
-├── .env                  # derived from the profile&#39;s .env
-└── .env.example          # a copy of the profile&#39;s
+└── .env.example          # every variable this deployment reads, no values
 </pre></div>
 </div>
 <p>Which built-in agents, rules, hooks and skills are installed comes from the
@@ -2135,8 +2155,17 @@ convention directory name.</p>
 <p><strong>“Unknown profile key(s): ‘overlay’”</strong> — a profile has no <code class="docutils literal notranslate"><span class="pre">overlay</span></code>
 section. Move the files into the convention directory that matches what they
 are (see the table above), or into <code class="docutils literal notranslate"><span class="pre">project/</span></code> for anything without one.</p>
-<p><strong>“Directory ‘X’ already exists”</strong> — use <code class="docutils literal notranslate"><span class="pre">--force</span></code> to rebuild the project in
-place, or pick a different project name. <code class="docutils literal notranslate"><span class="pre">--force</span></code> never replaces the profile.</p>
+<p><strong>“is already an OSPREY deployment repo”</strong> — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> will not lay a
+source zone over one that is already there. To re-render the project, run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> in the repo: it wipes and re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code> in place and
+leaves the source zone alone. To replace the source zone itself from the
+preset, re-run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--force</span></code> — which rewrites <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code> and
+<code class="docutils literal notranslate"><span class="pre">.env.example</span></code>, losing any edit to them.</p>
+<p><strong>“already exists, is not empty, and is not an OSPREY deployment repo”</strong> — a
+deployment repo is one directory that holds nothing else, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
+will not write into a directory that is already someone’s. Choose an empty or
+new path; <code class="docutils literal notranslate"><span class="pre">--force</span></code> does not apply here.</p>
 <p><strong>“OSPREY X does not satisfy requires_osprey_version”</strong> — upgrade OSPREY, or
 relax the constraint in the profile.</p>
 <div class="admonition seealso">

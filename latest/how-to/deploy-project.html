@@ -494,7 +494,8 @@
 <li><p class="sd-card-text">What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> do, and when you need them</p></li>
 <li><p class="sd-card-text">Configuring services in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (minimal example)</p></li>
 <li><p class="sd-card-text">Authoring <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> templates</p></li>
-<li><p class="sd-card-text">Network binding, <code class="docutils literal notranslate"><span class="pre">.env</span></code> loading, and the <code class="docutils literal notranslate"><span class="pre">--dev</span></code> workflow</p></li>
+<li><p class="sd-card-text">Which compose providers are supported, and what changes between them</p></li>
+<li><p class="sd-card-text">Network binding and attachment, the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain, and the <code class="docutils literal notranslate"><span class="pre">--dev</span></code> workflow</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> Docker or Podman installed locally.</p>
 </div>
@@ -502,8 +503,8 @@
 <p class="admonition-title">Tip</p>
 <p>This page is the operator/service-author reference for the container side of
 a deployment. For the end-to-end walkthrough — deployment repository, CI
-pipeline, stack up — follow <a class="reference internal" href="deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>; the judgment that goes
-with running it day to day lives in the <code class="docutils literal notranslate"><span class="pre">osprey-deploy-ops</span></code> skill. For the
+pipeline, stack up — follow <a class="reference internal" href="deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>, which also covers the
+commands you run day to day once the stack is up. For the
 full <code class="docutils literal notranslate"><span class="pre">services:</span></code> schema as authored inside a build profile, see
 <a class="reference internal" href="build-profiles.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
 </div>
@@ -581,6 +582,114 @@ one explicitly.</p>
 preferred, otherwise Podman is used. Force a specific runtime with the
 <code class="docutils literal notranslate"><span class="pre">CONTAINER_RUNTIME</span></code> environment variable or by setting
 <code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">docker|podman|auto</span></code> at the root of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+<section id="supported-compose-providers">
+<span id="compose-provider-compatibility"></span><h3>Supported compose providers<a class="headerlink" href="#supported-compose-providers" title="Link to this heading">#</a></h3>
+<p>Choosing the runtime is only half the answer. Before it starts anything,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> asks that runtime which compose implementation stands behind it
+(<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span> <span class="pre">version</span></code> / <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">compose</span> <span class="pre">version</span></code>) and reads the banner
+that comes back. Two are supported:</p>
+<ul class="simple">
+<li><p><strong>Docker Compose v2</strong> — any 2.x release.</p></li>
+<li><p><strong>podman-compose 1.0.6 or newer.</strong> 1.0.6 is what EPEL 8 ships as standard
+(EPEL 9 ships 1.5.0), so a site running distribution packages needs nothing
+built from source.</p></li>
+</ul>
+<p>The answer comes from the banner, never from the command you typed.
+<code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">compose</span></code> is a dispatcher that hands the work to whichever provider
+the host has configured, so on a host that delegates to Docker Compose v2 a
+<code class="docutils literal notranslate"><span class="pre">podman</span></code> command reports the Docker banner and is treated as Docker Compose
+v2. What matters is the provider that parses the command, not the binary that
+forwards it.</p>
+<p>Anything else is refused before a single container is touched: an unrecognized
+banner, Compose v1, a podman-compose below 1.0.6, or a probe that could not run
+at all. The refusal names what was wrong and prints what the provider reported,
+so you can see what the host actually has. Refusing rather than guessing is the
+point — a provider handed the wrong command shape does not report an
+unsupported deployment, it starts a stack whose file paths resolve against the
+wrong directory.</p>
+</section>
+<section id="what-the-provider-changes">
+<h3>What the provider changes<a class="headerlink" href="#what-the-provider-changes" title="Link to this heading">#</a></h3>
+<p>One deployment, two command shapes. Nothing you author picks between them;
+OSPREY shapes the command from what the probe found.</p>
+<p>Docker Compose v2 is handed the rendered files where they sit:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>docker compose --project-directory &lt;repo&gt;
+    -f &lt;repo&gt;/build/services/&lt;service&gt;/docker-compose.yml   (one -f per rendered file)
+    --env-file &lt;repo&gt;/.env.shared --env-file &lt;repo&gt;/.env
+</pre></div>
+</div>
+<p>podman-compose is handed one document and one env file:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>podman compose
+    -f &lt;repo&gt;/.osprey-compose.yml
+    --env-file &lt;repo&gt;/build/.env.merged
+# plus COMPOSE_PROJECT_DIR=&lt;repo&gt; in the command&#39;s environment
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">.osprey-compose.yml</span></code> is every rendered compose file merged into a single
+document at the repository root, and <code class="docutils literal notranslate"><span class="pre">build/.env.merged</span></code> is the env chain
+merged the same way (see <a class="reference internal" href="#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a>). Both are machine
+artifacts: rewritten from scratch by every command that needs them, kept out of
+version control and out of every container build context, and removed by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">reset</span></code>. Neither holds a resolved secret — <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> references are
+copied through exactly as the rendered files spell them, so filling them in
+stays the runtime’s job.</p>
+<p>The merge exists because of where podman-compose looks for relative paths.
+Versions 1.0.6 – 1.3.0 change directory twice while assembling a project and
+end up in the directory of the <em>first</em> <code class="docutils literal notranslate"><span class="pre">-f</span></code> file, overriding
+<code class="docutils literal notranslate"><span class="pre">COMPOSE_PROJECT_DIR</span></code>; 1.4.1 and newer change directory once, to
+<code class="docutils literal notranslate"><span class="pre">COMPOSE_PROJECT_DIR</span></code>. A <code class="docutils literal notranslate"><span class="pre">-f</span></code> list pointing into <code class="docutils literal notranslate"><span class="pre">build/</span></code> therefore
+resolves every relative path in the rendered files — <code class="docutils literal notranslate"><span class="pre">env_file:</span></code> entries,
+bind mounts — against <code class="docutils literal notranslate"><span class="pre">build/</span></code> on one version and against the repository root
+on the next, from identical inputs and without an error on either. One document
+at the repository root makes both readings land in the same place.</p>
+</section>
+<section id="no-compose-profiles">
+<h3>No compose profiles<a class="headerlink" href="#no-compose-profiles" title="Link to this heading">#</a></h3>
+<p>OSPREY renders no <code class="docutils literal notranslate"><span class="pre">profiles:</span></code> key and passes no <code class="docutils literal notranslate"><span class="pre">--profile</span></code>, anywhere.
+Which services a deployment runs is settled when it is built, by
+<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>: a service you did not deploy is absent from the render
+rather than present and switched off. podman-compose’s handling of profiles
+varies between versions, and the failure it can produce is the worst kind — a
+service quietly left out of the project, with a deploy that reports success.
+Every deployed service is in the <code class="docutils literal notranslate"><span class="pre">-f</span></code> list, and everything in the <code class="docutils literal notranslate"><span class="pre">-f</span></code> list
+starts.</p>
+<p>If you write your own service template, leave <code class="docutils literal notranslate"><span class="pre">profiles:</span></code> out of it.</p>
+</section>
+<section id="where-var-values-come-from">
+<span id="compose-interpolation-precedence"></span><h3>Where <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> values come from<a class="headerlink" href="#where-var-values-come-from" title="Link to this heading">#</a></h3>
+<p>Compose fills in <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the rendered compose files from two
+sources: the env file(s) the command passes, and the environment of the shell
+you typed the command in. <strong>The two supported providers disagree about which of
+those wins</strong>, and the disagreement is a straight inversion:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 72.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Provider</p></th>
+<th class="head"><p>What gets substituted when both sources set a variable</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Docker Compose v2</p></td>
+<td><p>The <strong>exported shell value</strong>. <code class="docutils literal notranslate"><span class="pre">--env-file</span></code> is its lower-precedence
+source, so a variable exported in your shell overrides the env chain.</p></td>
+</tr>
+<tr class="row-odd"><td><p>podman-compose</p></td>
+<td><p>The <strong>env-file value</strong>. It resolves from the env file before the calling
+shell, so the export reaches nothing.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>You do not have to remember this. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> compares the two sources on
+every start, and when an exported variable disagrees with the value the env
+chain resolves to it warns by name — never by value — and states which value
+the provider it just probed will actually use, plus what to do about it. The
+reliable habit is to put the value in the env chain and leave your shell out of
+it: that is the one gesture that means the same thing on both providers.</p>
+</section>
 </section>
 <section id="deployment-workflow">
 <h2>Deployment Workflow<a class="headerlink" href="#deployment-workflow" title="Link to this heading">#</a></h2>
@@ -614,11 +723,12 @@ the profile only reaches the containers once you rebuild.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">osprey</span> <span class="n">up</span> <span class="o">--</span><span class="n">build</span> <span class="o">-</span><span class="n">d</span>
 </pre></div>
 </div>
-<p>Every build wipes and re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code> and preserves what you own: <code class="docutils literal notranslate"><span class="pre">.env</span></code>
-(your provider keys, plus the service tokens and passwords your existing
-container volumes were initialized with), the agent’s memory under <code class="docutils literal notranslate"><span class="pre">var/</span></code>, and
-the repository’s <code class="docutils literal notranslate"><span class="pre">.git</span></code> history. <code class="docutils literal notranslate"><span class="pre">data/</span></code> in the build zone is
-re-materialized from the profile; the source zone is never touched by a build.</p>
+<p>Every build wipes and re-renders <code class="docutils literal notranslate"><span class="pre">build/</span></code> and preserves what you own: the env
+chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env</span></code> — your provider keys, plus the service
+tokens and passwords your existing container volumes were initialized with),
+the agent’s memory under <code class="docutils literal notranslate"><span class="pre">var/</span></code>, and the repository’s <code class="docutils literal notranslate"><span class="pre">.git</span></code> history.
+<code class="docutils literal notranslate"><span class="pre">data/</span></code> in the build zone is re-materialized from the profile; the source
+zone is never touched by a build.</p>
 <p>Two guards make render drift visible:</p>
 <ul class="simple">
 <li><p><strong>Drift refusal</strong> — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> recomputes a fingerprint over the resolved
@@ -684,9 +794,9 @@ osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w
 osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>services/postgresql<span class="w"> </span><span class="c1"># restore framework management</span>
 </pre></div>
 </div>
-<p>Edit the moved copy under <code class="docutils literal notranslate"><span class="pre">&lt;profile&gt;/services/postgresql/</span></code>, then rebuild with
-<code class="docutils literal notranslate"><span class="pre">--force</span></code> to deploy it. Every build copies it back and marks it yours, so
-later re-renders leave it alone. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">list</span></code> shows what is
+<p>Edit the moved copy under <code class="docutils literal notranslate"><span class="pre">&lt;profile&gt;/services/postgresql/</span></code>, then run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> again to deploy it. Every build copies it back and marks it
+yours, so later re-renders leave it alone. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">list</span></code> shows what is
 framework-managed and what is yours; the same mechanism covers the agent
 artifacts (rules, agents, skills, hooks). See <a class="reference internal" href="build-profiles.html#profile-claim"><span class="std std-ref">Taking ownership of a framework artifact</span></a> for the full
 workflow and the artifacts a claim refuses.</p>
@@ -763,39 +873,231 @@ authentication and firewalling in place.</p>
 <p>Container networking uses service names as hostnames (e.g.,
 <code class="docutils literal notranslate"><span class="pre">postgresql:5432</span></code>). For host access from inside containers, use
 <code class="docutils literal notranslate"><span class="pre">host.docker.internal</span></code> (Docker) or <code class="docutils literal notranslate"><span class="pre">host.containers.internal</span></code> (Podman).</p>
+<section id="network-attachment-bridge-or-host">
+<span id="deployment-network-attachment"></span><h3>Network attachment: <code class="docutils literal notranslate"><span class="pre">bridge</span></code> or <code class="docutils literal notranslate"><span class="pre">host</span></code><a class="headerlink" href="#network-attachment-bridge-or-host" title="Link to this heading">#</a></h3>
+<p>By default every service joins the compose-managed project network
+(<code class="docutils literal notranslate"><span class="pre">osprey-network</span></code>) and publishes the ports it wants reachable. That is
+<code class="docutils literal notranslate"><span class="pre">bridge</span></code>, and it is what a deployment gets when it says nothing.</p>
+<p>Some services cannot work that way. A service that has to see broadcast traffic
+— control-system protocols, device discovery — or that has to reach ports other
+software already publishes on the machine needs the host’s own network
+namespace instead. That is <code class="docutils literal notranslate"><span class="pre">host</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># in profile.yml — the event dispatcher and its workers</span>
+<span class="nt">dispatch</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
+
+<span class="c1"># a facility-owned service</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">my-service</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/my-service</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">dispatch.network</span></code> is deliberately <strong>one knob for two services</strong>. The event
+dispatcher and its workers talk to each other over addresses the build writes,
+so a dispatcher on the compose network and workers on the host’s could not
+reach each other at all. Writing <code class="docutils literal notranslate"><span class="pre">network:</span></code> on <code class="docutils literal notranslate"><span class="pre">services.event_dispatcher</span></code>
+or <code class="docutils literal notranslate"><span class="pre">services.dispatch_worker</span></code> individually is rejected by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>,
+which tells you to set <code class="docutils literal notranslate"><span class="pre">dispatch.network</span></code> instead.</p>
+<p>Under <code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code> the render changes in four ways:</p>
+<ul class="simple">
+<li><p>No <code class="docutils literal notranslate"><span class="pre">ports:</span></code> block. There is nothing to publish — the container’s listening
+socket <em>is</em> a host socket, on the port the service was configured with.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code> replaces the service’s <code class="docutils literal notranslate"><span class="pre">osprey-network</span></code> membership.</p></li>
+<li><p>Services bind <strong>loopback</strong>, <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>, rather than every interface. On
+the compose network, binding every interface is what makes a service
+reachable by name and the network itself is the boundary; on the host network
+there is no such boundary, so the default is the private one. Reaching the
+event dispatcher from off-host is then a deliberate act:
+<code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.bind</span></code>.</p></li>
+<li><p>Addresses OSPREY writes between services become <code class="docutils literal notranslate"><span class="pre">localhost:&lt;port&gt;</span></code> instead
+of compose service names — the dispatcher’s target for its workers, and the
+Google Chat and Nextcloud bridges’ URLs for the dispatch pair.</p></li>
+</ul>
+<p>Services that talk to each other have to be on the same side of that boundary,
+and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses to render a deployment where they are not: a
+co-deployed bridge on the compose network with a host-mode dispatch pair, the
+reverse of that, or any address naming a service across the boundary. The build
+also refuses a service that declares <code class="docutils literal notranslate"><span class="pre">network:</span> <span class="pre">host</span></code> whose rendered compose
+file does not carry it, since the setting would otherwise be quietly inert.
+Every one of those failures names the service and the key to change.</p>
 </section>
-<section id="environment-variables-env">
-<h2>Environment Variables (<code class="docutils literal notranslate"><span class="pre">.env</span></code>)<a class="headerlink" href="#environment-variables-env" title="Link to this heading">#</a></h2>
-<p>The deploy system passes the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> to Docker / Podman Compose
-via <code class="docutils literal notranslate"><span class="pre">--env-file</span></code>. Compose uses these values to fill in <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders
-in the rendered compose files; a variable reaches a running container only where
-a template maps it in.</p>
-<p>That <code class="docutils literal notranslate"><span class="pre">.env</span></code> is the deployment’s one secret store, and a build never rewrites
-what is in it, so set a value there once:</p>
+<section id="running-more-than-one-project-on-one-host">
+<h3>Running more than one project on one host<a class="headerlink" href="#running-more-than-one-project-on-one-host" title="Link to this heading">#</a></h3>
+<p>Two OSPREY projects on the same machine compete for the same host ports, and
+compose’s own report of that is a bare “address already in use” partway through
+starting. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> therefore checks every host port this deployment needs
+before it touches a container — ports two of its own services would both
+publish, and ports something else is already listening on — and stops if any is
+taken. Every conflict is listed with the config key that moves it
+(<code class="docutils literal notranslate"><span class="pre">services.postgresql.port_host</span></code>, <code class="docutils literal notranslate"><span class="pre">dispatch.worker_port_base</span></code>, and so on).
+A listener that belongs to this project’s own containers is not a conflict, so
+restarting a running stack stays quiet.</p>
+<p>Host-mode services are part of that check even though they publish no ports:
+their host bindings are worked out from the rendered configuration instead of
+read out of a <code class="docutils literal notranslate"><span class="pre">ports:</span></code> block. That covers the case most likely to catch you
+out — two projects whose dispatch pairs are both on the host network take the
+same default ports (<code class="docutils literal notranslate"><span class="pre">8020</span></code> for the dispatcher, <code class="docutils literal notranslate"><span class="pre">9190</span></code> upward for the
+workers), and no <code class="docutils literal notranslate"><span class="pre">ports:</span></code> line anywhere would have shown it. Give the second
+project its own <code class="docutils literal notranslate"><span class="pre">dispatch.dispatcher_port</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch.worker_port_base</span></code>.</p>
+</section>
+</section>
+<section id="environment-variables-the-env-chain">
+<span id="deployment-env-chain"></span><h2>Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)<a class="headerlink" href="#environment-variables-the-env-chain" title="Link to this heading">#</a></h2>
+<p>A deployment reads its environment from two files at the repository root:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 55.0%" />
+<col style="width: 25.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>What belongs in it</p></th>
+<th class="head"><p>Tracked in git?</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.shared</span></code></p></td>
+<td><p>What the whole site shares: a proxy, a facility hostname, a port
+everyone uses. Never a secret — this file is committed.</p></td>
+<td><p>yes</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.env</span></code></p></td>
+<td><p>This host’s own values, and every secret: API keys, service tokens,
+passwords.</p></td>
+<td><p>no</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>The local file wins.</strong> A variable set in both takes its value from <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
+on every path that reads them — the deploy, the CLI, the containers. That is
+the whole rule: same syntax, same variables, <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> simply sits lower.
+Setting a key in <code class="docutils literal notranslate"><span class="pre">.env</span></code> is how one host departs from a shared default, and
+there is nothing else to do about it.</p>
+<p>Both files stay on the host. Neither ever enters a container image: they are
+read at run time and handed to the container runtime, which uses them to fill
+in the <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the rendered compose files. A variable reaches
+a running container only where a template maps it in. <em>How</em> the two files are
+handed over differs by compose provider (see
+<a class="reference internal" href="#compose-provider-compatibility"><span class="std std-ref">Supported compose providers</span></a>); what they resolve to does not.</p>
+<p><code class="docutils literal notranslate"><span class="pre">.env</span></code> has to exist. Rather than start a stack whose every <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code>
+substitutes to nothing, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses when the file is missing. On an
+interactive terminal it first offers to seed one, but only when your shell has
+the key to seed it with — this deployment’s own provider auth variable,
+exported. Otherwise start from the example:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 <span class="c1"># Edit .env with your actual values</span>
 </pre></div>
 </div>
 <p>See <a class="reference internal" href="build-profiles.html#profile-secrets"><span class="std std-ref">Secrets</span></a>.</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> also <em>writes</em> to these files. On first deploy it mints any
-missing service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>, or <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>) so services never start
-with blank or publicly-known credentials, restricts the file to owner-only
-permissions, and then writes those values <strong>back into the profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>
-under a “Minted by deploy” heading. That is what makes the stack reproducible: a
-rebuild from the same profile comes up on the same credentials instead of
-minting a second set the running containers do not trust.</p>
-<p>The write-back never overwrites. A value already in the profile wins — it is
-pinned by the docker volume that was initialized with it — and a deploy whose
-own value disagrees says so by variable name (never by value) and keeps using
-its own, leaving you to reconcile the two.</p>
-<p>If the profile cannot be reached — it has moved or been deleted, or the project
-names none — the deploy still succeeds. The secrets stay in the project
-<code class="docutils literal notranslate"><span class="pre">.env</span></code>, a warning names the path that failed, and the project records that its
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> is the only copy; a later <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> repeats that warning before
-it touches the directory. Back that file up.</p>
-<p>Keep both <code class="docutils literal notranslate"><span class="pre">.env</span></code> files out of version control (the profile’s <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code>
-does this for you).</p>
+<section id="the-env-family">
+<h3>The <code class="docutils literal notranslate"><span class="pre">.env*</span></code> family<a class="headerlink" href="#the-env-family" title="Link to this heading">#</a></h3>
+<p>Two files are yours to edit and one is documentation. The rest are written for
+you — most of them derived, rewritten whenever a command needs them, and not
+worth editing because the next command overwrites them:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 32.0%" />
+<col style="width: 68.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>File</p></th>
+<th class="head"><p>Role</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.shared</span></code></p></td>
+<td><p>edit — shared defaults, the same on every host</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.env</span></code></p></td>
+<td><p>edit — this host’s values and every secret</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.example</span></code></p></td>
+<td><p>docs — every variable this deployment reads, with no values</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">.env.users</span></code></p></td>
+<td><p>machine — the env file every per-user web-terminal container runs with,
+derived from the chain (multi-user deployments only)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">.env.auth</span></code></p></td>
+<td><p>both — the web terminals’ password hashes and cookie-signing secrets,
+minted by the deploy, but also where you put an OIDC client id and
+secret by hand (multi-user deployments only; see <a class="reference internal" href="multi-user.html"><span class="doc">Multi-User Support</span></a>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">build/.env.merged</span></code></p></td>
+<td><p>machine — the chain collapsed into one file, for compose providers that
+accept only one</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">build/.env.chain-state.json</span></code></p></td>
+<td><p>machine — fingerprints of the shared values as of the last deploy, so a
+stale local pin can be spotted. It stores digests, never values.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The generated <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> keeps all of them out of version control except
+<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>, which carry nothing a host may not share.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Upgrading a multi-user deployment</p>
+<p>The web terminals’ env file changed name to <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+does the rename for you the next time you deploy, and if both names are
+present it keeps the new one and removes the leftover, naming both paths.
+Only <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does this, so a stack you stop before you next deploy
+still carries the old name — and because the web stack’s compose file names
+<code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> fails with an env-file-not-found error until
+the rename has happened. Do it yourself in that case:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mv<span class="w"> </span>.env.production<span class="w"> </span>.env.users
+</pre></div>
+</div>
+</div>
+</section>
+<section id="what-a-deploy-writes-back">
+<h3>What a deploy writes back<a class="headerlink" href="#what-a-deploy-writes-back" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> also <em>writes</em> to <code class="docutils literal notranslate"><span class="pre">.env</span></code>. On first deploy it mints any missing
+service tokens and passwords (for example <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>, or <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>) so no service ever starts
+on a blank or publicly-known credential, appends them under a “Minted by
+deploy” heading, and restricts the file to owner-only permissions.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> appends the pointers it derives from what it just rendered,
+under a “Derived by build” heading.</p>
+<p>Both writers are append-only, and a value already on file always wins. That is
+what makes the stack reproducible: a later start comes up on the same
+credentials the running containers were initialized with, instead of minting a
+second set they do not trust. There is no second copy anywhere — the <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> is the deployment’s whole secret store — so back it up.</p>
+<p>Minted values only ever land in <code class="docutils literal notranslate"><span class="pre">.env</span></code>, never in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code>. A minted
+credential belongs to this host, and <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> is committed.</p>
+</section>
+<section id="what-a-deploy-tells-you-about-the-chain">
+<h3>What a deploy tells you about the chain<a class="headerlink" href="#what-a-deploy-tells-you-about-the-chain" title="Link to this heading">#</a></h3>
+<p>Two layered files make one new mistake possible, so every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reports
+on the chain before it starts anything. Variable names are printed; values never
+are.</p>
+<ul class="simple">
+<li><p><strong>Overrides</strong> — the keys <code class="docutils literal notranslate"><span class="pre">.env</span></code> overrides in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> are listed
+once, by name, as information. That is the chain working as intended.</p></li>
+<li><p><strong>Stale pins</strong> — a warning, and it is reserved for one exact case: <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+still holds the value <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> carried <em>before</em> the shared file
+changed. That is the signature of a value copied from the default of the day
+and then forgotten rather than one this host chose, and the stack starts on
+the superseded value looking perfectly healthy. To adopt the shared value,
+remove the key from <code class="docutils literal notranslate"><span class="pre">.env</span></code>; to keep a local value deliberately, set it to
+the value this host actually wants. The warning repeats until you do one or
+the other.</p></li>
+<li><p><strong>Chain drift</strong> — a refusal. Which env files the stack reads is decided when
+the project is rendered, not when it starts: adding <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> to a
+project built without one puts none of its values into the containers, and
+removing one leaves the render pointing at a file that is gone. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>
+refuses and names <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Re-render, then start.</p></li>
+<li><p><strong>Shell exports</strong> — when a variable exported in your shell disagrees with the
+value the chain resolves to, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names it and says which of the two
+the compose provider it just probed will actually substitute (see
+<a class="reference internal" href="#compose-interpolation-precedence"><span class="std std-ref">Where ${VAR} values come from</span></a>).</p></li>
+</ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Postgres reads <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code> (as <code class="docutils literal notranslate"><span class="pre">POSTGRES_PASSWORD</span></code>) only when
@@ -806,8 +1108,7 @@ from <code class="docutils literal notranslate"><span class="pre">services.postg
 the minted password, remove the <code class="docutils literal notranslate"><span class="pre">ariel_postgres_data</span></code> volume and redeploy
 (this deletes the stored logbook data — re-ingest afterwards).</p>
 </div>
-<p>If no <code class="docutils literal notranslate"><span class="pre">.env</span></code> file is found, services start with default/empty environment
-variables and a warning is logged.</p>
+</section>
 </section>
 <section id="development-mode">
 <h2>Development Mode<a class="headerlink" href="#development-mode" title="Link to this heading">#</a></h2>
@@ -844,6 +1145,11 @@ variables are set, confirm service paths contain <code class="docutils literal n
 inspect rendered files under <code class="docutils literal notranslate"><span class="pre">build/services/&lt;name&gt;/</span></code>.</p>
 <p><strong>Daemon not running:</strong> Both Docker and Podman print platform-specific
 hints; on macOS, start Docker Desktop or run <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">machine</span> <span class="pre">start</span></code>.</p>
+<p><strong>“Unsupported compose provider”:</strong> the host’s compose implementation is not
+one OSPREY can drive correctly, and it stopped before starting anything. The
+message prints the version banner it got; compare it against
+<a class="reference internal" href="#compose-provider-compatibility"><span class="std std-ref">Supported compose providers</span></a> and either upgrade the provider or point
+<code class="docutils literal notranslate"><span class="pre">CONTAINER_RUNTIME</span></code> at the other runtime.</p>
 <p><strong>``–dev`` issues:</strong> Confirm the Osprey wheel (<code class="docutils literal notranslate"><span class="pre">.whl</span></code>) exists in the
 service build directory, and that the image was rebuilt after your source
 change — rerun <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--build</span> <span class="pre">--dev</span></code> to re-render and rebuild it.</p>
@@ -916,14 +1222,29 @@ containers this page covers.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-commands">CLI Commands</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#container-runtime-selection">Container Runtime Selection</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#container-runtime-selection">Container Runtime Selection</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#supported-compose-providers">Supported compose providers</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-provider-changes">What the provider changes</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#no-compose-profiles">No compose profiles</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-var-values-come-from">Where <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> values come from</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow">Deployment Workflow</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#keeping-a-rendered-deployment-up-to-date">Keeping a Rendered Deployment Up to Date</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-template-ownership">Service Template Ownership</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#network-binding-and-security">Network Binding and Security</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables-env">Environment Variables (<code class="docutils literal notranslate"><span class="pre">.env</span></code>)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#network-binding-and-security">Network Binding and Security</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#network-attachment-bridge-or-host">Network attachment: <code class="docutils literal notranslate"><span class="pre">bridge</span></code> or <code class="docutils literal notranslate"><span class="pre">host</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#running-more-than-one-project-on-one-host">Running more than one project on one host</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables-the-env-chain">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-env-family">The <code class="docutils literal notranslate"><span class="pre">.env*</span></code> family</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-deploy-writes-back">What a deploy writes back</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-deploy-tells-you-about-the-chain">What a deploy tells you about the chain</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#development-mode">Development Mode</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
 </ul>

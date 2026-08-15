@@ -560,14 +560,9 @@ osprey<span class="w"> </span>web
 <section id="phase-2-deploy-your-project">
 <h2>Phase 2: deploy your project<a class="headerlink" href="#phase-2-deploy-your-project" title="Link to this heading">#</a></h2>
 <p>The interview settles <em>what</em> to build. Running what was built — putting it on a
-real machine and keeping it there — is the other half, and it has its own
-skill, <strong>osprey-deploy-ops</strong>:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-deploy-ops
-</pre></div>
-</div>
-<p>The facility repository is a durable, git-tracked artifact you’ll redeploy from
-many times, and both halves of deployment live inside it.</p>
+real machine and keeping it there — is the other half, and it lives in the same
+place. The facility repository is a durable, git-tracked artifact you’ll
+redeploy from many times, and both halves of deployment live inside it.</p>
 <p>First, the deployment coordinates go in the profile itself, under a <code class="docutils literal notranslate"><span class="pre">deploy:</span></code>
 block: the CI platform you use, the deploy host, and the container registry if
 that host pulls its images. A fresh profile ships this block commented out, so
@@ -582,18 +577,18 @@ osprey<span class="w"> </span>scaffold<span class="w"> </span>ci
 check inside the profile. Re-run it whenever the <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block changes — a
 file whose content already matches is left untouched, and a file you hand-edited
 is reported rather than overwritten.</p>
-<p>From there <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings the stack up and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code>
-tells you what is running. The <code class="docutils literal notranslate"><span class="pre">osprey-deploy-ops</span></code> runbook covers everything
-past that point: triaging a service that is down, deciding when to re-scaffold,
-and reconciling a secret a container volume adopted at first start.</p>
-<p>If you’d rather every operator who clones the repository get that runbook
-automatically, install a copy into the repository itself:</p>
+<p>From there the same handful of commands runs the stack, from anywhere inside
+the repository:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
-osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-deploy-ops<span class="w"> </span>--target<span class="w"> </span>.claude/skills/
+osprey<span class="w"> </span>up<span class="w"> </span>-d<span class="w">      </span><span class="c1"># start it</span>
+osprey<span class="w"> </span>status<span class="w">     </span><span class="c1"># what is running, where it answers, which build it is</span>
+osprey<span class="w"> </span>logs<span class="w">       </span><span class="c1"># what the containers are saying</span>
+osprey<span class="w"> </span>health<span class="w">     </span><span class="c1"># diagnostics: config, environment, providers, telemetry</span>
 </pre></div>
 </div>
-<p>The previous copy is backed up to
-<code class="docutils literal notranslate"><span class="pre">.claude/skills/osprey-deploy-ops.bak.&lt;timestamp&gt;/</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">status</span></code> only reads, so it is safe against a live stack at any time,
+and it is the first thing to run when something looks wrong. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code>
+stops the stack and keeps its volumes.</p>
 <p>See <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a> for a worked example that goes from an
 empty directory to running containers, and <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the
 full build profile reference.</p>

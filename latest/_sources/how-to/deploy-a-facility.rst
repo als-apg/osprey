@@ -529,11 +529,12 @@ stack reproducible from git alone:
 .. code-block:: bash
 
    osprey build
-   osprey users env-production --output .env.production
+   osprey users env --output .env.users
    osprey up -d
 
-``osprey users env-production`` writes the env file every per-user web-terminal
-container runs with, from the deploy host's own ``.env``. Passing
+``osprey users env`` writes the env file every per-user web-terminal
+container runs with, from the deploy host's own env chain — ``.env.shared``
+then ``.env``, with ``.env`` winning on any key both set. Passing
 ``--output`` is not optional: without it the command writes the assembled
 secrets to stdout, which in a pipeline is the job log. ``--output`` also creates
 the file at mode ``0600`` from its first byte, which a shell redirect would not.
@@ -562,14 +563,24 @@ so the pipeline and health check match the new coordinates.
 Operating it
 ============
 
-Everything past "the stack is up" — triaging a service that is down, deciding
-when to re-scaffold, and reconciling a secret a container volume adopted at
-first start — is judgment rather than a command sequence. Install the runbook
-and let the OSPREY agent work from it. From the repository root:
+Everything past "the stack is up" runs from anywhere inside the repository:
 
 .. code-block:: bash
 
-   osprey skills install osprey-deploy-ops --target .claude/skills
+   osprey status                  # what is running, where it answers
+   osprey logs event_dispatcher   # one service's output; -f to follow
+   osprey health                  # config, environment, providers, telemetry
+   osprey restart                 # stop and start again
+   osprey down                    # stop it, keeping the volumes
+
+``osprey status`` reads and reports — it starts nothing and renders nothing —
+so it is safe against a live stack and is the right first command when
+something looks wrong. It also says whether ``build/`` still matches
+``profile.yml``, which is the same check ``osprey up`` refuses on.
+
+When the answer is not obvious from those, run them inside an OSPREY agent
+session in the repository: the agent reads the same output you do, and it has
+the deployment's configuration and rendered files at hand.
 
 .. seealso::
 

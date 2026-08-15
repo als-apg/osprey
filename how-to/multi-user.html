@@ -1350,7 +1350,7 @@ secret — it is the identifier your provider already publishes for that person.
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p><strong>No secret may contain a dollar sign</strong> — not in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, and not in
-the <code class="docutils literal notranslate"><span class="pre">.env</span></code> and <code class="docutils literal notranslate"><span class="pre">.env.production</span></code> that carry your provider API key and
+the <code class="docutils literal notranslate"><span class="pre">.env</span></code> and <code class="docutils literal notranslate"><span class="pre">.env.users</span></code> that carry your provider API key and
 facility passwords. Depending on which container stack reads these files,
 <code class="docutils literal notranslate"><span class="pre">$</span></code> sequences inside the <em>values</em> are substituted on the way through —
 with Docker Compose, <code class="docutils literal notranslate"><span class="pre">secret$abc</span></code> arrives as <code class="docutils literal notranslate"><span class="pre">secret</span></code> and <code class="docutils literal notranslate"><span class="pre">P&#64;$$w0rd</span></code>
@@ -1446,7 +1446,7 @@ cookies, so an OIDC deployment can abort the same way even though it provisions
 no passwords at all. The usual cause either way is permissions on <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>
 or on the project directory.</p>
 <p>The hashes and signing keys live in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> in the project root — mode
-<code class="docutils literal notranslate"><span class="pre">0600</span></code>, listed in the generated <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> next to <code class="docutils literal notranslate"><span class="pre">.env.production</span></code>,
+<code class="docutils literal notranslate"><span class="pre">0600</span></code>, listed in the generated <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> next to <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>,
 and handed to the authentication service alone. No terminal container ever sees
 it.</p>
 <p>For each user, in order:</p>

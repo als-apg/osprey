@@ -147,16 +147,9 @@ Phase 2: deploy your project
 ============================
 
 The interview settles *what* to build. Running what was built — putting it on a
-real machine and keeping it there — is the other half, and it has its own
-skill, **osprey-deploy-ops**:
-
-.. code-block:: bash
-
-   # skip-ci
-   osprey skills install osprey-deploy-ops
-
-The facility repository is a durable, git-tracked artifact you'll redeploy from
-many times, and both halves of deployment live inside it.
+real machine and keeping it there — is the other half, and it lives in the same
+place. The facility repository is a durable, git-tracked artifact you'll
+redeploy from many times, and both halves of deployment live inside it.
 
 First, the deployment coordinates go in the profile itself, under a ``deploy:``
 block: the CI platform you use, the deploy host, and the container registry if
@@ -176,21 +169,20 @@ check inside the profile. Re-run it whenever the ``deploy:`` block changes — a
 file whose content already matches is left untouched, and a file you hand-edited
 is reported rather than overwritten.
 
-From there ``osprey up`` brings the stack up and ``osprey status``
-tells you what is running. The ``osprey-deploy-ops`` runbook covers everything
-past that point: triaging a service that is down, deciding when to re-scaffold,
-and reconciling a secret a container volume adopted at first start.
-
-If you'd rather every operator who clones the repository get that runbook
-automatically, install a copy into the repository itself:
+From there the same handful of commands runs the stack, from anywhere inside
+the repository:
 
 .. code-block:: bash
 
    # skip-ci
-   osprey skills install osprey-deploy-ops --target .claude/skills/
+   osprey up -d      # start it
+   osprey status     # what is running, where it answers, which build it is
+   osprey logs       # what the containers are saying
+   osprey health     # diagnostics: config, environment, providers, telemetry
 
-The previous copy is backed up to
-``.claude/skills/osprey-deploy-ops.bak.<timestamp>/``.
+``osprey status`` only reads, so it is safe against a live stack at any time,
+and it is the first thing to run when something looks wrong. ``osprey down``
+stops the stack and keeps its volumes.
 
 See :doc:`/how-to/deploy-a-facility` for a worked example that goes from an
 empty directory to running containers, and :doc:`/how-to/build-profiles` for the
