@@ -8,29 +8,73 @@ from typing import Any, cast
 import httpx
 
 
-class DispatchError(Exception):
-    """Raised on connection errors, timeouts, or a retryable (5xx) worker error."""
+class WorkerRequestError(Exception):
+    """Base class for every failure this client reports on a call to a worker.
 
+    The one decision every caller makes about these is whether to try the same
+    request again, so that decision is *data* on the base rather than something
+    to infer from a subclass name: ``retryable`` is ``True`` when an identical
+    redispatch could plausibly succeed (the worker was unreachable, or answered
+    with something transient) and ``False`` when the worker answered and refused
+    *this* request deterministically. ``reason`` is the stable, machine-readable
+    code; the message is the human half. ``error_code`` is the machine-readable
+    code lifted from the worker's own body when it supplied a recognised one
+    (see :data:`KNOWN_REJECTION_CODES`), ``None`` otherwise.
 
-class AuthError(Exception):
-    """Raised when the worker returns HTTP 401 Unauthorized."""
-
-
-class FatalDispatchError(Exception):
-    """Raised on a deterministic 4xx rejection from the worker.
-
-    A 4xx means the request itself is malformed/oversized (e.g. an input-files
-    batch over cap, or a body past the size limit): an identical redispatch is
-    rejected identically, so this is NOT retryable. ``error_code`` carries the
-    machine-readable ``detail`` whitelisted from the worker's 4xx JSON body (one
-    of :data:`KNOWN_REJECTION_CODES`), or ``None`` when the body carried no
-    recognised code. The caller surfaces this as a pool error carrying
-    ``error_code`` rather than routing it through the retry/drop policy.
+    Because every failure is a :class:`WorkerRequestError`, ``except
+    WorkerRequestError`` is complete — no failure mode escapes it, including a
+    rejected bearer token.
     """
+
+    reason = "worker_request_failed"
+    retryable = True
 
     def __init__(self, message: str, *, error_code: str | None = None) -> None:
         super().__init__(message)
         self.error_code = error_code
+
+
+class WorkerUnreachableError(WorkerRequestError):
+    """The worker could not be reached at all (connection error or timeout)."""
+
+    reason = "worker_unreachable"
+    retryable = True
+
+
+class WorkerUnavailableError(WorkerRequestError):
+    """The worker was reached but answered 5xx — transient, so worth retrying."""
+
+    reason = "worker_unavailable"
+    retryable = True
+
+
+class WorkerAuthRejectedError(WorkerRequestError):
+    """The worker rejected the dispatcher's bearer token with HTTP 401.
+
+    Retryable only in the sense that the on-error policy owns it: a rotated
+    token can make the identical request succeed, so this is not a deterministic
+    rejection of the request's *content*.
+    """
+
+    reason = "worker_auth_rejected"
+    retryable = True
+
+
+class WorkerRejectedRequestError(WorkerRequestError):
+    """The worker answered and refused this request deterministically (non-401 4xx).
+
+    A 4xx means the request itself is malformed/oversized (e.g. an input-files
+    batch over cap, or a body past the size limit) or names something that does
+    not exist: an identical redispatch is rejected identically, so this is NOT
+    retryable. ``error_code`` carries the machine-readable ``detail``
+    whitelisted from the worker's 4xx JSON body (one of
+    :data:`KNOWN_REJECTION_CODES`), or ``None`` when the body carried no
+    recognised code. The caller surfaces this as a pool error carrying
+    ``error_code`` rather than routing it through the retry/drop policy.
+    """
+
+    reason = "worker_rejected_request"
+    retryable = False
 
 
 # Machine-readable 4xx ``detail`` codes the client is willing to propagate. Kept
@@ -93,10 +137,11 @@ async def dispatch_to_worker(
         Response JSON dict (typically contains ``run_id`` and ``status``).
 
     Raises:
-        AuthError: If the server returns HTTP 401.
-        FatalDispatchError: On a non-401 4xx (deterministic, non-retryable rejection),
-            carrying a whitelisted ``error_code`` when the body supplied one.
-        DispatchError: On connection errors, timeout, or a retryable 5xx.
+        WorkerAuthRejectedError: If the server returns HTTP 401.
+        WorkerRejectedRequestError: On a non-401 4xx (deterministic, non-retryable
+            rejection), carrying a whitelisted ``error_code`` when the body supplied one.
+        WorkerUnreachableError: On connection errors or timeout.
+        WorkerUnavailableError: On a retryable 5xx.
     """
     dispatch_url = url.rstrip("/") + "/dispatch"
     headers = {"Authorization": f"Bearer {token}"}
@@ -120,21 +165,23 @@ async def dispatch_to_worker(
         async with httpx.AsyncClient(timeout=client_timeout) as client:
             response = await client.post(dispatch_url, json=payload, headers=headers)
     except httpx.TimeoutException as exc:
-        raise DispatchError(f"Timeout dispatching to {dispatch_url}: {exc}") from exc
+        raise WorkerUnreachableError(f"Timeout dispatching to {dispatch_url}: {exc}") from exc
     except httpx.ConnectError as exc:
-        raise DispatchError(f"Connection error dispatching to {dispatch_url}: {exc}") from exc
+        raise WorkerUnreachableError(
+            f"Connection error dispatching to {dispatch_url}: {exc}"
+        ) from exc
     except httpx.RequestError as exc:
-        raise DispatchError(f"Request error dispatching to {dispatch_url}: {exc}") from exc
+        raise WorkerUnreachableError(f"Request error dispatching to {dispatch_url}: {exc}") from exc
 
     if response.status_code == 401:
-        raise AuthError(f"Unauthorized (401) from {dispatch_url}")
+        raise WorkerAuthRejectedError(f"Unauthorized (401) from {dispatch_url}")
 
     # A non-401 4xx is a deterministic rejection of THIS request — never retry it,
-    # and never drop it to a silent None. Surface a typed FatalDispatchError
+    # and never drop it to a silent None. Surface a typed WorkerRejectedRequestError
     # carrying a whitelisted machine-readable code (or None) so the caller records
     # it as a non-retryable pool error. 413 (body too large) is included here.
     if 400 <= response.status_code < 500:
-        raise FatalDispatchError(
+        raise WorkerRejectedRequestError(
             f"HTTP {response.status_code} from worker",
             error_code=_extract_rejection_code(response),
         )
@@ -144,9 +191,9 @@ async def dispatch_to_worker(
     except httpx.HTTPStatusError as exc:
         # Surface only the status code — never echo the worker's response body
         # into the dispatcher's registry history; it can carry a stack trace or
-        # other internal detail. Raise a typed DispatchError so the on_error
-        # policy treats it like any other (retryable) dispatch failure.
-        raise DispatchError(f"HTTP {response.status_code} from worker") from exc
+        # other internal detail. Raise a typed WorkerUnavailableError so the
+        # on_error policy treats it like any other retryable dispatch failure.
+        raise WorkerUnavailableError(f"HTTP {response.status_code} from worker") from exc
     return cast(dict[str, Any], response.json())
 
 
@@ -165,7 +212,7 @@ async def fetch_worker_runs(url: str, token: str, timeout: float = 10.0) -> list
         List of run dicts (run_id, status, created_at, etc.).
 
     Raises:
-        DispatchError: On connection errors or timeout.
+        WorkerUnreachableError: On connection errors or timeout.
     """
     runs_url = url.rstrip("/") + "/dashboard/runs"
     headers = {"Authorization": f"Bearer {token}"}
@@ -173,11 +220,13 @@ async def fetch_worker_runs(url: str, token: str, timeout: float = 10.0) -> list
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.get(runs_url, headers=headers)
     except httpx.TimeoutException as exc:
-        raise DispatchError(f"Timeout fetching runs from {runs_url}: {exc}") from exc
+        raise WorkerUnreachableError(f"Timeout fetching runs from {runs_url}: {exc}") from exc
     except httpx.ConnectError as exc:
-        raise DispatchError(f"Connection error fetching runs from {runs_url}: {exc}") from exc
+        raise WorkerUnreachableError(
+            f"Connection error fetching runs from {runs_url}: {exc}"
+        ) from exc
     except httpx.RequestError as exc:
-        raise DispatchError(f"Request error fetching runs from {runs_url}: {exc}") from exc
+        raise WorkerUnreachableError(f"Request error fetching runs from {runs_url}: {exc}") from exc
 
     response.raise_for_status()
     return cast(list[dict[str, Any]], response.json())
@@ -198,8 +247,9 @@ async def cancel_worker_run(
         Worker's response dict (typically ``{"cancelled": bool, "run_id": str}``).
 
     Raises:
-        AuthError: If the worker returns HTTP 401.
-        DispatchError: On connection errors, timeouts, or non-2xx responses.
+        WorkerAuthRejectedError: If the worker returns HTTP 401.
+        WorkerRejectedRequestError: If the worker does not know ``run_id`` (404).
+        WorkerUnreachableError: On connection errors or timeouts.
     """
     cancel_url = url.rstrip("/") + f"/dispatch/{run_id}"
     headers = {"Authorization": f"Bearer {token}"}
@@ -207,16 +257,16 @@ async def cancel_worker_run(
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.delete(cancel_url, headers=headers)
     except httpx.TimeoutException as exc:
-        raise DispatchError(f"Timeout cancelling at {cancel_url}: {exc}") from exc
+        raise WorkerUnreachableError(f"Timeout cancelling at {cancel_url}: {exc}") from exc
     except httpx.ConnectError as exc:
-        raise DispatchError(f"Connection error cancelling at {cancel_url}: {exc}") from exc
+        raise WorkerUnreachableError(f"Connection error cancelling at {cancel_url}: {exc}") from exc
     except httpx.RequestError as exc:
-        raise DispatchError(f"Request error cancelling at {cancel_url}: {exc}") from exc
+        raise WorkerUnreachableError(f"Request error cancelling at {cancel_url}: {exc}") from exc
 
     if response.status_code == 401:
-        raise AuthError(f"Unauthorized (401) from {cancel_url}")
+        raise WorkerAuthRejectedError(f"Unauthorized (401) from {cancel_url}")
     if response.status_code == 404:
-        raise DispatchError(f"run_id {run_id!r} not found on worker")
+        raise WorkerRejectedRequestError(f"run_id {run_id!r} not found on worker")
     response.raise_for_status()
     return cast(dict[str, Any], response.json())
 
@@ -236,8 +286,9 @@ async def proxy_worker_stream(url: str, token: str, run_id: str) -> AsyncIterato
         Raw byte chunks from the SSE stream.
 
     Raises:
-        AuthError: If the worker returns HTTP 401.
-        DispatchError: On connection errors or request errors.
+        WorkerAuthRejectedError: If the worker returns HTTP 401.
+        WorkerUnavailableError: If the worker answers with a non-200 status.
+        WorkerUnreachableError: On connection errors or request errors.
     """
     stream_url = url.rstrip("/") + f"/dispatch/{run_id}/stream"
     headers = {"Authorization": f"Bearer {token}"}
@@ -245,12 +296,14 @@ async def proxy_worker_stream(url: str, token: str, run_id: str) -> AsyncIterato
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream("GET", stream_url, headers=headers) as response:
                 if response.status_code == 401:
-                    raise AuthError(f"Unauthorized (401) from {stream_url}")
+                    raise WorkerAuthRejectedError(f"Unauthorized (401) from {stream_url}")
                 if response.status_code != 200:
-                    raise DispatchError(f"HTTP {response.status_code} from {stream_url}")
+                    raise WorkerUnavailableError(f"HTTP {response.status_code} from {stream_url}")
                 async for chunk in response.aiter_bytes():
                     yield chunk
     except httpx.ConnectError as exc:
-        raise DispatchError(f"Connection error streaming from {stream_url}: {exc}") from exc
+        raise WorkerUnreachableError(
+            f"Connection error streaming from {stream_url}: {exc}"
+        ) from exc
     except httpx.RequestError as exc:
-        raise DispatchError(f"Request error streaming from {stream_url}: {exc}") from exc
+        raise WorkerUnreachableError(f"Request error streaming from {stream_url}: {exc}") from exc

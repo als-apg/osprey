@@ -588,7 +588,7 @@ channel_finder:
                                       # "explicit" - list all expanded channel names (StorageRing_BPM_01_Position_X, StorageRing_BPM_02_Position_X, ...)
                                       # "template" - use pattern notation (StorageRing_BPM_{01-10}_Position_{X,Y})
 
-      # Inner LLM model for the query_channels subagent tool (set per benchmark cell at runtime)
+      # Inner LLM model for the ask_channels subagent tool (set per benchmark cell at runtime)
       subagent_model: null
 {% endif %}
 {% if enable_hierarchical %}
@@ -621,7 +621,7 @@ channel_finder:
         path: data/channel_databases/middle_layer.json
                                       # Database must follow MML structure: System → Family → Field → ChannelNames
                                       # Supports optional _description fields and device/sector filtering via DeviceList
-        # duckdb_path gates the `query_channels` SQL/FTS tool: with it unset
+        # duckdb_path gates the `run_sql` SQL/FTS tool: with it unset
         # that one tool returns `not_configured` and the other middle-layer
         # tools carry on working. Nothing in build, scaffold or deploy creates
         # the file — build it from the JSON above yourself:

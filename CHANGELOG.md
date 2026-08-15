@@ -25,6 +25,32 @@ Compatibility is documented in release notes, not encoded in the version string.
   percent bars, no estimated finish times, and nothing is kept about how long
   earlier builds took.
 
+- The agent's panel tools now say which of the two things they do. A panel can be
+  on the launcher rail (reachable in one click) and it can be on screen; the old
+  `show_panel` moved rail membership despite its name, `hide_panel` moved both,
+  and `switch_panel` was the only verb that put anything on screen. They are now
+  `add_panel_to_rail` / `remove_panel_from_rail` and `open_panel` /
+  `close_panel`, each pair reversible by its partner.
+
+- The agent's workspace tools use one word per thing. Stored records are
+  `artifact_*` throughout (the parallel `data_*` family is gone, and `data_delete`
+  with it), the record id is always `artifact_id`, and `artifact_delete_all` now
+  requires the category to delete — it previously defaulted to deleting
+  everything. The channel-finder tools are `ask_channels` (natural language) and
+  `run_sql` (a query you wrote).
+
+- Connector-level names no longer assume EPICS. The write failure code is
+  `WRITE_FAILED` rather than `CAPUT_FAILED`, and `pv` is `channel` across the
+  archiver, simulation and taxonomy surfaces. `ChannelMetadata` exposes
+  `display_low`/`display_high`, and `channel_read` no longer advertises limits it
+  discarded.
+
+- `osprey validate` and `osprey profile validate` are one implementation, so the
+  two commands can no longer disagree about whether a profile is valid.
+
+- `IngestionScheduler.start` is now `run_forever`, which is what it does — it
+  blocks until cancelled rather than starting a background task.
+
 - Onboarding output is now written for the people who run accelerators rather
   than for the people who wrote OSPREY. `osprey init` prints the five entries
   you edit instead of a forty-line tour; the generated `profile.yml`,
@@ -76,6 +102,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   and each browser tab is titled after its role.
 
 ### Added
+
+- `close_panel` takes a panel's tile off the operator's screen and leaves it on
+  the rail, so it is one click from coming back. There was previously no way to
+  clear a single panel without also making it unlaunchable.
 
 - A red CI lane now leaves evidence behind. Every Docker lane captures its
   container logs, exit codes and `OOMKilled` flags — plus runner disk and
@@ -405,6 +435,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Removed
 
+- Registry and ARIEL exports that nothing called, including a second connector
+  registry that shadowed the real one.
+
 - The `osprey deploy` and `osprey claude` command groups, the `osprey config`
   subcommands, `osprey profile new` and `profile try`, several `osprey build`
   options, and the interactive menu that bare `osprey` used to launch. What to
@@ -468,6 +501,33 @@ Compatibility is documented in release notes, not encoded in the version string.
   list of valid `bluesky:` keys, rather than dropping the key silently.
 
 ### Fixed
+
+- A control-system write whose read-back could not be verified now fails instead
+  of reporting success. `write_channel` logged `Wrote <channel>` whenever the
+  write itself returned, so an operator could be told a setpoint had moved when
+  nothing had confirmed it.
+
+- Panels you switch off with `auto_launch: false` no longer appear as working
+  tabs. Five of the six companion panels published their URL before checking the
+  setting, so the panel was offered in the rail and its iframe returned a 502.
+  The same five now also survive an empty `OSPREY_<PANEL>_PORT` in a compose
+  file, which used to kill the launch outright and leave a dead tab.
+
+- `osprey health` runs from a subdirectory of your project, like every other
+  `osprey` verb, and its panel probe honours `OSPREY_<PANEL>_PORT` — so on a
+  multi-user deployment it checks each user's own panel rather than reporting
+  everyone's as down.
+
+- The `vllm`, `deepseek`, `ollama` and `argo` providers now ship a base URL that
+  can actually be reached, and `ARGO_BASE_URL` is declared where the credential
+  tooling can see it.
+
+- Logbook watch results keep `entries_updated`, which was dropped between the
+  service and the CLI, so an update reported as zero changes.
+
+- A `host`, `port` or `auto_launch` key written at the wrong nesting depth is now
+  refused with the correct path, instead of being silently ignored — which used
+  to start a panel you had switched off, or bind a port you had not asked for.
 
 - Per-user web terminals now receive ARIEL's database password. Without it, the
   ARIEL tab reported the database as unavailable and the agent's logbook tools

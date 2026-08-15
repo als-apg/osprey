@@ -72,7 +72,34 @@ class ComposeInterpolationError(DeploymentError):
         )
 
 
-class DevModeUnavailableError(DeploymentError):
+class DeploymentPreconditionError(DeploymentError):
+    """A deploy verb refused to act because a precondition is not met.
+
+    Every one of these means the same three things to an operator: the verb did
+    nothing, the deployment is exactly as it was, and there is one fixed thing
+    to do about it. So the two halves the operator needs are *fields* rather
+    than prose baked into a message — ``reason`` says what is not true, and
+    ``remedy`` says what makes it true (a command, possibly multi-line). A CLI
+    handler renders the pair and never has to know which precondition failed.
+
+    ``summary`` is the subclass's one-line lead-in, so ``str(exc)`` reads as
+    ``"{summary}: {reason}"``.
+
+    Every unmet-precondition refusal on a deploy path belongs here, so that
+    ``except DeploymentPreconditionError`` means exactly "the deploy refused,
+    nothing happened" — and, crucially, so that no such refusal escapes as a
+    bare :class:`RuntimeError`, indistinguishable from a genuine bug.
+    """
+
+    summary = "This deployment cannot proceed"
+
+    def __init__(self, reason: str, remedy: str) -> None:
+        self.reason = reason
+        self.remedy = remedy
+        super().__init__(f"{self.summary}: {reason}")
+
+
+class DevModeUnavailableError(DeploymentPreconditionError):
     """``--dev`` was requested but the local osprey wheel cannot be produced.
 
     ``--dev`` is a statement about *which code runs in the containers*: build a
@@ -87,13 +114,10 @@ class DevModeUnavailableError(DeploymentError):
     how to satisfy the precondition, which the CLI renders beneath the reason.
     """
 
-    def __init__(self, reason: str, remedy: str) -> None:
-        self.reason = reason
-        self.remedy = remedy
-        super().__init__(f"--dev cannot be honored: {reason}")
+    summary = "--dev cannot be honored"
 
 
-class UnreleasedVersionPinError(DeploymentError):
+class UnreleasedVersionPinError(DeploymentPreconditionError):
     """An ``osprey-framework==`` pin was needed, but this build is not a release.
 
     The same reasoning as :class:`DevModeUnavailableError`, from the other
@@ -106,7 +130,29 @@ class UnreleasedVersionPinError(DeploymentError):
     So this refuses, and carries a ``remedy`` the CLI renders beneath the reason.
     """
 
-    def __init__(self, reason: str, remedy: str) -> None:
-        self.reason = reason
-        self.remedy = remedy
-        super().__init__(f"Cannot pin osprey-framework: {reason}")
+    summary = "Cannot pin osprey-framework"
+
+
+class NoRenderedBuildError(DeploymentPreconditionError):
+    """A deploy verb was pointed at a repo whose ``build/`` holds no render.
+
+    Not a build *failure* — nothing was attempted. ``build/`` either does not
+    hold a rendered ``config.yml`` at all, or holds one declaring services that
+    no compose file was rendered for. Either way the verb has nothing to act on
+    and the remedy is singular: run ``osprey build``. It is also the one refusal
+    on this path that ``--as-built`` does not answer, since ``--as-built`` means
+    "start what is already rendered".
+    """
+
+    summary = "No rendered build to start from"
+
+
+class NoComposeFilesError(DeploymentPreconditionError):
+    """A read verb needs the compose files a build rendered, and there are none.
+
+    The counterpart of :class:`NoRenderedBuildError` for the verbs that only
+    *report* on a deployment (``osprey logs``): they never render, so an absent
+    or empty ``build/`` leaves them nothing to read.
+    """
+
+    summary = "No rendered compose files to read"

@@ -218,7 +218,7 @@ def _frames(app: FastAPI) -> list[dict]:
 
 
 def test_focus_on_non_member_adds_rail_membership():
-    """An agent switch_panel on a hidden panel must not leave a client-only entry."""
+    """An agent open_panel on a hidden panel must not leave a client-only entry."""
     app = _make_focus_app(visible=["ariel"])
     with TestClient(app) as client:
         resp = client.post("/api/panel-focus", json={"panel": "grafana", "source": "agent"})

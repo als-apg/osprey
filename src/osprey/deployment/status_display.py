@@ -36,6 +36,7 @@ from osprey.deployment.compose_generator import (
     resolve_project_name,
     resolve_user_volume_names,
 )
+from osprey.deployment.errors import NoComposeFilesError
 from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
 from osprey.deployment.staleness import BUILD_DIRNAME, staleness_reasons
 from osprey.deployment.web_terminals.naming import web_container_name
@@ -949,10 +950,6 @@ def show_repo_status(repo_root, *, console=None, styles=None, show_agents=False)
 # ---------------------------------------------------------------------------
 
 
-class NoComposeFilesError(RuntimeError):
-    """Raised when a repo has no rendered compose files to read logs from."""
-
-
 def logs_command(repo_root, *, service=None, follow=False, tail=None):
     """Build the ``compose logs`` argv and the environment to run it in.
 
@@ -995,8 +992,11 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
     config_path = as_built_config_path(repo_root)
     if not config_path.is_file():
         raise NoComposeFilesError(
-            f"No build found at {config_path.parent}. Run `osprey build` — `osprey logs` "
-            "reads the compose files a build rendered."
+            reason=f"No build found at {config_path.parent}.",
+            remedy=(
+                "Render one — `osprey logs` reads the compose files a build "
+                "rendered:\n    osprey build"
+            ),
         )
 
     config = load_project_config(str(config_path), wrap_errors=True)
@@ -1006,7 +1006,8 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
         compose_files.append(str(web_compose))
     if not compose_files:
         raise NoComposeFilesError(
-            f"No compose files in {config_path.parent}. Run `osprey build` to render them."
+            reason=f"No compose files in {config_path.parent}.",
+            remedy="Render them:\n    osprey build",
         )
 
     # The shared resolver answers `[]` for a missing `.env` and warns that

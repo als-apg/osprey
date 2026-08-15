@@ -1,7 +1,8 @@
 """Per-component-type initialization functions.
 
-Each function loads registered components of a single type (providers,
-connectors, services, ARIEL modules) into the shared *registries* dict.
+Each function loads registered components of a single type (providers, services,
+ARIEL modules) into the shared *registries* dict. Connectors are the exception:
+they are registered with ``ConnectorFactory``, which is their only lookup path.
 
 .. note::
 
@@ -106,15 +107,21 @@ def initialize_providers(
 def initialize_connectors(
     *,
     config: RegistryConfig,
-    registries: dict[str, dict[str, Any]],
+    registries: dict[str, dict[str, Any]],  # noqa: ARG001 - dispatch contract; see below
     excluded_provider_names: list[str],
 ) -> None:
     """Initialize control system and archiver connectors from registry config.
 
-    Loads connector classes and registers them with ``ConnectorFactory`` for
-    runtime use.
+    Loads connector classes and registers them with ``ConnectorFactory``, which is
+    the sole lookup path for connectors at runtime.
+
+    Unlike its sibling initializers this one does not populate *registries*:
+    connectors live in ``ConnectorFactory``, and a second copy here would be a
+    parallel home for the same fact with no readers. The parameter is accepted
+    only to keep the uniform ``INITIALIZER_DISPATCH`` signature.
     """
     logger.info(f"Initializing {len(config.connectors)} connector(s)...")
+    registered = 0
 
     # LAYERING NOTE: upward import from connectors (L4)
     try:
@@ -140,8 +147,7 @@ def initialize_connectors(
                     f"Must be 'control_system' or 'archiver'"
                 )
 
-            registries["connectors"][registration.name] = connector_class
-
+            registered += 1
             logger.info(
                 f"  ✓ Registered {registration.connector_type} connector: {registration.name}"
             )
@@ -156,9 +162,7 @@ def initialize_connectors(
             logger.error(f"  ✗ Failed to register connector '{registration.name}': {e}")
             raise RegistryError(f"Connector registration failed for {registration.name}") from e
 
-    logger.info(
-        f"Connector initialization complete: {len(registries['connectors'])} connectors loaded"
-    )
+    logger.info(f"Connector initialization complete: {registered} connectors loaded")
 
 
 def initialize_ariel_search_modules(

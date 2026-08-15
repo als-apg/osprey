@@ -1,6 +1,6 @@
 """Agent-attribution (``source: "agent"``) on panel event frames.
 
-Task 1.4 (source-agent-tagging): the three panel routes accept an optional
+The panel routes accept an optional
 ``source: "agent"`` field and pass it through into their SSE broadcast
 frames; browser-originated POSTs (which never send ``source``) broadcast
 without it — the key is *omitted*, not null.  The MCP-side
@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.routes.panels import router
 from osprey.mcp_server.http import (
+    notify_panel_close,
     notify_panel_focus,
     notify_panel_register,
     notify_panel_visibility,
@@ -89,6 +90,44 @@ class TestPanelVisibilitySource:
         frame = _broadcast_frame(client)
         assert frame == {"type": "panel_visibility", "panel": "ariel", "visible": False}
         assert "source" not in frame
+
+
+class TestPanelCloseSource:
+    """``/api/panel-close`` — the on-screen half, separate from visibility."""
+
+    def test_agent_source_broadcast(self):
+        client = _make_client()
+        resp = client.post("/api/panel-close", json={"panel": "ariel", "source": "agent"})
+        assert resp.status_code == 200
+        frame = _broadcast_frame(client)
+        assert frame == {"type": "panel_close", "panel": "ariel", "source": "agent"}
+
+    def test_human_close_broadcast_without_source(self):
+        client = _make_client()
+        resp = client.post("/api/panel-close", json={"panel": "ariel"})
+        assert resp.status_code == 200
+        frame = _broadcast_frame(client)
+        assert frame == {"type": "panel_close", "panel": "ariel"}
+        assert "source" not in frame
+
+    def test_unknown_panel_is_rejected(self):
+        client = _make_client()
+        resp = client.post("/api/panel-close", json={"panel": "nope", "source": "agent"})
+        assert resp.status_code == 422
+        client.app.state.broadcaster.broadcast.assert_not_called()
+
+    def test_closing_never_broadcasts_a_visibility_frame(self):
+        """Rail membership is untouched — that is the whole point of the verb.
+
+        A ``panel_visibility`` frame here would remove the rail entry on every
+        client, which is what the old ``hide_panel`` did and what the operator
+        loses the panel to.
+        """
+        client = _make_client()
+        client.post("/api/panel-close", json={"panel": "ariel", "source": "agent"})
+        frame = _broadcast_frame(client)
+        assert frame["type"] != "panel_visibility"
+        assert "visible" not in frame
 
 
 class TestPanelRegisterSource:
@@ -174,6 +213,14 @@ class TestNotifyHelpersSendAgentSource:
             notify_panel_focus("ariel", url="/some/path")
         _, body = _CaptureHandler.captured[0]
         assert body == {"panel": "ariel", "url": "/some/path", "source": "agent"}
+
+    def test_notify_panel_close(self, capture_server):
+        """Closing posts to its own route — never to panel-visibility."""
+        with _patched_url(capture_server):
+            notify_panel_close("ariel")
+        path, body = _CaptureHandler.captured[0]
+        assert path == "/api/panel-close"
+        assert body == {"panel": "ariel", "source": "agent"}
 
     def test_notify_panel_visibility(self, capture_server):
         with _patched_url(capture_server):

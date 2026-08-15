@@ -393,13 +393,14 @@ def hermetic_hub() -> Iterator[HermeticHub]:
 
     The hub is wired to the pre-launched artifacts backend with the three patches
     the visual-regression harness uses (``_load_web_config`` → the seeded
-    watch_dir, ``_load_panel_config`` → artifacts-only, ``_launch_artifact_server``
+    watch_dir, ``_load_panel_config`` → artifacts-only, ``_launch_panel_server``
     → the already-running backend URL), so no extra server is spawned and no live
     agent is involved. On exit both servers stop and both the project directory
     and its ``~/.claude/projects/<encoded>/`` session directory are removed.
     """
     from osprey.cli.project_utils import encode_claude_project_path
     from osprey.interfaces._serving import run_app_server
+    from osprey.registry.web import panel_url_state_attr
 
     project_dir = Path(tempfile.mkdtemp(prefix="osprey-contact-sheet-")).resolve()
     session_dir = Path.home() / ".claude" / "projects" / encode_claude_project_path(project_dir)
@@ -426,8 +427,10 @@ def hermetic_hub() -> Iterator[HermeticHub]:
             )
             stack.enter_context(
                 mock.patch(
-                    f"{app_mod}._launch_artifact_server",
-                    side_effect=lambda a: setattr(a.state, "artifact_server_url", artifact_url),
+                    f"{app_mod}._launch_panel_server",
+                    side_effect=lambda a, key: setattr(
+                        a.state, panel_url_state_attr(key), artifact_url
+                    ),
                 )
             )
 

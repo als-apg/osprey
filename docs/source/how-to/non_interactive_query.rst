@@ -123,8 +123,8 @@ cannot call any of these tools even if it tries. The list is the union of:
   ``mcp__python__execute_file``, ``mcp__osprey_workspace__setup_patch``),
   derived from the server registry so the blocked set tracks the framework
   rather than a hand-maintained copy.
-- **Destructive workspace tools** — ``data_delete``, ``artifact_delete``, and
-  ``artifact_delete_all``, which permanently remove stored data/artifacts.
+- **Destructive workspace tools** — ``artifact_delete`` and
+  ``artifact_delete_all``, which permanently remove stored artifacts.
 - **Facility-custom write tools** — any tool a custom MCP server in
   ``claude_code.servers`` marks under ``permissions.ask`` (or a custom server
   that writes-check-gates all its tools) is blocked too. Declare custom write

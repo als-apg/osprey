@@ -351,8 +351,13 @@ def test_a_build_without_its_compose_files_is_not_silently_started(lifecycle_rep
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 1
-    assert "no compose files were rendered" in caplog.text
-    assert "osprey build" in caplog.text
+    # Rendered on the console by the shared unmet-precondition handler: the
+    # reason, then the one remedy. Collapse whitespace before matching -- the
+    # console wraps to the terminal width, so a phrase this long straddles a
+    # line break and would not be found verbatim.
+    flowed = " ".join(result.output.split())
+    assert "no compose files were rendered" in flowed
+    assert "osprey build" in flowed
     assert not started
 
 

@@ -166,7 +166,9 @@ def test_the_walk_still_reaches_the_output_people_read() -> None:
     assert len(files) > 30, f"only {len(files)} files matched -- has the walk stopped descending?"
 
     # The onboarding path specifically, since that is what these rules exist for.
-    for expected in ("cli/init_cmd.py", "cli/profile_cmd.py", "deployment/status_display.py"):
+    # `validate_cmd.py` rather than `profile_cmd.py`: the profile group's verdict
+    # copy lives there now, printed once for both spellings of the verb.
+    for expected in ("cli/init_cmd.py", "cli/validate_cmd.py", "deployment/status_display.py"):
         assert any(str(path).endswith(expected) for path in files), (
             f"{expected} contributes no printed strings -- it is no longer covered"
         )

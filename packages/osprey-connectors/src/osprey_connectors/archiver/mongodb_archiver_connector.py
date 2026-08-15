@@ -1,8 +1,8 @@
 """
-MongoDB archiver connector for historical PV data retrieval.
+MongoDB archiver connector for historical channel data retrieval.
 
-Provides interface to MongoDB collections containing archived PV data.
-Documents are expected to have a 'date' field and PV names as fields.
+Provides interface to MongoDB collections containing archived channel data.
+Documents are expected to have a 'date' field and channel addresses as fields.
 """
 
 import asyncio
@@ -89,11 +89,11 @@ def address_overrides() -> tuple[str | None, int | None]:
 
 class MongoDBArchiverConnector(ArchiverConnector):
     """
-    MongoDB archiver connector for historical PV data.
+    MongoDB archiver connector for historical channel data.
 
-    Provides access to historical PV data stored in MongoDB collections.
+    Provides access to historical channel data stored in MongoDB collections.
     Documents are expected to have the structure:
-    {date: ISODate(...), PV1: value1, PV2: value2, ...}
+    {date: ISODate(...), CHANNEL1: value1, CHANNEL2: value2, ...}
 
     Example:
         >>> config = {
@@ -108,7 +108,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         >>> connector = MongoDBArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     pv_list=['BEAM:CURRENT'],
+        >>>     channels=['BEAM:CURRENT'],
         >>>     start_date=datetime(2024, 1, 1),
         >>>     end_date=datetime(2024, 1, 2)
         >>> )
@@ -293,7 +293,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
     async def get_data(
         self,
-        pv_list: list[str],
+        channels: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
@@ -304,7 +304,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Retrieve historical data from MongoDB collection.
 
         Args:
-            pv_list: List of PV names to retrieve
+            channels: Channel addresses to retrieve
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision in milliseconds (for downsampling)
@@ -323,7 +323,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 lost mid-query — the caller is expected to drop this connector
                 and reconnect
             TypeError: If start_date or end_date are not datetime objects
-            ValueError: If pv_list is empty, data retrieval fails, or a
+            ValueError: If channels is empty, data retrieval fails, or a
                 non-raw processing mode is requested for a channel that
                 carries non-numeric values
         """
@@ -335,22 +335,22 @@ class MongoDBArchiverConnector(ArchiverConnector):
         # means facility-local, as in every other connector.
         start_utc, end_utc = utc_window(start_date, end_date)
 
-        if not pv_list:
-            raise ValueError("pv_list cannot be empty")
+        if not channels:
+            raise ValueError("channels cannot be empty")
 
         resolved = resolve_processing(processing, precision_ms)
 
         def fetch_data():
             """Synchronous data fetch function."""
-            # Match any document carrying at least one requested PV: ANDing
-            # existence would silently return nothing for PVs archived apart.
+            # Match any document carrying at least one requested channel: ANDing
+            # existence would silently return nothing for channels archived apart.
             query = {
                 "date": {"$gte": start_utc, "$lte": end_utc},
-                "$or": [{pv: {"$exists": True}} for pv in pv_list],
+                "$or": [{channel: {"$exists": True}} for channel in channels],
             }
 
-            # Project only the fields we need: date and requested PVs.
-            projection = {"date": 1, **dict.fromkeys(pv_list, 1)}
+            # Project only the fields we need: date and requested channels.
+            projection = {"date": 1, **dict.fromkeys(channels, 1)}
 
             # Query MongoDB collection
             cursor = self._collection.find(query, projection).sort("date", 1)
@@ -361,28 +361,30 @@ class MongoDBArchiverConnector(ArchiverConnector):
             if not documents:
                 logger.debug(f"No documents found in date range {start_date} to {end_date}")
 
-            # Group documents into one series per requested PV. A PV absent
+            # Group documents into one series per requested channel. A channel absent
             # from a given document contributes no sample for that channel.
-            timestamps: dict[str, list] = {pv: [] for pv in pv_list}
-            values: dict[str, list] = {pv: [] for pv in pv_list}
+            timestamps: dict[str, list] = {channel: [] for channel in channels}
+            values: dict[str, list] = {channel: [] for channel in channels}
             for doc in documents:
                 doc_date = doc.get("date")
                 if doc_date is None:
                     logger.warning("Document missing 'date' field, skipping")
                     continue
-                for pv in pv_list:
-                    if pv in doc:
-                        timestamps[pv].append(doc_date)
-                        values[pv].append(doc[pv])
+                for channel in channels:
+                    if channel in doc:
+                        timestamps[channel].append(doc_date)
+                        values[channel].append(doc[channel])
 
             # No server-side aggregation to defer to, so every mode — including
             # "raw" — is binned client-side here.
             return aggregate_long_frame(
                 {
-                    pv: pd.Series(
-                        values[pv], index=pd.to_datetime(timestamps[pv], utc=True), name=pv
+                    channel: pd.Series(
+                        values[channel],
+                        index=pd.to_datetime(timestamps[channel], utc=True),
+                        name=channel,
                     )
-                    for pv in pv_list
+                    for channel in channels
                 },
                 resolved,
             )
@@ -392,7 +394,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=timeout)
 
             logger.debug(
-                f"Retrieved MongoDB archiver data: {len(data)} rows across {len(pv_list)} PVs"
+                f"Retrieved MongoDB archiver data: {len(data)} rows across {len(channels)} channels"
             )
             return data
 
@@ -414,23 +416,23 @@ class MongoDBArchiverConnector(ArchiverConnector):
             logger.error(f"Unexpected error retrieving data: {e}", exc_info=True)
             raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
 
-    async def get_metadata(self, pv_name: str) -> ArchiverMetadata:
+    async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """
-        Get archiving metadata for a PV.
+        Get archiving metadata for a channel.
 
         ``archival_start`` and ``archival_end`` are the timestamps of the
-        oldest and newest documents actually holding this PV, read from the
+        oldest and newest documents actually holding this channel, read from the
         store — not a declared or assumed coverage window. An agent that asks
         how far back the history goes gets the real answer, so a query outside
         the stored range reads as "not archived that far back" rather than as
         missing data inside a range it was told existed.
 
         Args:
-            pv_name: Name of the process variable
+            channel: Name of the process variable
 
         Returns:
             ArchiverMetadata; ``is_archived`` is False and both bounds are None
-            when the PV has no stored samples or the store cannot be queried.
+            when the channel has no stored samples or the store cannot be queried.
 
         Raises:
             RuntimeError: If archiver not connected
@@ -438,10 +440,10 @@ class MongoDBArchiverConnector(ArchiverConnector):
         self._require_connected()
 
         def stored_extent():
-            """Timestamps of the oldest and newest documents carrying this PV."""
+            """Timestamps of the oldest and newest documents carrying this channel."""
             # Sorting on 'date' rides the mandatory {date: 1} index, so this is
             # two index-ordered lookups rather than a collection scan.
-            query = {pv_name: {"$exists": True}}
+            query = {channel: {"$exists": True}}
             projection = {"date": 1}
             oldest = self._collection.find_one(query, projection, sort=[("date", 1)])
             if oldest is None:
@@ -452,46 +454,46 @@ class MongoDBArchiverConnector(ArchiverConnector):
         try:
             first, last = await asyncio.to_thread(stored_extent)
         except Exception as e:
-            logger.warning(f"Error checking PV metadata: {e}")
+            logger.warning(f"Error checking channel metadata: {e}")
             first = last = None
 
         return ArchiverMetadata(
-            pv_name=pv_name,
+            channel=channel,
             is_archived=first is not None,
             archival_start=first,
             archival_end=last,
-            description=f"MongoDB Archived PV: {pv_name}",
+            description=f"MongoDB archived channel: {channel}",
         )
 
-    async def check_availability(self, pv_names: list[str]) -> dict[str, bool]:
+    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
         """
-        Check which PVs are archived in the MongoDB collection.
+        Check which channels are archived in the MongoDB collection.
 
         Args:
-            pv_names: List of PV names to check
+            channels: Channel addresses to check
 
         Returns:
-            Dictionary mapping PV name to availability status
+            Dictionary mapping channel address to availability status
 
         Raises:
             RuntimeError: If archiver not connected
         """
         self._require_connected()
 
-        def check_pvs():
-            """Check which PVs exist in the collection."""
+        def check_channels():
+            """Check which channels exist in the collection."""
             availability = {}
-            for pv in pv_names:
-                query = {pv: {"$exists": True}}
+            for channel in channels:
+                query = {channel: {"$exists": True}}
                 count = self._collection.count_documents(query, limit=1)
-                availability[pv] = count > 0
+                availability[channel] = count > 0
             return availability
 
         try:
-            availability = await asyncio.to_thread(check_pvs)
+            availability = await asyncio.to_thread(check_channels)
         except Exception as e:
-            logger.warning(f"Error checking PV availability: {e}")
+            logger.warning(f"Error checking channel availability: {e}")
             # Return all False on error
-            availability = dict.fromkeys(pv_names, False)
+            availability = dict.fromkeys(channels, False)
 
         return availability

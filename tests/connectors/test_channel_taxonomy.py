@@ -2,11 +2,11 @@
 
 import pytest
 
-from osprey.connectors.pv_taxonomy import classify_pv
+from osprey.connectors.channel_taxonomy import classify_channel
 
 
 @pytest.mark.parametrize(
-    ("pv_name", "kind", "base_value", "units", "noise_scale"),
+    ("channel", "kind", "base_value", "units", "noise_scale"),
     [
         ("SR:BEAM:CURRENT", "beam_current", 500.0, "mA", 0.0),
         ("SR:DCCT", "beam_current", 500.0, "mA", 0.0),  # DCCT is a beam-current monitor
@@ -22,8 +22,8 @@ from osprey.connectors.pv_taxonomy import classify_pv
         ("SOME:RANDOM:PV", "default", 100.0, "", 0.0),
     ],
 )
-def test_classify_pv(pv_name, kind, base_value, units, noise_scale):
-    result = classify_pv(pv_name)
+def test_classify_channel(channel, kind, base_value, units, noise_scale):
+    result = classify_channel(channel)
     assert result.name == kind
     assert result.base_value == base_value
     assert result.units == units
@@ -32,8 +32,8 @@ def test_classify_pv(pv_name, kind, base_value, units, noise_scale):
 
 def test_beam_current_takes_priority_over_generic_current():
     """A PV matching both 'beam' and 'current' classifies as beam_current."""
-    assert classify_pv("BEAM:CURRENT:MONITOR").name == "beam_current"
-    assert classify_pv("CORRECTOR:CURRENT").name == "current"
+    assert classify_channel("BEAM:CURRENT:MONITOR").name == "beam_current"
+    assert classify_channel("CORRECTOR:CURRENT").name == "current"
 
 
 def test_position_is_the_only_kind_carrying_an_absolute_noise_floor():
@@ -55,8 +55,8 @@ def test_position_is_the_only_kind_carrying_an_absolute_noise_floor():
         "SOME:RANDOM:PV": 0.0,
         "BPM:POSITION:X": 0.005,
     }
-    for pv_name, expected in probes.items():
-        kind = classify_pv(pv_name)
-        assert kind.noise_scale == expected, pv_name
+    for channel, expected in probes.items():
+        kind = classify_channel(channel)
+        assert kind.noise_scale == expected, channel
         # The floor is only ever needed where the relative sigma is dead.
-        assert (kind.noise_scale > 0.0) == (kind.base_value == 0.0), pv_name
+        assert (kind.noise_scale > 0.0) == (kind.base_value == 0.0), channel

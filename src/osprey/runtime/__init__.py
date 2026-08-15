@@ -24,6 +24,12 @@ Limits Validation:
        net in subprocess execution where the connector may not be fully configured.
     2. Connector-level: The control system connector validates writes against its
        own configured limits database as a secondary check.
+
+Write Outcomes:
+    Writes go through the connector's ``write_channel_checked``, so a write that
+    was refused, that failed, or whose readback did not confirm the setpoint
+    raises instead of returning. Generated code never has to inspect a result
+    object to find out whether the hardware took the value.
 """
 
 import asyncio
@@ -84,6 +90,9 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     The connector handles limits validation when available.
     The injected _limits_validator provides a safety net for subprocess execution
     where the connector's config-based validator may not be initialized.
+
+    Returns normally only for a write that verifiably landed; every other outcome
+    raises. See :func:`write_channel`.
     """
     # Safety net: validate against injected limits validator (set by execution wrapper)
     # This catches violations even when the connector's own validator isn't configured
@@ -91,23 +100,25 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
         _limits_validator.validate(channel_address, value)  # Raises ChannelLimitsViolationError
 
     connector = await _get_connector()
-    result = await connector.write_channel(channel_address, value, **kwargs)
+    # write_channel_checked is the reference monitor's denial contract: it raises
+    # on a refusal, on a failed write, AND on a write whose readback did not
+    # confirm the setpoint. Calling write_channel directly would let an
+    # unverified write return silently and get logged as "Wrote ...".
+    result = await connector.write_channel_checked(channel_address, value, **kwargs)
 
-    if not result.success:
-        raise RuntimeError(f"Write failed for {channel_address}: {result.error_message}")
-
-    # Log success with verification info if available
-    if result.verification and result.verification.verified:
-        logger.debug(f"Wrote {channel_address} = {value} [{result.verification.level} verified]")
+    # Reaching here means verified, or no verification was requested at all.
+    verification = result.verification
+    if verification is not None and verification.verified:
+        logger.debug(f"Wrote {channel_address} = {value} [{verification.level} verified]")
     else:
-        logger.debug(f"Wrote {channel_address} = {value}")
+        logger.debug(f"Wrote {channel_address} = {value} [no verification requested]")
 
 
 async def _read_channel_async(channel_address: str, **kwargs) -> Any:
     """Internal async implementation for reading from a channel."""
     connector = await _get_connector()
-    pv_value = await connector.read_channel(channel_address, **kwargs)
-    return pv_value.value
+    channel_value = await connector.read_channel(channel_address, **kwargs)
+    return channel_value.value
 
 
 async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> None:
@@ -121,13 +132,14 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
             for channel_address, value in channel_values.items():
                 _limits_validator.validate(channel_address, value)
 
+        from osprey.connectors.control_system import raise_for_write_result
+
         connector = await _get_connector()
         results = await connector.write_multiple_channels(list(channel_values.items()), **kwargs)
+        # Same denial contract as the single-channel path: a refusal or an
+        # unverified write must raise rather than return.
         for result in results:
-            if not result.success:
-                raise RuntimeError(
-                    f"Write failed for {result.channel_address}: {result.error_message}"
-                )
+            raise_for_write_result(result)
 
 
 def _run_async(coro) -> Any:
@@ -171,7 +183,10 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
 
     Raises:
         ChannelLimitsViolationError: If value violates channel safety limits
-        RuntimeError: If write operation fails
+        ChannelWriteBlockedError: If the write was refused (writes disabled,
+            limits, or validation) and never attempted
+        ChannelWriteFailedError: If the write was attempted but failed, or came
+            back unverified because the readback did not match the setpoint
         TimeoutError: If operation times out
 
     Examples:
@@ -222,7 +237,10 @@ def write_channels(channel_values: dict[str, Any], **kwargs) -> None:
         **kwargs: Additional arguments passed to each write
 
     Raises:
-        RuntimeError: If any write operation fails
+        ChannelLimitsViolationError: If a value violates channel safety limits
+        ChannelWriteBlockedError: If any write was refused and never attempted
+        ChannelWriteFailedError: If any write failed or came back unverified.
+            Writes before the failing one have already been applied.
 
     Examples:
         >>> from osprey.runtime import write_channels

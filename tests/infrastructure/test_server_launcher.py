@@ -25,7 +25,12 @@ from osprey.infrastructure.server_launcher import (
     _resolve_dotted,
     ensure_web_server,
 )
-from osprey.registry.web import FRAMEWORK_WEB_SERVERS, WebServerDefinition
+from osprey.registry.web import (
+    FRAMEWORK_WEB_SERVERS,
+    WebServerConfigDepthError,
+    WebServerDefinition,
+    resolve_web_server_address,
+)
 
 
 def _free_port() -> int:
@@ -41,6 +46,7 @@ def _defn(**overrides) -> WebServerDefinition:
         "name": "Test Server",
         "factory_path": "types:SimpleNamespace",
         "config_key": "test_server",
+        "panel_id": "test-server",
     }
     base.update(overrides)
     return WebServerDefinition(**base)
@@ -75,6 +81,90 @@ class TestLauncherAddressResolution:
             monkeypatch.delenv(defn.port_env_var, raising=False)
             _host, port = server_launcher._launchers[key]._config_reader()
             assert port == defn.port_default, f"{key} resolved another server's port"
+
+
+# ---------------------------------------------------------------------------
+# auto_launch — read at exactly one depth, and never silently at the wrong one
+# ---------------------------------------------------------------------------
+
+
+class TestAutoLaunchNesting:
+    """``auto_launch: false`` must never leave the panel launching.
+
+    The six companion servers disagree about depth: three take
+    ``<section>.web.auto_launch``, three take ``<section>.auto_launch``. Reading
+    the wrong depth returned the *default* — so ``ariel.auto_launch: false``
+    (correct: ``ariel.web.auto_launch``) read back as ``True`` and the panel the
+    operator had just switched off started anyway.
+    """
+
+    @staticmethod
+    def _checker(key: str, config: dict, monkeypatch) -> bool:
+        monkeypatch.setattr(
+            "osprey.infrastructure.server_launcher.load_osprey_config", lambda: config
+        )
+        return server_launcher._make_auto_launch_checker(FRAMEWORK_WEB_SERVERS[key])()
+
+    @pytest.mark.parametrize(
+        ("key", "config"),
+        [
+            ("ariel", {"ariel": {"web": {"auto_launch": False}}}),
+            ("system_health", {"health": {"web": {"auto_launch": False}}}),
+            ("artifact", {"artifact_server": {"auto_launch": False}}),
+            ("okf", {"facility_knowledge": {"bundle_path": "x", "auto_launch": False}}),
+        ],
+    )
+    def test_auto_launch_false_at_the_read_depth_disables_the_panel(self, key, config, monkeypatch):
+        assert self._checker(key, config, monkeypatch) is False
+
+    @pytest.mark.parametrize(
+        ("key", "config"),
+        [
+            # Nested readers: the key written one level too shallow.
+            ("ariel", {"ariel": {"auto_launch": False}}),
+            ("channel_finder", {"channel_finder": {"auto_launch": False}}),
+            ("system_health", {"health": {"auto_launch": False}}),
+            # Flat readers: the key written one level too deep.
+            ("artifact", {"artifact_server": {"web": {"auto_launch": False}}}),
+            ("lattice_dashboard", {"lattice_dashboard": {"web": {"auto_launch": False}}}),
+            ("okf", {"facility_knowledge": {"bundle_path": "x", "web": {"auto_launch": False}}}),
+        ],
+    )
+    def test_auto_launch_false_at_the_wrong_depth_never_starts_the_panel(
+        self, key, config, monkeypatch
+    ):
+        """The one thing that must not happen is a silent ``True``."""
+        with pytest.raises(WebServerConfigDepthError) as excinfo:
+            self._checker(key, config, monkeypatch)
+        assert "auto_launch" in str(excinfo.value)
+
+    def test_the_error_names_both_the_wrong_key_and_the_right_one(self, monkeypatch):
+        with pytest.raises(WebServerConfigDepthError) as excinfo:
+            self._checker("ariel", {"ariel": {"auto_launch": False}}, monkeypatch)
+        message = str(excinfo.value)
+        assert "ariel.auto_launch" in message
+        assert "ariel.web.auto_launch" in message
+
+    def test_a_misplaced_port_is_refused_too(self, monkeypatch):
+        """``artifact_server.web.port`` was inert — the gallery stayed on 8086."""
+        monkeypatch.setattr(
+            "osprey.utils.workspace.load_osprey_config",
+            lambda: {"artifact_server": {"web": {"port": 9999}}},
+        )
+        with pytest.raises(WebServerConfigDepthError, match=r"artifact_server\.web\.port"):
+            server_launcher._launchers["artifact"]._config_reader()
+
+    def test_keys_at_the_read_depth_are_untouched(self, monkeypatch):
+        """The check must not flag the legitimate spelling of either shape."""
+        monkeypatch.setattr(
+            "osprey.utils.workspace.load_osprey_config",
+            lambda: {
+                "ariel": {"web": {"port": 1111}, "database": {"uri": "postgres://x"}},
+                "artifact_server": {"port": 2222, "categories": {}},
+            },
+        )
+        assert resolve_web_server_address("ariel")[1] == 1111
+        assert resolve_web_server_address("artifact")[1] == 2222
 
 
 # ---------------------------------------------------------------------------

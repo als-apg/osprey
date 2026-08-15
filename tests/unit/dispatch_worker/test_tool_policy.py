@@ -82,11 +82,11 @@ class TestPretooluseHookContexts:
         hook = _hook()
 
         # Act — settings-allowed tool that the trigger did not name
-        result = await hook(_main_input("mcp__osprey_workspace__data_list"), "t1", None)
+        result = await hook(_main_input("mcp__osprey_workspace__artifact_list"), "t1", None)
 
         # Assert
         assert _decision(result) == "deny"
-        assert "mcp__osprey_workspace__data_list" in _reason(result)
+        assert "mcp__osprey_workspace__artifact_list" in _reason(result)
 
     async def test_hook_denies_subagent_only_tool_on_main_thread(self):
         # Arrange — subagent surfaces must not leak into the main thread
@@ -333,7 +333,7 @@ class TestBackstop:
         backstop = make_backstop(TRIGGER_TOOLS, SURFACES, DENIED)
 
         # Act
-        result = await backstop("mcp__osprey_workspace__data_list", {}, _ctx(agent_id="a"))
+        result = await backstop("mcp__osprey_workspace__artifact_list", {}, _ctx(agent_id="a"))
 
         # Assert
         assert _is_deny(result)

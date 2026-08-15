@@ -3,15 +3,27 @@
 Tests the runtime utilities for control system operations in generated Python code.
 """
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from osprey.connectors.control_system.base import (
+    ChannelMetadata,
+    ChannelValue,
+    ChannelWriteResult,
+    ControlSystemConnector,
+    WriteVerification,
+)
 from osprey.connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )
-from osprey.errors import ChannelLimitsViolationError
+from osprey.errors import (
+    ChannelLimitsViolationError,
+    ChannelWriteBlockedError,
+    ChannelWriteFailedError,
+)
 from osprey.runtime import (
     _write_channel_async,
     cleanup_runtime,
@@ -21,20 +33,36 @@ from osprey.runtime import (
 )
 
 
-class MockConnector:
-    """Mock control system connector for testing."""
+class MockConnector(ControlSystemConnector):
+    """Mock control system connector for testing.
 
-    def __init__(self):
-        self.write_calls = []
-        self.read_calls = []
+    A real ``ControlSystemConnector`` subclass so the runtime exercises the same
+    denial contract (``write_channel_checked``) it uses against live connectors.
+    Writes are forced enabled; ``write_channel`` returns ``self.canned_result``
+    when one is set, otherwise a verified success.
+    """
+
+    def __init__(self, canned_result: ChannelWriteResult | None = None):
+        self.write_calls: list[tuple[str, Any, dict]] = []
+        self.read_calls: list[tuple[str, dict]] = []
         self.disconnect_called = False
+        self.canned_result = canned_result
+
+    @property
+    def _writes_enabled(self) -> bool:
+        return True
 
     async def write_channel(self, channel_address: str, value, **kwargs):
         """Mock write operation."""
         self.write_calls.append((channel_address, value, kwargs))
-        result = MagicMock()
-        result.success = True
-        return result
+        if self.canned_result is not None:
+            return self.canned_result
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            success=True,
+            verification=WriteVerification(level="callback", verified=True),
+        )
 
     async def write_multiple_channels(self, operations, **kwargs):
         """Mock batch write — delegates to write_channel."""
@@ -46,13 +74,30 @@ class MockConnector:
     async def read_channel(self, channel_address: str, **kwargs):
         """Mock read operation."""
         self.read_calls.append((channel_address, kwargs))
-        pv_value = MagicMock()
-        pv_value.value = 42.0
-        return pv_value
+        channel_value = MagicMock()
+        channel_value.value = 42.0
+        return channel_value
 
     async def disconnect(self):
         """Mock disconnect."""
         self.disconnect_called = True
+
+    # --- Unused abstract-method stubs -------------------------------------
+    async def connect(self, config: dict[str, Any]) -> None: ...
+    async def read_multiple_channels(
+        self, channel_addresses: list[str], timeout: float | None = None
+    ) -> dict[str, ChannelValue]:
+        raise NotImplementedError
+
+    async def subscribe(self, channel_address, callback) -> str:
+        raise NotImplementedError
+
+    async def unsubscribe(self, subscription_id: str) -> None: ...
+    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+        raise NotImplementedError
+
+    async def validate_channel(self, channel_address: str) -> bool:
+        raise NotImplementedError
 
 
 @pytest.fixture
@@ -85,24 +130,128 @@ def test_write_channel_success(clear_runtime_state):
 
 
 def test_write_channel_failure(clear_runtime_state):
-    """Test write_channel with failed write."""
-    mock_connector = MockConnector()
-
-    async def failing_write(channel_address, value, **kwargs):
-        result = MagicMock()
-        result.success = False
-        result.error_message = "Write failed"
-        return result
-
-    mock_connector.write_channel = failing_write
+    """A write the control system could not deliver raises ChannelWriteFailedError."""
+    mock_connector = MockConnector(
+        canned_result=ChannelWriteResult(
+            channel_address="TEST:PV",
+            value_written=42.0,
+            success=False,
+            error_message="Write failed",
+        )
+    )
 
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
     ) as mock_factory:
         mock_factory.return_value = mock_connector
 
-        with pytest.raises(RuntimeError, match="Write failed"):
+        with pytest.raises(ChannelWriteFailedError, match="Write failed") as excinfo:
             write_channel("TEST:PV", 42.0)
+
+        assert excinfo.value.reason == "WRITE_FAILED"
+
+
+class TestRuntimeWriteVerification:
+    """The runtime must not report success for a write the hardware did not take.
+
+    ``write_channel`` returns ``success=True, verified=False`` when the readback
+    disagrees with the setpoint. Agent-authored Python calling the runtime has to
+    see that as a failure, not as a silent return.
+    """
+
+    def test_readback_mismatch_raises(self, clear_runtime_state):
+        """success=True with an unverified readback is a FAILED write, not a success."""
+        mock_connector = MockConnector(
+            canned_result=ChannelWriteResult(
+                channel_address="TEST:PV",
+                value_written=42.0,
+                success=True,
+                verification=WriteVerification(
+                    level="readback",
+                    verified=False,
+                    readback_value=0.0,
+                    tolerance_used=0.1,
+                    notes="Readback mismatch: 0.0 (expected 42.0)",
+                ),
+            )
+        )
+
+        with patch(
+            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        ) as mock_factory:
+            mock_factory.return_value = mock_connector
+
+            with pytest.raises(ChannelWriteFailedError) as excinfo:
+                write_channel("TEST:PV", 42.0)
+
+            assert excinfo.value.reason == "READBACK_UNVERIFIED"
+            assert excinfo.value.channel_address == "TEST:PV"
+
+    def test_multi_channel_readback_mismatch_raises(self, clear_runtime_state):
+        """The multi-channel path enforces the same contract as the single path."""
+        mock_connector = MockConnector(
+            canned_result=ChannelWriteResult(
+                channel_address="TEST:PV1",
+                value_written=1.0,
+                success=True,
+                verification=WriteVerification(
+                    level="callback",
+                    verified=False,
+                    notes="IOC callback not confirmed",
+                ),
+            )
+        )
+
+        with patch(
+            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        ) as mock_factory:
+            mock_factory.return_value = mock_connector
+
+            with pytest.raises(ChannelWriteFailedError) as excinfo:
+                write_channels({"TEST:PV1": 1.0, "TEST:PV2": 2.0})
+
+            assert excinfo.value.reason == "READBACK_UNVERIFIED"
+
+    def test_refused_write_raises_blocked(self, clear_runtime_state):
+        """A refusal (never attempted) surfaces as ChannelWriteBlockedError."""
+        mock_connector = MockConnector(
+            canned_result=ChannelWriteResult(
+                channel_address="TEST:PV",
+                value_written=42.0,
+                success=False,
+                error_message="writes are disabled",
+                blocked=True,
+                refusal_reason="WRITES_DISABLED",
+            )
+        )
+
+        with patch(
+            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        ) as mock_factory:
+            mock_factory.return_value = mock_connector
+
+            with pytest.raises(ChannelWriteBlockedError) as excinfo:
+                write_channel("TEST:PV", 42.0)
+
+            assert excinfo.value.reason == "WRITES_DISABLED"
+
+    def test_level_none_success_returns(self, clear_runtime_state):
+        """level="none" means no verification was asked for: success is accepted."""
+        mock_connector = MockConnector(
+            canned_result=ChannelWriteResult(
+                channel_address="TEST:PV",
+                value_written=42.0,
+                success=True,
+                verification=WriteVerification(level="none", verified=False),
+            )
+        )
+
+        with patch(
+            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        ) as mock_factory:
+            mock_factory.return_value = mock_connector
+
+            write_channel("TEST:PV", 42.0)  # must not raise
 
 
 def test_read_channel_success(clear_runtime_state):

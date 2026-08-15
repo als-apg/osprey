@@ -84,7 +84,7 @@ class TestArchiverDownsampleBasic:
     @pytest.mark.asyncio
     async def test_downsample_returns_datasets(self, timeseries_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=timeseries_entry.id)
+        raw = await fn(artifact_id=timeseries_entry.id)
         result = json.loads(raw)
 
         assert "datasets" in result
@@ -96,7 +96,7 @@ class TestArchiverDownsampleBasic:
     @pytest.mark.asyncio
     async def test_dataset_carries_its_own_timestamps(self, timeseries_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=timeseries_entry.id)
+        raw = await fn(artifact_id=timeseries_entry.id)
         result = json.loads(raw)
 
         for ds in result["datasets"]:
@@ -108,7 +108,7 @@ class TestArchiverDownsampleBasic:
     @pytest.mark.asyncio
     async def test_downsample_reduces_points(self, timeseries_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=timeseries_entry.id, max_points=10)
+        raw = await fn(artifact_id=timeseries_entry.id, max_points=10)
         result = json.loads(raw)
 
         # 2 channels x 50 points each -- summed across channels.
@@ -124,7 +124,7 @@ class TestArchiverDownsampleBasic:
     @pytest.mark.asyncio
     async def test_all_channels_included_by_default(self, timeseries_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=timeseries_entry.id)
+        raw = await fn(artifact_id=timeseries_entry.id)
         result = json.loads(raw)
 
         channel_names = [ds["channel"] for ds in result["datasets"]]
@@ -134,7 +134,7 @@ class TestArchiverDownsampleBasic:
     @pytest.mark.asyncio
     async def test_time_range(self, timeseries_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=timeseries_entry.id)
+        raw = await fn(artifact_id=timeseries_entry.id)
         result = json.loads(raw)
 
         assert result["time_range"]["start"] is not None
@@ -144,7 +144,7 @@ class TestArchiverDownsampleBasic:
     async def test_no_downsample_when_under_max(self, timeseries_entry):
         """When max_points >= data length, all points are returned."""
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=timeseries_entry.id, max_points=1000)
+        raw = await fn(artifact_id=timeseries_entry.id, max_points=1000)
         result = json.loads(raw)
 
         assert result["original_points"] == 100
@@ -181,7 +181,7 @@ class TestArchiverDownsampleAggregates:
     @pytest.mark.asyncio
     async def test_time_range_spans_every_channel_not_just_the_first(self, staggered_entry):
         fn = _get_archiver_downsample()
-        result = json.loads(await fn(entry_id=staggered_entry.id))
+        result = json.loads(await fn(artifact_id=staggered_entry.id))
 
         # Earliest sample belongs to the SECOND-declared channel, latest to the third.
         assert result["time_range"]["start"] == "2026-02-19T11:00:00Z"
@@ -190,7 +190,7 @@ class TestArchiverDownsampleAggregates:
     @pytest.mark.asyncio
     async def test_totals_are_summed_over_every_channel(self, staggered_entry):
         fn = _get_archiver_downsample()
-        result = json.loads(await fn(entry_id=staggered_entry.id))
+        result = json.loads(await fn(artifact_id=staggered_entry.id))
 
         assert result["original_points"] == 26  # 10 + 5 + 11
         assert result["downsampled_points"] == 26  # all under max_points
@@ -219,7 +219,7 @@ class TestArchiverDownsampleAggregates:
         )
 
         fn = _get_archiver_downsample()
-        result = json.loads(await fn(entry_id=entry.id))
+        result = json.loads(await fn(artifact_id=entry.id))
 
         assert result["time_range"] == {
             "start": "2026-02-19T12:00:00Z",
@@ -248,7 +248,7 @@ class TestArchiverDownsampleAggregates:
         )
 
         fn = _get_archiver_downsample()
-        result = json.loads(await fn(entry_id=entry.id, max_points=10))
+        result = json.loads(await fn(artifact_id=entry.id, max_points=10))
 
         assert result["original_points"] == 40
         assert result["downsampled_points"] == 10
@@ -274,7 +274,7 @@ class TestArchiverDownsampleAggregates:
         )
 
         fn = _get_archiver_downsample()
-        result = json.loads(await fn(entry_id=entry.id))
+        result = json.loads(await fn(artifact_id=entry.id))
 
         assert result["datasets"] == []
         assert result["original_points"] == 0
@@ -302,7 +302,7 @@ class TestArchiverDownsampleChannelFilter:
     @pytest.mark.asyncio
     async def test_filter_single_channel(self, multi_channel_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=multi_channel_entry.id, channels=["PV:CH2"])
+        raw = await fn(artifact_id=multi_channel_entry.id, channels=["PV:CH2"])
         result = json.loads(raw)
 
         assert len(result["datasets"]) == 1
@@ -311,7 +311,7 @@ class TestArchiverDownsampleChannelFilter:
     @pytest.mark.asyncio
     async def test_filter_multiple_channels(self, multi_channel_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=multi_channel_entry.id, channels=["PV:CH0", "PV:CH3"])
+        raw = await fn(artifact_id=multi_channel_entry.id, channels=["PV:CH0", "PV:CH3"])
         result = json.loads(raw)
 
         channel_names = [ds["channel"] for ds in result["datasets"]]
@@ -323,7 +323,7 @@ class TestArchiverDownsampleChannelFilter:
         the artifact's column order.
         """
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=multi_channel_entry.id, channels=["PV:CH3", "PV:CH0", "PV:CH1"])
+        raw = await fn(artifact_id=multi_channel_entry.id, channels=["PV:CH3", "PV:CH0", "PV:CH1"])
         result = json.loads(raw)
 
         channel_names = [ds["channel"] for ds in result["datasets"]]
@@ -333,7 +333,7 @@ class TestArchiverDownsampleChannelFilter:
     async def test_filter_nonexistent_channel_errors(self, multi_channel_entry):
         fn = _get_archiver_downsample()
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
-            await fn(entry_id=multi_channel_entry.id, channels=["NONEXISTENT"])
+            await fn(artifact_id=multi_channel_entry.id, channels=["NONEXISTENT"])
         result = _exc_ctx["envelope"]
         assert result["error"] is True
 
@@ -369,7 +369,7 @@ class TestArchiverDownsampleErrors:
     async def test_wrong_category(self, workspace, non_archiver_entry):
         fn = _get_archiver_downsample()
         with assert_raises_error() as _exc_ctx:
-            await fn(entry_id=non_archiver_entry.id)
+            await fn(artifact_id=non_archiver_entry.id)
         result = _exc_ctx["envelope"]
         assert "archiver_data" in result["error_message"].lower()
 
@@ -377,18 +377,18 @@ class TestArchiverDownsampleErrors:
     async def test_nonexistent_entry(self, workspace, art_store):
         fn = _get_archiver_downsample()
         with assert_raises_error() as _exc_ctx:
-            await fn(entry_id="deadbeef0000")
+            await fn(artifact_id="deadbeef0000")
         result = _exc_ctx["envelope"]
         assert "not found" in result["error_message"].lower()
 
     @pytest.mark.asyncio
     async def test_unresolvable_file_path_is_internal_error(self, art_store, entry, monkeypatch):
         """A file path the store cannot resolve reports internal_error, not a crash."""
-        monkeypatch.setattr(art_store, "get_file_path", lambda entry_id: None)
+        monkeypatch.setattr(art_store, "get_file_path", lambda artifact_id: None)
 
         fn = _get_archiver_downsample()
         with assert_raises_error(error_type="internal_error") as _exc_ctx:
-            await fn(entry_id=entry.id)
+            await fn(artifact_id=entry.id)
         assert "not found on disk" in _exc_ctx["envelope"]["error_message"]
 
     @pytest.mark.asyncio
@@ -407,7 +407,7 @@ class TestArchiverDownsampleErrors:
 
         fn = _get_archiver_downsample()
         with assert_raises_error(error_type="internal_error") as _exc_ctx:
-            await fn(entry_id=entry.id)
+            await fn(artifact_id=entry.id)
         assert "Could not read data file" in _exc_ctx["envelope"]["error_message"]
 
 
@@ -433,7 +433,7 @@ class TestArchiverDownsampleEmptyData:
     @pytest.mark.asyncio
     async def test_empty_timeseries(self, workspace, empty_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=empty_entry.id)
+        raw = await fn(artifact_id=empty_entry.id)
         result = json.loads(raw)
 
         assert result["original_points"] == 0
@@ -476,7 +476,7 @@ class TestArchiverDownsampleFlatFormat:
     @pytest.mark.asyncio
     async def test_flat_format_works(self, workspace, flat_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=flat_entry.id, max_points=10)
+        raw = await fn(artifact_id=flat_entry.id, max_points=10)
         result = json.loads(raw)
 
         assert result["original_points"] == 20
@@ -520,7 +520,7 @@ class TestArchiverDownsampleNewSeriesFormat:
     async def test_new_format_is_not_rendered_empty(self, new_format_entry):
         """Reproduces + verifies the fix for the reported empty-render bug."""
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=new_format_entry.id, max_points=1000)
+        raw = await fn(artifact_id=new_format_entry.id, max_points=1000)
         result = json.loads(raw)
 
         assert result["original_points"] == 125  # 100 + 25
@@ -533,7 +533,7 @@ class TestArchiverDownsampleNewSeriesFormat:
     async def test_channels_downsampled_independently(self, new_format_entry):
         """Each channel is downsampled against its OWN point count, not a shared one."""
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=new_format_entry.id, max_points=10)
+        raw = await fn(artifact_id=new_format_entry.id, max_points=10)
         result = json.loads(raw)
 
         by_channel = {ds["channel"]: ds for ds in result["datasets"]}
@@ -568,7 +568,7 @@ class TestArchiverDownsampleNonNumericChannel:
     @pytest.mark.asyncio
     async def test_status_channel_values_never_coerced(self, status_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=status_entry.id, max_points=20)
+        raw = await fn(artifact_id=status_entry.id, max_points=20)
         result = json.loads(raw)
 
         assert len(result["datasets"]) == 1
@@ -613,7 +613,7 @@ class TestArchiverDownsampleNumericFlag:
     @pytest.mark.asyncio
     async def test_numeric_and_non_numeric_channels_flagged_correctly(self, mixed_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=mixed_entry.id, max_points=200)
+        raw = await fn(artifact_id=mixed_entry.id, max_points=200)
         result = json.loads(raw)
 
         by_channel = {ds["channel"]: ds for ds in result["datasets"]}

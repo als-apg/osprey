@@ -9,8 +9,10 @@ import httpx
 import pytest
 
 from osprey.dispatch.worker_client import (
-    AuthError,
-    DispatchError,
+    WorkerAuthRejectedError,
+    WorkerRejectedRequestError,
+    WorkerUnavailableError,
+    WorkerUnreachableError,
     cancel_worker_run,
     dispatch_to_worker,
     fetch_worker_runs,
@@ -94,7 +96,7 @@ async def test_connection_error_raises_dispatch_error():
             super().__init__(**kwargs)
 
     with patch("osprey.dispatch.worker_client.httpx.AsyncClient", PatchedClient):
-        with pytest.raises(DispatchError, match="Connection error"):
+        with pytest.raises(WorkerUnreachableError, match="Connection error"):
             await dispatch_to_worker(
                 url="http://unreachable:9999",
                 prompt="test",
@@ -104,7 +106,7 @@ async def test_connection_error_raises_dispatch_error():
 
 
 @pytest.mark.asyncio
-async def test_http_401_raises_auth_error():
+async def test_http_401_raises_worker_auth_rejected_error():
     transport = _mock_transport(status_code=401, body={"detail": "invalid token"})
     original_cls = httpx.AsyncClient
 
@@ -114,7 +116,7 @@ async def test_http_401_raises_auth_error():
             super().__init__(**kwargs)
 
     with patch("osprey.dispatch.worker_client.httpx.AsyncClient", PatchedClient):
-        with pytest.raises(AuthError, match="Unauthorized"):
+        with pytest.raises(WorkerAuthRejectedError, match="Unauthorized"):
             await dispatch_to_worker(
                 url="http://worker:9190",
                 prompt="test",
@@ -124,7 +126,7 @@ async def test_http_401_raises_auth_error():
 
 
 @pytest.mark.asyncio
-async def test_timeout_raises_dispatch_error():
+async def test_timeout_raises_worker_unreachable_error():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.TimeoutException("timed out", request=request)
 
@@ -137,7 +139,7 @@ async def test_timeout_raises_dispatch_error():
             super().__init__(**kwargs)
 
     with patch("osprey.dispatch.worker_client.httpx.AsyncClient", PatchedClient):
-        with pytest.raises(DispatchError, match="Timeout"):
+        with pytest.raises(WorkerUnreachableError, match="Timeout"):
             await dispatch_to_worker(
                 url="http://worker:9190",
                 prompt="test",
@@ -180,8 +182,8 @@ async def test_bearer_token_sent_in_headers():
 
 
 @pytest.mark.asyncio
-async def test_non_401_http_error_raises_typed_dispatch_error_without_body():
-    """A 5xx from the worker → DispatchError carrying only the status, not the body.
+async def test_non_401_http_error_raises_typed_worker_error_without_body():
+    """A 5xx from the worker → WorkerUnavailableError carrying only the status, not the body.
 
     The worker's response body can contain a stack trace or token-bearing detail;
     it must never be echoed into the dispatcher's registry history.
@@ -196,7 +198,7 @@ async def test_non_401_http_error_raises_typed_dispatch_error_without_body():
             super().__init__(**kwargs)
 
     with patch("osprey.dispatch.worker_client.httpx.AsyncClient", PatchedClient):
-        with pytest.raises(DispatchError) as exc_info:
+        with pytest.raises(WorkerUnavailableError) as exc_info:
             await dispatch_to_worker(
                 url="http://dispatch-worker-1:9190",
                 prompt="x",
@@ -221,7 +223,7 @@ async def test_401_still_raises_auth_error():
             super().__init__(**kwargs)
 
     with patch("osprey.dispatch.worker_client.httpx.AsyncClient", PatchedClient):
-        with pytest.raises(AuthError):
+        with pytest.raises(WorkerAuthRejectedError):
             await dispatch_to_worker(
                 url="http://dispatch-worker-1:9190",
                 prompt="x",
@@ -250,7 +252,7 @@ async def test_fetch_worker_runs_connection_error_raises():
         raise httpx.ConnectError("refused")
 
     with _patched_client(httpx.MockTransport(handler)):
-        with pytest.raises(DispatchError, match="Connection error"):
+        with pytest.raises(WorkerUnreachableError, match="Connection error"):
             await fetch_worker_runs("http://worker:9190", token="tok")
 
 
@@ -289,7 +291,7 @@ async def test_cancel_worker_run_success():
 async def test_cancel_worker_run_401_raises_auth_error():
     transport = _mock_transport(401, body={"detail": "no"})
     with _patched_client(transport):
-        with pytest.raises(AuthError):
+        with pytest.raises(WorkerAuthRejectedError):
             await cancel_worker_run("http://worker:9190", token="bad", run_id="r1")
 
 
@@ -297,7 +299,7 @@ async def test_cancel_worker_run_401_raises_auth_error():
 async def test_cancel_worker_run_404_raises_dispatch_error():
     transport = _mock_transport(404, body={"detail": "missing"})
     with _patched_client(transport):
-        with pytest.raises(DispatchError, match="not found"):
+        with pytest.raises(WorkerRejectedRequestError, match="not found"):
             await cancel_worker_run("http://worker:9190", token="tok", run_id="ghost")
 
 
@@ -324,7 +326,7 @@ async def test_proxy_worker_stream_401_raises_auth_error():
         return httpx.Response(401, content=b"", request=request)
 
     with _patched_client(httpx.MockTransport(handler)):
-        with pytest.raises(AuthError):
+        with pytest.raises(WorkerAuthRejectedError):
             async for _ in proxy_worker_stream("http://worker:9190", "bad", "r1"):
                 pass
 
@@ -335,6 +337,6 @@ async def test_proxy_worker_stream_non_200_raises_dispatch_error():
         return httpx.Response(503, content=b"", request=request)
 
     with _patched_client(httpx.MockTransport(handler)):
-        with pytest.raises(DispatchError, match="HTTP 503"):
+        with pytest.raises(WorkerUnavailableError, match="HTTP 503"):
             async for _ in proxy_worker_stream("http://worker:9190", "tok", "r1"):
                 pass

@@ -464,7 +464,7 @@ class TestChannelFinderAgent:
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        assert "query_channels" in content
+        assert "ask_channels" in content
         assert "get_channels" not in content
         assert "resolve_addresses" not in content
         assert "hierarchy_info" not in content

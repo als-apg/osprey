@@ -81,7 +81,7 @@ class TestDemoUiSkillStructure:
     def test_choreographs_the_panel_tools(self, skill_text):
         """These are the workspace MCP tools the demo drives -- a rename in
         ``workspace/tools/panel_tools.py`` must fail here, not on stage."""
-        for tool in ("list_panels", "switch_panel", "show_panel", "hide_panel"):
+        for tool in ("list_panels", "open_panel", "add_panel_to_rail", "remove_panel_from_rail"):
             assert tool in skill_text, f"Missing panel tool: {tool}"
 
     def test_choreographs_the_artifact_tools(self, skill_text):

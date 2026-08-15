@@ -69,8 +69,15 @@ import httpx
 from .config import TERMINAL_STATUSES, CoreConfig
 
 
-class DispatchError(Exception):
-    """Raised for unexpected HTTP failures talking to the pipeline.
+class DispatchPipelineError(Exception):
+    """Raised for unexpected HTTP failures on this bridge's hop into the pipeline.
+
+    Named for the hop it covers — the *bridge* talking to the dispatcher/worker
+    pair over HTTP. It is deliberately NOT the dispatcher's own
+    ``osprey.dispatch.worker_client.WorkerRequestError`` family, which covers the
+    next hop (dispatcher -> worker); this package carries zero osprey dispatch
+    imports, so the two are separate types that happen to transport the same
+    ``error_code`` vocabulary.
 
     ``error_code`` carries the dispatcher's structured pool-error code when the
     dispatcher reported ``status="error"`` with one (e.g.
@@ -154,10 +161,12 @@ class DispatchClient:
             headers={"Authorization": f"Bearer {self.cfg.event_dispatcher_token}"},
         )
         if resp.status_code not in (200, 202):
-            raise DispatchError(f"webhook {url} returned {resp.status_code}: {resp.text[:300]}")
+            raise DispatchPipelineError(
+                f"webhook {url} returned {resp.status_code}: {resp.text[:300]}"
+            )
         dispatch_id: str | None = resp.json().get("dispatch_id")
         if not dispatch_id:
-            raise DispatchError(f"webhook response missing dispatch_id: {resp.text[:300]}")
+            raise DispatchPipelineError(f"webhook response missing dispatch_id: {resp.text[:300]}")
         return dispatch_id
 
     # --- step 2: dispatcher handshake -> run_id ---------------------------
@@ -173,20 +182,22 @@ class DispatchClient:
                 if status == "completed":
                     run_id: str | None = (body.get("result") or {}).get("run_id")
                     if not run_id:
-                        raise DispatchError(f"dispatcher completed but no run_id: {body}")
+                        raise DispatchPipelineError(f"dispatcher completed but no run_id: {body}")
                     return run_id
                 if status == "error":
-                    raise DispatchError(
+                    raise DispatchPipelineError(
                         f"dispatcher reported error: {body.get('error')}",
                         error_code=body.get("error_code"),
                     )
                 # else pending -> keep polling
             elif resp.status_code != 404:
-                raise DispatchError(
+                raise DispatchPipelineError(
                     f"dispatcher {url} returned {resp.status_code}: {resp.text[:300]}"
                 )
             if self._monotonic() >= deadline:
-                raise DispatchError(f"timed out waiting for run_id (dispatch_id={dispatch_id})")
+                raise DispatchPipelineError(
+                    f"timed out waiting for run_id (dispatch_id={dispatch_id})"
+                )
             self._sleep(self.cfg.poll_interval)
 
     # --- step 3: worker poll to terminal ----------------------------------
@@ -245,7 +256,9 @@ class DispatchClient:
                 # pending / running -> keep polling
             elif resp.status_code != 404:
                 # 404 can be a brief race (run just registered); anything else is fatal.
-                raise DispatchError(f"worker {url} returned {resp.status_code}: {resp.text[:300]}")
+                raise DispatchPipelineError(
+                    f"worker {url} returned {resp.status_code}: {resp.text[:300]}"
+                )
             if self._monotonic() >= deadline:
                 return _error_result(
                     run_id,
@@ -267,7 +280,7 @@ class DispatchClient:
         ``None`` on 404: the worker has no such run. That is a *signal* (the run
         never registered, or its record has aged out), not an error — the caller
         distinguishes "gone" from a live status body. Any other non-200 raises
-        :class:`DispatchError`, matching :meth:`poll_worker`.
+        :class:`DispatchPipelineError`, matching :meth:`poll_worker`.
         """
         url = f"{self.cfg.worker_url}/dispatch/{run_id}"
         headers = {"Authorization": f"Bearer {self.cfg.dispatch_worker_token}"}
@@ -277,7 +290,7 @@ class DispatchClient:
             return body
         if resp.status_code == 404:
             return None
-        raise DispatchError(f"worker {url} returned {resp.status_code}: {resp.text[:300]}")
+        raise DispatchPipelineError(f"worker {url} returned {resp.status_code}: {resp.text[:300]}")
 
     # --- full sequence -----------------------------------------------------
     def run(
@@ -291,7 +304,7 @@ class DispatchClient:
 
         Always returns ``{"status", "text_output", "run_id", "error", "artifacts",
         "input_artifacts", "failure_class", "num_tool_calls", "error_code"}``.
-        Any failure in the sequence — a dispatcher/worker non-2xx (``DispatchError``)
+        Any failure in the sequence — a dispatcher/worker non-2xx (``DispatchPipelineError``)
         or a transient network error (``httpx.HTTPError``: ConnectError,
         ReadTimeout, ...) — is converted to an ``error`` result so the caller can
         always post *something* back to the user rather than escaping unhandled.
@@ -308,7 +321,7 @@ class DispatchClient:
             handshake_deadline = self._monotonic() + self.cfg.poll_budget
             dispatch_id = self.fire(question, extra)
             run_id = self.wait_for_run_id(dispatch_id, handshake_deadline)
-        except (DispatchError, httpx.HTTPError) as exc:
+        except (DispatchPipelineError, httpx.HTTPError) as exc:
             # A dispatcher pool-error may carry a structured error_code (an
             # input_files rejection); lift it onto the result so the retry policy
             # can classify it. Ordinary transport/handshake failures have none.
@@ -317,5 +330,5 @@ class DispatchClient:
             on_run_id(run_id)
         try:
             return self.poll_worker(run_id)  # fresh budget (deadline=None)
-        except (DispatchError, httpx.HTTPError) as exc:
+        except (DispatchPipelineError, httpx.HTTPError) as exc:
             return _error_result(run_id, str(exc))

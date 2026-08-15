@@ -122,7 +122,7 @@ describe('wireActivityStrip: frame routing', () => {
     const strip = fakeStrip();
     Session.wireActivityStrip(strip, es.factory);
 
-    es.emit(frame({ kind: 'panel', panel: 'lattice' }, 'switch_panel'));
+    es.emit(frame({ kind: 'panel', panel: 'lattice' }, 'open_panel'));
     es.emit(frame({ kind: 'run', detail: 'orm-42' }, 'run_plan'));
     es.emit(frame({ kind: 'artifact', detail: 'orbit-plot.png' }, 'focus_artifact'));
 

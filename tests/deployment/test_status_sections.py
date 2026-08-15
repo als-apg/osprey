@@ -654,7 +654,9 @@ def test_logs_without_a_build_refuses_and_names_the_remedy(lifecycle_repo):
     with pytest.raises(status_display.NoComposeFilesError) as excinfo:
         status_display.logs_command(lifecycle_repo)
 
-    assert "osprey build" in str(excinfo.value)
+    # The remedy is a field, not prose spliced into the message — that is what
+    # lets one CLI handler render every precondition refusal the same way.
+    assert "osprey build" in excinfo.value.remedy
 
 
 def test_logs_renders_nothing(lifecycle_repo, runtime, monkeypatch):
@@ -670,11 +672,14 @@ def test_logs_renders_nothing(lifecycle_repo, runtime, monkeypatch):
     logs_argv(lifecycle_repo)
 
 
-def test_the_cli_reports_a_missing_build_rather_than_raising(lifecycle_repo, caplog):
+def test_the_cli_reports_a_missing_build_rather_than_raising(lifecycle_repo):
     result = CliRunner().invoke(logs_verb, ["--repo", str(lifecycle_repo)])
 
     assert result.exit_code != 0
-    assert "osprey build" in caplog.text
+    # The shared unmet-precondition handler renders the reason and the one
+    # remedy on the console, the same way every other deploy refusal does.
+    assert "No build found" in result.output
+    assert "osprey build" in result.output
 
 
 # ---------------------------------------------------------------------------

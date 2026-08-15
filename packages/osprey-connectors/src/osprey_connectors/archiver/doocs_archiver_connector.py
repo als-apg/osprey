@@ -43,7 +43,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         >>> connector = DOOCSArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     pv_list=['FACILITY/DEVICE/LOCATION/PROPERTY'],
+        >>>     channels=['FACILITY/DEVICE/LOCATION/PROPERTY'],
         >>>     start_date=datetime(2026, 7, 1),
         >>>     end_date=datetime(2026, 7, 2)
         >>> )
@@ -103,7 +103,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
 
     async def get_data(
         self,
-        pv_list: list[str],
+        channels: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
@@ -114,7 +114,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         Retrieve historical data from the DOOCS local histories.
 
         Args:
-            pv_list: List of DOOCS property addresses
+            channels: List of DOOCS property addresses
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision (affects downsampling)
@@ -149,7 +149,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
 
         def fetch_all() -> dict[str, pd.Series]:
             data = {}
-            for add in pv_list:
+            for add in channels:
                 hist_data_dict = self._read_history(
                     add,
                     start_utc.timestamp(),
@@ -170,28 +170,28 @@ class DOOCSArchiverConnector(ArchiverConnector):
 
             logger.debug(
                 f"Retrieved DOOCS archiver data: {len(data)} rows "
-                f"across {len(pv_list)} DOOCS properties"
+                f"across {len(channels)} DOOCS properties"
             )
             return data
 
         except TimeoutError as e:
             raise TimeoutError(f"DOOCS archiver request timed out after {timeout}s") from e
 
-    async def get_metadata(self, pv_name: str) -> ArchiverMetadata:
+    async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """Get archiver metadata."""
         return ArchiverMetadata(
-            pv_name=pv_name,
+            channel=channel,
             is_archived=True,
-            description=f"DOOCS archived PV: {pv_name}",
+            description=f"DOOCS archived channel: {channel}",
         )
 
-    async def check_availability(self, pv_names: list[str]) -> dict[str, bool]:
+    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
         """Check availability based on .HIST property name extension."""
         if not self._connected or self._doocs4py is None:
-            return dict.fromkeys(pv_names, False)
+            return dict.fromkeys(channels, False)
 
         avail = {}
-        for add in pv_names:
+        for add in channels:
             hist_address = add
             if not hist_address.endswith(".HIST"):
                 hist_address = add + ".HIST"

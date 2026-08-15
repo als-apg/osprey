@@ -38,7 +38,7 @@ def _make_client() -> TestClient:
     ("body", "expected_target"),
     [
         (
-            {"tool": "switch_panel", "target": {"kind": "panel", "panel": "ariel"}},
+            {"tool": "open_panel", "target": {"kind": "panel", "panel": "ariel"}},
             {"kind": "panel", "panel": "ariel"},
         ),
         (
@@ -80,7 +80,7 @@ def test_optional_target_fields_omitted_when_absent():
     """Absent panel/detail must not appear in the broadcast target (not null)."""
     client = _make_client()
     resp = client.post(
-        "/api/agent-activity", json={"tool": "switch_panel", "target": {"kind": "panel"}}
+        "/api/agent-activity", json={"tool": "open_panel", "target": {"kind": "panel"}}
     )
     assert resp.status_code == 200
     frame = client.app.state.broadcaster.broadcast.call_args[0][0]
@@ -94,20 +94,20 @@ def test_optional_target_fields_omitted_when_absent():
     "body",
     [
         # Unknown target kind.
-        {"tool": "switch_panel", "target": {"kind": "widget"}},
+        {"tool": "open_panel", "target": {"kind": "widget"}},
         # Missing tool.
         {"target": {"kind": "panel", "panel": "ariel"}},
         # Missing target.
-        {"tool": "switch_panel"},
+        {"tool": "open_panel"},
         # Target missing kind.
-        {"tool": "switch_panel", "target": {"panel": "ariel"}},
+        {"tool": "open_panel", "target": {"panel": "ariel"}},
         # Target is not an object.
-        {"tool": "switch_panel", "target": "panel"},
+        {"tool": "open_panel", "target": "panel"},
         # tool is not a string.
         {"tool": 42, "target": {"kind": "panel"}},
         # Over-long strings (bounds: tool/panel 256, detail 1024).
         {"tool": "x" * 257, "target": {"kind": "panel"}},
-        {"tool": "switch_panel", "target": {"kind": "panel", "panel": "p" * 257}},
+        {"tool": "open_panel", "target": {"kind": "panel", "panel": "p" * 257}},
         {"tool": "write_channel", "target": {"kind": "channel", "detail": "d" * 1025}},
     ],
 )

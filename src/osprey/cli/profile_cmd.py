@@ -7,8 +7,15 @@ group holds the read-only verbs that act on that source, kept separate from
 
 The write half lives elsewhere by design: ``osprey init`` creates the deployment
 repo (through :func:`_materialize_profile_directory` here, which is the one
-function in this module that writes anything), ``osprey set`` edits the profile,
-and ``osprey validate`` is the top-level spelling of ``profile validate``.
+function in this module that writes anything) and ``osprey set`` edits the
+profile.
+
+``osprey validate`` is the top-level spelling of ``profile validate``, and the
+check both run is :func:`osprey.cli.validate_cmd.check_profile_file` — one
+implementation, because the only thing that differs between the spellings is
+whether the target is required. ``presets`` is the other end of the same rule:
+:func:`echo_preset_names` here is also what ``osprey init --list-presets``
+prints.
 
 Usage:
     osprey profile presets
@@ -43,27 +50,18 @@ def profile() -> None:
     """Author, validate, and inspect build profiles."""
 
 
-def _resolve_profile_file(target: Path) -> Path:
-    """Return the profile file named by *target* (a profile file or its directory).
+def echo_preset_names() -> None:
+    """Print every bundled preset name, one per line.
 
-    A deployment repo is the unit users work with, so both spellings are
-    accepted: the directory itself (the ``profile.yml`` at its root) or an
-    explicit path to any profile file — a persona delta under ``personas/``
-    included.
-
-    Raises:
-        click.UsageError: When *target* is a directory without a profile.yml.
+    Two surfaces ask this question — ``osprey profile presets`` below and
+    ``osprey init --list-presets``, an eager flag that answers before anything
+    else parses — and an operator comparing the two lists is entitled to the
+    same answer from both. One writer, so there is nothing to drift.
     """
-    if target.is_dir():
-        candidate = target / "profile.yml"
-        if not candidate.is_file():
-            raise click.UsageError(
-                f"No profile.yml in {target}. Pass the profile file directly, or "
-                f"create a deployment repo with "
-                f"`osprey init {target} --preset <NAME>`."
-            )
-        return candidate.resolve()
-    return target.resolve()
+    from .build_profile import list_presets
+
+    for name in list_presets():
+        click.echo(name)
 
 
 @profile.command()
@@ -72,10 +70,7 @@ def presets() -> None:
 
     Every name printed here is usable as 'osprey init --preset NAME'.
     """
-    from .build_profile import list_presets
-
-    for name in list_presets():
-        click.echo(name)
+    echo_preset_names()
 
 
 @profile.command()
@@ -98,39 +93,12 @@ def validate(target: Path) -> None:
       $ osprey profile validate ~/deployments/als-assistant
       $ osprey profile validate ~/deployments/als-assistant/personas/readonly.yml
     """
-    from .build_profile import resolve_build_profile
-    from .build_profile_deploy import deploy_aware_config_errors
+    # The check itself belongs to the verb, not to either spelling of it: this
+    # command differs from `osprey validate` only in requiring its TARGET, so
+    # that requirement is the whole of what lives here.
+    from .validate_cmd import check_profile_file, profile_file_at
 
-    profile_file = _resolve_profile_file(target)
-    try:
-        build_profile, profile_dir = resolve_build_profile(profile_file, None)
-        # Named explicitly rather than left to resolution's internals: this
-        # command exists to run exactly this check, so it must not become a
-        # no-op if resolution ever stops validating on its own.
-        build_profile.validate(profile_dir)
-    except BuildProfileError as e:
-        raise click.UsageError(str(e)) from e
-
-    # The multi-user web stack the profile declares, judged on the config the
-    # build would render — the `config:` block with the `deploy:` block's
-    # contributions applied. Checked from the command rather than inside
-    # `validate()`, which also runs during profile resolution — see
-    # `lint_profile_config`.
-    web_errors = deploy_aware_config_errors(build_profile.deploy, build_profile.config)
-    if web_errors:
-        raise click.UsageError("Build profile validation failed:\n  - " + "\n  - ".join(web_errors))
-
-    click.echo(f"✓ Profile is valid: {profile_file}")
-    click.echo(f"  Name: {build_profile.name}")
-    # Named separately because "valid" says nothing about whether the deploy
-    # coordinates were read at all: a profile that omits the block and one whose
-    # block checked out otherwise print the same line.
-    if build_profile.deploy is not None:
-        deploy = build_profile.deploy
-        click.echo(f"  Deploy: {deploy.ci} CI → {deploy.host.user}@{deploy.host.name}")
-    click.echo("\nNext steps:")
-    click.echo("  1. Render it: osprey build")
-    click.echo("  2. Re-run this command after editing the profile")
+    check_profile_file(profile_file_at(target))
 
 
 # Directory name the materialized data tree gets, and the value written to the

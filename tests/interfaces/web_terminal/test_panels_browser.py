@@ -56,6 +56,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import requests
 
+from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _free_port, _run_app_server
 
 # ---------------------------------------------------------------------------
@@ -172,9 +173,8 @@ def _live_server(
             return_value=(enabled_panels, custom_panels, None),
         ),
         patch(
-            "osprey.interfaces.web_terminal.app._launch_artifact_server",
-            # Set the artifact URL without actually spawning a server process.
-            side_effect=lambda a: setattr(a.state, "artifact_server_url", artifact_url),
+            "osprey.interfaces.web_terminal.app._launch_panel_server",
+            side_effect=publish_artifact_url(artifact_url),
         ),
     ):
         from osprey.interfaces.web_terminal.app import create_app
@@ -1579,10 +1579,10 @@ def test_mode_flip_restores_expert_layout_and_folds_in_simple_registration(
 
 
 def test_simple_mode_empty_workspace_boots_chat_only_until_agent_reveal(tmp_path, chromium_browser):
-    """Simple UX first boot with an EMPTY workspace is chat-only; show_panel reveals.
+    """Simple UX first boot with an EMPTY workspace is chat-only; the rail add reveals.
 
     With no artifact in the agent workspace the hub docks only the chat/terminal
-    card — no WORKSPACE tab, a single dock group. An agent ``show_panel`` (the
+    card — no WORKSPACE tab, a single dock group. An agent ``add_panel_to_rail`` (the
     panel-visibility POST the MCP tool issues, tagged ``source: agent``) then
     brings the workspace up live on the shown panel.
     """
@@ -1604,7 +1604,7 @@ def test_simple_mode_empty_workspace_boots_chat_only_until_agent_reveal(tmp_path
         groups = _dock_groups(page)
         assert [g["tabs"] for g in groups] == [["SESSION"]], groups
 
-        # Agent reveal: show_panel('artifacts') docks + activates the workspace.
+        # Agent reveal: add_panel_to_rail('artifacts') docks + activates the workspace.
         r = requests.post(
             f"{base_url}/api/panel-visibility",
             json={"panel": "artifacts", "visible": True, "source": "agent"},

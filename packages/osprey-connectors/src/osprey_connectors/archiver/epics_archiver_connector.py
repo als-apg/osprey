@@ -43,7 +43,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         >>> connector = EPICSArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     pv_list=['BEAM:CURRENT'],
+        >>>     channels=['BEAM:CURRENT'],
         >>>     start_date=datetime(2024, 1, 1),
         >>>     end_date=datetime(2024, 1, 2)
         >>> )
@@ -129,7 +129,7 @@ class EPICSArchiverConnector(ArchiverConnector):
 
     async def get_data(
         self,
-        pv_list: list[str],
+        channels: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
@@ -140,7 +140,7 @@ class EPICSArchiverConnector(ArchiverConnector):
         Retrieve historical data from EPICS archiver.
 
         Args:
-            pv_list: List of PV names to retrieve
+            channels: Channel addresses to retrieve (EPICS PV names)
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Bin width in milliseconds, applied server-side. Must
@@ -196,7 +196,7 @@ class EPICSArchiverConnector(ArchiverConnector):
                 pv: self._fetch_single_pv(
                     f"{operator}({pv})" if operator else pv, start_str, end_str
                 )
-                for pv in pv_list
+                for pv in channels
             }
 
         try:
@@ -211,7 +211,7 @@ class EPICSArchiverConnector(ArchiverConnector):
 
             data = long_frame(series_dict)
 
-            logger.debug(f"Retrieved archiver data: {len(data)} rows across {len(pv_list)} PVs")
+            logger.debug(f"Retrieved archiver data: {len(data)} rows across {len(channels)} PVs")
             return data
 
         except TimeoutError as e:
@@ -227,26 +227,26 @@ class EPICSArchiverConnector(ArchiverConnector):
                 raise ConnectionError(f"Network connectivity issue with archiver: {e}") from e
             raise
 
-    async def get_metadata(self, pv_name: str) -> ArchiverMetadata:
+    async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """
-        Get archiving metadata for a PV.
+        Get archiving metadata for a channel.
 
         Returns basic information without querying the archiver metadata API.
 
         Args:
-            pv_name: Name of the process variable
+            channel: Channel address (EPICS PV name)
 
         Returns:
             ArchiverMetadata with basic archiving information
         """
         # Basic implementation - could be enhanced with direct archiver API calls
         return ArchiverMetadata(
-            pv_name=pv_name,
+            channel=channel,
             is_archived=True,  # Assume true if no error
-            description=f"EPICS Archived PV: {pv_name}",
+            description=f"EPICS Archived PV: {channel}",
         )
 
-    async def check_availability(self, pv_names: list[str]) -> dict[str, bool]:
+    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
         """
         Check which PVs are archived.
 
@@ -254,10 +254,10 @@ class EPICSArchiverConnector(ArchiverConnector):
         Could be enhanced with actual archiver API calls.
 
         Args:
-            pv_names: List of PV names to check
+            channels: Channel addresses to check (EPICS PV names)
 
         Returns:
-            Dictionary mapping PV name to availability status
+            Dictionary mapping channel address to availability status
         """
         # Basic implementation - could be enhanced with archiver API calls
-        return dict.fromkeys(pv_names, True)
+        return dict.fromkeys(channels, True)

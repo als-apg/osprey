@@ -6,6 +6,7 @@ from osprey_connectors.control_system.base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteVerification,
+    raise_for_write_result,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "ChannelMetadata",
     "ChannelWriteResult",
     "WriteVerification",
+    "raise_for_write_result",
 ]

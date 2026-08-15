@@ -189,6 +189,25 @@ def notify_panel_visibility(panel: str, visible: bool) -> None:
     )
 
 
+def notify_panel_close(panel: str) -> None:
+    """Fire-and-forget POST to close a panel's tile in the Web Terminal.
+
+    The on-screen half of the panel vocabulary, and deliberately separate from
+    :func:`notify_panel_visibility`: closing a tile leaves rail membership
+    alone, so the operator can reopen the panel in one click. Non-fatal if the
+    web terminal is not running (CLI-only mode).
+
+    Args:
+        panel: Panel identifier string.
+    """
+    base = web_terminal_url()
+    post_json(
+        f"{base}/api/panel-close",
+        {"panel": panel, "source": "agent"},
+        timeout=2,
+    )
+
+
 def notify_panel_register(
     panel_id: str,
     label: str,

@@ -7,11 +7,12 @@
  * between panels is instant.
  *
  * The rail is a curated LAUNCHER: the server-owned visible set is rail
- * MEMBERSHIP (agent show/hide_panel ≡ human "+"/"×"), and an entry exists iff
- * its panel is a member — always at full brightness, never dimmed. Which
- * member currently holds the workspace tile is per-client layout state,
- * reflected only by the `.active` accent; evicting a panel from the tile (or
- * closing its tile) changes no rail or server state.
+ * MEMBERSHIP (agent add_panel_to_rail/remove_panel_from_rail ≡ human "+"/"×"),
+ * and an entry exists iff its panel is a member — always at full brightness,
+ * never dimmed. Which member currently holds the workspace tile is per-client
+ * layout state, reflected only by the `.active` accent; evicting a panel from
+ * the tile (or closing its tile, agent close_panel) changes no rail or server
+ * state.
  *
  * This module owns the panel state machine (health polling, SSE-driven
  * focus/visibility/registration, iframe lifecycle) and drives the
@@ -22,6 +23,7 @@
 import { fetchJSON, createEventSource } from './api.js';
 import { sendThemeToIframe, sendSessionToIframe, sendModeToIframe, buildEmbedSrc } from './panel-iframe-sync.js';
 import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js';
+import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import {
@@ -79,6 +81,11 @@ import {
  * @property {boolean} visible
  * @property {'agent'} [source]
  *
+ * @typedef {object} PanelCloseEvent
+ * @property {'panel_close'} type
+ * @property {string} panel
+ * @property {'agent'} [source]
+ *
  * @typedef {object} PanelRegisterEvent
  * @property {'panel_register'} type
  * @property {string} id
@@ -102,8 +109,8 @@ import {
  *   panel?: string, detail?: string }} target
  * @property {number} [ts]
  *
- * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelRegisterEvent | PanelArrangeEvent
- *   | AgentActivityEvent} PanelSSEEvent
+ * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelCloseEvent | PanelRegisterEvent
+ *   | PanelArrangeEvent | AgentActivityEvent} PanelSSEEvent
  */
 
 // ---- State ----
@@ -135,9 +142,10 @@ const visiblePanels = new Set();
 // workspace slot empty, so no dockview placeholder is ever created and the
 // chat keeps the full width. Seeded in initPanelManager (simple mode + empty
 // agent workspace, per /api/panels' workspace_has_artifacts); cleared one-way
-// by ANY panel activation (agent show/switch, rail click, palette) or a flip
-// to expert — once the workspace has appeared, the onboarding state is over
-// for this page lifetime. A reload re-derives it from the server flag.
+// by ANY panel activation (agent add_panel_to_rail/open_panel, rail click,
+// palette) or a flip to expert — once the workspace has appeared, the
+// onboarding state is over for this page lifetime. A reload re-derives it
+// from the server flag.
 let workspaceSuppressed = false;
 
 // Default panel to activate first (catalog fallback until a profile-pinned
@@ -380,7 +388,7 @@ export async function initPanelManager(panelId) {
   // (only .ws is consumed, by app.js's status dot), so that side effect is
   // harmless. These event types are handled:
   //
-  //   panel_focus      {type, panel, url?}      — explicit switch_panel MCP call
+  //   panel_focus      {type, panel, url?}      — explicit open_panel MCP call
   //                                               or the echo of a human focus
   //                                               gesture; always honor. An
   //                                               agent-tagged frame surfaces
@@ -388,10 +396,17 @@ export async function initPanelManager(panelId) {
   //                                               anything (applyAgentSwitch);
   //                                               a human echo takes the tile
   //                                               over as it always has.
-  //   panel_visibility {type, panel, visible}   — show/hide a rail entry; if the
-  //                                               active panel is hidden, switch to
-  //                                               the next visible+healthy panel or
-  //                                               empty state.
+  //   panel_close      {type, panel}            — close_panel MCP call: close the
+  //                                               panel's tile and leave rail
+  //                                               membership alone, so the panel
+  //                                               stays one click away. The
+  //                                               on-screen half of panel_visibility.
+  //   panel_visibility {type, panel, visible}   — add/remove a rail entry; removing
+  //                                               also closes the tile (an
+  //                                               unlaunchable panel must not be
+  //                                               stranded on screen), then switches
+  //                                               to the next member+healthy panel
+  //                                               or the empty state.
   //   panel_arrange    {type, tiles, focus?, prune_rail?}
   //                                             — a whole-workspace layout
   //                                               request: exactly these
@@ -444,6 +459,9 @@ export async function initPanelManager(panelId) {
           } else {
             activateTab(data.panel);
           }
+
+        } else if (data.type === 'panel_close' && data.panel) {
+          applyPanelClose(data.panel, data.source);
 
         } else if (data.type === 'panel_visibility' && data.panel) {
           applyPanelVisibility(data.panel, data.visible, data.source);
@@ -512,33 +530,68 @@ function applyPanelVisibility(panel, visible, source) {
     visiblePanels.delete(panel);
     removeEntry(railEl, panel);
   }
-  // A show can glow its just-added rail entry; a hide has no entry left to
-  // glow, so the strip is the only surface that can report it. Both synthesize
-  // an activity frame — deliberately straight to the seam, past the
+  // An addition can glow its just-created rail entry; a removal has no entry
+  // left to glow, so the strip is the only surface that can report it. Both
+  // synthesize an activity frame — deliberately straight to the seam, past the
   // agent_activity branch's rail-anchor routing, so the two halves of the
-  // agent's visibility vocabulary read the same way on the strip.
+  // agent's rail vocabulary read the same way on the strip.
   if (visible && source === 'agent') flashAgentGlow(panel);
   if (source === 'agent') onAgentActivity({ type: 'agent_activity', ts: Date.now(),
-    tool: visible ? 'show_panel' : 'hide_panel', target: { kind: 'panel', panel } });
+    tool: visible ? 'add_panel_to_rail' : 'remove_panel_from_rail',
+    target: { kind: 'panel', panel } });
 
   if (visible && workspaceSuppressed) {
     workspaceSuppressed = false;
     if (!activeTabId) activateTab(panel, { auto: true });
   }
 
-  if (!visible) {
-    withEchoSuppressed(() => hidePanel(panel));
-    if (panel === activeTabId) {
-      const fallback = PANELS.find(
-        p => p.id !== panel && visiblePanels.has(p.id) && panelState[p.id]?.healthy
-      );
-      if (fallback) {
-        activateTab(fallback.id);
-      } else {
-        activeTabId = null;
-        renderEmptyState('No panels visible');
-      }
-    }
+  // A panel the operator can no longer launch must not be stranded on screen.
+  if (!visible) closeTile(panel);
+}
+
+/**
+ * Close `panel`'s tile and hand the workspace to something the operator can
+ * still see, without touching rail membership.
+ *
+ * Shared by the two frames that take a tile off screen: `panel_close` (the
+ * agent's close_panel, membership untouched) and the removal half of
+ * `panel_visibility` (where membership is already gone by the time this runs).
+ * Keeping one implementation is what makes "closed" mean the same thing on both
+ * paths — the fallback search reads the CURRENT membership set, so it naturally
+ * skips a panel that was just removed and keeps one that was merely closed.
+ * @param {string} panel
+ */
+function closeTile(panel) {
+  withEchoSuppressed(() => hidePanel(panel));
+  if (panel !== activeTabId) return;
+  const fallback = PANELS.find(
+    p => p.id !== panel && visiblePanels.has(p.id) && panelState[p.id]?.healthy
+  );
+  if (fallback) {
+    activateTab(fallback.id);
+  } else {
+    activeTabId = null;
+    renderEmptyState('No panels visible');
+  }
+}
+
+/**
+ * Apply a `panel_close` frame: take the tile off screen, leave the rail alone.
+ *
+ * The on-screen half of the panel vocabulary. Closing a panel that has no tile
+ * open is a no-op in `hidePanel`, which is what makes the verb safe to call
+ * without first reading a per-client tile report that may be stale.
+ * @param {string} panel
+ * @param {string|undefined} source
+ */
+function applyPanelClose(panel, source) {
+  closeTile(panel);
+  // No rail entry is created or destroyed, so unlike the visibility path there
+  // is an entry left to glow — the operator can see which panel just went away.
+  if (source === 'agent') {
+    flashAgentGlow(panel);
+    onAgentActivity({ type: 'agent_activity', ts: Date.now(),
+      tool: 'close_panel', target: { kind: 'panel', panel } });
   }
 }
 
@@ -1047,18 +1100,14 @@ function createIframe(panelId) {
  * enumerate identically).
  * @returns {Array<{id: string, label: string}>}
  */
-export function getHiddenPanels() {
-  return PANELS.filter(p => !visiblePanels.has(p.id)).map(p => ({ id: p.id, label: p.label }));
-}
+export function getHiddenPanels() { return hiddenPanels(PANELS, visiblePanels); }
 
 /**
  * Visible panels excluding the active one, in PANELS order. "Focus" on the
  * already-active panel is a no-op, so activeTabId is filtered out.
  * @returns {Array<{id: string, label: string}>}
  */
-export function getVisiblePanels() {
-  return PANELS.filter(p => visiblePanels.has(p.id) && p.id !== activeTabId).map(p => ({ id: p.id, label: p.label }));
-}
+export function getVisiblePanels() { return visiblePanelsExcept(PANELS, visiblePanels, activeTabId); }
 
 /**
  * Config-defined layout presets ("Layouts"), in config order. Shared with the
@@ -1066,9 +1115,7 @@ export function getVisiblePanels() {
  * calls this). Empty unless a facility opts in.
  * @returns {Array<{name: string, panels: string[]}>}
  */
-export function getPresets() {
-  return panelPresets;
-}
+export function getPresets() { return panelPresets; }
 
 /**
  * Standalone (non-embedded) URL for a service panel — the target of the rail
@@ -1078,13 +1125,7 @@ export function getPresets() {
  * @param {string} panelId
  * @returns {string | null}
  */
-export function getPanelStandaloneUrl(panelId) {
-  const state = panelState[panelId];
-  if (!state?.url) return null;
-  const panel = PANELS.find((p) => p.id === panelId);
-  const path = panel?.path && panel.path !== '/' ? panel.path : '';
-  return state.url + path;
-}
+export function getPanelStandaloneUrl(panelId) { return standaloneUrl(PANELS, panelState[panelId], panelId); }
 
 /**
  * Currently surfaced panel id — the `data-active-panel` stamp activateTab

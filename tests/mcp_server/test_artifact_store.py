@@ -393,33 +393,6 @@ class TestDeleteEntry:
         finally:
             unregister_artifact_delete_listener(received.append)
 
-    def test_delete_all_empties_store_and_fires_listeners(self, tmp_path):
-        from osprey.stores.artifact_store import (
-            ArtifactStore,
-            register_artifact_delete_listener,
-            unregister_artifact_delete_listener,
-        )
-
-        store = ArtifactStore(workspace_root=tmp_path)
-        entries = [store.save_object(f"data{i}", title=f"Artifact {i}") for i in range(3)]
-
-        received: list = []
-        register_artifact_delete_listener(received.append)
-        try:
-            deleted = store.delete_all()
-        finally:
-            unregister_artifact_delete_listener(received.append)
-
-        assert {e.id for e in deleted} == {e.id for e in entries}
-        assert store.list_entries() == []
-        for e in entries:
-            assert not (tmp_path / "artifacts" / e.filename).exists()
-
-        index = json.loads((tmp_path / "artifacts" / "artifacts.json").read_text())
-        assert index["entries"] == []
-
-        assert {e.id for e in received} == {e.id for e in entries}
-
 
 class TestUpdateEntryMetadata:
     """Tests for BaseStore.update_entry_metadata()."""
@@ -932,9 +905,11 @@ class TestArtifactGalleryApp:
         assert f"id={entry.id}" not in contents
 
     @pytest.mark.asyncio
-    async def test_mcp_data_delete_clears_focus(self, app_client, monkeypatch):
-        """MCP data_delete (the sibling delete tool) shares the listener path."""
-        from osprey.mcp_server.workspace.tools.data_context_tools import data_delete
+    async def test_mcp_artifact_delete_clears_focus_for_a_data_artifact(
+        self, app_client, monkeypatch
+    ):
+        """A save_data artifact is the same record — one delete tool, one listener path."""
+        from osprey.mcp_server.workspace.tools.artifact_save import artifact_delete
         from osprey.stores.artifact_store import initialize_artifact_store
 
         client, tmp_path = app_client
@@ -946,17 +921,18 @@ class TestArtifactGalleryApp:
             tool="data_test",
             data={"value": 42},
             title="MCP Data Target",
+            category="archiver_data",
         )
         client.app.state.focused_artifact_id = entry.id
 
-        result = await get_tool_fn(data_delete)(entry.id)
+        result = await get_tool_fn(artifact_delete)(entry.id)
         payload = extract_response_dict(result)
         assert payload["status"] == "success"
         assert client.app.state.focused_artifact_id is None
 
     @pytest.mark.asyncio
     async def test_mcp_artifact_delete_all(self, app_client, monkeypatch):
-        """artifact_delete_all clears every artifact and empties focus_state."""
+        """artifact_delete_all(scope="everything") clears the store and empties focus_state."""
         from osprey.mcp_server.workspace.tools.artifact_save import artifact_delete_all
         from osprey.stores.artifact_store import initialize_artifact_store
 
@@ -969,9 +945,10 @@ class TestArtifactGalleryApp:
         store.set_pinned(entries[0].id, True)
         client.app.state.focused_artifact_id = entries[1].id
 
-        result = await get_tool_fn(artifact_delete_all)()
+        result = await get_tool_fn(artifact_delete_all)("everything")
         payload = extract_response_dict(result)
         assert payload["status"] == "success"
+        assert payload["scope"] == "everything"
         assert payload["deleted_count"] == 3
         assert set(payload["artifact_ids"]) == {e.id for e in entries}
 

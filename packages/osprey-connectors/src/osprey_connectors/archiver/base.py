@@ -16,9 +16,14 @@ import pandas as pd
 
 @dataclass
 class ArchiverMetadata:
-    """Metadata about archived PV."""
+    """Archiving metadata for one channel.
 
-    pv_name: str
+    ``channel`` is the same protocol-agnostic channel address the control-system
+    connectors take, and the same value that appears in the ``channel`` column of
+    :meth:`ArchiverConnector.get_data`.
+    """
+
+    channel: str
     is_archived: bool
     archival_start: datetime | None = None
     archival_end: datetime | None = None
@@ -37,7 +42,7 @@ class ArchiverConnector(ABC):
         >>> connector = await ConnectorFactory.create_archiver_connector()
         >>> try:
         >>>     df = await connector.get_data(
-        >>>         pv_list=['BEAM:CURRENT', 'BEAM:LIFETIME'],
+        >>>         channels=['BEAM:CURRENT', 'BEAM:LIFETIME'],
         >>>         start_date=datetime(2024, 1, 1),
         >>>         end_date=datetime(2024, 1, 2)
         >>>     )
@@ -67,7 +72,7 @@ class ArchiverConnector(ABC):
     @abstractmethod
     async def get_data(
         self,
-        pv_list: list[str],
+        channels: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
@@ -75,10 +80,12 @@ class ArchiverConnector(ABC):
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
-        Retrieve historical data for PVs.
+        Retrieve historical data for one or more channels.
 
         Args:
-            pv_list: List of PV names to retrieve
+            channels: List of channel addresses to retrieve. Addresses are
+                protocol-agnostic: EPICS PV names, DOOCS property addresses, or
+                whatever the configured backend keys its store by.
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Bin width in milliseconds; ``<= 0`` means full
@@ -95,44 +102,44 @@ class ArchiverConnector(ABC):
             unless a channel is non-numeric), sorted by channel then timestamp.
             Each channel contributes only its own real samples or per-bin
             aggregates — no forward-fill, no shared grid, no bin for a period
-            with no samples. A PV with no data in range contributes no rows; an
+            with no samples. A channel with no data in range contributes no rows; an
             empty result is an empty frame with these columns.
 
         Raises:
             ConnectionError: If archiver cannot be reached
             TimeoutError: If operation times out
-            ValueError: If time range, PV names, or processing mode are
+            ValueError: If time range, channel addresses, or processing mode are
                 invalid, or if a non-"raw" processing mode is requested for a
                 channel whose values are non-numeric
         """
         pass
 
     @abstractmethod
-    async def get_metadata(self, pv_name: str) -> ArchiverMetadata:
+    async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """
-        Get archiving metadata for a PV.
+        Get archiving metadata for a channel.
 
         Args:
-            pv_name: Name of the process variable
+            channel: Channel address
 
         Returns:
             ArchiverMetadata with archiving information
 
         Raises:
             ConnectionError: If archiver cannot be reached
-            ValueError: If PV name is invalid
+            ValueError: If the channel address is invalid
         """
         pass
 
     @abstractmethod
-    async def check_availability(self, pv_names: list[str]) -> dict[str, bool]:
+    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
         """
-        Check which PVs are archived.
+        Check which channels are archived.
 
         Args:
-            pv_names: List of PV names to check
+            channels: List of channel addresses to check
 
         Returns:
-            Dictionary mapping PV name to availability status
+            Dictionary mapping channel address to availability status
         """
         pass

@@ -274,59 +274,6 @@ class ARIELStatusResult:
     errors: list[str]
 
 
-@dataclass
-class IngestionEntryError:
-    """Error information for a failed entry during ingestion.
-
-    Attributes:
-        entry_id: ID of the entry that failed (if available)
-        error: Error message
-        raw_data: Original entry data (truncated)
-    """
-
-    entry_id: str | None
-    error: str
-    raw_data: str | None = None
-
-
-@dataclass
-class IngestionProgress:
-    """Progress information during ingestion.
-
-    Attributes:
-        total: Total entries to process
-        processed: Entries processed so far
-        succeeded: Entries successfully ingested
-        failed: Entries that failed
-    """
-
-    total: int
-    processed: int
-    succeeded: int
-    failed: int
-
-
-@dataclass
-class IngestionResult:
-    """Result from an ingestion operation.
-
-    Attributes:
-        source_system: Source system name
-        total_entries: Total entries processed
-        succeeded: Entries successfully ingested
-        failed: Entries that failed
-        errors: Detailed error information
-        duration_seconds: Time taken for ingestion
-    """
-
-    source_system: str
-    total_entries: int
-    succeeded: int
-    failed: int
-    errors: list[IngestionEntryError]
-    duration_seconds: float
-
-
 class MetadataSchema(TypedDict, total=False):
     """Unified metadata schema for cross-facility standardization.
 

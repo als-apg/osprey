@@ -54,19 +54,29 @@ HELD_SOURCE_ZONE_DIRNAME = ".osprey-replaced-source-zone"
 REPO_FREE_COMMANDS: frozenset[str] = frozenset(
     {
         "init",
-        "health",
         "eject",
         "vendor",
         "theme-lab",
     }
 )
 
-#: Tooling that resolves its own inputs and is deliberately outside this rule.
-#: These commands predate the lifecycle surface and were not rewired onto it,
-#: so they are repo-free in the only sense that matters here — they do not call
-#: :func:`find_repo_root` — without any claim that they need nothing on disk.
-#: Listed rather than left unmentioned so that "no ``--repo`` here" reads as a
-#: recorded decision instead of an oversight.
+#: Tooling that resolves its own inputs through ``--project`` rather than
+#: ``--repo``, so it does not call :func:`find_repo_root` directly. Listed
+#: rather than left unmentioned so that "no ``--repo`` here" reads as a recorded
+#: decision instead of an oversight.
+#:
+#: Two different reasons live here. ``skills``, ``knowledge``, ``ariel`` and
+#: ``artifacts`` predate the lifecycle surface and were not rewired onto it.
+#: ``health`` and ``channel-finder`` are here because a deployment repo is not
+#: the only subject they accept: both also act on a RENDERED project directory,
+#: which holds a ``config.yml`` at its own root and no ``profile.yml`` anywhere
+#: above it, so this module's marker cannot find one. They resolve through
+#: :func:`osprey.cli.project_utils.resolve_project_path`, which applies exactly
+#: the walk below whenever the directory in hand is not itself a project — which
+#: is what makes ``osprey health`` run from ``<repo>/data/raw`` report on that
+#: repo, like every repo-scoped verb. ``health`` reports ON a deployment; it was
+#: previously filed under :data:`REPO_FREE_COMMANDS`, whose members act on the
+#: machine or the installed framework, and that claim was simply false.
 SELF_DISCOVERING_COMMANDS: frozenset[str] = frozenset(
     {
         "skills",
@@ -74,6 +84,7 @@ SELF_DISCOVERING_COMMANDS: frozenset[str] = frozenset(
         "channel-finder",
         "ariel",
         "artifacts",
+        "health",
     }
 )
 

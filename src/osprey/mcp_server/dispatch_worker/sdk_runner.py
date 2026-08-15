@@ -160,7 +160,7 @@ def _load_entry_b64(entry_id: str) -> str | None:
     Used to re-inline an ``ingest=True`` image input (its bytes already live in
     the ArtifactStore, so the seam item carries no ``content_b64``) as an image
     content block. The store copy is retained — the same entry stays readable
-    later via ``data_read`` — so this only reads, never removes.
+    later via ``artifact_read`` — so this only reads, never removes.
     """
     try:
         from osprey.agent_runner.artifact_resolve import get_run_store
@@ -180,7 +180,7 @@ def _descriptor_line(item: dict[str, Any], *, inlined: bool) -> str:
     An inlined image is marked ``image shown inline [shown_inline]`` — the
     literal ``shown_inline`` token is a consumed marker (a downstream channel
     prompt keys on it). A store-resident file is referenced by the mechanism a
-    reader uses to open it: ``data_read("<entry_id>")``. No mention of
+    reader uses to open it: ``artifact_read("<entry_id>")``. No mention of
     base64/ingest/caps — mechanism only.
     """
     filename = item.get("filename")
@@ -189,7 +189,7 @@ def _descriptor_line(item: dict[str, Any], *, inlined: bool) -> str:
         return f"- {filename} ({mime}) — image shown inline [shown_inline]"
     entry_id = item.get("entry_id")
     if entry_id:
-        return f'- {filename} ({mime}) — read with data_read("{entry_id}")'
+        return f'- {filename} ({mime}) — read with artifact_read("{entry_id}")'
     # Degenerate: a non-image seam item with neither an entry_id nor a way to
     # inline it. The seam contract makes text-mime inputs store-resident, so this
     # is not expected; emit a bare descriptor rather than a false access hint.

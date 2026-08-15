@@ -25,9 +25,10 @@ export const ARRANGE_TOOL = 'arrange_workspace';
  * @type {Record<string, string>}
  */
 const PANEL_VERBS = {
-  hide_panel: 'agent closed',
-  show_panel: 'agent opened',
-  switch_panel: 'agent focused',
+  remove_panel_from_rail: 'agent removed',
+  add_panel_to_rail: 'agent made available',
+  open_panel: 'agent opened',
+  close_panel: 'agent closed',
   register_panel: 'agent added',
 };
 

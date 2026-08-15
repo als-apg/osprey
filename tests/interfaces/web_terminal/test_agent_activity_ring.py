@@ -40,7 +40,7 @@ def _make_client(*, with_ring: bool = True) -> TestClient:
     return TestClient(app)
 
 
-def _post(client: TestClient, tool: str = "switch_panel", **target) -> None:
+def _post(client: TestClient, tool: str = "open_panel", **target) -> None:
     """POST one activity event, asserting it was accepted."""
     body = {"tool": tool, "target": target or {"kind": "panel"}}
     assert client.post("/api/agent-activity", json=body).status_code == 200
@@ -328,15 +328,15 @@ def _only_row(client: TestClient) -> dict:
     return ring[0]
 
 
-def test_agent_focus_mirrors_a_switch_panel_row():
-    """A ``switch_panel`` row, shaped exactly like a broadcast activity frame."""
+def test_agent_focus_mirrors_an_open_panel_row():
+    """A ``open_panel`` row, shaped exactly like a broadcast activity frame."""
     client = _make_panel_client()
     _panel_post(client, "/api/panel-focus", {"panel": _MEMBER_PANEL, "source": "agent"})
 
     row = _only_row(client)
     assert row == {
         "type": "agent_activity",
-        "tool": "switch_panel",
+        "tool": "open_panel",
         "target": {"kind": "panel", "panel": _MEMBER_PANEL},
         "ts": row["ts"],
     }
@@ -355,12 +355,12 @@ def test_membership_adding_switch_mirrors_only_the_focus():
     assert kinds == ["panel_visibility", "panel_focus"]
 
     row = _only_row(client)
-    assert row["tool"] == "switch_panel"
+    assert row["tool"] == "open_panel"
     assert row["target"] == {"kind": "panel", "panel": _NON_MEMBER_PANEL}
 
 
-def test_agent_show_mirrors_a_show_panel_row():
-    """Making a panel visible is a ``show_panel`` row."""
+def test_agent_rail_add_mirrors_an_add_panel_to_rail_row():
+    """Putting a panel on the rail is an ``add_panel_to_rail`` row."""
     client = _make_panel_client()
     _panel_post(
         client,
@@ -369,11 +369,11 @@ def test_agent_show_mirrors_a_show_panel_row():
     )
 
     row = _only_row(client)
-    assert row["tool"] == "show_panel"
+    assert row["tool"] == "add_panel_to_rail"
     assert row["target"] == {"kind": "panel", "panel": _NON_MEMBER_PANEL}
 
 
-def test_agent_hide_mirrors_a_hide_panel_row():
+def test_agent_rail_remove_mirrors_a_remove_panel_from_rail_row():
     """A hide is always mirrored — it broadcasts no focus frame to defer to."""
     client = _make_panel_client()
     _panel_post(
@@ -386,7 +386,7 @@ def test_agent_hide_mirrors_a_hide_panel_row():
     assert kinds == ["panel_visibility"]
 
     row = _only_row(client)
-    assert row["tool"] == "hide_panel"
+    assert row["tool"] == "remove_panel_from_rail"
     assert row["target"] == {"kind": "panel", "panel": _MEMBER_PANEL}
 
 
@@ -485,6 +485,6 @@ def test_mirrored_rows_read_back_through_the_recent_endpoint():
     )
 
     events = _get_recent(client)
-    assert [event["tool"] for event in events] == ["hide_panel", "switch_panel"]
+    assert [event["tool"] for event in events] == ["remove_panel_from_rail", "open_panel"]
     assert all(set(event) == {"type", "tool", "target", "ts"} for event in events)
     assert all(event["type"] == "agent_activity" for event in events)

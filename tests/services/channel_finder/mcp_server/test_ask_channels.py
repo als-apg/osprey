@@ -1,4 +1,4 @@
-"""Unit tests for query_channels MCP tool."""
+"""Unit tests for ask_channels MCP tool."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def mock_ctx():
     ctx.subagent_provider = "anthropic"
     ctx.subagent_model_id = "anthropic/claude-haiku"
     ctx.system_prompt_with_db = "You are a channel finder. <final>...</final>\nCH1 | PV:1 | desc"
-    # Concrete int (not a MagicMock) so query_channels can add it to the
+    # Concrete int (not a MagicMock) so ask_channels can add it to the
     # tokenized user-query count without producing a MagicMock arithmetic
     # result that breaks downstream assertions.
     ctx.system_prompt_input_tokens = 100
@@ -24,33 +24,33 @@ def mock_ctx():
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
     with patch(
-        "osprey.mcp_server.channel_finder_in_context.tools.query_channels.get_rate_limiter",
+        "osprey.mcp_server.channel_finder_in_context.tools.ask_channels.get_rate_limiter",
         return_value=None,
     ):
         yield
 
 
-class TestQueryChannelsHappyPath:
+class TestAskChannelsHappyPath:
     @pytest.mark.asyncio
     async def test_returns_llm_response(self, mock_ctx):
         mock_aget = AsyncMock(return_value="<final>PV:1</final>")
         with (
             patch(
-                "osprey.mcp_server.channel_finder_in_context.tools.query_channels.get_cf_ic_context",
+                "osprey.mcp_server.channel_finder_in_context.tools.ask_channels.get_cf_ic_context",
                 return_value=mock_ctx,
             ),
             patch(
-                "osprey.mcp_server.channel_finder_in_context.tools.query_channels.aget_chat_completion",
+                "osprey.mcp_server.channel_finder_in_context.tools.ask_channels.aget_chat_completion",
                 mock_aget,
             ),
         ):
-            from osprey.mcp_server.channel_finder_in_context.tools.query_channels import (
-                query_channels,
+            from osprey.mcp_server.channel_finder_in_context.tools.ask_channels import (
+                ask_channels,
             )
 
-            result = await query_channels("what is the beam current PV?")
+            result = await ask_channels("what is the beam current PV?")
 
-        # query_channels returns a QueryChannelsResult TypedDict with
+        # ask_channels returns an AskChannelsResult TypedDict with
         # text + tokenizer-estimated input/output token counts.
         assert result["text"] == "<final>PV:1</final>"
         assert result["input_tokens"] >= 100  # at least the system-prompt base
@@ -66,7 +66,7 @@ class TestQueryChannelsHappyPath:
         assert chat_request.messages[1].content == "what is the beam current PV?"
 
 
-class TestQueryChannelsContextWindowExceeded:
+class TestAskChannelsContextWindowExceeded:
     @pytest.mark.asyncio
     async def test_returns_error_string(self, mock_ctx):
         mock_aget = AsyncMock(
@@ -78,25 +78,25 @@ class TestQueryChannelsContextWindowExceeded:
         )
         with (
             patch(
-                "osprey.mcp_server.channel_finder_in_context.tools.query_channels.get_cf_ic_context",
+                "osprey.mcp_server.channel_finder_in_context.tools.ask_channels.get_cf_ic_context",
                 return_value=mock_ctx,
             ),
             patch(
-                "osprey.mcp_server.channel_finder_in_context.tools.query_channels.aget_chat_completion",
+                "osprey.mcp_server.channel_finder_in_context.tools.ask_channels.aget_chat_completion",
                 mock_aget,
             ),
         ):
-            from osprey.mcp_server.channel_finder_in_context.tools.query_channels import (
-                query_channels,
+            from osprey.mcp_server.channel_finder_in_context.tools.ask_channels import (
+                ask_channels,
             )
 
-            result = await query_channels("find all BPM channels")
+            result = await ask_channels("find all BPM channels")
 
         assert result["text"] == "ERROR: context_window_exceeded"
         assert result["output_tokens"] == 0
 
 
-class TestQueryChannelsRateLimit:
+class TestAskChannelsRateLimit:
     @pytest.mark.asyncio
     async def test_returns_error_string(self, mock_ctx):
         mock_aget = AsyncMock(
@@ -108,19 +108,19 @@ class TestQueryChannelsRateLimit:
         )
         with (
             patch(
-                "osprey.mcp_server.channel_finder_in_context.tools.query_channels.get_cf_ic_context",
+                "osprey.mcp_server.channel_finder_in_context.tools.ask_channels.get_cf_ic_context",
                 return_value=mock_ctx,
             ),
             patch(
-                "osprey.mcp_server.channel_finder_in_context.tools.query_channels.aget_chat_completion",
+                "osprey.mcp_server.channel_finder_in_context.tools.ask_channels.aget_chat_completion",
                 mock_aget,
             ),
         ):
-            from osprey.mcp_server.channel_finder_in_context.tools.query_channels import (
-                query_channels,
+            from osprey.mcp_server.channel_finder_in_context.tools.ask_channels import (
+                ask_channels,
             )
 
-            result = await query_channels("find corrector magnets")
+            result = await ask_channels("find corrector magnets")
 
         assert result["text"] == "ERROR: rate_limited"
         assert result["output_tokens"] == 0

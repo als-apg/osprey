@@ -36,11 +36,11 @@ Injects three independent pieces of session context as ``additionalContext``:
    UI surface launched this session (the operator chat sets ``simple``, the PTY
    terminal ``expert`` — see the web terminal's session launchers). In the
    simple UX the workspace starts hidden until an artifact exists, so the
-   simple line instructs the agent to ``show_panel("artifacts")`` whenever it
+   simple line instructs the agent to ``open_panel("artifacts")`` whenever it
    produces something the operator should see. Emitted even when the panel
    inventory is unavailable — the surface is known from the env alone.
 2. **Panel inventory** — fetched from the web terminal so the agent knows which
-   panels exist, their labels, visibility state, and the active tab — without a
+   panels exist, their labels, rail membership, and the active tab — without a
    ``list_panels`` tool round-trip.
 3. **Open tiles** — which panels are actually on screen, in spatial reading
    order, e.g. ``Open tiles: [lattice, artifacts], active artifacts.`` Tiles are
@@ -247,7 +247,7 @@ def _build_ux_context(ux):
             "only the chat, and the WORKSPACE panel stays hidden until there is "
             "something in it. Whenever you produce an artifact the operator "
             "should see (a plot, report, page, or other file), call "
-            'show_panel("artifacts") to bring up the WORKSPACE panel so it '
+            'open_panel("artifacts") to bring up the WORKSPACE panel so it '
             "appears next to the chat."
         )
     if ux == "expert":
@@ -267,15 +267,15 @@ def _build_inventory(data):
     parts = []
     for pid in data.get("enabled", []):
         label = labels.get(pid, pid.upper())
-        shown = "shown" if pid in visible_ids else "hidden"
-        parts.append(f"{label} (id={pid}, {shown})")
+        membership = "on rail" if pid in visible_ids else "off rail"
+        parts.append(f"{label} (id={pid}, {membership})")
     for cp in data.get("custom", []):
         cid = cp.get("id", "")
         if not cid:
             continue
         label = cp.get("label", cid.upper())
-        shown = "shown" if cid in visible_ids else "hidden"
-        parts.append(f"{label} (id={cid}, {shown})")
+        membership = "on rail" if cid in visible_ids else "off rail"
+        parts.append(f"{label} (id={cid}, {membership})")
 
     if not parts:
         return None
@@ -285,9 +285,12 @@ def _build_inventory(data):
     return (
         f"Web terminal panels (right pane tabs): {panel_list}. "
         f"{active_part} "
-        "You can reveal/conceal these with show_panel(id)/hide_panel(id) and "
-        "add an ad-hoc URL tab with register_panel(...). "
-        "Hidden panels are launched but their tab is not shown until you show_panel them."
+        "Put one in front of the operator with open_panel(id) and take it off "
+        "screen again with close_panel(id). Rail membership is separate: "
+        "add_panel_to_rail(id)/remove_panel_from_rail(id) control whether the "
+        "operator can launch a panel in one click. An off-rail panel is already "
+        "running — open_panel puts it on the rail and on screen in one step. "
+        "Add an ad-hoc URL tab with register_panel(...)."
     )
 
 

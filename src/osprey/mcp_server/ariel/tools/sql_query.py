@@ -24,7 +24,7 @@ logger = logging.getLogger("osprey.mcp_server.ariel.tools.sql_query")
 
 @mcp.tool()
 async def sql_query(
-    query: str,
+    sql: str,
     max_rows: int = 100,
 ) -> str:
     """Execute a read-only SQL query against the ARIEL logbook database.
@@ -45,7 +45,7 @@ async def sql_query(
     Tables allowed: enhanced_entries, text_embeddings_*.
 
     Args:
-        query: Read-only SQL query (SELECT or WITH only).
+        sql: Read-only SQL statement (SELECT or WITH only).
         max_rows: Maximum rows to return (1-200, default 100).
 
     Note: timestamp columns (timestamp, created_at, updated_at) are returned as
@@ -56,7 +56,7 @@ async def sql_query(
     Returns:
         JSON with query results as a list of row objects.
     """
-    if not query or not query.strip():
+    if not sql or not sql.strip():
         return make_error(
             "validation_error",
             "Empty SQL query.",
@@ -65,13 +65,13 @@ async def sql_query(
 
     try:
         # Fail fast before acquiring a DB connection
-        validate_sql_query(query)
+        validate_sql_query(sql)
 
         registry = get_ariel_context()
         service = await registry.service()
 
         # execute_sql_query re-validates internally
-        rows = await execute_sql_query(service.pool, query, max_rows=max_rows)
+        rows = await execute_sql_query(service.pool, sql, max_rows=max_rows)
 
         # Egress: rows that select an entry_id column gain a canonical entry_url
         # (config-driven). Rows without entry_id (aggregates, projections) and
@@ -86,7 +86,7 @@ async def sql_query(
         formatted = format_sql_result(rows)
 
         response = {
-            "query": query,
+            "sql": sql,
             "row_count": len(rows),
             "rows": rows,
             "formatted": formatted,

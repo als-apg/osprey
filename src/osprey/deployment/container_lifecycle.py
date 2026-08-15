@@ -34,7 +34,11 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
-from osprey.deployment.errors import ComposeInterpolationError, DevModeUnavailableError
+from osprey.deployment.errors import (
+    ComposeInterpolationError,
+    DevModeUnavailableError,
+    NoRenderedBuildError,
+)
 from osprey.deployment.host_ports import (
     find_port_conflicts,
     format_conflict_report,
@@ -2994,15 +2998,6 @@ def _start_stack(
         os.execvpe(cmd[0], cmd, run_env)
 
 
-class NoBuildError(RuntimeError):
-    """Raised when a deployment repo has nothing built to start.
-
-    Distinct from a generic failure because the caller's remedy is fixed and
-    singular — run ``osprey build`` — and because it is the one refusal on this
-    path that ``--as-built`` does not answer.
-    """
-
-
 def as_built_config_path(repo_root: Path | str) -> Path:
     """The rendered config that describes what this repo runs.
 
@@ -3161,7 +3156,7 @@ def up_as_built(
             of rebuilding it (see :func:`_stage_archiver_store`).
 
     Raises:
-        NoBuildError: When ``build/`` holds no rendered config to start.
+        NoRenderedBuildError: When ``build/`` holds no rendered config to start.
         RuntimeError: From the preflights, including the ``--dev`` one.
     """
     repo_root = Path(repo_root)
@@ -3250,8 +3245,8 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
         deployment is reachable off-host.
 
     Raises:
-        NoBuildError: When ``build/`` holds no rendered config, or none of the
-            services it declares was rendered.
+        NoRenderedBuildError: When ``build/`` holds no rendered config, or none
+            of the services it declares was rendered.
         DevModeUnavailableError: When ``--dev`` was asked of a render that holds
             pinned (non-dev) sidecar image builds — `up` never re-renders, so
             honoring it is impossible without a dev build.
@@ -3259,8 +3254,9 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
     """
     config_path = as_built_config_path(repo_root)
     if not config_path.is_file():
-        raise NoBuildError(
-            f"No build found at {config_path.parent}. Run `osprey build` to render it."
+        raise NoRenderedBuildError(
+            reason=f"No build found at {config_path.parent}.",
+            remedy="Render one:\n    osprey build",
         )
 
     if dev_mode:
@@ -3285,10 +3281,13 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
     compose_files = as_built_compose_files(config, repo_root)
 
     if not compose_files and config.get("deployed_services"):
-        raise NoBuildError(
-            f"{config_path} declares services ({', '.join(str(s) for s in config['deployed_services'])}) "
-            f"but no compose files were rendered for them under {repo_root / BUILD_DIRNAME}. "
-            "Run `osprey build` to re-render build/."
+        raise NoRenderedBuildError(
+            reason=(
+                f"{config_path} declares services "
+                f"({', '.join(str(s) for s in config['deployed_services'])}) but no compose "
+                f"files were rendered for them under {repo_root / BUILD_DIRNAME}."
+            ),
+            remedy="Re-render build/:\n    osprey build",
         )
 
     # The render's flavor must match the start's. `up` never re-renders, so a
@@ -3597,7 +3596,8 @@ def restart_deployment(
             of rebuilding it (see :func:`_stage_archiver_store`).
 
     Raises:
-        NoBuildError: When ``build/`` holds nothing to start. Nothing is stopped.
+        NoRenderedBuildError: When ``build/`` holds nothing to start. Nothing is
+            stopped.
         RuntimeError: From the preflights or from the stop itself.
     """
     repo_root = Path(repo_root)

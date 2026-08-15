@@ -655,8 +655,8 @@ class TestPreflightCompanionPortCollision:
         """Enabled-but-not-launched panel (require_section unmet) is not probed."""
         # "channel-finder" is enabled in web.panels, but the channel_finder
         # top-level section (which gates auto_launch/require_section) is
-        # absent — the lifespan would never actually call
-        # _launch_channel_finder_server, so its port must never be resolved.
+        # absent — the lifespan's launcher would skip it, so its port must
+        # never be resolved.
         artifact_port = _free_port()
         _patch_config(
             monkeypatch,
@@ -704,15 +704,22 @@ class TestPreflightCompanionPortCollision:
         assert _preflight_at(tmp_path) == ([], [])
 
     def test_panel_id_mapping_covers_every_registry_server(self):
-        """Every FRAMEWORK_WEB_SERVERS entry except `artifact` (always launched,
-        never gated on web.panels) must have a `_PANEL_ID_FOR_REGISTRY_KEY`
-        mapping — a missing entry makes the probe silently skip that panel, so
-        a foreign listener on its port would go unreported."""
-        from osprey.cli.web_cmd import _PANEL_ID_FOR_REGISTRY_KEY
+        """The probe resolves each server's panel id off the registry entry.
+
+        A server whose panel id the probe cannot resolve is silently skipped, so
+        a foreign listener on its port goes unreported. The probe used to carry
+        its own key → id table, and that table had already lost the gallery's
+        `artifacts` entry; reading `WebServerDefinition.panel_id` means every
+        registered server is covered by construction.
+        """
+        import inspect
+
+        from osprey.cli import web_cmd
+        from osprey.profiles.web_panels import BUILTIN_PANELS
         from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
-        expected_keys = set(FRAMEWORK_WEB_SERVERS) - {"artifact"}
-        assert set(_PANEL_ID_FOR_REGISTRY_KEY) == expected_keys
+        assert {defn.panel_id for defn in FRAMEWORK_WEB_SERVERS.values()} == BUILTIN_PANELS
+        assert "_PANEL_ID_FOR_REGISTRY_KEY" not in inspect.getsource(web_cmd)
 
 
 class TestWebCommandPreflightWiring:

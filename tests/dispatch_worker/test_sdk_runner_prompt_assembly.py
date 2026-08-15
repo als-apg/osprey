@@ -9,7 +9,7 @@ mechanism-only descriptor line for every input file. These tests pin:
     prompt+descriptor string for non-inlining inputs),
   * the image content block shape (Anthropic native base64 block, raw b64 in
     ``source.data``, correct ``media_type``),
-  * both descriptor line formats (``data_read("<entry_id>")`` for a stored file;
+  * both descriptor line formats (``artifact_read("<entry_id>")`` for a stored file;
     the ``[shown_inline]`` marker for an inlined image),
   * the hygiene invariant: ``content_b64`` never enters the prompt text or any
     log record (the sdk_runner base64-redacting logging filter).
@@ -112,7 +112,7 @@ def test_content_block_ingest_true_image_inlined_from_store(monkeypatch):
     )
     assert isinstance(content, list)
     assert content[0]["source"]["data"] == PNG_B64
-    # An inlined image is described as shown inline, not as a data_read target.
+    # An inlined image is described as shown inline, not as an artifact_read target.
     assert "shown_inline" in content[-1]["text"]
 
 
@@ -124,7 +124,7 @@ def test_content_block_non_image_not_inlined():
     )
     # No image block ⇒ content stays a string (prompt + descriptor).
     assert isinstance(content, str)
-    assert 'data_read("art-9")' in content
+    assert 'artifact_read("art-9")' in content
 
 
 def test_prompt_stream_image_missing_from_store_falls_back_to_descriptor(monkeypatch):
@@ -134,9 +134,9 @@ def test_prompt_stream_image_missing_from_store_falls_back_to_descriptor(monkeyp
         "look",
         [{"filename": "p.png", "mime": "image/png", "entry_id": "art-1", "content_b64": None}],
     )
-    # No inlinable bytes ⇒ no image block; falls back to a data_read descriptor.
+    # No inlinable bytes ⇒ no image block; falls back to an artifact_read descriptor.
     assert isinstance(content, str)
-    assert 'data_read("art-1")' in content
+    assert 'artifact_read("art-1")' in content
 
 
 # ---------------------------------------------------------------------------
@@ -144,11 +144,11 @@ def test_prompt_stream_image_missing_from_store_falls_back_to_descriptor(monkeyp
 # ---------------------------------------------------------------------------
 
 
-def test_descriptor_line_for_stored_file_uses_data_read():
+def test_descriptor_line_for_stored_file_uses_artifact_read():
     line = sdk_runner._descriptor_line(
         {"filename": "d.csv", "mime": "text/csv", "entry_id": "art-9"}, inlined=False
     )
-    assert line == '- d.csv (text/csv) — read with data_read("art-9")'
+    assert line == '- d.csv (text/csv) — read with artifact_read("art-9")'
 
 
 def test_descriptor_line_for_inlined_image_has_shown_inline_marker():
@@ -179,8 +179,8 @@ def test_descriptor_block_one_line_per_input_file():
     assert sdk_runner._INPUT_FILES_HEADER in text
     # Order preserved, each with the mechanism appropriate to its routing.
     assert "[shown_inline]" in descriptor_lines[0]
-    assert 'data_read("art-2")' in descriptor_lines[1]
-    assert 'data_read("art-3")' in descriptor_lines[2]
+    assert 'artifact_read("art-2")' in descriptor_lines[1]
+    assert 'artifact_read("art-3")' in descriptor_lines[2]
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +264,7 @@ def test_prompt_stream_inlines_image_and_appends_descriptor(monkeypatch):
     text = content[-1]["text"]
     assert text.startswith("hello")
     assert "[shown_inline]" in text  # the image
-    assert 'data_read("art-9")' in text  # the csv
+    assert 'artifact_read("art-9")' in text  # the csv
     assert PNG_B64 not in text
 
 

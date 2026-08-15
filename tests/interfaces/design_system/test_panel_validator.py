@@ -29,7 +29,7 @@ import pytest
 from osprey.interfaces.design_system import panels as panels_pkg
 from osprey.interfaces.design_system.panels.validator import (
     MANIFEST_FILENAME,
-    PanelError,
+    PanelFinding,
     PanelRule,
     PanelValidationError,
     assert_valid_panel,
@@ -101,7 +101,7 @@ def _write_panel(
     return panel_dir
 
 
-def _rules(errors: list[PanelError]) -> set[PanelRule]:
+def _rules(errors: list[PanelFinding]) -> set[PanelRule]:
     return {error.rule for error in errors}
 
 

@@ -392,7 +392,15 @@ keys:
   logbook.composition: {evidence: 'get_config_value\("logbook\.composition", \{\}\)'}
   logbook.composition.provider: {covered-by: logbook.composition}
   logbook.composition.default_tier: {evidence: 'default_tier'}
-  facility_knowledge: {evidence: 'config\.get\("facility_knowledge", \{\}\)'}
+  facility_knowledge:
+    evidence: 'config_key="facility_knowledge"'
+    note: >-
+      The section is read through the companion-server registry, not by a
+      literal config.get at the reading site: registry/web.py declares
+      config_key="facility_knowledge" on the okf WebServerDefinition, and both
+      readers (web_server_config_section and the auto-launch checker) go through
+      that field. The declaration is therefore the only place the key name
+      appears, and the evidence anchors on it.
   facility_knowledge.bundle_path:
     evidence: 'get_config_value\("facility_knowledge\.bundle_path", None\)'
   artifact_server: {evidence: 'config\.get\("artifact_server"\) or \{\}'}

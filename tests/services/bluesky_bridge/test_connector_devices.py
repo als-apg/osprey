@@ -98,7 +98,7 @@ async def test_set_raises_on_blocked_write() -> None:
 async def test_set_raises_on_failed_write() -> None:
     """An attempted-but-failed/unverified write must also abort via a raise."""
     fake = FakeConnector(readbacks={"SP:RB": 0.0})
-    fake.write_side_effect = ChannelWriteFailedError("SP:RB", "CAPUT_FAILED")
+    fake.write_side_effect = ChannelWriteFailedError("SP:RB", "WRITE_FAILED")
     device = ConnectorSettable(fake, "SP:RB", name="motor")
 
     with pytest.raises(ChannelWriteFailedError):

@@ -31,7 +31,7 @@ def _extract_text(tool_result) -> str:
 
 
 class InContextBackend(Backend):
-    """Run a single ``query_channels`` MCP tool call with no outer agent loop.
+    """Run a single ``ask_channels`` MCP tool call with no outer agent loop.
 
     The inner LLM call happens inside the spawned MCP subprocess; the outer
     benchmark process only sees the tool result string. The subprocess reads
@@ -65,11 +65,11 @@ class InContextBackend(Backend):
 
     async def run_query(self, prompt: str, pipeline_mode: str) -> WorkflowOutput:
         async with mcp_client_session(self.project_dir, "in_context", env=self._env) as client:
-            tool_result = await client.call_tool("query_channels", {"query": prompt})
+            tool_result = await client.call_tool("ask_channels", {"question": prompt})
 
         is_error = getattr(tool_result, "is_error", False)
 
-        # Prefer structuredContent (the typed dict from query_channels) for
+        # Prefer structuredContent (the typed dict from ask_channels) for
         # exact text + tokenizer-estimated input/output token counts. Falls
         # back to plain-text extraction if the server is older or returned
         # a string-typed result for any reason.
@@ -86,9 +86,9 @@ class InContextBackend(Backend):
             output_tokens = 0
 
         trace = ToolTrace(
-            name="query_channels",
+            name="ask_channels",
             input={
-                "query": prompt,
+                "question": prompt,
                 "_inner_provider": self.provider,
                 "_inner_model_id": self.wire_id,
             },

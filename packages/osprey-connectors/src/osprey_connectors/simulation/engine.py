@@ -48,10 +48,10 @@ from osprey_connectors.simulation.machine import (
 )
 from osprey_connectors.simulation.series import (
     apply_events,
+    channel_key_bytes,
     clamp,
     epoch_seconds_array,
     keyed_normals,
-    pv_key_bytes,
     ref_value,
     string_series,
     wander,
@@ -137,7 +137,7 @@ class SimReading:
 
 
 def _texture_offset(
-    pv_key: bytes, texture: TextureSpec, t_abs_s: "np.ndarray | float"
+    channel_key: bytes, texture: TextureSpec, t_abs_s: "np.ndarray | float"
 ) -> "np.ndarray":
     """Texture contribution at absolute epoch time(s) — shared by both engine paths.
 
@@ -150,7 +150,7 @@ def _texture_offset(
     validates the vocabulary and ``"wander"`` is the only kind defined today.
 
     Args:
-        pv_key: Channel key from :func:`osprey_connectors.simulation.series.pv_key_bytes`.
+        channel_key: Channel key from :func:`osprey_connectors.simulation.series.channel_key_bytes`.
         texture: The channel's declared texture parameters.
         t_abs_s: Absolute epoch seconds — array (synthesis) or scalar (live).
 
@@ -160,7 +160,7 @@ def _texture_offset(
     # asarray is the same first step wander performs — a bit-exact dtype wrap
     # (never a rounding or rebasing), here only to satisfy the array annotation.
     times = np.asarray(t_abs_s, dtype=np.float64)
-    return wander(pv_key, times, texture.amplitude, texture.period_s)
+    return wander(channel_key, times, texture.amplitude, texture.period_s)
 
 
 def _apply_signal_model(
@@ -190,10 +190,10 @@ def _apply_signal_model(
     Returns:
         The series with texture and both noise terms applied.
     """
-    pv_key = pv_key_bytes(pv)
+    channel_key = channel_key_bytes(pv)
     if channel.texture is not None:
         if t_abs is not None:
-            series = series + _texture_offset(pv_key, channel.texture, t_abs)
+            series = series + _texture_offset(channel_key, channel.texture, t_abs)
         else:
             logger.debug(
                 f"Skipping texture for {pv!r}: timestamps not convertible to epoch seconds"
@@ -201,10 +201,10 @@ def _apply_signal_model(
     if channel.noise > 0.0 or channel.noise_abs > 0.0:
         counters = t_abs * 1000.0 if t_abs is not None else np.arange(len(series), dtype=np.int64)
         if channel.noise > 0.0:
-            relative = keyed_normals(pv_key + b":noise", counters)
+            relative = keyed_normals(channel_key + b":noise", counters)
             series = series * (1.0 + channel.noise * relative)
         if channel.noise_abs > 0.0:
-            absolute = keyed_normals(pv_key + b":noise_abs", counters)
+            absolute = keyed_normals(channel_key + b":noise_abs", counters)
             series = series + channel.noise_abs * absolute
     return series
 
@@ -441,9 +441,9 @@ class SimulationEngine:
                     owner[pv] = name
         return problems
 
-    def has_channel(self, pv: str) -> bool:
+    def has_channel(self, channel: str) -> bool:
         """Return True if the machine file defines this channel."""
-        return pv in self._channels
+        return channel in self._channels
 
     def read(self, pv: str) -> SimReading:
         """Read a channel's effective value with the live signal model applied.
@@ -475,7 +475,7 @@ class SimulationEngine:
         if not isinstance(value, str):
             value = float(value)
             if channel.texture is not None:
-                value += float(_texture_offset(pv_key_bytes(pv), channel.texture, time.time()))
+                value += float(_texture_offset(channel_key_bytes(pv), channel.texture, time.time()))
             if channel.noise > 0.0:
                 value *= 1.0 + float(self._rng.normal(0.0, channel.noise))
             if channel.noise_abs > 0.0:

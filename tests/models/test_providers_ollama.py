@@ -236,12 +236,24 @@ class TestOllamaExecuteCompletion:
 class TestOllamaHealthCheck:
     """Test Ollama health check functionality."""
 
-    def test_health_check_no_base_url(self):
-        """Test health check fails without base URL."""
+    def test_health_check_without_base_url_probes_the_declared_default(self):
+        """No configured URL means "the declared default", not "unconfigured".
+
+        The health check has to probe whatever a completion would actually reach.
+        It used to report "Base URL not configured" while ``execute_completion``
+        for the same config went to ``default_base_url`` — two answers to one
+        question.
+        """
         provider = OllamaProviderAdapter()
-        success, message = provider.check_health(api_key=None, base_url=None)
-        assert success is False
-        assert "url" in message.lower()
+
+        with patch.object(
+            OllamaProviderAdapter, "_test_connection", return_value=True
+        ) as mock_test:
+            success, message = provider.check_health(api_key=None, base_url=None)
+
+        assert success is True
+        assert mock_test.call_args[0][0] == OllamaProviderAdapter.default_base_url
+        assert OllamaProviderAdapter.default_base_url in message
 
     def test_health_check_success(self):
         """Test successful health check."""

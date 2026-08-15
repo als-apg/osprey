@@ -586,26 +586,61 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         self._notify_delete_listeners(deleted)
         return True
 
-    def delete_all(self) -> list[ArtifactEntry]:
-        """Delete every artifact in one atomic operation.
+    def _delete_where(self, predicate: Callable[[ArtifactEntry], bool]) -> list[ArtifactEntry]:
+        """Delete every entry matching *predicate* in one atomic operation.
 
-        Removes all physical files and clears the index in a single locked
+        Unlinks the matching files and rewrites the index in a single locked
         block, then fires the delete listener once per removed entry outside
-        the lock. Returns the list of deleted entries.
+        the lock. Returns the removed entries.
         """
         with self._with_index_lock():
-            snapshot = list(self._entries)
-            for e in snapshot:
+            doomed = [e for e in self._entries if predicate(e)]
+            for e in doomed:
                 filepath = self._store_dir / e.filename
                 if filepath.exists():
                     filepath.unlink()
-            self._entries.clear()
-            self._save_index()
+            if doomed:
+                survivors = [e for e in self._entries if not predicate(e)]
+                self._entries[:] = survivors
+                self._save_index()
 
-        for entry in snapshot:
+        for entry in doomed:
             self._notify_delete_listeners(entry)
 
-        return snapshot
+        return doomed
+
+    def delete_category(self, category: str) -> list[ArtifactEntry]:
+        """Delete every artifact whose ``category`` equals *category*.
+
+        The scoped destructive path: it honours exactly the partition the read
+        path honours (:meth:`list_entries` ``category_filter``), so clearing
+        one category never touches another. Pass ``""`` to delete only
+        uncategorised entries.
+
+        Deletion is not recoverable — files are unlinked outright.
+
+        Args:
+            category: Category key to delete. ``""`` selects uncategorised
+                entries.
+
+        Returns:
+            The removed entries (empty when nothing matched).
+        """
+        return self._delete_where(lambda e: e.category == category)
+
+    def delete_everything(self) -> list[ArtifactEntry]:
+        """Delete EVERY artifact in the store, across all categories.
+
+        Named for its blast radius. This is the whole-store clear, not a
+        scoped delete: it destroys archiver datasets, scan results and data
+        files written by :meth:`save_data` alongside plots, documents and
+        screenshots, and the files are unlinked outright — there is no trash.
+        Callers that mean a single partition must use :meth:`delete_category`.
+
+        Returns:
+            Every removed entry.
+        """
+        return self._delete_where(lambda e: True)
 
     def get_file_path(self, artifact_id: str) -> Path | None:
         entry = self.get_entry(artifact_id)

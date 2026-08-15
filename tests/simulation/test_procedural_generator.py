@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from osprey.connectors.pv_taxonomy import classify_pv
+from osprey.connectors.channel_taxonomy import classify_channel
 from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
 from osprey.simulation.procedural import (
@@ -58,7 +58,7 @@ MACHINE = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulati
 T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
 
 # One PV per kind the taxonomy can return, named the way a real facility names
-# them so `classify_pv` reaches the intended branch.
+# them so `classify_channel` reaches the intended branch.
 KIND_EXAMPLES = {
     "beam_current": "SR:DCCT:BEAM:CURRENT",
     "current": "SR:MAG:QF01:CURRENT",
@@ -81,7 +81,7 @@ def _sigma(pv: str, noise_level: float = DEFAULT_NOISE_LEVEL) -> float:
     tracks the shape table instead of restating it.
     """
     return deviation_bound(pv, noise_level=noise_level, noise_sigmas=0.0) / (
-        KIND_SHAPES[classify_pv(pv).name].shape_sigmas
+        KIND_SHAPES[classify_channel(pv).name].shape_sigmas
     )
 
 
@@ -107,7 +107,7 @@ def _phase_profile(pv: str, bins: int = 24, cycles: int = 240) -> np.ndarray:
         ``bins`` mean values, ordered by phase from the peak onwards, with the
         overall mean removed so the result is centred on zero.
     """
-    period = KIND_SHAPES[classify_pv(pv).name].cycle_period_s
+    period = KIND_SHAPES[classify_channel(pv).name].cycle_period_s
     samples_per_cycle = bins * 10
     grid = _grid(T0, count=cycles * samples_per_cycle, step_s=period / samples_per_cycle)
 
@@ -270,7 +270,7 @@ class TestBaselineAnchoring:
             return float(boot_values[address])
         if channel["subfield"] in ("SP", "RB"):
             return float(served[address]["value"])
-        return classify_pv(address).base_value
+        return classify_channel(address).base_value
 
     @pytest.mark.parametrize("partition", ["pyat-coupled", "sp-echo", "static-noisy"])
     def test_baseline_equals_the_value_the_va_settles_the_channel_at(self, partition):
@@ -306,7 +306,7 @@ class TestBaselineAnchoring:
         address = "SR:VAC:ION-PUMP:01:VOLTAGE:SP"
         boot_values = self._boot_values()
         assert address not in boot_values
-        assert classify_pv(address).base_value == 5000.0
+        assert classify_channel(address).base_value == 5000.0
 
         assert baseline_value(address, boot_values) == 0.0
         assert np.array_equal(
@@ -323,21 +323,21 @@ class TestBaselineAnchoring:
         boot_values = self._boot_values()
         address = "SR:MAG:HCM:01:CURRENT:SP"
         assert address in boot_values, "the shipped machine model no longer seeds this"
-        assert boot_values[address] != classify_pv(address).base_value
+        assert boot_values[address] != classify_channel(address).base_value
 
         assert baseline_value(address, boot_values) == pytest.approx(boot_values[address])
-        assert baseline_value(address) == classify_pv(address).base_value
+        assert baseline_value(address) == classify_channel(address).base_value
 
     def test_an_unseeded_channel_falls_back_to_the_taxonomy(self):
         """What the VA's own ``EngineSource`` serves for a modelless channel."""
         pv = "BR:DIAG:BPM:01:POSITION:X"
-        assert baseline_value(pv, {}) == classify_pv(pv).base_value
-        assert baseline_value(pv, None) == classify_pv(pv).base_value
+        assert baseline_value(pv, {}) == classify_channel(pv).base_value
+        assert baseline_value(pv, None) == classify_channel(pv).base_value
 
     def test_a_non_numeric_seed_is_ignored_rather_than_coerced(self):
         """String-valued channels exist in machine models; this one is numeric."""
         pv = "SR:MAG:QF01:CURRENT"
-        assert baseline_value(pv, {pv: "not a number"}) == classify_pv(pv).base_value
+        assert baseline_value(pv, {pv: "not a number"}) == classify_channel(pv).base_value
 
     def test_the_series_is_centred_on_the_anchored_baseline(self):
         """Anchoring the baseline is pointless if the series drifts off it.
@@ -417,7 +417,9 @@ class TestKindShapes:
         """A kind added to the taxonomy without one here would fall back
         silently to the generic texture; the example map is the checklist."""
         for kind_name, pv in KIND_EXAMPLES.items():
-            assert classify_pv(pv).name == kind_name, f"{pv} no longer classifies as {kind_name}"
+            assert classify_channel(pv).name == kind_name, (
+                f"{pv} no longer classifies as {kind_name}"
+            )
             assert kind_name in KIND_SHAPES
 
     @pytest.mark.parametrize(("kind_name", "pv"), sorted(KIND_EXAMPLES.items()))
@@ -490,7 +492,7 @@ class TestKindShapes:
     def test_the_default_kind_catches_unclassified_channels(self):
         """Most of the served namespace is status and reference channels."""
         pv = KIND_EXAMPLES["default"]
-        assert classify_pv(pv).name == "default"
+        assert classify_channel(pv).name == "default"
 
         values = generate_series(pv, _grid(T0, count=64, step_s=60.0))
 

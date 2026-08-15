@@ -134,7 +134,7 @@ valves.json
 _agent_data/*
 .agents/
 
-# Local coding-agent guidance (CLAUDE.md is the tracked source of guidance)
+# Local coding-agent guidance (kept out of git; see /CLAUDE.md below)
 AGENTS.md
 
 # Sample logbook data (large JSONL files)

@@ -142,7 +142,7 @@ async def test_sql_query_valid(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_sql_query()
-        result = await fn(query="SELECT entry_id, author FROM enhanced_entries LIMIT 2")
+        result = await fn(sql="SELECT entry_id, author FROM enhanced_entries LIMIT 2")
 
     data = extract_response_dict(result)
     assert not data.get("error", False)
@@ -155,7 +155,7 @@ async def test_sql_query_rejected_dml():
     """DML queries return validation error without touching the database."""
     fn = _get_sql_query()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
-        await fn(query="INSERT INTO enhanced_entries VALUES ('x')")
+        await fn(sql="INSERT INTO enhanced_entries VALUES ('x')")
 
     data = _exc_ctx["envelope"]
     assert "INSERT" in data["error_message"]
@@ -166,7 +166,7 @@ async def test_sql_query_empty():
     """Empty query returns validation error."""
     fn = _get_sql_query()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
-        await fn(query="")
+        await fn(sql="")
 
     _exc_ctx["envelope"]
 
@@ -192,7 +192,7 @@ async def test_sql_query_row_limit(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_sql_query()
-        await fn(query="SELECT * FROM enhanced_entries", max_rows=500)
+        await fn(sql="SELECT * FROM enhanced_entries", max_rows=500)
 
     # Tool passes max_rows through; capping happens inside sql_query()
     mock_sql.assert_called_once()
@@ -218,7 +218,7 @@ async def test_sql_query_service_error(tmp_path, monkeypatch):
     ):
         fn = _get_sql_query()
         with assert_raises_error(error_type="internal_error") as _exc_ctx:
-            await fn(query="SELECT * FROM enhanced_entries")
+            await fn(sql="SELECT * FROM enhanced_entries")
 
     data = _exc_ctx["envelope"]
     assert "Connection refused" in data["error_message"]

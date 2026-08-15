@@ -58,9 +58,9 @@ def test_tool_in_allow_passes(tmp_path):
     """A tool present in permissions.allow is backed."""
     project = _write_project(
         tmp_path,
-        allow=["mcp__osprey_workspace__data_read"],
+        allow=["mcp__osprey_workspace__artifact_read"],
         ask=[],
-        agent_tools="mcp__osprey_workspace__data_read, Read",
+        agent_tools="mcp__osprey_workspace__artifact_read, Read",
     )
     assert validate_agent_tools_against_permissions(project) == []
 
@@ -85,7 +85,7 @@ def test_tool_in_neither_list_fails(tmp_path):
     """A tool in neither allow nor ask is unbacked and must be reported."""
     project = _write_project(
         tmp_path,
-        allow=["mcp__osprey_workspace__data_read"],
+        allow=["mcp__osprey_workspace__artifact_read"],
         ask=["mcp__python__execute"],
         agent_tools="mcp__nonexistent__phantom, Read",
     )
@@ -99,9 +99,9 @@ def test_ask_gated_and_allow_mix_passes(tmp_path):
     """An agent may draw from both lists at once."""
     project = _write_project(
         tmp_path,
-        allow=["mcp__osprey_workspace__data_read"],
+        allow=["mcp__osprey_workspace__artifact_read"],
         ask=["mcp__python__execute"],
-        agent_tools="mcp__python__execute, mcp__osprey_workspace__data_read, Read",
+        agent_tools="mcp__python__execute, mcp__osprey_workspace__artifact_read, Read",
     )
     assert validate_agent_tools_against_permissions(project) == []
 
@@ -125,7 +125,7 @@ def test_wildcard_still_rejected(tmp_path):
     """Wildcards are rejected regardless of the ask/allow membership rule."""
     project = _write_project(
         tmp_path,
-        allow=["mcp__osprey_workspace__data_read"],
+        allow=["mcp__osprey_workspace__artifact_read"],
         ask=["mcp__python__execute"],
         agent_tools="mcp__osprey_workspace__*, Read",
     )

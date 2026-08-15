@@ -237,8 +237,15 @@ class TestExecuteArgoStructuredOutput:
         assert result.active is True
 
     @patch("osprey.models.providers.argo.httpx.post")
-    def test_uses_default_base_url(self, mock_post):
-        """Falls back to default base URL when none provided."""
+    def test_posts_to_the_base_url_it_is_given(self, mock_post):
+        """The helper resolves nothing: it posts to the URL the adapter resolved.
+
+        It used to apply ``base_url or ARGO_BASE_URL or default`` itself, which
+        made those two levers work on the structured path and nowhere else.
+        Resolution now happens once in
+        :meth:`ArgoProviderAdapter.execute_completion`; the default's reachability
+        is pinned there, in ``TestArgoDefaultBaseURLIsReachable``.
+        """
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "choices": [{"message": {"content": '{"name": "test", "value": 1, "active": true}'}}]
@@ -246,17 +253,17 @@ class TestExecuteArgoStructuredOutput:
         mock_response.raise_for_status = MagicMock()
         mock_post.return_value = mock_response
 
-        with patch.dict("os.environ", {}, clear=True):
+        with patch.dict("os.environ", {"ARGO_BASE_URL": "https://ignored.example"}, clear=True):
             _execute_argo_structured_output(
                 model_id="gpt5mini",
                 message="Extract info",
                 output_format=SampleOutput,
                 api_key="test-key",
-                base_url=None,
+                base_url="https://resolved.example/v1",
             )
 
         call_url = mock_post.call_args[1].get("url") or mock_post.call_args[0][0]
-        assert "apps.inside.anl.gov/argoapi/v1" in call_url
+        assert call_url == "https://resolved.example/v1/chat/completions"
 
     @patch("osprey.models.providers.argo.httpx.post")
     def test_no_choices_raises_value_error(self, mock_post):

@@ -348,9 +348,10 @@ def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> Non
     through the handler it already uses for the SSE ``agent_activity`` stream.
 
     ``tool`` is synthetic: the panel routes carry no tool name of their own, so
-    the caller supplies the MCP verb the action corresponds to (``switch_panel``,
-    ``show_panel``, ``hide_panel``, ``arrange_workspace``, ``register_panel``)
-    and the frontend words the entry from it.
+    the caller supplies the MCP verb the action corresponds to (``open_panel``,
+    ``close_panel``, ``add_panel_to_rail``, ``remove_panel_from_rail``,
+    ``arrange_workspace``, ``register_panel``) and the frontend words the entry
+    from it.
 
     Nothing is broadcast — this is history only.  Callers must invoke it for
     agent-origin requests exactly once per action, and never for human ones: a
@@ -389,14 +390,14 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
     the gesturing client applies its own focus locally rather than riding an
     echo.
 
-    ``body.url`` (e.g. from an agent-invoked ``switch_panel`` MCP call) is
+    ``body.url`` (e.g. from an agent-invoked ``open_panel`` MCP call) is
     run through ``_prefix_path()`` before broadcast so a root-absolute path
     lands inside the user's own mount; an already-absolute URL is left
     untouched.
 
     Focusing a panel that is **not** in the launcher rail also adds it there,
     emitting a ``panel_visibility`` frame *before* the focus frame. An agent's
-    ``switch_panel`` may name a panel the operator has hidden; without the
+    ``open_panel`` may name a panel the operator took off the rail; without the
     membership update the rail entry would exist only on the client that
     happened to apply the focus, so ``list_panels`` would keep reporting the
     panel invisible, a reload would drop both the entry and the agent-opened
@@ -407,7 +408,7 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
     changes nothing and emits no visibility frame.
 
     An agent switch is also mirrored into the activity history ring as one
-    ``switch_panel`` row. When the switch additionally adds rail membership,
+    ``open_panel`` row. When the open additionally adds rail membership,
     only the focus is mirrored: the pair of frames is one agent action, and
     history counts actions, not frames.
 
@@ -453,7 +454,7 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
         event: dict = {"type": "panel_focus", "panel": body.panel, "source": body.source}
         if body.url:
             event["url"] = _prefix_path(body.url)
-        _mirror_agent_panel_activity(request, "switch_panel", body.panel)
+        _mirror_agent_panel_activity(request, "open_panel", body.panel)
         request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "active_panel": body.panel}
 
@@ -469,8 +470,9 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     """Show or hide a panel and broadcast the change via SSE.
 
     An agent-origin change is also mirrored into the activity history ring, as
-    a ``show_panel`` or ``hide_panel`` row depending on the flag, so a client
-    reading the history can word it the way it words the live frame.
+    an ``add_panel_to_rail`` or ``remove_panel_from_rail`` row depending on the
+    flag, so a client reading the history can word it the way it words the live
+    frame.
 
     Args:
         body: ``panel`` (panel id) and ``visible`` (desired visibility).
@@ -496,10 +498,50 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
         event["source"] = body.source
     if body.source == "agent":
         _mirror_agent_panel_activity(
-            request, "show_panel" if body.visible else "hide_panel", body.panel
+            request,
+            "add_panel_to_rail" if body.visible else "remove_panel_from_rail",
+            body.panel,
         )
     request.app.state.broadcaster.broadcast(event)
     return {"status": "ok", "panel": body.panel, "visible": body.visible}
+
+
+class PanelCloseRequest(BaseModel):
+    panel: str
+    source: Literal["agent"] | None = None
+
+
+@router.post("/api/panel-close")
+async def close_panel(body: PanelCloseRequest, request: Request):
+    """Close a panel's tile on every connected client, leaving the rail alone.
+
+    The on-screen counterpart to ``/api/panel-focus``, and deliberately not a
+    flag on ``/api/panel-visibility``: rail membership is server-owned state
+    that this route must not touch, while which tiles are open is per-client
+    layout. A panel with no tile open closes to a no-op in the browser rather
+    than an error here — the server does not track per-client tile occupancy
+    closely enough to tell the two apart, and refusing would make the verb
+    depend on a stale report.
+
+    Args:
+        body: ``panel`` (panel id) and the optional ``source`` marker.
+        request: Incoming FastAPI request carrying ``app.state``.
+
+    Returns:
+        ``{"status": "ok", "panel": <id>}``
+
+    Raises:
+        HTTPException: 422 when ``panel`` is not a known enabled or custom id.
+    """
+    if body.panel not in _known_panel_ids(request):
+        raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
+    event: dict = {"type": "panel_close", "panel": body.panel}
+    if body.source:
+        event["source"] = body.source
+    if body.source == "agent":
+        _mirror_agent_panel_activity(request, "close_panel", body.panel)
+    request.app.state.broadcaster.broadcast(event)
+    return {"status": "ok", "panel": body.panel}
 
 
 class PanelArrangeRequest(BaseModel):

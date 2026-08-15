@@ -20,7 +20,11 @@ import httpx
 import pytest
 
 from osprey.bridges.core.config import CoreConfig
-from osprey.bridges.core.dispatch_client import DispatchClient, DispatchError, _error_result
+from osprey.bridges.core.dispatch_client import (
+    DispatchClient,
+    DispatchPipelineError,
+    _error_result,
+)
 
 CFG = CoreConfig(
     dispatcher_url="http://disp:8010",
@@ -236,7 +240,7 @@ def test_poll_worker_budget_exhaustion_returns_infrastructure_error():
 
 
 def test_poll_worker_non_404_http_error_raises():
-    with pytest.raises(DispatchError):
+    with pytest.raises(DispatchPipelineError):
         _client(_worker_handler({}, status_code=500)).poll_worker("R8")
 
 
@@ -257,7 +261,7 @@ def test_fire_missing_dispatch_id_raises():
     def handler(request):
         return httpx.Response(202, json={})
 
-    with pytest.raises(DispatchError):
+    with pytest.raises(DispatchPipelineError):
         _client(handler).fire("hello")
 
 
@@ -265,7 +269,7 @@ def test_fire_non_2xx_raises():
     def handler(request):
         return httpx.Response(500, text="nope")
 
-    with pytest.raises(DispatchError):
+    with pytest.raises(DispatchPipelineError):
         _client(handler).fire("hello")
 
 
@@ -280,7 +284,7 @@ def test_wait_for_run_id_dispatcher_error_raises():
     def handler(request):
         return httpx.Response(200, json={"status": "error", "error": "dispatch failed"})
 
-    with pytest.raises(DispatchError):
+    with pytest.raises(DispatchPipelineError):
         _client(handler).wait_for_run_id("D1", deadline=100.0)
 
 
@@ -365,7 +369,7 @@ def test_run_worker_error_after_run_id_keeps_run_id():
 # result dict carries an error_code key (None when there is none).
 # ==========================================================================
 
-# --- _error_result / DispatchError carry the field -------------------------
+# --- _error_result / DispatchPipelineError carry the field -------------------------
 
 
 def test_error_result_error_code_default_none():
@@ -379,12 +383,13 @@ def test_error_result_error_code_settable():
 
 def test_dispatch_error_carries_error_code_attribute():
     assert (
-        DispatchError("nope", error_code="input_files_invalid").error_code == "input_files_invalid"
+        DispatchPipelineError("nope", error_code="input_files_invalid").error_code
+        == "input_files_invalid"
     )
 
 
 def test_dispatch_error_default_error_code_none():
-    assert DispatchError("plain").error_code is None
+    assert DispatchPipelineError("plain").error_code is None
 
 
 # --- wait_for_run_id propagates the dispatcher's code onto the exception ----
@@ -396,7 +401,7 @@ def test_wait_for_run_id_error_code_propagates_to_exception():
             200, json={"status": "error", "error": "bad", "error_code": "input_files_invalid"}
         )
 
-    with pytest.raises(DispatchError) as exc_info:
+    with pytest.raises(DispatchPipelineError) as exc_info:
         _client(handler).wait_for_run_id("D1", deadline=100.0)
     assert exc_info.value.error_code == "input_files_invalid"
 
@@ -405,7 +410,7 @@ def test_wait_for_run_id_error_without_code_has_none():
     def handler(request):
         return httpx.Response(200, json={"status": "error", "error": "generic"})
 
-    with pytest.raises(DispatchError) as exc_info:
+    with pytest.raises(DispatchPipelineError) as exc_info:
         _client(handler).wait_for_run_id("D1", deadline=100.0)
     assert exc_info.value.error_code is None
 
@@ -472,7 +477,7 @@ def test_poll_worker_terminal_body_without_error_code_is_none():
 #
 # Unlike poll_worker it never sleeps, never loops, and returns the worker's raw
 # body verbatim (possibly non-terminal). 404 is a signal -> None; any other
-# non-200 raises DispatchError.
+# non-200 raises DispatchPipelineError.
 # ==========================================================================
 
 STATUS_CFG = CoreConfig(
@@ -522,7 +527,7 @@ def test_status_404_returns_none():
 
 
 def test_status_500_raises_dispatch_error():
-    with pytest.raises(DispatchError):
+    with pytest.raises(DispatchPipelineError):
         _status_client(_status_handler(httpx.Response(500, text="worker down"))).status("R1")
 
 

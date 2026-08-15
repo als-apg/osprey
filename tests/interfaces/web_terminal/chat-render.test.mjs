@@ -285,9 +285,10 @@ describe('tool vocabulary', () => {
   test.each([
     ['mcp__osprey__channel_write', 'Writing control channels…'],
     ['mcp__osprey__execute', 'Running Python…'],
-    ['mcp__osprey__hide_panel', 'Closing a panel…'],
-    ['mcp__osprey__show_panel', 'Opening a panel…'],
-    ['mcp__osprey__switch_panel', 'Switching panels…'],
+    ['mcp__osprey__close_panel', 'Closing a panel…'],
+    ['mcp__osprey__open_panel', 'Opening a panel…'],
+    ['mcp__osprey__add_panel_to_rail', 'Making a panel available…'],
+    ['mcp__osprey__remove_panel_from_rail', 'Removing a panel…'],
     ['mcp__osprey__arrange_workspace', 'Arranging the workspace…'],
     ['mcp__osprey__register_panel', 'Adding a panel…'],
     ['mcp__osprey__queue_start', 'Starting the scan queue…'],

@@ -4,7 +4,7 @@ description: "Creates data visualizations (plots, charts, dashboards), compiles 
 summary: Creates plots, charts, dashboards, and compiles LaTeX reports
 model: {{ claude_code_model_spec.agent_tier("data-visualizer") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 30
-tools: mcp__osprey_workspace__create_static_plot, mcp__osprey_workspace__create_interactive_plot, mcp__osprey_workspace__create_dashboard, mcp__osprey_workspace__create_document, mcp__osprey_workspace__artifact_save, mcp__osprey_workspace__artifact_get, mcp__osprey_workspace__data_list, mcp__osprey_workspace__data_read, mcp__osprey_workspace__facility_description, Read
+tools: mcp__osprey_workspace__create_static_plot, mcp__osprey_workspace__create_interactive_plot, mcp__osprey_workspace__create_dashboard, mcp__osprey_workspace__create_document, mcp__osprey_workspace__artifact_save, mcp__osprey_workspace__artifact_get, mcp__osprey_workspace__artifact_list, mcp__osprey_workspace__artifact_read, mcp__osprey_workspace__facility_description, Read
 disallowedTools: Bash, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---
 
@@ -28,8 +28,8 @@ You have access to these workspace MCP tools:
 - `create_dashboard` — Multi-panel Bokeh apps (HTML). Use for operational dashboards with widgets, linked views.
 - `create_document` — Compile LaTeX source to PDF (Beamer slides or article reports)
 - `artifact_save` — Save additional files or inline content as artifacts
-- `data_list` — List all collected data entries (find datasets to visualize)
-- `data_read` — Read the full content of an artifact by ID
+- `artifact_list` — List stored artifacts (find datasets to visualize); narrow with `category=`
+- `artifact_read` — Read the full content of an artifact by ID
 - `artifact_get` — Look up an artifact by ID to get its file path and metadata
 - `facility_description` — Get facility context and terminology
 
@@ -50,7 +50,7 @@ in your code to produce output. If you don't call it, no artifact is created.
 When asked to create a static plot (report figures, LaTeX inclusion, publication-quality graphics):
 
 1. **Identify the data**: Check if data is provided inline, via an artifact ID,
-   or via a workspace file path. Use `data_list` to find recent data entries.
+   or via a workspace file path. Use `artifact_list` to find recent artifacts.
 
 2. **Write matplotlib/seaborn code**: The `create_static_plot` tool auto-imports
    numpy, pandas, matplotlib, and scipy with default styling.
@@ -100,7 +100,7 @@ When asked to create an interactive chart (data exploration, hover tooltips, zoo
 
 The `data_source` parameter on `create_static_plot` and `create_interactive_plot` auto-loads data:
 - **Artifact ID** (12-char hex, e.g. `"a1b2c3d4e5f6"`): resolves via ArtifactStore to the artifact file. Prefer this form when referencing data produced by a tool earlier in the conversation (e.g. `archiver_read`).
-- **File path**: loads directly from the workspace. Use this for files you wrote yourself or for paths returned by `data_list`.
+- **File path**: loads directly from the workspace. Use this for files you wrote yourself or for paths returned by `artifact_list`.
 
 When `data_source` is provided, the loaded data is available as the **`data` variable —
 always a pandas DataFrame** (auto-converted from CSV, JSON, Excel, or Parquet).

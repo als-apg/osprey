@@ -20,6 +20,7 @@ from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 
 from osprey.interfaces.web_terminal.url_prefix import compute_url_prefix
+from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.http_proxy import HOP_BY_HOP
 
 logger = logging.getLogger(__name__)
@@ -68,14 +69,20 @@ _REWRITABLE_TYPES = {
 # artifact gallery's immutable versioned vendor bundles) keeps it.
 _DEFAULT_NO_CACHE = "no-cache, no-store, must-revalidate"
 
-# Panel ID → app.state attribute name
+# Panel ID → app.state attribute name, derived from the web-server registry
+# rather than hand-listed. Registry keys and panel ids are two namespaces
+# (``artifact``/``artifacts``, ``channel_finder``/``channel-finder``), and each
+# consumer that kept its own translation table drifted from the others; the
+# relation lives once, on ``WebServerDefinition.panel_id``.
+#
+# The attribute name comes from ``registry.web.panel_url_state_attr`` — the same
+# function ``web_terminal/app.py`` publishes under — rather than being spelled
+# out a second time here. Both ends import it from the registry because they
+# cannot import each other, and a convention agreed on by two independent
+# f-strings is a convention only until one of them is edited.
 _PANEL_STATE_MAP = {
-    "artifacts": "artifact_server_url",
-    "ariel": "ariel_server_url",
-    "channel-finder": "channel_finder_server_url",
-    "lattice": "lattice_dashboard_server_url",
-    "okf": "okf_server_url",
-    "system-health": "system_health_server_url",
+    definition.panel_id: panel_url_state_attr(key)
+    for key, definition in FRAMEWORK_WEB_SERVERS.items()
 }
 
 

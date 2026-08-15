@@ -116,7 +116,7 @@ def project(tmp_path, monkeypatch):
 
 
 async def _series(connector: MockArchiverConnector) -> list[float]:
-    df = await connector.get_data(pv_list=["T:Q1:CUR:SP"], start_date=START, end_date=END)
+    df = await connector.get_data(channels=["T:Q1:CUR:SP"], start_date=START, end_date=END)
     return df.loc[df["channel"] == "T:Q1:CUR:SP", "value"].tolist()
 
 
@@ -224,7 +224,7 @@ class TestDerivedFromControlSystem:
         await connector.connect({})
 
         assert connector._sim_engine is None
-        df = await connector.get_data(pv_list=["BEAM:CURRENT"], start_date=START, end_date=END)
+        df = await connector.get_data(channels=["BEAM:CURRENT"], start_date=START, end_date=END)
         values = df.loc[df["channel"] == "BEAM:CURRENT", "value"]
         assert values.mean() == pytest.approx(500.0, rel=0.1)
 

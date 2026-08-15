@@ -209,23 +209,23 @@ class TestResolveServers:
     def test_workspace_panel_tools_allow_split(self):
         """Only the workspace-scoped panel verbs are auto-approved.
 
-        The split is not "read-only versus mutating": ``switch_panel`` adds a
-        rail entry when it surfaces a non-member, and ``arrange_workspace``
-        adds membership for a tiles request and prunes it for a preset. It is
-        scope and reversibility — these three act on the workspace the operator
-        is already looking at, and every effect is undoable from the rail or
-        the Layouts menu, so a prompt per call would only break the one-call
-        arrange flow. ``show_panel`` / ``hide_panel`` are the explicit
-        per-panel membership verbs and ``register_panel`` adds a proxied
-        upstream, so all three stay behind a prompt. This pins that split
-        rather than leaving it to the order of a list literal.
+        The split is not "read-only versus mutating": ``open_panel`` adds a rail
+        entry when it opens a non-member, and ``arrange_workspace`` adds
+        membership for a tiles request and prunes it for a preset. It is scope
+        and reversibility — these act on the workspace the operator is already
+        looking at, and every effect is undoable from the rail or the Layouts
+        menu, so a prompt per call would only break the one-call arrange flow.
+        The rail verbs are the exception: ``remove_panel_from_rail`` costs the
+        operator the ability to launch the panel back, and ``register_panel``
+        adds a proxied upstream, so those stay behind a prompt. This pins that
+        split rather than leaving it to the order of a list literal.
         """
         ctx = _base_ctx()
         servers = resolve_servers({}, ctx)
         workspace = [s for s in servers if s["name"] == "osprey_workspace"][0]
         allow = set(workspace["permissions_allow"])
-        assert {"list_panels", "switch_panel", "arrange_workspace"} <= allow
-        assert allow.isdisjoint({"show_panel", "hide_panel", "register_panel"})
+        assert {"list_panels", "open_panel", "close_panel", "arrange_workspace"} <= allow
+        assert allow.isdisjoint({"add_panel_to_rail", "remove_panel_from_rail", "register_panel"})
 
     def test_health_server_entry(self):
         """The health server is an opt-in, read-only server.
@@ -1003,7 +1003,7 @@ class TestTemplateRendering:
         root = DEFAULT_AGENT_DATA_BASE_DIR
         assert f'"Read({root}/**)"' not in allow  # Not double-quoted
         assert f"Read({root}/**)" in allow
-        assert "mcp__osprey_workspace__data_read" in allow
+        assert "mcp__osprey_workspace__artifact_read" in allow
         # Check ask entries
         ask = data["permissions"]["ask"]
         assert "mcp__controls__channel_write" in ask

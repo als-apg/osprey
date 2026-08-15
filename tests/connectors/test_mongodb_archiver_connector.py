@@ -219,7 +219,7 @@ class TestGetDataMethod:
         end_date = datetime(2024, 1, 1, 12, 0, 0)  # First 12 hours
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=start_date,
             end_date=end_date,
         )
@@ -239,17 +239,17 @@ class TestGetDataMethod:
 
         start_date = mongodb_test_data["start_date"]
         end_date = datetime(2024, 1, 1, 12, 0, 0)
-        pv_list = mongodb_test_data["pv_names"]
+        channels = mongodb_test_data["channels"]
 
         df = await connector.get_data(
-            pv_list=pv_list,
+            channels=channels,
             start_date=start_date,
             end_date=end_date,
         )
 
         assert isinstance(df, pd.DataFrame)
         # All PVs should be represented as channels, long-format
-        assert set(df["channel"]) == set(pv_list)
+        assert set(df["channel"]) == set(channels)
         assert len(df) > 0
 
         await connector.disconnect()
@@ -265,7 +265,7 @@ class TestGetDataMethod:
         end_date = datetime(2025, 1, 2, 0, 0, 0)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=start_date,
             end_date=end_date,
         )
@@ -285,7 +285,7 @@ class TestGetDataMethod:
 
         with pytest.raises(RuntimeError, match="MongoDB archiver not connected"):
             await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
             )
@@ -298,7 +298,7 @@ class TestGetDataMethod:
 
         with pytest.raises(TypeError, match="start_date must be a datetime object"):
             await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date="2024-01-01",  # String instead of datetime
                 end_date=datetime(2024, 1, 2),
             )
@@ -313,7 +313,7 @@ class TestGetDataMethod:
 
         with pytest.raises(TypeError, match="end_date must be a datetime object"):
             await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1),
                 end_date="2024-01-02",  # String instead of datetime
             )
@@ -321,14 +321,14 @@ class TestGetDataMethod:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_get_data_empty_pv_list_raises_value_error(self, mongodb_config):
-        """Test that get_data raises ValueError when pv_list is empty."""
+    async def test_get_data_empty_channels_raises_value_error(self, mongodb_config):
+        """Test that get_data raises ValueError when channels is empty."""
         connector = MongoDBArchiverConnector()
         await connector.connect(mongodb_config)
 
-        with pytest.raises(ValueError, match="pv_list cannot be empty"):
+        with pytest.raises(ValueError, match="channels cannot be empty"):
             await connector.get_data(
-                pv_list=[],
+                channels=[],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
             )
@@ -350,7 +350,7 @@ class TestGetDataMethod:
         end_date = datetime(2024, 1, 1, 5, 0, 0, tzinfo=UTC)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=start_date,
             end_date=end_date,
             precision_ms=3_600_000,
@@ -381,7 +381,7 @@ class TestGetDataErrorHandling:
 
         # This should work with normal timeout
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=start_date,
             end_date=end_date,
             timeout=1,  # 1 second should be enough for small query
@@ -408,13 +408,13 @@ class TestMetadataMethods:
         connector = MongoDBArchiverConnector()
         await connector.connect(mongodb_config)
 
-        pv_name = mongodb_test_data["pv_names"][0]
-        metadata = await connector.get_metadata(pv_name)
+        channel = mongodb_test_data["channels"][0]
+        metadata = await connector.get_metadata(channel)
 
         assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.pv_name == pv_name
+        assert metadata.channel == channel
         assert metadata.is_archived is True  # Should be True since we have test data
-        assert pv_name in metadata.description
+        assert channel in metadata.description
         assert metadata.archival_start == mongodb_test_data["start_date"]
         assert metadata.archival_end == mongodb_test_data["end_date"] - timedelta(hours=1)
 
@@ -429,7 +429,7 @@ class TestMetadataMethods:
         metadata = await connector.get_metadata("NONEXISTENT:PV")
 
         assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.pv_name == "NONEXISTENT:PV"
+        assert metadata.channel == "NONEXISTENT:PV"
         assert metadata.is_archived is False  # Should be False for nonexistent PV
         # No stored samples means no coverage window — not an invented one.
         assert metadata.archival_start is None
@@ -443,12 +443,12 @@ class TestMetadataMethods:
         connector = MongoDBArchiverConnector()
         await connector.connect(mongodb_config)
 
-        pv_names = mongodb_test_data["pv_names"]
-        availability = await connector.check_availability(pv_names)
+        channels = mongodb_test_data["channels"]
+        availability = await connector.check_availability(channels)
 
         assert isinstance(availability, dict)
-        assert len(availability) == len(pv_names)
-        for pv in pv_names:
+        assert len(availability) == len(channels)
+        for pv in channels:
             assert pv in availability
             assert availability[pv] is True  # All test PVs should be available
 
@@ -461,14 +461,14 @@ class TestMetadataMethods:
         await connector.connect(mongodb_config)
 
         # Mix of existing and nonexistent PVs
-        pv_names = mongodb_test_data["pv_names"] + ["NONEXISTENT:PV"]
-        availability = await connector.check_availability(pv_names)
+        channels = mongodb_test_data["channels"] + ["NONEXISTENT:PV"]
+        availability = await connector.check_availability(channels)
 
         assert isinstance(availability, dict)
-        assert len(availability) == len(pv_names)
+        assert len(availability) == len(channels)
 
         # Existing PVs should be True
-        for pv in mongodb_test_data["pv_names"]:
+        for pv in mongodb_test_data["channels"]:
             assert availability[pv] is True
 
         # Nonexistent PV should be False
@@ -593,7 +593,7 @@ class TestQueryShapeWithoutDocker:
         connector, captured = self._stub_connector([])
 
         await connector.get_data(
-            pv_list=["BEAM:CURRENT", "BEAM:LIFETIME"],
+            channels=["BEAM:CURRENT", "BEAM:LIFETIME"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 2, tzinfo=UTC),
         )
@@ -607,7 +607,7 @@ class TestQueryShapeWithoutDocker:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("pv_list", "expected"),
+        ("channels", "expected"),
         [
             (["BEAM:CURRENT"], {"date": 1, "BEAM:CURRENT": 1}),
             (
@@ -620,7 +620,9 @@ class TestQueryShapeWithoutDocker:
             (["BEAM:CURRENT", "BEAM:CURRENT"], {"date": 1, "BEAM:CURRENT": 1}),
         ],
     )
-    async def test_projection_requests_date_plus_exactly_the_requested_pvs(self, pv_list, expected):
+    async def test_projection_requests_date_plus_exactly_the_requested_pvs(
+        self, channels, expected
+    ):
         """``date`` must be projected alongside the PVs, and nothing else.
 
         Drop ``date`` and every document is skipped as missing it; projecting
@@ -629,7 +631,7 @@ class TestQueryShapeWithoutDocker:
         connector, captured = self._stub_connector([])
 
         await connector.get_data(
-            pv_list=pv_list,
+            channels=channels,
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 2, tzinfo=UTC),
         )
@@ -646,7 +648,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
             precision_ms=2000,
@@ -668,7 +670,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
             precision_ms=2000,
@@ -694,7 +696,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
             precision_ms=0,
@@ -718,7 +720,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
             precision_ms=2000,
@@ -735,7 +737,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector([])
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 2, tzinfo=UTC),
             processing=processing,
@@ -754,7 +756,7 @@ class TestQueryShapeWithoutDocker:
 
         with pytest.raises(TimeoutError):
             await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, tzinfo=UTC),
                 end_date=datetime(2024, 1, 2, tzinfo=UTC),
                 timeout=0,
@@ -770,7 +772,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 5, 0, 0, tzinfo=UTC),
             precision_ms=1000,
@@ -797,7 +799,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT", "BEAM:LIFETIME"],
+            channels=["BEAM:CURRENT", "BEAM:LIFETIME"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
             processing=processing,
@@ -815,7 +817,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, tzinfo=UTC),
             end_date=datetime(2024, 1, 2, tzinfo=UTC),
             precision_ms=0,
@@ -846,7 +848,7 @@ class TestQueryShapeWithoutDocker:
         connector, _ = self._stub_connector(documents)
 
         df = await connector.get_data(
-            pv_list=["FAST", "SLOW"],
+            channels=["FAST", "SLOW"],
             start_date=base,
             end_date=base + timedelta(milliseconds=49 * 1500 + 100),
             precision_ms=1000,
@@ -945,7 +947,7 @@ class TestErrorHandlingWithoutDocker:
 
         with pytest.raises(expected, match=match) as exc_info:
             await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, tzinfo=UTC),
                 end_date=datetime(2024, 1, 2, tzinfo=UTC),
             )
@@ -962,7 +964,7 @@ class TestErrorHandlingWithoutDocker:
 
         metadata = await connector.get_metadata("BEAM:CURRENT")
         assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.pv_name == "BEAM:CURRENT"
+        assert metadata.channel == "BEAM:CURRENT"
         assert metadata.is_archived is False
         # An unreadable store reports no coverage rather than inventing one.
         assert metadata.archival_start is None
@@ -990,7 +992,7 @@ class TestErrorHandlingWithoutDocker:
 
         with pytest.raises(ConnectionError, match="Lost connection to MongoDB") as exc_info:
             await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, tzinfo=UTC),
                 end_date=datetime(2024, 1, 2, tzinfo=UTC),
             )
@@ -1009,7 +1011,7 @@ class TestErrorHandlingWithoutDocker:
 
         with pytest.raises(ValueError, match="Error retrieving data from MongoDB"):
             await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, tzinfo=UTC),
                 end_date=datetime(2024, 1, 2, tzinfo=UTC),
             )
@@ -1044,7 +1046,7 @@ class TestErrorHandlingWithoutDocker:
             with pytest.raises(ToolError):
                 async with connector_error_handler("archiver_read", connector_name="archiver"):
                     await connector.get_data(
-                        pv_list=["BEAM:CURRENT"],
+                        channels=["BEAM:CURRENT"],
                         start_date=datetime(2024, 1, 1, tzinfo=UTC),
                         end_date=datetime(2024, 1, 2, tzinfo=UTC),
                     )

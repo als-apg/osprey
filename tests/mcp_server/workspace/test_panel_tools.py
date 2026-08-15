@@ -4,10 +4,12 @@ Covers:
   - list_panels returns enabled built-in panels with correct labels
   - list_panels includes custom panels (with and without explicit label)
   - list_panels handles web terminal being unreachable
-  - switch_panel calls notify_panel_focus with correct args
-  - switch_panel passes optional url through
-  - switch_panel works with app-registered (custom) panel IDs
-  - show_panel / hide_panel validate ids before toggling rail membership
+  - open_panel calls notify_panel_focus with correct args
+  - open_panel passes optional url through
+  - open_panel works with app-registered (custom) panel IDs
+  - close_panel takes a tile off screen without touching rail membership
+  - add_panel_to_rail / remove_panel_from_rail validate ids before toggling
+    rail membership
   - register_panel maps the register helper's outcomes to its response
   - arrange_workspace reports the applied layout plus report freshness, and
     surfaces the route's validation details verbatim as structured errors
@@ -41,10 +43,16 @@ def _get_list_panels():
     return get_tool_fn(list_panels)
 
 
-def _get_switch_panel():
-    from osprey.mcp_server.workspace.tools.panel_tools import switch_panel
+def _get_open_panel():
+    from osprey.mcp_server.workspace.tools.panel_tools import open_panel
 
-    return get_tool_fn(switch_panel)
+    return get_tool_fn(open_panel)
+
+
+def _get_close_panel():
+    from osprey.mcp_server.workspace.tools.panel_tools import close_panel
+
+    return get_tool_fn(close_panel)
 
 
 class TestListPanels:
@@ -259,12 +267,12 @@ class TestListPanels:
         assert result["open_tiles_age_s"] == 3.0
 
 
-class TestSwitchPanel:
+class TestOpenPanel:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_calls_notify(self):
-        """switch_panel delegates to notify_panel_focus."""
-        fn = _get_switch_panel()
+        """open_panel delegates to notify_panel_focus."""
+        fn = _get_open_panel()
 
         with patch(f"{_MODULE}.notify_panel_focus") as mock_focus:
             result = extract_response_dict(await fn("ariel"))
@@ -277,7 +285,7 @@ class TestSwitchPanel:
     @pytest.mark.asyncio
     async def test_passes_url(self):
         """Optional url is forwarded to notify_panel_focus."""
-        fn = _get_switch_panel()
+        fn = _get_open_panel()
 
         with patch(f"{_MODULE}.notify_panel_focus") as mock_focus:
             result = extract_response_dict(await fn("ariel", url="http://127.0.0.1:8085/#draft"))
@@ -287,9 +295,9 @@ class TestSwitchPanel:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_switch_custom_panel(self):
-        """switch_panel works with app-registered (custom) panel IDs."""
-        fn = _get_switch_panel()
+    async def test_open_custom_panel(self):
+        """open_panel works with app-registered (custom) panel IDs."""
+        fn = _get_open_panel()
 
         with patch(f"{_MODULE}.notify_panel_focus") as mock_focus:
             result = extract_response_dict(await fn("my-grafana"))
@@ -299,19 +307,65 @@ class TestSwitchPanel:
         mock_focus.assert_called_once_with("my-grafana", url=None)
 
 
-# ---- Helpers for show/hide/register tests ----
+class TestClosePanel:
+    """``close_panel`` moves the on-screen axis and only that axis."""
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_calls_notify_close(self):
+        fn = _get_close_panel()
+
+        with patch(f"{_MODULE}.notify_panel_close") as mock_close:
+            result = extract_response_dict(await fn("ariel"))
+
+        assert result["status"] == "success"
+        assert result["panel"] == "ariel"
+        mock_close.assert_called_once_with("ariel")
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_does_not_touch_rail_membership(self):
+        """The regression the split exists to prevent.
+
+        The old ``hide_panel`` closed the tile *and* dropped the rail entry, so
+        an agent asked to clear the screen also took away the operator's ability
+        to bring the panel back. Closing must reach only the close channel.
+        """
+        fn = _get_close_panel()
+
+        with (
+            patch(f"{_MODULE}.notify_panel_close"),
+            patch(f"{_MODULE}.notify_panel_visibility") as mock_visibility,
+        ):
+            await fn("ariel")
+
+        mock_visibility.assert_not_called()
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_close_custom_panel(self):
+        fn = _get_close_panel()
+
+        with patch(f"{_MODULE}.notify_panel_close") as mock_close:
+            result = extract_response_dict(await fn("my-grafana"))
+
+        assert result["status"] == "success"
+        mock_close.assert_called_once_with("my-grafana")
 
 
-def _get_show_panel():
-    from osprey.mcp_server.workspace.tools.panel_tools import show_panel
-
-    return get_tool_fn(show_panel)
+# ---- Helpers for rail-membership/register tests ----
 
 
-def _get_hide_panel():
-    from osprey.mcp_server.workspace.tools.panel_tools import hide_panel
+def _get_add_panel_to_rail():
+    from osprey.mcp_server.workspace.tools.panel_tools import add_panel_to_rail
 
-    return get_tool_fn(hide_panel)
+    return get_tool_fn(add_panel_to_rail)
+
+
+def _get_remove_panel_from_rail():
+    from osprey.mcp_server.workspace.tools.panel_tools import remove_panel_from_rail
+
+    return get_tool_fn(remove_panel_from_rail)
 
 
 def _get_register_panel():
@@ -339,16 +393,18 @@ def _make_api_mock(enabled, custom=None, visible=None, active=None, labels=None)
     return mock_resp
 
 
-# ---- show_panel ----
+# ---- add_panel_to_rail ----
 
 
-class TestShowPanel:
+class TestAddPanelToRail:
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_show_panel_calls_notify_visibility_with_true(self, _mock_web_terminal_url):
-        """show_panel for a known id calls notify_panel_visibility(id, True) and returns success."""
+    async def test_add_panel_to_rail_calls_notify_visibility_with_true(
+        self, _mock_web_terminal_url
+    ):
+        """A known id calls notify_panel_visibility(id, True) and returns success."""
         # Arrange
-        fn = _get_show_panel()
+        fn = _get_add_panel_to_rail()
         mock_resp = _make_api_mock(enabled=["artifacts", "ariel"])
 
         # Act
@@ -363,12 +419,12 @@ class TestShowPanel:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_show_panel_unknown_id_returns_error_and_does_not_notify(
+    async def test_add_panel_to_rail_unknown_id_returns_error_and_does_not_notify(
         self, _mock_web_terminal_url
     ):
-        """show_panel for an unknown panel id returns a structured error and skips notify."""
+        """An unknown panel id returns a structured error and skips notify."""
         # Arrange
-        fn = _get_show_panel()
+        fn = _get_add_panel_to_rail()
         mock_resp = _make_api_mock(enabled=["artifacts"])
 
         # Act
@@ -383,10 +439,12 @@ class TestShowPanel:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_show_panel_web_terminal_unreachable_returns_error(self, _mock_web_terminal_url):
-        """show_panel returns an error dict when the web terminal is not reachable."""
+    async def test_add_panel_to_rail_web_terminal_unreachable_returns_error(
+        self, _mock_web_terminal_url
+    ):
+        """An unreachable web terminal returns an error dict."""
         # Arrange
-        fn = _get_show_panel()
+        fn = _get_add_panel_to_rail()
 
         # Act
         with patch("urllib.request.urlopen", side_effect=ConnectionRefusedError("refused")):
@@ -397,16 +455,18 @@ class TestShowPanel:
         assert "not running" in result["message"]
 
 
-# ---- hide_panel ----
+# ---- remove_panel_from_rail ----
 
 
-class TestHidePanel:
+class TestRemovePanelFromRail:
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_hide_panel_calls_notify_visibility_with_false(self, _mock_web_terminal_url):
-        """hide_panel for a known id calls notify_panel_visibility(id, False) and returns success."""
+    async def test_remove_panel_from_rail_calls_notify_visibility_with_false(
+        self, _mock_web_terminal_url
+    ):
+        """A known id calls notify_panel_visibility(id, False) and returns success."""
         # Arrange
-        fn = _get_hide_panel()
+        fn = _get_remove_panel_from_rail()
         mock_resp = _make_api_mock(enabled=["artifacts", "ariel"])
 
         # Act
@@ -417,17 +477,17 @@ class TestHidePanel:
         # Assert
         assert result["status"] == "success"
         assert result["panel"] == "ariel"
-        assert result["visible"] is False
+        assert result["on_rail"] is False
         mock_notify.assert_called_once_with("ariel", False)
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_hide_panel_unknown_id_returns_error_and_does_not_notify(
+    async def test_remove_panel_from_rail_unknown_id_returns_error_and_does_not_notify(
         self, _mock_web_terminal_url
     ):
-        """hide_panel for an unknown panel id returns a structured error and skips notify."""
+        """An unknown panel id returns a structured error and skips notify."""
         # Arrange
-        fn = _get_hide_panel()
+        fn = _get_remove_panel_from_rail()
         mock_resp = _make_api_mock(enabled=["artifacts"])
 
         # Act

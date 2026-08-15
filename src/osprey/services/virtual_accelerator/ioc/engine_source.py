@@ -14,8 +14,8 @@ docstring on ``engine.py``), and pushes it onto the record with ``.set()``.
 Not every partition-(c) address is necessarily defined in the bind-mounted
 ``machine.json`` (only a scenario-relevant subset is -- see
 ``machine-json-lattice-augment``); addresses the engine doesn't serve fall
-back to the same generic PV-taxonomy synthesis the mock connector itself uses
-for unknown channels (``osprey.connectors.pv_taxonomy.classify_pv``), so mock
+back to the same generic channel-taxonomy synthesis the mock connector itself uses
+for unknown channels (``osprey.connectors.channel_taxonomy.classify_channel``), so mock
 and VA present identical values for anything neither one has real data for.
 
 Scenario-switch detection deliberately does its own (mtime, content-hash)
@@ -36,7 +36,7 @@ from typing import Any
 
 import numpy as np
 
-from osprey.connectors.pv_taxonomy import PVKind, classify_pv
+from osprey.connectors.channel_taxonomy import ChannelKind, classify_channel
 from osprey.services.virtual_accelerator.manifest import PARTITION_STATIC_NOISY, RECORD_TYPE_BINARY
 from osprey.simulation.engine import SimulationEngine, engine_serves
 
@@ -102,8 +102,8 @@ class EngineSource:
         self._records = dict(static_noisy_records)
         self._noise_level = noise_level
         self._rng = np.random.default_rng()
-        # address -> PV taxonomy classification, memoised on first legacy read
-        self._legacy_kind: dict[str, PVKind] = {}
+        # address -> channel taxonomy classification, memoised on first legacy read
+        self._legacy_kind: dict[str, ChannelKind] = {}
         self._setpoint_echo_records = {
             address: record
             for address, record in (setpoint_echo_records or {}).items()
@@ -234,7 +234,7 @@ class EngineSource:
         record_type, noisy = self._channel_info.get(address, ("ai", False))
         kind = self._legacy_kind.get(address)
         if kind is None:
-            kind = classify_pv(address)
+            kind = classify_channel(address)
             self._legacy_kind[address] = kind
         base = kind.base_value
 

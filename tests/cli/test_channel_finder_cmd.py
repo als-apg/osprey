@@ -43,10 +43,15 @@ class TestCommandStructure:
         assert "preview" in result.output
 
     def test_help_shows_project_option(self, runner):
-        """--help shows --project option."""
+        """--help shows --project, and no ``-p`` short alias.
+
+        ``-p`` means ``--port`` on every serving verb (``osprey web``,
+        ``artifacts web``, ``ariel``, ``theme-lab``); one letter cannot also
+        mean "the deployment to act on" here.
+        """
         result = runner.invoke(channel_finder, ["--help"])
         assert "--project" in result.output
-        assert "-p" in result.output
+        assert "-p," not in result.output
 
     def test_help_shows_verbose_option(self, runner):
         """--help shows --verbose option."""
@@ -68,6 +73,50 @@ class TestConfigResolution:
         result = runner.invoke(channel_finder, ["--project", str(tmp_path), "validate"])
         assert result.exit_code != 0
         assert "not found" in result.output or "Error" in result.output
+
+    @staticmethod
+    def _rendered_repo(tmp_path):
+        """A deployment repo with a render: manifest at the root, config in ``build/``."""
+        repo = tmp_path / "repo"
+        (repo / "build").mkdir(parents=True)
+        (repo / "profile.yml").write_text("name: Demo\ndata_bundle: hello_world\n")
+        (repo / "build" / "config.yml").write_text("project_name: demo\n")
+        return repo
+
+    def test_repo_root_stance_finds_the_render(self, runner, tmp_path, monkeypatch):
+        """Standing in a repo root resolves ``build/config.yml``, not a flat one.
+
+        The rendered config lives in the build zone, so the flat
+        ``<cwd>/config.yml`` spelling never matched from the stance an operator
+        actually takes.
+        """
+        from osprey.cli.channel_finder_cmd import _setup_config
+
+        repo = self._rendered_repo(tmp_path)
+        monkeypatch.chdir(repo)
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+
+        _setup_config(None)
+
+        import os
+
+        assert os.environ["CONFIG_FILE"] == str(repo / "build" / "config.yml")
+
+    def test_subdirectory_stance_finds_the_render(self, runner, tmp_path, monkeypatch):
+        """A subdirectory of the repo is the repo, the way every other verb reads it."""
+        from osprey.cli.channel_finder_cmd import _setup_config
+
+        repo = self._rendered_repo(tmp_path)
+        subdir = repo / "data" / "raw"
+        subdir.mkdir(parents=True)
+        monkeypatch.chdir(subdir)
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+
+        _setup_config(None)
+
+        import os
+
+        assert os.environ["CONFIG_FILE"] == str(repo / "build" / "config.yml")
 
 
 # ============================================================================

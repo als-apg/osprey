@@ -92,10 +92,16 @@ def _check_configuration(state: ConfigState) -> list[CheckResult]:
                 name="config_file_exists",
                 category=_CATEGORY,
                 status=Status.ERROR,
-                message="config.yml not found in current directory",
+                # The path goes in the message, not the details: details are only
+                # printed under --verbose, and "not found" without saying where
+                # is unactionable on its own. The command resolves the repository
+                # enclosing the working directory, so naming the cwd would point
+                # at somewhere it never looked.
+                message=f"config.yml not found at {state.config_path}",
                 details=(
-                    f"Looking in: {state.cwd}\n"
-                    "Please run this command from a project directory containing config.yml"
+                    f"Searched from: {state.cwd}\n"
+                    "Run this from inside a deployment repository, or pass "
+                    "--project with the directory holding config.yml."
                 ),
             )
         )

@@ -849,13 +849,17 @@ def _forwarded(command: click.Command, target: Path, flags: dict[str, bool]) -> 
 
 
 def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-    """Eager --list-presets: print the bundled presets and exit before anything parses."""
+    """Eager --list-presets: print the bundled presets and exit before anything parses.
+
+    The list itself is ``osprey profile presets``'s
+    (:func:`~.profile_cmd.echo_preset_names`) — same question, so same answer and
+    one writer of it. Only the eagerness is this flag's own.
+    """
     if not value or ctx.resilient_parsing:
         return
-    from .build_profile import list_presets
+    from .profile_cmd import echo_preset_names
 
-    for name in list_presets():
-        click.echo(name)
+    echo_preset_names()
     ctx.exit(0)
 
 

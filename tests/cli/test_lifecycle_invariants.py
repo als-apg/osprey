@@ -215,8 +215,17 @@ _PROJECT_FLAG_ALLOWLIST = {
     # The flag itself, on a command the resolver names in SELF_DISCOVERING_COMMANDS:
     # channel-finder resolves its own inputs and was deliberately not rewired.
     "src/osprey/cli/channel_finder_cmd.py": "recorded exemption: SELF_DISCOVERING_COMMANDS",
-    # Same, via REPO_FREE_COMMANDS: `health` checks a machine, not a deployment.
-    "src/osprey/cli/health_cmd.py": "recorded exemption: REPO_FREE_COMMANDS",
+    # Same set, same reason: `health` reports on a deployment, but a rendered
+    # project directory is also a valid subject and holds no profile.yml, so
+    # `--project` is what accepts both. It resolves through project_utils, which
+    # applies find_repo_root's walk when the directory is not itself a project.
+    "src/osprey/cli/health_cmd.py": "recorded exemption: SELF_DISCOVERING_COMMANDS",
+    # health's own not-found diagnostic, telling the operator about health's own
+    # exempt flag. Same fact as the entry above, spelled where the message is
+    # written rather than where the option is declared — the command resolves the
+    # enclosing repository, so "run this from the project directory" would be
+    # wrong advice and --project is the accurate escape hatch.
+    "src/osprey/health/core/configuration.py": "health's own message names health's own flag",
     # The shared helper those two commands resolve their --project through. Its
     # docstring names them both, so it is documentation of the exemption rather
     # than a third discovery rule.

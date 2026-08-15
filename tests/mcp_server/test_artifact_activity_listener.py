@@ -8,7 +8,7 @@ have given us for free:
 * one ``execute`` run that produces a figure emits ONE frame, not three (the
   auto-saved notebook and the ``code_output`` record are bookkeeping);
 * the store callback itself performs no HTTP — the blocking POST happens on the
-  worker thread, so ``delete_all`` over a full gallery does not stall the
+  worker thread, so ``delete_everything`` over a full gallery does not stall the
   caller;
 * a process that never registers (gallery, retention sweep) emits nothing.
 
@@ -183,7 +183,7 @@ def test_code_output_record_never_emits(project, notified):
 
 
 @pytest.mark.unit
-def test_delete_all_emits_per_surviving_entry(project, notified):
+def test_delete_everything_emits_per_surviving_entry(project, notified):
     """Deletes emit one frame per entry, under the same bookkeeping filter."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
 
@@ -196,7 +196,7 @@ def test_delete_all_emits_per_surviving_entry(project, notified):
     wait_drained()
     notified.clear()
 
-    store.delete_all()
+    store.delete_everything()
     wait_drained()
 
     assert [kwargs["tool"] for kwargs, _ in notified] == ["artifact_delete"] * 2
@@ -220,7 +220,7 @@ def test_non_agent_deletes_never_emit(project, notified, actor):
     notified.clear()
 
     with artifact_mutation_actor(actor):
-        store.delete_all()
+        store.delete_everything()
     wait_drained()
 
     assert notified == []
@@ -280,7 +280,7 @@ def test_notify_runs_on_the_worker_not_the_caller(project, notified):
 
 
 @pytest.mark.unit
-def test_delete_all_returns_while_notifies_are_still_blocked(project):
+def test_delete_everything_returns_while_notifies_are_still_blocked(project):
     """A slow web terminal must not stall a gallery-wide delete."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
 
@@ -300,7 +300,7 @@ def test_delete_all_returns_while_notifies_are_still_blocked(project):
         assert entered.wait(DRAIN_TIMEOUT), "worker never picked up the first event"
 
         t0 = time.perf_counter()
-        store.delete_all()
+        store.delete_everything()
         elapsed = time.perf_counter() - t0
 
         release.set()
@@ -308,9 +308,9 @@ def test_delete_all_returns_while_notifies_are_still_blocked(project):
         # (network-touching) notify.
         wait_drained()
 
-    # The worker is parked inside a notify for the whole call; delete_all fires
+    # The worker is parked inside a notify for the whole call; delete_everything fires
     # the listener five more times and must still return promptly.
-    assert elapsed < 1.0, f"delete_all blocked on the notify path ({elapsed:.2f}s)"
+    assert elapsed < 1.0, f"delete_everything blocked on the notify path ({elapsed:.2f}s)"
 
 
 @pytest.mark.unit
@@ -350,7 +350,7 @@ def test_unregistered_process_emits_nothing(project, notified):
     store = ArtifactStore(workspace_root=project / "_agent_data")
 
     save_figure(store)
-    store.delete_all()
+    store.delete_everything()
     wait_drained()
 
     assert notified == []

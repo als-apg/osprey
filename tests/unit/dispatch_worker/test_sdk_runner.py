@@ -183,7 +183,7 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
     assert len(matchers) == 1
     assert matchers[0].matcher is None
     (hook,) = matchers[0].hooks
-    denied = await hook({"tool_name": "mcp__osprey_workspace__data_list"}, "t", None)
+    denied = await hook({"tool_name": "mcp__osprey_workspace__artifact_list"}, "t", None)
     assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
     allowed = await hook({"tool_name": "mcp__controls__channel_read"}, "t", None)
     assert allowed == {}

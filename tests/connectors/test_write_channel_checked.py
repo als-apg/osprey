@@ -6,7 +6,7 @@ four documented outcomes into a single raise-or-return contract:
 
 - a REFUSAL (writes disabled, limits, or non-limits validation) -> raises
   ChannelWriteBlockedError;
-- an ATTEMPTED-but-failed / unverified write (caput False, readback mismatch,
+- an ATTEMPTED-but-failed / unverified write (write rejected, readback mismatch,
   readback failed) -> raises ChannelWriteFailedError;
 - a native CA-layer ConnectionError/TimeoutError -> propagates unchanged;
 - a verified successful write (or an accepted level="none" success) -> returns
@@ -164,7 +164,7 @@ class TestFailures:
     """Attempted-but-failed / unverified writes -> ChannelWriteFailedError."""
 
     @pytest.mark.asyncio
-    async def test_caput_failed_result_raises_failed(self):
+    async def test_write_failed_result_raises_failed(self):
         connector = _FakeConnector(
             result=_result(
                 success=False,
@@ -176,7 +176,7 @@ class TestFailures:
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "CAPUT_FAILED"
+        assert excinfo.value.reason == "WRITE_FAILED"
         assert excinfo.value.channel_address == "TEST:PV"
 
     @pytest.mark.asyncio

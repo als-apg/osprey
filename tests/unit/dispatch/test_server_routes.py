@@ -531,13 +531,13 @@ async def test_dispatch_with_policy_retries_with_backoff_on_dispatch_error(monke
     """
     from osprey.dispatch.registry import TriggerRegistry
     from osprey.dispatch.trigger_config import TriggerConfig
-    from osprey.dispatch.worker_client import DispatchError
+    from osprey.dispatch.worker_client import WorkerUnreachableError
 
     attempts = {"dispatch": 0}
 
     async def always_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
         attempts["dispatch"] += 1
-        raise DispatchError("worker unreachable")
+        raise WorkerUnreachableError("worker unreachable")
 
     slept: list[float] = []
 
@@ -587,10 +587,10 @@ async def test_dispatch_with_policy_alert_records_and_returns_none(monkeypatch):
     """``on_error: alert`` logs + records the error and returns None (no retry)."""
     from osprey.dispatch.registry import TriggerRegistry
     from osprey.dispatch.trigger_config import TriggerConfig
-    from osprey.dispatch.worker_client import DispatchError
+    from osprey.dispatch.worker_client import WorkerUnreachableError
 
     async def always_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
-        raise DispatchError("worker unreachable")
+        raise WorkerUnreachableError("worker unreachable")
 
     monkeypatch.setattr(server, "dispatch_to_worker", always_fails)
 
@@ -610,14 +610,14 @@ async def test_dispatch_with_policy_alert_records_and_returns_none(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_dispatch_with_policy_auth_error_flows_through_policy(monkeypatch):
-    """An AuthError is handled by the policy (recorded + dropped), not raised."""
+async def test_dispatch_with_policy_auth_rejected_flows_through_policy(monkeypatch):
+    """A rejected bearer token is handled by the policy (recorded + dropped), not raised."""
     from osprey.dispatch.registry import TriggerRegistry
     from osprey.dispatch.trigger_config import TriggerConfig
-    from osprey.dispatch.worker_client import AuthError
+    from osprey.dispatch.worker_client import WorkerAuthRejectedError
 
     async def auth_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
-        raise AuthError("Unauthorized (401)")
+        raise WorkerAuthRejectedError("Unauthorized (401)")
 
     monkeypatch.setattr(server, "dispatch_to_worker", auth_fails)
 
@@ -652,10 +652,10 @@ async def test_dispatch_with_policy_generic_exception_propagates(monkeypatch):
 
 def test_dashboard_state_surfaces_worker_error(app, monkeypatch):
     """When the worker is unreachable, /dashboard/state carries a worker_error marker."""
-    from osprey.dispatch.worker_client import DispatchError
+    from osprey.dispatch.worker_client import WorkerUnreachableError
 
     async def fetch_fails(url, token, timeout=10.0):
-        raise DispatchError("Connection error")
+        raise WorkerUnreachableError("Connection error")
 
     monkeypatch.setattr(server, "fetch_worker_runs", fetch_fails)
     with TestClient(app) as client:
@@ -667,10 +667,10 @@ def test_dashboard_state_surfaces_worker_error(app, monkeypatch):
 
 
 def test_dashboard_runs_worker_down_returns_502(app, monkeypatch):
-    from osprey.dispatch.worker_client import DispatchError
+    from osprey.dispatch.worker_client import WorkerUnreachableError
 
     async def fetch_fails(url, token, timeout=10.0):
-        raise DispatchError("Connection error")
+        raise WorkerUnreachableError("Connection error")
 
     monkeypatch.setattr(server, "fetch_worker_runs", fetch_fails)
     with TestClient(app) as client:
@@ -728,10 +728,10 @@ def test_dashboard_cancel_proxies_to_worker(app, monkeypatch):
 
 
 def test_dashboard_cancel_worker_auth_failure_returns_502(app, monkeypatch):
-    from osprey.dispatch.worker_client import AuthError
+    from osprey.dispatch.worker_client import WorkerAuthRejectedError
 
     async def fake_cancel(url, token, run_id):
-        raise AuthError("nope")
+        raise WorkerAuthRejectedError("nope")
 
     monkeypatch.setattr(server, "cancel_worker_run", fake_cancel)
     with TestClient(app) as client:

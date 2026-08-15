@@ -3,9 +3,9 @@
 The data-driven :class:`~osprey_connectors.simulation.engine.SimulationEngine` serves only
 the channels a project's ``machine.json`` declares. Everything else in the
 served namespace — 1,872 of the control-assistant preset's 2,908 channels — has
-no model, and the Virtual Accelerator falls back to the shared PV taxonomy for
-it: ``EngineSource`` serves ``classify_pv(address).base_value`` plus a keyed
-noise draw at :meth:`~osprey_connectors.pv_taxonomy.PVKind.noise_sigma`. This
+no model, and the Virtual Accelerator falls back to the shared channel taxonomy for
+it: ``EngineSource`` serves ``classify_channel(address).base_value`` plus a keyed
+noise draw at :meth:`~osprey_connectors.channel_taxonomy.ChannelKind.noise_sigma`. This
 module is the archiver-side half of that same fallback — the *history* of a
 channel whose live value the VA synthesizes from the taxonomy.
 
@@ -22,7 +22,7 @@ Three properties are contracts, not preferences:
 * **Baselines come from one source, shared with the VA.** A channel's baseline
   is the value the VA boots it at: the ``machine.json`` seed for the ``:SP`` and
   ``:RB`` channels that carry one (the pyat-coupled and sp-echo partitions), and
-  ``classify_pv(...).base_value`` for the rest (the static-noisy partition).
+  ``classify_channel(...).base_value`` for the rest (the static-noisy partition).
   :func:`baseline_value` is that rule, in one place. This is what makes the
   splice between seeded history and recorded reality seamless: when a recorder
   starts sampling the live machine at T0, the last synthesized sample and the
@@ -55,8 +55,8 @@ from types import MappingProxyType
 
 import numpy as np
 
-from osprey_connectors.pv_taxonomy import classify_pv
-from osprey_connectors.simulation.series import keyed_normals, pv_key_bytes, wander
+from osprey_connectors.channel_taxonomy import classify_channel
+from osprey_connectors.simulation.series import channel_key_bytes, keyed_normals, wander
 
 __all__ = [
     "DEFAULT_NOISE_LEVEL",
@@ -150,7 +150,7 @@ class KindShape:
         return self.drift_sigmas + self.cycle_sigmas
 
 
-# Per-kind shapes, keyed by PVKind.name. The character of each kind is the one
+# Per-kind shapes, keyed by ChannelKind.name. The character of each kind is the one
 # the window-relative generator established -- beam current sawtooths between
 # refills, pressure ripples fast, temperature breathes daily, voltage is steady
 # with a slow swing -- re-expressed on an absolute time axis and rescaled into
@@ -218,7 +218,7 @@ KIND_SHAPES: Mapping[str, KindShape] = MappingProxyType(
 def _shape_for(kind_name: str) -> KindShape:
     """The shape table entry for a kind, falling back to the generic one.
 
-    ``classify_pv`` is the only producer of these names and every one it can
+    ``classify_channel`` is the only producer of these names and every one it can
     return has an entry, so the fallback is reached only if a kind is added
     there without one here — in which case a generic texture is a better
     outcome than a ``KeyError`` on an archiver read.
@@ -226,7 +226,7 @@ def _shape_for(kind_name: str) -> KindShape:
     return KIND_SHAPES.get(kind_name, KIND_SHAPES["default"])
 
 
-def _keyed_fraction(pv_key: bytes) -> float:
+def _keyed_fraction(channel_key: bytes) -> float:
     """A stable per-channel value in ``[0, 1)``, used as a cycle phase.
 
     Derived from the key by the same digest-then-truncate construction the draw
@@ -234,13 +234,13 @@ def _keyed_fraction(pv_key: bytes) -> float:
     built on ``hash()``) and independent of the normal draws keyed off the same
     channel.
     """
-    word = int.from_bytes(hashlib.sha256(pv_key).digest()[:8], "big")
+    word = int.from_bytes(hashlib.sha256(channel_key).digest()[:8], "big")
     return word / 2.0**64
 
 
-def _cycle_term(pv_key: bytes, times: "np.ndarray", shape: KindShape) -> "np.ndarray":
+def _cycle_term(channel_key: bytes, times: "np.ndarray", shape: KindShape) -> "np.ndarray":
     """The kind's periodic signature at ``times``, in sigmas (bounded by 1)."""
-    phase = _keyed_fraction(pv_key + _CYCLE_SUBKEY)
+    phase = _keyed_fraction(channel_key + _CYCLE_SUBKEY)
     turns = times / shape.cycle_period_s + phase
     if shape.cycle_shape == _SAWTOOTH:
         # +1 at the refill, decaying linearly to -1 just before the next one.
@@ -248,8 +248,8 @@ def _cycle_term(pv_key: bytes, times: "np.ndarray", shape: KindShape) -> "np.nda
     return np.sin(_TWO_PI * turns)
 
 
-def baseline_value(pv_name: str, boot_values: Mapping[str, float] | None = None) -> float:
-    """The value the Virtual Accelerator settles ``pv_name`` at.
+def baseline_value(channel: str, boot_values: Mapping[str, float] | None = None) -> float:
+    """The value the Virtual Accelerator settles ``channel`` at.
 
     This is the single anchoring rule the archiver's synthetic history and the
     VA's live values share, and it mirrors the VA's own three sources:
@@ -263,7 +263,7 @@ def baseline_value(pv_name: str, boot_values: Mapping[str, float] | None = None)
       an ion-pump ``VOLTAGE:SP`` no scenario seeds reads 0 V on the live
       machine, and history claiming 5 kV would be pure invention;
     * everything else is static-noisy telemetry with no model entry, which
-      ``EngineSource`` serves from the PV taxonomy.
+      ``EngineSource`` serves from the channel taxonomy.
 
     A caller holding the machine model (the base seeder does) passes it as
     ``boot_values`` and gets the anchored baseline for all three fidelity
@@ -272,7 +272,7 @@ def baseline_value(pv_name: str, boot_values: Mapping[str, float] | None = None)
     taxonomy baseline throughout, which is all the information available.
 
     Args:
-        pv_name: Channel name.
+        channel: Channel name.
         boot_values: Optional ``{address: value}`` map, conventionally
             ``machine.json``'s stored channel values. Entries that are not real
             numbers (a string-valued channel, say) are ignored rather than
@@ -282,34 +282,34 @@ def baseline_value(pv_name: str, boot_values: Mapping[str, float] | None = None)
         The baseline in the channel's engineering units.
     """
     if boot_values is None:
-        return classify_pv(pv_name).base_value
-    seed = boot_values.get(pv_name)
+        return classify_channel(channel).base_value
+    seed = boot_values.get(channel)
     if isinstance(seed, (int, float)) and not isinstance(seed, bool):
         return float(seed)
-    if pv_name.endswith(_UNDRIVEN_SUBFIELDS):
+    if channel.endswith(_UNDRIVEN_SUBFIELDS):
         return _RECORD_TYPE_DEFAULT
-    return classify_pv(pv_name).base_value
+    return classify_channel(channel).base_value
 
 
 def generate_series(
-    pv_name: str,
+    channel: str,
     t_abs_s: "np.ndarray | float",
     *,
     noise_level: float = DEFAULT_NOISE_LEVEL,
     baseline: float | None = None,
 ) -> "np.ndarray":
-    """Synthesize ``pv_name``'s value at absolute epoch seconds ``t_abs_s``.
+    """Synthesize ``channel``'s value at absolute epoch seconds ``t_abs_s``.
 
     Scalars and arrays follow one code path, so a live read at wall-clock *now*
     and an archiver sample at that same instant agree bit-for-bit.
 
     Args:
-        pv_name: Channel name; keys every stochastic term and picks the kind.
+        channel: Channel name; keys every stochastic term and picks the kind.
         t_abs_s: Absolute epoch seconds — any shape, or a scalar. Pass values
             produced by :func:`osprey_connectors.simulation.series.epoch_seconds_array`
             (see the module docstring on why the conversion route is pinned).
         noise_level: Relative noise fraction, floored per kind by
-            :meth:`~osprey_connectors.pv_taxonomy.PVKind.noise_sigma` so a
+            :meth:`~osprey_connectors.channel_taxonomy.ChannelKind.noise_sigma` so a
             legitimately-zero baseline is not dead flat. ``0.0`` disables every
             stochastic and shape term and returns the bare baseline.
         baseline: Baseline override, normally from :func:`baseline_value`.
@@ -320,7 +320,7 @@ def generate_series(
         scalar input).
     """
     times = np.asarray(t_abs_s, dtype=np.float64)
-    kind = classify_pv(pv_name)
+    kind = classify_channel(channel)
     base = kind.base_value if baseline is None else float(baseline)
     sigma = kind.noise_sigma(base, noise_level)
     if sigma <= 0.0:
@@ -329,7 +329,7 @@ def generate_series(
         return np.full(times.shape, base, dtype=np.float64)
 
     shape = _shape_for(kind.name)
-    pv_key = pv_key_bytes(pv_name)
+    channel_key = channel_key_bytes(channel)
     # Flatten before drawing and restore the caller's shape after. The draw
     # primitives wrap uint64 arithmetic silently on arrays but warn on numpy
     # scalars, so a 0-d input would produce the right value with a spurious
@@ -337,15 +337,15 @@ def generate_series(
     flat = times.reshape(-1)
     values = np.full(flat.shape, base, dtype=np.float64)
     values = values + wander(
-        pv_key + _DRIFT_SUBKEY, flat, shape.drift_sigmas * sigma, shape.drift_period_s
+        channel_key + _DRIFT_SUBKEY, flat, shape.drift_sigmas * sigma, shape.drift_period_s
     )
-    values = values + shape.cycle_sigmas * sigma * _cycle_term(pv_key, flat, shape)
-    values = values + sigma * keyed_normals(pv_key + _NOISE_SUBKEY, flat * _MS_PER_S)
+    values = values + shape.cycle_sigmas * sigma * _cycle_term(channel_key, flat, shape)
+    values = values + sigma * keyed_normals(channel_key + _NOISE_SUBKEY, flat * _MS_PER_S)
     return np.asarray(values.reshape(times.shape))
 
 
 def deviation_bound(
-    pv_name: str,
+    channel: str,
     *,
     noise_level: float = DEFAULT_NOISE_LEVEL,
     baseline: float | None = None,
@@ -365,7 +365,7 @@ def deviation_bound(
     ``noise_sigmas`` of the unbounded Gaussian term on top.
 
     Args:
-        pv_name: Channel name.
+        channel: Channel name.
         noise_level: The relative noise the series was (or will be) generated
             with. Must match, or the bound describes a different series.
         baseline: Baseline override, as for :func:`generate_series`.
@@ -376,7 +376,7 @@ def deviation_bound(
         The bound in the channel's engineering units; ``0.0`` when
         ``noise_level`` disables synthesis entirely.
     """
-    kind = classify_pv(pv_name)
+    kind = classify_channel(channel)
     base = kind.base_value if baseline is None else float(baseline)
     sigma = kind.noise_sigma(base, noise_level)
     if sigma <= 0.0:

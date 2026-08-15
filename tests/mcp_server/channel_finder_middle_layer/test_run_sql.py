@@ -1,4 +1,4 @@
-"""Tests for the Middle Layer channel-finder ``query_channels`` DuckDB tool.
+"""Tests for the Middle Layer channel-finder ``run_sql`` DuckDB tool.
 
 Exercises the tool against a real on-disk DuckDB database (duckdb + fts are
 first-party deps and work offline), covering the happy path, the row cap /
@@ -17,7 +17,7 @@ import pytest
 from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
 from tests.mcp_server.conftest import assert_raises_error
 
-_TOOL_MODULE = "osprey.mcp_server.channel_finder_middle_layer.tools.query_channels"
+_TOOL_MODULE = "osprey.mcp_server.channel_finder_middle_layer.tools.run_sql"
 
 
 def _make_duckdb(path, rows):
@@ -30,12 +30,12 @@ def _make_duckdb(path, rows):
 
 def _run(sql: str, duckdb_path):
     """Invoke the tool fn with get_cf_ml_context patched to expose duckdb_path."""
-    from osprey.mcp_server.channel_finder_middle_layer.tools.query_channels import query_channels
+    from osprey.mcp_server.channel_finder_middle_layer.tools.run_sql import run_sql
 
     ctx = MagicMock()
     ctx.duckdb_path = duckdb_path
     with patch(f"{_TOOL_MODULE}.get_cf_ml_context", return_value=ctx):
-        return get_tool_fn(query_channels)(sql=sql)
+        return get_tool_fn(run_sql)(sql=sql)
 
 
 @pytest.mark.unit
@@ -81,13 +81,13 @@ def test_non_select_query_is_rejected(tmp_path):
 @pytest.mark.unit
 def test_not_configured_when_no_duckdb_path():
     """A context without a DuckDB path yields a not_configured envelope."""
-    from osprey.mcp_server.channel_finder_middle_layer.tools.query_channels import query_channels
+    from osprey.mcp_server.channel_finder_middle_layer.tools.run_sql import run_sql
 
     ctx = MagicMock()
     ctx.duckdb_path = None
     with patch(f"{_TOOL_MODULE}.get_cf_ml_context", return_value=ctx):
         with assert_raises_error(error_type="not_configured"):
-            get_tool_fn(query_channels)(sql="SELECT 1")
+            get_tool_fn(run_sql)(sql="SELECT 1")
 
 
 @pytest.mark.unit

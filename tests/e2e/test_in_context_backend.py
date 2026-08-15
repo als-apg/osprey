@@ -1,7 +1,7 @@
 """Integration tests for InContextBackend — real subprocess + real LLM call.
 
 Lives under ``tests/e2e/`` because it makes a real credentialed LLM call (the
-inner ``query_channels`` model call happens inside the spawned MCP subprocess).
+inner ``ask_channels`` model call happens inside the spawned MCP subprocess).
 Keeping it here means the fast lane — ``pytest tests/ --ignore=tests/e2e`` — is
 hermetic regardless of which provider keys a developer happens to have exported;
 the placement guard in ``tests/test_api_marker_placement.py`` enforces this.
@@ -174,7 +174,7 @@ async def test_in_context_backend_basic(tmp_path):
     # Structural assertions — always true regardless of LLM output variability
     assert output.num_turns == 1
     assert len(output.tool_traces) == 1
-    assert output.tool_traces[0].name == "query_channels"
+    assert output.tool_traces[0].name == "ask_channels"
 
     # Content assertion — the model should identify the beam current channel
     response = output.response_text

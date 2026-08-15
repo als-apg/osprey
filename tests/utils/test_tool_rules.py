@@ -41,7 +41,7 @@ class TestMatchesDenylist:
         entries = ["mcp__plugin_playwright_playwright__*"]
 
         # Act
-        result = matches_denylist("mcp__osprey_workspace__data_list", entries)
+        result = matches_denylist("mcp__osprey_workspace__artifact_list", entries)
 
         # Assert
         assert result is False

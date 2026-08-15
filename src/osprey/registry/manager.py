@@ -65,7 +65,6 @@ class RegistryManager:
         self._registries = {
             "services": {},
             "providers": {},
-            "connectors": {},
             "ariel_search_modules": {},
             "ariel_enhancement_modules": {},
             "ariel_ingestion_adapters": {},
@@ -165,36 +164,6 @@ class RegistryManager:
         """
         return list(self._registries["providers"].keys())
 
-    def get_connector(self, name: str) -> type[Any] | None:
-        """Retrieve registered connector class by name.
-
-        :param name: Unique connector name from registration
-        :type name: str
-        :return: Connector class if registered, None otherwise
-        :rtype: Type[ControlSystemConnector] or Type[ArchiverConnector] or None
-        """
-        if not self._initialized:
-            raise RegistryError("Registry not initialized. Call initialize_registry() first.")
-
-        return self._registries["connectors"].get(name)
-
-    def list_connectors(self) -> list[str]:
-        """Get list of all registered connector names.
-
-        :return: List of connector names
-        :rtype: list[str]
-        """
-        return list(self._registries["connectors"].keys())
-
-    @property
-    def connectors(self) -> dict[str, type[Any]]:
-        """Get all registered connectors as a dictionary.
-
-        :return: Dictionary mapping connector names to connector classes
-        :rtype: dict[str, Type]
-        """
-        return self._registries["connectors"].copy()
-
     def get_ariel_search_module(self, name: str) -> Any | None:
         """Retrieve an ARIEL search module by registry name.
 
@@ -264,14 +233,6 @@ class RegistryManager:
         :rtype: Any, optional
         """
         return self._registries["services"].get(name)
-
-    def get_all_services(self) -> list[Any]:
-        """Retrieve all registered service graph instances.
-
-        :return: List of all registered service graph instances
-        :rtype: list[Any]
-        """
-        return list(self._registries["services"].values())
 
     # ------------------------------------------------------------------
     # Export

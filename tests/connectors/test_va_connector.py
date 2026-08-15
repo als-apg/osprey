@@ -81,12 +81,9 @@ class TestRegistryResolution:
                 ),
             ]
         )
-        registries = {"connectors": {}}
+        initialize_connectors(config=config, registries={}, excluded_provider_names=[])
 
-        initialize_connectors(config=config, registries=registries, excluded_provider_names=[])
-
-        assert registries["connectors"][VIRTUAL_ACCELERATOR] is VirtualAcceleratorConnector
-        # Registry initialization also registers with ConnectorFactory as a side effect.
+        # ConnectorFactory is the only lookup path for connectors at runtime.
         assert (
             ConnectorFactory._control_system_connectors[VIRTUAL_ACCELERATOR]
             is VirtualAcceleratorConnector

@@ -8,7 +8,7 @@ Backends (the harness axis):
     sdk    — claude_agent_sdk.query() (Anthropic-native tool-use loop)
     react  — manual ReAct loop on top of litellm.acompletion()
     direct — single MCP tool call, no outer agent loop. Only valid for
-             the ``in_context`` paradigm, whose query_channels tool already
+             the ``in_context`` paradigm, whose ask_channels tool already
              performs the full retrieval inside the MCP subprocess.
 
 The ``direct`` backend is *not* a third option for hierarchical or

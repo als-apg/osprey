@@ -49,7 +49,7 @@ from .artifacts import (
 from .capabilities import pair_supports
 from .config import TERMINAL_STATUSES, CoreConfig
 from .dedup import DedupStore
-from .dispatch_client import DispatchClient, DispatchError
+from .dispatch_client import DispatchClient, DispatchPipelineError
 from .drain import DrainCallbacks, DrainDeps, drain_once, ensure_alive, run_drain_thread
 from .health_gate import gate_open
 from .history import HistoryStore
@@ -86,7 +86,7 @@ __all__ = [
     "MAX_DELIVERED_IMAGE_BYTES",
     "PNG_MAGIC",
     "DispatchClient",
-    "DispatchError",
+    "DispatchPipelineError",
     "FetchedArtifact",
     "artifact_descriptors",
     "bare_mime",

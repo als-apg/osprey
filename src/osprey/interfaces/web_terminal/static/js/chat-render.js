@@ -186,29 +186,29 @@ export const TOOL_PHRASES = Object.freeze({
   execute_file: 'running Python',
 
   // Workspace panels. The synthetic panel activity uses these same names.
-  show_panel: 'opening a panel',
-  hide_panel: 'closing a panel',
-  switch_panel: 'switching panels',
+  add_panel_to_rail: 'making a panel available',
+  remove_panel_from_rail: 'removing a panel',
+  open_panel: 'opening a panel',
+  close_panel: 'closing a panel',
   arrange_workspace: 'arranging the workspace',
   register_panel: 'adding a panel',
   manage_window: 'arranging a window',
   screenshot_capture: 'taking a screenshot',
 
-  // Workspace artifacts and saved data.
+  // Workspace artifacts (plots, documents and stored datasets alike).
   artifact_save: 'saving an artifact',
   artifact_get: 'opening an artifact',
+  artifact_list: 'listing saved artifacts',
+  artifact_read: 'reading a saved artifact',
   artifact_focus: 'showing an artifact',
   artifact_pin: 'pinning an artifact',
   artifact_export: 'exporting an artifact',
   artifact_delete: 'deleting an artifact',
-  artifact_delete_all: 'deleting every artifact',
+  artifact_delete_all: 'deleting artifacts',
   create_static_plot: 'drawing a plot',
   create_interactive_plot: 'drawing an interactive plot',
   create_dashboard: 'building a dashboard',
   create_document: 'writing a document',
-  data_list: 'listing saved data',
-  data_read: 'reading saved data',
-  data_delete: 'deleting saved data',
 
   // Workspace project setup and session record.
   setup_inspect: 'inspecting the project setup',
@@ -253,7 +253,8 @@ export const TOOL_PHRASES = Object.freeze({
 
   // Channel finder.
   list_channels: 'looking up channels',
-  query_channels: 'looking up channels',
+  ask_channels: 'looking up channels',
+  run_sql: 'querying the channel database',
   build_channels: 'building a channel list',
   list_families: 'looking up channel families',
   list_systems: 'looking up systems',

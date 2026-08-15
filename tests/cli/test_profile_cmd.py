@@ -150,6 +150,92 @@ def test_validate_does_not_build_a_project(runner: CliRunner, tmp_path: Path) ->
     assert [p.name for p in target.iterdir()] == ["profile.yml"]
 
 
+#: A profile whose web stack does not lint: it stands up the persona catalog,
+#: which is what makes the registry-mode coherence check apply, and states no
+#: ``registry.url`` for it to find. The one shape that reaches the web-lint
+#: branch both spellings of the verb run last.
+LINT_FAILING_PROFILE = """\
+name: Lint Fail
+data_bundle: hello_world
+config:
+  facility.prefix: demo
+  modules.web_terminals:
+    enabled: true
+    nginx_port: 9080
+    web_base_port: 9091
+    default_persona: readwrite
+    users:
+      - name: operator
+        index: 0
+        persona: readwrite
+    personas:
+      readwrite:
+        build_profile: hello-world
+        project: demo-readwrite
+"""
+
+
+def _error_message(result) -> str:
+    """The message a ``UsageError`` carried, without Click's usage banner.
+
+    The banner names the command path, which legitimately differs between the
+    two spellings — everything after ``Error:`` is what the verb itself wrote
+    and must be one wording.
+    """
+    assert "Error:" in result.output, result.output
+    return result.output.split("Error:", 1)[1]
+
+
+class TestTopLevelSpellingIsTheSameVerb:
+    """``osprey validate`` and ``osprey profile validate`` are one implementation.
+
+    The module docstring calls the top-level verb "the top-level spelling of
+    ``profile validate``", and an alias that is a copy-paste of its twin drifts:
+    these two bodies were byte-identical apart from two string literals, so an
+    operator got a different failure header and a different next step depending
+    on which spelling they typed. The interfaces differ (a required TARGET here,
+    an optional one plus ``--repo`` there) — the body must not.
+    """
+
+    def test_success_output_is_identical(self, runner: CliRunner, tmp_path: Path) -> None:
+        from osprey.cli.validate_cmd import validate
+
+        target = _write_profile(tmp_path / "p", MINIMAL_PROFILE)
+
+        group = runner.invoke(profile, ["validate", str(target)])
+        top = runner.invoke(validate, [str(target)])
+
+        assert group.exit_code == 0, group.output
+        assert top.exit_code == 0, top.output
+        assert group.output == top.output
+
+    def test_lint_failure_output_is_identical(self, runner: CliRunner, tmp_path: Path) -> None:
+        from osprey.cli.validate_cmd import validate
+
+        target = _write_profile(tmp_path / "p", LINT_FAILING_PROFILE)
+
+        group = runner.invoke(profile, ["validate", str(target)])
+        top = runner.invoke(validate, [str(target)])
+
+        assert group.exit_code == 2, group.output
+        assert "registry.url" in group.output, group.output
+        assert _error_message(group) == _error_message(top)
+
+    def test_the_directory_refusal_is_one_wording(self, runner: CliRunner, tmp_path: Path) -> None:
+        """One resolver, so a directory with no manifest is refused once."""
+        from osprey.cli.validate_cmd import validate
+
+        empty = tmp_path / "empty"
+        empty.mkdir()
+
+        group = runner.invoke(profile, ["validate", str(empty)])
+        top = runner.invoke(validate, [str(empty)])
+
+        assert group.exit_code == 2, group.output
+        assert "No profile.yml" in group.output
+        assert _error_message(group) == _error_message(top)
+
+
 # --------------------------------------------------------------------------
 # Materialization helper
 #

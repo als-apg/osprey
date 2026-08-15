@@ -8,8 +8,8 @@ description: How to create, save, and reuse artifacts in the OSPREY gallery
 ## Reuse First
 
 When the user references previous work or wants to act on it (log it, share it,
-re-analyze it), call `data_list()` BEFORE creating anything new.
-Use `tool_filter=` or `category_filter=` to narrow results. Reuse existing artifact IDs
+re-analyze it), call `artifact_list()` BEFORE creating anything new.
+Use `tool=` or `category=` to narrow results. Reuse existing artifact IDs
 rather than recreating content.
 
 ## Creating Artifacts
