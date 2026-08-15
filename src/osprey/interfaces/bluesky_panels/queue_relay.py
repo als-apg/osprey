@@ -13,8 +13,6 @@ The relayed surface mirrors the bridge's queue contract one-for-one:
 - ``POST /queue/items/{uid}/move`` -> reorder one queued item
 - ``DELETE /queue/items/{uid}`` -> drop one queued item
 - ``POST /queue/start`` -> start draining the queue
-- ``POST /queue/start-request`` -> file the tokenless "please start" record
-- ``DELETE /queue/start-request`` -> dismiss a pending start request
 - ``POST /queue/stop`` -> stop after the running item (``cancel: true`` withdraws)
 - ``POST /queue/abort`` -> abort the plan already in motion
 - ``GET /queue/events`` -> the queue's Server-Sent-Events stream
@@ -247,30 +245,6 @@ async def start_queue(request: Request) -> JSONResponse:
     with its body intact.
     """
     return await _forward_write(request, "POST", "/queue/start")
-
-
-@router.post("/queue/start-request")
-async def request_queue_start(request: Request) -> JSONResponse:
-    """Relay the filing of a start request — the tokenless "please start" record.
-
-    Exists on the panel surface for symmetry and testing; the usual FILER is
-    the agent's MCP server talking to the bridge directly, and the usual
-    CONFIRMER is this sidecar's own ``POST /queue/start``, whose launch token
-    is the entire point of the flow. The resolved token rides along like every
-    other queue write (module docstring) and the bridge ignores it — the
-    request route arms nothing for anyone.
-    """
-    return await _forward_write(request, "POST", "/queue/start-request")
-
-
-@router.delete("/queue/start-request")
-async def dismiss_queue_start_request(request: Request) -> JSONResponse:
-    """Relay the dismissal of a pending start request — the panel's Dismiss control.
-
-    Ungated at the bridge (declining to start is the safe direction), so the
-    dismissal always answers, token or no token.
-    """
-    return await _forward_write(request, "DELETE", "/queue/start-request")
 
 
 @router.post("/queue/stop")

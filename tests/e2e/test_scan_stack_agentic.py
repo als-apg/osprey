@@ -57,10 +57,30 @@ draft in the queue and moves nothing; only ``queue_start`` drains it. A floor
 satisfied by the add alone would pass a run in which no measurement was ever
 taken, which is the one thing this module exists to detect. ``get_run_data``
 closes it, and closes it on the RIGHT run: the add's own result names the run id
-the bridge assigned, and the read is required to ask for that id. Both live
-tests share one deploy, so an earlier test's run stays readable — without that
+the bridge assigned, and the read is required to ask for that id. Every live
+test shares one deploy, so an earlier test's run stays readable — without that
 binding, a run that read the PREVIOUS measurement back would look identical to
 one that took its own.
+
+The third live test grades the ARMING GATE, not a measurement
+-------------------------------------------------------------
+
+Starting a queued scan is the moment hardware moves, and it costs the operator
+exactly ONE action: they approve the agent's ``queue_start``, and the queue
+drains. The measurement tests above cannot see that — they run headless with
+the approval gate deliberately disarmed, because a headless session has no
+responder and an unanswered prompt is a hard denial. So they prove the flow
+WORKS while saying nothing about how many human actions it took, which is the
+one property this feature changed.
+
+:func:`test_starting_a_queued_scan_costs_one_operator_approval` re-arms the
+shipped approval hook for ``queue_start`` alone, answers the prompt from the
+test, and asserts the transcript: one prompt, for the arming step, allowed
+once — followed by a scan that really ran. It also probes the deployed bridge
+for the route that used to carry the second action. That probe is the only
+place in the suite where the MCP server's expectations meet the bridge's real
+routing table; everywhere else the HTTP client is mocked, so a server posting
+to a route the bridge no longer serves stays green.
 
 Both halves are dry-verified offline, against the SAME contracts the live
 tests use. The floor runs against hand-built ``ToolTrace`` fixtures — no
@@ -85,15 +105,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey import bluesky_tool_names
 from osprey.agent_runner import SDKWorkflowResult, ToolTrace
@@ -105,10 +128,13 @@ from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
+    HookEvent,
     _default_opus_model,
     is_claude_code_available,
     promote_ask_to_allow,
+    render_dir,
     run_sdk_query,
+    run_sdk_query_with_hooks,
 )
 from tests.e2e.test_preset_agentic import _to_workflow_result
 
@@ -127,6 +153,18 @@ SET_DRAFT = bluesky_tool_names.matcher(bluesky_tool_names.SET_DRAFT)
 QUEUE_ADD = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_ADD)
 QUEUE_START = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_START)
 GET_RUN_DATA = bluesky_tool_names.matcher(bluesky_tool_names.GET_RUN_DATA)
+
+#: Every tool that moves the queue itself — add, start, stop. The approval
+#: transcript is read over exactly this set (see
+#: :func:`assert_one_arming_approval`): these are the operations an operator
+#: consents to on the way to hardware motion, and the whole claim under test is
+#: how many of those consents starting a queued scan costs. Plan AUTHORING
+#: (``write_plan``/``validate_plan``) is ask-gated too but is a different
+#: activity — an agent that stops to author a plan body has not thereby taken a
+#: second step toward arming.
+QUEUE_CONTROL = frozenset(
+    bluesky_tool_names.matcher(tool) for tool in bluesky_tool_names.QUEUE_CONTROL_TOOLS
+)
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +192,13 @@ GET_RUN_DATA = bluesky_tool_names.matcher(bluesky_tool_names.GET_RUN_DATA)
 #               25434 test_bluesky_panels_deploy
 #   openobserve 25080 test_bluesky_queue_e2e · 25081 test_bluesky_deploy
 #               25082 test_tiled_roundtrip · 25083 test_bluesky_panels_deploy
+#   mongodb     no sibling pins one — the archiver's Mongo published the
+#               service default, and a tutorial stack deployed on this host
+#               holds it. The preflight refuses to touch any container when a
+#               published port is taken, so this one blocked the whole module
+#               (every service above was already free) over a service none of
+#               these tests read. Moved via the ``va_archiver`` PROFILE block,
+#               not a ``config:`` key — see ``_EXTRA_CONFIG``.
 # ---------------------------------------------------------------------------
 BRIDGE_PORT = 18109
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
@@ -162,6 +207,7 @@ TILED_PORT = 18193
 VA_CA_PORT = 15066
 POSTGRES_PORT = 25435
 OPENOBSERVE_PORT = 25084
+MONGODB_PORT = 27117
 
 #: Compose project this module deploys under. Container names and locally-built
 #: image tags both follow ``<project>-<service>``, so every exact-named docker
@@ -295,19 +341,49 @@ def _launched_run_id(add_trace: ToolTrace) -> str | None:
 
     ``queue_add`` answers with ``json.dumps({"run_id", "revision", "item"})``,
     and ``run_id`` is OSPREY's handle for the run that add will produce — the
-    same value ``get_run_data`` takes as its required argument. Returns
-    ``None`` when the result is not parseable JSON or carries no usable id,
-    which is what makes the binding in :func:`find_satisfying_chain` degrade
-    instead of hard-failing.
+    same value ``get_run_data`` takes as its required argument.
+
+    That body does not reach the transcript bare. FastMCP surfaces a
+    ``str``-returning tool as structured content under a single ``result``
+    key, so what the SDK records for a real run is ``{"result": "<that JSON
+    string>"}`` — the id one layer down, inside a re-encoded string. A direct
+    call yields the bare body instead, so both forms are read: the sole-key
+    ``result`` envelope is peeled (bounded, and only when ``result`` is the
+    ONLY key, so a real body carrying its own ``result`` field is never
+    mistaken for transport), and a bare body is taken as-is.
+
+    Returns ``None`` when the result is not parseable JSON or carries no
+    usable id, which is what makes the binding in :func:`find_satisfying_chain`
+    degrade instead of hard-failing.
     """
-    try:
-        body = json.loads(add_trace.result or "")
-    except (TypeError, ValueError):
+    body: Any = add_trace.result
+    # Bounded so a pathological body cannot spin. The ceiling is derived, not
+    # padded: every iteration consumes exactly ONE step — parse a string, peel
+    # one envelope, or read the id and return — so N envelope layers cost
+    # 2N + 2. A bare body is 2 (parse, read); the live single-envelope shape is
+    # 4 (parse outer, peel, parse inner, read). 8 is therefore "tolerate up to
+    # THREE nested envelopes", which is the real boundary this number encodes.
+    # Raising it buys deeper nesting and nothing else; lowering it below 4
+    # silently reverts to the bug this helper exists to fix — an earlier draft
+    # used 3 and returned None on the real payload while passing hand-written
+    # tests, because 3 lands one step short of reading the id it just parsed.
+    for _ in range(8):
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except (TypeError, ValueError):
+                return None
+            continue
+        if not isinstance(body, dict):
+            return None
+        run_id = body.get("run_id")
+        if isinstance(run_id, str) and run_id:
+            return run_id
+        if set(body) == {"result"}:  # FastMCP str-return transport envelope
+            body = body["result"]
+            continue
         return None
-    if not isinstance(body, dict):
-        return None
-    run_id = body.get("run_id")
-    return run_id if isinstance(run_id, str) and run_id else None
+    return None
 
 
 def _reads_run(run_id: str) -> Callable[[ToolTrace], bool]:
@@ -423,6 +499,30 @@ def assert_orbit_response_scan_executed(result: SDKWorkflowResult) -> None:
 def assert_grid_scan_executed(result: SDKWorkflowResult) -> None:
     """The grid-scan-class floor — see :func:`assert_scan_executed`."""
     assert_scan_executed(result, is_grid_scan_state, plan_class="grid-scan-class")
+
+
+def is_any_staged_plan_state(state: dict[str, Any]) -> bool:
+    """Accept any accumulated draft state that actually staged something.
+
+    Deliberately class-AGNOSTIC, and the only predicate here that is. The two
+    predicates above exist because their tests grade a MEASUREMENT, and a
+    measurement of the wrong class is the wrong measurement. The arming-gate
+    test below grades neither the class nor the physics: its subject is how
+    many human actions it takes to start a queued scan, and pinning a plan
+    class there would make the test fail for reasons that have nothing to do
+    with the gate — while costing a longer scan to sit through.
+
+    Empty state is still rejected, so this is not "accept anything": the chain
+    it anchors still needs a SUCCESSFUL ``queue_add`` that saw a staged plan,
+    a successful ``queue_start``, and a read of the run that add launched.
+    Pinned by :func:`test_any_class_floor_still_requires_the_whole_chain`.
+    """
+    return bool(state)
+
+
+def assert_a_scan_executed(result: SDKWorkflowResult) -> None:
+    """The class-agnostic floor — see :func:`is_any_staged_plan_state`."""
+    assert_scan_executed(result, is_any_staged_plan_state, plan_class="any-class")
 
 
 # ---------------------------------------------------------------------------
@@ -551,15 +651,23 @@ def _draft(
 
 def _add(*, is_error: bool = False, revision: int = 1, run_id: str = "run-1") -> ToolTrace:
     """A ``queue_add`` trace. The success body carries ``run_id`` because the
-    real tool's does, and the floor binds the later data read to it."""
+    real tool's does, and the floor binds the later data read to it.
+
+    Wrapped in the ``{"result": "<json>"}`` transport envelope that FastMCP
+    puts around a ``str``-returning tool, because that is the form the SDK
+    actually records for a live run — a fixture that emitted the bare body
+    would let the floor tests pass while the binding they exercise silently
+    degraded on every real run.
+    """
+    body = (
+        '{"code": "stale_revision"}'
+        if is_error
+        else f'{{"run_id": "{run_id}", "revision": 1, "item": {{"item_uid": "item-1"}}}}'
+    )
     return ToolTrace(
         name=QUEUE_ADD,
         input={"draft_revision": revision},
-        result=(
-            '{"code": "stale_revision"}'
-            if is_error
-            else f'{{"run_id": "{run_id}", "revision": 1, "item": {{"item_uid": "item-1"}}}}'
-        ),
+        result=json.dumps({"result": body}),
         is_error=is_error,
     )
 
@@ -781,13 +889,159 @@ def test_floor_binds_the_data_read_to_the_run_the_add_launched() -> None:
     ]
     assert not _floor_passes(read_an_older_run)
 
+    # Enveloped, because that is how a real result arrives — the same
+    # correction ``_add()`` needed. A bare string here would behave
+    # identically (both yield no id, so both degrade), which is exactly why
+    # the mismatch could sit unnoticed: a fixture that disagrees with reality
+    # and passes anyway is the shape this whole module just got wrong.
     unparseable_add_result = [
         _draft(patch=_ORM_ARGS),
-        ToolTrace(name=QUEUE_ADD, input={"draft_revision": 1}, result="queued at revision 1"),
+        ToolTrace(
+            name=QUEUE_ADD,
+            input={"draft_revision": 1},
+            result=json.dumps({"result": "queued at revision 1"}),
+        ),
         _start(),
         _read(run_id="run-1"),
     ]
     assert _floor_passes(unparseable_add_result)
+
+
+# A ``queue_add`` result captured verbatim off a live deployed stack. FastMCP
+# surfaces a ``str``-returning tool as structured content under a single
+# ``result`` key whose value is the tool's own JSON string, so what the SDK
+# records is double-encoded. This is the form every real run produces; the
+# bare form below is what a direct (non-MCP) call produces. Both are pinned
+# because :func:`_launched_run_id` has to read either.
+_LIVE_ENVELOPED_ADD_RESULT = (
+    r'{"result":"{\"run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"revision\": 5, \"item\":'
+    r" {\"item_type\": \"plan\", \"name\": \"orm\", \"kwargs\": {\"correctors\": "
+    r"[\"SR:MAG:HCM:01:CURRENT:SP\"], \"detectors\": [\"SR:DIAG:BPM:01:POSITION:X\"], "
+    r"\"span_a\": 2.0, \"num\": 5, \"sweep\": \"bidirectional\"}, \"meta\": "
+    r"{\"osprey_run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"osprey_plan\": {\"name\": "
+    r"\"orm\", \"kwargs\": {\"correctors\": [\"SR:MAG:HCM:01:CURRENT:SP\"], \"detectors\": "
+    r"[\"SR:DIAG:BPM:01:POSITION:X\"], \"span_a\": 2.0, \"num\": 5, \"sweep\": "
+    r"\"bidirectional\"}}}, \"user\": \"Queue Server API User\", \"user_group\": \"primary\", "
+    r'\"item_uid\": \"c575be41-db28-4047-a667-2b434408be8d\"}}"}'
+)
+_LIVE_RUN_ID = "5f2d23d785c042dfa3eeeaeddc898ee3"
+
+
+@pytest.mark.harness_benchmark
+def test_launched_run_id_reads_the_transport_envelope_a_live_run_produces() -> None:
+    """The id must come back out of the shape live runs actually carry.
+
+    Read against the captured payload above, not a hand-written one: the whole
+    point is that the form the offline fixtures assumed (a bare JSON object)
+    is one layer shallower than the form the MCP transport delivers, so a
+    helper checked only against hand-written bodies reports ``None`` on every
+    real run while every offline test stays green.
+
+    The structural assertions below are not redundant with the id check. They
+    exist to keep the capture a CAPTURE. Extracting the id exercises the outer
+    envelope and one key, leaving the whole ``item``/``meta`` subtree — the
+    part that makes this payload an independent referee rather than one more
+    fixture written from the same assumptions as the code — unasserted, and so
+    free to decay. A "this literal is huge, let me trim it" edit, or a reflow
+    of the multi-fragment concatenation that drops a byte, would otherwise
+    stay green. Pinning the shape turns "captured verbatim off a live run"
+    from a docstring claim into something a hand-written replacement has to
+    reproduce the real bridge's response to satisfy.
+    """
+    trace = ToolTrace(
+        name=QUEUE_ADD, input={"draft_revision": 5}, result=_LIVE_ENVELOPED_ADD_RESULT
+    )
+    assert _launched_run_id(trace) == _LIVE_RUN_ID
+
+    outer = json.loads(_LIVE_ENVELOPED_ADD_RESULT)
+    assert set(outer) == {"result"}, "the FastMCP envelope carries exactly one key"
+    body = json.loads(outer["result"])
+    assert set(body) == {"run_id", "revision", "item"}, (
+        "queue_add's documented response keys — see the tool's own docstring"
+    )
+    assert body["run_id"] == _LIVE_RUN_ID
+    item = body["item"]
+    assert {"item_uid", "user", "user_group"} <= set(item), (
+        "the queueserver item the bridge echoes back"
+    )
+    assert item["meta"]["osprey_run_id"] == _LIVE_RUN_ID, (
+        "the bridge stamps its run id into plan meta; a capture whose meta no "
+        "longer agrees with its own run_id is not a real response"
+    )
+
+
+@pytest.mark.harness_benchmark
+def test_launched_run_id_reads_every_nesting_depth_and_rejects_junk() -> None:
+    """Bare, singly- and doubly-enveloped bodies all resolve; nothing that
+    fails to yield a usable id is invented into one — that last part is what
+    keeps :func:`find_satisfying_chain`'s degrade path reachable.
+
+    Named for nesting depth rather than "bare bodies and junk" because the
+    doubly-enveloped case below is neither, and it is the case that makes this
+    test red under the regression it guards.
+    """
+
+    def _add_result(raw: str) -> ToolTrace:
+        return ToolTrace(name=QUEUE_ADD, input={"draft_revision": 1}, result=raw)
+
+    assert _launched_run_id(_add_result('{"run_id": "run-7", "revision": 1}')) == "run-7"
+    # A DOUBLY-enveloped body. Nothing produces this shape today, and that is
+    # the point: this assertion is aimed at a WRONG REFACTOR, not at current
+    # behaviour. The refactor is the live one — unifying this helper with
+    # ``_unwrap_health_payload`` in test_health_mcp_smoke.py, which peels the
+    # same envelope with a different loop strategy (a shorter bound plus a
+    # trailing re-check). Copy one strategy's bound without the other's
+    # fallthrough and you get a helper that peels exactly one layer.
+    #
+    # Such a helper passes EIGHT of the nine cases these two tests assert —
+    # the live capture resolves, the bare body resolves, every junk shape
+    # still returns None. This line is the only discriminator. Deleting it as
+    # an assertion for an impossible input removes the guard at precisely the
+    # moment it is needed. If the two readers are ever genuinely unified, this
+    # is the acceptance test for that work, not an obstacle to it.
+    doubly = json.dumps({"result": json.dumps({"result": '{"run_id": "run-8"}'})})
+    assert _launched_run_id(_add_result(doubly)) == "run-8"
+    # Envelope around a body that carries no id, and an envelope whose payload
+    # is not JSON at all: neither may be mistaken for a run id.
+    assert _launched_run_id(_add_result('{"result":"{\\"revision\\": 1}"}')) is None
+    assert _launched_run_id(_add_result('{"result":"queued at revision 1"}')) is None
+    assert _launched_run_id(_add_result("queued at revision 1")) is None
+    assert _launched_run_id(_add_result('{"run_id": ""}')) is None
+    assert _launched_run_id(_add_result('{"run_id": 5}')) is None
+    assert _launched_run_id(_add_result("[1, 2, 3]")) is None
+    assert _launched_run_id(ToolTrace(name=QUEUE_ADD, input={}, result=None)) is None
+
+
+@pytest.mark.harness_benchmark
+def test_start_request_assertion_catches_the_old_shape_in_both_encodings() -> None:
+    """The retired ``start_request`` shape must be caught however it is encoded.
+
+    Both halves of :func:`assert_no_start_request_was_filed` are exercised in
+    both the bare and MCP-enveloped encodings. The ``started`` false half is
+    the one that matters here: it is quoted, so escaping hides it from a plain
+    substring test, and it was dead on every live run for exactly that reason.
+    A dead clause is worse than an absent one — it reads as coverage.
+    """
+
+    def _start_result(raw: str) -> list[ToolTrace]:
+        return [ToolTrace(name=QUEUE_START, input={}, result=raw)]
+
+    def _enveloped(body: str) -> str:
+        return json.dumps({"result": body})
+
+    full_old_shape = '{"started": false, "start_request": {"id": "sr-1"}}'
+    started_false_only = '{"started": false, "msg": "queued for confirmation"}'
+
+    for body in (full_old_shape, started_false_only):
+        for raw in (body, _enveloped(body)):
+            with pytest.raises(AssertionError, match="start request"):
+                assert_no_start_request_was_filed(_start_result(raw))
+
+    # The shape the tool actually returns today passes in both encodings —
+    # the guard must not fire on a healthy run.
+    healthy = '{"started": true, "msg": ""}'
+    assert_no_start_request_was_filed(_start_result(healthy))
+    assert_no_start_request_was_filed(_start_result(_enveloped(healthy)))
 
 
 @pytest.mark.harness_benchmark
@@ -878,6 +1132,38 @@ def test_grid_and_orbit_response_floors_do_not_accept_each_other() -> None:
     graded as having done the right measurement."""
     assert not _grid_floor_passes(_orm_run_trace())
     assert not _floor_passes(_grid_run_trace())
+
+
+def _any_class_floor_passes(traces: list[ToolTrace]) -> bool:
+    return find_satisfying_chain(traces, is_any_staged_plan_state) is not None
+
+
+@pytest.mark.harness_benchmark
+def test_any_class_floor_still_requires_the_whole_chain() -> None:
+    """Dropping the plan class must not drop the chain.
+
+    :func:`is_any_staged_plan_state` accepts any measurement, which is the one
+    way a floor turns vacuous: a predicate that answers True unconditionally
+    would let the arming-gate test pass on a run where nothing was ever staged
+    or started, and that test's whole claim is that ONE approval starts a scan
+    that then really runs. So the class-agnostic floor is checked here against
+    the same negatives the class floors are: it takes both runs of either
+    class, and it still refuses a trace with no staged plan, a trace missing
+    either queue step, and a chain built from refused calls.
+    """
+    assert _any_class_floor_passes(_orm_run_trace())
+    assert _any_class_floor_passes(_grid_run_trace())
+
+    # Nothing staged: the add saw an empty draft state, so there is no plan the
+    # start could have drained.
+    assert not _any_class_floor_passes([_add(), _start(), _read()])
+    # Each queue step, dropped in turn.
+    assert not _any_class_floor_passes([*_orm_run_trace()[:2], _read()])
+    assert not _any_class_floor_passes(_orm_run_trace()[:-1])
+    # A chain of refusals changed nothing on the bridge.
+    assert not _any_class_floor_passes(
+        [_draft(patch=_ORM_ARGS), _add(is_error=True), _start(is_error=True), _read(is_error=True)]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1087,13 +1373,22 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: - ``services.postgresql.port_host`` / ``services.openobserve.port`` are
 #:   CONFIG keys — those services are in the preset's config template, so a
 #:   dotted key under ``config:`` edits them in place.
-#: - ``bluesky.tiled_port`` / ``bluesky_panels.port`` are BUILD-PROFILE keys
+#: - ``bluesky.tiled_port`` / ``bluesky_panels.port`` / ``va_archiver.port_host``
+#:   are BUILD-PROFILE keys
 #:   (see ``profiles/presets/control-assistant.yml``). Their ``services.*``
 #:   entries are synthesized by the build injectors AFTER the config overlay
 #:   runs, so a dotted ``config:`` key for either is silently discarded — no
 #:   error, no stray key, just the default port. They must be set at profile
 #:   altitude, as top-level blocks, which is where the override file already
 #:   speaks.
+#:
+#: ``va_archiver.port_host`` moves the archiver store's Mongo off 27017, and
+#: it is the altitude trap above in its most expensive form: ``osprey up``
+#: refuses to touch ANY container when one published port is taken, so a
+#: tutorial stack holding 27017 blocks this whole module — and the ``config:``
+#: spelling of the same key is accepted in silence and changes nothing. The
+#: ``va_archiver`` block deep-merges into the one ``_orm_stack.override_yaml()``
+#: already declares, so the CI-sized retention knobs there stay put.
 #:
 #: The ``bluesky`` block here carries ONLY ``tiled_port``: ``bluesky.port`` and
 #: ``bluesky.tiled_enabled`` come from ``init_args``' own ``--set`` flags, so
@@ -1128,6 +1423,7 @@ _EXTRA_CONFIG: dict[str, Any] = {
     },
     "bluesky": {"tiled_port": TILED_PORT},
     "bluesky_panels": {"port": PANELS_PORT},
+    "va_archiver": {"port_host": MONGODB_PORT},
 }
 
 #: Tools promoted from ``permissions.ask`` to ``permissions.allow`` on the
@@ -1583,3 +1879,286 @@ async def test_agent_maps_a_two_axis_grid_on_a_healthy_stack(
         expectations=GRID_JUDGE_EXPECTATIONS,
     )
     assert eval.passed, eval.reasoning
+
+
+# ---------------------------------------------------------------------------
+# The arming gate. Same stack, same deploy, different subject: not what the
+# agent measured, but how many times it had to stop and ask a human before the
+# hardware moved. See the module docstring's third section.
+# ---------------------------------------------------------------------------
+
+ONE_ACTION_OPERATOR_REQUEST = (
+    "Please take a quick beam-position measurement on the machine for me: step "
+    "one of the steering correctors across a few settings inside the range it "
+    "is allowed and record where the beam sits at each step. Tell me what you "
+    "measured once it has run."
+)
+
+#: How long to wait for the run the agent started to reach a terminal status.
+#: Short on purpose — by the time the agent has read its data back the run is
+#: already terminal, so this only covers a read that raced the last point.
+ONE_ACTION_TERMINAL_TIMEOUT_SEC = 180.0
+
+#: Tools this test refuses whatever asks for them, via its approval policy.
+#:
+#: The measurement tests above get this for free: both sit in the render's
+#: ``permissions.ask`` list, which a headless session with no responder turns
+#: into a hard denial. This test HAS a responder, so an "approve everything"
+#: policy would hand the agent both — and either one is a hand-stepped
+#: substitute for the scan whose start is the whole subject here. An agent that
+#: drove the correctors by hand would satisfy nothing this test asserts, but it
+#: would waste a live run finding that out.
+#:
+#: ``mcp__python__execute`` is the sanctioned compute path and is NOT blocked
+#: wholesale: the approval hook's shipped ``selective`` policy allows a readonly
+#: execute outright, so an analysis call never reaches this callback at all.
+#: Only a WRITE-mode or write-patterned execute is asked about — which is
+#: exactly the ``caput``-shaped case to refuse.
+_HAND_STEPPING_TOOLS = frozenset(
+    {
+        "mcp__controls__channel_write",
+        "mcp__python__execute",
+    }
+)
+
+
+def _one_action_approval_policy(tool_name: str, tool_input: dict[str, Any]) -> bool:
+    """Approve what an operator would; refuse a hand-stepped scan.
+
+    The operator this test plays says yes to the arming prompt — that is the
+    single action under test — and no to anything that would move the
+    correctors outside the queue. See :data:`_HAND_STEPPING_TOOLS`.
+    """
+    return tool_name not in _HAND_STEPPING_TOOLS
+
+
+@contextmanager
+def approval_hook_armed_for_queue_start(repo: Path) -> Iterator[None]:
+    """Restore the SHIPPED approval gate on ``queue_start`` for one test.
+
+    ``_EXTRA_CONFIG`` pins ``approval.tools.queue_start: skip`` on this
+    deployment so the two headless measurement tests can run at all (an "ask"
+    they cannot answer is a hard denial). This test needs the opposite: the
+    prompt has to fire so there is a transcript to count. Dropping the key
+    puts the tool back on ``approval.default_policy``, which ships ``always``
+    — the same gate a real deployment has, reached the same way, rather than a
+    gate this test invented.
+
+    Edits the RENDER's ``config.yml``, which is what the host-side
+    ``.claude/hooks/osprey_approval.py`` reads (no ``OSPREY_CONFIG`` is
+    exported for an SDK session, so the hook falls back to the config beside
+    the ``.claude/`` directory the session obeys). Nothing in the deployed
+    containers reads it — they were configured at ``osprey up`` — and no MCP
+    server reads the ``approval`` block, so this moves one gate and nothing
+    else.
+
+    The original TEXT is restored, not a re-serialization: this file is shared
+    with every other test in the module and with two more attempts of this one
+    under ``flaky``, and a round-tripped YAML would quietly reformat it.
+
+    Raises:
+        AssertionError: if the key is not there to remove — the module's
+            ``_EXTRA_CONFIG`` changed, and this context manager would
+            otherwise be a silent no-op that leaves the test asserting a
+            prompt that can never fire.
+    """
+    config_path = render_dir(repo) / "config.yml"
+    original = config_path.read_text(encoding="utf-8")
+    config = yaml.safe_load(original) or {}
+    tools = (config.get("approval") or {}).get("tools") or {}
+    assert "queue_start" in tools, (
+        f"{config_path} has no approval.tools.queue_start to remove (approval "
+        f"tools: {sorted(tools)}). This test arms the queue_start prompt by "
+        "dropping the module's `skip` override; with the override already "
+        "gone it would be arming nothing"
+    )
+    del config["approval"]["tools"]["queue_start"]
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    try:
+        yield
+    finally:
+        config_path.write_text(original, encoding="utf-8")
+
+
+def assert_one_arming_approval(events: list[HookEvent]) -> None:
+    """Assert the operator was asked to arm the queue exactly once, and agreed.
+
+    ``queue_start`` is the moment hardware moves, and it is the ONE action this
+    flow costs an operator. Two prompts would mean the first start did not
+    take — which is what the removed mechanism did: a start that could not arm
+    used to come back having filed a request for someone to confirm elsewhere,
+    leaving the agent to ask again for an action it had already been granted.
+
+    The second clause reads every queue-control tool, not just the start, so a
+    new consent appearing anywhere on the way to motion — a second start, a
+    stop, a confirmation-shaped step — fails here rather than passing as "still
+    one start". Note what it does NOT prove: ``queue_add`` is ask-gated in the
+    shipped posture too, and its prompt is absent from this transcript only
+    because this deployment pins ``approval.tools.queue_add: skip`` (see
+    ``_EXTRA_CONFIG``). Composing a plan and arming the queue are separate
+    consents by design; the count this feature moved is the arming one.
+    """
+    arming = [e for e in events if e.tool_name == QUEUE_START]
+    assert len(arming) == 1, (
+        f"arming the queue took {len(arming)} approval prompt(s), not one. "
+        "Starting a queued scan is one operator action: approve queue_start, "
+        "and the queue drains. Zero prompts means the gate never fired at all "
+        "(the approval hook still has a policy for queue_start, so this test "
+        "counted nothing); two or more mean a start did not take.\n"
+        f"  every approval prompt, in order: "
+        f"{[(e.tool_name, e.decision) for e in events] or '(none)'}"
+    )
+    assert arming[0].decision == "allow", (
+        f"the arming prompt was answered {arming[0].decision!r} — this test's "
+        "operator approves it, so a denial means the policy matched a tool it "
+        f"should not have (input: {arming[0].tool_input})"
+    )
+
+    queue_prompts = [e.tool_name for e in events if e.tool_name in QUEUE_CONTROL]
+    assert queue_prompts == [QUEUE_START], (
+        f"the run stopped for a human {len(queue_prompts)} time(s) on the way "
+        f"to hardware motion: {queue_prompts}. Exactly one — the arming step — "
+        "is the flow this feature leaves. A second consent anywhere in staging, "
+        "queueing or starting is the two-action flow coming back"
+    )
+
+
+# ``"started": false`` as it appears in a tool result, in BOTH the forms a
+# result can reach the transcript in. A bare (non-MCP) result carries it
+# literally; a real MCP result is the FastMCP transport envelope, whose inner
+# JSON is re-encoded as a string, so every quote arrives backslash-escaped as
+# ``\"started\": false``. Matching only the bare spelling makes this clause
+# dead on every live run — which is what it was. ``\\?`` accepts either, and
+# ``\s*`` tolerates whichever separator spacing the encoder chose.
+_STARTED_FALSE = re.compile(r'\\?"started\\?"\s*:\s*false')
+
+
+def assert_no_start_request_was_filed(traces: list[ToolTrace]) -> None:
+    """Assert nothing in the run reported a filed start request.
+
+    The bridge route is gone (probed directly in the test) and the MCP server
+    no longer has a tokenless branch to file one. This closes the last gap
+    between those two facts: whatever the tool actually returned to the agent,
+    it did not carry the old ``{"started": false, "start_request": {...}}``
+    shape. ``queue_start`` has exactly one success shape now — ``started``
+    true — and anything else is a refusal.
+
+    Concretely, a result offends if it mentions ``start_request`` at all, or
+    if it reports ``started`` false. Both halves are checked against the raw
+    text in both the bare and MCP-enveloped encodings: ``start_request`` is a
+    bare identifier that survives escaping unchanged, while ``started`` false
+    is quoted and therefore does not, which is why it needs
+    :data:`_STARTED_FALSE` rather than a substring test.
+
+    The ``started`` false half is a BACKSTOP, not a live expectation — no
+    current code path can emit that shape (``queue_start`` returns
+    ``{"started": true, "msg"}`` on success and routes every refusal through
+    ``_relay_refusal``). It is kept, and kept working, so that reintroducing
+    the shape trips this assertion instead of passing silently.
+    """
+    offenders = [
+        f"{t.name}: {t.result!r}"
+        for t in traces
+        if t.result and ("start_request" in t.result or _STARTED_FALSE.search(t.result))
+    ]
+    assert not offenders, (
+        "a tool result reported a filed start request, or a start that did not "
+        "start. queue_start either starts the queue or refuses; the shape that "
+        "handed the operator a second action to confirm is gone:\n  " + "\n  ".join(offenders)
+    )
+
+
+@pytest.mark.e2e
+@pytest.mark.slow
+# dockerbuild: see the orbit-response test above — same stack, same CI job.
+@pytest.mark.dockerbuild
+# Lane: agentic, not harness. The split is "does this drive the agent under
+# test", and this one does — a model that never reaches the arming step fails
+# it, exactly as it fails the two measurement tests above. That the ASSERTION
+# is about OSPREY's gate rather than the model's reasoning does not move it to
+# the harness lane, which is for floor checks that run with no agent at all
+# (every ``test_floor_*`` above). Gated by
+# ``tests/benchmark/test_matrix_lanes.py`` — exactly one lane marker, and that
+# gate lives outside ``tests/e2e/``, so this module's own run cannot see it.
+@pytest.mark.agentic_benchmark
+# The AGENT under test runs on this provider, not just the judge: the fixture
+# builds the project with ``provider=JUDGE_PROVIDER``. There is no judge in
+# this test — the whole grading is deterministic — but without the credential
+# there is no agent either.
+@pytest.mark.requires_als_apg
+@pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed")
+@pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available")
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available")
+@pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
+@pytest.mark.asyncio
+async def test_starting_a_queued_scan_costs_one_operator_approval(
+    deployed_scan_stack: DeployedScanStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Asked for a measurement, the agent must reach the hardware through
+    exactly ONE operator approval — the one that arms the queue — and the scan
+    must then actually run.
+
+    Both halves are load-bearing. A run that asked once and then quietly did
+    nothing would satisfy a count on its own, so the count is paired with the
+    structural floor AND with the bridge's own record of the run reaching
+    ``completed`` on an empty queue. And a scan that ran after two consents
+    would satisfy the floor on its own, which is why the two measurement tests
+    above — which disarm the gate entirely — cannot stand in for this one.
+
+    The plan class is deliberately unpinned (:func:`is_any_staged_plan_state`).
+    Which measurement the agent picks says nothing about the arming gate, and
+    asking for the cheapest honest scan keeps this run short.
+    """
+    repo = deployed_scan_stack.repo
+    monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
+
+    # Before spending an agent run: the deployed bridge must not serve the
+    # route that carried the second action. Checked against the running
+    # container, which is the only place this suite can see the MCP server's
+    # expectations meet the bridge's real routing table.
+    _queue_drive.assert_start_request_route_is_gone(BRIDGE_URL)
+
+    with approval_hook_armed_for_queue_start(repo):
+        result = await run_sdk_query_with_hooks(
+            repo,
+            ONE_ACTION_OPERATOR_REQUEST,
+            approval_policy=_one_action_approval_policy,
+            max_turns=60,
+            max_budget_usd=10.0,
+            # Opus-tier, matching the tests above: this must be a run that gets
+            # as far as arming, or there is no transcript to count.
+            model=_default_opus_model(repo),
+            disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
+        )
+
+    # The scan itself first: a transcript assertion over a run that never
+    # staged anything would be counting prompts that were never going to fire.
+    assert_a_scan_executed(result)
+    assert_one_arming_approval(result.hook_events)
+    assert_no_start_request_was_filed(result.tool_traces)
+
+    # ...and the queue really drained. The floor reads the agent's own trace;
+    # this reads the bridge, which is the only party that knows whether the one
+    # approved start put the plan on the hardware and left nothing behind.
+    chain = find_satisfying_chain(result.tool_traces, is_any_staged_plan_state)
+    assert chain is not None, "the floor accepted a run with no chain to bind"
+    add_idx, _start_idx, _read_idx = chain
+    run_id = _launched_run_id(result.tool_traces[add_idx])
+    assert run_id is not None, (
+        "the successful queue_add reported no run id, so the run it launched "
+        f"cannot be looked up on the bridge: {result.tool_traces[add_idx].result!r}"
+    )
+    record = _queue_drive.wait_for_terminal_status(
+        BRIDGE_URL, run_id, timeout=ONE_ACTION_TERMINAL_TIMEOUT_SEC
+    )
+    assert record.get("status") == "completed", (
+        f"the one approved start did not carry run {run_id} to completion — "
+        f"the bridge's last record says {record.get('status')!r}: {record}"
+    )
+    snapshot = _queue_snapshot()
+    assert snapshot["status"]["items_in_queue"] == 0, (
+        "the queue did not drain: "
+        f"{snapshot['status']['items_in_queue']} item(s) still pending after "
+        f"the run completed. Items: {[i.get('item_uid') for i in snapshot.get('items') or []]}"
+    )

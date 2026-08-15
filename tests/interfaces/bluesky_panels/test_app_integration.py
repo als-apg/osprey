@@ -277,11 +277,6 @@ def test_write_surface_is_exactly_draft_and_queue() -> None:
     # it is listed here for the same reason as the rest -- so a new write route
     # cannot appear without someone justifying it in this list.
     #
-    # The two /queue/start-request writes are likewise writes in the HTTP
-    # sense only: filing parks a "please start" record for a human to answer
-    # (the bridge starts nothing for it) and the DELETE withdraws it. The
-    # arming path they feed is /queue/start, already on this list.
-    #
     # Enumerated deliberately: a new write route must fail this test until
     # someone justifies it in this list.
     write_paths = {
@@ -297,8 +292,6 @@ def test_write_surface_is_exactly_draft_and_queue() -> None:
         ("/queue/items/{uid}/move", "post"),
         ("/queue/items/{uid}", "delete"),
         ("/queue/start", "post"),
-        ("/queue/start-request", "post"),
-        ("/queue/start-request", "delete"),
         ("/queue/stop", "post"),
         ("/queue/abort", "post"),
     }, f"unexpected write surface: {write_paths}"

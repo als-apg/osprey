@@ -241,22 +241,6 @@
         <button type="button" id="start-btn" class="btn" disabled>Start queue</button>
       </div>
 
-      <!-- A pending start request: the agent (which never holds the launch
-           token in a deployed terminal) asked for a start, and THIS panel is
-           where a human answers. Confirm fires the same token-carrying
-           POST /queue/start as the Start button above; Dismiss withdraws the
-           request and starts nothing. Hidden unless the status summary
-           carries a `start_request` record (queue-view.js renders it). -->
-      <div id="start-request-card" class="start-request" hidden>
-        <p id="start-request-text" class="start-request-text"></p>
-        <div class="start-request-actions">
-          <button type="button" id="confirm-start-btn" class="btn confirm" disabled>
-            Confirm start &mdash; queue drains toward hardware
-          </button>
-          <button type="button" id="dismiss-request-btn" class="btn">Dismiss request</button>
-        </div>
-      </div>
-
       <div id="running-card" class="running" hidden>
         <div class="running-head">
           <span class="running-kicker">running</span>

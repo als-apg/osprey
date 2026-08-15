@@ -1244,26 +1244,6 @@ code {
   background: var(--accent-tint-06);
 }
 
-/* A pending start request: the one card on this panel that asks the operator
-   for a decision, so it wears the caution tint (same vocabulary as
-   .btn.confirm — armed-and-consequential), never the accent or success one. */
-.start-request {
-  border: 1px solid var(--color-accent-secondary);
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-  background: var(--accent-secondary-tint-08);
-}
-.start-request-text {
-  margin: 0 0 8px;
-  font-size: 12.5px;
-  color: var(--text-primary);
-}
-.start-request-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 .running.selected { border-color: var(--color-accent-light); }
 
 .running-head {

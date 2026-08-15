@@ -321,31 +321,6 @@ async def test_queue_start_client_side_refusal_no_emit(_bluesky_context, monkeyp
     notify.assert_not_called()
 
 
-async def test_queue_start_tokenless_emits_the_start_request(_bluesky_context, monkeypatch):
-    """The tokenless path is agent activity too: filing the panel start
-    request emits under the same tool name, marked as a request."""
-    from osprey.mcp_server.bluesky.server_context import (
-        initialize_server_context,
-        reset_server_context,
-    )
-
-    monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
-    reset_server_context()
-    initialize_server_context()
-
-    body = {"start_request": {"request_id": "r1", "requested_by": "agent"}}
-    with (
-        patch(f"{_QUEUE_MOD}._http_post_json", return_value=(200, body)) as post,
-        patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
-    ):
-        await _get_queue_tool("queue_start")()
-
-    assert post.call_args.args[0] == "/queue/start-request"
-    assert notify.call_count == 1
-    assert notify.call_args.args[:2] == ("queue_start", "run")
-    assert notify.call_args.kwargs["detail"] == "start-request"
-
-
 # ── artifact focus tools ────────────────────────────────────────────────────
 
 
