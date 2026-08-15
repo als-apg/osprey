@@ -16,6 +16,12 @@ Two kinds of collision are detected:
    published address. The holder is attributed by querying the container
    runtime; a listener that belongs to one of THIS project's own containers is
    not a conflict, so an idempotent redeploy stays green.
+
+A service placed on the host's network namespace renders no ``ports:`` block at
+all — it binds its port on the host directly — so parsing compose files alone
+would leave exactly the ports two projects are most likely to fight over out of
+the check. Those bindings are therefore *derived* from the rendered config (see
+:func:`derive_host_network_bindings`) and join the same two checks.
 """
 
 import json
@@ -36,16 +42,43 @@ logger = get_logger("deployment.host_ports")
 # Keyed on service name, never on the port number, so a project that overrode
 # the default port still resolves the right remedy. "tiled" is the Bluesky
 # catalog sidecar, whose host port lives under the bluesky service's config.
+# The workers are keyed on their un-indexed name: every ``dispatch-worker-<i>``
+# port is derived from the one base key, so moving the block moves them all.
 _SERVICE_REMEDY_KEYS = {
     "postgresql": "services.postgresql.port_host",
     "mongodb": "services.mongodb.port_host",
     "openobserve": "services.openobserve.port",
     "event-dispatcher": "services.event_dispatcher.port",
+    "dispatch-worker": "dispatch.worker_port_base",
     "bluesky-bridge": "services.bluesky.port",
     "tiled": "services.bluesky.tiled_port",
     "bluesky-panels": "services.bluesky_panels.port",
     "virtual-accelerator": "services.virtual_accelerator.port",
 }
+
+# Compose service key of worker ``i``, and the prefix its remedy is keyed on.
+_WORKER_SERVICE_PREFIX = "dispatch-worker"
+
+# Config values the host-mode templates fall back on. Both worker keys are
+# absent from a bridge-mode render, and a hand-authored config may omit any of
+# them, so the defaults are spelled here exactly as the templates spell theirs.
+_DEFAULT_DISPATCHER_PORT = 8020
+_DEFAULT_WORKER_PORT_BASE = 9190
+_DEFAULT_WORKER_PORT_STRIDE = 1
+_DEFAULT_WORKER_COUNT = 1
+
+# The only network spelling that ever reaches a rendered config: bridge mode
+# writes no key at all, so anything but this word means "on the compose network".
+_HOST_NETWORK_MODE = "host"
+
+# Interface a host-namespace service binds. On the host network the listening
+# socket IS a host socket, so both templates bind loopback; the dispatcher
+# additionally honours a hand-authored ``bind`` override.
+_HOST_NETWORK_BIND = "127.0.0.1"
+
+# Stand-in for ``HostPortBinding.compose_file`` on a derived binding: these
+# bindings come from the rendered config, not from any compose file.
+_DERIVED_SOURCE = "<rendered config>"
 
 # Addresses that mean "listening on every interface" — probe them on loopback,
 # where a service bound to all interfaces is always reachable.
@@ -64,7 +97,10 @@ class HostPortBinding:
     :param host_ip: Host interface the port is published on
     :param host_port: Host port that must be free to bind
     :param container_port: Port inside the container (``None`` if unparseable)
-    :param compose_file: Path of the compose file this binding came from
+    :param compose_file: Path of the compose file this binding came from, or
+        :data:`_DERIVED_SOURCE` for a binding derived from the rendered config
+    :param host_network: ``True`` when the service runs in the host's network
+        namespace and binds this port directly instead of publishing it
     """
 
     service: str
@@ -72,6 +108,7 @@ class HostPortBinding:
     host_port: int
     container_port: int | None
     compose_file: str
+    host_network: bool = False
 
 
 @dataclass
@@ -85,6 +122,8 @@ class PortConflict:
         (something already listening on the host)
     :param holder: Human-readable description of what holds the port
     :param remedy: Config key to change to move the offending service's port
+    :param host_network: ``True`` when the offending service binds the port on
+        the host's network namespace rather than publishing it
     """
 
     host_port: int
@@ -93,6 +132,7 @@ class PortConflict:
     kind: str
     holder: str
     remedy: str
+    host_network: bool = False
 
 
 @dataclass
@@ -105,13 +145,19 @@ class _PsRecord:
 
 
 def _remedy_for_service(service):
-    """Return the config key that moves ``service``'s published host port.
+    """Return the config key that moves ``service``'s host port.
+
+    Workers are indexed (``dispatch-worker-1``, ``-2``, …) but share one config
+    key, so their index is dropped before the lookup — the generic fallback
+    would otherwise name a per-worker key that does not exist.
 
     :param service: Compose service name
     :type service: str
     :return: Dotted config key (well-known mapping, else a generic fallback)
     :rtype: str
     """
+    if service.startswith(f"{_WORKER_SERVICE_PREFIX}-"):
+        return _SERVICE_REMEDY_KEYS[_WORKER_SERVICE_PREFIX]
     return _SERVICE_REMEDY_KEYS.get(service, f"services.{service}.port")
 
 
@@ -207,6 +253,98 @@ def parse_host_port_bindings(compose_files):
                         compose_file=str(compose_file),
                     )
                 )
+    return bindings
+
+
+def _service_block(config, service_key):
+    """Return ``config["services"][service_key]`` as a dict, else ``{}``.
+
+    A null stanza (``dispatch_worker:`` with nothing under it) parses to
+    ``None``, which is "the service declares nothing" — the same coercion the
+    templates make with ``| default({}, true)``.
+    """
+    if not isinstance(config, dict):
+        return {}
+    services = config.get("services")
+    if not isinstance(services, dict):
+        return {}
+    block = services.get(service_key)
+    return block if isinstance(block, dict) else {}
+
+
+def _on_host_network(service_block):
+    """Whether a rendered service block places the service on the host network."""
+    return str(service_block.get("network") or "").strip() == _HOST_NETWORK_MODE
+
+
+def _int_or_default(value, default):
+    """Coerce a config value to ``int``, falling back on anything unusable."""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def derive_host_network_bindings(config):
+    """Derive the host ports bound by services on the host network namespace.
+
+    Such a service publishes nothing — compose has no port map to publish when
+    the container shares the host's namespace — so its bound ports appear in no
+    compose file and would escape the preflight entirely. That is exactly the
+    collision a second project on one host hits first: both deploys bind the
+    same dispatcher and worker ports, and the loser dies at startup with a bare
+    "address already in use".
+
+    The ports are derived the same way the templates derive them, from the same
+    keys, so a project that moved them is checked where it actually binds:
+
+    - the dispatcher binds ``services.event_dispatcher.port``, on the interface
+      named by its optional ``bind`` override;
+    - worker ``i`` (1-based) binds
+      ``worker_port_base + (i - 1) * worker_port_stride``, one port per
+      ``worker_count``.
+
+    :param config: Loaded (rendered) configuration dictionary
+    :type config: dict
+    :return: One :class:`HostPortBinding` per derived host-network port
+    :rtype: list[HostPortBinding]
+    """
+    bindings = []
+
+    dispatcher = _service_block(config, "event_dispatcher")
+    if _on_host_network(dispatcher):
+        port = _int_or_default(dispatcher.get("port"), _DEFAULT_DISPATCHER_PORT)
+        bindings.append(
+            HostPortBinding(
+                service="event-dispatcher",
+                host_ip=str(dispatcher.get("bind") or _HOST_NETWORK_BIND),
+                host_port=port,
+                container_port=port,
+                compose_file=_DERIVED_SOURCE,
+                host_network=True,
+            )
+        )
+
+    worker = _service_block(config, "dispatch_worker")
+    if _on_host_network(worker):
+        base = _int_or_default(worker.get("worker_port_base"), _DEFAULT_WORKER_PORT_BASE)
+        stride = _int_or_default(worker.get("worker_port_stride"), _DEFAULT_WORKER_PORT_STRIDE)
+        count = _int_or_default(worker.get("worker_count"), _DEFAULT_WORKER_COUNT)
+        for index in range(1, count + 1):
+            port = base + (index - 1) * stride
+            bindings.append(
+                HostPortBinding(
+                    service=f"{_WORKER_SERVICE_PREFIX}-{index}",
+                    host_ip=_HOST_NETWORK_BIND,
+                    host_port=port,
+                    container_port=port,
+                    compose_file=_DERIVED_SOURCE,
+                    host_network=True,
+                )
+            )
+
     return bindings
 
 
@@ -359,17 +497,47 @@ def _parse_ps_json(stdout):
     return records
 
 
-def _runtime_port_holders(config=None):
+def _runtime_port_holders(records):
     """Map each in-use host port to the running container that publishes it.
 
+    :param records: Parsed ``ps`` rows
+    :type records: list[_PsRecord]
     :return: ``{host_port: _PsRecord}`` (first container wins on a tie)
     :rtype: dict[int, _PsRecord]
     """
     holders = {}
-    for record in _parse_ps_json(_run_runtime_ps(config)):
+    for record in records:
         for port in record.host_ports:
             holders.setdefault(port, record)
     return holders
+
+
+def _project_runs_service(records, project_name, service):
+    """Whether THIS project already has a container running for ``service``.
+
+    A host-network container publishes no port mapping, so the runtime's ``ps``
+    output cannot attribute its listener by port the way a published one is
+    attributed. Its container name can: the templates name it
+    ``<project>-<service>``. Without this, an idempotent redeploy of a
+    host-network service would report its own still-running container as the
+    conflict.
+
+    :param records: Parsed ``ps`` rows
+    :type records: list[_PsRecord]
+    :param project_name: This deploy's compose project name
+    :type project_name: str
+    :param service: Compose service name to look for
+    :type service: str
+    :rtype: bool
+    """
+    if not project_name:
+        return False
+    for record in records:
+        if record.project != project_name:
+            continue
+        if record.name == service or record.name.endswith(f"-{service}"):
+            return True
+    return False
 
 
 def find_port_conflicts(bindings, project_name, config=None):
@@ -381,12 +549,19 @@ def find_port_conflicts(bindings, project_name, config=None):
         a container with a matching ``com.docker.compose.project`` label is an
         idempotent redeploy, not a conflict
     :type project_name: str
-    :param config: Configuration dictionary for runtime detection
+    :param config: Configuration dictionary, used both for runtime detection and
+        to derive the ports of services on the host network namespace, which
+        publish nothing for :func:`parse_host_port_bindings` to find
     :type config: dict, optional
     :return: One :class:`PortConflict` per collision
     :rtype: list[PortConflict]
     """
     conflicts = []
+
+    # Published bindings claim first: a host-network service whose port a
+    # published one already took is the one that has to move, and its remedy is
+    # the key that moves it.
+    bindings = list(bindings) + derive_host_network_bindings(config)
 
     # a. Intra-set duplicates: the first binding claims each address; any later
     #    binding on the same (host_ip, host_port) is a static duplicate.
@@ -403,6 +578,7 @@ def find_port_conflicts(bindings, project_name, config=None):
                     kind="duplicate",
                     holder=f"service '{claimed[key].service}'",
                     remedy=_remedy_for_service(binding.service),
+                    host_network=binding.host_network,
                 )
             )
             continue
@@ -413,14 +589,22 @@ def find_port_conflicts(bindings, project_name, config=None):
     #    that answers. The runtime is queried lazily and once, only if a probe
     #    actually finds a listener.
     holders = None
+    records = []
     for binding in unique:
         if _port_is_free(binding.host_ip, binding.host_port):
             continue
         if holders is None:
-            holders = _runtime_port_holders(config)
+            records = _parse_ps_json(_run_runtime_ps(config))
+            holders = _runtime_port_holders(records)
         holder = holders.get(binding.host_port)
         if holder is not None and holder.project and holder.project == project_name:
             continue  # our own container from a prior deploy — not a conflict
+        if (
+            holder is None
+            and binding.host_network
+            and _project_runs_service(records, project_name, binding.service)
+        ):
+            continue  # our own host-network container, which maps no port
         if holder is not None:
             if holder.project:
                 description = f"container '{holder.name}' (compose project '{holder.project}')"
@@ -436,6 +620,7 @@ def find_port_conflicts(bindings, project_name, config=None):
                 kind="external",
                 holder=description,
                 remedy=_remedy_for_service(binding.service),
+                host_network=binding.host_network,
             )
         )
 
@@ -460,12 +645,25 @@ def format_conflict_report(conflicts):
             reason = f"already claimed by {conflict.holder} in this deployment"
         else:
             reason = f"{conflict.holder} is already listening on it"
+        where = " (host network)" if conflict.host_network else ""
         lines.append(
             f"  - port {conflict.host_port} ({conflict.bind_address}): "
-            f"service '{conflict.service}' cannot bind — {reason}. "
+            f"service '{conflict.service}'{where} cannot bind — {reason}. "
             f"Set a different {conflict.remedy}."
         )
     lines.append("")
+
+    # A host-network service binds its port itself instead of publishing it, so
+    # nothing moves it out of the way: two projects sharing a host need two sets
+    # of ports. Say so once, since the per-line remedy alone does not explain
+    # why a port with no `ports:` entry anywhere is contested.
+    if any(conflict.host_network for conflict in conflicts):
+        lines.append(
+            "Services on the host network namespace bind these ports directly — "
+            "no published mapping stands between them and the host, so every "
+            "project deployed here needs its own ports."
+        )
+        lines.append("")
 
     # When the holder is another OSPREY compose project's container, the ports
     # are already served on this host — sharing that stack is usually the intent,

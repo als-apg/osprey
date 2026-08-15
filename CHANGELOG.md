@@ -140,6 +140,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   both, so a shared default could not be committed without committing the file
   that held the provider keys.
 
+- A `network:` key in the build profile attaches the dispatch pair and the
+  bridges to the host network instead of the compose bridge, for facilities
+  whose control system answers only on the host. `osprey build` re-reads what
+  it rendered and refuses a shape that cannot start.
 - An archiver read that comes back empty now says why: the response carries a
   coverage verdict — the window predates or postdates the archive, the channel
   was never recorded, or the window holds a genuine gap — with the archive's

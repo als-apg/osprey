@@ -1,3 +1,15 @@
+{#- The network axis — this service's network membership, its published ports
+    and the file-level stanza that matches them — is rendered by the shared
+    macro rather than spelled out here, so every service template states the
+    same topology the same way instead of drifting into a set of
+    near-identical dialects. With no `network:` declared the macros emit
+    exactly the blocks this file carried before, byte for byte. -#}
+{%- import "services/_network_axis.j2" as net -%}
+{#- The one thing the macros cannot render for this service: the address the
+    MCP server itself binds. Read once here so the mode is spelled the same
+    way the macros spell it (unset means `bridge`), rather than repeated as a
+    conditional beside the env var. -#}
+{%- set on_host_network = (services.event_dispatcher.network | default('bridge', true)) == 'host' -%}
 # The event-dispatcher runs a locally-built image (see ./Dockerfile).
 # `osprey up` builds it on first run; subsequent runs reuse the local
 # tag, which is project-prefixed ({{ osprey_labels.project_name }}-dispatch:local)
@@ -37,15 +49,35 @@ services:
       com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+{#- Fingerprint of the env chain (`.env.shared` then `.env`) this deploy read,
+    interpolated at compose time from the variable `runtime_env` injects. The
+    container runtime does not diff a running container's environment against
+    the env files it was built from, so without a label that moves with the
+    chain's contents an edit to `.env` would leave the old values running. An
+    empty value — no chain at all, or a caller that skipped the injection — is
+    a valid label rather than an error. #}
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
     restart: unless-stopped
-    ports:
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.event_dispatcher.port | default(8020) }}:{{ services.event_dispatcher.port | default(8020) }}"
+{#- Published ports, suppressed under `host`: the service then binds the host's
+    own namespace directly and there is no port map left to publish. -#}
+{{- net.ports(services.event_dispatcher, entries=[
+      (deployment.bind_address | default('127.0.0.1'))
+      ~ ':' ~ (services.event_dispatcher.port | default(8020))
+      ~ ':' ~ (services.event_dispatcher.port | default(8020))
+    ]) }}
     environment:
       # FastMCP reads transport/host/port from FASTMCP_* (env prefix "FASTMCP_").
       # `python -m osprey.dispatch` -> run_mcp_server -> server.run() honors these;
       # plain MCP_* vars are NOT read by the dispatcher entrypoint.
       FASTMCP_TRANSPORT: http
-      FASTMCP_HOST: 0.0.0.0
+{#- On the compose network the server binds every interface: the only addresses
+    that reach it are that network's own, and the published port is what decides
+    host reachability. On the HOST network there is no such envelope — every
+    interface means every interface the machine has — so the default narrows to
+    loopback, and reaching the dispatcher from another machine becomes a
+    deliberate `bind:` on the service's config block (which the deploy's
+    exposure reconciliation then reads as exposed). #}
+      FASTMCP_HOST: {{ services.event_dispatcher.bind | default('127.0.0.1' if on_host_network else '0.0.0.0', true) }}
       FASTMCP_PORT: "{{ services.event_dispatcher.port | default(8020) }}"
       # No :-default — an unset token must stay EMPTY so the server fails closed
       # (HTTP 503) rather than booting with a guessable secret. `osprey up`
@@ -88,8 +120,7 @@ services:
     volumes:
       - ./build/services/event_dispatcher/triggers.yml:/app/triggers.yml:ro
       - ./build/services/event_dispatcher/config.yml:/app/config.yml:ro
-    networks:
-      - osprey-network
+{{- net.network(services.event_dispatcher) }}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ services.event_dispatcher.port | default(8020) }}/health').status==200 else 1)\""]
       interval: 10s
@@ -98,6 +129,9 @@ services:
       # Grace period before failed probes count — the first run also provisions
       # Claude artifacts and injects provider env, which takes a few seconds.
       start_period: 30s
-
-networks:
-  osprey-network:
+{# A deliberate blank line precedes the file-level stanza, so this one call
+   carries no left-trim marker (`{{-` would eat the blank line along with the
+   newline it is meant to keep): the literal above ends its own line, the macro
+   supplies the separating newline, and under `host` — where nothing is
+   declared — the file simply ends after the healthcheck. -#}
+{{ net.network_declaration(services.event_dispatcher) }}

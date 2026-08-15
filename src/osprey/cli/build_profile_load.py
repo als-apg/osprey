@@ -205,6 +205,14 @@ _KNOWN_ENVIRONMENT_KEYS = frozenset({"python", "packages", "inherit_exclude"})
 _KNOWN_BLUESKY_KEYS = frozenset(f.name for f in fields(BlueskyConfig))
 
 
+# Keys recognized inside the ``dispatch:`` block, derived from its dataclass for
+# the same reason the bluesky set is. A dropped key here is expensive: a
+# misspelled `netwrok: host` would leave the dispatcher and its workers on the
+# default bridge network, and the deployment would come up looking healthy while
+# unreachable from the address the facility asked for.
+_KNOWN_DISPATCH_KEYS = frozenset(f.name for f in fields(DispatchConfig))
+
+
 def _parse_environment(raw: dict[str, Any]) -> EnvironmentConfig:
     """Parse the raw ``environment:`` block into an :class:`EnvironmentConfig`.
 
@@ -469,6 +477,9 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if dispatch_raw is not None:
         if not isinstance(dispatch_raw, dict):
             raise BuildProfileError("Profile 'dispatch' must be a mapping")
+        # Checked on the merged block, like bluesky's: parents, -O layers and
+        # --set pairs are all folded in by the time the parser runs.
+        _reject_unknown_block_keys(dispatch_raw, _KNOWN_DISPATCH_KEYS, "dispatch")
         dispatch = DispatchConfig(
             triggers=dispatch_raw.get("triggers", ""),
             worker_count=dispatch_raw.get("worker_count", 1),
@@ -481,6 +492,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             inactivity_sec=dispatch_raw.get("inactivity_sec", 120),
             facility_name=dispatch_raw.get("facility_name", ""),
             pv_strip_prefix=dispatch_raw.get("pv_strip_prefix", ""),
+            network=dispatch_raw.get("network", "bridge"),
         )
 
     bluesky_raw = raw.get("bluesky")

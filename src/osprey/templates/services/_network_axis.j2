@@ -1,0 +1,120 @@
+{#
+  _network_axis.j2 — the SINGLE renderer for the per-service network axis.
+
+  Every compose template that honors a service's `network:` key imports these
+  macros rather than writing the conditionals itself. That is the whole point of
+  the file: the axis is rendered in one place, so a set of templates cannot
+  drift into a set of dialects that each spell "run this on the host network"
+  slightly differently.
+
+  ----------------------------------------------------------------------------
+  IMPORTING
+  ----------------------------------------------------------------------------
+
+  The macros take everything they need as parameters, so a plain (context-free)
+  import is correct — never `with context`:
+
+    Service templates, rendered by an Environment rooted at the PROJECT root
+    (deployment/compose_generator.py's `FileSystemLoader(".")`, template paths
+    like `services/<name>/docker-compose.yml.j2`):
+
+      {% import "services/_network_axis.j2" as net %}
+
+    Templates rendered by an Environment rooted at this directory import by
+    bare name instead:
+
+      {% import "_network_axis.j2" as net %}
+
+  ----------------------------------------------------------------------------
+  THE `svc` ARGUMENT
+  ----------------------------------------------------------------------------
+
+  Every macro takes the service's own config block as its first argument — the
+  `services.<name>` mapping of the rendered config.yml:
+
+      {{- net.network(services.event_dispatcher) }}
+
+  It may arrive as a mapping (the usual case), as None, or undefined; the last
+  two mean "the service declares nothing", which renders the default behaviour.
+  The one key read here is `network`:
+
+    unset / `bridge`  the service joins the project's compose network
+    `host`            the service shares the host's network namespace
+
+  Values are validated where the profile is parsed, so an unrecognized value
+  never reaches a render; a macro that somehow sees one renders the default
+  (network-joined) shape rather than inventing a topology.
+
+  ----------------------------------------------------------------------------
+  WHITESPACE CONTRACT
+  ----------------------------------------------------------------------------
+
+  A macro emits a LEADING newline and no trailing one, and is called alone on
+  its own line with a left-trim marker:
+
+      {{- net.network(services.event_dispatcher) }}
+
+  That pairing is what makes one idiom cover both uses. Replacing a block a
+  template already carries reproduces it exactly — the `{{-` eats the newline
+  ending the previous line, the macro supplies it back. Adding a block that is
+  usually absent costs nothing when the axis is unset — the macro emits the
+  empty string and the whole line disappears, rather than leaving the blank line
+  an `{% if %}`/`{% endif %}` pair would have left.
+
+  Mind the `{{-`: it strips ALL preceding whitespace, so do not place a call
+  where a deliberate blank line precedes it.
+#}
+
+{#- Service-level network attachment.
+
+    The default joins `network_name`, the compose network the project creates.
+    `host` shares the host's network namespace instead, which is what a service
+    needing broadcast traffic (control-system discovery) or the host's own
+    published ports requires. Pair with `network_declaration()` for the
+    file-level stanza, and with `ports()` — which suppresses published ports
+    under `host`, where compose has no port map to publish. -#}
+{%- macro network(svc, indent=4, network_name='osprey-network') -%}
+{%- set s = svc if svc else {} -%}
+{%- set mode = s.network | default('bridge', true) -%}
+{%- set pad = ' ' * indent -%}
+{%- if mode == 'host' -%}
+{{ ['', pad ~ 'network_mode: host'] | join('\n') }}
+{%- else -%}
+{{ ['', pad ~ 'networks:', ' ' * (indent + 2) ~ '- ' ~ network_name] | join('\n') }}
+{%- endif -%}
+{%- endmacro %}
+
+{#- File-level `networks:` stanza matching `network()`.
+
+    Under `host` nothing is declared: no service in the file joins a network, so
+    a declaration would create one nobody attaches to. -#}
+{%- macro network_declaration(svc, indent=0, network_name='osprey-network') -%}
+{%- set s = svc if svc else {} -%}
+{%- set mode = s.network | default('bridge', true) -%}
+{%- set pad = ' ' * indent -%}
+{%- if mode == 'host' -%}
+{%- else -%}
+{{ ['', pad ~ 'networks:', ' ' * (indent + 2) ~ network_name ~ ':'] | join('\n') }}
+{%- endif -%}
+{%- endmacro %}
+
+{#- Published ports, suppressed entirely under `host`.
+
+    `entries` is a list of compose port mappings as bare strings
+    (`127.0.0.1:8020:8020`); each is emitted double-quoted, since an unquoted
+    `hh:mm`-shaped mapping is a YAML sexagesimal trap. Under `host` there is no
+    port map to publish — compose rejects `ports:` alongside
+    `network_mode: host` on some runtimes and ignores it on others — so nothing
+    is emitted and the service's ports are simply the host's. -#}
+{%- macro ports(svc, entries=[], indent=4) -%}
+{%- set s = svc if svc else {} -%}
+{%- set mode = s.network | default('bridge', true) -%}
+{%- set published = entries | default([], true) -%}
+{%- if mode != 'host' and published -%}
+{%- set ns = namespace(lines=['', ' ' * indent ~ 'ports:']) -%}
+{%- for entry in published -%}
+{%- set _ = ns.lines.append(' ' * (indent + 2) ~ '- "' ~ entry ~ '"') -%}
+{%- endfor -%}
+{{ ns.lines | join('\n') }}
+{%- endif -%}
+{%- endmacro %}
