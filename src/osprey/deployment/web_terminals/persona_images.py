@@ -372,7 +372,7 @@ def _resolve_persona_profile(build_profile: str, persona_name: str, profile_root
 
     :param build_profile: The catalog entry's value, non-empty.
     :param persona_name: Catalog key, named in every error.
-    :param profile_root: This deployment's profile root — under the three-zone
+    :param profile_root: This deployment's profile root — under the four-zone
         layout, the deployment repo itself.
     :return: The absolute path to the persona delta.
     :raises ValueError: For any value that is not an existing delta inside
@@ -577,7 +577,7 @@ def verify_persona_renders(
         output for this deploy.
     :param repo_root: The deployment repo — the directory holding
         ``profile.yml``, ``personas/`` and ``build/``. It IS the profile root:
-        under the three-zone layout the source zone is the repo root, so there
+        under the four-zone layout the source zone is the repo root, so there
         is no separate profile directory to locate and nothing to read a
         manifest for.
     :raises ValueError: A referenced persona with no render, a partial render,

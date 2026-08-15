@@ -63,7 +63,7 @@ class LimitsValidator:
         mounted inside the container while ``project_root`` may record a host
         path the container does not have.
 
-        These two bases are NOT the same directory. Under the three-zone repo
+        These two bases are NOT the same directory. Under the four-zone repo
         layout the rendered config lives at ``<repo>/build/config.yml`` while
         ``project_root`` names ``<repo>`` — so the CONFIG_FILE branch is a real
         choice of the build zone over the repo root, not the no-op it was back

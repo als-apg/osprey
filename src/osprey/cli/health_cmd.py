@@ -99,7 +99,7 @@ def _quiet_run_logs(*, as_json: bool, verbose: bool) -> Iterator[None]:
 def _resolve_anchors(project_path: Path) -> tuple[Path, Path, Path]:
     """Resolve the config, repo-root and ``.env`` anchors for a stance directory.
 
-    Under the three-zone layout no single directory answers the whole question:
+    Under the four-zone layout no single directory answers the whole question:
     the rendered ``config.yml`` lives in the ``build/`` zone while the ``.env``
     and every ``project_root``-relative path (registry file, agent data, disk
     sample) belong to the repo root beside ``profile.yml``. Resolving one

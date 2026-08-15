@@ -91,7 +91,7 @@ def deployed_repo_root() -> Path:
 
     ``OSPREY_PROJECT_DIR`` is what the compose templates set (the dispatch
     worker's is ``/app/<project>``), and it names the repo root — the directory
-    holding the three zones, not the render inside it. Read from the environment
+    holding the four zones, not the render inside it. Read from the environment
     rather than the CWD because a service process runs from the image WORKDIR,
     which is not the project.
     """

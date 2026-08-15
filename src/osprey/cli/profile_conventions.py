@@ -204,7 +204,7 @@ _SECRETS_ZONE_ENTRIES: frozenset[str] = frozenset({".env", ".env.example"})
 _GENERATED_ZONE_ENTRIES: frozenset[str] = frozenset({BUILD_OUTPUT_DIR, STATE_DIR})
 
 #: Repo-root entries that are neither convention directories nor typos — the
-#: three-zone layout in full, plus every convention source. The repo root *is*
+#: four-zone layout in full, plus every convention source. The repo root *is*
 #: the profile root, so a deployment's own generated zones are entries this
 #: module has to recognize rather than warn about (SC-9).
 KNOWN_ROOT_ENTRIES: frozenset[str] = (
@@ -771,7 +771,7 @@ def warn_unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()
 
     The other way to arrive here is not a typo at all: a facility's own
     directory (``ioc/``, ``nginx/``) sitting beside ``profile.yml``. Under the
-    three-zone layout the repo root *is* the profile root, so there is nowhere
+    four-zone layout the repo root *is* the profile root, so there is nowhere
     to nest such a directory away to — the remedy is to move it into the
     channel that carries it, or to accept that nothing copies it, which for
     repo-local material is the correct outcome. The two causes read identically

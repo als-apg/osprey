@@ -153,7 +153,7 @@ def _inject_provider_env_once() -> None:
     """
     # The render's config (``<repo>/build/config.yml``), taken from the
     # environment the compose service sets rather than re-derived from the repo
-    # root: a flat ``<repo>/config.yml`` names no file in a three-zone
+    # root: a flat ``<repo>/config.yml`` names no file in a four-zone
     # deployment, so a read derived that way misses and the worker starts with
     # no provider auth at all — silently, on the warning branch below.
     config_path = deployed_config_path()

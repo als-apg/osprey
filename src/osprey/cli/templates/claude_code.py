@@ -339,7 +339,7 @@ def build_claude_code_context(
         # run time (resolve_agent_interpreter), where this value is frozen into
         # a generated artifact at render time.
         #
-        # KNOWN LIMIT (pre-existing, unchanged by the three-zone work): a
+        # KNOWN LIMIT (pre-existing, unchanged by the four-zone work): a
         # profile that names its own interpreter under ``python_env:`` does not
         # reach here, so once a project venv exists the derivation wins and the
         # profile's choice has no effect on the rendered artifacts. The explicit

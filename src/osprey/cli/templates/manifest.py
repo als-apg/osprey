@@ -413,7 +413,7 @@ def calculate_file_checksums(project_dir: Path) -> dict[str, str]:
     preset), so a runtime writer landing there would show up here as
     unexplained drift. Runtime state belongs in the repo's ``var/`` zone, which
     is a SIBLING of the rendered project rather than a directory inside it — so
-    the three-zone layout keeps runtime writers out of this walk by construction
+    the four-zone layout keeps runtime writers out of this walk by construction
     and needs no exclusion of its own.
 
     Excluded:
