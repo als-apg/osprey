@@ -23,6 +23,7 @@
 import { fetchJSON, createEventSource } from './api.js';
 import { sendThemeToIframe, sendSessionToIframe, sendModeToIframe, buildEmbedSrc } from './panel-iframe-sync.js';
 import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js';
+import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import {
@@ -1099,18 +1100,14 @@ function createIframe(panelId) {
  * enumerate identically).
  * @returns {Array<{id: string, label: string}>}
  */
-export function getHiddenPanels() {
-  return PANELS.filter(p => !visiblePanels.has(p.id)).map(p => ({ id: p.id, label: p.label }));
-}
+export function getHiddenPanels() { return hiddenPanels(PANELS, visiblePanels); }
 
 /**
  * Visible panels excluding the active one, in PANELS order. "Focus" on the
  * already-active panel is a no-op, so activeTabId is filtered out.
  * @returns {Array<{id: string, label: string}>}
  */
-export function getVisiblePanels() {
-  return PANELS.filter(p => visiblePanels.has(p.id) && p.id !== activeTabId).map(p => ({ id: p.id, label: p.label }));
-}
+export function getVisiblePanels() { return visiblePanelsExcept(PANELS, visiblePanels, activeTabId); }
 
 /**
  * Config-defined layout presets ("Layouts"), in config order. Shared with the
@@ -1118,9 +1115,7 @@ export function getVisiblePanels() {
  * calls this). Empty unless a facility opts in.
  * @returns {Array<{name: string, panels: string[]}>}
  */
-export function getPresets() {
-  return panelPresets;
-}
+export function getPresets() { return panelPresets; }
 
 /**
  * Standalone (non-embedded) URL for a service panel — the target of the rail
@@ -1130,13 +1125,7 @@ export function getPresets() {
  * @param {string} panelId
  * @returns {string | null}
  */
-export function getPanelStandaloneUrl(panelId) {
-  const state = panelState[panelId];
-  if (!state?.url) return null;
-  const panel = PANELS.find((p) => p.id === panelId);
-  const path = panel?.path && panel.path !== '/' ? panel.path : '';
-  return state.url + path;
-}
+export function getPanelStandaloneUrl(panelId) { return standaloneUrl(PANELS, panelState[panelId], panelId); }
 
 /**
  * Currently surfaced panel id — the `data-active-panel` stamp activateTab
