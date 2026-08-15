@@ -48,7 +48,7 @@ RESULT_OK = {"status": "completed", "text_output": "the orbit is flat", "error":
 RESULT_ERROR = {
     "status": "error",
     "text_output": "",
-    "error": "DispatchError: worker 500 at /dispatch/R1",
+    "error": "DispatchPipelineError: worker 500 at /dispatch/R1",
     "failure_class": "infrastructure",
 }
 
@@ -243,7 +243,7 @@ def test_answer_never_leaks_the_machine_error_into_the_room():
     ops, talk = _ops()
     ops.post_answer(entry(), RESULT_ERROR)
     posted = talk.texts[0]
-    assert "DispatchError" not in posted
+    assert "DispatchPipelineError" not in posted
     assert "/dispatch/R1" not in posted
     assert "infrastructure" not in posted
 
@@ -410,7 +410,7 @@ def test_queued_notice_replies_with_the_queued_wording():
 def test_queued_notice_never_leaks_the_failure_that_caused_the_park():
     ops, talk = _ops()
     ops.post_queued(entry(), RESULT_ERROR)
-    assert "DispatchError" not in talk.texts[0]
+    assert "DispatchPipelineError" not in talk.texts[0]
     assert "infrastructure" not in talk.texts[0]
 
 

@@ -1,4 +1,4 @@
-"""input_files passthrough, fatal-4xx error_code extraction, and upload-sized
+"""input_files passthrough, non-retryable-4xx error_code extraction, and upload-sized
 timeouts for ``dispatch_to_worker`` (worker_client), driven with httpx.MockTransport."""
 
 from __future__ import annotations
@@ -11,9 +11,9 @@ import httpx
 import pytest
 
 from osprey.dispatch.worker_client import (
-    AuthError,
-    DispatchError,
-    FatalDispatchError,
+    WorkerAuthRejectedError,
+    WorkerRejectedRequestError,
+    WorkerUnavailableError,
     dispatch_to_worker,
 )
 
@@ -140,7 +140,7 @@ async def test_dispatch_fatal_400_extracts_whitelisted_error_code(detail, expect
     body = {"detail": detail} if detail is not None else {}
     transport = _capturing_transport({}, status_code=400, body=body)
     with _patch_asyncclient(transport):
-        with pytest.raises(FatalDispatchError) as exc_info:
+        with pytest.raises(WorkerRejectedRequestError) as exc_info:
             await dispatch_to_worker(
                 url="http://worker:9190", prompt="x", allowed_tools=[], token="tok"
             )
@@ -153,7 +153,7 @@ async def test_dispatch_fatal_400_extracts_whitelisted_error_code(detail, expect
 async def test_dispatch_fatal_413_body_too_large_is_fatal():
     transport = _capturing_transport({}, status_code=413, body={"detail": "Request body too large"})
     with _patch_asyncclient(transport):
-        with pytest.raises(FatalDispatchError) as exc_info:
+        with pytest.raises(WorkerRejectedRequestError) as exc_info:
             await dispatch_to_worker(
                 url="http://worker:9190", prompt="x", allowed_tools=[], token="tok"
             )
@@ -165,31 +165,32 @@ async def test_dispatch_fatal_413_body_too_large_is_fatal():
 async def test_dispatch_fatal_403_denied_tools_is_fatal_generic():
     transport = _capturing_transport({}, status_code=403, body={"detail": "Tools blocked"})
     with _patch_asyncclient(transport):
-        with pytest.raises(FatalDispatchError):
+        with pytest.raises(WorkerRejectedRequestError):
             await dispatch_to_worker(
                 url="http://worker:9190", prompt="x", allowed_tools=[], token="tok"
             )
 
 
 @pytest.mark.asyncio
-async def test_dispatch_401_still_auth_error_not_fatal():
-    """401 stays AuthError (dispatcher<->worker token), distinct from the 4xx fatal path."""
+async def test_dispatch_401_stays_auth_rejected_not_a_request_rejection():
+    """401 stays WorkerAuthRejectedError (dispatcher<->worker token), and stays retryable."""
     transport = _capturing_transport({}, status_code=401, body={"detail": "no"})
     with _patch_asyncclient(transport):
-        with pytest.raises(AuthError):
+        with pytest.raises(WorkerAuthRejectedError) as exc_info:
             await dispatch_to_worker(
                 url="http://worker:9190", prompt="x", allowed_tools=[], token="bad"
             )
+    assert exc_info.value.retryable is True
 
 
 @pytest.mark.asyncio
-async def test_dispatch_500_still_retryable_dispatch_error():
-    """5xx remains a retryable DispatchError, not a FatalDispatchError."""
+async def test_dispatch_500_still_retryable():
+    """5xx remains a retryable WorkerUnavailableError, not a request rejection."""
     transport = _capturing_transport({}, status_code=500, body={"detail": "boom"})
     with _patch_asyncclient(transport):
-        with pytest.raises(DispatchError) as exc_info:
+        with pytest.raises(WorkerUnavailableError) as exc_info:
             await dispatch_to_worker(
                 url="http://worker:9190", prompt="x", allowed_tools=[], token="tok"
             )
-    assert not isinstance(exc_info.value, FatalDispatchError)
+    assert exc_info.value.retryable is True
     assert "HTTP 500" in str(exc_info.value)

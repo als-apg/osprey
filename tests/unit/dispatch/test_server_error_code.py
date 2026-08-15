@@ -18,7 +18,7 @@ from starlette.testclient import TestClient
 from osprey.dispatch import server
 from osprey.dispatch.sources.webhook import WebhookSource
 from osprey.dispatch.trigger_config import TriggerConfig
-from osprey.dispatch.worker_client import FatalDispatchError
+from osprey.dispatch.worker_client import WorkerRejectedRequestError
 
 _FILES = [
     {"filename": "plot.png", "mime": "image/png", "content_b64": "QUJD" * 100, "ingest": True},
@@ -84,11 +84,13 @@ async def test_dispatch_passthrough_no_input_files_forwards_none():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_error_code_fatal_4xx_returns_sentinel_not_none():
+async def test_dispatch_error_code_rejected_4xx_returns_sentinel_not_none():
     registry = AsyncMock()
 
     async def _fake_dispatch(**kwargs):
-        raise FatalDispatchError("HTTP 400 from worker", error_code="input_files_cap_exceeded")
+        raise WorkerRejectedRequestError(
+            "HTTP 400 from worker", error_code="input_files_cap_exceeded"
+        )
 
     with patch.object(server, "dispatch_to_worker", _fake_dispatch):
         result = await server._dispatch_with_policy(
@@ -109,7 +111,7 @@ async def test_dispatch_error_code_generic_4xx_returns_sentinel_none_code():
     registry = AsyncMock()
 
     async def _fake_dispatch(**kwargs):
-        raise FatalDispatchError("HTTP 403 from worker", error_code=None)
+        raise WorkerRejectedRequestError("HTTP 403 from worker", error_code=None)
 
     with patch.object(server, "dispatch_to_worker", _fake_dispatch):
         result = await server._dispatch_with_policy(
@@ -128,9 +130,9 @@ async def test_dispatch_passthrough_retry_rethreads_input_files():
     async def _fake_dispatch(**kwargs):
         calls.append(kwargs["input_files"])
         if len(calls) == 1:
-            from osprey.dispatch.worker_client import DispatchError
+            from osprey.dispatch.worker_client import WorkerUnreachableError
 
-            raise DispatchError("transient")
+            raise WorkerUnreachableError("transient")
         return {"run_id": "r2", "status": "accepted"}
 
     trigger = TriggerConfig(

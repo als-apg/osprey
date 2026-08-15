@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 import click
 
 from osprey.cli.styles import Styles, console
-from osprey.deployment.errors import DevModeUnavailableError
+from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.utils.config import load_project_config
 from osprey.utils.logger import get_logger
 
@@ -44,6 +44,35 @@ def _abort(message: str) -> NoReturn:
     """Log a refusal and stop, with no traceback and exit code 1."""
     logger.error(message)
     raise click.Abort()
+
+
+def _abort_unmet_precondition(
+    exc: DeploymentPreconditionError, *, nothing_done: str | None = None
+) -> NoReturn:
+    """Render an unmet deploy precondition — what is not true, then the one fix.
+
+    Every :class:`~osprey.deployment.errors.DeploymentPreconditionError` carries
+    the same two fields, so ONE renderer serves all of them: no verb hand-writes
+    a per-error string, and a new precondition needs no new handler here.
+
+    No ``✗`` of its own. These are raised from inside a reporter phase whose
+    failure line has already marked the run, and two markers for one refusal
+    read as two things having gone wrong.
+
+    Args:
+        exc: The refusal, carrying ``summary``/``reason``/``remedy``.
+        nothing_done: What is unchanged as a result ("Nothing was started."),
+            for the verbs that act. ``None`` for the read-only verbs, which
+            changed nothing whether they refused or not.
+    """
+    console.print(f"\n{exc.summary}: {exc.reason}\n", style=Styles.ERROR)
+    for line in exc.remedy.splitlines():
+        console.print(f"  {line}" if line else "")
+    if nothing_done is not None:
+        console.print(f"\n  {nothing_done}\n", style=Styles.WARNING)
+    else:
+        console.print()
+    raise click.Abort() from None
 
 
 def _stdin_is_a_terminal() -> bool:
@@ -406,7 +435,7 @@ def up_verb(
     from osprey.cli.main import lifecycle_reporter
     from osprey.cli.repo_resolver import find_repo_root
     from osprey.cli.summary_card import owns_summary_card, print_summary_card
-    from osprey.deployment.container_lifecycle import NoBuildError, up_as_built
+    from osprey.deployment.container_lifecycle import up_as_built
 
     repo_root = find_repo_root(repo)
     # Asked before the reporter is installed, so a start chained from `init --up`
@@ -442,17 +471,12 @@ def up_verb(
                     keep_archiver_base=keep_archiver_base,
                     reuse_stores=reuse_stores,
                 )
-        except NoBuildError as e:
-            _abort(f"{e} Nothing was started.")
-        except DevModeUnavailableError as e:
-            # No ✗ of its own: this is raised from inside the start phase, whose
-            # failure line has already marked the run. Two markers for one
-            # refusal read as two things having gone wrong.
-            console.print(f"\n--dev cannot be honored: {e.reason}\n", style=Styles.ERROR)
-            for line in e.remedy.splitlines():
-                console.print(f"  {line}" if line else "")
-            console.print("\n  Nothing was deployed.\n", style=Styles.WARNING)
-            raise click.Abort() from None
+        except DeploymentPreconditionError as e:
+            # One handler for every unmet precondition on this path — a missing
+            # render, a --dev that cannot be honored, an unreleased pin. They
+            # differ only in their reason and remedy, which the renderer reads
+            # off the exception.
+            _abort_unmet_precondition(e, nothing_done="Nothing was deployed.")
         except KeyboardInterrupt:
             console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
             raise click.Abort() from None
@@ -627,7 +651,7 @@ def restart_verb(
     from osprey.cli.main import lifecycle_reporter
     from osprey.cli.repo_resolver import find_repo_root
     from osprey.cli.summary_card import owns_summary_card, print_summary_card
-    from osprey.deployment.container_lifecycle import NoBuildError, restart_deployment
+    from osprey.deployment.container_lifecycle import restart_deployment
 
     repo_root = find_repo_root(repo)
     owns_card = owns_summary_card()
@@ -653,15 +677,10 @@ def restart_verb(
                     keep_archiver_base=keep_archiver_base,
                     reuse_stores=reuse_stores,
                 )
-        except NoBuildError as e:
-            _abort(f"{e} Nothing was stopped.")
-        except DevModeUnavailableError as e:
-            # Same dedupe as `up`: the restart phase's ✗ is the run's marker.
-            console.print(f"\n--dev cannot be honored: {e.reason}\n", style=Styles.ERROR)
-            for line in e.remedy.splitlines():
-                console.print(f"  {line}" if line else "")
-            console.print("\n  Nothing was stopped.\n", style=Styles.WARNING)
-            raise click.Abort() from None
+        except DeploymentPreconditionError as e:
+            # Same single handler as `up`; the restart phase's ✗ is the run's
+            # marker, so the renderer adds none of its own.
+            _abort_unmet_precondition(e, nothing_done="Nothing was stopped.")
         except KeyboardInterrupt:
             console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
             raise click.Abort() from None
@@ -781,13 +800,13 @@ def logs_verb(repo: Path | None, service: str | None, follow: bool, tail: int | 
       $ osprey logs --tail 50
     """
     from osprey.cli.repo_resolver import find_repo_root
-    from osprey.deployment.status_display import NoComposeFilesError, follow_logs
+    from osprey.deployment.status_display import follow_logs
 
     repo_root = find_repo_root(repo)
     try:
         follow_logs(repo_root, service=service, follow=follow, tail=tail)
-    except NoComposeFilesError as e:
-        _abort(str(e))
+    except DeploymentPreconditionError as e:
+        _abort_unmet_precondition(e)
     except KeyboardInterrupt:
         console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
         raise click.Abort() from None

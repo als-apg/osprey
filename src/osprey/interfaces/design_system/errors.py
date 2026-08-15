@@ -1,20 +1,27 @@
-"""Shared fail-closed validation-error infrastructure.
+"""Shared fail-closed validation infrastructure.
 
 The design system's three validators — the token validator
 (``generator/validate.py``), the panel-manifest schema validator
 (``panels/manifest.py``), and the panel validator (``panels/validator.py``)
-— share one error idiom: a domain-specific :class:`~enum.StrEnum` of
-machine-readable rule ids, a frozen located-error dataclass rendering
+— share one idiom: a domain-specific :class:`~enum.StrEnum` of
+machine-readable rule ids, a frozen located *finding* dataclass rendering
 ``"{source}: {message}"``, and a ``ValueError`` subclass that bundles
-*every* failure (a fail-closed door never reports just the first). The
+*every* finding (a fail-closed door never reports just the first). The
 rule enums and check functions stay domain-specific; the shared shape
-lives here so the three validators render and bundle errors identically
+lives here so the three validators render and bundle findings identically
 by construction instead of by carefully-mirrored copies.
 
-Concrete error classes subclass :class:`SourcedError` (narrowing ``rule``
-to their domain enum) and :class:`BundledValidationError` (parametrized by
-their error type), keeping every public name and constructor signature the
-consuming test suites pin.
+**Naming rule this package holds to:** the ``*Error`` suffix is reserved
+for throwables. A validator's per-failure *record* — a frozen dataclass a
+check appends to a list and hands back — is a ``*Finding``
+(:class:`SourcedFinding`, ``TokenFinding``, ``ManifestFinding``,
+``PanelFinding``). ``except SomeFinding`` is a ``TypeError`` waiting to
+happen, so a finding never wears a name that invites it.
+
+Concrete finding classes subclass :class:`SourcedFinding` (narrowing
+``rule`` to their domain enum); the fail-closed doors raise a
+:class:`BundledValidationError` subclass parametrized by their finding
+type.
 """
 
 from __future__ import annotations
@@ -23,17 +30,20 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
-__all__ = ["SourcedError", "BundledValidationError"]
+__all__ = ["SourcedFinding", "BundledValidationError"]
 
 E = TypeVar("E")
 
 
 @dataclass(frozen=True)
-class SourcedError:
+class SourcedFinding:
     """A single, located validation failure rendering ``"{source}: {message}"``.
 
+    A plain record, NOT a throwable — see the naming rule in this module's
+    docstring.
+
     Attributes:
-        rule: Which check produced this error. Subclasses re-declare this
+        rule: Which check produced this finding. Subclasses re-declare this
             field with their domain's rule enum type (re-declaration keeps
             the ``(rule, message, source)`` field order).
         message: Human-readable description of the failure.
@@ -50,10 +60,13 @@ class SourcedError:
 
 
 class BundledValidationError(ValueError, Generic[E]):
-    """Base for the fail-closed doors: a ``ValueError`` bundling every failure.
+    """Base for the fail-closed doors: a ``ValueError`` bundling every finding.
+
+    This — and its subclasses — are the only ``*Error`` names in the family,
+    and the only things here that can be caught.
 
     Attributes:
-        errors: Every validation failure, in the order it was found.
+        errors: Every finding, in the order it was found.
     """
 
     def __init__(self, errors: Sequence[E]) -> None:

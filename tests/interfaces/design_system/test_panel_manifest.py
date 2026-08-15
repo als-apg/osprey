@@ -19,7 +19,7 @@ import pytest
 
 from osprey.interfaces.design_system.panels.manifest import (
     CURRENT_SCHEMA_VERSION,
-    ManifestError,
+    ManifestFinding,
     ManifestRule,
     PanelManifest,
     PanelManifestError,
@@ -188,7 +188,7 @@ def test_valid_manifest_passes_assert_valid() -> None:
 
 
 def test_manifest_error_str_uses_source_prefix() -> None:
-    error = ManifestError(rule=ManifestRule.MISSING_FIELD, message="boom", source="panel.json")
+    error = ManifestFinding(rule=ManifestRule.MISSING_FIELD, message="boom", source="panel.json")
     assert str(error) == "panel.json: boom"
 
 

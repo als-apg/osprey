@@ -13,8 +13,9 @@ manifest already on disk.
 The validator follows the design system's shared fail-closed idiom
 (``design_system/errors.py``, also used by ``generator/validate.py``): a
 :class:`StrEnum` of machine-readable rule ids, a frozen
-:class:`ManifestError` carrying ``rule``/``message``/``source``, a
-:class:`PanelManifestError` that bundles *every* failure, and a
+:class:`ManifestFinding` record carrying ``rule``/``message``/``source``
+(a finding, not a throwable — see that module's naming rule), a
+:class:`PanelManifestError` that bundles *every* finding, and a
 :func:`validate_manifest` that runs every check without short-circuiting
 so a caller sees the complete set in one pass.
 :func:`assert_valid`, :func:`parse_manifest`, :func:`load_manifest`, and
@@ -35,12 +36,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from osprey.interfaces.design_system.errors import BundledValidationError, SourcedError
+from osprey.interfaces.design_system.errors import BundledValidationError, SourcedFinding
 
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
     "ManifestRule",
-    "ManifestError",
+    "ManifestFinding",
     "PanelManifestError",
     "PanelManifest",
     "validate_manifest",
@@ -81,11 +82,11 @@ class ManifestRule(StrEnum):
 
 
 @dataclass(frozen=True)
-class ManifestError(SourcedError):
-    """A single, located manifest validation failure.
+class ManifestFinding(SourcedFinding):
+    """A single, located manifest validation failure (a record, not a throwable).
 
     Attributes:
-        rule: Which check produced this error.
+        rule: Which check produced this finding.
         message: Human-readable description of the failure.
         source: Where the manifest came from — a file path string or the
             ``"<manifest>"`` placeholder for an in-memory object.
@@ -94,11 +95,11 @@ class ManifestError(SourcedError):
     rule: ManifestRule
 
 
-class PanelManifestError(BundledValidationError[ManifestError]):
-    """Raised by the fail-closed doors, bundling every :class:`ManifestError`.
+class PanelManifestError(BundledValidationError[ManifestFinding]):
+    """Raised by the fail-closed doors, bundling every :class:`ManifestFinding`.
 
     Attributes:
-        errors: Every manifest failure, in the order they were found.
+        errors: Every manifest finding, in the order they were found.
     """
 
 
@@ -126,12 +127,12 @@ class PanelManifest:
     extras: dict[str, Any] = field(default_factory=dict)
 
 
-def _check_string_field(data: dict[str, Any], name: str, source: str) -> list[ManifestError]:
+def _check_string_field(data: dict[str, Any], name: str, source: str) -> list[ManifestFinding]:
     """Validate one required, non-empty string field, collecting all errors."""
-    errors: list[ManifestError] = []
+    errors: list[ManifestFinding] = []
     if name not in data:
         errors.append(
-            ManifestError(
+            ManifestFinding(
                 rule=ManifestRule.MISSING_FIELD,
                 message=f"missing required field {name!r}",
                 source=source,
@@ -141,7 +142,7 @@ def _check_string_field(data: dict[str, Any], name: str, source: str) -> list[Ma
     value = data[name]
     if not isinstance(value, str):
         errors.append(
-            ManifestError(
+            ManifestFinding(
                 rule=ManifestRule.WRONG_TYPE,
                 message=(f"field {name!r} must be a string, got {type(value).__name__}"),
                 source=source,
@@ -150,7 +151,7 @@ def _check_string_field(data: dict[str, Any], name: str, source: str) -> list[Ma
         return errors
     if not value.strip():
         errors.append(
-            ManifestError(
+            ManifestFinding(
                 rule=ManifestRule.EMPTY_FIELD,
                 message=f"field {name!r} must not be empty",
                 source=source,
@@ -159,7 +160,7 @@ def _check_string_field(data: dict[str, Any], name: str, source: str) -> list[Ma
     return errors
 
 
-def validate_manifest(data: Any, *, source: str = "<manifest>") -> list[ManifestError]:
+def validate_manifest(data: Any, *, source: str = "<manifest>") -> list[ManifestFinding]:
     """Run every manifest check and collect every failure.
 
     Never stops at the first failure — a caller sees the complete set in
@@ -171,26 +172,26 @@ def validate_manifest(data: Any, *, source: str = "<manifest>") -> list[Manifest
             (a file path string, or the default ``"<manifest>"``).
 
     Returns:
-        Every :class:`ManifestError` found, in check order. Empty if the
+        Every :class:`ManifestFinding`, in check order. Empty if the
         manifest is fully valid.
     """
     if not isinstance(data, dict):
         return [
-            ManifestError(
+            ManifestFinding(
                 rule=ManifestRule.NOT_AN_OBJECT,
                 message=(f"manifest must be a JSON object, got {type(data).__name__}"),
                 source=source,
             )
         ]
 
-    errors: list[ManifestError] = []
+    errors: list[ManifestFinding] = []
 
     # id — required, non-empty string, and a valid kebab slug.
     id_errors = _check_string_field(data, "id", source)
     errors.extend(id_errors)
     if not id_errors and not _ID_PATTERN.fullmatch(data["id"]):
         errors.append(
-            ManifestError(
+            ManifestFinding(
                 rule=ManifestRule.BAD_ID,
                 message=(
                     f"field 'id' must be a lowercase kebab slug "
@@ -210,7 +211,7 @@ def validate_manifest(data: Any, *, source: str = "<manifest>") -> list[Manifest
         version = data["version"]
         if isinstance(version, bool) or not isinstance(version, int):
             errors.append(
-                ManifestError(
+                ManifestFinding(
                     rule=ManifestRule.WRONG_TYPE,
                     message=(f"field 'version' must be an integer, got {type(version).__name__}"),
                     source=source,
@@ -287,7 +288,7 @@ def load_manifest(text: str, *, source: str = "<manifest>") -> PanelManifest:
     except json.JSONDecodeError as exc:
         raise PanelManifestError(
             [
-                ManifestError(
+                ManifestFinding(
                     rule=ManifestRule.NOT_AN_OBJECT,
                     message=f"manifest is not valid JSON: {exc}",
                     source=source,

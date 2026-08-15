@@ -12,7 +12,7 @@ alone (this is why they are cheap and never flake):
 
 1. **Manifest present + schema-valid.** ``manifest.json`` must exist in
    the panel dir and pass ``manifest.py``'s :func:`validate_manifest`;
-   every :class:`~.manifest.ManifestError` is folded into this module's
+   every :class:`~.manifest.ManifestFinding` is folded into this module's
    own error type. The manifest's declared ``entry`` file must also
    actually exist on disk (a filesystem fact the schema validator, being
    pure, cannot check).
@@ -39,9 +39,10 @@ check is weakened to let a panel pass.
 The idiom is the design system's shared fail-closed one
 (``design_system/errors.py``, also used by ``generator/validate.py`` and
 the sibling ``panels/manifest.py``): a :class:`StrEnum` of
-machine-readable rule ids, a frozen :class:`PanelError` rendering
-``"{source}: {message}"``, a :class:`PanelValidationError` bundling
-*every* failure, and a :func:`validate_panel` that runs every check
+machine-readable rule ids, a frozen :class:`PanelFinding` record rendering
+``"{source}: {message}"`` (a finding, not a throwable — see that module's
+naming rule), a :class:`PanelValidationError` bundling *every* finding,
+and a :func:`validate_panel` that runs every check
 without short-circuiting so a caller sees the complete set in one pass.
 
 Stdlib-only (``json``, ``re``, ``dataclasses``, ``enum``, ``pathlib``,
@@ -57,9 +58,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from osprey.interfaces.design_system.errors import BundledValidationError, SourcedError
+from osprey.interfaces.design_system.errors import BundledValidationError, SourcedFinding
 from osprey.interfaces.design_system.panels.manifest import (
-    ManifestError,
+    ManifestFinding,
     PanelManifestError,
     parse_manifest,
 )
@@ -67,7 +68,7 @@ from osprey.interfaces.design_system.panels.manifest import (
 __all__ = [
     "MANIFEST_FILENAME",
     "PanelRule",
-    "PanelError",
+    "PanelFinding",
     "PanelValidationError",
     "validate_panel",
     "assert_valid_panel",
@@ -136,7 +137,7 @@ class PanelRule(StrEnum):
     #: The panel directory has no ``manifest.json``.
     MANIFEST_MISSING = "manifest_missing"
     #: ``manifest.json`` is not valid JSON, or fails the manifest schema
-    #: (each underlying :class:`~.manifest.ManifestError` is folded in).
+    #: (each underlying :class:`~.manifest.ManifestFinding` is folded in).
     MANIFEST_INVALID = "manifest_invalid"
     #: The manifest's declared ``entry`` file does not exist in the dir.
     ENTRY_MISSING = "entry_missing"
@@ -152,11 +153,11 @@ class PanelRule(StrEnum):
 
 
 @dataclass(frozen=True)
-class PanelError(SourcedError):
-    """A single, located panel validation failure.
+class PanelFinding(SourcedFinding):
+    """A single, located panel validation failure (a record, not a throwable).
 
     Attributes:
-        rule: Which check produced this error.
+        rule: Which check produced this finding.
         message: Human-readable description of the failure.
         source: Where the failure is, for error messages — a file path
             string, or ``"path:line"`` for a located line (raw hex colors),
@@ -167,29 +168,29 @@ class PanelError(SourcedError):
     rule: PanelRule
 
 
-class PanelValidationError(BundledValidationError[PanelError]):
-    """Raised by :func:`assert_valid_panel`, bundling every :class:`PanelError`.
+class PanelValidationError(BundledValidationError[PanelFinding]):
+    """Raised by :func:`assert_valid_panel`, bundling every :class:`PanelFinding`.
 
     Attributes:
-        errors: Every panel failure, in the order they were found.
+        errors: Every panel finding, in the order they were found.
     """
 
 
-def _from_manifest_error(error: ManifestError) -> PanelError:
-    """Fold a manifest-schema :class:`ManifestError` into a :class:`PanelError`.
+def _from_manifest_finding(finding: ManifestFinding) -> PanelFinding:
+    """Fold a manifest-schema :class:`ManifestFinding` into a :class:`PanelFinding`.
 
-    The manifest error already carries its own ``source`` (the manifest
+    The manifest finding already carries its own ``source`` (the manifest
     file path) and rendered message, so this preserves both under this
     module's single :attr:`PanelRule.MANIFEST_INVALID` rule.
     """
-    return PanelError(
+    return PanelFinding(
         rule=PanelRule.MANIFEST_INVALID,
-        message=error.message,
-        source=error.source,
+        message=finding.message,
+        source=finding.source,
     )
 
 
-def _check_manifest(panel_dir: Path) -> tuple[list[PanelError], Path | None]:
+def _check_manifest(panel_dir: Path) -> tuple[list[PanelFinding], Path | None]:
     """Validate the panel's manifest and resolve its entry file path.
 
     Args:
@@ -207,7 +208,7 @@ def _check_manifest(panel_dir: Path) -> tuple[list[PanelError], Path | None]:
     if not manifest_path.is_file():
         return (
             [
-                PanelError(
+                PanelFinding(
                     rule=PanelRule.MANIFEST_MISSING,
                     message=f"panel is missing its {MANIFEST_FILENAME!r} descriptor",
                     source=str(panel_dir),
@@ -222,7 +223,7 @@ def _check_manifest(panel_dir: Path) -> tuple[list[PanelError], Path | None]:
     except json.JSONDecodeError as exc:
         return (
             [
-                PanelError(
+                PanelFinding(
                     rule=PanelRule.MANIFEST_INVALID,
                     message=f"manifest is not valid JSON: {exc}",
                     source=source,
@@ -234,7 +235,7 @@ def _check_manifest(panel_dir: Path) -> tuple[list[PanelError], Path | None]:
     try:
         manifest = parse_manifest(data, source=source)
     except PanelManifestError as exc:
-        return [_from_manifest_error(error) for error in exc.errors], None
+        return [_from_manifest_finding(error) for error in exc.errors], None
 
     # Schema-valid: the entry field is a known non-empty string, so we can
     # resolve it and check the file actually exists on disk.
@@ -242,7 +243,7 @@ def _check_manifest(panel_dir: Path) -> tuple[list[PanelError], Path | None]:
     if not entry_path.is_file():
         return (
             [
-                PanelError(
+                PanelFinding(
                     rule=PanelRule.ENTRY_MISSING,
                     message=(f"manifest 'entry' {manifest.entry!r} does not exist in the panel"),
                     source=source,
@@ -253,7 +254,7 @@ def _check_manifest(panel_dir: Path) -> tuple[list[PanelError], Path | None]:
     return [], entry_path
 
 
-def _check_design_system_linked(entry_path: Path, entry_html: str) -> list[PanelError]:
+def _check_design_system_linked(entry_path: Path, entry_html: str) -> list[PanelFinding]:
     """Require the entry HTML to load the token stylesheet and boot script.
 
     Args:
@@ -263,10 +264,10 @@ def _check_design_system_linked(entry_path: Path, entry_html: str) -> list[Panel
     Returns:
         One error per missing reference (stylesheet and/or boot script).
     """
-    errors: list[PanelError] = []
+    errors: list[PanelFinding] = []
     if not _TOKENS_CSS_LINK_PATTERN.search(entry_html):
         errors.append(
-            PanelError(
+            PanelFinding(
                 rule=PanelRule.MISSING_DESIGN_SYSTEM_LINK,
                 message=(
                     "entry HTML must link the design-system token stylesheet "
@@ -277,7 +278,7 @@ def _check_design_system_linked(entry_path: Path, entry_html: str) -> list[Panel
         )
     if not _THEME_BOOT_SCRIPT_PATTERN.search(entry_html):
         errors.append(
-            PanelError(
+            PanelFinding(
                 rule=PanelRule.MISSING_THEME_BOOT,
                 message=(
                     "entry HTML must load the pre-paint theme boot script "
@@ -288,7 +289,7 @@ def _check_design_system_linked(entry_path: Path, entry_html: str) -> list[Panel
         )
     if not _FONTS_CSS_LINK_PATTERN.search(entry_html):
         errors.append(
-            PanelError(
+            PanelFinding(
                 rule=PanelRule.MISSING_FONT_LINK,
                 message=(
                     "entry HTML must link the shared web-font stylesheet "
@@ -301,7 +302,7 @@ def _check_design_system_linked(entry_path: Path, entry_html: str) -> list[Panel
     return errors
 
 
-def _check_no_raw_hex_colors(path: Path, text: str) -> list[PanelError]:
+def _check_no_raw_hex_colors(path: Path, text: str) -> list[PanelFinding]:
     """Flag every raw hex color literal in one file's text.
 
     Args:
@@ -312,12 +313,12 @@ def _check_no_raw_hex_colors(path: Path, text: str) -> list[PanelError]:
         One :class:`PanelRule.RAW_HEX_COLOR` error per hex-color-shaped
         literal, each sourced as ``"path:line"`` (1-based line number).
     """
-    errors: list[PanelError] = []
+    errors: list[PanelFinding] = []
     for line_number, line in enumerate(text.splitlines(), start=1):
         for match in _HEX_COLOR_PATTERN.finditer(line):
             literal = match.group(0)
             errors.append(
-                PanelError(
+                PanelFinding(
                     rule=PanelRule.RAW_HEX_COLOR,
                     message=(
                         f"raw hex color {literal!r} — panels must style through "
@@ -343,7 +344,7 @@ def _hex_scan_files(panel_dir: Path, entry_path: Path | None) -> list[Path]:
     return sorted(files)
 
 
-def validate_panel(panel_dir: str | Path) -> list[PanelError]:
+def validate_panel(panel_dir: str | Path) -> list[PanelFinding]:
     """Run every panel check and collect every failure.
 
     Never stops at the first failure — a caller (the panel skill, the
@@ -355,7 +356,7 @@ def validate_panel(panel_dir: str | Path) -> list[PanelError]:
             ``manifest.json``.
 
     Returns:
-        Every :class:`PanelError` found, in check order. Empty if the panel
+        Every :class:`PanelFinding`, in check order. Empty if the panel
         is fully valid. When the manifest is missing/invalid or its entry
         file is absent, the HTML-dependent checks (design-system link,
         theme boot) are skipped for the unknown entry — but sibling
@@ -363,7 +364,7 @@ def validate_panel(panel_dir: str | Path) -> list[PanelError]:
         that check does not depend on the manifest.
     """
     panel_dir = Path(panel_dir)
-    errors: list[PanelError] = []
+    errors: list[PanelFinding] = []
 
     manifest_errors, entry_path = _check_manifest(panel_dir)
     errors.extend(manifest_errors)
@@ -401,7 +402,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
     Usage: ``python -m osprey.interfaces.design_system.panels.validator <panel_dir>``.
 
     Exits ``0`` when the panel passes, ``1`` after printing every failure
-    (one ``"{source}: {message}"`` line per :class:`PanelError`), and ``2``
+    (one ``"{source}: {message}"`` line per :class:`PanelFinding`), and ``2``
     on a usage error. Runnable so the panel-authoring skill and the build
     gates can invoke the validator directly rather than only via the
     :func:`assert_valid_panel` import form.

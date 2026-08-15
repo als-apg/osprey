@@ -17,7 +17,7 @@ belong to neither single unit's test module:
    must gate the feature on the ``/health`` capability rather than assume the
    worker consumed the batch.
 4. **Fatal-4xx error_code propagation** — a worker 400 with a machine-readable
-   ``detail`` travels webhook -> worker_client ``FatalDispatchError`` -> pool
+   ``detail`` travels webhook -> worker_client ``WorkerRejectedRequestError`` -> pool
    record -> the dispatcher's ``/dispatch/{id}`` poll body as a top-level error
    carrying the same ``error_code``.
 
@@ -48,7 +48,7 @@ from osprey.bridges.core.pipeline import (
 from osprey.dispatch import server
 from osprey.dispatch.sources.webhook import _MAX_WEBHOOK_BYTES, WebhookSource
 from osprey.dispatch.trigger_config import TriggerConfig
-from osprey.dispatch.worker_client import FatalDispatchError
+from osprey.dispatch.worker_client import WorkerRejectedRequestError
 from osprey.mcp_server.dispatch_worker import dispatch_api, sdk_runner
 from osprey.mcp_server.dispatch_worker.dispatch_api import (
     MAX_REQUEST_BYTES,
@@ -404,7 +404,9 @@ def test_input_files_fatal_400_propagates_webhook_to_poll_body(app):
     body as a top-level error carrying the same error_code and trigger name."""
 
     async def _fake_dispatch(**kwargs):
-        raise FatalDispatchError("HTTP 400 from worker", error_code="input_files_cap_exceeded")
+        raise WorkerRejectedRequestError(
+            "HTTP 400 from worker", error_code="input_files_cap_exceeded"
+        )
 
     with patch.object(server, "dispatch_to_worker", _fake_dispatch):
         with TestClient(app) as client:
@@ -443,7 +445,7 @@ def test_input_files_fatal_generic_4xx_propagates_null_error_code(app):
     error, with error_code None rather than an echoed internal detail."""
 
     async def _fake_dispatch(**kwargs):
-        raise FatalDispatchError("HTTP 403 from worker", error_code=None)
+        raise WorkerRejectedRequestError("HTTP 403 from worker", error_code=None)
 
     with patch.object(server, "dispatch_to_worker", _fake_dispatch):
         with TestClient(app) as client:

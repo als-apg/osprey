@@ -69,7 +69,7 @@ class BuildError(Exception):
     """Raised when the load-validate-render pipeline cannot produce artifacts.
 
     The message already contains every underlying failure (token-source
-    parse errors, or every :class:`~.validate.ValidationError` — never
+    parse errors, or every :class:`~.validate.TokenFinding` — never
     just the first), ready to print as-is.
     """
 

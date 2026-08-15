@@ -38,9 +38,8 @@ from osprey.dispatch.trigger_config import (
     load_triggers,
 )
 from osprey.dispatch.worker_client import (
-    AuthError,
-    DispatchError,
-    FatalDispatchError,
+    WorkerAuthRejectedError,
+    WorkerRequestError,
     cancel_worker_run,
     dispatch_to_worker,
     fetch_worker_runs,
@@ -101,8 +100,8 @@ async def _dispatch_with_policy(
     """Execute the trigger action and handle on_error policy.
 
     Returns the worker response dict on success (contains run_id, status), a
-    ``{"status": "error", "error_code": ...}`` sentinel on a fatal (4xx) worker
-    rejection, or None if the dispatch was dropped/failed after retries.
+    ``{"status": "error", "error_code": ...}`` sentinel when the worker refused the
+    request non-retryably, or None if the dispatch was dropped/failed after retries.
     """
     # Pop the caller's input-file batch OUT of the payload on the FIRST call,
     # before the payload is folded into the prompt or persisted to history — the
@@ -152,22 +151,26 @@ async def _dispatch_with_policy(
         await registry.record_event(trigger.name, payload, "dispatched")
         return result
 
-    except FatalDispatchError as exc:
-        # A deterministic 4xx rejection (e.g. input_files over cap / invalid).
-        # NOT retryable and must NOT drop to None: surface a sentinel error dict
-        # carrying the machine-readable error_code. The pool wraps this return
-        # value; ``get_dispatch_result`` unwraps the sentinel into a top-level
-        # pool error so the poll body exposes ``error_code``. Log the code only,
-        # never the worker's body.
-        code = exc.error_code
-        logger.warning("Fatal dispatch rejection for trigger '%s': %s", trigger.name, code or "4xx")
-        await registry.record_event(trigger.name, payload, f"rejected: {code or '4xx'}")
-        return {"status": "error", "error_code": code, "error": str(exc)}
+    except WorkerRequestError as exc:
+        # Every worker-call failure — transport, 401, 5xx, deterministic 4xx —
+        # arrives here, and the exception itself says which way to go via
+        # ``retryable``. A genuine bug (any other exception) must NOT be
+        # misclassified as a dispatch failure: it propagates to the pool, which
+        # records it.
+        if not exc.retryable:
+            # The worker answered and refused THIS request (e.g. input_files over
+            # cap / invalid). Must NOT drop to None: surface a sentinel error dict
+            # carrying the machine-readable error_code. The pool wraps this return
+            # value; ``get_dispatch_result`` unwraps the sentinel into a top-level
+            # pool error so the poll body exposes ``error_code``. Log the code
+            # only, never the worker's body.
+            code = exc.error_code
+            logger.warning(
+                "Worker rejected dispatch for trigger '%s': %s", trigger.name, code or "4xx"
+            )
+            await registry.record_event(trigger.name, payload, f"rejected: {code or '4xx'}")
+            return {"status": "error", "error_code": code, "error": str(exc)}
 
-    except (DispatchError, AuthError) as exc:
-        # Only dispatch/auth failures flow through the on_error policy. A genuine
-        # bug (any other exception) must NOT be misclassified as a retryable
-        # dispatch error — let it propagate to the pool, which records it.
         error_str = str(exc)
         on_error = trigger.on_error
         policy = on_error.get("action", "drop")
@@ -547,7 +550,7 @@ def create_server() -> FastMCP:
             return unauth
         try:
             runs = await fetch_worker_runs(dispatch_target, dispatch_token)
-        except DispatchError as exc:
+        except WorkerRequestError as exc:
             # Surface the degraded state instead of masking it as an empty success.
             logger.error("Failed to fetch runs from worker: %s", exc)
             return JSONResponse(
@@ -626,7 +629,7 @@ def create_server() -> FastMCP:
         worker_error: str | None = None
         try:
             runs = await fetch_worker_runs(dispatch_target, dispatch_token)
-        except DispatchError as exc:
+        except WorkerRequestError as exc:
             # Don't mask a down worker as an empty-but-healthy run list; carry a
             # marker so the dashboard can show a degraded state.
             logger.error("dashboard_state: failed to fetch worker runs: %s", exc)
@@ -746,9 +749,9 @@ def create_server() -> FastMCP:
         run_id = request.path_params["run_id"]
         try:
             result = await cancel_worker_run(dispatch_target, dispatch_token, run_id)
-        except AuthError:
+        except WorkerAuthRejectedError:
             return JSONResponse({"detail": "worker auth failed"}, status_code=502)
-        except DispatchError as exc:
+        except WorkerRequestError as exc:
             return JSONResponse({"detail": str(exc)}, status_code=502)
         return JSONResponse(result)
 
