@@ -217,7 +217,7 @@ channel_finder:
         type: middle_layer            # Always "middle_layer" for this pipeline mode
         path: data/channel_databases/middle_layer.json
                                       # MML structure: System -> Family -> Field -> ChannelNames
-        # duckdb_path gates the `query_channels` SQL/FTS tool: with it unset
+        # duckdb_path gates the `run_sql` SQL/FTS tool: with it unset
         # that one tool returns `not_configured` and the other middle-layer
         # tools carry on working. Nothing in build, scaffold or deploy creates
         # the file — build it from the JSON above yourself:

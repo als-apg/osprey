@@ -1,4 +1,4 @@
-"""MCP tool: query_channels — run SQL queries against the DuckDB channel database.
+"""MCP tool: run_sql — run SQL queries against the DuckDB channel database.
 
 Provides agents with ad-hoc SQL access to the channel finder data,
 including full-text search via the FTS index.
@@ -14,13 +14,13 @@ from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
 from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 from osprey.services.channel_finder.databases.duckdb_fts import ensure_fts
 
-logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.tools.query_channels")
+logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer.tools.run_sql")
 
 _MAX_ROWS = 500
 
 
 @mcp.tool()
-def query_channels(sql: str) -> str:
+def run_sql(sql: str) -> str:
     """Run a read-only SQL query against the channel finder DuckDB database.
 
     The database contains these tables:
@@ -99,7 +99,7 @@ def query_channels(sql: str) -> str:
             con.close()
 
     except duckdb.Error as exc:
-        logger.warning("query_channels SQL error: %s", exc)
+        logger.warning("run_sql SQL error: %s", exc)
         return make_error(
             "sql_error",
             f"SQL error: {exc}",
@@ -111,7 +111,7 @@ def query_channels(sql: str) -> str:
     except ToolError:
         raise
     except Exception as exc:
-        logger.exception("query_channels failed")
+        logger.exception("run_sql failed")
         return make_error(
             "internal_error",
             f"Query failed: {exc}",

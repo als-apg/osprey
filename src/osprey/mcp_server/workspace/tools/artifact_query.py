@@ -1,9 +1,14 @@
-"""MCP tools: data_list, data_read, data_delete.
+"""MCP tools: artifact_list, artifact_read.
 
-Provides Claude with structured access to the OSPREY data store —
-listing entries, reading full data content, and deleting entries.
+The read side of the artifact store: listing artifacts (optionally scoped to
+one category, tool or agent) and reading a stored artifact's full content.
 
-All data is stored in the unified ArtifactStore.
+Everything the workspace server stores — plots, documents, screenshots,
+archiver datasets, scan results — is one record type in one store, the
+``ArtifactStore``. Datasets are not a separate namespace; they are artifacts
+with a ``category``, so ``category=`` is how a caller narrows to them.
+Mutations live in ``artifact_save`` (``artifact_save`` / ``artifact_delete`` /
+``artifact_delete_all``).
 """
 
 import json
@@ -14,50 +19,55 @@ from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 
-logger = logging.getLogger("osprey.mcp_server.tools.data_context_tools")
+logger = logging.getLogger("osprey.mcp_server.tools.artifact_query")
 
 
 @mcp.tool()
-async def data_list(
-    tool_filter: str | None = None,
-    category_filter: str | None = None,
+async def artifact_list(
+    tool: str | None = None,
+    category: str | None = None,
     last_n: int | None = None,
-    source_agent_filter: str | None = None,
+    source_agent: str | None = None,
 ) -> str:
-    """List all data currently available in the OSPREY workspace.
+    """List the artifacts currently available in the OSPREY workspace.
 
-    This is the primary way to see what data has been collected by OSPREY
-    tools. Each entry includes a compact summary and metadata.
+    This is the primary way to see what OSPREY tools have produced — plots,
+    documents and screenshots alongside archiver datasets and scan results.
+    Each entry includes a compact summary, its ``category`` and its
+    ``artifact_id``.
+
+    Narrow to a data namespace with ``category`` (e.g. "archiver_data")
+    rather than reaching for a different tool.
 
     Args:
-        tool_filter: Only show entries from this tool (e.g. "archiver_read").
-        category_filter: Only show entries of this category (e.g. "archiver_data").
-        last_n: Show only the most recent N entries.
-        source_agent_filter: Only show entries from this agent
+        tool: Only show artifacts from this tool (e.g. "archiver_read").
+        category: Only show artifacts of this category (e.g. "archiver_data").
+        last_n: Show only the most recent N artifacts.
+        source_agent: Only show artifacts from this agent
             (e.g. "logbook-search").
 
     Returns:
-        JSON with the list of data entries.
+        JSON with the list of artifacts.
     """
     try:
         from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
         entries = store.list_entries(
-            tool_filter=tool_filter,
-            category_filter=category_filter,
+            tool_filter=tool,
+            category_filter=category,
             last_n=last_n,
-            source_agent_filter=source_agent_filter,
+            source_agent_filter=source_agent,
         )
 
         return json.dumps(
             {
                 "total_entries": len(entries),
                 "filters_applied": {
-                    "tool": tool_filter,
-                    "category": category_filter,
+                    "tool": tool,
+                    "category": category,
                     "last_n": last_n,
-                    "source_agent": source_agent_filter,
+                    "source_agent": source_agent,
                 },
                 "entries": [e.to_dict() for e in entries],
             },
@@ -67,10 +77,10 @@ async def data_list(
     except ToolError:
         raise
     except Exception as exc:
-        logger.exception("data_list failed")
+        logger.exception("artifact_list failed")
         return make_error(
             "internal_error",
-            f"Failed to list data: {exc}",
+            f"Failed to list artifacts: {exc}",
             ["Check that the _agent_data directory is accessible."],
         )
 
@@ -184,46 +194,47 @@ def _build_oversize_preview(file_path, size: int) -> dict:
 
 
 @mcp.tool()
-async def data_read(entry_id: str) -> str:
-    """Read the full data content of a data entry (small entries only).
+async def artifact_read(artifact_id: str) -> str:
+    """Read a stored artifact's full content (small artifacts only).
 
-    Returns the complete JSON payload stored in the data file when the file
-    is at most 100 KB. Larger files raise ``file_too_large`` with a
-    structured preview (schema + first/last rows when applicable) and
-    suggestions for processing the data via the Python sandbox instead.
+    Returns the complete JSON payload stored on disk when the file is at most
+    100 KB. Larger files raise ``file_too_large`` with a structured preview
+    (schema + first/last rows when applicable) and suggestions for processing
+    the data via the Python sandbox instead.
 
-    Bulk data should be loaded through ``execute`` (``with open(path) as
-    f: json.load(f)``) or via the ``data_source=`` parameter on the plot
-    tools, both of which keep the payload out of the agent context.
+    For the artifact's metadata and on-disk path without its content, use
+    ``artifact_get``. Bulk data should be loaded through ``execute``
+    (``with open(path) as f: json.load(f)``) or via the ``data_source=``
+    parameter on the plot tools, both of which keep the payload out of the
+    agent context.
 
     Args:
-        entry_id: ID of the artifact/data entry to read.
+        artifact_id: ID of the artifact to read.
 
     Returns:
-        The full JSON data content of the entry.
+        The full JSON content of the artifact.
     """
     try:
         from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
-        entry = store.get_entry(entry_id)
+        entry = store.get_entry(artifact_id)
 
         if entry is None:
             return make_error(
                 "not_found",
-                f"Data entry '{entry_id}' not found.",
-                ["Use data_list to see available entries."],
+                f"Artifact '{artifact_id}' not found.",
+                ["Use artifact_list to see available artifacts."],
             )
 
-        # Get the data file path
-        file_path = store.get_file_path(entry_id)
+        file_path = store.get_file_path(artifact_id)
         if file_path is None or not file_path.exists():
             return make_error(
                 "file_not_found",
-                f"Data file for entry '{entry_id}' is missing from disk.",
+                f"File for artifact '{artifact_id}' is missing from disk.",
                 [
-                    "The data file may have been deleted externally.",
-                    "Use data_list to find other entries.",
+                    "The file may have been deleted externally.",
+                    "Use artifact_list to find other artifacts.",
                 ],
             )
 
@@ -233,7 +244,7 @@ async def data_read(entry_id: str) -> str:
             return make_error(
                 "file_too_large",
                 (
-                    f"Data file for entry '{entry_id}' is {size:,} bytes "
+                    f"File for artifact '{artifact_id}' is {size:,} bytes "
                     f"(>{_MAX_INLINE_SIZE:,} bytes / "
                     f"{_MAX_INLINE_SIZE // 1024} KB)."
                 ),
@@ -244,7 +255,7 @@ async def data_read(entry_id: str) -> str:
                         "to the `execute` tool."
                     ),
                     (
-                        "For visualization, pass entry_id as `data_source=` to "
+                        "For visualization, pass artifact_id as `data_source=` to "
                         "`create_static_plot` or `create_interactive_plot` — the "
                         "plot tool auto-loads the data inside its sandbox."
                     ),
@@ -254,7 +265,7 @@ async def data_read(entry_id: str) -> str:
                     ),
                 ],
                 details={
-                    "entry_id": entry_id,
+                    "artifact_id": artifact_id,
                     "size_bytes": size,
                     "limit_bytes": _MAX_INLINE_SIZE,
                     "file_path": str(file_path),
@@ -268,53 +279,9 @@ async def data_read(entry_id: str) -> str:
     except ToolError:
         raise
     except Exception as exc:
-        logger.exception("data_read failed")
+        logger.exception("artifact_read failed")
         return make_error(
             "internal_error",
-            f"Failed to read data entry: {exc}",
-            ["Check that the _agent_data directory is accessible."],
-        )
-
-
-@mcp.tool()
-async def data_delete(entry_id: str) -> str:
-    """Delete a data entry from the OSPREY workspace.
-
-    Removes both the data file and its index entry.
-
-    Args:
-        entry_id: ID of the data entry to delete.
-
-    Returns:
-        JSON confirmation of deletion.
-    """
-    try:
-        from osprey.stores.artifact_store import get_artifact_store
-
-        store = get_artifact_store()
-        deleted = store.delete_entry(entry_id)
-
-        if not deleted:
-            return make_error(
-                "not_found",
-                f"Data entry '{entry_id}' not found.",
-                ["Check the entry_id from a previous tool response."],
-            )
-
-        return json.dumps(
-            {
-                "status": "success",
-                "entry_id": entry_id,
-                "message": f"Data entry '{entry_id}' deleted.",
-            }
-        )
-
-    except ToolError:
-        raise
-    except Exception as exc:
-        logger.exception("data_delete failed")
-        return make_error(
-            "internal_error",
-            f"Failed to delete data entry: {exc}",
+            f"Failed to read artifact: {exc}",
             ["Check that the _agent_data directory is accessible."],
         )

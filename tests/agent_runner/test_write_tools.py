@@ -258,7 +258,6 @@ def test_read_only_disallowed_tools_blocks_destructive_workspace_tools(tmp_path:
     result = read_only_disallowed_tools(tmp_path)
 
     for tool in (
-        "mcp__osprey_workspace__data_delete",
         "mcp__osprey_workspace__artifact_delete",
         "mcp__osprey_workspace__artifact_delete_all",
     ):

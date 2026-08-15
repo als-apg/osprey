@@ -1,7 +1,7 @@
-"""Supplemental coverage for the in-context query_channels error branches.
+"""Supplemental coverage for the in-context ask_channels error branches.
 
 The happy path, ContextWindowExceededError, and RateLimitError are covered by
-test_query_channels.py. This file closes the remaining branches: the wrapped
+test_ask_channels.py. This file closes the remaining branches: the wrapped
 BadRequestError context-window fallback (and its re-raise for unrelated
 BadRequestErrors), the rate-limiter acquire hook, and the tokenizer helper's
 exception guard.
@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import litellm
 import pytest
 
-_MOD = "osprey.mcp_server.channel_finder_in_context.tools.query_channels"
+_MOD = "osprey.mcp_server.channel_finder_in_context.tools.ask_channels"
 
 
 @pytest.fixture
@@ -42,9 +42,9 @@ async def test_wrapped_bad_request_context_window_returns_friendly_error(mock_ct
         patch(f"{_MOD}.get_rate_limiter", return_value=None),
         patch(f"{_MOD}.aget_chat_completion", mock_aget),
     ):
-        from osprey.mcp_server.channel_finder_in_context.tools.query_channels import query_channels
+        from osprey.mcp_server.channel_finder_in_context.tools.ask_channels import ask_channels
 
-        result = await query_channels("find BPMs")
+        result = await ask_channels("find BPMs")
 
     assert result["text"] == "ERROR: context_window_exceeded"
     assert result["output_tokens"] == 0
@@ -60,10 +60,10 @@ async def test_unrelated_bad_request_is_reraised(mock_ctx):
         patch(f"{_MOD}.get_rate_limiter", return_value=None),
         patch(f"{_MOD}.aget_chat_completion", mock_aget),
     ):
-        from osprey.mcp_server.channel_finder_in_context.tools.query_channels import query_channels
+        from osprey.mcp_server.channel_finder_in_context.tools.ask_channels import ask_channels
 
         with pytest.raises(litellm.BadRequestError):
-            await query_channels("find BPMs")
+            await ask_channels("find BPMs")
 
 
 @pytest.mark.asyncio
@@ -77,9 +77,9 @@ async def test_rate_limiter_is_acquired_when_present(mock_ctx):
         patch(f"{_MOD}.get_rate_limiter", return_value=limiter),
         patch(f"{_MOD}.aget_chat_completion", mock_aget),
     ):
-        from osprey.mcp_server.channel_finder_in_context.tools.query_channels import query_channels
+        from osprey.mcp_server.channel_finder_in_context.tools.ask_channels import ask_channels
 
-        result = await query_channels("beam current PV?")
+        result = await ask_channels("beam current PV?")
 
     limiter.acquire.assert_awaited_once()
     assert result["text"] == "<final>PV:1</final>"
@@ -87,7 +87,7 @@ async def test_rate_limiter_is_acquired_when_present(mock_ctx):
 
 def test_safe_token_count_returns_zero_on_tokenizer_failure():
     """The tokenizer helper swallows litellm errors and reports 0 tokens."""
-    from osprey.mcp_server.channel_finder_in_context.tools.query_channels import _safe_token_count
+    from osprey.mcp_server.channel_finder_in_context.tools.ask_channels import _safe_token_count
 
     with patch("litellm.token_counter", side_effect=Exception("no tokenizer")):
         assert _safe_token_count("mystery/model", "some text") == 0

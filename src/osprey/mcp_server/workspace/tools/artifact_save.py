@@ -1,7 +1,9 @@
-"""MCP tools: artifact_save, artifact_delete, artifact_get.
+"""MCP tools: artifact_save, artifact_delete, artifact_delete_all, artifact_get.
 
-Register files or inline content as gallery artifacts, delete them,
-or look up artifact metadata and file paths.
+Register files or inline content as gallery artifacts, delete them (one at a
+time or a whole scope), or look up artifact metadata and file paths.
+
+Listing and reading artifact content live in ``artifact_query``.
 """
 
 import json
@@ -201,31 +203,78 @@ async def artifact_delete(artifact_id: str) -> str:
         )
 
 
-@mcp.tool()
-async def artifact_delete_all() -> str:
-    """Delete every artifact in the OSPREY gallery in a single atomic call.
+#: ``scope`` value that means the whole store, every category. Spelled out
+#: so a bulk delete can never be reached by omitting an argument.
+_SCOPE_EVERYTHING = "everything"
 
-    Removes all artifact files and clears the index. Prefer this over many
-    sequential ``artifact_delete`` calls when the user asks to delete all
-    artifacts — it acquires the index lock once and fires consistent listener
-    notifications for every removed entry.
+#: ``scope`` value for entries with no category (plots, screenshots and other
+#: artifacts saved without one). The store spells this ``category=""``.
+_SCOPE_UNCATEGORIZED = "uncategorized"
+
+
+@mcp.tool()
+async def artifact_delete_all(scope: str) -> str:
+    """Permanently delete a whole scope of artifacts in one atomic call.
+
+    Deletion is NOT recoverable — files are unlinked, there is no trash.
+    ``scope`` is required and names exactly what gets destroyed:
+
+    - a category key (e.g. "visualization", "archiver_data") — deletes only
+      that category and leaves every other one intact. Use
+      ``artifact_list`` first to see which categories exist.
+    - "uncategorized" — only artifacts saved without a category.
+    - "everything" — EVERY artifact in the store, across all categories.
+      This includes archiver datasets, scan results and other stored data,
+      not just plots and documents. Only use it when the user asked to wipe
+      the whole workspace.
+
+    Prefer this over many sequential ``artifact_delete`` calls: it acquires
+    the index lock once and notifies listeners consistently.
+
+    Args:
+        scope: "everything", "uncategorized", or a single category key.
 
     Returns:
-        JSON confirmation including the number of deleted artifacts and
-        their IDs.
+        JSON with the scope acted on, the number of artifacts destroyed,
+        their IDs, and a per-category breakdown of what was destroyed.
     """
     try:
         from osprey.stores.artifact_store import get_artifact_store
+        from osprey.stores.type_registry import valid_category_keys
+
+        valid_scopes = valid_category_keys() | {_SCOPE_EVERYTHING, _SCOPE_UNCATEGORIZED}
+        if scope not in valid_scopes:
+            return make_error(
+                "validation_error",
+                f"Unknown scope '{scope}'.",
+                [
+                    f'Use "{_SCOPE_EVERYTHING}" to delete every artifact in the store.',
+                    f'Use "{_SCOPE_UNCATEGORIZED}" for artifacts saved without a category.',
+                    f"Valid category keys: {', '.join(sorted(valid_category_keys()))}",
+                ],
+            )
 
         store = get_artifact_store()
-        deleted = store.delete_all()
+        if scope == _SCOPE_EVERYTHING:
+            deleted = store.delete_everything()
+        elif scope == _SCOPE_UNCATEGORIZED:
+            deleted = store.delete_category("")
+        else:
+            deleted = store.delete_category(scope)
+
+        by_category: dict[str, int] = {}
+        for entry in deleted:
+            key = entry.category or _SCOPE_UNCATEGORIZED
+            by_category[key] = by_category.get(key, 0) + 1
 
         return json.dumps(
             {
                 "status": "success",
+                "scope": scope,
                 "deleted_count": len(deleted),
                 "artifact_ids": [e.id for e in deleted],
-                "message": f"Deleted {len(deleted)} artifact(s).",
+                "deleted_by_category": by_category,
+                "message": (f"Permanently deleted {len(deleted)} artifact(s) in scope '{scope}'."),
             }
         )
 
@@ -235,7 +284,7 @@ async def artifact_delete_all() -> str:
         logger.exception("artifact_delete_all failed")
         return make_error(
             "internal_error",
-            f"Failed to delete all artifacts: {exc}",
+            f"Failed to delete artifacts in scope '{scope}': {exc}",
             ["Check MCP server logs for details."],
         )
 
@@ -246,7 +295,8 @@ async def artifact_get(artifact_id: str) -> str:
 
     Returns metadata including the on-disk file path, which can be passed
     to tools like ``graph_extract(image_path=...)``. Does not return the
-    file content inline (artifacts can be large binaries).
+    file content inline (artifacts can be large binaries) — use
+    ``artifact_read`` for that.
 
     Args:
         artifact_id: ID of the artifact to look up.
@@ -264,7 +314,7 @@ async def artifact_get(artifact_id: str) -> str:
             return make_error(
                 "not_found",
                 f"Artifact {artifact_id} not found.",
-                ["Use data_list or check a previous artifact_save response."],
+                ["Use artifact_list or check a previous artifact_save response."],
             )
 
         file_path = store.get_file_path(artifact_id)

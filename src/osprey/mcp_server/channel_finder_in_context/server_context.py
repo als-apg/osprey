@@ -233,7 +233,7 @@ class ChannelFinderICContext:
     def system_prompt_input_tokens(self) -> int:
         """Tokens in the system prompt, counted once at init for the configured model.
 
-        Used by query_channels to compute per-query input_tokens without
+        Used by ask_channels to compute per-question input_tokens without
         re-tokenizing the (large) channel-database prompt on every call.
         """
         return self._system_prompt_input_tokens

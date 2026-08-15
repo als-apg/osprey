@@ -219,9 +219,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "list_windows",
             "manage_window",
             "submit_response",
-            "data_list",
-            "data_read",
-            "data_delete",
+            "artifact_list",
+            "artifact_read",
             "artifact_get",
             "artifact_focus",
             "artifact_export",
@@ -243,7 +242,13 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "lattice_refresh",
             "lattice_set_baseline",
             "list_panels",
-            "switch_panel",
+            # The on-screen axis: both halves are reversible in one operator
+            # click, so neither is worth a prompt. The rail axis
+            # (add_panel_to_rail/remove_panel_from_rail) is deliberately absent —
+            # taking a panel off the rail costs the operator the ability to
+            # launch it back, which is worth asking about.
+            "open_panel",
+            "close_panel",
             "arrange_workspace",
         ],
         permissions_ask=["setup_patch"],
@@ -447,11 +452,11 @@ CHANNEL_FINDER_TOOLS_BY_PIPELINE: dict[str, list[str]] = {
         "list_channels",
         "list_families",
         "list_systems",
-        "query_channels",
+        "run_sql",
         "statistics",
         "validate",
     ],
-    "in_context": ["query_channels"],
+    "in_context": ["ask_channels"],
 }
 
 

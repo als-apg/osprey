@@ -12,7 +12,7 @@ subprocess, and the bundled Claude CLI:
   PreToolUse hook — which fires for every call — denies them. The probe must
   be a tool NO declared subagent lists (asserted by
   ``test_probe_tool_is_discriminating``): a surface-declared tool such as
-  ``data_list`` is legitimately allowed inside a delegated subagent (that is
+  ``artifact_list`` is legitimately allowed inside a delegated subagent (that is
   Repro B's feature), so with such a probe the assertion would hinge on
   whether the model happens to delegate — the exact nondeterminism that made
   this test flaky.
@@ -155,7 +155,7 @@ def stripped_repo(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) ->
         for entry in before
         if "channel-finder" not in entry
         and "submit_response" not in entry
-        and "data_list" not in entry
+        and "artifact_list" not in entry
         and not entry.startswith(("Task(", "Agent("))
     ]
     assert len(after) < len(before), "fixture did not strip anything — check settings.json"
@@ -325,7 +325,7 @@ def test_subagent_tools_work_in_settings_stripped_repo(worker):
     run = dispatch_and_wait(
         worker,
         "Find the channel address for the storage ring beam current.",
-        allowed_tools=["mcp__controls__channel_read", "mcp__osprey_workspace__data_list"],
+        allowed_tools=["mcp__controls__channel_read", "mcp__osprey_workspace__artifact_list"],
     )
 
     sub_calls = _calls(run, "mcp__channel-finder__") + _calls(

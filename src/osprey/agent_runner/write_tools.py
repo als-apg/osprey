@@ -126,7 +126,7 @@ def load_write_tools(project_dir: Path) -> list[str]:
 
 # Substrings in a tool name that mark it as destroying stored state. Used to
 # auto-detect destructive tools that sit in an auto-approve (``allow``) list —
-# e.g. the workspace server's data_delete/artifact_delete/artifact_delete_all,
+# e.g. the workspace server's artifact_delete/artifact_delete_all,
 # which are safe-to-auto-approve *interactively* (a human drives) but must not
 # run in a headless read-only query. Sourced from the shared Bluesky tool-name
 # module so the marker vocabulary has a single home: a rename there (e.g.
@@ -165,7 +165,7 @@ def _server_side_effect_tools(server) -> list[str]:
       list, so both are side-effecting.
     * destructive-named tools in ``permissions_allow`` + ``fixed_allow`` — tools
       auto-approved interactively but whose name implies destruction (e.g.
-      ``data_delete``). See ``_is_destructive``.
+      ``artifact_delete``). See ``_is_destructive``.
     * every ``hooks_pre`` matcher gated by the writes-check hook (hardware
       writes).
 

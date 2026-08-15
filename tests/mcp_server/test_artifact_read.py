@@ -1,4 +1,4 @@
-"""Tests for the data_read MCP tool.
+"""Tests for the artifact_read MCP tool.
 
 Covers:
   - Reading a valid entry returns full JSON content (raw data, no envelope)
@@ -36,20 +36,20 @@ def store(tmp_path):
 
 @pytest.fixture
 def read_tool():
-    """Get the raw async function for data_read."""
-    from osprey.mcp_server.workspace.tools.data_context_tools import data_read
+    """Get the raw async function for artifact_read."""
+    from osprey.mcp_server.workspace.tools.artifact_query import artifact_read
 
-    return get_tool_fn(data_read)
+    return get_tool_fn(artifact_read)
 
 
 class TestDataRead:
-    """Tests for data_read."""
+    """Tests for artifact_read."""
 
     @pytest.mark.asyncio
     async def test_read_valid_entry(self, store, read_tool):
         entry = _save_entry(store)
 
-        result = extract_response_dict(await read_tool(entry_id=entry.id))
+        result = extract_response_dict(await read_tool(artifact_id=entry.id))
 
         assert result["value"] == 42
         assert result["units"] == "mA"
@@ -57,7 +57,7 @@ class TestDataRead:
     @pytest.mark.asyncio
     async def test_read_missing_entry(self, store, read_tool):
         with assert_raises_error(error_type="not_found") as _exc_ctx:
-            await read_tool(entry_id="nonexistent_id")
+            await read_tool(artifact_id="nonexistent_id")
         result = _exc_ctx["envelope"]
         assert "nonexistent_id" in result["error_message"]
 
@@ -69,7 +69,7 @@ class TestDataRead:
         store.get_file_path(entry.id).unlink()
 
         with assert_raises_error(error_type="file_not_found"):
-            await read_tool(entry_id=entry.id)
+            await read_tool(artifact_id=entry.id)
 
     @pytest.mark.asyncio
     async def test_read_oversized_file(self, store, read_tool):
@@ -80,12 +80,12 @@ class TestDataRead:
         store.get_file_path(entry.id).write_text("x" * (200 * 1024))
 
         with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
+            await read_tool(artifact_id=entry.id)
         envelope = ctx["envelope"]
         details = envelope["details"]
         assert details["size_bytes"] == 200 * 1024
         assert details["limit_bytes"] == 100 * 1024
-        assert details["entry_id"] == entry.id
+        assert details["artifact_id"] == entry.id
         assert details["file_path"].endswith(entry.data_file)
 
     @pytest.mark.asyncio
@@ -96,7 +96,7 @@ class TestDataRead:
         payload = "y" * (50 * 1024)
         store.get_file_path(entry.id).write_text(payload)
 
-        content = await read_tool(entry_id=entry.id)
+        content = await read_tool(artifact_id=entry.id)
         assert content == payload
 
     @pytest.mark.asyncio
@@ -116,7 +116,7 @@ class TestDataRead:
         store.get_file_path(entry.id).write_text(json.dumps(payload))
 
         with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
+            await read_tool(artifact_id=entry.id)
         preview = ctx["envelope"]["details"]["preview"]
         assert preview["shape"] == "dataframe_split"
         assert preview["columns"] == columns
@@ -149,7 +149,7 @@ class TestDataRead:
         store.get_file_path(entry.id).write_text(json.dumps(payload))
 
         with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
+            await read_tool(artifact_id=entry.id)
         preview = ctx["envelope"]["details"]["preview"]
         assert preview["shape"] == "timeseries_series"
         assert preview["channels"] == ["CH_A", "CH_B", "CH_DOWN"]
@@ -180,7 +180,7 @@ class TestDataRead:
         store.get_file_path(entry.id).write_text(json.dumps(payload))
 
         with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
+            await read_tool(artifact_id=entry.id)
         preview = ctx["envelope"]["details"]["preview"]
         assert preview["shape"] == "timeseries_series"
         assert preview["channels"] == ["CH_A"]
@@ -220,7 +220,7 @@ class TestDataRead:
         store.get_file_path(entry.id).write_text(json.dumps(payload))
 
         with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
+            await read_tool(artifact_id=entry.id)
         preview = ctx["envelope"]["details"]["preview"]
         assert preview["shape"] == "json_object"
         assert set(preview["top_level_keys"]) == expected_keys
@@ -237,7 +237,7 @@ class TestDataRead:
         store.get_file_path(entry.id).write_text(json.dumps(payload))
 
         with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
+            await read_tool(artifact_id=entry.id)
         preview = ctx["envelope"]["details"]["preview"]
         assert preview["shape"] == "timeseries_series"
         assert preview["channels"] == ["CH_A"]
@@ -275,7 +275,7 @@ class TestDataRead:
         store.get_file_path(entry.id).write_bytes(content)
 
         with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
+            await read_tool(artifact_id=entry.id)
         preview = ctx["envelope"]["details"]["preview"]
         assert {k: preview.get(k) for k in expected} == expected
         assert "head" not in preview
@@ -286,13 +286,13 @@ class TestDataRead:
     ):
         """An unexpected store exception surfaces as internal_error, not a raw traceback."""
 
-        def _boom(entry_id):
+        def _boom(artifact_id):
             raise RuntimeError("index corrupted")
 
         monkeypatch.setattr(store, "get_entry", _boom)
 
         with assert_raises_error(error_type="internal_error") as ctx:
-            await read_tool(entry_id="whatever")
+            await read_tool(artifact_id="whatever")
         assert "index corrupted" in ctx["envelope"]["error_message"]
 
     @pytest.mark.asyncio
@@ -306,7 +306,7 @@ class TestDataRead:
         store.get_file_path(entry.id).write_text(head + filler + tail)
 
         with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
+            await read_tool(artifact_id=entry.id)
         preview = ctx["envelope"]["details"]["preview"]
         assert preview["shape"] == "text"
         assert preview["head"].startswith("HEAD_MARKER_LINE")
@@ -319,7 +319,7 @@ class TestDataRead:
         store.get_file_path(entry.id).write_text("x" * (200 * 1024))
 
         with assert_raises_error(error_type="file_too_large") as ctx:
-            await read_tool(entry_id=entry.id)
+            await read_tool(artifact_id=entry.id)
         suggestions = ctx["envelope"]["suggestions"]
         joined = "\n".join(suggestions)
         assert "execute" in joined
@@ -327,10 +327,10 @@ class TestDataRead:
 
     @pytest.mark.asyncio
     async def test_read_returns_raw_json_string(self, store, read_tool):
-        """data_read returns the file content as-is (raw JSON, no envelope)."""
+        """artifact_read returns the file content as-is (raw JSON, no envelope)."""
         entry = _save_entry(store, data={"channels": ["SR:C01:CURRENT"]})
 
-        raw = await read_tool(entry_id=entry.id)
+        raw = await read_tool(artifact_id=entry.id)
         parsed = json.loads(raw)
 
         # The raw content is the data itself — no envelope
@@ -342,8 +342,8 @@ class TestDataRead:
         e1 = _save_entry(store, data={"sensor": "A"})
         e2 = _save_entry(store, data={"sensor": "B"})
 
-        r1 = json.loads(await read_tool(entry_id=e1.id))
-        r2 = json.loads(await read_tool(entry_id=e2.id))
+        r1 = json.loads(await read_tool(artifact_id=e1.id))
+        r2 = json.loads(await read_tool(artifact_id=e2.id))
 
         assert r1["sensor"] == "A"
         assert r2["sensor"] == "B"

@@ -27,7 +27,7 @@ do not attempt their work with your own tools.
 
 {% if channel_finder_enabled -%}
 - **channel-finder** — Finds channel/PV addresses. You do NOT have channel-finding tools.
-  For ANY channel/PV/signal lookup — even a single name — delegate to **channel-finder**. Do NOT call `list_systems`, `list_families`, `list_channels`, `query_channels`, `python_execute`, `python_execute_file`, or `Write` yourself; only the subagent has the indexed hierarchy traversal needed to resolve user descriptions to real addresses. Channel-finder returns *addresses*, not values — feed them into the appropriate archiver or live-read tool yourself{% if data_visualizer_enabled %}, then to **data-visualizer** if a plot is needed{% endif %}.
+  For ANY channel/PV/signal lookup — even a single name — delegate to **channel-finder**. Do NOT call `list_systems`, `list_families`, `list_channels`, `run_sql`, `ask_channels`, `python_execute`, `python_execute_file`, or `Write` yourself; only the subagent has the indexed hierarchy traversal needed to resolve user descriptions to real addresses. Channel-finder returns *addresses*, not values — feed them into the appropriate archiver or live-read tool yourself{% if data_visualizer_enabled %}, then to **data-visualizer** if a plot is needed{% endif %}.
 {% endif -%}
 {%- if logbook_search_enabled %}
 - **logbook-search** — Searches the facility logbook for entries and events. Use for simple lookups.

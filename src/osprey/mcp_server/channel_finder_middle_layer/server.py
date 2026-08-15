@@ -48,13 +48,13 @@ def create_server() -> FastMCP:
             validate,
         )
 
-        # query_channels requires duckdb (optional dependency)
+        # run_sql requires duckdb (optional dependency)
         try:
             from osprey.mcp_server.channel_finder_middle_layer.tools import (  # noqa: F401
-                query_channels,
+                run_sql,
             )
         except ImportError:
-            logger.info("query_channels tool unavailable (duckdb not installed)")
+            logger.info("run_sql tool unavailable (duckdb not installed)")
 
     return build_cf_server(
         mcp=mcp,

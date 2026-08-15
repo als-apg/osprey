@@ -1,4 +1,4 @@
-"""MCP tool: query_channels -- answer a natural-language channel query via an inner LLM."""
+"""MCP tool: ask_channels -- answer a natural-language channel question via an inner LLM."""
 
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ from osprey.mcp_server.channel_finder_in_context.server_context import get_cf_ic
 from osprey.models import ChatCompletionRequest, ChatMessage, aget_chat_completion
 from osprey.services.channel_finder.rate_limiter import get_rate_limiter
 
-logger = logging.getLogger("osprey.mcp_server.channel_finder_in_context.tools.query_channels")
+logger = logging.getLogger("osprey.mcp_server.channel_finder_in_context.tools.ask_channels")
 
 
-class QueryChannelsResult(TypedDict):
-    """Structured tool result for query_channels.
+class AskChannelsResult(TypedDict):
+    """Structured tool result for ask_channels.
 
     Returned as fastmcp ``structuredContent`` so programmatic callers (the
     benchmark harness) can read token counts without the LLM-friendly text
@@ -38,7 +38,7 @@ def _safe_token_count(model: str, text: str) -> int:
 
 
 @mcp.tool()
-async def query_channels(query: str) -> QueryChannelsResult:
+async def ask_channels(question: str) -> AskChannelsResult:
     """Answer a natural-language question about control-system channels.
 
     Calls an inner LLM with the full channel database in its context.
@@ -49,7 +49,7 @@ async def query_channels(query: str) -> QueryChannelsResult:
     they are used by the benchmark harness to infer cost via list price.
 
     Args:
-        query: Natural-language question about channels or PV addresses.
+        question: Natural-language question about channels or PV addresses.
     """
     ctx = get_cf_ic_context()
 
@@ -60,13 +60,13 @@ async def query_channels(query: str) -> QueryChannelsResult:
     req = ChatCompletionRequest(
         messages=[
             ChatMessage(role="system", content=ctx.system_prompt_with_db),
-            ChatMessage(role="user", content=query),
+            ChatMessage(role="user", content=question),
         ]
     )
 
     # Common token-accounting prefix for both happy-path and error returns.
-    user_query_tokens = _safe_token_count(ctx.subagent_model_id, query)
-    input_tokens = ctx.system_prompt_input_tokens + user_query_tokens
+    question_tokens = _safe_token_count(ctx.subagent_model_id, question)
+    input_tokens = ctx.system_prompt_input_tokens + question_tokens
 
     try:
         text = await aget_chat_completion(
@@ -77,10 +77,8 @@ async def query_channels(query: str) -> QueryChannelsResult:
             temperature=0.0,
         )
     except litellm.ContextWindowExceededError:
-        logger.warning(
-            "query_channels: context window exceeded for model %s", ctx.subagent_model_id
-        )
-        return QueryChannelsResult(
+        logger.warning("ask_channels: context window exceeded for model %s", ctx.subagent_model_id)
+        return AskChannelsResult(
             text="ERROR: context_window_exceeded",
             input_tokens=input_tokens,
             output_tokens=0,
@@ -95,25 +93,25 @@ async def query_channels(query: str) -> QueryChannelsResult:
         # caller still gets the friendly ERROR string instead of a traceback.
         if "ContextWindowExceededError" in str(exc) or "context window" in str(exc).lower():
             logger.warning(
-                "query_channels: context window exceeded (wrapped BadRequestError) for model %s",
+                "ask_channels: context window exceeded (wrapped BadRequestError) for model %s",
                 ctx.subagent_model_id,
             )
-            return QueryChannelsResult(
+            return AskChannelsResult(
                 text="ERROR: context_window_exceeded",
                 input_tokens=input_tokens,
                 output_tokens=0,
             )
         raise
     except litellm.RateLimitError:
-        logger.warning("query_channels: rate limit hit for provider %s", ctx.subagent_provider)
-        return QueryChannelsResult(
+        logger.warning("ask_channels: rate limit hit for provider %s", ctx.subagent_provider)
+        return AskChannelsResult(
             text="ERROR: rate_limited",
             input_tokens=input_tokens,
             output_tokens=0,
         )
 
     output_tokens = _safe_token_count(ctx.subagent_model_id, text)
-    return QueryChannelsResult(
+    return AskChannelsResult(
         text=text,
         input_tokens=input_tokens,
         output_tokens=output_tokens,

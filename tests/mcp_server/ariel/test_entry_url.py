@@ -257,7 +257,7 @@ async def test_sql_query_rows_gain_entry_url(tmp_path, monkeypatch):
         patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)),
     ):
         fn = get_tool_fn(_import_sql_query())
-        result = await fn(query="SELECT entry_id, source_system, author FROM enhanced_entries")
+        result = await fn(sql="SELECT entry_id, source_system, author FROM enhanced_entries")
 
     rows = json.loads(result)["rows"]
     assert rows[0]["entry_url"] == "https://logbook.example/olog.php?id=e1"

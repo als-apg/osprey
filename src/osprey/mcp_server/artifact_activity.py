@@ -17,7 +17,7 @@ those callers tag themselves via
 are dropped here — the frames are *agent* activity.
 
 **The caller is never blocked.** ``notify_agent_activity`` performs a blocking
-HTTP POST, and ``ArtifactStore.delete_all`` fires the delete listener once per
+HTTP POST, and ``ArtifactStore.delete_everything`` fires the delete listener once per
 removed entry — a "clear the gallery" call would otherwise stall for one POST
 per artifact, on whatever thread (or event loop) invoked it. The listener
 callbacks therefore only enqueue onto a :class:`queue.Queue`; a single daemon
@@ -70,7 +70,7 @@ _NOTEBOOK_BOOKKEEPING_SOURCES = frozenset({"execute", "execute_file"})
 _BOOKKEEPING_CATEGORY = "code_output"
 
 #: Backlog bound. When the web terminal is unreachable each notify costs up to
-#: a second, so a bulk ``delete_all`` can outrun the worker; the frames are
+#: a second, so a bulk delete can outrun the worker; the frames are
 #: ephemeral UI signals (the browser-side history ring holds 50) and dropping
 #: the overflow is strictly better than growing a queue nobody will read.
 _MAX_PENDING = 256
@@ -131,7 +131,7 @@ def _on_artifact_saved(entry: ArtifactEntry) -> None:
 
 
 def _on_artifact_deleted(entry: ArtifactEntry) -> None:
-    """Store delete listener — fires once per entry, including from ``delete_all``."""
+    """Store delete listener — fires once per entry, bulk deletes included."""
     _enqueue(_DELETE_TOOL, entry)
 
 

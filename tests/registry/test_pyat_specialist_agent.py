@@ -191,8 +191,8 @@ class TestPyatSpecialistAgentTemplate:
         rendered = self._render(template_manager, ctx)
         expected = (
             "tools: mcp__python__execute, mcp__osprey_workspace__submit_response, "
-            "mcp__osprey_workspace__artifact_save, mcp__osprey_workspace__data_list, "
-            "mcp__osprey_workspace__data_read, Read"
+            "mcp__osprey_workspace__artifact_save, mcp__osprey_workspace__artifact_list, "
+            "mcp__osprey_workspace__artifact_read, Read"
         )
         assert expected in rendered
 

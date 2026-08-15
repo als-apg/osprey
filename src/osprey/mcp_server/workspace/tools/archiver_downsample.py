@@ -22,11 +22,11 @@ logger = logging.getLogger("osprey.mcp_server.tools.archiver_downsample")
 
 @mcp.tool()
 async def archiver_downsample(
-    entry_id: str,
+    artifact_id: str,
     max_points: int = 200,
     channels: list[str] | None = None,
 ) -> str:
-    """Downsample a timeseries artifact entry for chart embedding.
+    """Downsample a timeseries artifact for chart embedding.
 
     Uses LTTB (Largest-Triangle-Three-Buckets) to reduce each channel's point
     count independently while preserving its visual shape. A non-numeric
@@ -35,10 +35,10 @@ async def archiver_downsample(
     ``max_points`` and is evenly subsampled (keeping the first and last
     points) otherwise.
 
-    Only works on category="archiver_data" entries.
+    Only works on category="archiver_data" artifacts.
 
     Args:
-        entry_id: Artifact entry ID to downsample.
+        artifact_id: ID of the artifact to downsample.
         max_points: Maximum number of points to return per channel (default 200).
         channels: Optional list of channel names to include. If omitted,
             all channels are included.
@@ -54,27 +54,27 @@ async def archiver_downsample(
     from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
-    entry = store.get_entry(entry_id)
+    entry = store.get_entry(artifact_id)
 
     if entry is None:
         return make_error(
             "validation_error",
-            f"Artifact entry '{entry_id}' not found.",
-            suggestions=["Use session_summary to list available entries."],
+            f"Artifact '{artifact_id}' not found.",
+            suggestions=["Use artifact_list to see available artifacts."],
         )
 
     if entry.category != "archiver_data":
         return make_error(
             "validation_error",
-            f"Entry '{entry_id}' has category={entry.category!r}, not 'archiver_data'.",
-            suggestions=["Only archiver_data entries can be downsampled."],
+            f"Artifact '{artifact_id}' has category={entry.category!r}, not 'archiver_data'.",
+            suggestions=["Only archiver_data artifacts can be downsampled."],
         )
 
-    filepath = store.get_file_path(entry_id)
+    filepath = store.get_file_path(artifact_id)
     if filepath is None:
         return make_error(
             "internal_error",
-            f"Data file for entry '{entry_id}' not found on disk.",
+            f"File for artifact '{artifact_id}' not found on disk.",
         )
 
     try:

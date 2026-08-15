@@ -4,7 +4,7 @@ description: "Delegate to this agent when the user needs lattice/optics quantiti
 summary: Computes lattice/optics quantities by writing and executing pyAT code on the simulated ring
 model: {{ claude_code_model_spec.agent_tier("pyat-specialist") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 30
-tools: mcp__python__execute, mcp__osprey_workspace__submit_response, mcp__osprey_workspace__artifact_save, mcp__osprey_workspace__data_list, mcp__osprey_workspace__data_read, Read
+tools: mcp__python__execute, mcp__osprey_workspace__submit_response, mcp__osprey_workspace__artifact_save, mcp__osprey_workspace__artifact_list, mcp__osprey_workspace__artifact_read, Read
 disallowedTools: Bash, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---
 
