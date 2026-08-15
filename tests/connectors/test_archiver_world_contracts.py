@@ -448,7 +448,7 @@ class World:
             # precision_ms=0 is full resolution: every stored sample at its own
             # timestamp, with no binning between the store and the assertion.
             return await connector.get_data(
-                pv_list=list(channels), start_date=start, end_date=end, precision_ms=0
+                channels=list(channels), start_date=start, end_date=end, precision_ms=0
             )
         finally:
             await connector.disconnect()
@@ -469,7 +469,7 @@ class World:
         await connector.connect({"noise_level": NOISE, "sample_rate_hz": 1.0})
         try:
             return await connector.get_data(
-                pv_list=list(channels),
+                channels=list(channels),
                 start_date=start,
                 end_date=end,
                 precision_ms=precision_ms,

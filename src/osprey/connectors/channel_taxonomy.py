@@ -2,6 +2,6 @@
 
 import sys
 
-from osprey_connectors import pv_taxonomy as _mod
+from osprey_connectors import channel_taxonomy as _mod
 
 sys.modules[__name__] = _mod

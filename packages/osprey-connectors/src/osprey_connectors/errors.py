@@ -74,9 +74,10 @@ class ChannelLimitsViolationError(Exception):
 class ChannelWriteBlockedError(Exception):
     """Raised when the reference monitor refused a channel write.
 
-    A refusal means the write was NEVER attempted (no caput issued): writes are
-    disabled, a limits check failed, or validation raised. Distinct from
-    ChannelWriteFailedError, which means the write was attempted and failed.
+    A refusal means the write was NEVER attempted — the control system was never
+    asked: writes are disabled, a limits check failed, or validation raised.
+    Distinct from ChannelWriteFailedError, which means the write was attempted
+    and failed.
 
     reason is one of: "WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR".
     """
@@ -93,14 +94,17 @@ class ChannelWriteBlockedError(Exception):
 class ChannelWriteFailedError(Exception):
     """Raised when a channel write was attempted but did not verifiably succeed.
 
-    The caput was issued (or attempted) but the write failed or its readback did
-    not verify. Distinct from ChannelWriteBlockedError (a policy/limits/validation
-    refusal, never attempted). A scan consumer must abort on this.
+    The control system was asked to write but the write failed or its readback
+    did not verify. Distinct from ChannelWriteBlockedError (a
+    policy/limits/validation refusal, never attempted). A scan consumer must
+    abort on this.
 
-    reason is one of: "CAPUT_FAILED", "READBACK_UNVERIFIED".
+    reason is one of: "WRITE_FAILED", "READBACK_UNVERIFIED". Both are
+    protocol-neutral on purpose — the same codes describe an EPICS, DOOCS, or
+    simulated write.
     """
 
-    _VALID_REASONS = ("CAPUT_FAILED", "READBACK_UNVERIFIED")
+    _VALID_REASONS = ("WRITE_FAILED", "READBACK_UNVERIFIED")
 
     def __init__(self, channel_address: str, reason: str, message: str | None = None):
         self.channel_address = channel_address

@@ -50,7 +50,7 @@ _WANDER_DECAY_PER_OCTAVE = 0.5
 _WANDER_JITTER_OCTAVES = 0.15
 
 
-def pv_key_bytes(pv_name: str) -> bytes:
+def channel_key_bytes(channel: str) -> bytes:
     """Per-channel key for the counter-based draw primitives.
 
     The key is the SHA-256 digest of the UTF-8 channel name. The builtin
@@ -58,21 +58,21 @@ def pv_key_bytes(pv_name: str) -> bytes:
     keyed on it would differ between runs of the same scenario.
 
     Callers derive independent streams for the same channel by appending a
-    subkey (e.g. ``pv_key_bytes(pv) + b":noise_abs"``).
+    subkey (e.g. ``channel_key_bytes(channel) + b":noise_abs"``).
 
     Args:
-        pv_name: Channel name.
+        channel: Channel name.
 
     Returns:
-        A 32-byte digest suitable as the ``pv_key`` argument of
+        A 32-byte digest suitable as the ``channel_key`` argument of
         :func:`keyed_normals`.
     """
-    return hashlib.sha256(pv_name.encode("utf-8")).digest()
+    return hashlib.sha256(channel.encode("utf-8")).digest()
 
 
-def _key_words(pv_key: bytes) -> tuple[np.uint64, np.uint64]:
+def _key_words(channel_key: bytes) -> tuple[np.uint64, np.uint64]:
     """Two uint64 lane keys derived from an arbitrary-length key."""
-    digest = hashlib.sha256(pv_key).digest()
+    digest = hashlib.sha256(channel_key).digest()
     return (
         np.uint64(int.from_bytes(digest[0:8], "big")),
         np.uint64(int.from_bytes(digest[8:16], "big")),
@@ -101,7 +101,7 @@ def _as_counter_array(counters: "np.ndarray") -> "np.ndarray":
     return array
 
 
-def _keyed_words(pv_key: bytes, counters_ms: "np.ndarray") -> "tuple[np.ndarray, np.ndarray]":
+def _keyed_words(channel_key: bytes, counters_ms: "np.ndarray") -> "tuple[np.ndarray, np.ndarray]":
     """The two uint64 words each sample consumes, as a pair of arrays.
 
     Exactly two words per sample, addressed by that sample's own counter — no
@@ -109,12 +109,12 @@ def _keyed_words(pv_key: bytes, counters_ms: "np.ndarray") -> "tuple[np.ndarray,
     reproducible across differently-shaped windows.
     """
     counters = _as_counter_array(counters_ms)
-    k0, k1 = _key_words(pv_key)
+    k0, k1 = _key_words(channel_key)
     base = counters * _GAMMA
     return _mix64(base ^ k0), _mix64(base ^ k1)
 
 
-def keyed_normals(pv_key: bytes, counters_ms: "np.ndarray") -> "np.ndarray":
+def keyed_normals(channel_key: bytes, counters_ms: "np.ndarray") -> "np.ndarray":
     """Standard normal draws addressed by ``(channel key, counter)``.
 
     Each sample's draw is a pure function of its own counter, so two windows
@@ -136,7 +136,7 @@ def keyed_normals(pv_key: bytes, counters_ms: "np.ndarray") -> "np.ndarray":
     equivalence against a per-sample reference implementation.
 
     Args:
-        pv_key: Channel key, typically :func:`pv_key_bytes` output optionally
+        channel_key: Channel key, typically :func:`channel_key_bytes` output optionally
             suffixed with a subkey to get an independent stream.
         counters_ms: Per-sample counters, conventionally epoch milliseconds.
             Floats are rounded to the nearest integer; any shape is accepted.
@@ -145,7 +145,7 @@ def keyed_normals(pv_key: bytes, counters_ms: "np.ndarray") -> "np.ndarray":
         A float64 array of standard normal draws with the shape of
         ``counters_ms``.
     """
-    w0, w1 = _keyed_words(pv_key, counters_ms)
+    w0, w1 = _keyed_words(channel_key, counters_ms)
     u1 = ((w0 >> _SHIFT_11) | _ONE).astype(np.float64) * _TWO_POW_M53
     u2 = (w1 >> _SHIFT_11).astype(np.float64) * _TWO_POW_M53
     return np.sqrt(-2.0 * np.log(u1)) * np.cos(_TWO_PI * u2)
@@ -157,7 +157,7 @@ def _unit_interval(words: "np.ndarray") -> "np.ndarray":
 
 
 def _wander_components(
-    pv_key: bytes, period_s: float
+    channel_key: bytes, period_s: float
 ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """Periods, phases and normalized weights of one channel's texture stack.
 
@@ -167,7 +167,7 @@ def _wander_components(
     channel still gets its own apparent offset and motion.
 
     Args:
-        pv_key: Channel key, as for :func:`keyed_normals`.
+        channel_key: Channel key, as for :func:`keyed_normals`.
         period_s: Slowest period in seconds.
 
     Returns:
@@ -175,7 +175,7 @@ def _wander_components(
         :data:`_WANDER_COMPONENTS`, with ``weights`` summing to 1.
     """
     index = np.arange(_WANDER_COMPONENTS, dtype=np.uint64)
-    phase_words, weight_words = _keyed_words(pv_key + _WANDER_SUBKEY, index)
+    phase_words, weight_words = _keyed_words(channel_key + _WANDER_SUBKEY, index)
     octaves = np.arange(_WANDER_COMPONENTS, dtype=np.float64) * (
         _WANDER_OCTAVE_SPAN / (_WANDER_COMPONENTS - 1)
     )
@@ -186,7 +186,9 @@ def _wander_components(
     return periods, phases, np.asarray(weights / weights.sum())
 
 
-def wander(pv_key: bytes, t_abs_s: "np.ndarray", amplitude: float, period_s: float) -> "np.ndarray":
+def wander(
+    channel_key: bytes, t_abs_s: "np.ndarray", amplitude: float, period_s: float
+) -> "np.ndarray":
     """Band-limited quasi-random baseline texture, evaluated on absolute time.
 
     A seeded sum of :data:`_WANDER_COMPONENTS` sinusoids whose periods are
@@ -204,7 +206,7 @@ def wander(pv_key: bytes, t_abs_s: "np.ndarray", amplitude: float, period_s: flo
     archiver windows agree exactly on their shared timestamps.
 
     Args:
-        pv_key: Channel key, as for :func:`keyed_normals`.
+        channel_key: Channel key, as for :func:`keyed_normals`.
         t_abs_s: Absolute epoch seconds; any shape.
         amplitude: Envelope bound, in the channel's declared units.
         period_s: Slowest period in seconds; must be positive.
@@ -220,7 +222,7 @@ def wander(pv_key: bytes, t_abs_s: "np.ndarray", amplitude: float, period_s: flo
     if period_s <= 0.0:
         raise ValueError(f"wander period_s must be > 0, got {period_s!r}")
     times = np.asarray(t_abs_s, dtype=np.float64)
-    periods, phases, weights = _wander_components(pv_key, period_s)
+    periods, phases, weights = _wander_components(channel_key, period_s)
     total = np.zeros(times.shape, dtype=np.float64)
     for period, phase, weight in zip(periods, phases, weights, strict=True):
         total += weight * np.sin(_TWO_PI * times / period + phase)

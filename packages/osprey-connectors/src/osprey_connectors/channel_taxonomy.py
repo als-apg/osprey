@@ -1,34 +1,37 @@
-"""Shared procedural-PV taxonomy for the mock connectors.
+"""Shared procedural channel taxonomy for the mock connectors.
 
 Both the mock control-system connector and the mock archiver connector need to
-guess plausible defaults for PV names that the data-driven simulation engine
-does *not* serve. They classify a PV by substring conventions in its name and
-map it to a physical base value and engineering units.
+guess plausible defaults for channels that the data-driven simulation engine does
+*not* serve. They classify a channel by substring conventions in its address and
+map it to a physical base value and engineering units. The conventions happen to
+read like EPICS names, but nothing here is protocol-specific: a DOOCS property
+address classifies by the same substrings.
 
 Neither connector may hold its own copy of this keyword ladder: two copies drift
-apart branch by branch, and the same PV name then classifies one way for live
+apart branch by branch, and the same channel then classifies one way for live
 reads and another for archived ones. This module is the single source of truth:
-:func:`classify_pv` returns a :class:`PVKind`, and each connector layers its own
-behaviour on top — the archiver shapes a time series per :attr:`PVKind.name`,
-the control connector seeds an initial value and reports units.
+:func:`classify_channel` returns a :class:`ChannelKind`, and each connector layers
+its own behaviour on top — the archiver shapes a time series per
+:attr:`ChannelKind.name`, the control connector seeds an initial value and reports
+units.
 
-The kind also carries :attr:`PVKind.noise_scale`, the absolute floor under the
-otherwise purely relative sigma, so a kind whose base value is legitimately
-``0.0`` is not silently dead-flat. :meth:`PVKind.noise_sigma` combines the two
-and is the single implementation both noise-applying fallbacks (the mock control
-connector and the Virtual Accelerator's engine source) call.
+The kind also carries :attr:`ChannelKind.noise_scale`, the absolute floor under
+the otherwise purely relative sigma, so a kind whose base value is legitimately
+``0.0`` is not silently dead-flat. :meth:`ChannelKind.noise_sigma` combines the
+two and is the single implementation both noise-applying fallbacks (the mock
+control connector and the Virtual Accelerator's engine source) call.
 """
 
 from dataclasses import dataclass
 
-__all__ = ["POSITION_NOISE_SCALE", "PVKind", "classify_pv"]
+__all__ = ["POSITION_NOISE_SCALE", "ChannelKind", "classify_channel"]
 
 POSITION_NOISE_SCALE = 0.005
 """Absolute noise floor for the ``position`` kind, in mm.
 
 Roughly a BPM's single-shot resolution. Position is the one kind whose
-:attr:`PVKind.base_value` is legitimately ``0.0`` (a centred orbit), which makes
-the relative noise the fallback paths apply — ``abs(base) * noise_level`` —
+:attr:`ChannelKind.base_value` is legitimately ``0.0`` (a centred orbit), which
+makes the relative noise the fallback paths apply — ``abs(base) * noise_level`` —
 identically zero, so the channel reads back dead-flat however noisy it is
 declared to be. The floor is deliberately per-kind rather than global: base
 values span 1e-9 Torr to 5000 V, and any single absolute number would be
@@ -37,8 +40,8 @@ overwhelming noise at one end of that range and invisible at the other.
 
 
 @dataclass(frozen=True)
-class PVKind:
-    """A procedural PV classification.
+class ChannelKind:
+    """A procedural channel classification.
 
     Attributes:
         name: Canonical kind, used by the archiver to pick a synthesis shape.
@@ -80,31 +83,31 @@ class PVKind:
         return max(abs(base_value) * noise_level, self.noise_scale)
 
 
-def classify_pv(pv_name: str) -> PVKind:
-    """Classify a PV name into a :class:`PVKind` by naming convention.
+def classify_channel(channel: str) -> ChannelKind:
+    """Classify a channel address into a :class:`ChannelKind` by naming convention.
 
     The checks are ordered: more specific kinds (beam current) are tested before
     more general ones (current). A name matching nothing falls through to the
     generic ``default`` kind.
     """
-    lower = pv_name.lower()
+    lower = channel.lower()
 
     if ("beam" in lower and "current" in lower) or "dcct" in lower:
-        return PVKind("beam_current", 500.0, "mA")
+        return ChannelKind("beam_current", 500.0, "mA")
     if "current" in lower:
-        return PVKind("current", 150.0, "A")
+        return ChannelKind("current", 150.0, "A")
     if "voltage" in lower:
-        return PVKind("voltage", 5000.0, "V")
+        return ChannelKind("voltage", 5000.0, "V")
     if "power" in lower:
-        return PVKind("power", 50.0, "kW")
+        return ChannelKind("power", 50.0, "kW")
     if "pressure" in lower:
-        return PVKind("pressure", 1e-9, "Torr")
+        return ChannelKind("pressure", 1e-9, "Torr")
     if "temp" in lower:
-        return PVKind("temperature", 25.0, "°C")
+        return ChannelKind("temperature", 25.0, "°C")
     if "lifetime" in lower:
-        return PVKind("lifetime", 10.0, "hours")
+        return ChannelKind("lifetime", 10.0, "hours")
     if "position" in lower or "pos" in lower:
-        return PVKind("position", 0.0, "mm", noise_scale=POSITION_NOISE_SCALE)
+        return ChannelKind("position", 0.0, "mm", noise_scale=POSITION_NOISE_SCALE)
     if "energy" in lower:
-        return PVKind("energy", 1900.0, "MeV")
-    return PVKind("default", 100.0, "")
+        return ChannelKind("energy", 1900.0, "MeV")
+    return ChannelKind("default", 100.0, "")

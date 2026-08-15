@@ -108,13 +108,13 @@ class TestMockConnector:
             )
 
             # Write a value
-            pv_name = "TEST:SETPOINT:SP"
+            channel = "TEST:SETPOINT:SP"
             test_value = 123.45
-            result = await connector.write_channel(pv_name, test_value)
+            result = await connector.write_channel(channel, test_value)
             assert result.success is True
 
             # Read it back
-            result = await connector.read_channel(pv_name)
+            result = await connector.read_channel(channel)
             assert abs(result.value - test_value) < 0.1  # Allow tiny variance
 
             await connector.disconnect()
@@ -161,13 +161,13 @@ class TestMockConnector:
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0})
 
-            pv_names = ["PV:1", "PV:2", "PV:3", "PV:4"]
-            results = await connector.read_multiple_channels(pv_names)
+            channels = ["PV:1", "PV:2", "PV:3", "PV:4"]
+            results = await connector.read_multiple_channels(channels)
 
-            assert len(results) == len(pv_names)
-            for pv_name in pv_names:
-                assert pv_name in results
-                assert results[pv_name].value is not None
+            assert len(results) == len(channels)
+            for channel in channels:
+                assert channel in results
+                assert results[channel].value is not None
 
             await connector.disconnect()
 
@@ -230,13 +230,13 @@ class TestMockArchiverConnector:
 
         start_date = datetime(2024, 1, 1, 0, 0, 0)
         end_date = datetime(2024, 1, 1, 1, 0, 0)
-        pv_list = ["FAKE:PV:1", "RANDOM:PV:2", "ANY:NAME:3"]
+        channels = ["FAKE:PV:1", "RANDOM:PV:2", "ANY:NAME:3"]
 
-        df = await connector.get_data(pv_list=pv_list, start_date=start_date, end_date=end_date)
+        df = await connector.get_data(channels=channels, start_date=start_date, end_date=end_date)
 
         assert df is not None
         assert len(df) > 0
-        assert set(df["channel"]) == set(pv_list)
+        assert set(df["channel"]) == set(channels)
 
         await connector.disconnect()
 
@@ -250,7 +250,7 @@ class TestMockArchiverConnector:
         end_date = datetime(2024, 1, 1, 0, 10, 0)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"], start_date=start_date, end_date=end_date, precision_ms=1000
+            channels=["BEAM:CURRENT"], start_date=start_date, end_date=end_date, precision_ms=1000
         )
 
         import pandas as pd
@@ -270,7 +270,7 @@ class TestMockArchiverConnector:
         await connector.connect({})
 
         metadata = await connector.get_metadata("BEAM:CURRENT")
-        assert metadata.pv_name == "BEAM:CURRENT"
+        assert metadata.channel == "BEAM:CURRENT"
         assert metadata.is_archived is True
         assert metadata.archival_start is not None
 
@@ -282,11 +282,11 @@ class TestMockArchiverConnector:
         connector = MockArchiverConnector()
         await connector.connect({})
 
-        pv_names = ["PV:1", "PV:2", "PV:3"]
-        availability = await connector.check_availability(pv_names)
+        channels = ["PV:1", "PV:2", "PV:3"]
+        availability = await connector.check_availability(channels)
 
-        assert len(availability) == len(pv_names)
-        for pv in pv_names:
+        assert len(availability) == len(channels)
+        for pv in channels:
             assert availability[pv] is True
 
         await connector.disconnect()
@@ -301,7 +301,7 @@ class TestMockArchiverConnector:
         end_date = datetime(2024, 1, 1, 1, 0, 0)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"], start_date=start_date, end_date=end_date
+            channels=["BEAM:CURRENT"], start_date=start_date, end_date=end_date
         )
 
         # Check that values vary (not all the same)
@@ -321,7 +321,7 @@ class TestMockArchiverConnector:
         end_date = datetime(2024, 1, 1, 0, 1, 0)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT", "MAGNET:VOLTAGE"],
+            channels=["BEAM:CURRENT", "MAGNET:VOLTAGE"],
             start_date=start_date,
             end_date=end_date,
             precision_ms=1000,
@@ -361,14 +361,14 @@ class TestMockArchiverProcessing:
         pv = "BEAM:CURRENT"
 
         raw_df = await connector.get_data(
-            pv_list=[pv],
+            channels=[pv],
             start_date=start_date,
             end_date=end_date,
             precision_ms=1_000,
             processing="raw",
         )
         mean_df = await connector.get_data(
-            pv_list=[pv],
+            channels=[pv],
             start_date=start_date,
             end_date=end_date,
             precision_ms=60_000,
@@ -391,7 +391,7 @@ class TestMockArchiverProcessing:
         end_date = start_date + timedelta(days=7)
 
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=start_date,
             end_date=end_date,
             precision_ms=1000,
@@ -417,7 +417,7 @@ class TestMockArchiverProceduralKinds:
     """
 
     @pytest.mark.parametrize(
-        ("pv_name", "base_value"),
+        ("channel", "base_value"),
         [
             ("PS:CURRENT", 150.0),
             ("RF:POWER", 50.0),
@@ -427,17 +427,17 @@ class TestMockArchiverProceduralKinds:
         ],
     )
     @pytest.mark.asyncio
-    async def test_each_kind_generates_a_plausible_series(self, pv_name, base_value):
+    async def test_each_kind_generates_a_plausible_series(self, channel, base_value):
         connector = MockArchiverConnector()
         await connector.connect({"noise_level": 0.01})
 
         df = await connector.get_data(
-            pv_list=[pv_name],
+            channels=[channel],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 3, 20, 0),
             precision_ms=60_000,
         )
-        values = df.loc[df["channel"] == pv_name, "value"].to_numpy()
+        values = df.loc[df["channel"] == channel, "value"].to_numpy()
 
         assert len(values) == 200
         assert np.all(np.isfinite(values))
@@ -451,7 +451,7 @@ class TestMockArchiverReproducibility:
     """The mock's synthetic data must be reproducible, which it advertises but did not do.
 
     Regression: non-BPM noise came from the global ``np.random``, and the
-    per-PV seed came from salted ``hash(pv_name)``, so results differed both
+    per-PV seed came from salted ``hash(channel)``, so results differed both
     within and across processes.
     """
 
@@ -461,7 +461,7 @@ class TestMockArchiverReproducibility:
         connector = MockArchiverConnector()
         await connector.connect({})
         start, end = self._WINDOW
-        df = await connector.get_data(pv_list=[pv], start_date=start, end_date=end)
+        df = await connector.get_data(channels=[pv], start_date=start, end_date=end)
         await connector.disconnect()
         return df["value"].tolist()
 
@@ -492,7 +492,7 @@ class TestMockArchiverReproducibility:
                 c = MockArchiverConnector()
                 await c.connect({})
                 df = await c.get_data(
-                    pv_list=["SR:UNKNOWN:PRESSURE"],
+                    channels=["SR:UNKNOWN:PRESSURE"],
                     start_date=datetime(2024, 1, 15, 10, 0, 0),
                     end_date=datetime(2024, 1, 15, 10, 5, 0),
                 )
@@ -541,12 +541,12 @@ class TestKindAwareNoiseFloor:
     """The procedural fallback applies noise multiplicatively, so a channel
     whose baseline is exactly ``0.0`` is immune to its own noise declaration.
     Kinds whose base can legitimately be zero therefore carry an absolute sigma
-    floor (``PVKind.noise_scale``); every other kind's sigma is untouched.
+    floor (``ChannelKind.noise_scale``); every other kind's sigma is untouched.
     """
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("pv_name", "base_value"),
+        ("channel", "base_value"),
         [
             ("SR:BEAM:CURRENT", 500.0),
             ("PS:CURRENT", 150.0),
@@ -559,13 +559,13 @@ class TestKindAwareNoiseFloor:
             ("SOME:RANDOM:PV", 100.0),
         ],
     )
-    async def test_non_position_kind_sigma_is_exactly_unchanged(self, pv_name, base_value):
+    async def test_non_position_kind_sigma_is_exactly_unchanged(self, channel, base_value):
         """Regression guard: the floor must not perturb any kind with a non-zero base."""
         with patch("osprey.utils.config.get_config_value", return_value=True):
             connector = MockConnector()
             await connector.connect({"response_delay_ms": 0, "noise_level": 0.01})
             with _captured_sigmas() as sigmas:
-                await connector.read_channel(pv_name)
+                await connector.read_channel(channel)
             await connector.disconnect()
 
         assert sigmas == [abs(base_value) * 0.01]

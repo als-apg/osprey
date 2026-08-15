@@ -20,12 +20,12 @@ from osprey.simulation import series as series_module
 from osprey.simulation.expressions import ExpressionError
 from osprey.simulation.series import (
     apply_events,
+    channel_key_bytes,
     clamp,
     daily_occurrences,
     epoch_seconds_array,
     event_positions,
     keyed_normals,
-    pv_key_bytes,
     ref_value,
     string_series,
     wander,
@@ -275,18 +275,18 @@ class TestApplyEvents:
 
 class TestPvKeyBytes:
     def test_is_sha256_of_the_utf8_name(self):
-        assert pv_key_bytes("SR:BPM1:X") == hashlib.sha256(b"SR:BPM1:X").digest()
+        assert channel_key_bytes("SR:BPM1:X") == hashlib.sha256(b"SR:BPM1:X").digest()
 
     def test_stable_and_distinct_per_name(self):
-        assert pv_key_bytes("A") == pv_key_bytes("A")
-        assert pv_key_bytes("A") != pv_key_bytes("B")
+        assert channel_key_bytes("A") == channel_key_bytes("A")
+        assert channel_key_bytes("A") != channel_key_bytes("B")
 
     def test_builtin_hash_is_not_used(self):
         """``hash()`` is PYTHONHASHSEED-randomized per process, so a key derived
         from it would silently change between runs. Same-name keys must be
         reproducible against a literal digest computed outside this process."""
         expected = bytes.fromhex("07b788d9e5c120d3471cb7245b835ab1bfd5ac347f77e92488b177f617ecaf2f")
-        assert pv_key_bytes("SR:HCM:1:SP") == expected
+        assert channel_key_bytes("SR:HCM:1:SP") == expected
 
 
 class TestKeyedNormals:
@@ -299,7 +299,7 @@ class TestKeyedNormals:
     """
 
     def test_matches_per_sample_reference_exactly(self):
-        key = pv_key_bytes("SR:BPM:07:X")
+        key = channel_key_bytes("SR:BPM:07:X")
         counters = np.arange(1_764_500_000_000, 1_764_500_000_000 + 500, 100, dtype=np.uint64)
 
         out = keyed_normals(key, counters)
@@ -311,7 +311,7 @@ class TestKeyedNormals:
         """Exactness anchor below the transcendentals: if the normals ever
         disagree while the words and uniforms still match bit-for-bit, the cause
         is a 1-ULP libm/SIMD difference, not a broken construction."""
-        key = pv_key_bytes("SR:BPM:07:Y")
+        key = channel_key_bytes("SR:BPM:07:Y")
         counters = np.arange(1_764_500_000_000, 1_764_500_000_000 + 200, dtype=np.uint64)
 
         w0, w1 = series_module._keyed_words(key, counters)
@@ -324,7 +324,7 @@ class TestKeyedNormals:
         """A batch of n samples uses the n-th sample's own counter, never a
         running stream position: drawing one sample in isolation reproduces its
         value inside any batch."""
-        key = pv_key_bytes("SR:HCM:12:SP")
+        key = channel_key_bytes("SR:HCM:12:SP")
         counters = np.arange(9_000_000, 9_000_000 + 64, dtype=np.uint64)
 
         batch = keyed_normals(key, counters)
@@ -334,13 +334,13 @@ class TestKeyedNormals:
             assert single[0] == batch[i]
 
     def test_pointwise_stable_across_separate_calls(self):
-        key = pv_key_bytes("SR:VCM:03:SP")
+        key = channel_key_bytes("SR:VCM:03:SP")
         counters = np.array([1, 2, 3, 1_700_000_000_000], dtype=np.uint64)
 
         np.testing.assert_array_equal(keyed_normals(key, counters), keyed_normals(key, counters))
 
     def test_pointwise_stable_under_slicing_and_reordering(self):
-        key = pv_key_bytes("SR:VCM:04:SP")
+        key = channel_key_bytes("SR:VCM:04:SP")
         counters = np.arange(2_000_000, 2_000_100, dtype=np.uint64)
 
         full = keyed_normals(key, counters)
@@ -353,7 +353,7 @@ class TestKeyedNormals:
     def test_overlapping_windows_agree_on_shared_counters(self):
         """Two windows that share timestamps must agree exactly on the overlap —
         the property that window-start-seeded batch draws cannot provide."""
-        key = pv_key_bytes("SR:DCCT:CURRENT")
+        key = channel_key_bytes("SR:DCCT:CURRENT")
         window_a = np.arange(1_764_000_000_000, 1_764_000_060_000, 1000, dtype=np.uint64)
         window_b = np.arange(1_764_000_030_000, 1_764_000_090_000, 1000, dtype=np.uint64)
 
@@ -365,8 +365,8 @@ class TestKeyedNormals:
     def test_distinct_keys_give_distinct_draws(self):
         counters = np.arange(500, dtype=np.uint64)
 
-        a = keyed_normals(pv_key_bytes("SR:BPM:01:X"), counters)
-        b = keyed_normals(pv_key_bytes("SR:BPM:01:Y"), counters)
+        a = keyed_normals(channel_key_bytes("SR:BPM:01:X"), counters)
+        b = keyed_normals(channel_key_bytes("SR:BPM:01:Y"), counters)
 
         assert not np.any(a == b)
         assert abs(float(np.corrcoef(a, b)[0, 1])) < 0.15
@@ -376,7 +376,7 @@ class TestKeyedNormals:
         ``u1 > 0`` even for the one counter whose word mixes to exactly zero, so
         ``log(u1)`` can never be ``-inf``. A shared-mapping defect here would be
         invisible to the equivalence test, hence a dedicated test."""
-        key = pv_key_bytes("SR:BPM:99:X")
+        key = channel_key_bytes("SR:BPM:99:X")
 
         for lane in (0, 1):
             counter = _counter_producing_zero_word(key, lane)
@@ -393,13 +393,13 @@ class TestKeyedNormals:
             assert abs(float(out[0])) <= math.sqrt(2.0 * 53.0 * math.log(2.0))
 
     def test_no_inf_or_nan_over_a_large_sweep(self):
-        key = pv_key_bytes("SR:BPM:42:X")
+        key = channel_key_bytes("SR:BPM:42:X")
         counters = np.arange(200_000, dtype=np.uint64)
 
         assert np.isfinite(keyed_normals(key, counters)).all()
 
     def test_distribution_sanity(self):
-        key = pv_key_bytes("SR:BPM:11:X")
+        key = channel_key_bytes("SR:BPM:11:X")
         counters = np.arange(100_000, dtype=np.uint64)
 
         out = keyed_normals(key, counters)
@@ -412,7 +412,7 @@ class TestKeyedNormals:
     def test_accepts_float_counters_by_rounding(self):
         """Callers derive counters as ``epoch_seconds * 1000``, which arrives as
         float64; the draw must key on the rounded integer millisecond."""
-        key = pv_key_bytes("SR:BPM:05:X")
+        key = channel_key_bytes("SR:BPM:05:X")
 
         out = keyed_normals(key, np.array([1_764_000_000_123.4, 1_764_000_000_122.5]))
 
@@ -422,7 +422,7 @@ class TestKeyedNormals:
     def test_accepts_signed_and_negative_counters(self):
         """Sample-index fallback counters are plain int64; pre-epoch timestamps
         make them negative. Both must key deterministically rather than raise."""
-        key = pv_key_bytes("SR:BPM:06:X")
+        key = channel_key_bytes("SR:BPM:06:X")
         counters = np.array([-2, -1, 0, 1], dtype=np.int64)
 
         out = keyed_normals(key, counters)
@@ -433,7 +433,7 @@ class TestKeyedNormals:
         assert out[0] == _reference_normal(key, (-2) & _MASK64)
 
     def test_shape_dtype_and_empty_input(self):
-        key = pv_key_bytes("SR:BPM:08:X")
+        key = channel_key_bytes("SR:BPM:08:X")
 
         out = keyed_normals(key, np.arange(6, dtype=np.uint64).reshape(2, 3))
         assert out.shape == (2, 3)
@@ -447,7 +447,7 @@ class TestKeyedNormals:
         """Relative and absolute noise draw from the same counters; a distinct
         subkey keeps the two streams from being the same number twice."""
         counters = np.arange(1000, dtype=np.uint64)
-        base = pv_key_bytes("SR:BPM:09:X")
+        base = channel_key_bytes("SR:BPM:09:X")
 
         rel = keyed_normals(base + b":noise", counters)
         absolute = keyed_normals(base + b":noise_abs", counters)
@@ -461,7 +461,7 @@ class TestKeyedNormals:
 
         start = time.perf_counter()
         for channel in range(144):
-            keyed_normals(pv_key_bytes(f"SR:SIM:{channel}:X"), counters)
+            keyed_normals(channel_key_bytes(f"SR:SIM:{channel}:X"), counters)
         elapsed = time.perf_counter() - start
 
         assert elapsed < 1.0, f"144 x 10,000 draws took {elapsed:.3f}s (budget 1.0s)"
@@ -481,7 +481,9 @@ class TestWanderComponents:
     """Structural pins on the component stack behind :func:`wander`."""
 
     def test_component_count_is_in_the_declared_range(self):
-        periods, phases, weights = series_module._wander_components(pv_key_bytes("PV:A"), 3600.0)
+        periods, phases, weights = series_module._wander_components(
+            channel_key_bytes("PV:A"), 3600.0
+        )
 
         assert 4 <= len(periods) <= 6
         assert len(phases) == len(periods)
@@ -489,13 +491,13 @@ class TestWanderComponents:
 
     def test_period_s_is_the_slowest_period(self):
         """``period_s`` names the slowest component, not the only one."""
-        periods, _, _ = series_module._wander_components(pv_key_bytes("PV:A"), 3600.0)
+        periods, _, _ = series_module._wander_components(channel_key_bytes("PV:A"), 3600.0)
 
         assert periods[0] == 3600.0
         assert np.all(np.diff(periods) < 0.0)  # strictly decreasing
 
     def test_periods_span_three_to_four_octaves_log_spaced(self):
-        periods, _, _ = series_module._wander_components(pv_key_bytes("PV:A"), 3600.0)
+        periods, _, _ = series_module._wander_components(channel_key_bytes("PV:A"), 3600.0)
 
         octaves = np.log2(periods[0] / periods[-1])
         assert 3.0 <= octaves <= 4.0
@@ -506,7 +508,7 @@ class TestWanderComponents:
     def test_period_ratios_are_not_simple_rationals(self):
         """Incommensurate in the practical sense: no pair of components shares a
         short common period, so the stack does not visibly repeat."""
-        periods, _, _ = series_module._wander_components(pv_key_bytes("PV:A"), 3600.0)
+        periods, _, _ = series_module._wander_components(channel_key_bytes("PV:A"), 3600.0)
 
         for i in range(len(periods)):
             for j in range(i + 1, len(periods)):
@@ -520,7 +522,7 @@ class TestWanderComponents:
         and the log-space jitter is narrower than the decay step, so the slowest
         component dominates for EVERY channel rather than only on average."""
         for name in [f"PV:{i}" for i in range(50)]:
-            _, _, weights = series_module._wander_components(pv_key_bytes(name), 3600.0)
+            _, _, weights = series_module._wander_components(channel_key_bytes(name), 3600.0)
 
             assert float(weights.sum()) == pytest.approx(1.0, abs=1e-12)
             assert np.all(weights > 0.0)
@@ -529,7 +531,7 @@ class TestWanderComponents:
     def test_phases_cover_the_circle_and_differ_per_channel(self):
         phases = np.concatenate(
             [
-                series_module._wander_components(pv_key_bytes(f"PV:{i}"), 3600.0)[1]
+                series_module._wander_components(channel_key_bytes(f"PV:{i}"), 3600.0)[1]
                 for i in range(60)
             ]
         )
@@ -553,7 +555,7 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 200_000.0, 20_001)
 
         for name in [f"SR:BPM:{i}:X" for i in range(20)]:
-            out = wander(pv_key_bytes(name), t, amplitude, 3600.0)
+            out = wander(channel_key_bytes(name), t, amplitude, 3600.0)
 
             assert np.all(np.abs(out) <= amplitude)
             assert np.isfinite(out).all()
@@ -561,7 +563,7 @@ class TestWander:
     def test_bound_is_structural_not_clipping(self):
         """Doubling the amplitude doubles every sample exactly. A clipped
         implementation is nonlinear at the bound and fails this."""
-        key = pv_key_bytes("SR:BPM:3:X")
+        key = channel_key_bytes("SR:BPM:3:X")
         t = np.linspace(1.7e9, 1.7e9 + 50_000.0, 5_001)
 
         single = wander(key, t, 1.0, 3600.0)
@@ -572,7 +574,7 @@ class TestWander:
         assert np.abs(single).max() < 1.0
 
     def test_deterministic_per_channel_and_time(self):
-        key = pv_key_bytes("SR:BPM:4:X")
+        key = channel_key_bytes("SR:BPM:4:X")
         t = np.linspace(1.7e9, 1.7e9 + 10_000.0, 1_001)
 
         np.testing.assert_array_equal(wander(key, t, 10.0, 3600.0), wander(key, t, 10.0, 3600.0))
@@ -587,7 +589,7 @@ class TestWander:
         array) so the shared timestamps are equal by value, and the texture must
         agree bit-for-bit there — this is what makes overlapping archiver
         queries consistent."""
-        key = pv_key_bytes("SR:BPM:5:X")
+        key = channel_key_bytes("SR:BPM:5:X")
         window_a = np.arange(1_764_000_000.0, 1_764_000_600.0, 5.0)
         window_b = np.arange(1_764_000_300.0, 1_764_000_900.0, 5.0)
 
@@ -607,7 +609,7 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 400 * period_s, 200_001)
 
         for name in ["SR:BPM:1:X", "SR:BPM:2:Y", "SR:HCM:9:CURRENT:RB"]:
-            out = wander(pv_key_bytes(name), t, amplitude, period_s)
+            out = wander(channel_key_bytes(name), t, amplitude, period_s)
 
             assert abs(float(out.mean())) < 0.02 * amplitude
 
@@ -619,7 +621,7 @@ class TestWander:
 
         offsets = np.array(
             [
-                float(wander(pv_key_bytes(f"SR:BPM:{i}:X"), t, amplitude, 86400.0).mean())
+                float(wander(channel_key_bytes(f"SR:BPM:{i}:X"), t, amplitude, 86400.0).mean())
                 for i in range(144)
             ]
         )
@@ -633,7 +635,7 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 60.0, 61)  # 60 s window vs a 24 h period
 
         for name in [f"SR:BPM:{i}:X" for i in range(20)]:
-            out = wander(pv_key_bytes(name), t, amplitude, 86400.0)
+            out = wander(channel_key_bytes(name), t, amplitude, 86400.0)
 
             assert float(out.max() - out.min()) < 0.1 * amplitude
 
@@ -645,14 +647,14 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 2 * period_s, 4_001)
 
         for name in [f"SR:BPM:{i}:X" for i in range(20)]:
-            out = wander(pv_key_bytes(name), t, amplitude, period_s)
+            out = wander(channel_key_bytes(name), t, amplitude, period_s)
 
             assert float(out.max() - out.min()) > 0.3 * amplitude
 
     def test_does_not_repeat_at_the_slowest_period(self):
         """Incommensurate components mean the stack is not periodic in
         ``period_s`` — a harmonic stack would repeat exactly one period later."""
-        key = pv_key_bytes("SR:BPM:6:X")
+        key = channel_key_bytes("SR:BPM:6:X")
         period_s = 3600.0
         t = np.linspace(1.7e9, 1.7e9 + period_s, 2_001)
 
@@ -669,7 +671,7 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 1800.0, 1_801)  # 30 min of a 24 h period
 
         spans = [
-            float(np.ptp(wander(pv_key_bytes(f"SR:BPM:{i}:X"), t, amplitude, 86400.0)))
+            float(np.ptp(wander(channel_key_bytes(f"SR:BPM:{i}:X"), t, amplitude, 86400.0)))
             for i in range(20)
         ]
 
@@ -677,24 +679,26 @@ class TestWander:
         assert float(np.median(spans)) > 0.01 * amplitude
 
     def test_is_pure_and_does_not_mutate_input(self):
-        key = pv_key_bytes("SR:BPM:7:X")
+        key = channel_key_bytes("SR:BPM:7:X")
         t = np.linspace(1.7e9, 1.7e9 + 1000.0, 101)
         original = t.copy()
 
         first = wander(key, t, 10.0, 3600.0)
-        wander(pv_key_bytes("SR:BPM:8:X"), t, 99.0, 60.0)  # interleaved other call
+        wander(channel_key_bytes("SR:BPM:8:X"), t, 99.0, 60.0)  # interleaved other call
         second = wander(key, t, 10.0, 3600.0)
 
         np.testing.assert_array_equal(t, original)
         np.testing.assert_array_equal(first, second)
 
     def test_zero_amplitude_is_flat(self):
-        out = wander(pv_key_bytes("SR:BPM:9:X"), np.linspace(1.7e9, 1.7e9 + 100.0, 11), 0.0, 60.0)
+        out = wander(
+            channel_key_bytes("SR:BPM:9:X"), np.linspace(1.7e9, 1.7e9 + 100.0, 11), 0.0, 60.0
+        )
 
         np.testing.assert_array_equal(out, np.zeros(11))
 
     def test_shape_dtype_and_empty_input(self):
-        key = pv_key_bytes("SR:BPM:10:X")
+        key = channel_key_bytes("SR:BPM:10:X")
 
         out = wander(key, np.full((2, 3), 1.7e9), 5.0, 3600.0)
         assert out.shape == (2, 3)
@@ -709,7 +713,7 @@ class TestWander:
         synthesis passes a whole window. Both go through this one function, so a
         live read at time ``t`` and the synthesized sample at ``t`` must be the
         same number — bit-for-bit, not merely close."""
-        key = pv_key_bytes("SR:BPM:12:X")
+        key = channel_key_bytes("SR:BPM:12:X")
         now = 1_764_000_000.5
 
         live = wander(key, now, 30.0, 86400.0)
@@ -722,7 +726,7 @@ class TestWander:
     def test_non_positive_period_is_rejected(self):
         """A zero/negative period would divide to inf and put NaN in the series —
         the exact class of silent corruption this feature exists to remove."""
-        key = pv_key_bytes("SR:BPM:11:X")
+        key = channel_key_bytes("SR:BPM:11:X")
         t = np.linspace(1.7e9, 1.7e9 + 100.0, 11)
 
         for bad in (0.0, -1.0):

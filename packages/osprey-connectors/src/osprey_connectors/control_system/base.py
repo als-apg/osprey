@@ -24,15 +24,24 @@ _fail_on_mismatch_warned = False
 
 @dataclass
 class ChannelMetadata:
-    """Metadata about a control system channel."""
+    """Metadata a control system reports about one of its channels.
+
+    ``display_low`` / ``display_high`` are the range the control system suggests
+    for DISPLAYING this channel (EPICS LOPR/HOPR and their equivalents). They are
+    deliberately NOT named ``min_value`` / ``max_value``: those belong to
+    :class:`~osprey_connectors.control_system.limits_validator.ChannelLimitsConfig`
+    and are the bounds OSPREY refuses to write past. Only the latter is enforced —
+    a value inside the display range can still be refused, and a connector that
+    reports no display range constrains nothing.
+    """
 
     units: str = ""
     precision: int | None = None
     alarm_status: str | None = None
     timestamp: datetime | None = None
     description: str | None = None
-    min_value: float | None = None
-    max_value: float | None = None
+    display_low: float | None = None
+    display_high: float | None = None
     raw_metadata: dict[str, Any] | None = field(default_factory=dict)
 
     def __post_init__(self):
@@ -78,9 +87,9 @@ class ChannelWriteResult:
 
     The ``blocked`` / ``refusal_reason`` fields mark a *refusal*: the monitor
     declined this write on policy grounds (writes disabled, limits, or
-    validation) and the underlying ``caput`` was never attempted. This is
-    distinct from a ``caput`` I/O failure — where the write was attempted but
-    failed — which leaves ``blocked=False``.
+    validation) and the control system was never asked to write. This is
+    distinct from an I/O failure — where the write was attempted but failed —
+    which leaves ``blocked=False``.
     """
 
     channel_address: str  # Channel that was written
@@ -106,6 +115,53 @@ def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteRes
         blocked=True,
         refusal_reason="WRITES_DISABLED",
     )
+
+
+def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
+    """Enforce the reference monitor's denial contract on one write result.
+
+    The single place that decides whether a ``ChannelWriteResult`` counts as a
+    successful write. Every caller that must not proceed on an unverified write
+    routes through here, so the refusal/failure distinction cannot drift between
+    the single-channel and multi-channel paths.
+
+    Args:
+        result: The result returned by a connector's ``write_channel``.
+
+    Returns:
+        The result unchanged, when the write verifiably succeeded (including a
+        success at ``verification_level="none"``, where no verification was asked
+        for).
+
+    Raises:
+        ChannelWriteBlockedError: The monitor refused the write on policy,
+            limits, or validation grounds — it was never attempted.
+        ChannelWriteFailedError: The write was attempted but failed
+            (``WRITE_FAILED``), or came back unverified (``READBACK_UNVERIFIED``)
+            because the readback disagreed with the setpoint or could not be read.
+    """
+    from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
+
+    if result.blocked:
+        raise ChannelWriteBlockedError(
+            result.channel_address,
+            result.refusal_reason or "WRITES_DISABLED",
+            message=result.error_message,
+        )
+    if not result.success:
+        raise ChannelWriteFailedError(
+            result.channel_address, "WRITE_FAILED", message=result.error_message
+        )
+    v = result.verification
+    if v is not None and v.level != "none" and not v.verified:
+        # A verification WAS requested (callback/readback) but did not verify:
+        # readback mismatch, or the readback itself failed.
+        raise ChannelWriteFailedError(
+            result.channel_address,
+            "READBACK_UNVERIFIED",
+            message=result.error_message or v.notes,
+        )
+    return result
 
 
 def _warn_once_if_fail_on_mismatch_set(verification: Any) -> None:
@@ -348,13 +404,14 @@ class ControlSystemConnector(ABC):
 
         Two-layer safety model:
             **Per-write mechanical safety** lives INSIDE the connector and is applied
-            per Channel Access put: the ``writes_enabled`` gate, limits validation
-            (min/max/step/writable), and the fail-closed validation path. This is
-            complete mediation at the CA write primitive — every put passes through it.
+            per individual channel write: the ``writes_enabled`` gate, limits
+            validation (min/max/step/writable), and the fail-closed validation path.
+            This is complete mediation at the write primitive — every write passes
+            through it.
 
             **Per-intent human authorization** is a SEPARATE layer at the tool
             boundary: the PreToolUse approval hook (and, for scans, the promote token)
-            gate the *intent* to write, once per intent — not once per CA put.
+            gate the *intent* to write, once per intent — not once per channel write.
 
             The two are orthogonal and complementary: the connector cannot be talked
             out of a mechanical refusal, and the approval layer cannot substitute for
@@ -369,18 +426,19 @@ class ControlSystemConnector(ABC):
 
         Refused (policy/limits/validation) -> raises ChannelWriteBlockedError.
         Attempted but failed or unverified   -> raises ChannelWriteFailedError.
-        Native ConnectionError/TimeoutError from the CA layer -> propagate unchanged.
+        Native ConnectionError/TimeoutError from the transport -> propagate unchanged.
         A verified successful write            -> returns the ChannelWriteResult.
 
         A scan device setter wraps this so any raise aborts the RunEngine, while a
-        verified write returns and the scan proceeds. Extra keyword arguments
+        verified write returns and the scan proceeds; ``osprey.runtime.write_channel``
+        routes through it for the same reason. Extra keyword arguments
         (verification_level, tolerance, timeout) pass straight through to
-        write_channel.
+        write_channel. The result inspection itself lives in
+        :func:`raise_for_write_result`, which the multi-channel paths share.
         """
         from osprey_connectors.errors import (
             ChannelLimitsViolationError,
             ChannelWriteBlockedError,
-            ChannelWriteFailedError,
         )
 
         try:
@@ -391,26 +449,7 @@ class ControlSystemConnector(ABC):
             # NOT caught here, so they propagate unchanged.)
             raise ChannelWriteBlockedError(channel_address, "LIMITS", message=str(exc)) from exc
 
-        if result.blocked:
-            raise ChannelWriteBlockedError(
-                channel_address,
-                result.refusal_reason or "WRITES_DISABLED",
-                message=result.error_message,
-            )
-        if not result.success:
-            raise ChannelWriteFailedError(
-                channel_address, "CAPUT_FAILED", message=result.error_message
-            )
-        v = result.verification
-        if v is not None and v.level != "none" and not v.verified:
-            # A verification WAS requested (callback/readback) but did not verify:
-            # readback mismatch, or the readback itself failed.
-            raise ChannelWriteFailedError(
-                channel_address,
-                "READBACK_UNVERIFIED",
-                message=result.error_message or v.notes,
-            )
-        return result
+        return raise_for_write_result(result)
 
     @abstractmethod
     async def read_multiple_channels(
@@ -499,7 +538,8 @@ class ControlSystemConnector(ABC):
             channel_address: Address/name of the channel
 
         Returns:
-            ChannelMetadata with units, limits, description, etc.
+            ChannelMetadata with units, alarm status, description, and (where the
+            control system reports one) a display range
 
         Raises:
             ConnectionError: If channel cannot be reached

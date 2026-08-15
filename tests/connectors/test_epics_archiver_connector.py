@@ -134,7 +134,7 @@ class TestGetDataMethod:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1, 0, 0, 0),
                 end_date=datetime(2024, 1, 1, 1, 0, 0),
             )
@@ -158,7 +158,7 @@ class TestGetDataMethod:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                pv_list=["PV:X"],
+                channels=["PV:X"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 1),
             )
@@ -180,7 +180,7 @@ class TestGetDataMethod:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                pv_list=["RF:MODE"],
+                channels=["RF:MODE"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 1),
             )
@@ -208,7 +208,7 @@ class TestGetDataMethod:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                pv_list=["PV:1", "PV:2"],
+                channels=["PV:1", "PV:2"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 0, 1),
             )
@@ -231,7 +231,7 @@ class TestGetDataMethod:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 1),
             )
@@ -252,7 +252,7 @@ class TestGetDataMethod:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 1),
             )
@@ -270,7 +270,7 @@ class TestGetDataMethod:
 
         with pytest.raises(RuntimeError, match="Archiver not connected"):
             await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 2),
                 timeout=60,
@@ -284,7 +284,7 @@ class TestGetDataMethod:
 
         with pytest.raises(TypeError, match="start_date must be a datetime object"):
             await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date="2024-01-01",
                 end_date=datetime(2024, 1, 2),
             )
@@ -299,7 +299,7 @@ class TestGetDataMethod:
 
         with pytest.raises(TypeError, match="end_date must be a datetime object"):
             await connector.get_data(
-                pv_list=["BEAM:CURRENT"],
+                channels=["BEAM:CURRENT"],
                 start_date=datetime(2024, 1, 1),
                 end_date="2024-01-02",
             )
@@ -334,7 +334,7 @@ class TestMultiPVLongFormat:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                pv_list=["PV:A", "PV:B"],
+                channels=["PV:A", "PV:B"],
                 start_date=datetime(2024, 1, 1),
                 end_date=datetime(2024, 1, 1, 0, 0, 10),
                 precision_ms=1000,
@@ -374,7 +374,7 @@ class TestGetDataErrorHandling:
 
             with pytest.raises(ConnectionError):
                 await connector.get_data(
-                    pv_list=["BEAM:CURRENT"],
+                    channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
                 )
@@ -395,7 +395,7 @@ class TestGetDataErrorHandling:
 
             with pytest.raises(TimeoutError, match="timed out"):
                 await connector.get_data(
-                    pv_list=["BEAM:CURRENT"],
+                    channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
                     timeout=0.01,
@@ -415,7 +415,7 @@ class TestGetDataErrorHandling:
 
             with pytest.raises(ConnectionError, match="Cannot connect to the archiver"):
                 await connector.get_data(
-                    pv_list=["BEAM:CURRENT"],
+                    channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
                 )
@@ -434,7 +434,7 @@ class TestGetDataErrorHandling:
 
             with pytest.raises(ConnectionError, match="Network connectivity issue"):
                 await connector.get_data(
-                    pv_list=["BEAM:CURRENT"],
+                    channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
                 )
@@ -455,7 +455,7 @@ class TestGetDataErrorHandling:
 
             with pytest.raises(ValueError, match="Waveform PVs not supported"):
                 await connector.get_data(
-                    pv_list=["CAM:IMAGE"],
+                    channels=["CAM:IMAGE"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
                 )
@@ -477,7 +477,7 @@ class TestGetDataErrorHandling:
             # timeout=0 should trigger immediate timeout, not fall back to self._timeout=60
             with pytest.raises((TimeoutError, Exception)):
                 await connector.get_data(
-                    pv_list=["BEAM:CURRENT"],
+                    channels=["BEAM:CURRENT"],
                     start_date=datetime(2024, 1, 1),
                     end_date=datetime(2024, 1, 2),
                     timeout=0,
@@ -498,7 +498,7 @@ class TestMetadataMethods:
         metadata = await connector.get_metadata("BEAM:CURRENT")
 
         assert isinstance(metadata, ArchiverMetadata)
-        assert metadata.pv_name == "BEAM:CURRENT"
+        assert metadata.channel == "BEAM:CURRENT"
         assert metadata.is_archived is True
         assert "BEAM:CURRENT" in metadata.description
 
@@ -510,12 +510,12 @@ class TestMetadataMethods:
         connector = EPICSArchiverConnector()
         await connector.connect({"url": "https://archiver.example.com"})
 
-        pv_names = ["PV:1", "PV:2", "PV:3"]
-        availability = await connector.check_availability(pv_names)
+        channels = ["PV:1", "PV:2", "PV:3"]
+        availability = await connector.check_availability(channels)
 
         assert isinstance(availability, dict)
-        assert len(availability) == len(pv_names)
-        for pv in pv_names:
+        assert len(availability) == len(channels)
+        for pv in channels:
             assert pv in availability
             assert availability[pv] is True
 
@@ -677,7 +677,7 @@ class TestQueryWindowTimezone:
         await connector.connect({"url": "https://archiver.example.com"})
 
         await connector.get_data(
-            pv_list=["SR:DCCT"], start_date=start, end_date=end, precision_ms=1000
+            channels=["SR:DCCT"], start_date=start, end_date=end, precision_ms=1000
         )
 
         # 10:00 PDT is 17:00 UTC; 11:00 PDT is 18:00 UTC.
@@ -708,7 +708,7 @@ class TestProcessingModes:
         await connector.connect({"url": "https://archiver.example.com"})
 
         await connector.get_data(
-            pv_list=["SR:DCCT"],
+            channels=["SR:DCCT"],
             start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
             end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
             precision_ms=60_000,
@@ -726,7 +726,7 @@ class TestProcessingModes:
 
         with pytest.raises(ValueError, match="Unknown processing mode"):
             await connector.get_data(
-                pv_list=["SR:DCCT"],
+                channels=["SR:DCCT"],
                 start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=60_000,
@@ -758,7 +758,7 @@ class TestNonNumericAggregation:
 
             with pytest.raises(ValueError, match="SR:MODE"):
                 await connector.get_data(
-                    pv_list=["SR:MODE"],
+                    channels=["SR:MODE"],
                     start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                     end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                     precision_ms=60_000,
@@ -777,7 +777,7 @@ class TestNonNumericAggregation:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                pv_list=["SR:MODE"],
+                channels=["SR:MODE"],
                 start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=60_000,
@@ -796,7 +796,7 @@ class TestNonNumericAggregation:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                pv_list=["SR:DCCT"],
+                channels=["SR:DCCT"],
                 start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=60_000,
@@ -823,7 +823,7 @@ class TestSubSecondPrecision:
 
         with pytest.raises(ValueError, match="whole number of seconds"):
             await connector.get_data(
-                pv_list=["SR:DCCT"],
+                channels=["SR:DCCT"],
                 start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=precision_ms,
@@ -855,7 +855,7 @@ class TestSubSecondPrecision:
 
         with pytest.raises(ValueError, match="whole number of seconds"):
             await connector.get_data(
-                pv_list=["SR:DCCT"],
+                channels=["SR:DCCT"],
                 start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
                 end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=60_000,
@@ -884,7 +884,7 @@ class TestSubSecondPrecision:
         await connector.connect({"url": "https://archiver.example.com"})
 
         await connector.get_data(
-            pv_list=["SR:DCCT"],
+            channels=["SR:DCCT"],
             start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
             end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
             precision_ms=precision_ms,
@@ -903,7 +903,7 @@ class TestSubSecondPrecision:
         await connector.connect({"url": "https://archiver.example.com"})
 
         await connector.get_data(
-            pv_list=["SR:DCCT"],
+            channels=["SR:DCCT"],
             start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
             end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
             precision_ms=0,

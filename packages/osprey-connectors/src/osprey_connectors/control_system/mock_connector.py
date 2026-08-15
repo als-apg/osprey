@@ -16,6 +16,7 @@ import numpy as np
 if TYPE_CHECKING:
     from osprey_connectors.simulation import SimulationEngine
 
+from osprey_connectors.channel_taxonomy import classify_channel
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system.base import (
     ChannelMetadata,
@@ -25,7 +26,6 @@ from osprey_connectors.control_system.base import (
     WriteVerification,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.pv_taxonomy import classify_pv
 from osprey_connectors.simulation import engine_serves
 
 logger = get_logger("mock_connector")
@@ -137,7 +137,7 @@ class MockConnector(ControlSystemConnector):
 
         # Add noise, floored per kind so a 0.0 baseline is not dead-flat.
         base_value = self._state[channel_address]
-        sigma = classify_pv(channel_address).noise_sigma(base_value, self._noise_level)
+        sigma = classify_channel(channel_address).noise_sigma(base_value, self._noise_level)
         noise = np.random.normal(0, sigma)
         value = base_value + noise
 
@@ -351,9 +351,9 @@ class MockConnector(ControlSystemConnector):
         return True
 
     def _generate_initial_value(self, channel_name: str) -> float:
-        """Generate a realistic initial value from the shared PV taxonomy."""
-        return classify_pv(channel_name).base_value
+        """Generate a realistic initial value from the shared channel taxonomy."""
+        return classify_channel(channel_name).base_value
 
     def _infer_units(self, channel_name: str) -> str:
-        """Infer units from the shared PV taxonomy."""
-        return classify_pv(channel_name).units
+        """Infer units from the shared channel taxonomy."""
+        return classify_channel(channel_name).units

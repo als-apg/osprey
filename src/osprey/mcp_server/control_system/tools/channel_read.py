@@ -19,10 +19,12 @@ async def channel_read(
 
     Args:
         channels: List of channel/PV addresses to read.
-        include_metadata: If True, include units, alarm status, and limits alongside values.
+        include_metadata: If True, also report units, precision, alarm status and
+            description for each channel. Use channel_limits for the bounds a write
+            is checked against - the control system does not report those here.
 
     Returns:
-        JSON with a compact summary of channel values and a data file path for full details.
+        JSON with a summary of channel values, one entry per channel.
     """
     if not channels:
         return make_error(
@@ -43,37 +45,26 @@ async def channel_read(
         else:
             readings = await connector.read_multiple_channels(channels)
 
-        results = {}
-        for addr, cv in readings.items():
-            entry: dict = {"value": cv.value, "timestamp": str(cv.timestamp)}
-            if include_metadata and cv.metadata:
-                md = cv.metadata
-                entry["metadata"] = {
-                    "units": md.units,
-                    "precision": md.precision,
-                    "alarm_status": md.alarm_status,
-                    "description": md.description,
-                    "min_value": md.min_value,
-                    "max_value": md.max_value,
-                }
-            results[addr] = entry
+        # Only fields the connectors actually populate. No connector reports the
+        # channel's display range, so this tool does not claim to either — and a
+        # write bound is a limits-database question, not a control-system read.
+        metadata_fields = ("units", "precision", "alarm_status", "description")
 
         readings_summary: dict = {}
         for addr, cv in readings.items():
-            readings_summary[addr] = {
-                "value": cv.value,
-                "timestamp": str(cv.timestamp),
-            }
-            if cv.metadata and hasattr(cv.metadata, "units"):
-                readings_summary[addr]["units"] = cv.metadata.units
+            entry: dict = {"value": cv.value, "timestamp": str(cv.timestamp)}
+            if include_metadata:
+                for field in metadata_fields:
+                    entry[field] = getattr(cv.metadata, field, None)
+            readings_summary[addr] = entry
 
         summary = {
-            "channels_read": len(results),
+            "channels_read": len(readings_summary),
             "readings": readings_summary,
         }
         access_details = {
             "fields_per_entry": (
-                ["value", "timestamp"] + (["metadata"] if include_metadata else [])
+                ["value", "timestamp"] + (list(metadata_fields) if include_metadata else [])
             ),
         }
 
@@ -81,7 +72,7 @@ async def channel_read(
         return json.dumps(
             {
                 "status": "success",
-                "description": f"Read {len(results)} channel(s)",
+                "description": f"Read {len(readings_summary)} channel(s)",
                 "summary": summary,
                 "access_details": access_details,
             },

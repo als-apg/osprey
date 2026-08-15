@@ -83,7 +83,7 @@ def mongodb_test_data(mongodb_container):
 
     start_date = datetime(2024, 1, 1, 0, 0, 0)
     end_date = datetime(2024, 1, 4, 0, 0, 0)
-    pv_names = ["BEAM:CURRENT", "BEAM:LIFETIME", "BEAM:ENERGY"]
+    channels = ["BEAM:CURRENT", "BEAM:LIFETIME", "BEAM:ENERGY"]
 
     documents = []
     current_date = start_date
@@ -104,7 +104,7 @@ def mongodb_test_data(mongodb_container):
     collection.create_index("date")
 
     yield {
-        "pv_names": pv_names,
+        "channels": channels,
         "start_date": start_date,
         "end_date": end_date,
         "document_count": len(documents),

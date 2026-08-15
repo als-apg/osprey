@@ -249,7 +249,7 @@ class TestMockArchiverSimulation:
 
         assert connector._sim_engine is None
         df = await connector.get_data(
-            pv_list=["BEAM:CURRENT"],
+            channels=["BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
@@ -264,7 +264,7 @@ class TestMockArchiverSimulation:
         await connector.connect({"simulation_file": str(machine_file)})
 
         df = await connector.get_data(
-            pv_list=["T:Q1:CUR:SP"],
+            channels=["T:Q1:CUR:SP"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
@@ -282,7 +282,7 @@ class TestMockArchiverSimulation:
         await connector.connect({"simulation_file": str(machine_file)})
 
         df = await connector.get_data(
-            pv_list=["T:Q1:CUR:SP", "T:TRANS"],
+            channels=["T:Q1:CUR:SP", "T:TRANS"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
@@ -308,7 +308,7 @@ class TestMockArchiverSimulation:
         await connector.connect({"noise_level": 0.01, "simulation_file": str(machine_file)})
 
         df = await connector.get_data(
-            pv_list=["T:Q1:CUR:SP", "BEAM:CURRENT"],
+            channels=["T:Q1:CUR:SP", "BEAM:CURRENT"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 1, 0, 0),
         )
@@ -329,7 +329,7 @@ class TestMockArchiverSimulation:
         await connector.connect({"simulation_file": str(machine_file)})
 
         df = await connector.get_data(
-            pv_list=["T:Q1:CUR:SP", "T:MODE"],
+            channels=["T:Q1:CUR:SP", "T:MODE"],
             start_date=datetime(2024, 1, 1, 0, 0, 0),
             end_date=datetime(2024, 1, 1, 0, 10, 0),
         )

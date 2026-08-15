@@ -1,7 +1,7 @@
 """
 Mock archiver connector for development and testing.
 
-Generates synthetic time-series data for any PV names.
+Generates synthetic time-series data for any channel address.
 Ideal for R&D and development without archiver access.
 
 """
@@ -105,10 +105,10 @@ class MockArchiverConnector(ArchiverConnector):
     Mock archiver for development - generates synthetic time-series data.
 
     This connector simulates an archiver system without requiring real
-    archiver access. It generates realistic time-series data for any PV name.
+    archiver access. It generates realistic time-series data for any channel.
 
     Features:
-    - Accepts any PV names
+    - Accepts any channel address
     - Generates realistic time series with texture and noise
     - Values are a pure function of (channel, absolute timestamp), so two
       overlapping windows agree on every timestamp they share
@@ -123,7 +123,7 @@ class MockArchiverConnector(ArchiverConnector):
         >>> connector = MockArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     pv_list=['BEAM:CURRENT'],
+        >>>     channels=['BEAM:CURRENT'],
         >>>     start_date=datetime(2024, 1, 1),
         >>>     end_date=datetime(2024, 1, 2)
         >>> )
@@ -176,7 +176,7 @@ class MockArchiverConnector(ArchiverConnector):
 
     async def get_data(
         self,
-        pv_list: list[str],
+        channels: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
@@ -187,7 +187,7 @@ class MockArchiverConnector(ArchiverConnector):
         Generate synthetic historical data.
 
         Args:
-            pv_list: List of PV names (all accepted)
+            channels: Channel addresses (all accepted)
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision (affects downsampling). ``<= 0`` means
@@ -221,7 +221,7 @@ class MockArchiverConnector(ArchiverConnector):
         # Generate timestamps
         index = pd.date_range(start=start_date, end=end_date, periods=num_points)
 
-        # Generate data for each PV. Channels known to the simulation engine
+        # Generate data for each channel. Channels known to the simulation engine
         # are synthesized from the machine model; everything else goes through
         # the shared procedural generator, evaluated at this grid's absolute
         # timestamps — the same values a store seeded from it holds.
@@ -235,36 +235,36 @@ class MockArchiverConnector(ArchiverConnector):
 
         resolved = resolve_processing(processing, precision_ms)
         series = {}
-        for pv in pv_list:
-            if engine_serves(self._sim_engine, pv):
-                values = self._sim_engine.synthesize_series(pv, index)
+        for channel in channels:
+            if engine_serves(self._sim_engine, channel):
+                values = self._sim_engine.synthesize_series(channel, index)
             else:
-                values = generate_series(pv, t_abs, noise_level=self._noise_level)
-            series[pv] = pd.Series(values, index=index, name=pv)
+                values = generate_series(channel, t_abs, noise_level=self._noise_level)
+            series[channel] = pd.Series(values, index=index, name=channel)
 
         data = aggregate_long_frame(series, resolved)
 
         logger.debug(
             f"Mock archiver generated {len(data)} rows across "
-            f"{len(pv_list)} PVs from {start_date} to {end_date}"
+            f"{len(channels)} channels from {start_date} to {end_date}"
         )
 
         return data
 
-    async def get_metadata(self, pv_name: str) -> ArchiverMetadata:
+    async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """Get mock archiver metadata."""
         # Mock returns fake metadata indicating "infinite" retention
         return ArchiverMetadata(
-            pv_name=pv_name,
+            channel=channel,
             is_archived=True,
             # Both bounds tz-aware (facility zone) so a consumer can subtract or
             # compare them without a naive/aware TypeError.
             archival_start=datetime(2000, 1, 1, tzinfo=get_facility_timezone()),
             archival_end=datetime.now(get_facility_timezone()),
             sampling_period=1.0 / self._sample_rate_hz,
-            description=f"Mock archived PV: {pv_name}",
+            description=f"Mock archived channel: {channel}",
         )
 
-    async def check_availability(self, pv_names: list[str]) -> dict[str, bool]:
-        """All PVs are available in mock archiver."""
-        return dict.fromkeys(pv_names, True)
+    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
+        """Every channel is available in the mock archiver."""
+        return dict.fromkeys(channels, True)

@@ -85,7 +85,7 @@ def archiver_read_tool(archiver_project):
 
     connector = AsyncMock()
     connector.check_availability.side_effect = lambda chans: dict.fromkeys(chans, True)
-    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(pv_name=ch, is_archived=True)
+    connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(channel=ch, is_archived=True)
     with patch(
         "osprey.connectors.factory.ConnectorFactory.create_archiver_connector",
         new_callable=AsyncMock,
@@ -908,7 +908,7 @@ def _probe(available=True, start=None, end=None, is_archived=True, note=None):
     from osprey.mcp_server.control_system.tools.archiver_read import _CoverageProbe
 
     md = ArchiverMetadata(
-        pv_name="X", is_archived=is_archived, archival_start=start, archival_end=end
+        channel="X", is_archived=is_archived, archival_start=start, archival_end=end
     )
     return _CoverageProbe(available=available, metadata=md, note=note)
 
@@ -1029,7 +1029,7 @@ class TestCoverageInToolResponse:
         connector.check_availability.return_value = {"SR:OLD:RB": True}
         connector.get_metadata.side_effect = None
         connector.get_metadata.return_value = ArchiverMetadata(
-            pv_name="SR:OLD:RB",
+            channel="SR:OLD:RB",
             is_archived=True,
             archival_start=_ARC_START,
             archival_end=_ARC_END,
@@ -1068,7 +1068,7 @@ class TestCoverageInToolResponse:
         connector.check_availability.return_value = {"SR:VOID:RB": False}
         connector.get_metadata.side_effect = None
         connector.get_metadata.return_value = ArchiverMetadata(
-            pv_name="SR:VOID:RB", is_archived=False
+            channel="SR:VOID:RB", is_archived=False
         )
 
         result = await fn(

@@ -41,13 +41,13 @@ class _SpyArchiver:
 
     async def get_data(
         self,
-        pv_list: list[str],
+        channels: list[str],
         start_date: Any,
         end_date: Any,
         precision_ms: int = 1000,
         timeout: int | None = None,
     ) -> pd.DataFrame:
-        self.get_data_calls.append((pv_list, start_date, end_date, timeout))
+        self.get_data_calls.append((channels, start_date, end_date, timeout))
         if self._raise_exc is not None:
             raise self._raise_exc
         return self._frame
@@ -271,8 +271,8 @@ async def test_timeout_passed_to_get_data() -> None:
     archiver = _SpyArchiver(_frame(newest_age_s=10))
     ctx, _runtime = _ctx(archiver)
     await run({"channel": "BEAM:CURRENT", "timeout_s": 7.0}, ctx)
-    pv_list, _start, _end, timeout = archiver.get_data_calls[0]
-    assert pv_list == ["BEAM:CURRENT"]
+    channels, _start, _end, timeout = archiver.get_data_calls[0]
+    assert channels == ["BEAM:CURRENT"]
     assert timeout == 7  # float seconds coerced to the connector's int timeout
 
 

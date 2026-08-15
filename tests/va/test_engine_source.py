@@ -214,7 +214,9 @@ class TestLegacyFallbackForUnmodeledChannels:
 
     def test_unmodeled_channel_gets_a_plausible_nonzero_value(self, source, records):
         source.poll_once()
-        assert records[NOT_IN_MACHINE].value == pytest.approx(100.0)  # classify_pv's default kind
+        assert records[NOT_IN_MACHINE].value == pytest.approx(
+            100.0
+        )  # classify_channel's default kind
 
     def test_unmodeled_channel_value_is_stable_when_not_noisy(self, source, records):
         source.poll_once()

@@ -39,10 +39,10 @@ class TestChannelWriteBlockedError:
 
 class TestChannelWriteFailedError:
     def test_default_message(self):
-        err = ChannelWriteFailedError("RING:MAG:PS:SP", "CAPUT_FAILED")
+        err = ChannelWriteFailedError("RING:MAG:PS:SP", "WRITE_FAILED")
         assert err.channel_address == "RING:MAG:PS:SP"
-        assert err.reason == "CAPUT_FAILED"
-        assert str(err) == "Write to 'RING:MAG:PS:SP' failed (CAPUT_FAILED)"
+        assert err.reason == "WRITE_FAILED"
+        assert str(err) == "Write to 'RING:MAG:PS:SP' failed (WRITE_FAILED)"
 
     def test_custom_message(self):
         err = ChannelWriteFailedError("RING:MAG:PS:SP", "READBACK_UNVERIFIED", "readback mismatch")
@@ -56,7 +56,7 @@ class TestChannelWriteFailedError:
 
     def test_valid_reasons_reference(self):
         assert ChannelWriteFailedError._VALID_REASONS == (
-            "CAPUT_FAILED",
+            "WRITE_FAILED",
             "READBACK_UNVERIFIED",
         )
 

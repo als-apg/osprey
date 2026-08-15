@@ -27,8 +27,8 @@ def _make_channel_value(
     cv.metadata.alarm_status = alarm_status
     cv.metadata.precision = 3
     cv.metadata.description = "Test channel"
-    cv.metadata.min_value = 0.0
-    cv.metadata.max_value = 1000.0
+    cv.metadata.display_low = 0.0
+    cv.metadata.display_high = 1000.0
     return cv
 
 
@@ -117,7 +117,8 @@ async def test_channel_read_metadata_disabled(tmp_path, monkeypatch):
     assert data["status"] == "success"
     channel = data["summary"]["readings"]["SR:CURRENT:RB"]
     assert "value" in channel
-    assert "units" in channel
+    assert "units" not in channel
+    assert "alarm_status" not in channel
 
 
 @pytest.mark.unit
@@ -143,6 +144,96 @@ async def test_channel_read_with_metadata(tmp_path, monkeypatch):
     channel = data["summary"]["readings"]["SR:CURRENT:RB"]
     assert channel["units"] == "mA"
     assert channel["value"] == 500.2
+    assert channel["alarm_status"] == "NO_ALARM"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("include_metadata", [True, False])
+async def test_access_details_lists_exactly_the_fields_shipped(
+    tmp_path, monkeypatch, include_metadata
+):
+    """fields_per_entry must name the keys the tool actually returns.
+
+    The tool advertised a "metadata" field it never put in the payload, so an
+    agent reading access_details asked for a key that was never there.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    initialize_server_context()
+
+    mock_connector = AsyncMock()
+    mock_connector.read_channel.return_value = _make_channel_value()
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=mock_connector,
+    ):
+        fn = _get_channel_read()
+        result = await fn(channels=["SR:CURRENT:RB"], include_metadata=include_metadata)
+
+    data = extract_response_dict(result)
+    advertised = set(data["access_details"]["fields_per_entry"])
+    shipped = set(data["summary"]["readings"]["SR:CURRENT:RB"])
+    assert advertised == shipped
+
+
+@pytest.mark.unit
+async def test_include_metadata_changes_the_payload(tmp_path, monkeypatch):
+    """include_metadata must be observable — it was inert."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    initialize_server_context()
+
+    mock_connector = AsyncMock()
+    mock_connector.read_channel.return_value = _make_channel_value()
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=mock_connector,
+    ):
+        fn = _get_channel_read()
+        with_md = extract_response_dict(await fn(channels=["SR:CURRENT:RB"]))
+        without_md = extract_response_dict(
+            await fn(channels=["SR:CURRENT:RB"], include_metadata=False)
+        )
+
+    with_keys = set(with_md["summary"]["readings"]["SR:CURRENT:RB"])
+    without_keys = set(without_md["summary"]["readings"]["SR:CURRENT:RB"])
+    assert with_keys > without_keys
+
+
+@pytest.mark.unit
+async def test_channel_read_does_not_promise_write_limits(tmp_path, monkeypatch):
+    """No connector reports write bounds here — the tool must not imply it does.
+
+    Channel write bounds come from the limits database via channel_limits; the
+    control system only ever reports a display range.
+    """
+    # "limits" may appear only as a pointer to the channel_limits tool, never as
+    # something channel_read claims to return.
+    doc = (_get_channel_read().__doc__ or "").replace("channel_limits", "")
+    assert "limits" not in doc
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    initialize_server_context()
+
+    mock_connector = AsyncMock()
+    mock_connector.read_channel.return_value = _make_channel_value()
+
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=mock_connector,
+    ):
+        fn = _get_channel_read()
+        data = extract_response_dict(await fn(channels=["SR:CURRENT:RB"]))
+
+    entry = data["summary"]["readings"]["SR:CURRENT:RB"]
+    assert "min_value" not in entry
+    assert "max_value" not in entry
 
 
 @pytest.mark.unit

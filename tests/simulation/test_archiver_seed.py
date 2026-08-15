@@ -139,7 +139,7 @@ def read_back(mongo_store, monkeypatch):
     password_env = "SEED_TEST_MONGO_PASSWORD"
     monkeypatch.setenv(password_env, mongo_store["password"])
 
-    async def query(pv_names, start, end):
+    async def query(channels, start, end):
         from osprey.connectors.archiver.mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
@@ -159,7 +159,7 @@ def read_back(mongo_store, monkeypatch):
         )
         try:
             return await connector.get_data(
-                pv_list=list(pv_names), start_date=start, end_date=end, precision_ms=0
+                channels=list(channels), start_date=start, end_date=end, precision_ms=0
             )
         finally:
             await connector.disconnect()
