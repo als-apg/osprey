@@ -108,6 +108,7 @@ scripts/benchmark/_out/
 # Logs
 logs/
 *.log
+!tests/deployment/fixtures/*.log
 tensorboard/
 
 # Temporary files

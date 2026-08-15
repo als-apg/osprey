@@ -1,0 +1,393 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 8.88kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1
+#2 ...
+
+#3 [auth] docker/dockerfile:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1
+#2 DONE 1.0s
+
+#4 docker-image://docker.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+#4 resolve docker.io/docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32 done
+#4 CACHED
+
+#5 [internal] load metadata for docker.io/library/python:3.12-slim
+#5 ...
+
+#6 [auth] library/python:pull token for registry-1.docker.io
+#6 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/python:3.12-slim
+#5 DONE 0.6s
+
+#7 [internal] load .dockerignore
+#7 transferring context: 1.30kB done
+#7 DONE 0.0s
+
+#8 [ 1/13] FROM docker.io/library/python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65
+#8 resolve docker.io/library/python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65 done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 6.12MB 0.1s done
+#9 DONE 0.1s
+
+#10 [ 3/13] RUN apt-get update  && apt-get install -y --no-install-recommends curl git procps ca-certificates gnupg  && curl -fsSL https://deb.nodesource.com/setup_20.x | bash -  && apt-get install -y --no-install-recommends nodejs  && apt-get purge -y gnupg  && apt-get autoremove -y  && rm -rf /var/lib/apt/lists/*
+#10 CACHED
+
+#11 [ 4/13] RUN npm install -g "@anthropic-ai/claude-code@2.1.146"
+#11 CACHED
+
+#12 [ 5/13] COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+#12 CACHED
+
+#13 [ 2/13] RUN find /etc/apt ( -name '*.sources' -o -name '*.list' )     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} +  && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
+#13 CACHED
+
+#14 [ 6/13] RUN export NO_PROXY="" no_proxy=""     && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt     && apt-get update     && apt-get install -y --no-install-recommends build-essential python3-dev     && { case "osprey-framework==2026.6.2" in            git+*) pip install --no-cache-dir "osprey-connectors @ osprey-framework==2026.6.2#subdirectory=packages/osprey-connectors"                   || echo "WARNING: could not pre-install osprey-connectors from the git spec; resolving from PyPI" ;;          esac; }     && { pip install --no-cache-dir "osprey-framework==2026.6.2" 'pymongo>=4.0'          || if [ "1" = "1" ]; then                 echo "WARNING: pin unreleased, priming with latest"                 && pip install --no-cache-dir osprey-framework 'pymongo>=4.0';             else exit 1; fi; }     && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then            pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt;        fi     && apt-get purge -y build-essential python3-dev     && apt-get autoremove -y     && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
+#14 CACHED
+
+#15 [ 7/13] COPY .dockerignore *.wh[l] /tmp/ctx/
+#15 DONE 0.0s
+
+#16 [ 8/13] RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then         pip install --no-cache-dir /tmp/ctx/*.whl         && pip install --no-cache-dir --no-deps --force-reinstall /tmp/ctx/*.whl         && pip check;     fi     && rm -rf /tmp/ctx
+#16 0.770 Processing /tmp/ctx/osprey_connectors-0.1.0-py3-none-any.whl
+#16 0.775 Processing /tmp/ctx/osprey_framework-2026.6.2.post1137+g125523326-py3-none-any.whl
+#16 0.789 Requirement already satisfied: numpy>=2.2.6 in /usr/local/lib/python3.12/site-packages (from osprey-connectors==0.1.0) (2.5.2)
+#16 0.789 Requirement already satisfied: pandas>=2.2.3 in /usr/local/lib/python3.12/site-packages (from osprey-connectors==0.1.0) (3.0.5)
+#16 0.790 Requirement already satisfied: pyepics in /usr/local/lib/python3.12/site-packages (from osprey-connectors==0.1.0) (3.5.10)
+#16 0.790 Requirement already satisfied: python-dateutil>=2.9.0 in /usr/local/lib/python3.12/site-packages (from osprey-connectors==0.1.0) (2.9.0.post0)
+#16 0.790 Requirement already satisfied: python-dotenv>=1.1.0 in /usr/local/lib/python3.12/site-packages (from osprey-connectors==0.1.0) (1.2.2)
+#16 0.790 Requirement already satisfied: pyyaml>=6.0.2 in /usr/local/lib/python3.12/site-packages (from osprey-connectors==0.1.0) (6.0.3)
+#16 0.791 Requirement already satisfied: rich>=14.0.0 in /usr/local/lib/python3.12/site-packages (from osprey-connectors==0.1.0) (15.0.0)
+#16 0.793 Requirement already satisfied: accelerator-toolbox>=0.7.1 in /usr/local/lib/python3.12/site-packages (from accelerator-toolbox[plot]>=0.7.1->osprey-framework==2026.6.2.post1137+g125523326) (0.8.0)
+#16 0.793 Requirement already satisfied: aiofiles>=25.1.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (25.1.0)
+#16 0.793 Requirement already satisfied: aiohttp-socks>=0.8.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.12.0)
+#16 0.793 Requirement already satisfied: aiohttp>=3.10 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.14.3)
+#16 0.793 Requirement already satisfied: anthropic in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.122.0)
+#16 0.793 Requirement already satisfied: authlib>=1.6.5 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (1.7.2)
+#16 0.794 Requirement already satisfied: bluesky-queueserver-api==0.0.13 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.0.13)
+#16 0.794 Requirement already satisfied: bluesky>=1.15.1 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (1.15.1)
+#16 0.794 Requirement already satisfied: bokeh>=3.9.1 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.9.2)
+#16 0.795 Requirement already satisfied: build in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (1.5.0)
+#16 0.795 Requirement already satisfied: certifi>=2025.4.26 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (2026.7.22)
+#16 0.795 Requirement already satisfied: charset-normalizer>=3.4.9 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.5.0)
+#16 0.796 Requirement already satisfied: claude-agent-sdk==0.2.110 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.2.110)
+#16 0.796 Requirement already satisfied: click>=8.4.2 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (8.4.2)
+#16 0.796 Requirement already satisfied: duckdb>=1.5.4 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (1.5.5)
+#16 0.797 Requirement already satisfied: fastapi>=0.141.1 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.141.1)
+#16 0.797 Requirement already satisfied: fastmcp>=3.4.4 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.4.7)
+#16 0.798 Requirement already satisfied: google-generativeai in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.8.6)
+#16 0.798 Requirement already satisfied: httpx>=0.28.1 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.28.1)
+#16 0.798 Requirement already satisfied: idna>=3.18 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.18)
+#16 0.798 Requirement already satisfied: ipywidgets in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (8.1.8)
+#16 0.799 Requirement already satisfied: itsdangerous>=2.2.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (2.2.0)
+#16 0.799 Requirement already satisfied: jinja2>=3.1.6 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.1.6)
+#16 0.800 Requirement already satisfied: litellm>=1.56.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (1.95.1)
+#16 0.800 Requirement already satisfied: lume-base==0.5.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.5.0)
+#16 0.800 Requirement already satisfied: lume-pyat==0.1.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.1.0)
+#16 0.802 Requirement already satisfied: markdown>=3.5 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.10.3)
+#16 0.802 Requirement already satisfied: markupsafe>=3.0.2 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.0.3)
+#16 0.802 Requirement already satisfied: matplotlib>=3.11.1 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.11.1)
+#16 0.802 Requirement already satisfied: nbclient in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.11.0)
+#16 0.802 Requirement already satisfied: nbconvert>=7.0.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (7.17.1)
+#16 0.802 Requirement already satisfied: nbformat>=5.0.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (5.11.0)
+#16 0.802 Requirement already satisfied: nltk>=3.10.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.10.3)
+#16 0.802 Requirement already satisfied: ollama>=0.6.2 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.6.2)
+#16 0.802 Requirement already satisfied: openai>=2.45.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (2.54.0)
+#16 0.802 Requirement already satisfied: ophyd-async<1.0,>=0.16 in /usr/local/lib/python3.12/site-packages (from ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (0.21.1)
+#16 0.802 Requirement already satisfied: playwright>=1.61.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (1.62.0)
+#16 0.802 Requirement already satisfied: plotly>=5.0.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (6.9.0)
+#16 0.803 Requirement already satisfied: psycopg-pool<4.0.0,>=3.3.1 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (3.3.1)
+#16 0.804 Requirement already satisfied: psycopg<4.0.0,>=3.3.4 in /usr/local/lib/python3.12/site-packages (from psycopg[binary,pool]<4.0.0,>=3.3.4->osprey-framework==2026.6.2.post1137+g125523326) (3.3.4)
+#16 0.804 Requirement already satisfied: python-multipart>=0.0.18 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.0.32)
+#16 0.805 Requirement already satisfied: questionary>=2.1.1 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (2.1.1)
+#16 0.805 Requirement already satisfied: requests>=2.34.2 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (2.34.2)
+#16 0.805 Requirement already satisfied: ruamel-yaml>=0.18.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.18.0)
+#16 0.806 Requirement already satisfied: scikit-learn in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (1.9.0)
+#16 0.806 Requirement already satisfied: scipy>=1.17.1 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (1.18.0)
+#16 0.807 Requirement already satisfied: seaborn in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (0.13.2)
+#16 0.807 Requirement already satisfied: tenacity>=9.1.4 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (9.1.4)
+#16 0.807 Requirement already satisfied: tiled>=0.2.14 in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (0.2.15)
+#16 0.808 Requirement already satisfied: typing-extensions>=4.16.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (4.16.0)
+#16 0.809 Requirement already satisfied: unique-namer>=1.6.2 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (1.6.2)
+#16 0.809 Requirement already satisfied: urllib3>=2.7.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (2.7.0)
+#16 0.809 Requirement already satisfied: uvicorn>=0.52.1 in /usr/local/lib/python3.12/site-packages (from uvicorn[standard]>=0.52.1->osprey-framework==2026.6.2.post1137+g125523326) (0.52.3)
+#16 0.810 Requirement already satisfied: watchdog>=6.0.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (6.0.0)
+#16 0.810 Requirement already satisfied: websocket-client>=1.7.0 in /usr/local/lib/python3.12/site-packages (from osprey-framework==2026.6.2.post1137+g125523326) (1.9.0)
+#16 0.812 Requirement already satisfied: bluesky-queueserver in /usr/local/lib/python3.12/site-packages (from bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (0.0.25)
+#16 0.812 Requirement already satisfied: websockets in /usr/local/lib/python3.12/site-packages (from bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (17.0.1)
+#16 0.815 Requirement already satisfied: anyio>=4.0.0 in /usr/local/lib/python3.12/site-packages (from claude-agent-sdk==0.2.110->osprey-framework==2026.6.2.post1137+g125523326) (4.14.2)
+#16 0.815 Requirement already satisfied: mcp<2.0.0,>=1.23.0 in /usr/local/lib/python3.12/site-packages (from claude-agent-sdk==0.2.110->osprey-framework==2026.6.2.post1137+g125523326) (1.29.0)
+#16 0.816 Requirement already satisfied: sniffio>=1.0.0 in /usr/local/lib/python3.12/site-packages (from claude-agent-sdk==0.2.110->osprey-framework==2026.6.2.post1137+g125523326) (1.3.1)
+#16 0.817 Requirement already satisfied: openpmd-beamphysics in /usr/local/lib/python3.12/site-packages (from lume-base==0.5.0->osprey-framework==2026.6.2.post1137+g125523326) (0.16.0)
+#16 0.818 Requirement already satisfied: h5py in /usr/local/lib/python3.12/site-packages (from lume-base==0.5.0->osprey-framework==2026.6.2.post1137+g125523326) (3.16.0)
+#16 0.818 Requirement already satisfied: pydantic in /usr/local/lib/python3.12/site-packages (from lume-base==0.5.0->osprey-framework==2026.6.2.post1137+g125523326) (2.12.5)
+#16 0.826 Requirement already satisfied: aiohappyeyeballs>=2.5.0 in /usr/local/lib/python3.12/site-packages (from aiohttp>=3.10->osprey-framework==2026.6.2.post1137+g125523326) (2.7.1)
+#16 0.827 Requirement already satisfied: aiosignal>=1.4.0 in /usr/local/lib/python3.12/site-packages (from aiohttp>=3.10->osprey-framework==2026.6.2.post1137+g125523326) (1.4.0)
+#16 0.827 Requirement already satisfied: attrs>=17.3.0 in /usr/local/lib/python3.12/site-packages (from aiohttp>=3.10->osprey-framework==2026.6.2.post1137+g125523326) (26.1.0)
+#16 0.827 Requirement already satisfied: frozenlist>=1.1.1 in /usr/local/lib/python3.12/site-packages (from aiohttp>=3.10->osprey-framework==2026.6.2.post1137+g125523326) (1.8.0)
+#16 0.828 Requirement already satisfied: multidict<7.0,>=4.5 in /usr/local/lib/python3.12/site-packages (from aiohttp>=3.10->osprey-framework==2026.6.2.post1137+g125523326) (6.7.1)
+#16 0.828 Requirement already satisfied: propcache>=0.2.0 in /usr/local/lib/python3.12/site-packages (from aiohttp>=3.10->osprey-framework==2026.6.2.post1137+g125523326) (0.5.2)
+#16 0.828 Requirement already satisfied: yarl<2.0,>=1.17.0 in /usr/local/lib/python3.12/site-packages (from aiohttp>=3.10->osprey-framework==2026.6.2.post1137+g125523326) (1.24.5)
+#16 0.830 Requirement already satisfied: python-socks<4.0.0,>=2.4.3 in /usr/local/lib/python3.12/site-packages (from python-socks[asyncio]<4.0.0,>=2.4.3->aiohttp-socks>=0.8.0->osprey-framework==2026.6.2.post1137+g125523326) (3.0.0)
+#16 0.832 Requirement already satisfied: cryptography in /usr/local/lib/python3.12/site-packages (from authlib>=1.6.5->osprey-framework==2026.6.2.post1137+g125523326) (50.0.0)
+#16 0.832 Requirement already satisfied: joserfc>=1.6.0 in /usr/local/lib/python3.12/site-packages (from authlib>=1.6.5->osprey-framework==2026.6.2.post1137+g125523326) (1.7.4)
+#16 0.836 Requirement already satisfied: cycler in /usr/local/lib/python3.12/site-packages (from bluesky>=1.15.1->osprey-framework==2026.6.2.post1137+g125523326) (0.12.1)
+#16 0.836 Requirement already satisfied: event-model>=1.23.1 in /usr/local/lib/python3.12/site-packages (from bluesky>=1.15.1->osprey-framework==2026.6.2.post1137+g125523326) (1.24.0)
+#16 0.836 Requirement already satisfied: historydict in /usr/local/lib/python3.12/site-packages (from bluesky>=1.15.1->osprey-framework==2026.6.2.post1137+g125523326) (1.2.6)
+#16 0.836 Requirement already satisfied: msgpack in /usr/local/lib/python3.12/site-packages (from bluesky>=1.15.1->osprey-framework==2026.6.2.post1137+g125523326) (1.2.1)
+#16 0.837 Requirement already satisfied: msgpack-numpy in /usr/local/lib/python3.12/site-packages (from bluesky>=1.15.1->osprey-framework==2026.6.2.post1137+g125523326) (0.4.8)
+#16 0.837 Requirement already satisfied: opentelemetry-api in /usr/local/lib/python3.12/site-packages (from bluesky>=1.15.1->osprey-framework==2026.6.2.post1137+g125523326) (1.44.0)
+#16 0.837 Requirement already satisfied: toolz in /usr/local/lib/python3.12/site-packages (from bluesky>=1.15.1->osprey-framework==2026.6.2.post1137+g125523326) (1.1.0)
+#16 0.838 Requirement already satisfied: tqdm>=4.44 in /usr/local/lib/python3.12/site-packages (from bluesky>=1.15.1->osprey-framework==2026.6.2.post1137+g125523326) (4.70.0)
+#16 0.840 Requirement already satisfied: contourpy>=1.2 in /usr/local/lib/python3.12/site-packages (from bokeh>=3.9.1->osprey-framework==2026.6.2.post1137+g125523326) (1.3.3)
+#16 0.840 Requirement already satisfied: narwhals>=1.13 in /usr/local/lib/python3.12/site-packages (from bokeh>=3.9.1->osprey-framework==2026.6.2.post1137+g125523326) (2.24.0)
+#16 0.840 Requirement already satisfied: packaging>=16.8 in /usr/local/lib/python3.12/site-packages (from bokeh>=3.9.1->osprey-framework==2026.6.2.post1137+g125523326) (26.3)
+#16 0.841 Requirement already satisfied: pillow>=7.1.0 in /usr/local/lib/python3.12/site-packages (from bokeh>=3.9.1->osprey-framework==2026.6.2.post1137+g125523326) (12.3.0)
+#16 0.841 Requirement already satisfied: tornado>=6.2 in /usr/local/lib/python3.12/site-packages (from bokeh>=3.9.1->osprey-framework==2026.6.2.post1137+g125523326) (6.5.8)
+#16 0.842 Requirement already satisfied: xyzservices>=2021.09.1 in /usr/local/lib/python3.12/site-packages (from bokeh>=3.9.1->osprey-framework==2026.6.2.post1137+g125523326) (2026.3.0)
+#16 0.863 Requirement already satisfied: starlette>=0.46.0 in /usr/local/lib/python3.12/site-packages (from fastapi>=0.141.1->osprey-framework==2026.6.2.post1137+g125523326) (1.6.0)
+#16 0.863 Requirement already satisfied: typing-inspection>=0.4.2 in /usr/local/lib/python3.12/site-packages (from fastapi>=0.141.1->osprey-framework==2026.6.2.post1137+g125523326) (0.4.4)
+#16 0.864 Requirement already satisfied: annotated-doc>=0.0.2 in /usr/local/lib/python3.12/site-packages (from fastapi>=0.141.1->osprey-framework==2026.6.2.post1137+g125523326) (0.0.5)
+#16 0.867 Requirement already satisfied: fastmcp-slim==3.4.7 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (3.4.7)
+#16 0.871 Requirement already satisfied: platformdirs>=4.0.0 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim==3.4.7->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (4.11.3)
+#16 0.871 Requirement already satisfied: pydantic-settings>=2.0.0 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim==3.4.7->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (2.11.0)
+#16 0.875 Requirement already satisfied: exceptiongroup>=1.2.2 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (1.3.1)
+#16 0.875 Requirement already satisfied: py-key-value-aio<0.5.0,>=0.4.4 in /usr/local/lib/python3.12/site-packages (from py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (0.4.5)
+#16 0.875 Requirement already satisfied: cyclopts>=4.0.0 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (4.22.5)
+#16 0.876 Requirement already satisfied: griffelib>=2.0.0 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (2.1.0)
+#16 0.876 Requirement already satisfied: jsonref>=1.1.0 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (1.1.0)
+#16 0.876 Requirement already satisfied: jsonschema-path>=0.3.4 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (0.5.0)
+#16 0.877 Requirement already satisfied: openapi-pydantic>=0.5.1 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (0.5.1)
+#16 0.877 Requirement already satisfied: pyperclip>=1.9.0 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (1.11.0)
+#16 0.878 Requirement already satisfied: uncalled-for>=0.2.0 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (0.4.0)
+#16 0.878 Requirement already satisfied: watchfiles>=1.0.0 in /usr/local/lib/python3.12/site-packages (from fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (1.2.0)
+#16 0.880 Requirement already satisfied: httpcore==1.* in /usr/local/lib/python3.12/site-packages (from httpx>=0.28.1->osprey-framework==2026.6.2.post1137+g125523326) (1.0.9)
+#16 0.883 Requirement already satisfied: h11>=0.16 in /usr/local/lib/python3.12/site-packages (from httpcore==1.*->httpx>=0.28.1->osprey-framework==2026.6.2.post1137+g125523326) (0.16.0)
+#16 0.895 Requirement already satisfied: fastuuid<1.0,>=0.14.0 in /usr/local/lib/python3.12/site-packages (from litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (0.14.0)
+#16 0.896 Requirement already satisfied: tiktoken<1.0,>=0.8.0 in /usr/local/lib/python3.12/site-packages (from litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (0.13.0)
+#16 0.897 Requirement already satisfied: importlib-metadata<9.0,>=8.0.0 in /usr/local/lib/python3.12/site-packages (from litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (8.9.0)
+#16 0.897 Requirement already satisfied: tokenizers<1.0,>=0.21.0 in /usr/local/lib/python3.12/site-packages (from litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (0.23.1)
+#16 0.898 Requirement already satisfied: jsonschema<5.0,>=4.0.0 in /usr/local/lib/python3.12/site-packages (from litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (4.26.0)
+#16 0.906 Requirement already satisfied: fonttools>=4.28.2 in /usr/local/lib/python3.12/site-packages (from matplotlib>=3.11.1->osprey-framework==2026.6.2.post1137+g125523326) (4.63.0)
+#16 0.906 Requirement already satisfied: kiwisolver>=1.3.1 in /usr/local/lib/python3.12/site-packages (from matplotlib>=3.11.1->osprey-framework==2026.6.2.post1137+g125523326) (1.5.0)
+#16 0.907 Requirement already satisfied: pyparsing>=3 in /usr/local/lib/python3.12/site-packages (from matplotlib>=3.11.1->osprey-framework==2026.6.2.post1137+g125523326) (3.3.2)
+#16 0.911 Requirement already satisfied: beautifulsoup4 in /usr/local/lib/python3.12/site-packages (from nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (4.15.0)
+#16 0.911 Requirement already satisfied: bleach!=5.0.0 in /usr/local/lib/python3.12/site-packages (from bleach[css]!=5.0.0->nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (6.4.0)
+#16 0.911 Requirement already satisfied: defusedxml in /usr/local/lib/python3.12/site-packages (from nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (0.7.1)
+#16 0.912 Requirement already satisfied: jupyter-core>=4.7 in /usr/local/lib/python3.12/site-packages (from nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (5.9.1)
+#16 0.912 Requirement already satisfied: jupyterlab-pygments in /usr/local/lib/python3.12/site-packages (from nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (0.3.0)
+#16 0.912 Requirement already satisfied: mistune<4,>=2.0.3 in /usr/local/lib/python3.12/site-packages (from nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (3.3.4)
+#16 0.913 Requirement already satisfied: pandocfilters>=1.4.1 in /usr/local/lib/python3.12/site-packages (from nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (1.5.1)
+#16 0.913 Requirement already satisfied: pygments>=2.4.1 in /usr/local/lib/python3.12/site-packages (from nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (2.20.0)
+#16 0.913 Requirement already satisfied: traitlets>=5.1 in /usr/local/lib/python3.12/site-packages (from nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (5.16.1)
+#16 0.917 Requirement already satisfied: jupyter-client>=7.0.0 in /usr/local/lib/python3.12/site-packages (from nbclient->osprey-framework==2026.6.2.post1137+g125523326) (8.9.1)
+#16 0.920 Requirement already satisfied: fastjsonschema>=2.15 in /usr/local/lib/python3.12/site-packages (from nbformat>=5.0.0->osprey-framework==2026.6.2.post1137+g125523326) (2.22.1)
+#16 0.923 Requirement already satisfied: joblib in /usr/local/lib/python3.12/site-packages (from nltk>=3.10.0->osprey-framework==2026.6.2.post1137+g125523326) (1.5.3)
+#16 0.924 Requirement already satisfied: regex>=2021.8.3 in /usr/local/lib/python3.12/site-packages (from nltk>=3.10.0->osprey-framework==2026.6.2.post1137+g125523326) (2026.7.19)
+#16 0.931 Requirement already satisfied: distro<2,>=1.7.0 in /usr/local/lib/python3.12/site-packages (from openai>=2.45.0->osprey-framework==2026.6.2.post1137+g125523326) (1.9.0)
+#16 0.932 Requirement already satisfied: jiter<1,>=0.10.0 in /usr/local/lib/python3.12/site-packages (from openai>=2.45.0->osprey-framework==2026.6.2.post1137+g125523326) (0.16.0)
+#16 0.934 Requirement already satisfied: colorlog in /usr/local/lib/python3.12/site-packages (from ophyd-async<1.0,>=0.16->ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (6.12.0)
+#16 0.935 Requirement already satisfied: pydantic-numpy in /usr/local/lib/python3.12/site-packages (from ophyd-async<1.0,>=0.16->ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (9.0.2)
+#16 0.935 Requirement already satisfied: stamina>=23.1.0 in /usr/local/lib/python3.12/site-packages (from ophyd-async<1.0,>=0.16->ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (26.1.0)
+#16 0.936 Requirement already satisfied: scanspec>=1.0.0 in /usr/local/lib/python3.12/site-packages (from ophyd-async<1.0,>=0.16->ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (1.0.0)
+#16 0.936 Requirement already satisfied: velocity-profile in /usr/local/lib/python3.12/site-packages (from ophyd-async<1.0,>=0.16->ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (1.0.0)
+#16 0.938 Requirement already satisfied: aioca>=2.0a4 in /usr/local/lib/python3.12/site-packages (from ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (2.1)
+#16 0.949 Requirement already satisfied: pyee<14,>=13 in /usr/local/lib/python3.12/site-packages (from playwright>=1.61.0->osprey-framework==2026.6.2.post1137+g125523326) (13.0.1)
+#16 0.949 Requirement already satisfied: greenlet<4.0.0,>=3.1.1 in /usr/local/lib/python3.12/site-packages (from playwright>=1.61.0->osprey-framework==2026.6.2.post1137+g125523326) (3.5.5)
+#16 0.961 Requirement already satisfied: psycopg-binary==3.3.4 in /usr/local/lib/python3.12/site-packages (from psycopg[binary,pool]<4.0.0,>=3.3.4->osprey-framework==2026.6.2.post1137+g125523326) (3.3.4)
+#16 0.966 Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.12/site-packages (from python-dateutil>=2.9.0->osprey-connectors==0.1.0) (1.17.0)
+#16 0.974 Requirement already satisfied: prompt_toolkit<4.0,>=2.0 in /usr/local/lib/python3.12/site-packages (from questionary>=2.1.1->osprey-framework==2026.6.2.post1137+g125523326) (3.0.53)
+#16 0.978 Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.12/site-packages (from rich>=14.0.0->osprey-connectors==0.1.0) (4.2.0)
+#16 0.981 Requirement already satisfied: ruamel.yaml.clib>=0.2.7 in /usr/local/lib/python3.12/site-packages (from ruamel-yaml>=0.18.0->osprey-framework==2026.6.2.post1137+g125523326) (0.2.15)
+#16 0.997 Requirement already satisfied: json-merge-patch in /usr/local/lib/python3.12/site-packages (from tiled>=0.2.14->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (0.3.0)
+#16 0.997 Requirement already satisfied: jsonpatch in /usr/local/lib/python3.12/site-packages (from tiled>=0.2.14->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (1.33)
+#16 0.997 Requirement already satisfied: orjson in /usr/local/lib/python3.12/site-packages (from tiled>=0.2.14->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (3.11.9)
+#16 0.998 Requirement already satisfied: typer in /usr/local/lib/python3.12/site-packages (from tiled>=0.2.14->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (0.27.1)
+#16 1.002 Requirement already satisfied: awkward>=2.4.3 in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (2.12.0)
+#16 1.002 Requirement already satisfied: blosc2 in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (4.11.0)
+#16 1.002 Requirement already satisfied: dask[array] in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (2026.7.1)
+#16 1.003 Requirement already satisfied: entrypoints in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (0.4)
+#16 1.003 Requirement already satisfied: lz4 in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (4.4.5)
+#16 1.003 Requirement already satisfied: ndindex in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (1.10.1)
+#16 1.003 Requirement already satisfied: numba>=0.59.0 in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (0.67.0)
+#16 1.004 Requirement already satisfied: pyarrow>=14.0.1 in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (25.0.1)
+#16 1.004 Requirement already satisfied: ragged in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (0.3.0)
+#16 1.005 Requirement already satisfied: sparse>=0.15.5 in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (0.19.2)
+#16 1.005 Requirement already satisfied: xarray in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (2026.7.0)
+#16 1.006 Requirement already satisfied: zstandard in /usr/local/lib/python3.12/site-packages (from tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (0.25.0)
+#16 1.017 Requirement already satisfied: httptools>=0.8.0 in /usr/local/lib/python3.12/site-packages (from uvicorn[standard]>=0.52.1->osprey-framework==2026.6.2.post1137+g125523326) (0.8.0)
+#16 1.018 Requirement already satisfied: uvloop>=0.15.1 in /usr/local/lib/python3.12/site-packages (from uvicorn[standard]>=0.52.1->osprey-framework==2026.6.2.post1137+g125523326) (0.22.1)
+#16 1.025 Requirement already satisfied: docstring-parser<1,>=0.15 in /usr/local/lib/python3.12/site-packages (from anthropic->osprey-framework==2026.6.2.post1137+g125523326) (0.18.0)
+#16 1.029 Requirement already satisfied: pyproject_hooks in /usr/local/lib/python3.12/site-packages (from build->osprey-framework==2026.6.2.post1137+g125523326) (1.2.0)
+#16 1.031 Requirement already satisfied: google-ai-generativelanguage==0.6.15 in /usr/local/lib/python3.12/site-packages (from google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (0.6.15)
+#16 1.031 Requirement already satisfied: google-api-core in /usr/local/lib/python3.12/site-packages (from google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (2.33.0)
+#16 1.032 Requirement already satisfied: google-api-python-client in /usr/local/lib/python3.12/site-packages (from google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (2.198.0)
+#16 1.032 Requirement already satisfied: google-auth>=2.15.0 in /usr/local/lib/python3.12/site-packages (from google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (2.56.3)
+#16 1.032 Requirement already satisfied: protobuf in /usr/local/lib/python3.12/site-packages (from google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (5.29.6)
+#16 1.036 Requirement already satisfied: proto-plus<2.0.0dev,>=1.22.3 in /usr/local/lib/python3.12/site-packages (from google-ai-generativelanguage==0.6.15->google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (1.28.2)
+#16 1.038 Requirement already satisfied: comm>=0.1.3 in /usr/local/lib/python3.12/site-packages (from ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (0.2.3)
+#16 1.038 Requirement already satisfied: ipython>=6.1.0 in /usr/local/lib/python3.12/site-packages (from ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (9.16.1)
+#16 1.039 Requirement already satisfied: widgetsnbextension~=4.0.14 in /usr/local/lib/python3.12/site-packages (from ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (4.0.15)
+#16 1.039 Requirement already satisfied: jupyterlab_widgets~=3.0.15 in /usr/local/lib/python3.12/site-packages (from ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (3.0.16)
+#16 1.048 Requirement already satisfied: threadpoolctl>=3.5.0 in /usr/local/lib/python3.12/site-packages (from scikit-learn->osprey-framework==2026.6.2.post1137+g125523326) (3.6.0)
+#16 1.055 Requirement already satisfied: epicscorelibs>=7.0.3.99.4.0 in /usr/local/lib/python3.12/site-packages (from aioca>=2.0a4->ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (7.0.10.99.0.1)
+#16 1.068 Requirement already satisfied: awkward-cpp==55 in /usr/local/lib/python3.12/site-packages (from awkward>=2.4.3->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (55)
+#16 1.068 Requirement already satisfied: fsspec>=2022.11.0 in /usr/local/lib/python3.12/site-packages (from awkward>=2.4.3->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (2026.7.0)
+#16 1.074 Requirement already satisfied: webencodings in /usr/local/lib/python3.12/site-packages (from bleach!=5.0.0->bleach[css]!=5.0.0->nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (0.5.1)
+#16 1.076 Requirement already satisfied: tinycss2>=1.1.0 in /usr/local/lib/python3.12/site-packages (from bleach[css]!=5.0.0->nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (1.5.1)
+#16 1.104 Requirement already satisfied: googleapis-common-protos<2.0.0,>=1.63.2 in /usr/local/lib/python3.12/site-packages (from google-api-core->google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (1.75.0)
+#16 1.109 Requirement already satisfied: pyasn1-modules>=0.2.1 in /usr/local/lib/python3.12/site-packages (from google-auth>=2.15.0->google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (0.4.2)
+#16 1.113 Requirement already satisfied: cffi>=2.0.0 in /usr/local/lib/python3.12/site-packages (from cryptography->authlib>=1.6.5->osprey-framework==2026.6.2.post1137+g125523326) (2.1.1)
+#16 1.125 Requirement already satisfied: zipp>=3.20 in /usr/local/lib/python3.12/site-packages (from importlib-metadata<9.0,>=8.0.0->litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (4.1.0)
+#16 1.129 Requirement already satisfied: ipython-pygments-lexers>=1.0.0 in /usr/local/lib/python3.12/site-packages (from ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (1.1.1)
+#16 1.130 Requirement already satisfied: jedi>=0.18.2 in /usr/local/lib/python3.12/site-packages (from ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (0.20.0)
+#16 1.130 Requirement already satisfied: matplotlib-inline>=0.1.6 in /usr/local/lib/python3.12/site-packages (from ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (0.2.2)
+#16 1.131 Requirement already satisfied: pexpect>4.6 in /usr/local/lib/python3.12/site-packages (from ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (4.9.0)
+#16 1.132 Requirement already satisfied: psutil>=7 in /usr/local/lib/python3.12/site-packages (from ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (7.2.2)
+#16 1.132 Requirement already satisfied: stack_data>=0.6.0 in /usr/local/lib/python3.12/site-packages (from ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (0.6.3)
+#16 1.142 Requirement already satisfied: jsonschema-specifications>=2023.03.6 in /usr/local/lib/python3.12/site-packages (from jsonschema<5.0,>=4.0.0->litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (2025.9.1)
+#16 1.143 Requirement already satisfied: referencing>=0.28.4 in /usr/local/lib/python3.12/site-packages (from jsonschema<5.0,>=4.0.0->litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (0.37.0)
+#16 1.143 Requirement already satisfied: rpds-py>=0.25.0 in /usr/local/lib/python3.12/site-packages (from jsonschema<5.0,>=4.0.0->litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (2026.6.3)
+#16 1.147 Requirement already satisfied: pyzmq>=25.0 in /usr/local/lib/python3.12/site-packages (from jupyter-client>=7.0.0->nbclient->osprey-framework==2026.6.2.post1137+g125523326) (27.1.0)
+#16 1.159 Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.12/site-packages (from markdown-it-py>=2.2.0->rich>=14.0.0->osprey-connectors==0.1.0) (0.1.2)
+#16 1.163 Requirement already satisfied: httpx-sse>=0.4 in /usr/local/lib/python3.12/site-packages (from mcp<2.0.0,>=1.23.0->claude-agent-sdk==0.2.110->osprey-framework==2026.6.2.post1137+g125523326) (0.4.3)
+#16 1.164 Requirement already satisfied: pyjwt>=2.10.1 in /usr/local/lib/python3.12/site-packages (from pyjwt[crypto]>=2.10.1->mcp<2.0.0,>=1.23.0->claude-agent-sdk==0.2.110->osprey-framework==2026.6.2.post1137+g125523326) (2.13.0)
+#16 1.164 Requirement already satisfied: sse-starlette>=1.6.1 in /usr/local/lib/python3.12/site-packages (from mcp<2.0.0,>=1.23.0->claude-agent-sdk==0.2.110->osprey-framework==2026.6.2.post1137+g125523326) (3.4.8)
+#16 1.178 Requirement already satisfied: llvmlite<0.50,>=0.49.0dev0 in /usr/local/lib/python3.12/site-packages (from numba>=0.59.0->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (0.49.0)
+#16 1.195 Requirement already satisfied: wcwidth>=0.1.4 in /usr/local/lib/python3.12/site-packages (from prompt_toolkit<4.0,>=2.0->questionary>=2.1.1->osprey-framework==2026.6.2.post1137+g125523326) (0.8.2)
+#16 1.205 Requirement already satisfied: annotated-types>=0.6.0 in /usr/local/lib/python3.12/site-packages (from pydantic->lume-base==0.5.0->osprey-framework==2026.6.2.post1137+g125523326) (0.8.0)
+#16 1.206 Requirement already satisfied: pydantic-core==2.41.5 in /usr/local/lib/python3.12/site-packages (from pydantic->lume-base==0.5.0->osprey-framework==2026.6.2.post1137+g125523326) (2.41.5)
+#16 1.257 Requirement already satisfied: huggingface-hub<2.0,>=0.16.4 in /usr/local/lib/python3.12/site-packages (from tokenizers<1.0,>=0.21.0->litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (1.27.0)
+#16 1.301 Requirement already satisfied: soupsieve>=1.6.1 in /usr/local/lib/python3.12/site-packages (from beautifulsoup4->nbconvert>=7.0.0->osprey-framework==2026.6.2.post1137+g125523326) (2.9.2)
+#16 1.306 Requirement already satisfied: numexpr>=2.14.1 in /usr/local/lib/python3.12/site-packages (from blosc2->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (2.14.2)
+#16 1.311 Requirement already satisfied: ipykernel in /usr/local/lib/python3.12/site-packages (from bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (7.3.0)
+#16 1.311 Requirement already satisfied: jupyter-console in /usr/local/lib/python3.12/site-packages (from bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (6.6.3)
+#16 1.312 Requirement already satisfied: numpydoc in /usr/local/lib/python3.12/site-packages (from bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (1.10.0)
+#16 1.312 Requirement already satisfied: openpyxl in /usr/local/lib/python3.12/site-packages (from bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (3.1.5)
+#16 1.313 Requirement already satisfied: ophyd in /usr/local/lib/python3.12/site-packages (from bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (1.11.2)
+#16 1.314 Requirement already satisfied: redis[hiredis] in /usr/local/lib/python3.12/site-packages (from bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (8.1.0)
+#16 1.322 Requirement already satisfied: cloudpickle>=3.0.0 in /usr/local/lib/python3.12/site-packages (from dask[array]; extra == "client"->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (3.1.2)
+#16 1.323 Requirement already satisfied: partd>=1.4.0 in /usr/local/lib/python3.12/site-packages (from dask[array]; extra == "client"->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (1.4.2)
+#16 1.347 Requirement already satisfied: httplib2<1.0.0,>=0.19.0 in /usr/local/lib/python3.12/site-packages (from google-api-python-client->google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (0.32.0)
+#16 1.348 Requirement already satisfied: google-auth-httplib2<1.0.0,>=0.2.0 in /usr/local/lib/python3.12/site-packages (from google-api-python-client->google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (0.4.1)
+#16 1.349 Requirement already satisfied: uritemplate<5,>=3.0.1 in /usr/local/lib/python3.12/site-packages (from google-api-python-client->google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (4.2.0)
+#16 1.360 Requirement already satisfied: jsonpointer>=1.9 in /usr/local/lib/python3.12/site-packages (from jsonpatch->tiled>=0.2.14->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (3.1.1)
+#16 1.393 Requirement already satisfied: compress-pickle[lz4] in /usr/local/lib/python3.12/site-packages (from pydantic-numpy->ophyd-async<1.0,>=0.16->ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (2.1.0)
+#16 1.394 Requirement already satisfied: semver~=3.0.4 in /usr/local/lib/python3.12/site-packages (from pydantic-numpy->ophyd-async<1.0,>=0.16->ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (3.0.4)
+#16 1.408 Requirement already satisfied: shellingham>=1.3.0 in /usr/local/lib/python3.12/site-packages (from typer->tiled>=0.2.14->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (1.5.4)
+#16 1.427 Requirement already satisfied: pycparser in /usr/local/lib/python3.12/site-packages (from cffi>=2.0.0->cryptography->authlib>=1.6.5->osprey-framework==2026.6.2.post1137+g125523326) (3.0)
+#16 1.436 Requirement already satisfied: rich-rst<3.0.0,>=1.3.1 in /usr/local/lib/python3.12/site-packages (from cyclopts>=4.0.0->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (2.1.0)
+#16 1.440 Requirement already satisfied: setuptools in /usr/local/lib/python3.12/site-packages (from epicscorelibs>=7.0.3.99.4.0->aioca>=2.0a4->ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (83.0.0)
+#16 1.441 Requirement already satisfied: setuptools-dso>=2.11a2 in /usr/local/lib/python3.12/site-packages (from epicscorelibs>=7.0.3.99.4.0->aioca>=2.0a4->ophyd-async[ca]<1.0,>=0.16->osprey-framework==2026.6.2.post1137+g125523326) (2.12.3)
+#16 1.457 Requirement already satisfied: grpcio<2.0.0,>=1.41.0 in /usr/local/lib/python3.12/site-packages (from google-api-core[grpc]!=2.0.*,!=2.1.*,!=2.10.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,!=2.8.*,!=2.9.*,<3.0.0dev,>=1.34.1->google-ai-generativelanguage==0.6.15->google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (1.83.0)
+#16 1.458 Requirement already satisfied: grpcio-status<2.0.0,>=1.41.0 in /usr/local/lib/python3.12/site-packages (from google-api-core[grpc]!=2.0.*,!=2.1.*,!=2.10.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,!=2.8.*,!=2.9.*,<3.0.0dev,>=1.34.1->google-ai-generativelanguage==0.6.15->google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (1.71.2)
+#16 1.486 Requirement already satisfied: filelock>=3.10.0 in /usr/local/lib/python3.12/site-packages (from huggingface-hub<2.0,>=0.16.4->tokenizers<1.0,>=0.21.0->litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (3.32.3)
+#16 1.486 Requirement already satisfied: hf-xet<2.0.0,>=1.5.2 in /usr/local/lib/python3.12/site-packages (from huggingface-hub<2.0,>=0.16.4->tokenizers<1.0,>=0.21.0->litellm>=1.56.0->osprey-framework==2026.6.2.post1137+g125523326) (1.6.0)
+#16 1.497 Requirement already satisfied: parso<0.9.0,>=0.8.6 in /usr/local/lib/python3.12/site-packages (from jedi>=0.18.2->ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (0.8.7)
+#16 1.507 Requirement already satisfied: pathable<0.7.0,>=0.6.0 in /usr/local/lib/python3.12/site-packages (from jsonschema-path>=0.3.4->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (0.6.0)
+#16 1.537 Requirement already satisfied: locket in /usr/local/lib/python3.12/site-packages (from partd>=1.4.0->dask[array]; extra == "client"->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (1.0.0)
+#16 1.541 Requirement already satisfied: ptyprocess>=0.5 in /usr/local/lib/python3.12/site-packages (from pexpect>4.6->ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (0.7.0)
+#16 1.558 Requirement already satisfied: beartype>=0.20.0 in /usr/local/lib/python3.12/site-packages (from py-key-value-aio<0.5.0,>=0.4.4->py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (0.22.9)
+#16 1.563 Requirement already satisfied: aiofile>=3.5.0 in /usr/local/lib/python3.12/site-packages (from py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (3.12.3)
+#16 1.563 Requirement already satisfied: keyring>=25.6.0 in /usr/local/lib/python3.12/site-packages (from py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (25.7.0)
+#16 1.564 Requirement already satisfied: cachetools>=5.0.0 in /usr/local/lib/python3.12/site-packages (from py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (7.1.7)
+#16 1.574 Requirement already satisfied: pyasn1<0.7.0,>=0.6.1 in /usr/local/lib/python3.12/site-packages (from pyasn1-modules>=0.2.1->google-auth>=2.15.0->google-generativeai->osprey-framework==2026.6.2.post1137+g125523326) (0.6.4)
+#16 1.578 Requirement already satisfied: email-validator>=2.0.0 in /usr/local/lib/python3.12/site-packages (from pydantic[email]>=2.11.7->fastmcp-slim==3.4.7->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (2.3.0)
+#16 1.625 Requirement already satisfied: executing>=1.2.0 in /usr/local/lib/python3.12/site-packages (from stack_data>=0.6.0->ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (2.2.1)
+#16 1.625 Requirement already satisfied: asttokens>=2.1.0 in /usr/local/lib/python3.12/site-packages (from stack_data>=0.6.0->ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (3.0.2)
+#16 1.626 Requirement already satisfied: pure-eval in /usr/local/lib/python3.12/site-packages (from stack_data>=0.6.0->ipython>=6.1.0->ipywidgets->osprey-framework==2026.6.2.post1137+g125523326) (0.2.3)
+#16 1.663 Requirement already satisfied: h2<5,>=3 in /usr/local/lib/python3.12/site-packages (from httpx[http2]->blosc2->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (4.4.1)
+#16 1.668 Requirement already satisfied: debugpy>=1.6.5 in /usr/local/lib/python3.12/site-packages (from ipykernel->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (1.8.21)
+#16 1.668 Requirement already satisfied: nest-asyncio2>=1.7.0 in /usr/local/lib/python3.12/site-packages (from ipykernel->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (1.7.2)
+#16 1.679 Requirement already satisfied: sphinx>=6 in /usr/local/lib/python3.12/site-packages (from numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (9.1.0)
+#16 1.684 Requirement already satisfied: et-xmlfile in /usr/local/lib/python3.12/site-packages (from openpyxl->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (2.0.0)
+#16 1.689 Requirement already satisfied: networkx>=2.0 in /usr/local/lib/python3.12/site-packages (from ophyd->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (3.6.1)
+#16 1.690 Requirement already satisfied: pint in /usr/local/lib/python3.12/site-packages (from ophyd->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (0.25.3)
+#16 1.696 Requirement already satisfied: hiredis>=3.2.0 in /usr/local/lib/python3.12/site-packages (from redis[hiredis]->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (3.4.1)
+#16 1.701 Requirement already satisfied: caio~=0.12.0 in /usr/local/lib/python3.12/site-packages (from aiofile>=3.5.0->py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (0.12.2)
+#16 1.730 Requirement already satisfied: dnspython>=2.0.0 in /usr/local/lib/python3.12/site-packages (from email-validator>=2.0.0->pydantic[email]>=2.11.7->fastmcp-slim==3.4.7->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (2.8.0)
+#16 1.750 Requirement already satisfied: hyperframe<7,>=6.1 in /usr/local/lib/python3.12/site-packages (from h2<5,>=3->httpx[http2]->blosc2->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (6.1.0)
+#16 1.751 Requirement already satisfied: hpack<5,>=4.2 in /usr/local/lib/python3.12/site-packages (from h2<5,>=3->httpx[http2]->blosc2->tiled[client]>=0.2.14->osprey-framework==2026.6.2.post1137+g125523326) (4.2.0)
+#16 1.764 Requirement already satisfied: SecretStorage>=3.2 in /usr/local/lib/python3.12/site-packages (from keyring>=25.6.0->py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (3.5.0)
+#16 1.765 Requirement already satisfied: jeepney>=0.4.2 in /usr/local/lib/python3.12/site-packages (from keyring>=25.6.0->py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (0.9.0)
+#16 1.765 Requirement already satisfied: jaraco.classes in /usr/local/lib/python3.12/site-packages (from keyring>=25.6.0->py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (3.4.0)
+#16 1.765 Requirement already satisfied: jaraco.functools in /usr/local/lib/python3.12/site-packages (from keyring>=25.6.0->py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (4.6.0)
+#16 1.765 Requirement already satisfied: jaraco.context in /usr/local/lib/python3.12/site-packages (from keyring>=25.6.0->py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (6.1.2)
+#16 1.805 Requirement already satisfied: sphinxcontrib-applehelp>=1.0.7 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (2.0.0)
+#16 1.805 Requirement already satisfied: sphinxcontrib-devhelp>=1.0.6 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (2.0.0)
+#16 1.806 Requirement already satisfied: sphinxcontrib-htmlhelp>=2.0.6 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (2.1.0)
+#16 1.806 Requirement already satisfied: sphinxcontrib-jsmath>=1.0.1 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (1.0.1)
+#16 1.806 Requirement already satisfied: sphinxcontrib-qthelp>=1.0.6 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (2.0.0)
+#16 1.806 Requirement already satisfied: sphinxcontrib-serializinghtml>=1.1.9 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (2.0.0)
+#16 1.807 Requirement already satisfied: docutils<0.23,>=0.21 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (0.22.4)
+#16 1.807 Requirement already satisfied: snowballstemmer>=2.2 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (3.1.1)
+#16 1.807 Requirement already satisfied: babel>=2.13 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (2.18.0)
+#16 1.808 Requirement already satisfied: alabaster>=0.7.14 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (1.0.0)
+#16 1.808 Requirement already satisfied: imagesize>=1.3 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (2.0.0)
+#16 1.808 Requirement already satisfied: roman-numerals>=1.0.0 in /usr/local/lib/python3.12/site-packages (from sphinx>=6->numpydoc->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (4.1.0)
+#16 1.826 Requirement already satisfied: flexcache>=0.3 in /usr/local/lib/python3.12/site-packages (from pint->ophyd->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (0.3)
+#16 1.826 Requirement already satisfied: flexparser>=0.4 in /usr/local/lib/python3.12/site-packages (from pint->ophyd->bluesky-queueserver->bluesky-queueserver-api==0.0.13->osprey-framework==2026.6.2.post1137+g125523326) (0.4)
+#16 1.934 Requirement already satisfied: more-itertools in /usr/local/lib/python3.12/site-packages (from jaraco.classes->keyring>=25.6.0->py-key-value-aio[filetree,keyring,memory]<0.5.0,>=0.4.4; extra == "client"->fastmcp-slim[client,server]==3.4.7->fastmcp>=3.4.4->osprey-framework==2026.6.2.post1137+g125523326) (11.1.0)
+#16 2.110 Installing collected packages: osprey-connectors, osprey-framework
+#16 2.192   Attempting uninstall: osprey-framework
+#16 2.197     Found existing installation: osprey-framework 2026.6.2
+#16 2.850     Uninstalling osprey-framework-2026.6.2:
+#16 4.915       Successfully uninstalled osprey-framework-2026.6.2
+#16 5.605 Successfully installed osprey-connectors-0.1.0 osprey-framework-2026.6.2.post1137+g125523326
+#16 5.605 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#16 5.828 
+#16 5.828 [notice] A new release of pip is available: 25.0.1 -> 26.2.1
+#16 5.828 [notice] To update, run: pip install --upgrade pip
+#16 6.098 Processing /tmp/ctx/osprey_connectors-0.1.0-py3-none-any.whl
+#16 6.101 Processing /tmp/ctx/osprey_framework-2026.6.2.post1137+g125523326-py3-none-any.whl
+#16 6.115 Installing collected packages: osprey-framework, osprey-connectors
+#16 6.115   Attempting uninstall: osprey-framework
+#16 6.117     Found existing installation: osprey-framework 2026.6.2.post1137+g125523326
+#16 6.147     Uninstalling osprey-framework-2026.6.2.post1137+g125523326:
+#16 6.154       Successfully uninstalled osprey-framework-2026.6.2.post1137+g125523326
+#16 6.795   Attempting uninstall: osprey-connectors
+#16 6.798     Found existing installation: osprey-connectors 0.1.0
+#16 6.800     Uninstalling osprey-connectors-0.1.0:
+#16 6.800       Successfully uninstalled osprey-connectors-0.1.0
+#16 6.858 Successfully installed osprey-connectors-0.1.0 osprey-framework-2026.6.2.post1137+g125523326
+#16 6.858 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#16 6.922 
+#16 6.922 [notice] A new release of pip is available: 25.0.1 -> 26.2.1
+#16 6.922 [notice] To update, run: pip install --upgrade pip
+#16 7.384 No broken requirements found.
+#16 DONE 7.5s
+
+#17 [ 9/13] RUN if [ "0" = "1" ]; then osprey vendor fetch; fi
+#17 DONE 0.1s
+
+#18 [10/13] COPY . /app/my-control-assistant/
+#18 DONE 0.1s
+
+#19 [11/13] RUN mkdir -p /app/my-control-assistant/var/agent_data/api_calls
+#19 DONE 0.1s
+
+#20 [12/13] RUN useradd --create-home --shell /bin/bash osprey  && chown -R osprey:osprey /app/my-control-assistant
+#20 DONE 0.4s
+
+#21 [13/13] WORKDIR /app/my-control-assistant
+#21 DONE 0.0s
+
+#22 exporting to image
+#22 exporting layers
+#22 exporting layers 0.7s done
+#22 exporting manifest sha256:cfc3f2bed2072504e939f95161c5e960419deaf14578410c9e2e05a5d89fe667 done
+#22 exporting config sha256:0eae22bb04fa050e8949ee88bf277e0bea5ce9c5f2d82b8bf83653afc7c1b6d4 done
+#22 exporting attestation manifest sha256:bbaf3e93c212445c603979d847c7887c32997167bfd9fbe7d3c0a314eb54dd39 done
+#22 exporting manifest list sha256:916a7101536fd922943ff943fbb15aeda8a0310711bc4aa08c306d4ab3f01019 done
+#22 naming to docker.io/library/my-control-assistant:local done
+#22 unpacking to docker.io/library/my-control-assistant:local
+#22 unpacking to docker.io/library/my-control-assistant:local 18.2s done
+#22 DONE 19.0s
