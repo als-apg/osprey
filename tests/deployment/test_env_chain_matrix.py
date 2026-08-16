@@ -377,6 +377,35 @@ def resolve_via_users_cli(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[s
     return chain_keys_of(parse_dotenv_text(result.output))
 
 
+def resolve_via_health_cli(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """``osprey health --project <repo>``'s pre-check env load, from ANOTHER cwd.
+
+    The anchors resolve through the config path, never the working directory —
+    this row runs without chdir-ing into the repo, which is exactly the stance
+    that used to drop ``.env.shared`` (the cwd-rooted chain load never saw the
+    target repo, and the repo-anchored reload knew only ``.env``).
+    """
+    from osprey.cli.health_cmd import _load_project_env, _resolve_anchors
+
+    _render_repo(repo)
+    _config_path, _repo_root, env_paths = _resolve_anchors(repo)
+    _load_project_env(env_paths)
+    return chain_keys_of(os.environ)
+
+
+def resolve_via_health_loader(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """The long-lived health surface's refresh-cycle loader.
+
+    The one loader that also WATCHES what it reads: the chain it loads here is
+    the same file set ``signatures.disk_signature`` stats, so an ``.env.shared``
+    edit both reloads and invalidates.
+    """
+    from osprey.health.loader import HealthConfigLoader
+
+    HealthConfigLoader(config_path=_render_repo(repo)).load()
+    return chain_keys_of(os.environ)
+
+
 LOADERS = [
     pytest.param(resolve_via_load_project_dotenv, id="load_project_dotenv"),
     pytest.param(resolve_via_chat_overlay, id="chat-overlay"),
@@ -387,6 +416,8 @@ LOADERS = [
     pytest.param(resolve_via_mcp_env, id="mcp_env-reversed"),
     pytest.param(resolve_via_users_env_file, id="env-users-derivation"),
     pytest.param(resolve_via_users_cli, id="users-env-cli"),
+    pytest.param(resolve_via_health_cli, id="health-cli-cross-cwd"),
+    pytest.param(resolve_via_health_loader, id="health-loader"),
 ]
 
 

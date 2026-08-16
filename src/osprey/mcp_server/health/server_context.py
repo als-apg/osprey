@@ -342,8 +342,8 @@ class HealthServerContext:
 
     # -- default disk-change probe ----------------------------------------------
 
-    def _default_disk_signature(self) -> tuple[Any, Any]:
-        """Stat ``config.yml`` and its sibling ``.env`` for the validity probe."""
+    def _default_disk_signature(self) -> tuple[Any, ...]:
+        """Stat ``config.yml`` and the deployment's env chain for the validity probe."""
         return _resolve_disk_signature(self._config_path)
 
 
