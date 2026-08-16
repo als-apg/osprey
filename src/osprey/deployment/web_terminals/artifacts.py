@@ -29,6 +29,7 @@ from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.personas import (
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
+    personas_needing_facility_bundle,
     personas_needing_launch_token,
     personas_not_denying_bash,
 )
@@ -270,15 +271,20 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
             :func:`check_bash_launch_token_conflict`); this is the backstop that
             makes the property hold for all of them.
     """
-    from osprey.deployment.compose_generator import resolve_repo_root
+    from osprey.deployment.compose_generator import (
+        resolve_facility_bundle_dir,
+        resolve_repo_root,
+        shared_corpus_gid,
+    )
 
     root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
     # Every disk-derived input is resolved HERE and passed down, because
     # render_web_terminals() reads no filesystem of its own (see its docstring):
     # the .env.auth digest, which personas declare the EVENTS panel and so need
     # the dispatcher's bearer, which configure ARIEL and so need its Postgres
-    # password, and which both allow writes and run the bluesky server and so may
-    # arm a queue start — each in their own per-user environment block.
+    # password, which both allow writes and run the bluesky server and so may
+    # arm a queue start — each in their own per-user environment block — and
+    # which name a facility-knowledge bundle and so get it bind-mounted.
     # Fail closed BEFORE the render, so a refused deploy leaves no half-written
     # artifacts behind: a persona holding BLUESKY_LAUNCH_TOKEN whose shipped
     # settings still permit `Bash` can arm a queue start from a shell, with none
@@ -296,6 +302,14 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
         dispatcher_personas=personas_needing_dispatcher_token(config, root),
         ariel_personas=personas_needing_ariel_password(config, root),
         launch_token_personas=launch_token_personas,
+        facility_bundle_personas=personas_needing_facility_bundle(config, root),
+        # A pure read, like every other disk-derived input here: the deploy path
+        # provisions the bundle directory before this render (see
+        # deploy_up_web_terminals), and this asks what group it ended up with so
+        # each entitled service can join it. An unprovisioned directory answers
+        # None and emits no `group_add` — the honest render, since joining a
+        # group that was never established would be a guess.
+        facility_bundle_gid=shared_corpus_gid(resolve_facility_bundle_dir(config, root)),
     )
     dest = web_artifacts_dir(root)
     written: list[Path] = []

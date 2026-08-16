@@ -104,6 +104,26 @@ def config_needs_ariel_password(config: Any) -> bool:
     return bool(as_dict(as_dict(config).get("ariel")))
 
 
+def config_needs_facility_bundle(config: Any) -> bool:
+    """True if ``config`` names a ``facility_knowledge.bundle_path``.
+
+    The entitlement to have the deployment's knowledge bundle bound into this
+    project's container. Read from the same key the bundle's own reader uses
+    (:func:`osprey.deployment.compose_generator.resolve_facility_bundle_dir`),
+    for the reason :func:`config_needs_ariel_password` gives about the ``ariel:``
+    section: the key IS the entitlement, because it is what tells the project
+    where its facility knowledge lives. A project that names no bundle path has
+    no directory to be handed and nothing inside it that would read one.
+
+    Deliberately not gated on a panel or an MCP server. The bundle has two
+    unrelated consumers inside the container — the OKF panel and the
+    ``facility_knowledge`` MCP server the agent calls — so gating on either
+    would leave the other reading a directory that was never mounted.
+    """
+    bundle_path = as_dict(as_dict(config).get("facility_knowledge")).get("bundle_path")
+    return isinstance(bundle_path, str) and bool(bundle_path.strip())
+
+
 def config_needs_launch_token(config: Any) -> bool:
     """True if ``config`` both allows writes and runs the bluesky MCP server.
 
@@ -220,6 +240,18 @@ def personas_needing_ariel_password(config: Any, project_root: Any) -> set[str]:
         ``ARIEL_DB_PASSWORD`` (see :func:`config_needs_ariel_password`).
     """
     return _personas_whose_config(config, project_root, config_needs_ariel_password)
+
+
+def personas_needing_facility_bundle(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project configures a knowledge bundle.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names whose container gets the
+        deployment bundle bind-mounted (see :func:`config_needs_facility_bundle`).
+    """
+    return _personas_whose_config(config, project_root, config_needs_facility_bundle)
 
 
 def personas_needing_launch_token(config: Any, project_root: Any) -> set[str]:
