@@ -9,12 +9,20 @@ Design Philosophy:
 - Rich console markup helpers for inline styling
 - Questionary style integration for interactive prompts
 - Clear separation between fixed UI standards and customizable theme colors
+- One data-table look and one panel look, built by the factories at the bottom of
+  this module, so box/padding/border tokens are spelled here rather than at the
+  call sites the structure guard walks
 """
 
 import sys
 from dataclasses import dataclass
+from typing import Any
 
-from rich.console import Console
+from rich import box
+from rich.box import Box
+from rich.console import Console, RenderableType
+from rich.panel import Panel
+from rich.table import Table
 from rich.theme import Theme
 
 from osprey.utils.logger import get_logger
@@ -128,19 +136,18 @@ def get_active_theme() -> ColorTheme:
 
 
 def set_theme(theme: ColorTheme):
-    """Set a new active theme and rebuild console/styles.
+    """Set a new active theme, re-theming the existing consoles in place.
+
+    The module-level consoles keep their identity for the process lifetime, so
+    ``from .styles import console`` aliases taken at import time stay correct
+    after a theme switch.
 
     Args:
         theme: The ColorTheme to activate
     """
-    global _active_theme, console, custom_style
+    global _active_theme, custom_style
     _active_theme = theme
-    # Rebuild theme-dependent objects
-    # On Windows, force UTF-8 encoding to support Unicode characters
-    if sys.platform == "win32":
-        console = Console(theme=_build_rich_theme(theme), force_terminal=True, legacy_windows=False)
-    else:
-        console = Console(theme=_build_rich_theme(theme))
+    _retheme_consoles(theme)
     custom_style = _build_questionary_style(theme)
 
 
@@ -293,12 +300,53 @@ osprey_theme = _build_rich_theme(_active_theme)
 custom_style = _build_questionary_style(_active_theme)
 
 
-# Singleton console instance with theme
-# On Windows, force UTF-8 encoding to support Unicode characters (✓, ✗, ⚠️, etc.)
-if sys.platform == "win32":
-    console = Console(theme=osprey_theme, force_terminal=True, legacy_windows=False)
-else:
-    console = Console(theme=osprey_theme)
+def _make_console(*, stderr: bool = False) -> Console:
+    """Construct a themed console with the platform-constant terminal settings.
+
+    The Windows special case (treat the stream as a terminal, and use the modern
+    console renderer rather than the legacy one, so Unicode characters such as
+    ✓, ✗ and ⚠️ render) is platform-constant, so it is applied once here at
+    construction and never revisited when the theme changes.
+
+    Args:
+        stderr: If True, the console writes to stderr instead of stdout
+
+    Returns:
+        A themed Console instance
+    """
+    if sys.platform == "win32":
+        return Console(theme=osprey_theme, force_terminal=True, legacy_windows=False, stderr=stderr)
+    return Console(theme=osprey_theme, stderr=stderr)
+
+
+# Singleton console instances with theme: one for stdout, one for stderr.
+# Both are identity-stable for the process lifetime - set_theme() re-themes them
+# in place rather than rebuilding them.
+console = _make_console()
+err_console = _make_console(stderr=True)
+
+# Whether a theme has been pushed on top of the consoles' base theme. Guards the
+# pop half of the pop-before-push so the first set_theme() call is safe.
+_theme_pushed = False
+
+
+def _retheme_consoles(theme: ColorTheme) -> None:
+    """Re-theme the module consoles in place, keeping the theme stack flat.
+
+    Pops the previously pushed theme (if any) before pushing the new one, so any
+    number of theme switches leaves the consoles' theme stack at constant depth.
+
+    Args:
+        theme: The ColorTheme to apply to both consoles
+    """
+    global _theme_pushed
+
+    rich_theme = _build_rich_theme(theme)
+    for target in (console, err_console):
+        if _theme_pushed:
+            target.pop_theme()
+        target.push_theme(rich_theme, inherit=False)
+    _theme_pushed = True
 
 
 def get_questionary_style() -> "QuestionaryStyle | None":
@@ -403,8 +451,9 @@ class Messages:
 class ThemeConfig:
     """Configuration utilities for theme customization.
 
-    Provides helper methods for accessing theme settings consistently.
-    Future enhancement: Load custom themes from config file.
+    Provides helper methods for accessing theme settings consistently. Loading a
+    theme from config, custom palettes included, is
+    :func:`load_theme_from_config`.
     """
 
     @staticmethod
@@ -430,6 +479,139 @@ class ThemeConfig:
         return Styles.BANNER
 
 
+# ---------------------------------------------------------------------------
+# Table and panel factories
+#
+# Every data table and panel under ``cli/``, ``deployment/`` and
+# ``health/render.py`` is built here, which is the reach
+# ``tests/cli/test_output_structure_guard.py`` enforces. A call site picks the
+# *kind* of surface it wants and passes its own columns and content, never its
+# own borders, so retheming reaches all of them at once and a look that needs to
+# change changes here. Outside that reach the tables under
+# ``services/channel_finder/tools/`` still spell their own box and padding.
+#
+# The defaults are the dominant shape of what the CLI already prints — a
+# bordered table with a themed header row, and a rounded panel — so adopting a
+# factory is a no-op for most call sites.
+# ---------------------------------------------------------------------------
+
+#: Box drawing for a data table: Rich's default heavy-ruled header, which a
+#: table that names no box of its own already inherits.
+DATA_TABLE_BOX: Box = box.HEAVY_HEAD
+
+#: Cell padding for a data table, as ``(top, right, bottom, left)`` collapsed to
+#: the vertical/horizontal pair Rich accepts.
+DATA_TABLE_PADDING: tuple[int, int] = (0, 1)
+
+#: Style of the header row. ``header`` and ``bold_primary`` resolve to the same
+#: rendered style, so this is the single spelling of what call sites variously
+#: reached for.
+TABLE_HEADER_STYLE: str = Styles.HEADER
+
+#: Style of every rule and frame the factories draw -- table rules and panel
+#: borders alike, so the two never disagree about how a border looks.
+BORDER_STYLE: str = Styles.BORDER_DIM
+
+#: Blank columns between two adjacent columns of a layout table. A layout table
+#: has no rules, so the gutter is the only thing separating its columns.
+LAYOUT_TABLE_GUTTER: int = 3
+
+#: Cell padding for a layout table: the gutter on the left of every cell and
+#: nothing anywhere else.
+LAYOUT_TABLE_PADDING: tuple[int, int, int, int] = (0, 0, 0, LAYOUT_TABLE_GUTTER)
+
+#: Box drawing for a panel: Rich's rounded frame, which the CLI's panels already
+#: inherit.
+PANEL_BOX: Box = box.ROUNDED
+
+#: Padding between a panel's frame and its contents.
+PANEL_PADDING: tuple[int, int] = (0, 1)
+
+
+def data_table(**overrides: Any) -> Table:
+    """Build the CLI's data table: bordered, with a themed header row.
+
+    This is the one look for a table that *presents data* — a list of services,
+    a set of audit findings, a status matrix. Callers add columns and rows; they
+    do not choose borders.
+
+    Args:
+        **overrides: Any :class:`~rich.table.Table` keyword, passed straight
+            through and winning over the defaults. Use it for the table's
+            content-shaped options (``title``, ``show_lines``, ``expand``), not
+            to reopen the look.
+
+    Returns:
+        An empty :class:`~rich.table.Table` ready for ``add_column``/``add_row``.
+
+    Examples:
+        >>> table = data_table(title="Services")
+        >>> table.add_column("Name", style=Styles.ACCENT)
+    """
+    params: dict[str, Any] = {
+        "box": DATA_TABLE_BOX,
+        "show_header": True,
+        "header_style": TABLE_HEADER_STYLE,
+        "border_style": BORDER_STYLE,
+        "padding": DATA_TABLE_PADDING,
+    }
+    params.update(overrides)
+    return Table(**params)
+
+
+def layout_table(**overrides: Any) -> Table:
+    """Build a layout table: no box, no header, columns separated by a gutter.
+
+    Deliberately not a data table. A layout table draws nothing of its own — it
+    exists to align columns of text that would otherwise be spaced by hand, so
+    the reader sees aligned text rather than a table. The live build region is
+    the standing example.
+
+    Args:
+        **overrides: Any :class:`~rich.table.Table` keyword, passed straight
+            through and winning over the defaults.
+
+    Returns:
+        An empty :class:`~rich.table.Table` ready for ``add_column``/``add_row``.
+    """
+    params: dict[str, Any] = {
+        "box": None,
+        "show_header": False,
+        "padding": LAYOUT_TABLE_PADDING,
+        "pad_edge": False,
+    }
+    params.update(overrides)
+    return Table(**params)
+
+
+def panel(renderable: RenderableType, **overrides: Any) -> Panel:
+    """Build the CLI's panel: a rounded, themed frame around one renderable.
+
+    A panel sets its contents apart from the surrounding output — a summary, a
+    heading block. It is the one panel look; call sites choose the ``title`` and
+    the contents, not the frame.
+
+    Args:
+        renderable: What goes inside the frame — a string (Rich markup is
+            honoured), a :class:`~rich.text.Text`, or any renderable.
+        **overrides: Any :class:`~rich.panel.Panel` keyword, passed straight
+            through and winning over the defaults (``title``, ``expand``, …).
+
+    Returns:
+        The :class:`~rich.panel.Panel`, ready to print.
+
+    Examples:
+        >>> console.print(panel("All checks passed", title="Summary"))
+    """
+    params: dict[str, Any] = {
+        "box": PANEL_BOX,
+        "border_style": BORDER_STYLE,
+        "padding": PANEL_PADDING,
+    }
+    params.update(overrides)
+    return Panel(renderable, **params)
+
+
 __all__ = [
     # Theme management
     "ColorTheme",
@@ -443,10 +625,23 @@ __all__ = [
     "osprey_theme",
     # Console and styles
     "console",
+    "err_console",
     "get_questionary_style",
     "custom_style",
     # Style helpers
     "Styles",
     "Messages",
     "ThemeConfig",
+    # Table and panel factories
+    "data_table",
+    "layout_table",
+    "panel",
+    "DATA_TABLE_BOX",
+    "DATA_TABLE_PADDING",
+    "TABLE_HEADER_STYLE",
+    "BORDER_STYLE",
+    "LAYOUT_TABLE_GUTTER",
+    "LAYOUT_TABLE_PADDING",
+    "PANEL_BOX",
+    "PANEL_PADDING",
 ]
