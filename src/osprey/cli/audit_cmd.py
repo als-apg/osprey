@@ -10,18 +10,23 @@ import asyncio
 import re
 import tempfile
 import uuid
+from contextlib import nullcontext
 from pathlib import Path
 
 import click
+from rich.text import Text
 
-from .styles import Messages, Styles, console
+from . import output
+from .altitude import lift_gate
+from .styles import Styles, data_table, panel
 
-try:
-    from rich.panel import Panel
-    from rich.table import Table
-except ImportError:
-    Panel = None  # type: ignore[assignment, misc]
-    Table = None  # type: ignore[assignment, misc]
+#: The token each severity prints in, spelled once so the findings table and the
+#: detail list below it agree on what "error" looks like.
+_SEVERITY_STYLES = {
+    "error": Styles.ERROR,
+    "warning": Styles.WARNING,
+    "info": Styles.INFO,
+}
 
 # SDK imports are deferred to runtime to provide a helpful error message
 _SDK_AVAILABLE = False
@@ -101,7 +106,7 @@ async def _run_audit(
                 if isinstance(block, TextBlock):
                     collected_text.append(block.text)
                     if verbose:
-                        console.print(f"[dim]{block.text[:200]}...[/dim]")
+                        output.note(f"{block.text[:200]}...")
         elif isinstance(message, ResultMessage):
             total_cost = getattr(message, "total_cost_usd", None)
             num_turns = getattr(message, "num_turns", None)
@@ -112,6 +117,9 @@ async def _run_audit(
 def _display_report(report, json_output: bool, verbose: bool, cost=None, turns=None):
     """Display the audit report using Rich or JSON."""
     if json_output:
+        # The one machine seam in this verb: stdout carries the report document
+        # and nothing else, so it goes out through click rather than through the
+        # renderer. Its key set is pinned by tests/cli/test_json_keyset_capture.py.
         click.echo(report.model_dump_json(indent=2))
         return
 
@@ -122,54 +130,49 @@ def _display_report(report, json_output: bool, verbose: bool, cost=None, turns=N
         "high": Styles.ERROR,
     }.get(report.overall_risk, Styles.INFO)
 
-    console.print()
-    console.print(
-        Panel(
-            f"[{risk_style}]{report.overall_risk.upper()} RISK[/{risk_style}]\n\n{report.summary}",
-            title="Audit Summary",
-            border_style=Styles.BORDER_DIM,
-        )
-    )
+    # Built as spans rather than as markup: the renderer prints with markup off
+    # and Rich carries that into nested renderables, so a "[error]...[/error]"
+    # body would show its own tags. Only the verdict wears the token -- a summary
+    # painted the same red competes with the line that states the risk.
+    summary = Text()
+    summary.append(f"{report.overall_risk.upper()} RISK", style=risk_style)
+    summary.append(f"\n\n{report.summary}")
+
+    output.report("")
+    output.table(panel(summary, title="Audit Summary"))
 
     if not report.findings:
-        console.print(f"\n  {Messages.success('No findings — clean audit!')}\n")
+        output.report("")
+        output.report("✓ No findings. The audit came back clean.", style=Styles.SUCCESS)
+        output.report("")
         return
 
     # Findings table
-    if Table is not None:
-        table = Table(border_style=Styles.BORDER_DIM, show_lines=True)
-        table.add_column("Severity", width=8)
-        table.add_column("Category", width=12)
-        table.add_column("Title")
-        table.add_column("File", width=30)
+    table = data_table(show_lines=True)
+    table.add_column("Severity", width=8)
+    table.add_column("Category", width=12)
+    table.add_column("Title")
+    table.add_column("File", width=30)
 
-        for f in report.findings:
-            sev_fmt = {
-                "error": Messages.error(f.severity),
-                "warning": Messages.warning(f.severity),
-                "info": Messages.info(f.severity),
-            }.get(f.severity, f.severity)
-            table.add_row(sev_fmt, f.category, f.title, f.file_path)
+    for f in report.findings:
+        severity = Text(f.severity, style=_SEVERITY_STYLES.get(f.severity, ""))
+        table.add_row(severity, f.category, f.title, f.file_path)
 
-        console.print(table)
+    output.table(table)
 
     # Detailed findings
     for f in report.findings:
-        sev_fmt = {
-            "error": Messages.error(f.title),
-            "warning": Messages.warning(f.title),
-            "info": Messages.info(f.title),
-        }.get(f.severity, f.title)
-
-        console.print(f"\n  {sev_fmt}")
-        console.print(f"  [dim]{f.explanation}[/dim]")
-        console.print(f"  Recommendation: {f.recommendation}")
+        output.report("")
+        output.report(f.title, style=_SEVERITY_STYLES.get(f.severity))
+        output.note(f.explanation)
+        output.section("", [("Recommendation", f.recommendation)])
 
     # Stats
     errors = sum(1 for f in report.findings if f.severity == "error")
     warnings = sum(1 for f in report.findings if f.severity == "warning")
     infos = sum(1 for f in report.findings if f.severity == "info")
-    console.print(f"\n  Findings: {errors} errors, {warnings} warnings, {infos} info")
+    output.report("")
+    output.report(f"Findings: {errors} errors, {warnings} warnings, {infos} info")
 
     if verbose and (cost is not None or turns is not None):
         parts = []
@@ -177,9 +180,9 @@ def _display_report(report, json_output: bool, verbose: bool, cost=None, turns=N
             parts.append(f"Cost: ${cost:.4f}")
         if turns is not None:
             parts.append(f"Turns: {turns}")
-        console.print(f"  [dim]{' | '.join(parts)}[/dim]")
+        output.note(" | ".join(parts))
 
-    console.print()
+    output.report("")
 
 
 @click.command()
@@ -211,80 +214,107 @@ def audit(
       osprey audit profile.yml --build   Build then audit
       osprey audit project/ --json       JSON output
     """
-    if not _SDK_AVAILABLE:
-        console.print(
-            f"  {Messages.error('claude-agent-sdk is not installed.')}\n"
-            "  Install it with: pip install claude-agent-sdk\n"
-            "  Or: uv add claude-agent-sdk"
-        )
-        raise SystemExit(1)
+    # Every --json verb runs its whole body in machine mode, so a renderer line
+    # from anywhere in the stack lands on stderr and stdout carries one document.
+    with output.machine_mode() if json_output else nullcontext():
+        if verbose:
+            # --verbose lifts the altitude gate for this run, so the reviewer's own
+            # transcript reaches the terminal alongside the extra detail the flag
+            # already prints (the raw answer on a parse failure, cost and turns).
+            lift_gate()
 
-    from .audit_prompts import AuditReport, build_audit_prompt
-
-    target_type = _detect_target_type(target)
-    target_dir = Path(target)
-
-    # Optionally build the profile first
-    tmpdir = None
-    if build_first:
-        if target_type != "profile":
-            console.print(
-                f"  {Messages.error('--build requires a .yml/.yaml profile, not a directory.')}"
+        if not _SDK_AVAILABLE:
+            output.fail(
+                "claude-agent-sdk is not installed",
+                "The audit verb reviews the target with an agent, which needs the SDK.",
+                "install it with: uv add claude-agent-sdk",
             )
             raise SystemExit(1)
 
-        tmpdir = tempfile.mkdtemp(prefix="osprey-audit-")
-        project_name = f"audit-{uuid.uuid4().hex[:8]}"
+        from .audit_prompts import AuditReport, build_audit_prompt
 
-        if not json_output:
-            console.print(f"  Building profile to temp dir: {tmpdir}")
+        target_type = _detect_target_type(target)
+        target_dir = Path(target)
 
-        from .build_cmd import build as build_cmd
+        # Optionally build the profile first
+        tmpdir = None
+        if build_first:
+            if target_type != "profile":
+                output.fail(
+                    "--build needs a .yml or .yaml profile, not a directory",
+                    f"The target is a directory: {target}",
+                    "drop --build to audit the directory as it stands",
+                )
+                raise SystemExit(1)
 
-        ctx = click.get_current_context()
-        ctx.invoke(
-            build_cmd,
-            project_name=project_name,
-            profile=str(target),
-            output_dir=tmpdir,
-            force=False,
-            stream=False,
-        )
-        target_dir = Path(tmpdir) / project_name
-        target_type = "project"
+            tmpdir = tempfile.mkdtemp(prefix="osprey-audit-")
+            project_name = f"audit-{uuid.uuid4().hex[:8]}"
 
-    try:
-        if not json_output:
-            console.print(f"  Auditing {target_type}: {Messages.path(str(target_dir))}")
-            console.print(f"  Model: {model} | Budget: ${budget:.2f}")
+            if not json_output:
+                output.section("", [("Building profile to", tmpdir)])
 
-        file_listing = _list_files(target_dir)
-        prompt = build_audit_prompt(target_type, target_dir, file_listing)
+            from .build_cmd import build as build_cmd
 
-        # Run the agent
-        raw_text, cost, turns = asyncio.run(_run_audit(prompt, model, target_dir, budget, verbose))
-
-        # Parse the result
-        json_str = _extract_json(raw_text)
-        if json_str is None:
-            console.print(f"  {Messages.error('Agent did not produce valid JSON output.')}")
-            if verbose:
-                console.print(f"  [dim]Raw output: {raw_text[:500]}[/dim]")
-            raise SystemExit(1)
+            ctx = click.get_current_context()
+            ctx.invoke(
+                build_cmd,
+                project_name=project_name,
+                profile=str(target),
+                output_dir=tmpdir,
+                force=False,
+                stream=False,
+            )
+            target_dir = Path(tmpdir) / project_name
+            target_type = "project"
 
         try:
-            report = AuditReport.model_validate_json(json_str)
-        except Exception as e:
-            console.print(f"  {Messages.error(f'Failed to parse audit report: {e}')}")
-            if verbose:
-                console.print(f"  [dim]JSON: {json_str[:500]}[/dim]")
-            raise SystemExit(1) from None
+            if not json_output:
+                output.section(
+                    "",
+                    [
+                        ("Auditing", f"{target_type}: {target_dir}"),
+                        ("Model", model),
+                        ("Budget", f"${budget:.2f}"),
+                    ],
+                )
 
-        _display_report(report, json_output, verbose, cost=cost, turns=turns)
+            file_listing = _list_files(target_dir)
+            prompt = build_audit_prompt(target_type, target_dir, file_listing)
 
-    finally:
-        # Clean up temp dir if we created one
-        if tmpdir is not None:
-            import shutil
+            # Run the agent
+            raw_text, cost, turns = asyncio.run(
+                _run_audit(prompt, model, target_dir, budget, verbose)
+            )
 
-            shutil.rmtree(tmpdir, ignore_errors=True)
+            # Parse the result
+            json_str = _extract_json(raw_text)
+            if json_str is None:
+                output.fail(
+                    "The reviewer did not return a report",
+                    "Its answer held no JSON document, so there is nothing to read.",
+                    "run it again with -v to see what it did say",
+                )
+                if verbose:
+                    output.note(f"Raw output: {raw_text[:500]}")
+                raise SystemExit(1)
+
+            try:
+                report = AuditReport.model_validate_json(json_str)
+            except Exception as e:
+                output.fail(
+                    "Could not read the audit report",
+                    str(e),
+                    "run it again with -v to see the document that failed to parse",
+                )
+                if verbose:
+                    output.note(f"JSON: {json_str[:500]}")
+                raise SystemExit(1) from None
+
+            _display_report(report, json_output, verbose, cost=cost, turns=turns)
+
+        finally:
+            # Clean up temp dir if we created one
+            if tmpdir is not None:
+                import shutil
+
+                shutil.rmtree(tmpdir, ignore_errors=True)

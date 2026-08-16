@@ -29,7 +29,9 @@ import click
 
 from osprey.errors import BuildProfileError
 
+from .output import note, report, section
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
+from .styles import Styles
 
 
 def profile_file_at(target: Path) -> Path:
@@ -93,17 +95,21 @@ def check_profile_file(profile_file: Path) -> None:
         # the "Build profile validation failed" header for its own errors.
         raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
 
-    click.echo(f"✓ Profile is valid: {profile_file}")
-    click.echo(f"  Name: {build_profile.name}")
+    report(f"✓ Profile is valid: {profile_file}", style=Styles.SUCCESS)
+
+    rows: list[tuple[str, object]] = [("Name", build_profile.name)]
     # Named separately because "valid" says nothing about whether the deploy
     # coordinates were read at all: a profile that omits the block and one whose
     # block checked out otherwise print the same line.
     if build_profile.deploy is not None:
         deploy = build_profile.deploy
-        click.echo(f"  Deploy: {deploy.ci} CI → {deploy.host.user}@{deploy.host.name}")
-    click.echo("\nNext steps:")
-    click.echo("  1. Render the deployment: osprey build")
-    click.echo("  2. Re-run this command after editing the profile")
+        rows.append(("Deploy", f"{deploy.ci} CI → {deploy.host.user}@{deploy.host.name}"))
+    section("", rows)
+
+    report("")
+    report("Next steps:")
+    note("1. Render the deployment: osprey build")
+    note("2. Re-run this command after editing the profile")
 
 
 @click.command()

@@ -1,0 +1,13 @@
+[
+  "answer",
+  "entries",
+  "entries[].author",
+  "entries[].entry_id",
+  "entries[].score",
+  "entries[].timestamp",
+  "entries[].title",
+  "query",
+  "reasoning",
+  "search_modes",
+  "sources"
+]

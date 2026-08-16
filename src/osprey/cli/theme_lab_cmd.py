@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING
 
 import click
 
+from . import output
+
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
@@ -101,7 +103,7 @@ def theme_lab(port: int | None, no_browser: bool) -> None:
     try:
         app = create_app()
     except FileNotFoundError as exc:
-        click.echo(f"ERROR: {exc}", err=True)
+        output.fail("Cannot start the Theme Lab", str(exc))
         sys.exit(1)
 
     serve_port = port if port is not None else free_port()
@@ -115,12 +117,14 @@ def theme_lab(port: int | None, no_browser: bool) -> None:
 
             _open_browser_when_ready(url)
         except Exception as exc:
-            click.echo(f"WARNING: could not open a browser ({exc}).", err=True)
+            output.warn("Could not open a browser", str(exc))
 
-    click.echo(f"Theme Lab: {url}")
-    click.echo("Press Ctrl+C to stop\n")
+    output.report(f"Starting the OSPREY Theme Lab on {url}")
+    output.note("Press Ctrl+C to stop")
+    output.report("")
 
     try:
         uvicorn.run(app, host="127.0.0.1", port=serve_port, log_level="warning")
     except KeyboardInterrupt:
-        click.echo("\nShutting down...")
+        output.report("")
+        output.report("Shutting down...")

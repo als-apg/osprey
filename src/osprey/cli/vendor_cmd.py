@@ -2,6 +2,8 @@
 
 import click
 
+from .output import fail, report
+
 
 @click.group("vendor")
 def vendor():
@@ -35,16 +37,16 @@ def fetch(quiet: bool, insecure: bool) -> None:
     from osprey.interfaces.vendor import fetch_all
 
     if not quiet:
-        click.echo("Fetching vendor assets...")
+        report("Fetching vendor assets...")
     try:
         downloaded = fetch_all(quiet=quiet, insecure=insecure)
     except RuntimeError as exc:
-        click.echo(f"\n{exc}", err=True)
+        fail("Could not fetch the vendor assets", str(exc))
         raise SystemExit(1) from exc
     if downloaded:
-        click.echo(f"Downloaded {len(downloaded)} file(s).")
+        report(f"Downloaded {len(downloaded)} file(s).")
     else:
-        click.echo("All vendor assets already up to date.")
+        report("All vendor assets already up to date.")
 
 
 @vendor.command()
@@ -54,8 +56,10 @@ def verify() -> None:
 
     ok, problems = verify_all()
     if problems:
-        click.echo(f"{len(problems)} problem(s) found:", err=True)
-        for p in problems:
-            click.echo(f"  {p}", err=True)
+        fail(
+            f"{len(problems)} vendor file(s) did not verify",
+            "\n".join(str(p) for p in problems),
+            "Download them again with `osprey vendor fetch`.",
+        )
         raise SystemExit(1)
-    click.echo(f"All {len(ok)} vendor files verified OK.")
+    report(f"All {len(ok)} vendor files verified OK.")

@@ -31,8 +31,9 @@ from typing import Any, NamedTuple
 
 import click
 
+from osprey.cli.output import fail, note, report, warn
 from osprey.cli.repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
-from osprey.cli.styles import Styles, console
+from osprey.cli.styles import Styles
 from osprey.utils.logger import get_logger
 
 logger = get_logger("users")
@@ -298,19 +299,16 @@ def _users_session(repo: Path | None, *, announce: bool = True) -> Iterator[_Rep
     config_path = _rendered_config_path(repo_root)
 
     if not config_path.is_file():
-        console.print(
-            f"\n✗ No build found in [accent]{repo_root}[/accent]: {config_path} does not exist.",
-            style=Styles.ERROR,
-        )
-        console.print(
-            "\nWeb-terminal users are managed through the rendered config the "
-            "stack runs from.\nRun [command]osprey build[/command] first.\n",
-            style=Styles.WARNING,
+        fail(
+            f"No build found in {repo_root}",
+            f"{config_path} does not exist. Web-terminal users are managed through "
+            "the rendered config the stack runs from.",
+            "run `osprey build` first",
         )
         raise click.Abort()
 
     if announce:
-        console.print(f"Web-terminal roster: [bold]{action}[/bold] in {repo_root}")
+        report(f"Web-terminal roster: {action} in {repo_root}")
 
     # Restored afterwards so a verb cannot leave the process somewhere else than
     # it was invoked from. Nothing here defers work past the yield, so the
@@ -322,14 +320,15 @@ def _users_session(repo: Path | None, *, announce: bool = True) -> Iterator[_Rep
     except (click.Abort, click.ClickException):
         raise
     except KeyboardInterrupt:
-        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+        warn("Operation cancelled by user")
         raise click.Abort() from None
     except Exception as e:
-        console.print(f"✗ {action} failed: {e}", style=Styles.ERROR)
+        cause = str(e)
         if os.environ.get("DEBUG"):
             import traceback
 
-            console.print(traceback.format_exc(), style=Styles.DIM)
+            cause = f"{cause}\n{traceback.format_exc()}"
+        fail(f"{action} failed", cause)
         raise click.Abort() from None
     finally:
         os.chdir(previous_cwd)
@@ -443,11 +442,10 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
             profile_path, user
         )
         if resuming:
-            console.print(
-                f"{user} is already off the deployed roster; completing the removal in "
-                "profile.yml. Any container or volume left behind is removed by "
-                "[command]osprey users prune[/command].",
-                style=Styles.WARNING,
+            warn(
+                f"{user} is already off the deployed roster",
+                "Completing the removal in profile.yml. Any container or volume left "
+                "behind is removed by `osprey users prune`.",
             )
         else:
             # The engine, unchanged: it owns the typed confirmation and every
@@ -465,55 +463,47 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
             # this point the destruction has succeeded and only the bookkeeping
             # failed. Every way this write can fail — an unwritable file, a full
             # disk, a profile.yml that no longer parses — leaves the same true
-            # state and has the same two remedies, so they are caught together.
-            console.print(
-                f"\n✗ {user}'s workspace WAS removed, but this repo's profile.yml could "
-                f"not be updated: {exc}",
-                style=Styles.ERROR,
-            )
-            console.print(
-                f"\n  Done: the container and volumes were removed.\n"
-                f"  Not done: profile.yml still lists {user}, so the next "
-                "[command]osprey build[/command] would put them back on the roster.\n\n"
-                f"  Fix it either way:\n"
-                f"    • re-run [command]osprey users remove {user}[/command]. It notices the "
-                "half-finished removal and only edits the profile\n"
-                f"    • or delete {user}'s entry from profile.yml by hand",
-                style=Styles.WARNING,
+            # state and has the same way forward, so they are caught together.
+            fail(
+                f"{user}'s workspace WAS removed, but this repo's profile.yml could not be updated",
+                f"{exc}\n"
+                "Done: the container and volumes were removed.\n"
+                f"Not done: profile.yml still lists {user}, so the next `osprey build` "
+                "would put them back on the roster.\n"
+                "Re-running notices the half-finished removal and only edits the "
+                f"profile; failing that, delete {user}'s entry from profile.yml by hand.",
+                f"re-run `osprey users remove {user}`",
             )
             raise click.Abort() from None
 
         if edit.changed:
-            console.print(f"\n✓ Removed [accent]{user}[/accent] from the roster in {profile_path}")
+            report("")
+            report(f"✓ Removed {user} from the roster in {profile_path}", style=Styles.SUCCESS)
             if edit.expanded_bare_entries:
-                console.print(
-                    "  The remaining roster entries were written out with explicit "
+                note(
+                    "The remaining roster entries were written out with explicit "
                     "'index:' values, which keeps each survivor's ports exactly where "
-                    "they were.",
-                    style=Styles.DIM,
+                    "they were."
                 )
         elif resuming:
             # Unreachable in practice — `resuming` was true because the profile
             # listed the user — but a roster that changed under us must not be
             # reported as a successful edit.
-            console.print(
-                f"\n! {user} is no longer in this repo's profile.yml roster; nothing to do.",
-                style=Styles.WARNING,
-            )
+            warn(f"{user} is no longer in this repo's profile.yml roster; nothing to do.")
         else:
             # Said plainly rather than passed over: the containers and volumes
             # are already gone, so silence here would leave the operator
             # believing the removal was complete while the next build re-adds
             # the user and the next up gives them a terminal again.
-            console.print(
-                f"\n! {user} was removed from the deployment, but this repo's profile.yml "
-                "does not spell the web-terminal roster, so there was nothing to edit "
-                "there. If the roster comes from an 'extends:' preset, remove the user "
-                f"in the profile by hand, or the next build will restore them.",
-                style=Styles.WARNING,
+            warn(
+                f"{user} was removed from the deployment, but this repo's profile.yml "
+                "does not spell the web-terminal roster",
+                "There was nothing to edit there. If the roster comes from an "
+                "'extends:' preset, remove the user in the profile by hand, or the "
+                "next build will restore them.",
             )
 
-        console.print(check_drift(session.root).status_line)
+        report(check_drift(session.root).status_line)
 
 
 @users.command()
@@ -581,9 +571,11 @@ def passwd(user: str, repo: Path | None) -> None:
         # is skipped (with its own warning) and the change takes effect at
         # the next `osprey up`. Stating the consequence without asserting
         # the timing keeps this true on both paths.
-        console.print(
-            f"\n✓ Password changed for [accent]{user}[/accent]. Any session they "
-            "still hold stops working as soon as the sidecar is running this change."
+        report("")
+        report(f"✓ Password changed for {user}", style=Styles.SUCCESS)
+        note(
+            "Any session they still hold stops working as soon as the sidecar is "
+            "running this change."
         )
 
 
@@ -654,10 +646,12 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
             # the operator pointed at it, and rendering from something else
             # would silently answer a different question than the one asked.
             if not env_file_path.is_file():
-                logger.error(
-                    f"Cannot render {USERS_ENV_FILENAME}: {env_file_path} does not exist. "
-                    "Point --env-file at the secrets file to render from, or drop "
-                    "the option to render from the repo root's env chain."
+                fail(
+                    f"Cannot render {USERS_ENV_FILENAME}",
+                    f"{env_file_path} does not exist.\n"
+                    "Dropping the option renders from the repo root's env chain "
+                    "instead.",
+                    "point --env-file at the secrets file to render from",
                 )
                 raise click.Abort()
             dotenv = parse_dotenv_file(env_file_path)
@@ -668,11 +662,12 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
             # key only the committed defaults carry still reaches the terminals.
             sources = chain_files(project_root)
             if not sources:
-                logger.error(
-                    f"Cannot render {USERS_ENV_FILENAME}: {project_root / ENV_LOCAL_FILENAME} "
-                    f"does not exist, and neither does {project_root / ENV_SHARED_FILENAME}. "
-                    "Point --env-file at the secrets file to render from, or create "
-                    ".env at the repo root."
+                fail(
+                    f"Cannot render {USERS_ENV_FILENAME}",
+                    f"{project_root / ENV_LOCAL_FILENAME} does not exist, and neither "
+                    f"does {project_root / ENV_SHARED_FILENAME}.\n"
+                    "Or point --env-file at the secrets file to render from.",
+                    "create .env at the repo root",
                 )
                 raise click.Abort()
             dotenv = merge_chain(project_root)
@@ -687,10 +682,10 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
             # the deploy path's call (see ensure_env_production, which does
             # refuse). Rendering anyway is what lets an operator SEE the gap.
             needs = "; ".join(f"{origin} needs {var}" for var, origin in missing.items())
-            logger.warning(
-                f"Rendering without provider auth secret(s) absent from {source_desc}: "
+            warn(
+                f"Rendering without provider auth secret(s) absent from {source_desc}",
                 f"{needs}. Web terminals started with this file will fail "
-                "authentication unless they authenticate another way."
+                "authentication unless they authenticate another way.",
             )
 
         subset = _build_env_production_subset(
@@ -701,8 +696,10 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
         rendered = "".join(f"{format_env_line(key, value)}\n" for key, value in subset.items())
 
         if output_path is None:
-            # click.echo, not the Rich console: these are file bytes, and Rich
-            # would wrap a long secret across lines.
+            # ALLOWLISTED raw click.echo, not a renderer primitive: stdout here
+            # is a file, byte for byte, the way a `--json` verb's stdout is one
+            # document. Nothing may decorate it, and nothing else may print to
+            # this stream, which is why `users env` runs with `announce=False`.
             click.echo(rendered, nl=False)
             return
 

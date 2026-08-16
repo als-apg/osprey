@@ -270,7 +270,10 @@ def test_a_key_the_schema_does_not_know_is_written_but_called_out(runner, lifecy
 
     assert result.exit_code == 0, result.output
     assert "modle: sonnet" in _profile_text(lifecycle_repo)
-    assert "Not a profile key: modle" in result.output
+    # On stderr, like every warning: a caller piping the write report somewhere
+    # still sees this on the terminal.
+    assert "Not a profile key: modle" in result.stderr
+    assert "Not a profile key" not in result.stdout
 
 
 def test_recognized_and_config_prefixed_keys_are_never_called_out(runner, lifecycle_repo):

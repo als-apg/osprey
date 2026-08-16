@@ -16,13 +16,13 @@ Design contracts honored here:
   while the rest of the report still renders.
 * **``--full`` is the sole on_demand gate.** ``--category`` selects which
   categories run but never elevates cost class.
-* **Machine-clean ``--json``.** In ``--json`` mode every human-facing line
-  (progress spinner, deprecation warning) is routed to a stderr console so
-  stdout is a single JSON document that round-trips through :func:`json.loads`.
+* **Machine-clean ``--json``.** The ``--json`` run happens inside
+  :func:`osprey.cli.output.machine_mode`, which sends every renderer line — and
+  the progress spinner's live region — to stderr. Stdout therefore carries a
+  single JSON document that round-trips through :func:`json.loads`.
 
-The module-level ``console`` is intentionally patchable (tests replace
-``osprey.cli.health_cmd.console``); ``resolve_project_path`` is imported locally
-inside the command so patching it at its source module takes effect.
+``resolve_project_path`` is imported locally inside the command so patching it
+at its source module takes effect.
 """
 
 from __future__ import annotations
@@ -32,13 +32,14 @@ import logging
 import os
 import sys
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
 
-from osprey.cli.styles import console
+from osprey.cli import output, styles
+from osprey.cli.altitude import lift_gate
 from osprey.health.records import build_records, load_config
 
 if TYPE_CHECKING:
@@ -272,99 +273,105 @@ def health(
       # A repo or rendered project directory
       $ osprey health --project ~/projects/my-agent
     """
-    from rich.console import Console
-
     from osprey.health.config import DEFAULT_SUITE_TIMEOUT_S
     from osprey.health.offload import abandoned_count
     from osprey.health.render import render_json, render_report, run_progress
 
     from .project_utils import resolve_project_path
 
-    # A dedicated stderr console for out-of-band notices (progress, deprecation,
-    # failure messages) that must never touch stdout. In ``--json`` mode it is
-    # also the human console so stdout stays a pure JSON document.
-    err_console = Console(stderr=True)
-    human_console = err_console if as_json else console
+    # ``-v`` keeps its display meaning below (the per-check recap, the
+    # traceback) and additionally lifts the CLI's altitude gate, like every
+    # other subcommand's ``--verbose``. The gated handler renders at stderr, so
+    # a lifted gate cannot reach the ``--json`` document on stdout; the
+    # silencing ``_quiet_run_logs`` does for ``--json`` is untouched.
+    if verbose:
+        lift_gate()
 
-    if basic:
-        # Deprecation notice is unconditionally stderr — stdout carries only the
-        # report (or, under ``--json``, only the JSON document).
-        err_console.print(
-            "[dim]Warning: --basic is deprecated and has no effect; on_demand checks "
-            "are now opt-in via --full.[/dim]"
-        )
-
-    try:
-        project_path = resolve_project_path(project)
-        config_path, repo_root, env_path = _resolve_anchors(project_path)
-
-        with _quiet_run_logs(as_json=as_json, verbose=verbose):
-            config_state, expanded, settings, config_ok = load_config(config_path, repo_root)
-
-            # Load the deployment .env after the config load so its values are
-            # present in os.environ for the run-time checks (provider canaries,
-            # env scan).
-            _load_project_env(env_path)
-
-            suite_timeout_s = settings.suite_timeout_s if settings else DEFAULT_SUITE_TIMEOUT_S
-            on_demand_timeout_s = settings.on_demand_timeout_s if settings else None
-
-            records, extra_rows = build_records(
-                config_state,
-                expanded,
-                settings,
-                config_ok,
-                repo_root,
-                suite_timeout_s,
-                # Both anchors from the one resolver above: the repo root for
-                # what belongs to the repo, the render for what a build wrote.
-                render_path=config_path.parent,
+    # Under ``--json`` the whole run happens in machine mode: every renderer line
+    # goes to stderr, so the only thing reaching stdout is the JSON document
+    # ``render_json`` writes at the stream.
+    with output.machine_mode() if as_json else nullcontext():
+        if basic:
+            output.warn(
+                "--basic is deprecated and has no effect",
+                "on_demand checks are now opt-in via --full",
             )
-            selected = _validate_categories(
-                categories, {r.name for r in records}, config_ok=config_ok
-            )
-            # A config-load failure is a global fault: its ``configuration``
-            # error rows (and the resulting exit 2) must surface even when a
-            # ``--category`` filter would otherwise scope them out.
-            if selected is not None and not config_ok and "configuration" not in selected:
-                selected = ("configuration", *selected)
 
-            control_system_config = (expanded or {}).get("control_system", {}) or {}
+        try:
+            project_path = resolve_project_path(project)
+            config_path, repo_root, env_path = _resolve_anchors(project_path)
 
-            with run_progress(console=human_console):
-                report = asyncio.run(
-                    _run_suite(
-                        records,
-                        control_system_config,
-                        full=full,
-                        categories=selected,
-                        suite_timeout_s=suite_timeout_s,
-                        on_demand_timeout_s=on_demand_timeout_s,
-                    )
+            with _quiet_run_logs(as_json=as_json, verbose=verbose):
+                config_state, expanded, settings, config_ok = load_config(config_path, repo_root)
+
+                # Load the deployment .env after the config load so its values
+                # are present in os.environ for the run-time checks (provider
+                # canaries, env scan).
+                _load_project_env(env_path)
+
+                suite_timeout_s = settings.suite_timeout_s if settings else DEFAULT_SUITE_TIMEOUT_S
+                on_demand_timeout_s = settings.on_demand_timeout_s if settings else None
+
+                records, extra_rows = build_records(
+                    config_state,
+                    expanded,
+                    settings,
+                    config_ok,
+                    repo_root,
+                    suite_timeout_s,
+                    # Both anchors from the one resolver above: the repo root for
+                    # what belongs to the repo, the render for what a build wrote.
+                    render_path=config_path.parent,
                 )
+                selected = _validate_categories(
+                    categories, {r.name for r in records}, config_ok=config_ok
+                )
+                # A config-load failure is a global fault: its ``configuration``
+                # error rows (and the resulting exit 2) must surface even when a
+                # ``--category`` filter would otherwise scope them out.
+                if selected is not None and not config_ok and "configuration" not in selected:
+                    selected = ("configuration", *selected)
 
-        # Plugin-load diagnostics are surfaced only on an unfiltered run; a
-        # ``--category`` selection keeps the output scoped to what was asked for.
-        if selected is None and extra_rows:
-            report.results.extend(extra_rows)
+                control_system_config = (expanded or {}).get("control_system", {}) or {}
 
-        if as_json:
-            render_json(report)
-        else:
-            render_report(report, verbose=verbose, console=console)
+                # The spinner picks its own stream: in machine mode it mounts on
+                # the stderr console, so it never animates over the document.
+                with run_progress():
+                    report = asyncio.run(
+                        _run_suite(
+                            records,
+                            control_system_config,
+                            full=full,
+                            categories=selected,
+                            suite_timeout_s=suite_timeout_s,
+                            on_demand_timeout_s=on_demand_timeout_s,
+                        )
+                    )
 
-        exit_code = report.exit_code
+            # Plugin-load diagnostics are surfaced only on an unfiltered run; a
+            # ``--category`` selection keeps the output scoped to what was asked for.
+            if selected is None and extra_rows:
+                report.results.extend(extra_rows)
 
-    except click.UsageError:
-        raise
-    except KeyboardInterrupt:
-        human_console.print("\n[yellow]Health check interrupted[/yellow]")
-        exit_code = 130
-    except Exception as exc:  # noqa: BLE001 - top-level guard: any failure is exit 3
-        human_console.print(f"\n[red]Health check failed: {exc}[/red]")
-        if verbose:
-            human_console.print_exception()
-        exit_code = 3
+            if as_json:
+                render_json(report)
+            else:
+                render_report(report, verbose=verbose)
+
+            exit_code = report.exit_code
+
+        except click.UsageError:
+            raise
+        except KeyboardInterrupt:
+            output.warn("Health check interrupted")
+            exit_code = 130
+        except Exception as exc:  # noqa: BLE001 - top-level guard: any failure is exit 3
+            output.fail("Health check failed", str(exc))
+            if verbose:
+                # A traceback is a block, not a line: it goes at the one stderr
+                # console rather than through a line-shaped primitive.
+                styles.err_console.print_exception()
+            exit_code = 3
 
     # A hung sync check leaves a daemon thread running; a normal ``sys.exit`` can
     # then wedge on interpreter teardown. Fall back to ``os._exit`` so an

@@ -1,0 +1,11 @@
+[
+  "findings",
+  "findings[].category",
+  "findings[].explanation",
+  "findings[].file_path",
+  "findings[].recommendation",
+  "findings[].severity",
+  "findings[].title",
+  "overall_risk",
+  "summary"
+]

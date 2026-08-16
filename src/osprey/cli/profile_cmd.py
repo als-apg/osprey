@@ -33,6 +33,7 @@ import click
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
+from .output import report
 from .profile_conventions import BUILD_OUTPUT_DIR, PER_USER_CONTEXT_DIRNAME
 
 if TYPE_CHECKING:
@@ -61,7 +62,7 @@ def echo_preset_names() -> None:
     from .build_profile import list_presets
 
     for name in list_presets():
-        click.echo(name)
+        report(name)
 
 
 @profile.command()

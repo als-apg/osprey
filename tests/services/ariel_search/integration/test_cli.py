@@ -45,7 +45,7 @@ class TestCLIStatusCommand:
 
         # Should succeed
         assert result.exit_code == 0, f"Exit code: {result.exit_code}, Output: {result.output}"
-        assert "ARIEL Status:" in result.output
+        assert "ARIEL Status:" in result.stdout
 
     def test_status_command_json_output(self, database_url):
         """Status command with --json outputs valid JSON."""
@@ -63,8 +63,9 @@ class TestCLIStatusCommand:
             result = runner.invoke(ariel_group, ["status", "--json"])
 
         assert result.exit_code == 0
-        # Should be valid JSON
-        data = json.loads(result.output)
+        # ``--json`` promises stdout is one document: parse the stream, not
+        # ``result.output``, which mixes stdout and stderr together.
+        data = json.loads(result.stdout)
         assert "status" in data
 
     def test_status_command_unconfigured(self):
@@ -253,7 +254,7 @@ class TestCLISearchCommand:
 
         # Should succeed (even if no results)
         assert result.exit_code == 0
-        assert "Query:" in result.output
+        assert "Query:" in result.stdout
 
     def test_search_command_json_output(self, database_url):
         """Search command with --json outputs valid JSON."""
@@ -272,8 +273,9 @@ class TestCLISearchCommand:
             result = runner.invoke(ariel_group, ["search", "test query", "--json"])
 
         assert result.exit_code == 0, f"Exit: {result.exit_code}, Output: {result.output}"
-        # Extract JSON from output (may have log messages before it)
-        output = result.output
+        # ``--json`` runs in machine mode, so every human line is on stderr and
+        # stdout is the document alone.
+        output = result.stdout
         # Find the JSON object in output (skip any log lines)
         json_start = output.find("{")
         if json_start >= 0:

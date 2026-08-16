@@ -172,8 +172,9 @@ class TestWebCommandHonorsDeclaredBindEnv:
             catch_exceptions=False,
         )
 
-        assert "NOTICE" in result.output
-        assert DECLARED_BIND_ENV in result.output
+        # The notice is a warning now, so it lands on stderr under the ⚠ mark.
+        assert "is authoritative" in result.stderr
+        assert DECLARED_BIND_ENV in result.stderr
 
     def test_single_user_no_env_keeps_0000(self, runner, monkeypatch):
         """Without the declared env (single-user `osprey web`), --host 0.0.0.0
@@ -321,8 +322,9 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
             catch_exceptions=False,
         )
 
-        assert "NOTICE" in result.output
-        assert DECLARED_WEB_PORT_ENV in result.output
+        # The notice is a warning now, so it lands on stderr under the ⚠ mark.
+        assert "is authoritative" in result.stderr
+        assert DECLARED_WEB_PORT_ENV in result.stderr
 
     def test_single_user_no_env_keeps_explicit_port(self, runner, monkeypatch):
         """Without the declared env (single-user `osprey web`), --port must

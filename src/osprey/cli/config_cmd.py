@@ -21,7 +21,8 @@ import click
 from jinja2 import Template
 from rich.syntax import Syntax
 
-from osprey.cli.styles import Styles, console
+from osprey.cli import output, styles
+from osprey.cli.styles import Styles
 
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
@@ -54,23 +55,38 @@ def _render_framework_defaults() -> str:
     return Template(template_path.read_text(encoding="utf-8")).render(**_DEFAULTS_EXAMPLE_CONTEXT)
 
 
+# UNGUARDED: copy passed to this wrapper is not seen by the house-style guard in
+# `tests/cli/test_printed_copy_style.py`, which matches printer names exactly. The
+# name cannot join its set, because `cli/deploy_scaffold.py` has an `_emit` that
+# writes a FILE, and registering the bare name would judge that one's arguments as
+# prose. What reaches a person from here is a label and a config file's own bytes
+# rather than sentences, so the gap costs little; a sentence added here is review's
+# to catch.
 def _emit(text: str, *, label: str, source: Path | None) -> None:
     """Print configuration *text*, highlighted for a human, raw for a pipe.
 
     ``osprey config > deployment.yml`` has to produce the file it showed, so
-    when stdout is not a terminal the content goes out unchanged and unadorned
-    — no header, no rewrapping, no highlight escapes. The header and the syntax
+    when stdout is not a terminal the content goes out unchanged and unadorned:
+    no header, no rewrapping, no highlight escapes. The header and the syntax
     colouring are for the interactive reader, who needs to know which of the
     three views they are looking at and where it lives on disk.
+
+    The off-terminal branch is a machine seam, the same class as a ``--json``
+    payload: it writes a file's bytes to stdout rather than copy at a person,
+    so it goes out through :func:`click.echo` rather than through the renderer.
+    Rich expands tabs and can pad a line, and a config the CLI showed must be
+    the config it writes.
     """
-    if not console.is_terminal:
+    if not styles.console.is_terminal:
         click.echo(text)
         return
 
-    console.print(f"\n[bold]{label}[/bold]", soft_wrap=True)
+    output.report("")
+    output.report(label, style=Styles.BOLD)
     if source is not None:
-        console.print(f"{source}\n", style=Styles.DIM, soft_wrap=True)
-    console.print(Syntax(text, "yaml", theme="monokai", line_numbers=False, word_wrap=True))
+        output.note(str(source))
+    output.report("")
+    output.table(Syntax(text, "yaml", theme="monokai", line_numbers=False, word_wrap=True))
 
 
 @click.command(name="config")

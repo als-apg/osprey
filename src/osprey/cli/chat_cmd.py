@@ -31,9 +31,32 @@ from pathlib import Path
 
 import click
 
-from osprey.cli.styles import console
+from osprey.cli import output
 
+from .altitude import lift_gate
+from .phase_reporter import NullReporter, install_reporter
 from .repo_resolver import find_repo_root, repo_option
+
+
+def _stand_down_output_policy() -> None:
+    """Take OSPREY's output policy off the terminal the agent is about to own.
+
+    One switch, called once, for the whole session. Past this point the screen
+    belongs to the agent's own interface, and what OSPREY has to say about how a
+    verb's output should read stops applying to it: the altitude gate that
+    decides which log records are painted comes off, and the phase reporter that
+    decorates a verb's progress is replaced by the quiet one. Agent text reaches
+    the terminal exactly as the agent wrote it.
+
+    What this does not do is silence the process. The pin it replaces set the
+    root logger to CRITICAL, which stopped records from being emitted at all --
+    so a warning worth having was dropped rather than merely unpainted, and the
+    companion-server failure in :func:`_launch_companion_servers` had to be
+    printed by hand to get past it. No level is touched here, so every record is
+    still emitted and still reaches every sink the deployment configured.
+    """
+    lift_gate()
+    install_reporter(NullReporter())
 
 
 def _overlay_repo_env(repo_root: Path) -> None:
@@ -133,8 +156,6 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     Returns:
         ``(display_name, url)`` for each server that ended up running.
     """
-    import logging
-
     from osprey.infrastructure.server_launcher import _launchers, ensure_web_server
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
     from osprey.utils.workspace import reset_config_cache
@@ -143,10 +164,6 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     if config_file.exists():
         os.environ["OSPREY_CONFIG"] = str(config_file)
     reset_config_cache()
-
-    # Silence ALL logging so daemon-thread output cannot interfere with the TUI.
-    # In CLI mode, server logs are not useful — debug via `osprey web` instead.
-    logging.getLogger().setLevel(logging.CRITICAL)
 
     started: list[tuple[str, str]] = []
     for key, defn in FRAMEWORK_WEB_SERVERS.items():
@@ -158,17 +175,14 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
                 started.append((defn.name, f"http://{host}:{port}"))
         except Exception as exc:
             # Fail OPEN — a companion panel that will not start is not a reason
-            # to withhold the agent session — but not fail SILENT. Reported on
-            # stderr rather than through logging, because the root logger was
-            # just pinned to CRITICAL above: a warning would be swallowed, and
-            # raising the level to get it through would misreport a missing
-            # panel as a critical fault. Printed here, before the TUI takes the
-            # terminal, so the operator learns which panel is absent instead of
-            # discovering it as a dead link mid-session.
-            click.echo(
-                f"⚠ {defn.name} did not start: {type(exc).__name__}: {exc}\n"
-                f"  The session continues without it. Run `osprey web` to see why.",
-                err=True,
+            # to withhold the agent session — but not fail SILENT. Reported
+            # here, before the TUI takes the terminal, so the operator learns
+            # which panel is absent instead of discovering it as a dead link
+            # mid-session.
+            output.warn(
+                f"{defn.name} did not start",
+                f"{type(exc).__name__}: {exc}\n"
+                "The session continues without it. Run `osprey web` to see why.",
             )
     return started
 
@@ -199,13 +213,12 @@ def _report_drift(repo_root: Path, build_dir: Path) -> None:
         )
 
     if report.refuses:
-        console.print(f"[warning]⚠ {report.message}[/warning]")
-        console.print("[dim]Starting the agent against build/ as it was last rendered.[/dim]")
+        output.warn(report.message, "Starting the agent against build/ as it was last rendered.")
 
     # Independent of the verdict above: a build can be a faithful render of the
     # current profile and still predate the installed framework.
     if report.version_skew:
-        console.print(f"[warning]⚠ {report.version_skew.message}[/warning]")
+        output.warn(report.version_skew.message)
 
 
 @click.command()
@@ -276,9 +289,7 @@ def chat(
     # refuse to launch rather than start against the wrong provider.
     policy_conflicts = detect_managed_policy_conflicts()
     if policy_conflicts:
-        console.print(
-            f"[error]✗ Refusing to launch.\n{format_managed_policy_conflicts(policy_conflicts)}[/error]"
-        )
+        output.fail("Refusing to launch", format_managed_policy_conflicts(policy_conflicts))
         raise SystemExit(1)
 
     # This call refuses when there is no build, so it has to run before anything
@@ -323,9 +334,9 @@ def chat(
         _restore_managed_env(shell_managed_env)
     else:
         if spec.auth_secret_env and not os.environ.get(spec.auth_secret_env):
-            console.print(
-                f"[warning]⚠ ${spec.auth_secret_env} is not set. "
-                f"provider '{spec.provider}' may not authenticate[/warning]"
+            output.warn(
+                f"${spec.auth_secret_env} is not set",
+                f"The '{spec.provider}' provider may not authenticate.",
             )
         # The repo root, not the render: `.env` is the durable SECRETS zone and
         # deliberately does not live in the disposable build output.
@@ -339,9 +350,9 @@ def chat(
             project_dir=repo_root,
         )
         if injected:
-            console.print(f"[dim]Injected: {', '.join(injected)}[/dim]")
+            output.note(f"Injected: {', '.join(injected)}")
         if spec.auth_secret_env and os.environ.get(spec.auth_env_var):
-            console.print(f"[dim]Set ${spec.auth_env_var} from ${spec.auth_secret_env}[/dim]")
+            output.note(f"Set ${spec.auth_env_var} from ${spec.auth_secret_env}")
 
         # Start translation proxy for OpenAI-compatible providers
         if spec.needs_proxy and spec.upstream_base_url:
@@ -352,9 +363,7 @@ def chat(
                 os.environ.get(spec.auth_env_var),
             )
             os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{proxy_port}"
-            console.print(
-                f"[dim]Translation proxy started on :{proxy_port} → {spec.upstream_base_url}[/dim]"
-            )
+            output.note(f"Translation proxy on :{proxy_port} forwards to {spec.upstream_base_url}")
 
     # Build the agent CLI args (it uses cwd as the project root — there is no
     # --project-dir flag). When claude_code.cli_version is set,
@@ -383,13 +392,16 @@ def chat(
 
     started_servers = _launch_companion_servers(build_dir)
     if started_servers:
-        console.print("[dim]Companion servers:[/dim]")
-        for name, url in started_servers:
-            console.print(f"  [success]*[/success] {name}  [dim]{url}[/dim]")
-        console.print()
+        output.section("Companion servers", started_servers)
+        output.report("")
 
-    # Flush all output before the agent's TUI takes over the terminal.
-    console.print(f"[dim]Launching the agent in {build_dir}...[/dim]\n")
+    output.note(f"Launching the agent in {build_dir}...")
+    output.report("")
+
+    # Everything this verb had to say is now on screen. The switch takes
+    # OSPREY's output policy off the terminal, and the flush empties what is
+    # still buffered, before the agent's TUI takes it over.
+    _stand_down_output_policy()
     sys.stdout.flush()
     sys.stderr.flush()
 
