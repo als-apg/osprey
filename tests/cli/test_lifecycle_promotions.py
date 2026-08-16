@@ -849,6 +849,11 @@ def _stub_legacy_restart(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     monkeypatch.setattr(
         container_lifecycle, "_ensure_bluesky_control_plane_keys", lambda *a, **k: None
     )
+    # `restart` probes the runtime where `down` does not, and raises its own
+    # error rather than going through the stubbed `get_runtime_command`. Without
+    # this the narration under test is unreachable on any host with no container
+    # runtime installed.
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
 
 
 def _levels_for(caplog: pytest.LogCaptureFixture, fragment: str) -> set[int]:
@@ -1311,6 +1316,13 @@ def _stub_the_legacy_clean(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
     monkeypatch.setattr(compose_generator, "get_runtime_command", lambda config: "docker")
     monkeypatch.setattr(compose_generator, "runtime_env", lambda config, env: dict(env))
     monkeypatch.setattr(compose_generator, "resolve_repo_root", lambda config: tmp_path)
+    # `clean_deployment` imports these two INSIDE the function, so they never
+    # enter this module's namespace and patching it here would miss them. The
+    # deferred import resolves the attribute off `container_lifecycle` at call
+    # time, which is what makes patching them there take effect. Left unpatched,
+    # `_compose_provider` probes for a real runtime and raises.
+    monkeypatch.setattr(container_lifecycle, "_compose_provider", lambda config: None)
+    monkeypatch.setattr(container_lifecycle, "_env_file_args", lambda *a, **k: [])
 
 
 # ---------------------------------------------------------------------------
