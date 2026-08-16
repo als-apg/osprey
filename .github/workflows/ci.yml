@@ -2737,8 +2737,13 @@ jobs:
       run: uv sync --extra dev
 
     - name: Run multi-user deploy lifecycle E2E
+      # `-m 'not qmd'` deselects the shared-bundle/sidecar test, which REFUSES
+      # to skip when no qmd sidecar image is present (a skip there would report
+      # success having proved nothing). This lane neither builds nor loads one,
+      # so it would fail on a missing image rather than on a real defect. That
+      # test is reached from the qmd-sidecar-e2e lane, which builds the image.
       run: |
-        uv run pytest tests/e2e/test_deploy_lifecycle.py -v --tb=short
+        uv run pytest tests/e2e/test_deploy_lifecycle.py -m 'not qmd' -v --tb=short
 
     # Runs BEFORE the teardown below: the cleanup step deletes the very
     # containers whose logs explain the failure. Read-only capture; the
@@ -2904,7 +2909,12 @@ jobs:
         SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
         for _ in $(seq 1 30); do if [ -S "$SOCK" ]; then break; fi; sleep 1; done
         export DOCKER_HOST="unix://$SOCK"
-        uv run pytest tests/e2e/test_deploy_lifecycle.py -v --tb=short
+        # `-m 'not qmd'`: same reason as the docker lane above — this lane has
+        # no qmd sidecar image, and the shared-bundle/sidecar test refuses to
+        # skip on a missing one. It would additionally need the image in
+        # PODMAN's store rather than docker's, which is why it is not simply
+        # built here.
+        uv run pytest tests/e2e/test_deploy_lifecycle.py -m 'not qmd' -v --tb=short
 
     # Runs BEFORE the teardown below: the cleanup step deletes the very
     # containers whose logs explain the failure. Read-only capture; the
@@ -3156,9 +3166,186 @@ jobs:
         podman rmi -f osprey-e2e-two-shape:local || true
         podman rmi -f osprey-e2e-two-shape-dispatch:local || true
 
+
+  qmd-sidecar-e2e:
+    name: qmd Sidecar E2E (image build + live daemon over a fixture corpus)
+    runs-on: ubuntu-latest
+    # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
+    # job. This one needs no secrets: the sidecar is a local container serving
+    # a fixture corpus, and no LLM is called anywhere in the module.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Cold-cache shape: 2.1 GB of GGUF models fetched during the build, plus
+    # qmd's fail-closed startup pass, which will not serve until it has
+    # embedded the corpus. Warm-cache runs skip the fetch entirely (see the
+    # cache step). Deliberately generous — this lane has never run in GHA, so
+    # there are no observed green timings to tighten against yet.
+    timeout-minutes: 60
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    # Needed by the multi-user shared-bundle step below, which drives a real
+    # `osprey up` (and therefore `docker compose`). Same step the two
+    # multi-user lifecycle lanes use, for the same reason.
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Assert a container runtime is present
+      # The module skips itself when docker is unavailable, which is right for
+      # a developer laptop and wrong here: pytest exits 0 on an all-skipped
+      # run, so a runner without docker would turn this lane green having
+      # tested nothing. Failing here instead makes that state loud, and fails
+      # it before the multi-GB build rather than after.
+      #
+      # The absent-module case needs no guard — pytest exits 4 on a path that
+      # does not exist, which already reds the step.
+      run: |
+        set -euo pipefail
+        docker info > /dev/null
+
+    - name: Set up Docker Buildx
+      # Needed only for `type=local` layer caching; the plain docker builder
+      # every other lane uses cannot import or export one.
+      uses: docker/setup-buildx-action@v3
+
+    - name: Derive the model-pin cache key
+      id: pins
+      # The three GGUFs are fetched INSIDE the image build, so what is cached
+      # is the buildx layer cache rather than the files themselves. Keying it
+      # on the SHA256 pins is what makes "fetch once per pin bump" true: bump a
+      # pin and the RUN text changes, its layer misses, and the new key starts
+      # a fresh entry instead of restoring one that could never hit.
+      #
+      # `pipefail` is set explicitly. GitHub Actions' default shell does not
+      # set it, so a pipeline reports the LAST command's status: a `grep` that
+      # matched nothing would be masked by a succeeding `sha256sum` and key the
+      # cache on the digest of the empty string — one shared key for every set
+      # of pins, which is worse than having no cache at all. The `-eq 3` check
+      # is the second half of that guard: it fails loudly if the label block is
+      # ever renamed, rather than silently keying on a partial match.
+      run: |
+        set -euo pipefail
+        dockerfile=src/osprey/templates/services/qmd/Dockerfile
+        pins="$(grep -oE 'com\.osprey\.qmd\.[a-z]+_sha256="[0-9a-f]{64}"' "$dockerfile" | sort)"
+        printf '%s\n' "$pins"
+        test "$(printf '%s\n' "$pins" | wc -l)" -eq 3
+        echo "digest=$(printf '%s' "$pins" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache the sidecar image layers (keyed on the model SHA256 pins)
+      uses: actions/cache@v6
+      with:
+        path: /tmp/qmd-buildx-cache
+        key: qmd-buildx-${{ runner.os }}-${{ steps.pins.outputs.digest }}-${{ hashFiles('src/osprey/templates/services/qmd/Dockerfile', 'src/osprey/templates/services/qmd/entrypoint.sh') }}
+        # Pins unchanged but the Dockerfile or entrypoint edited: restore the
+        # previous entry anyway. buildx revalidates every layer against the
+        # current instructions, so at worst the model layers miss and refetch —
+        # a stale model can never be served as a fresh one.
+        restore-keys: |
+          qmd-buildx-${{ runner.os }}-${{ steps.pins.outputs.digest }}-
+
+    - name: Build the sidecar image
+      # The template directory IS the build context: Dockerfile and
+      # entrypoint.sh are siblings there and carry no Jinja, so what builds
+      # here is byte-identical to what a rendered deployment builds.
+      run: |
+        set -euo pipefail
+        docker buildx build \
+          --tag osprey-qmd:ci \
+          --load \
+          --cache-from type=local,src=/tmp/qmd-buildx-cache \
+          --cache-to type=local,dest=/tmp/qmd-buildx-cache-new,mode=max \
+          src/osprey/templates/services/qmd
+
+    - name: Rotate the layer cache
+      # buildx cannot safely export to the directory it imported from in the
+      # same build, so the export goes to a sibling and is swapped in here.
+      # Without the swap the cache would grow every run until it evicted
+      # itself.
+      run: |
+        set -euo pipefail
+        rm -rf /tmp/qmd-buildx-cache
+        mv /tmp/qmd-buildx-cache-new /tmp/qmd-buildx-cache
+
+    - name: Run qmd sidecar E2E
+      # Step cap under the job cap so a wedged query fails THIS step, leaving
+      # the capture step below room to run. A job-level timeout is a hard
+      # cancel that takes the container logs with it.
+      timeout-minutes: 45
+      env:
+        # The module starts the sidecar from this tag instead of building its
+        # own image, so what the tests exercise is the cached build above.
+        # Same variable a rendered compose file overrides `image:` with.
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
+      # Selected by marker + keyword rather than by naming one module: the
+      # sidecar-container coverage is split across an OKF module and an ARIEL
+      # one, and a lane that named a single file would silently stop covering
+      # the other the day it moved. `-m dockerbuild` is what keeps the
+      # non-container integration modules (preset-static, build-boot) out.
+      run: uv run pytest tests/integration/ -m dockerbuild -k qmd -v --tb=short
+
+    - name: Run the multi-user shared-bundle sidecar E2E
+      # The `qmd`-marked half of tests/e2e/test_deploy_lifecycle.py, which the
+      # two multi-user lifecycle lanes deselect: it drives a real `osprey up`
+      # with the sidecar co-deployed alongside the web tier, and so needs the
+      # image this lane just built. Selected by marker, not by test name, so a
+      # rename cannot silently drop it — and `-m qmd` deselects the four
+      # lifecycle tests those lanes already own, keeping them from running
+      # twice.
+      timeout-minutes: 20
+      env:
+        OSPREY_QMD_IMAGE: osprey-qmd:ci
+      run: uv run pytest tests/e2e/test_deploy_lifecycle.py -m qmd -v --tb=short
+
+    # On failure only: container logs, exit codes, `OOMKilled`, and runner
+    # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: qmd-sidecar-e2e
+        engine: docker
+
+    # Belt-and-suspenders on top of the test's own try/finally teardown, and
+    # BEFORE the image cleanup below (a surviving container pins its image).
+    # Every resource named here is exact — never a prune/-a/wildcard — matching
+    # tests/e2e/test_deploy_lifecycle.py's own container-ops safety guardrail.
+    - name: Clean up any stranded shared-bundle e2e resources
+      if: always()
+      run: |
+        docker rm -f osprey-e2e-mus-p3-qmd || true
+        for user in alice bob; do
+          docker rm -f "e2e-web-${user}" || true
+          docker volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
+          docker volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
+        done
+        docker rm -f e2e-nginx || true
+        docker rm -f osprey-e2e-mus-p3-registry || true
+        docker compose -p osprey-e2e-mus-p3 down || true
+
+    - name: Clean up the sidecar image
+      # Exact tag only — never a prune, an -a/--all, or a wildcard, matching
+      # the container-ops guardrail every other lane here observes.
+      if: always()
+      run: |
+        docker rmi -f osprey-qmd:ci || true
+
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, lean-wheel, two-shape-boot-e2e]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, config-key-guard, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, lean-wheel, two-shape-boot-e2e, qmd-sidecar-e2e]
     runs-on: ubuntu-latest
     if: always()
 
@@ -3267,6 +3454,7 @@ jobs:
         check_pr_lane "Multi-user lifecycle E2E (docker)" "${{ needs.multi-user-deploy-lifecycle-e2e.result }}"
         check_pr_lane "Multi-user lifecycle E2E (podman)" "${{ needs.multi-user-deploy-lifecycle-e2e-podman.result }}"
         check_pr_lane "Two-shape boot E2E (podman-compose)" "${{ needs.two-shape-boot-e2e.result }}"
+        check_pr_lane "qmd sidecar E2E"              "${{ needs.qmd-sidecar-e2e.result }}"
         echo "✅ All CI checks passed!"
 
         # A green gate on a Dependabot PR is green-with-a-gap, and the gap is
