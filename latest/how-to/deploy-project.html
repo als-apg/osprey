@@ -940,7 +940,10 @@ read out of a <code class="docutils literal notranslate"><span class="pre">ports
 out — two projects whose dispatch pairs are both on the host network take the
 same default ports (<code class="docutils literal notranslate"><span class="pre">8020</span></code> for the dispatcher, <code class="docutils literal notranslate"><span class="pre">9190</span></code> upward for the
 workers), and no <code class="docutils literal notranslate"><span class="pre">ports:</span></code> line anywhere would have shown it. Give the second
-project its own <code class="docutils literal notranslate"><span class="pre">dispatch.dispatcher_port</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch.worker_port_base</span></code>.</p>
+project its own <code class="docutils literal notranslate"><span class="pre">dispatch.dispatcher_port</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch.worker_port_base</span></code>.
+A facility service you place on the host network is covered the same way,
+read from its <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.port</span></code> key; one without that key cannot be
+checked, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> says so rather than skipping it silently.</p>
 </section>
 </section>
 <section id="environment-variables-the-env-chain">
