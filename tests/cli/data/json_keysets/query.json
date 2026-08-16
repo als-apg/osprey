@@ -1,0 +1,10 @@
+[
+  "exit_code",
+  "final_text",
+  "mcp_servers",
+  "tool_traces",
+  "tool_traces[].input",
+  "tool_traces[].is_error",
+  "tool_traces[].name",
+  "tool_traces[].result"
+]

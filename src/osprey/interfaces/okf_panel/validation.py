@@ -213,6 +213,12 @@ def log_validation_summary(
             plain callable such as :func:`print`. A ``logging.Logger`` works.
     """
 
+    # UNGUARDED: copy passed to this wrapper is not seen by the house-style guard
+    # in `tests/cli/test_printed_copy_style.py`, which matches printer names
+    # exactly. The name cannot join its set, because `cli/deploy_scaffold.py` has
+    # an `_emit` that writes a FILE, and registering the bare name would judge
+    # that one's arguments as prose. The summary lines below are read by whoever
+    # ran the sweep, so keep them to the same house style by hand.
     def _emit(message: str) -> None:
         try:
             # Prefer a logger's .warning, then .info, else treat as callable.

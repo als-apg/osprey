@@ -25,6 +25,8 @@ from pathlib import Path
 
 import click
 
+from .output import fail, report, warn
+
 _SKILL_SOURCES: dict[str, str] = {
     "osprey-build-interview": "templates/skills/osprey-build-interview",
     "osprey-contribute": "templates/skills/osprey-contribute",
@@ -69,9 +71,10 @@ def install(name: str, target: Path | None) -> None:
     previous version of the skill is never lost.
     """
     if name not in _SKILL_SOURCES:
-        click.echo(
-            f"Unknown skill '{name}'. Available: {sorted(_SKILL_SOURCES)}",
-            err=True,
+        fail(
+            f"Unknown skill '{name}'",
+            f"Available: {', '.join(sorted(_SKILL_SOURCES))}",
+            "Name one of those, or run `osprey skills install --help`.",
         )
         sys.exit(1)
 
@@ -83,7 +86,7 @@ def install(name: str, target: Path | None) -> None:
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup = skills_dir / f"{name}.bak.{ts}"
         install_path.rename(backup)
-        click.echo(f"Warning: existing '{name}' moved to {backup}", err=True)
+        warn(f"Replaced an existing '{name}'", f"The previous copy is at {backup}")
     elif install_path.exists():
         install_path.rmdir()
 
@@ -91,4 +94,4 @@ def install(name: str, target: Path | None) -> None:
     with as_file(src_traversable) as src_path:
         shutil.copytree(src_path, install_path)
 
-    click.echo(f"Installed '{name}' to {install_path}")
+    report(f"Installed '{name}' to {install_path}")

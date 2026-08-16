@@ -1,0 +1,19 @@
+[
+  "database",
+  "database.connected",
+  "database.uri",
+  "embedding_tables",
+  "embedding_tables[].active",
+  "embedding_tables[].dimension",
+  "embedding_tables[].entries",
+  "embedding_tables[].table",
+  "enhancement_modules",
+  "enhancement_modules.semantic_processor",
+  "enhancement_modules.text_embedding",
+  "entries",
+  "message",
+  "search_modules",
+  "search_modules.keyword",
+  "search_modules.semantic",
+  "status"
+]

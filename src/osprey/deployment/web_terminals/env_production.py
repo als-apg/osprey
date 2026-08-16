@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from osprey.cli.output import report_fact
 from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.utils.dotenv import (
@@ -78,11 +79,10 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
     # through to os.replace below, which fails loudly with the leftover intact.
     if users_path.is_file():
         legacy_path.unlink()
-        logger.key_info(
-            "Removed %s: %s is the current name for the web terminals' runtime "
-            "secrets and already exists, so the older file was a leftover.",
-            legacy_path,
-            users_path,
+        report_fact(
+            logger,
+            f"Removed {legacy_path}: {users_path} is the current name for the web "
+            "terminals' runtime secrets and already exists, so the older file was a leftover.",
         )
         return users_path
 
@@ -94,10 +94,10 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
     # umask) would otherwise arrive under the new name still world-readable.
     # Every other write of this file lands at 0600; a migrated one does too.
     os.chmod(users_path, 0o600)
-    logger.key_info(
-        "Renamed %s to %s: the web terminals' runtime secrets now live under the current name.",
-        legacy_path,
-        users_path,
+    report_fact(
+        logger,
+        f"Renamed {legacy_path} to {users_path}: the web terminals' runtime secrets "
+        "now live under the current name.",
     )
     return users_path
 
@@ -553,11 +553,9 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     # reset on its own.
     os.chmod(users_env_path, 0o600)
 
-    logger.key_info(
-        "Generated %s from %s (mode 0600): %s",
-        users_env_path,
-        sources_desc,
-        ", ".join(subset),
+    report_fact(
+        logger,
+        f"Generated {users_env_path} from {sources_desc} (mode 0600): {', '.join(subset)}",
     )
 
     return users_env_path

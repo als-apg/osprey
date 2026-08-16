@@ -22,6 +22,7 @@ from typing import NamedTuple
 
 import yaml
 
+from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
@@ -259,6 +260,52 @@ _QSERVER_ZMQ_PRIVATE_KEY_VAR = "BLUESKY_QSERVER_ZMQ_PRIVATE_KEY"
 _QSERVER_ZMQ_PUBLIC_KEY_VAR = "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY"
 
 
+def _report_fact(message: str) -> None:
+    """Report ``message`` under this module's logger.
+
+    The promotion contract lives in :func:`osprey.cli.output.report_fact`; this
+    binds it to the lifecycle logger so call sites pass the line alone.
+
+    Args:
+        message: The finished line, built by the caller.
+    """
+    output.report_fact(logger, message)
+
+
+#: What the knob diff below is a diff of. Named once because both halves of the
+#: report -- the block the operator reads and the record the sinks keep -- open
+#: with it, and a heading that said two different things would read as two
+#: different findings.
+_KNOB_DIFF_TITLE = "The archive's knobs changed since it was seeded:"
+
+
+def _report_knob_diff(comparison) -> None:
+    """Print the archive's knob diff, and keep its record for the log sinks.
+
+    A knob diff is a block of facts about one thing, which is the shape
+    :func:`osprey.cli.output.section` renders: the heading, then one indented
+    ``knob   stored -> expected`` row per field that moved. The rows are built
+    from the comparison's own ``differences`` rather than from its one-line
+    ``describe()``, so the column the operator scans is a real column instead of
+    a sentence that happens to line up.
+
+    The record stays exactly what it was -- the heading and ``describe()``, at
+    the level they always had -- so a log file still reads the way it read
+    before. The altitude gate drops both on a normal run, which is what keeps
+    the printed block from arriving twice.
+
+    Args:
+        comparison: The seeder's fingerprint verdict, carrying the
+            ``(key, stored, expected)`` triples for the fields that moved.
+    """
+    output.section(
+        _KNOB_DIFF_TITLE,
+        [(key, f"{stored!r} -> {expected!r}") for key, stored, expected in comparison.differences],
+    )
+    logger.key_info(_KNOB_DIFF_TITLE)
+    logger.key_info(comparison.describe())
+
+
 def _append_env_block(env_path: Path, comment: str, values: dict[str, str]) -> None:
     """Append a commented block of ``KEY=value`` lines to the project ``.env``.
 
@@ -438,11 +485,10 @@ def _ensure_service_tokens(
                 "Auto-generated service auth tokens (osprey deploy up)",
                 generated,
             )
-            # Log the path and which keys — NEVER the values.
-            logger.key_info(
-                "Generated auth token(s) %s in %s (gitignored) — keep them secret",
-                ", ".join(generated),
-                env_path.resolve(),
+            # Report the path and which keys — NEVER the values.
+            _report_fact(
+                f"Generated auth token(s) {', '.join(generated)} in "
+                f"{env_path.resolve()} (gitignored). Keep them secret."
             )
 
             # A mint is the moment the volume-initialized vars become a hazard:
@@ -700,12 +746,10 @@ def _adopt_original_credentials(
             "Edit the file by hand, or re-run without --reuse-stores."
         )
 
-    logger.key_info(
-        "Adopted %d pre-existing data volume(s): restored the credential(s) %s they were "
-        "initialized with into %s. Values are never printed.",
-        len(stale),
-        ", ".join(var for var, _ in stale),
-        env_path.resolve(),
+    _report_fact(
+        f"Adopted {len(stale)} pre-existing data volume(s): restored the credential(s) "
+        f"{', '.join(var for var, _ in stale)} they were initialized with into "
+        f"{env_path.resolve()}. Values are never printed."
     )
 
 
@@ -857,7 +901,7 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     # system that actually speaks CA.
     control_system_type = str(config.get("control_system", {}).get("type", "mock")).strip().lower()
     if control_system_type == "mock":
-        logger.info(
+        _report_fact(
             "control_system.type is 'mock': this deployment is browse-only -- plans can "
             "be listed and composed but never executed. Skipping "
             "BLUESKY_EPICS_SUBSTRATE auto-configuration (scan devices need an "
@@ -907,11 +951,9 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
         "Auto-configured bluesky bridge scan devices (osprey deploy up)",
         generated,
     )
-    logger.key_info(
-        "Auto-configured bluesky bridge scan devices %s in %s from the project's "
-        "own channel_limits.json",
-        ", ".join(generated),
-        env_path.resolve(),
+    _report_fact(
+        f"Auto-configured bluesky bridge scan devices {', '.join(generated)} in "
+        f"{env_path.resolve()} from the project's own channel_limits.json"
     )
 
 
@@ -994,15 +1036,15 @@ def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = N
     certs = ("proxy_secret", "publisher_secret", "proxy_public", "publisher_public")
     present = [name for name in certs if paths[name].is_file()]
     if len(present) == len(certs):
-        logger.info(
-            "Bluesky document-plane CURVE certificates already present in %s — keeping them",
+        logger.debug(
+            "Bluesky document-plane CURVE certificates are already present in %s. Keeping them.",
             paths["bridge"].parent,
         )
         return
     if present:
         logger.warning(
             "Bluesky document-plane CURVE certificates in %s are incomplete (%d of %d "
-            "present) — regenerating the whole set, since a certificate's secret half "
+            "present). Regenerating the whole set, since a certificate's secret half "
             "cannot be rebuilt from its public one. Every container currently running "
             "against the old set must be recreated to pick these up: pyzmq's CURVE "
             "authenticator reads the accepted-client directory once, when the socket is "
@@ -1025,12 +1067,12 @@ def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = N
         )
         return
 
-    logger.key_info(
-        "Generated bluesky document-plane CURVE certificates under %s (gitignored, like "
-        "the project .env). Both containers read them at startup, so certificates written "
-        "or replaced while the stack is running take effect only after the bridge and "
-        "queueserver containers are recreated.",
-        paths["bridge"].parent,
+    _report_fact(
+        f"Generated bluesky document-plane CURVE certificates under "
+        f"{paths['bridge'].parent} (gitignored, like the project .env). Both containers "
+        "read them at startup, so certificates written or replaced while the stack is "
+        "running take effect only after the bridge and queueserver containers are "
+        "recreated."
     )
 
 
@@ -1185,7 +1227,7 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
         logger.warning(
             "%s is set but %s is not. A CURVE public key cannot be turned back into its "
             "private half, and minting a fresh private key would silently orphan the "
-            "public one you set, so nothing is generated here — the deploy will stop at "
+            "public one you set, so nothing is generated here. The deploy will stop at "
             "the compose template's fail-closed guard on the private key rather than "
             "start the manager in plaintext. Set %s to the private half of that keypair, "
             "or unset %s to let `osprey up` mint a fresh pair.",
@@ -1226,13 +1268,11 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
         # this deploy instead and re-derive it every time — the pair then always
         # comes from the same source, and nothing on disk can go stale.
         os.environ.update(generated)
-        logger.key_info(
-            "Derived %s from the %s in this environment for this deploy only; not written "
-            "to %s, since the private half is not there either and a lone public key on "
-            "disk would fail the next deploy from a clean shell.",
-            ", ".join(generated),
-            _QSERVER_ZMQ_PRIVATE_KEY_VAR,
-            env_path.resolve(),
+        _report_fact(
+            f"Derived {', '.join(generated)} from the {_QSERVER_ZMQ_PRIVATE_KEY_VAR} in "
+            f"this environment for this deploy only; not written to {env_path.resolve()}, "
+            "since the private half is not there either and a lone public key on disk "
+            "would fail the next deploy from a clean shell."
         )
         return
 
@@ -1245,12 +1285,10 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     # private one (see the function docstring on why the public key is bearer
     # material here). Matches _ensure_service_tokens' "log which keys, never
     # what they are" convention.
-    logger.key_info(
-        "Generated bluesky RE manager control-socket keypair %s in %s (gitignored). "
-        "Treat both values as secrets — the public half alone is enough to reach the "
-        "manager's control socket.",
-        ", ".join(generated),
-        env_path.resolve(),
+    _report_fact(
+        f"Generated bluesky RE manager control-socket keypair {', '.join(generated)} in "
+        f"{env_path.resolve()} (gitignored). Treat both values as secrets. The public "
+        "half alone is enough to reach the manager's control socket."
     )
 
 
@@ -1595,11 +1633,9 @@ def _build_project_image(
     target = _worker_image_target(config, env)
     project_image = f"{resolve_project_name(config)}:local"
     if target != project_image:
-        logger.key_info(
-            "Dispatch worker uses image %r (OSPREY_WORKER_IMAGE / pinned "
-            "services.dispatch_worker.image) — skipping %s build.",
-            target,
-            project_image,
+        _report_fact(
+            f"Dispatch worker uses image {target!r} (OSPREY_WORKER_IMAGE / pinned "
+            f"services.dispatch_worker.image). Skipping the {project_image} build."
         )
         return
 
@@ -1994,14 +2030,11 @@ def _report_chain_overrides(repo_root: Path) -> tuple[list[str], list[str]]:
     deliberate, stale = _classify_local_overrides(shared, local, previous)
 
     if deliberate:
-        logger.info(
-            "Local %s overrides %s for %d variable(s): %s. "
-            "That is the chain working as intended — the local file wins — so this is "
-            "reported once, by name, and never with a value.",
-            COMPOSE_ENV_FILENAME,
-            ENV_SHARED_FILENAME,
-            len(deliberate),
-            ", ".join(deliberate),
+        _report_fact(
+            f"Local {COMPOSE_ENV_FILENAME} overrides {ENV_SHARED_FILENAME} for "
+            f"{len(deliberate)} variable(s): {', '.join(deliberate)}. That is the chain "
+            "working as intended, with the local file winning. This is reported once, by "
+            "name, and never with a value."
         )
 
     if stale:
@@ -2012,7 +2045,7 @@ def _report_chain_overrides(repo_root: Path) -> tuple[list[str], list[str]]:
             "stack starts on the superseded value and looks healthy doing it. Values are "
             "never printed.\n"
             "  To adopt the shared value: remove the listed name(s) from %s. To keep a local "
-            "value deliberately: set it to the value this host wants — an override that is "
+            "value on purpose: set it to the value this host wants. An override that is "
             "not just the old default is reported at info level, not here.",
             COMPOSE_ENV_FILENAME,
             ENV_SHARED_FILENAME,
@@ -2171,7 +2204,7 @@ def _preflight_env_chain_drift(compose_files: list[str], repo_root: Path | str) 
         "Env chain drift: this project was built to read %s, but %s is on disk now.\n"
         "%s\n"
         "  Which env files the stack reads is decided when the project is rendered, not when "
-        "it starts — so a file added afterwards contributes nothing, and one removed "
+        "it starts. A file added afterwards contributes nothing, and one removed "
         "afterwards leaves the render pointing at a path that is gone. Either way the stack "
         "would start on a set of values nobody chose.\n"
         "  Run `osprey build` to re-render against the chain as it stands, then `osprey up`.",
@@ -2390,14 +2423,42 @@ def _web_terminals_enabled(config: dict) -> bool:
     return bool(web_terminals.get("enabled"))
 
 
+def _report_port_conflicts(conflicts):
+    """Render the host-port conflict report as the CLI's one failure shape.
+
+    :func:`~osprey.deployment.host_ports.format_conflict_report` already writes
+    the three parts a failure has, in the order :func:`osprey.cli.output.fail`
+    wants them: its first line is what failed, its last is the one thing to do
+    about it, and every line between is why. Splitting it there is what lets the
+    report keep its own wording while wearing the ``✗``/``→`` shape every other
+    refusal wears. Blank spacer lines are dropped -- the indent under the summary
+    is what makes the body subordinate, so the spacers have nothing left to do.
+
+    The report goes to stderr, because :func:`~osprey.cli.output.fail` always
+    does: a caller piping stdout somewhere keeps its failures on the terminal.
+    The record moves to the INFO family with it. An ``ERROR`` record renders
+    through the altitude gate, so keeping one would print the whole report a
+    second time underneath the block above it; the failure itself still reaches
+    the caller as the :class:`RuntimeError` raised next to this call.
+
+    :param conflicts: Conflicts from
+        :func:`~osprey.deployment.host_ports.find_port_conflicts`
+    """
+    report = format_conflict_report(conflicts)
+    summary, *rest = report.splitlines()
+    remedy = rest.pop() if rest else None
+    output.fail(summary, "\n".join(line for line in rest if line.strip()) or None, remedy)
+    logger.key_info(report)
+
+
 def _preflight_host_ports(config, compose_files):
     """Abort the deploy if a published host port is already taken.
 
     Parses the published bindings out of the rendered compose files and checks
     them for intra-deploy duplicates and external listeners (see
-    :mod:`osprey.deployment.host_ports`). On any conflict the report is logged
-    and a :class:`RuntimeError` is raised so the caller aborts before running
-    a single container-touching command.
+    :mod:`osprey.deployment.host_ports`). On any conflict the report is printed
+    in the CLI's one failure shape and a :class:`RuntimeError` is raised so the
+    caller aborts before running a single container-touching command.
 
     :param config: Loaded configuration dictionary
     :type config: dict
@@ -2409,7 +2470,7 @@ def _preflight_host_ports(config, compose_files):
     conflicts = find_port_conflicts(bindings, resolve_project_name(config), config)
     if not conflicts:
         return
-    logger.error(format_conflict_report(conflicts))
+    _report_port_conflicts(conflicts)
     raise RuntimeError(
         f"host port preflight failed: {len(conflicts)} "
         f"conflict{'' if len(conflicts) == 1 else 's'} (see report above)"
@@ -2590,7 +2651,7 @@ def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
     from osprey.simulation.engine import DEFAULT_SCENARIO
 
     if engine is None:
-        logger.info("No machine model in this project; no scenarios to re-apply after the reseed")
+        logger.debug("No machine model in this project; no scenarios to re-apply after the reseed")
         return
 
     names = engine.active_scenarios()
@@ -2611,7 +2672,16 @@ def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
             f"Re-run `osprey sim apply {' '.join(faults)}` from {project_dir} to put the "
             f"event windows back. Cause: {exc}"
         ) from exc
-    logger.key_info(f"Re-applied scenarios {list(result.active)!r} onto the rebuilt archive")
+    # The reseed's closing line. The archive rewrite that ran inside
+    # `apply_scenarios` has no step of its own, so its counts ride here rather
+    # than on a second line -- but only when there was a rewrite to report: a
+    # `None` archiver means it never ran, and a `skipped` one already says so
+    # in words the reseed has no room for.
+    step = f"scenarios re-applied: {', '.join(result.active)}"
+    archiver = result.archiver
+    if archiver is not None and not archiver.skipped:
+        step += f" ({archiver.describe()})"
+    _report_step(step)
 
 
 def _wait_for_archiver_store(
@@ -2845,12 +2915,11 @@ def _stage_archiver_store(
         comparison = compare_fingerprint(collection, fingerprint)
 
         if comparison.state is SeedState.MATCH:
-            logger.key_info("Archive already covers the configured window; skipping the base seed")
+            _report_step("archive already seeded, skipping the base seed")
             return
 
         if comparison.state is SeedState.MISMATCH:
-            logger.key_info("The archive's knobs changed since it was seeded:")
-            logger.key_info(comparison.describe())
+            _report_knob_diff(comparison)
             if keep_base:
                 logger.warning(
                     "Keeping the existing base (--keep-archiver-base). The stored history "
@@ -2858,8 +2927,8 @@ def _stage_archiver_store(
                     "this profile declares."
                 )
                 return
-            logger.key_info(
-                "Rebuilding the base series. Recorded history is discarded with it — the "
+            _report_fact(
+                "Rebuilding the base series. Recorded history is discarded with it. The "
                 "recorder's samples share the collection being dropped. Pass "
                 "--keep-archiver-base to skip this."
             )
@@ -2888,10 +2957,11 @@ def _stage_archiver_store(
                 )
 
         collection.drop()
-        logger.key_info(
-            f"Seeding {len(channels):,} channels over {knobs.retention_days} days "
-            f"({knobs.hot_span_hours}h at {knobs.hot_cadence_sec}s, then "
-            f"{knobs.tail_cadence_sec}s). This takes minutes on a first deploy."
+        # Before the work, not after it: this is the only warning an operator
+        # gets that the next thing to happen is measured in minutes.
+        _report_step(
+            f"seeding the archive base: {len(channels):,} channels over "
+            f"{knobs.retention_days} days (minutes on a first deploy)"
         )
         report = seed_base(
             collection,
@@ -2903,7 +2973,7 @@ def _stage_archiver_store(
             compression=compression,
             progress=_seed_progress_reporter(),
         )
-        logger.key_info(report.describe())
+        _report_step(f"archive base: {report.describe()}")
 
     # Outside the store connection: re-applying opens its own, and holding this
     # one across it would keep an idle client alive for the whole rewrite.
@@ -3094,7 +3164,7 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
         )
         return
     if seeded:
-        logger.key_info(f"Seeded {seeded} logbook entries from the active scenarios")
+        _report_step(f"logbook seeded: {seeded} entries")
 
 
 def deploy_up(
@@ -3338,8 +3408,8 @@ def _start_stack(
     # A web-terminals-only deploy (no backend services) is valid, so the
     # early-return below must not fire on empty deployed_services in that case.
     if not config.get("deployed_services") and not web_terminals_enabled:
-        logger.key_info(
-            "No services configured for this project — deployed_services is empty in "
+        _report_fact(
+            "No services are configured for this project: deployed_services is empty in "
             "config.yml. Skipping osprey up."
         )
         # Still say what is (not) reachable — an unexpectedly empty deploy is
@@ -3462,7 +3532,7 @@ def _start_stack(
     env = {**os.environ, **dotenv_shell_overrides()}
     if dev_mode:
         env["DEV_MODE"] = "true"
-        logger.key_info("Development mode: DEV_MODE environment variable set for containers")
+        _report_fact("Development mode: DEV_MODE environment variable set for containers")
 
     # Fail-fast web-terminal preflight (persona render + credential gate)
     # BEFORE the minutes-long image build below: a deploy that is doomed to
@@ -4165,24 +4235,21 @@ def _down_by_label(config: dict | None, repo_root: Path) -> None:
 
     container_ids = listing.stdout.split()
     if not container_ids:
-        logger.key_info(
-            "Nothing to stop. There are no compose files in %s to run a `down` from, and "
-            "no container is labelled %s for this repo. Containers get that label when "
-            "they are CREATED, so a stack started before this repo's containers were "
-            "labelled is not visible here and may still be running — `osprey build` "
-            "restores build/, after which `osprey down` works normally.",
-            repo_root / BUILD_DIRNAME,
-            label_filter.removeprefix("label="),
+        _report_fact(
+            f"Nothing to stop. There are no compose files in {repo_root / BUILD_DIRNAME} "
+            f"to run a `down` from, and no container is labelled "
+            f"{label_filter.removeprefix('label=')} for this repo. Containers get that "
+            "label when they are CREATED, so a stack started before this repo's "
+            "containers were labelled is not visible here and may still be running. "
+            "`osprey build` restores build/, after which `osprey down` works normally."
         )
         return
 
-    logger.key_info(
-        "No compose files in %s — stopping the %d container(s) labelled %s instead. "
-        "Volumes are kept, as they are by a compose `down`; the compose network is not "
-        "labelled and stays.",
-        repo_root / BUILD_DIRNAME,
-        len(container_ids),
-        label_filter.removeprefix("label="),
+    _report_fact(
+        f"No compose files in {repo_root / BUILD_DIRNAME}. Stopping the "
+        f"{len(container_ids)} container(s) labelled "
+        f"{label_filter.removeprefix('label=')} instead. Volumes are kept, as they are "
+        "by a compose `down`; the compose network is not labelled and stays."
     )
 
     # stop, then rm: the same two steps, in the same order, that `compose down`
@@ -4421,12 +4488,12 @@ def deploy_down(config_path, dev_mode=False):
 
     # If no existing compose files found, rebuild them
     if not compose_files:
-        logger.info("No existing compose files found, rebuilding...")
+        logger.debug("No existing compose files found, rebuilding...")
         _, compose_files = prepare_compose_files(config_path, dev_mode)
     else:
-        logger.info("Using existing compose files for 'down' operation:")
+        logger.debug("Using existing compose files for 'down' operation:")
         for f in compose_files:
-            logger.info(f"  - {f}")
+            logger.debug(f"  - {f}")
 
     cmd = compose_base_cmd(
         with_plain_progress(get_runtime_command(config)),
@@ -4524,7 +4591,7 @@ def deploy_restart(config_path, detached=False, expose_network=False):
 
     # If detached mode requested, detach after restart
     if detached:
-        logger.info("Services restarted. Running in detached mode.")
+        logger.debug("Services restarted. Running in detached mode.")
 
 
 def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_network=False):

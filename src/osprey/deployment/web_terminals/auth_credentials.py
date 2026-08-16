@@ -39,6 +39,7 @@ from pathlib import Path
 # The service-token recipes are imported rather than restated so the signing
 # secrets below are minted and validated exactly like every other deploy-time
 # secret, and pick up any constraint registered for them later.
+from osprey.cli.output import report_fact
 from osprey.deployment.errors import ComposeInterpolationError
 from osprey.deployment.service_tokens import (
     _generate_token,
@@ -202,8 +203,8 @@ def _normalize_mode(env_auth_path: Path) -> None:
         os.chmod(env_auth_path, 0o600)
     except OSError as exc:
         logger.warning(
-            "Could not set 0600 permissions on %s (%s); check them by hand — "
-            "it holds web-terminal auth secrets.",
+            "Could not set 0600 permissions on %s (%s). Check them by hand, since "
+            "the file holds web-terminal auth secrets.",
             env_auth_path,
             exc,
         )
@@ -250,7 +251,7 @@ def ensure_auth_credentials(
     usernames: Iterable[str],
     project_root: str | Path,
     *,
-    echo: Callable[[str], None] = print,
+    echo: Callable[[str], None],
 ) -> AuthCredentialsResult:
     """Establish a password hash in ``.env.auth`` for every roster user.
 
@@ -292,8 +293,10 @@ def ensure_auth_credentials(
             ``normalize_users`` entry. Order is preserved; a name repeated
             verbatim is one user listed twice and is processed once.
         project_root: Directory holding ``.env`` and ``.env.auth``.
-        echo: Sink for the one-time minted-password notice. Defaults to
-            :func:`print` — deliberately not the logger, which ships elsewhere.
+        echo: Sink for the one-time minted-password notice. Required rather
+            than defaulted, because a password is the one line that must not
+            reach a stream nobody chose: every caller says where it goes.
+            Deliberately not the logger, which ships elsewhere.
 
     Returns:
         An :class:`AuthCredentialsResult` describing what happened, including
@@ -361,10 +364,10 @@ def ensure_auth_credentials(
             changed = True
             # Log the variable names only — a hash identifies a credential
             # generation and must not travel to a log sink.
-            logger.key_info(
-                "Provisioned web-terminal auth credential(s) %s in %s (gitignored, 0600)",
-                ", ".join(pending),
-                env_auth_path,
+            report_fact(
+                logger,
+                f"Provisioned web-terminal auth credential(s) {', '.join(pending)} "
+                f"in {env_auth_path} (gitignored, 0600)",
             )
             for name in minted:
                 echo(
@@ -482,10 +485,10 @@ def ensure_auth_session_secrets(project_root: str | Path) -> AuthSecretsResult:
         else:
             changed = True
             # Names only — a signing secret must never reach a log sink.
-            logger.key_info(
-                "Provisioned web-terminal auth secret(s) %s in %s (gitignored, 0600)",
-                ", ".join(pending),
-                env_auth_path,
+            report_fact(
+                logger,
+                f"Provisioned web-terminal auth secret(s) {', '.join(pending)} "
+                f"in {env_auth_path} (gitignored, 0600)",
             )
 
     _normalize_mode(env_auth_path)
@@ -556,8 +559,8 @@ def purge_auth_credentials(username: str, project_root: str | Path) -> bool:
         return False
 
     _atomic_rewrite(env_auth_path, kept)
-    logger.key_info(
-        "Removed web-terminal auth credential(s) for %r from %s", username, env_auth_path
+    report_fact(
+        logger, f"Removed web-terminal auth credential(s) for {username!r} from {env_auth_path}"
     )
     return True
 
@@ -672,7 +675,7 @@ def set_auth_password(username: str, password: str, project_root: str | Path) ->
 
     # The variable name only — a hash identifies a credential generation and
     # must not travel to a log sink, and the password never does at all.
-    logger.key_info("Replaced web-terminal auth credential %s in %s", hash_var, env_auth_path)
+    report_fact(logger, f"Replaced web-terminal auth credential {hash_var} in {env_auth_path}")
     return env_auth_path
 
 

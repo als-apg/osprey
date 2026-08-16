@@ -164,7 +164,9 @@ def test_claimed_hook_shadows_the_framework_render_on_the_next_build(
     (profile_dir / "hooks" / FRAMEWORK_HOOK).write_text("# facility edit\n", encoding="utf-8")
 
     rebuilt = _render_project(tmp_path / "again", "claim-then-build")
-    with caplog.at_level(logging.INFO):
+    # Renderer migration (disposition row 35): the shadow notice stayed on the
+    # logger and dropped to DEBUG, so `-v` is what surfaces it.
+    with caplog.at_level(logging.DEBUG):
         applied = _apply_conventions(profile_dir, rebuilt)
     registered = _register_convention_artifacts(rebuilt, applied)
 
@@ -679,7 +681,9 @@ def test_excluding_a_shadowed_hook_restores_the_framework_render(
     _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
     framework_body = (project / ".claude" / "hooks" / FRAMEWORK_HOOK).read_text(encoding="utf-8")
 
-    with caplog.at_level(logging.INFO):
+    # DEBUG, not INFO: row 35 moved the notice down a level, and capturing above
+    # it would pass here no matter what the build did.
+    with caplog.at_level(logging.DEBUG):
         applied = _apply_conventions(profile, project, excluded={f"hooks/{FRAMEWORK_HOOK}"})
 
     landed = project / ".claude" / "hooks" / FRAMEWORK_HOOK

@@ -164,7 +164,9 @@ def test_shadowed_file_gets_a_uniform_notice(
     _write(project_path / ".claude" / "rules" / "safety.md", "# framework\n")
     _write(profile_dir / "rules" / "safety.md", "# profile\n")
 
-    with caplog.at_level(logging.INFO):
+    # Renderer migration (disposition row 35): the shadow notice stayed on the
+    # logger and dropped to DEBUG, so `-v` is what surfaces it.
+    with caplog.at_level(logging.DEBUG):
         _apply_conventions(profile_dir, project_path)
 
     assert "overrides framework rule 'rules/safety'" in caplog.text
@@ -177,7 +179,9 @@ def test_shadowed_directory_gets_a_uniform_notice(
     _write(project_path / ".claude" / "skills" / "orbit-check" / "SKILL.md", "# framework\n")
     _write(profile_dir / "skills" / "orbit-check" / "SKILL.md", "# profile\n")
 
-    with caplog.at_level(logging.INFO):
+    # Renderer migration (disposition row 35): the shadow notice stayed on the
+    # logger and dropped to DEBUG, so `-v` is what surfaces it.
+    with caplog.at_level(logging.DEBUG):
         _apply_conventions(profile_dir, project_path)
 
     assert "overrides framework skill 'skills/orbit-check'" in caplog.text
@@ -188,7 +192,9 @@ def test_unshadowed_copies_get_no_notice(
 ):
     _write(profile_dir / "rules" / "facility-ops.md")
 
-    with caplog.at_level(logging.INFO):
+    # DEBUG, not INFO: row 35 moved the notice down a level, and capturing above
+    # it would pass here no matter what the build did.
+    with caplog.at_level(logging.DEBUG):
         _apply_conventions(profile_dir, project_path)
 
     assert "overrides framework" not in caplog.text
@@ -204,7 +210,9 @@ def test_excluded_shadow_restores_the_framework_render(
     _write(profile_dir / "rules" / "safety.md", "# profile\n")
     _write(profile_dir / "rules" / "facility-ops.md")
 
-    with caplog.at_level(logging.INFO):
+    # DEBUG, not INFO: row 35 moved the notice down a level, and capturing above
+    # it would pass here no matter what the build did.
+    with caplog.at_level(logging.DEBUG):
         applied = _apply_conventions(profile_dir, project_path, excluded={"rules/safety"})
 
     assert (project_path / ".claude" / "rules" / "safety.md").read_text() == "# framework\n"

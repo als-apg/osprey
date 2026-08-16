@@ -31,7 +31,9 @@ from typing import Any
 
 import click
 
+from .output import note, report, warn
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
+from .styles import Styles
 
 #: CLI-only shorthand absorbed from ``osprey config set-epics-gateway
 #: --facility NAME``. It never reaches the profile under this name: it is
@@ -180,20 +182,20 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     except BuildProfileError as e:
         raise click.UsageError(str(e)) from e
 
-    click.echo(f"✓ Wrote {len(written)} setting(s) into {profile_path}")
+    report(f"✓ Wrote {len(written)} setting(s) into {profile_path}", style=Styles.SUCCESS)
     for key in written:
-        click.echo(f"    {key}")
+        note(key)
 
     unrecognized = _unrecognized_top_level_keys(expanded)
     if unrecognized:
-        click.echo(
-            f"⚠ Not a profile key: {', '.join(unrecognized)}. It was written, but the "
-            "profile schema is closed, so `osprey build` will refuse this profile "
-            "until it is corrected or removed. To address the rendered config "
-            "instead, prefix the key with `config.`."
+        warn(
+            f"Not a profile key: {', '.join(unrecognized)}",
+            "It was written, but the profile schema is closed, so `osprey build` will "
+            "refuse this profile until it is corrected or removed. To address the "
+            "rendered config instead, prefix the key with `config.`.",
         )
 
     # The build this edit just invalidated, named while the operator is still
     # here. `check_drift` never raises, so a repo with no build/ — the common
     # case right after `init` — reports that rather than failing the write.
-    click.echo(check_drift(repo_root).status_line)
+    report(check_drift(repo_root).status_line)

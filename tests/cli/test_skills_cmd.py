@@ -57,7 +57,11 @@ def test_install_backs_up_existing(fake_home: Path) -> None:
 
     assert result.exit_code == 0, (result.output, result.stderr)
     assert (target / "SKILL.md").is_file()  # new content installed
-    assert "Warning" in result.stderr  # backup notice goes to stderr
+    # The backup notice is a warning, so it carries the ⚠ mark and goes to
+    # stderr: a caller redirecting stdout still learns the old copy moved.
+    assert "⚠" in result.stderr
+    assert "osprey-build-interview.bak." in result.stderr
+    assert "⚠" not in result.stdout
 
     backups = list((fake_home / ".claude" / "skills").glob("osprey-build-interview.bak.*"))
     assert len(backups) == 1
@@ -70,10 +74,11 @@ def test_install_unknown_name_errors(fake_home: Path) -> None:
     result = runner.invoke(skills, ["install", "nonexistent-skill"])
 
     assert result.exit_code != 0
-    combined = (result.output or "") + (result.stderr or "")
-    assert "nonexistent-skill" in combined
-    assert "osprey-build-interview" in combined
-    assert "osprey-contribute" in combined
+    # A refusal, so it is on stderr with the ✗ mark and nothing lands on stdout.
+    assert "nonexistent-skill" in result.stderr
+    assert "osprey-build-interview" in result.stderr
+    assert "osprey-contribute" in result.stderr
+    assert result.stdout == ""
 
 
 def test_resource_path_resolves() -> None:

@@ -1,25 +1,33 @@
 """The closing summary card, and which verbs print one.
 
 Three things are asserted here and kept apart on purpose: what the card SAYS
-(rendered from a repo and a state), that it says it through the phase reporter,
-and WHICH verb prints one — a detached start, never an attached one, and exactly
-one for a whole ``init --up`` chain rather than one per verb in it.
+(rendered from a repo and a state), that it says it through the CLI's renderer
+and therefore under every reporter, and WHICH verb prints one — a detached
+start, never an attached one, and exactly one for a whole ``init --up`` chain
+rather than one per verb in it.
 
-Card lines are read off a recording reporter or off the renderer directly,
-never out of ``result.output``: reporter output goes through the Rich console
-singleton, which wraps to whatever width a CliRunner presents, so an assertion
-on captured stdout is an assertion about wrapping — and the card carries a
-filesystem path, which is exactly what wrapping breaks.
+The card is echo class: it is the verb's own closing output, not decoration on
+its progress, so it goes out through :mod:`osprey.cli.output` and survives the
+``NullReporter`` that global ``--verbose`` installs. That is a change in what
+``osprey -v up`` prints, and it is pinned here rather than left to be noticed.
+
+Card lines are read off a recording console or off the plain-text renderer
+directly, never out of ``result.output``: the renderer prints through whichever
+console the installed reporter owns, and a CliRunner presents one of its own
+width — so an assertion on captured stdout is an assertion about wrapping, and
+the card carries a filesystem path, which is exactly what wrapping breaks.
 """
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from rich.console import Console
 
-from osprey.cli import summary_card
+from osprey.cli import phase_reporter, summary_card
 from osprey.cli.main import cli
 from osprey.cli.phase_reporter import (
     NullReporter,
@@ -27,18 +35,47 @@ from osprey.cli.phase_reporter import (
     current_reporter,
     install_reporter,
 )
+from osprey.cli.styles import osprey_theme
 from osprey.cli.summary_card import format_summary_card, owns_summary_card, print_summary_card
 
 
+def recording_console(*, terminal: bool = False) -> tuple[Console, io.StringIO]:
+    """A themed console writing into a buffer instead of at a terminal.
+
+    The theme is not optional: the card's heading and labels are semantic
+    tokens, and a bare ``Console()`` raises ``MissingStyle`` on the first one.
+    ``terminal`` asks for the styled rendering; the default plain one is what
+    every line assertion here reads.
+    """
+    buffer = io.StringIO()
+    return Console(file=buffer, theme=osprey_theme, force_terminal=terminal, width=200), buffer
+
+
 class RecordingReporter(PhaseReporter):
-    """A real reporter that keeps its lines instead of printing them."""
+    """A real reporter whose console is a buffer, not the terminal.
 
-    def __init__(self) -> None:
+    Overrides ``out()``, not ``emit()``: ``out()`` is the seam the renderer
+    resolves per call, so a fake that intercepted ``emit`` would see nothing the
+    card prints any more.
+    """
+
+    def __init__(self, console: Console) -> None:
         super().__init__(color=False)
-        self.lines: list[str] = []
+        self._console = console
 
-    def emit(self, text: str, style: str | None = None) -> None:
-        self.lines.append(text)
+    def out(self) -> Console:
+        return self._console
+
+
+class Recorded:
+    """The lines written to a recording console so far."""
+
+    def __init__(self, buffer: io.StringIO) -> None:
+        self._buffer = buffer
+
+    @property
+    def lines(self) -> list[str]:
+        return self._buffer.getvalue().splitlines()
 
 
 @pytest.fixture
@@ -49,10 +86,10 @@ def runner() -> CliRunner:
 @pytest.fixture
 def recorder():
     """Install a recording reporter for the duration of one test."""
-    recording = RecordingReporter()
-    previous = install_reporter(recording)
+    console, buffer = recording_console()
+    previous = install_reporter(RecordingReporter(console))
     try:
-        yield recording
+        yield Recorded(buffer)
     finally:
         install_reporter(previous)
 
@@ -169,6 +206,28 @@ class TestCardContent:
     ) -> None:
         assert expected in format_summary_card(repo, state)[-1]
 
+    def test_a_build_that_rendered_scenarios_offers_the_demo_seed(self, repo: Path) -> None:
+        """The seed hint has no line of its own any more, so the one next-step
+        surface has to carry it -- and it is a next step: an operator who just
+        built a project with demo scenarios can put data behind them."""
+        (repo / "build" / "data" / "simulation" / "scenarios").mkdir(parents=True)
+
+        card = "\n".join(format_summary_card(repo, "built"))
+
+        assert "osprey sim apply nominal" in card
+
+    def test_a_build_with_no_scenarios_is_not_told_to_apply_one(self, repo: Path) -> None:
+        """A command with nothing to apply is worse advice than no advice."""
+        assert "osprey sim apply" not in "\n".join(format_summary_card(repo, "built"))
+
+    @pytest.mark.parametrize("state", ["created", "running", "stopped"])
+    def test_the_seed_hint_belongs_to_the_built_card_alone(self, repo: Path, state: str) -> None:
+        """`built` is the state the deleted hint was printed in. A running
+        deployment's next step is reading it, not reseeding it."""
+        (repo / "build" / "data" / "simulation" / "scenarios").mkdir(parents=True)
+
+        assert "osprey sim apply" not in "\n".join(format_summary_card(repo, state))
+
     def test_the_endpoints_come_from_the_endpoint_summary_module(
         self, repo: Path, monkeypatch
     ) -> None:
@@ -197,19 +256,57 @@ class TestCardContent:
 
 
 class TestCardPrinting:
-    def test_the_card_prints_through_the_installed_reporter(
-        self, repo: Path, recorder: RecordingReporter
-    ) -> None:
-        """Same path as the phase lines, so the card is plain, unwrapped, and
-        colored only when stdout is a terminal."""
+    def test_the_card_prints_through_the_renderer(self, repo: Path, recorder: Recorded) -> None:
+        """Out through `osprey.cli.output`, on the console the installed
+        reporter owns — so the card lands above a mounted live region rather
+        than inside it, unwrapped, and colored only on a terminal."""
         print_summary_card(repo, "running")
 
         assert recorder.lines[0] == ""
         assert recorder.lines[1] == f"{repo.name} — running"
         assert any("http://127.0.0.1:8080" in line for line in recorder.lines)
 
+    def test_the_printed_card_is_the_one_the_text_renderer_renders(
+        self, repo: Path, recorder: Recorded
+    ) -> None:
+        """The rows are laid out by `output.section` and by
+        `format_summary_card` separately — one for the screen, one for a caller
+        that wants the card as text. Pinned against each other so the two
+        layouts cannot drift into two different cards."""
+        print_summary_card(repo, "running")
+
+        assert recorder.lines == [""] + format_summary_card(repo, "running")
+
+    def test_a_verbose_run_still_ends_with_the_card(
+        self, repo: Path, restore_reporter, monkeypatch
+    ) -> None:
+        """The card is echo class: it says what the run left behind, which is
+        the verb's own output rather than decoration on its progress. Under
+        `--verbose` the phase record is swallowed and the card is not."""
+        console, buffer = recording_console()
+        monkeypatch.setattr(phase_reporter, "console", console)
+        install_reporter(NullReporter(verbose=True))
+
+        print_summary_card(repo, "running")
+
+        assert Recorded(buffer).lines == [""] + format_summary_card(repo, "running")
+
+    def test_the_heading_is_styled_on_a_terminal(
+        self, repo: Path, restore_reporter, monkeypatch
+    ) -> None:
+        """The card keeps its bold heading through the renderer. Asserted as
+        "carries styling" rather than as an exact escape sequence: which bold
+        the theme resolves to is the theme's business."""
+        console, buffer = recording_console(terminal=True)
+        install_reporter(RecordingReporter(console))
+
+        print_summary_card(repo, "running")
+
+        heading = next(line for line in buffer.getvalue().splitlines() if repo.name in line)
+        assert "\x1b[" in heading
+
     def test_a_card_that_cannot_be_rendered_does_not_fail_the_verb(
-        self, repo: Path, recorder: RecordingReporter, monkeypatch
+        self, repo: Path, recorder: Recorded, monkeypatch
     ) -> None:
         """The work succeeded. An unreadable render is not a reason to end a
         successful deploy with an error."""
@@ -281,6 +378,17 @@ class TestVerbsThatPrintOne:
         self, runner, deploy_stubs, restore_reporter, cards, repo: Path, verb: str
     ) -> None:
         result = runner.invoke(cli, [verb, "-d"])
+
+        assert result.exit_code == 0, result.output
+        assert cards == [(repo, "running")]
+
+    def test_a_verbose_start_asks_for_a_card_too(
+        self, runner, deploy_stubs, restore_reporter, cards, repo: Path
+    ) -> None:
+        """`--verbose` changes which reporter the run installs, not who owns the
+        run: the outermost verb still finds the quiet default and still asks for
+        the card. Printing it is `print_summary_card`'s half, pinned above."""
+        result = runner.invoke(cli, ["-v", "up", "-d"])
 
         assert result.exit_code == 0, result.output
         assert cards == [(repo, "running")]
@@ -395,7 +503,7 @@ class TestTheInitChain:
 
 class TestResetGetsALineNotACard:
     def test_reset_says_it_is_finished_through_its_own_emit_callback(
-        self, recorder: RecordingReporter, monkeypatch, tmp_path: Path
+        self, recorder: Recorded, monkeypatch, tmp_path: Path
     ) -> None:
         """`reset` prints a plan, asks, and destroys; its ending belongs to that
         transcript, in the same voice and through the same callback, not on a

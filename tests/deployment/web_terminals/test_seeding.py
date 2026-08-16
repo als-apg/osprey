@@ -623,7 +623,9 @@ def test_one_of_two_ready_failing_does_not_raise(tmp_path, monkeypatch, fake_run
     ready.add(f"{_FACILITY_PREFIX}-web-bob")
     ready.failing.add(f"{_FACILITY_PREFIX}-web-alice")  # bob still succeeds
 
-    with caplog.at_level("INFO", logger="deployment.web_terminals.seeding"):
+    # DEBUG, not INFO: the per-user "seeded <user>" line is debug-grade now
+    # (disposition row 18) -- the default view gets the loop's count instead.
+    with caplog.at_level("DEBUG", logger="deployment.web_terminals.seeding"):
         seeding.seed_user_containers(_config(["alice", "bob"]))  # must not raise
 
     # alice's CLAUDE.md exec was attempted (and is recorded regardless of

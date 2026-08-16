@@ -139,34 +139,26 @@ class TestLoggerDemotions:
             f"{DEMOTED_NEEDLES[needle]} vanished entirely; demotion must keep it at DEBUG"
         )
 
-    def test_logger_keeps_the_builds_one_success_line_at_info(
-        self, build_records: _Capture
-    ) -> None:
-        """The sweep is a demotion, not a blanket silencing.
+    # The logger's own ``✓ Rendered <build_dir>`` success line used to be pinned
+    # here. Disposition row 28 retires it: the closing summary card is the
+    # verb's "it worked, here is what now" surface, and it says so by name.
+    # ``tests/cli/test_lifecycle_promotions.py`` holds the replacement — that
+    # the line is gone from INFO, and that the card header carries the name.
 
-        A build that says nothing at all on success would pass every assertion
-        above while being strictly worse than the noise it replaced.
-        """
-        assert any(
-            m.startswith("✓ Rendered") for m in build_records.messages(at_least=logging.INFO)
-        ), f"no success line survived: {build_records.messages(at_least=logging.INFO)}"
-
-    def test_logger_spells_the_build_path_out_only_in_that_success_line(
-        self, build_records: _Capture
-    ) -> None:
-        """One absolute path in the whole default view, and it is the useful one.
+    def test_logger_spells_no_build_path_at_info_at_all(self, build_records: _Capture) -> None:
+        """Not one absolute path left in the default view.
 
         Every demoted line above named the tree it had just written to, so a
-        build spelled its own output path out once per render and each one wrapped
-        across a normal terminal. Where the build landed is worth saying — once,
-        at the end. Asserted as equality rather than as a count so a *different*
-        line reacquiring a path cannot pass by replacing this one.
+        build spelled its own output path out once per render and each one
+        wrapped across a normal terminal. The last one to survive was the
+        success line, and row 28 retires that too: the card names the build,
+        and a path nobody has to retype does not belong on screen at all.
         """
         assert build_records.repo is not None
         carrying = [
             m for m in build_records.messages(at_least=logging.INFO) if str(build_records.repo) in m
         ]
-        assert carrying == [f"✓ Rendered {build_records.repo / 'build'}"]
+        assert not carrying, f"the build path is still at INFO: {carrying}"
 
     def test_reporter_names_the_injected_services_once(self, build_records: _Capture) -> None:
         """The injector highlights survive the demotion, as one step line.

@@ -687,18 +687,18 @@ def format_conflict_report(conflicts):
     """
     count = len(conflicts)
     lines = [
-        f"Host port preflight found {count} conflict{'' if count == 1 else 's'} — "
-        "aborting before touching any containers:"
+        f"Host port preflight found {count} conflict{'' if count == 1 else 's'}. "
+        "No containers were touched."
     ]
     for conflict in conflicts:
         if conflict.kind == "duplicate":
-            reason = f"already claimed by {conflict.holder} in this deployment"
+            reason = f"It is already claimed by {conflict.holder} in this deployment."
         else:
-            reason = f"{conflict.holder} is already listening on it"
+            reason = f"It is already in use by {conflict.holder}."
         where = " (host network)" if conflict.host_network else ""
         lines.append(
             f"  - port {conflict.host_port} ({conflict.bind_address}): "
-            f"service '{conflict.service}'{where} cannot bind — {reason}. "
+            f"service '{conflict.service}'{where} cannot bind. {reason} "
             f"Set a different {conflict.remedy}."
         )
     lines.append("")
@@ -709,8 +709,8 @@ def format_conflict_report(conflicts):
     # why a port with no `ports:` entry anywhere is contested.
     if any(conflict.host_network for conflict in conflicts):
         lines.append(
-            "Services on the host network namespace bind these ports directly — "
-            "no published mapping stands between them and the host, so every "
+            "Services on the host network namespace bind these ports directly. "
+            "No published mapping stands between them and the host, so every "
             "project deployed here needs its own ports."
         )
         lines.append("")
@@ -725,8 +725,8 @@ def format_conflict_report(conflicts):
     )
     if foreign_stack:
         lines.append(
-            "Another OSPREY stack already publishes these service ports on this host — "
-            "either attach this project to that shared services stack instead of "
+            "Another OSPREY stack already publishes these service ports on this host. "
+            "Either attach this project to that shared services stack instead of "
             "deploying its own copies, or change the listed config keys to free ports."
         )
     else:

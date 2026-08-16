@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from osprey.cli.output import report_fact
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.compose_generator import resolve_repo_root
 from osprey.deployment.runtime_helper import get_runtime_command
@@ -53,7 +54,7 @@ def enable_linger(config: dict, run_env: dict[str, str]) -> None:
         return  # linger is a rootless-podman/systemd concept; docker has no analog
 
     if shutil.which("loginctl") is None:
-        logger.warning("loginctl not found on PATH — skipping podman linger enable")
+        logger.warning("loginctl not found on PATH. Skipping the podman linger enable.")
         return
 
     try:
@@ -76,7 +77,7 @@ def enable_linger(config: dict, run_env: dict[str, str]) -> None:
             timeout=10,
         )
         if status.returncode == 0 and status.stdout.strip() == "Linger=yes":
-            logger.debug(f"Linger already enabled for {deploy_user} — nothing to do")
+            logger.debug(f"Linger already enabled for {deploy_user}. There is nothing to do.")
             return
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning(f"Could not check linger status for {deploy_user}: {exc}")
@@ -91,7 +92,7 @@ def enable_linger(config: dict, run_env: dict[str, str]) -> None:
             timeout=10,
         )
         if enable.returncode == 0:
-            logger.info(f"Enabled systemd linger for {deploy_user} (podman persistence)")
+            report_fact(logger, f"Enabled systemd linger for {deploy_user} (podman persistence)")
         else:
             logger.warning(
                 f"loginctl enable-linger {deploy_user} failed (exit {enable.returncode}): "
@@ -141,7 +142,8 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
     if not verify_path.is_file():
         return
 
-    logger.key_info("Running post-up smoke check: %s", verify_path)
+    # No announcement before the run: the step line below reports the same
+    # script WITH its exit code, so an "about to run it" line adds only latency.
     try:
         # check=False: the exit code is advisory (see above), so a site-
         # customized script that exits non-zero must not raise from here.
@@ -161,10 +163,8 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
         logger.warning("Could not run %s or capture its output: %s", verify_path, exc)
         return
 
-    _report_step(f"smoke check {verify_path.name} — exit {result.returncode}")
-    if result.returncode == 0:
-        logger.key_info("%s completed (exit 0)", verify_path)
-    else:
+    _report_step(f"smoke check {verify_path.name}: exit {result.returncode}")
+    if result.returncode != 0:
         # Read off the result, not the reporter: this hook has callers that run
         # it with no phase open, and they need the path just as much.
         # None only under --verbose, where the output already streamed past.
@@ -279,12 +279,11 @@ def warn_if_web_stack_unreachable(
 
     if on_docker_desktop and web_cmd:
         restart_cmd = web_cmd + ["restart"]
-        logger.key_info(
-            "%s is not reachable from this host yet. On Docker Desktop this is "
+        report_fact(
+            logger,
+            f"{url} is not reachable from this host yet. On Docker Desktop this is "
             "usually a stale host-network port registration; bouncing the web "
-            "stack to re-register it:\n    %s",
-            url,
-            " ".join(restart_cmd),
+            f"stack to re-register it:\n    {' '.join(restart_cmd)}",
         )
         try:
             # Spooled, not inherited: the restart's compose chatter would bury
@@ -303,7 +302,9 @@ def warn_if_web_stack_unreachable(
         else:
             _report_step("bounced the web stack for host-port re-registration")
             if _host_port_answers(url, attempts, delay):
-                logger.key_info("%s is reachable now.", url)
+                # The bounce's payoff. Without it the step above is the last
+                # word and never says whether the remediation worked.
+                _report_step("web endpoint reachable")
                 return
 
     hint = ""

@@ -5,6 +5,8 @@ Provides `osprey artifacts web` to launch the gallery server manually.
 
 import click
 
+from . import output
+
 
 @click.group("artifacts")
 def artifacts():
@@ -51,8 +53,9 @@ def web(port: int | None, host: str | None, reload: bool) -> None:
     host = host or default_host
     port = port or default_port
 
-    click.echo(f"Starting OSPREY Artifact Gallery on http://{host}:{port}")
-    click.echo("Press Ctrl+C to stop\n")
+    output.report(f"Starting OSPREY Artifact Gallery on http://{host}:{port}")
+    output.note("Press Ctrl+C to stop")
+    output.report("")
 
     try:
         if reload:
@@ -71,4 +74,5 @@ def web(port: int | None, host: str | None, reload: bool) -> None:
 
             run_server(host=host, port=port)
     except KeyboardInterrupt:
-        click.echo("\nShutting down...")
+        output.report("")
+        output.report("Shutting down...")

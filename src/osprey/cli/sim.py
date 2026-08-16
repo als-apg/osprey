@@ -26,6 +26,7 @@ from pathlib import Path
 
 import click
 
+from osprey.cli import output
 from osprey.utils.config import load_config
 from osprey.utils.logger import get_logger
 
@@ -45,7 +46,10 @@ def _parse_now(now_iso: str) -> datetime:
     try:
         anchor = datetime.fromisoformat(now_iso)
     except ValueError:
-        click.echo(f"Error: --now value {now_iso!r} is not valid ISO-8601.", err=True)
+        output.fail(
+            f"The --now value {now_iso!r} is not valid ISO-8601",
+            "An instant looks like 2024-03-18T12:00:00.",
+        )
         raise SystemExit(1) from None
     if anchor.tzinfo is None:
         from osprey.utils.config import get_facility_timezone
@@ -91,8 +95,11 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
     repo_root = find_repo_root(repo)
     config_path = rendered_config_path(repo_root)
     if not config_path.is_file():
-        click.echo(f"Error: no build found at {repo_root / BUILD_DIR_NAME}.", err=True)
-        click.echo("Run 'osprey build' first. The scenarios are created by the build.", err=True)
+        output.fail(
+            f"No build found at {repo_root / BUILD_DIR_NAME}",
+            "The scenarios are created by the build.",
+            "run 'osprey build' first",
+        )
         raise SystemExit(1)
     click.get_current_context().with_resource(config_anchored_at(config_path))
     return repo_root, load_config(str(config_path))
@@ -110,15 +117,14 @@ def _load_project_engine(repo: Path | None):
     repo_root, config = _resolve_deployment(repo)
     machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, repo_root)
     if machine_path is None:
+        detail = "This project does not use the simulation engine."
         if active_type == MOCK:
-            click.echo("Error: no mock 'simulation_file' configured in config.yml.", err=True)
+            output.fail("No mock 'simulation_file' is configured in config.yml", detail)
         else:
-            click.echo(
-                f"Error: no simulation_file configured for control_system.type "
-                f"'{active_type}' (tried {type_key} and {mock_key}).",
-                err=True,
+            output.fail(
+                f"No simulation_file is configured for control_system.type '{active_type}'",
+                f"Tried {type_key} and {mock_key}.\n{detail}",
             )
-        click.echo("This project does not use the simulation engine.", err=True)
         raise SystemExit(1)
     engine = SimulationEngine.from_file(
         machine_path, state_dir=resolve_state_dir(config, repo_root)
@@ -142,12 +148,11 @@ def _echo_physics_notice(config: dict, rendered: dict[str, str]) -> None:
     if "virtual_accelerator" not in (config.get("deployed_services") or []):
         return
     if rendered:
-        click.echo("! Physics fault rendered to .env: " + ", ".join(sorted(rendered)) + ".")
+        output.report("Physics fault written to .env: " + ", ".join(sorted(rendered)) + ".")
     else:
-        click.echo("! Cleared the previous scenario's physics fault from .env.")
-    click.echo("  The virtual accelerator reads this only when its container is created,")
-    click.echo("  so run 'osprey up' to recreate it. A plain 'docker restart' keeps")
-    click.echo("  the old environment.")
+        output.report("Cleared the previous scenario's physics fault from .env.")
+    output.note("The virtual accelerator reads this only when its container is created.")
+    output.note("Run 'osprey up' to recreate it. 'docker restart' reuses the old environment.")
 
 
 def _confirm_archive_rewrite(store: dict) -> None:
@@ -165,7 +170,7 @@ def _confirm_archive_rewrite(store: dict) -> None:
     decide, and a prompt about a store that does not exist trains people to hit
     enter.
     """
-    click.echo(
+    output.report(
         f"This will REWRITE the scenario's event windows in the stored archive "
         f"({store['host']}:{store['port']}/{store['database']}.{store['collection']}), "
         f"restoring any windows a previous scenario touched."
@@ -202,9 +207,13 @@ def list_command(repo: Path | None) -> None:
     for name, description in engine.list_scenarios().items():
         has_log = len(engine.scenario_logbook(name)) > 0
         marker = "*" if name in active else " "
-        click.echo(f"{marker} {name}  (logbook: {'yes' if has_log else 'no'})")
+        output.report(f"{marker} {name}  (logbook: {'yes' if has_log else 'no'})")
         if description:
-            click.echo(f"    {description}")
+            # A second step in, on top of the one `note` already applies: the
+            # marker column means the name itself does not start at column 0,
+            # so a description one step in would line up under the marker
+            # rather than under the name it describes.
+            output.note(f"  {description}")
 
 
 @sim_group.command("status")
@@ -213,9 +222,14 @@ def status_command(repo: Path | None) -> None:
     """Show the currently active scenario set."""
     *_, engine = _load_project_engine(repo)
     active = engine.active_scenarios()
-    click.echo("Active scenarios: " + ", ".join(active))
     logbook = engine.active_logbook()
-    click.echo(f"Composed logbook entries: {len(logbook)}")
+    output.section(
+        "",
+        [
+            ("Active scenarios", ", ".join(active)),
+            ("Composed logbook entries", len(logbook)),
+        ],
+    )
 
 
 @sim_group.command("apply")
@@ -295,12 +309,12 @@ def apply_command(
         # collisions) rather than raising; an empty list is the only "OK".
         problems = engine.validate_composition(resolve_active_scenarios(names))
         if problems:
-            click.echo("Error: cannot activate scenarios: " + "; ".join(problems), err=True)
+            output.fail("Cannot activate these scenarios", "; ".join(problems))
             raise SystemExit(1)
         try:
             physics = compute_scenario_physics_env(repo_root, list(names))
         except ValueError as exc:
-            click.echo(f"Error: {exc}", err=True)
+            output.fail("Cannot activate these scenarios", str(exc))
             raise SystemExit(1) from None
 
         # The archive rewrite's own refusals belong here too, not inside it: a
@@ -312,7 +326,7 @@ def apply_command(
             try:
                 store = preflight_archive_rewrite(repo_root, config, machine_path, list(names))
             except (ValueError, RuntimeError) as exc:
-                click.echo(f"Error: {exc}", err=True)
+                output.fail("The stored archive cannot be rewritten", str(exc))
                 raise SystemExit(1) from None
 
     if seed_logbook and not yes and ariel_config:
@@ -323,7 +337,7 @@ def apply_command(
         except Exception:
             info = None  # DB unreachable — apply will surface the error below
         if info is not None:
-            click.echo(
+            output.report(
                 f"This will PURGE {info.entry_count} existing logbook "
                 f"entr{'y' if info.entry_count == 1 else 'ies'} and reseed from the "
                 f"active scenarios."
@@ -347,31 +361,31 @@ def apply_command(
             seed_archive=seed_archive,
             now=now,
         )
-    except ValueError as exc:
-        click.echo(f"Error: {exc}", err=True)
-        raise SystemExit(1) from None
-    except RuntimeError as exc:
-        click.echo(f"Error: {exc}", err=True)
+    except (ValueError, RuntimeError) as exc:
+        output.fail("The scenarios could not be applied", str(exc))
         raise SystemExit(1) from None
     except Exception as exc:
         msg = str(exc)
         if "connect" in msg.lower():
-            click.echo("Error: cannot connect to the ARIEL database.", err=True)
-            click.echo("Start it with 'osprey up', or pass --no-seed.", err=True)
+            output.fail(
+                "Cannot connect to the ARIEL database",
+                None,
+                "start it with 'osprey up', or pass --no-seed",
+            )
             raise SystemExit(1) from None
         raise
 
-    click.echo("✓ Active scenarios: " + ", ".join(result.active))
+    output.report("✓ Active scenarios: " + ", ".join(result.active))
     if not seed_logbook:
-        click.echo("  (logbook unchanged)")
+        output.note("(logbook unchanged)")
     elif result.logbook_seeded:
-        click.echo(f"✓ Seeded {result.logbook_seeded} logbook entries (purged and reseeded).")
+        output.report(f"✓ Seeded {result.logbook_seeded} logbook entries (purged and reseeded).")
     elif ariel_config is None:
-        click.echo("  (no ARIEL configured, so the logbook was not seeded)")
+        output.note("(no ARIEL configured, so the logbook was not seeded)")
 
     if not seed_archive:
-        click.echo("  (stored archive unchanged)")
+        output.note("(stored archive unchanged)")
     elif result.archiver is not None and not result.archiver.skipped:
-        click.echo(f"✓ Archive rewritten: {result.archiver.describe()}")
+        output.report(f"✓ Archive rewritten: {result.archiver.describe()}")
     elif result.archiver is not None:
-        click.echo(f"  ({result.archiver.skipped})")
+        output.note(f"({result.archiver.skipped})")

@@ -268,8 +268,10 @@ class TestARIELCLIGroup:
                 )
 
         assert result.exit_code == 1
-        assert "ARIEL database is not initialized" in result.output
-        assert "osprey ariel migrate" in result.output
+        # Trouble is stderr-only under the renderer, and ``result.output`` mixes
+        # both streams, so the stream itself is what gets pinned here.
+        assert "ARIEL database is not initialized" in result.stderr
+        assert "osprey ariel migrate" in result.stderr
 
 
 class TestWatchCommand:
@@ -339,8 +341,8 @@ class TestWatchCommand:
 
         assert result.exit_code == 0
         mock_poll.assert_called_once_with(dry_run=False)
-        assert "Poll complete" in result.output
-        assert "3 added" in result.output
+        assert "Poll complete" in result.stdout
+        assert "3 added" in result.stdout
 
     def test_watch_once_dry_run(self, runner, monkeypatch):
         """watch --once --dry-run shows dry-run prefix in output."""
@@ -386,8 +388,8 @@ class TestWatchCommand:
 
         assert result.exit_code == 0
         mock_poll.assert_called_once_with(dry_run=True)
-        assert "[dry-run]" in result.output
-        assert "Poll complete" in result.output
+        assert "[dry-run]" in result.stdout
+        assert "Poll complete" in result.stdout
 
     def test_watch_no_source_shows_error(self, runner, monkeypatch):
         """watch shows error when ingestion has no source_url."""
@@ -403,7 +405,7 @@ class TestWatchCommand:
         result = runner.invoke(ariel_group, ["watch", "--once"])
 
         assert result.exit_code == 1
-        assert "source" in result.output.lower()
+        assert "source" in result.stderr.lower()
 
     def test_watch_no_config_shows_error(self, runner, monkeypatch):
         """watch shows error when ARIEL not configured."""
@@ -413,7 +415,7 @@ class TestWatchCommand:
         )
         result = runner.invoke(ariel_group, ["watch", "--once"])
         assert result.exit_code == 1
-        assert "not configured" in result.output.lower()
+        assert "not configured" in result.stderr.lower()
 
     def test_watch_adapter_choices(self, runner):
         """watch command validates adapter choices."""
@@ -449,7 +451,7 @@ class TestQuickstartCommand:
         )
         result = runner.invoke(ariel_group, ["quickstart"])
         assert result.exit_code == 1
-        assert "not configured" in result.output.lower()
+        assert "not configured" in result.stderr.lower()
 
     def test_quickstart_connection_failure_shows_guidance(self, runner, monkeypatch):
         """quickstart shows 'osprey up' guidance on connection failure."""
@@ -472,7 +474,7 @@ class TestQuickstartCommand:
             result = runner.invoke(ariel_group, ["quickstart"])
 
         assert result.exit_code == 1
-        assert "osprey up" in result.output
+        assert "osprey up" in result.stderr
 
     def test_quickstart_success_flow(self, runner, monkeypatch, tmp_path):
         """quickstart completes successfully with mocked database."""
@@ -523,7 +525,7 @@ class TestQuickstartCommand:
             result = runner.invoke(ariel_group, ["quickstart"])
 
         assert result.exit_code == 0
-        assert "complete" in result.output.lower()
+        assert "complete" in result.stdout.lower()
 
 
 class TestSyncCommand:
@@ -566,9 +568,9 @@ class TestSyncCommand:
 
         assert result.exit_code == 0, result.output
         mock_sync.assert_called_once()
-        assert "42 ingested" in result.output
-        assert "5 enhanced" in result.output
-        assert "1 failed" in result.output
+        assert "42 ingested" in result.stdout
+        assert "5 enhanced" in result.stdout
+        assert "1 failed" in result.stdout
 
     def test_sync_with_limit(self, runner, monkeypatch):
         """sync passes --limit to run_sync."""
@@ -612,7 +614,7 @@ class TestSyncCommand:
         )
         result = runner.invoke(ariel_group, ["sync"])
         assert result.exit_code == 1
-        assert "not configured" in result.output.lower()
+        assert "not configured" in result.stderr.lower()
 
     def test_sync_connection_failure_shows_guidance(self, runner, monkeypatch):
         """sync shows 'osprey up' guidance on connection failure."""
@@ -635,7 +637,7 @@ class TestSyncCommand:
             result = runner.invoke(ariel_group, ["sync"])
 
         assert result.exit_code == 1
-        assert "osprey up" in result.output
+        assert "osprey up" in result.stderr
 
 
 class TestSearchResultRendering:
@@ -765,9 +767,9 @@ class TestSearchResultRendering:
         result = runner.invoke(ariel_group, ["search", "coupler vacuum CM2"])
 
         assert result.exit_code == 0
-        assert "No results found" not in result.output
-        assert "VL-001" in result.output
-        assert "CM2 coupler vacuum note 1" in result.output
+        assert "No results found" not in result.stdout
+        assert "VL-001" in result.stdout
+        assert "CM2 coupler vacuum note 1" in result.stdout
 
     def test_search_command_no_results_message_only_when_truly_empty(self, runner, monkeypatch):
         """'No results found.' is reserved for zero entries AND no answer."""
@@ -793,4 +795,4 @@ class TestSearchResultRendering:
         result = runner.invoke(ariel_group, ["search", "nonexistent"])
 
         assert result.exit_code == 0
-        assert "No results found" in result.output
+        assert "No results found" in result.stdout

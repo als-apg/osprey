@@ -13,6 +13,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- What the CLI prints is now a progress report rather than a log. A verb prints
+  the phase it is in, the steps under it, and a summary at the end; the
+  timestamped `INFO` records that used to scroll past no longer reach the
+  screen, though every one of them still reaches the sinks the deployment
+  configures. `osprey -v <verb>` brings the whole transcript back. Warnings and
+  failures read the same way in every verb now (a one-line summary, the cause
+  under it, and what to do about it), and every one of them goes to stderr, so a
+  script reading a command's output no longer has to filter trouble out of it.
+  Under `--json`, stdout carries the JSON document and nothing else.
+
 - Lifecycle commands no longer go quiet while they work. `osprey init`,
   `build`, `up`, `restart`, `down` and `reset` keep a spinner and a running
   elapsed under the phase they are in, and while images are building there is

@@ -91,13 +91,14 @@ Step 1 — Create the facility repository
    cd demo-facility
 
 The command writes the whole repository, runs ``git init`` at its root, and
-commits nothing. It prints the directory layout, the two persona deltas it
-rendered, and where the secrets go.
+commits nothing. It prints the handful of entries you edit: the profile, the
+data directory, the two personas it rendered, the two env files, and the
+README.
 
-It also tells you there is no CI pipeline yet. That is expected: the profile
-ships with its ``deploy:`` block commented out, so there are no coordinates to
-render a pipeline from. Step 5 fills the block in and Step 7 renders the
-pipeline from it.
+It says nothing about CI, which is expected: the profile ships with its
+``deploy:`` block commented out, so there are no coordinates to render a
+pipeline from. Step 5 fills the block in and Step 7 renders the pipeline from
+it.
 
 
 Step 2 — Trim the profile to this facility's stack

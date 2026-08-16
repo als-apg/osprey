@@ -9,6 +9,9 @@ See 04_OSPREY_INTEGRATION.md Sections 13 for specification.
 from __future__ import annotations
 
 import asyncio
+import json
+import sys
+from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 import click
@@ -16,6 +19,8 @@ import click
 # Import get_config_value at module level for easier patching in tests
 from osprey.utils.config import get_config_value
 from osprey.utils.logger import get_logger
+
+from . import output
 
 logger = get_logger("ariel")
 
@@ -28,11 +33,32 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+def _emit_json_document(payload: object) -> None:
+    """Write *payload* to stdout as one JSON document and nothing else.
+
+    This module's machine-output seam, in the shape
+    :func:`osprey.health.render.render_json` established: it writes at the
+    stream rather than through the renderer, so no human line can reach the
+    document. Everything human a ``--json`` run produces goes to stderr
+    instead, because the caller holds
+    :func:`~osprey.cli.output.machine_mode` open around the whole body.
+
+    :param payload: The already-assembled result to serialize.
+    """
+    sys.stdout.write(json.dumps(payload, indent=2))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
 def _load_ariel_config() -> dict:
     """Load ARIEL config dict, raising SystemExit if missing."""
     config_dict = get_config_value("ariel", {})
     if not config_dict:
-        click.echo("Error: ARIEL not configured in config.yml", err=True)
+        output.fail(
+            "ARIEL is not configured in config.yml",
+            None,
+            "add an `ariel:` section to config.yml, then run `osprey build`",
+        )
         raise SystemExit(1)
     return config_dict
 
@@ -41,8 +67,11 @@ def _handle_db_error(e: Exception) -> None:
     """Raise SystemExit on database connection errors, otherwise return."""
     msg = str(e)
     if "connection" in msg.lower() or "connect" in msg.lower():
-        click.echo("Error: Cannot connect to the ARIEL database.", err=True)
-        click.echo("Make sure the database is running: osprey up", err=True)
+        output.fail(
+            "cannot connect to the ARIEL database",
+            None,
+            "start the database with `osprey up`",
+        )
         raise SystemExit(1) from None
 
 
@@ -50,8 +79,11 @@ def _handle_missing_tables(e: Exception) -> None:
     """Raise SystemExit on missing-table errors, otherwise return."""
     msg = str(e)
     if "relation" in msg and "does not exist" in msg:
-        click.echo("Error: ARIEL database is not initialized.", err=True)
-        click.echo("Run 'osprey ariel migrate' to create the required tables.", err=True)
+        output.fail(
+            "the ARIEL database is not initialized",
+            None,
+            "run `osprey ariel migrate` to create the required tables",
+        )
         raise SystemExit(1) from None
 
 
@@ -81,25 +113,35 @@ def status_command(output_json: bool) -> None:
 
     Displays database connection, embedding tables, and enhancement stats.
     """
-    import json as json_module
-
     from osprey.services.ariel_search.cli_operations import get_status
 
     config_dict = get_config_value("ariel", {})
-    result = asyncio.run(get_status(config_dict))
 
-    if output_json:
-        click.echo(json_module.dumps(result, indent=2))
-    else:
-        click.echo(f"ARIEL Status: {result['status']}")
-        click.echo(f"  {result['message']}")
+    # Under ``--json`` the whole body runs in machine mode, so every renderer
+    # line goes to stderr and stdout carries one document for a script to parse.
+    with output.machine_mode() if output_json else nullcontext():
+        result = asyncio.run(get_status(config_dict))
+
+        if output_json:
+            _emit_json_document(result)
+            return
+
+        output.report(f"ARIEL Status: {result['status']}")
+        output.note(result["message"])
         if result["status"] != "error":
-            click.echo(f"\nDatabase: {result['database']['uri']}")
-            click.echo(f"Total Entries: {result['entries']}")
-            click.echo("\nEmbedding Tables:")
+            output.report("")
+            output.section(
+                "",
+                {
+                    "Database": result["database"]["uri"],
+                    "Total entries": result["entries"],
+                },
+            )
+            output.report("")
+            output.report("Embedding tables:")
             for table in result.get("embedding_tables", []):
                 active = " (active)" if table["active"] else ""
-                click.echo(f"  - {table['table']}: {table['entries']} entries{active}")
+                output.note(f"- {table['table']}: {table['entries']} entries{active}")
 
 
 @ariel_group.command("migrate")
@@ -112,7 +154,7 @@ def migrate_command() -> None:
 
     config_dict = _load_ariel_config()
     try:
-        asyncio.run(run_migrate(config_dict, progress=click.echo))
+        asyncio.run(run_migrate(config_dict, progress=output.report))
     except Exception as e:
         _handle_db_error(e)
         raise
@@ -136,15 +178,16 @@ def sync_command(limit: int | None) -> None:
 
     config_dict = _load_ariel_config()
     try:
-        result = asyncio.run(run_sync(config_dict, limit=limit, progress=click.echo))
-        click.echo(
-            f"\nSync complete: "
+        result = asyncio.run(run_sync(config_dict, limit=limit, progress=output.report))
+        output.report("")
+        output.report(
+            f"Sync complete: "
             f"{result.entries_ingested} ingested, "
             f"{result.entries_enhanced} enhanced, "
             f"{result.entries_failed} failed"
         )
         if result.migrations_applied:
-            click.echo(f"  Migrations applied: {result.migrations_applied}")
+            output.note(f"Migrations applied: {result.migrations_applied}")
     except DatabaseQueryError as e:
         _handle_missing_tables(e)
         raise
@@ -184,16 +227,17 @@ def ingest_command(
     config_dict = _load_ariel_config()
     try:
         result = asyncio.run(
-            run_ingest(config_dict, source, adapter, since, limit, dry_run, progress=click.echo)
+            run_ingest(config_dict, source, adapter, since, limit, dry_run, progress=output.report)
         )
+        output.report("")
         if result.dry_run:
-            click.echo(f"\nDry run complete: {result.count} entries would be ingested")
+            output.report(f"Dry run complete: {result.count} entries would be ingested")
             if result.enhancer_names:
-                click.echo(f"Enhancement modules would run: {result.enhancer_names}")
+                output.note(f"Enhancement modules would run: {result.enhancer_names}")
         else:
-            click.echo(f"\nIngestion complete: {result.count} entries stored")
+            output.report(f"Ingestion complete: {result.count} entries stored")
             if result.enhancer_names:
-                click.echo(f"Enhancement complete: {result.enhanced_count} enhancements applied")
+                output.note(f"Enhancement complete: {result.enhanced_count} enhancements applied")
     except DatabaseQueryError as e:
         _handle_missing_tables(e)
         raise
@@ -241,27 +285,29 @@ def watch_command(
     config_dict = _load_ariel_config()
     try:
         result = asyncio.run(
-            run_watch(config_dict, source, adapter, once, interval, dry_run, progress=click.echo)
+            run_watch(config_dict, source, adapter, once, interval, dry_run, progress=output.report)
         )
         if result is not None:
             prefix = "[dry-run] " if result.dry_run else ""
-            click.echo(
-                f"\n{prefix}Poll complete: "
+            output.report("")
+            output.report(
+                f"{prefix}Poll complete: "
                 f"{result.entries_added} added, "
                 f"{result.entries_updated} updated, "
                 f"{result.entries_failed} failed "
                 f"({result.duration_seconds:.1f}s)"
             )
             if result.since:
-                click.echo(f"  Since: {result.since.isoformat()}")
+                output.note(f"Since: {result.since.isoformat()}")
     except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
+        output.fail(str(e))
         raise SystemExit(1) from None
     except DatabaseQueryError as e:
         _handle_missing_tables(e)
         raise
     except KeyboardInterrupt:
-        click.echo("\nStopping watcher...")
+        output.report("")
+        output.report("Stopping the watcher.")
     except Exception as e:
         _handle_db_error(e)
         raise
@@ -285,9 +331,10 @@ def enhance_command(module: str | None, force: bool, limit: int) -> None:
     from osprey.services.ariel_search.cli_operations import run_enhance
 
     config_dict = _load_ariel_config()
-    result = asyncio.run(run_enhance(config_dict, module, force, limit, progress=click.echo))
+    result = asyncio.run(run_enhance(config_dict, module, force, limit, progress=output.report))
     if result.entries_processed > 0:
-        click.echo(f"\nEnhancement complete: {result.entries_processed} entries processed")
+        output.report("")
+        output.report(f"Enhancement complete: {result.entries_processed} entries processed")
 
 
 @ariel_group.command("models")
@@ -302,16 +349,17 @@ def models_command() -> None:
     tables = asyncio.run(list_models(config_dict))
 
     if not tables:
-        click.echo("No embedding tables found.")
+        output.report("No embedding tables found.")
         return
 
-    click.echo("Embedding Models:")
+    output.report("Embedding models:")
     for table in tables:
         active = " (active)" if table["is_active"] else ""
-        click.echo(f"\n  {table['table_name']}{active}")
-        click.echo(f"    Entries: {table['entry_count']}")
+        items: dict[str, object] = {"Entries": table["entry_count"]}
         if table["dimension"]:
-            click.echo(f"    Dimension: {table['dimension']}")
+            items["Dimension"] = table["dimension"]
+        output.report("")
+        output.section(f"{table['table_name']}{active}", items)
 
 
 @ariel_group.command("search")
@@ -324,39 +372,43 @@ def search_command(query: str, mode: str, limit: int, output_json: bool) -> None
 
     Execute a search query using the ARIEL agent.
     """
-    import json as json_module
-
     from osprey.services.ariel_search.cli_operations import run_search
 
     config_dict = get_config_value("ariel", {})
-    result = asyncio.run(run_search(config_dict, query, mode, limit))
 
-    if output_json:
-        click.echo(json_module.dumps(result, indent=2))
-    else:
-        if result.get("error"):
-            click.echo(f"Error: {result['error']}", err=True)
+    # Under ``--json`` the whole body runs in machine mode, so every renderer
+    # line goes to stderr and stdout carries one document for a script to parse.
+    with output.machine_mode() if output_json else nullcontext():
+        result = asyncio.run(run_search(config_dict, query, mode, limit))
+
+        if output_json:
+            _emit_json_document(result)
             return
 
-        click.echo(f"Query: {result['query']}")
-        click.echo(f"Modes: {', '.join(result['search_modes']) or 'none'}")
-        click.echo()
+        if result.get("error"):
+            output.fail(str(result["error"]))
+            return
+
+        output.report(f"Query: {result['query']}")
+        output.report(f"Modes: {', '.join(result['search_modes']) or 'none'}")
+        output.report("")
 
         if result["answer"]:
-            click.echo(result["answer"])
+            output.report(result["answer"])
             if result["sources"]:
-                click.echo(f"\nSources: {', '.join(result['sources'])}")
+                output.report("")
+                output.report(f"Sources: {', '.join(result['sources'])}")
         elif result.get("entries"):
             # Direct (non-RAG) modes return entries without a composed answer.
             for idx, entry in enumerate(result["entries"], 1):
                 timestamp = entry.get("timestamp", "")[:16].replace("T", " ")
                 header = f"{idx}. [{entry.get('entry_id', '?')}] {entry.get('title', '')}"
-                click.echo(header)
+                output.report(header)
                 byline = "   ".join(part for part in (timestamp, entry.get("author", "")) if part)
                 if byline:
-                    click.echo(f"   {byline}")
+                    output.note(byline)
         else:
-            click.echo("No results found.")
+            output.report("No results found.")
 
 
 @ariel_group.command("reembed")
@@ -385,13 +437,20 @@ def reembed_command(
 
     config_dict = _load_ariel_config()
     result = asyncio.run(
-        run_reembed(config_dict, model, dimension, batch_size, dry_run, force, progress=click.echo)
+        run_reembed(
+            config_dict, model, dimension, batch_size, dry_run, force, progress=output.report
+        )
     )
     if not result.dry_run:
-        click.echo("\nRe-embedding complete:")
-        click.echo(f"  Processed: {result.processed}")
-        click.echo(f"  Skipped (existing): {result.skipped}")
-        click.echo(f"  Errors: {result.errors}")
+        output.report("")
+        output.section(
+            "Re-embedding complete:",
+            {
+                "Processed": result.processed,
+                "Skipped (existing)": result.skipped,
+                "Errors": result.errors,
+            },
+        )
 
 
 @ariel_group.command("quickstart")
@@ -417,7 +476,7 @@ def quickstart_command(source: str | None) -> None:
 
     config_dict = _load_ariel_config()
     try:
-        asyncio.run(run_quickstart(config_dict, source, progress=click.echo))
+        asyncio.run(run_quickstart(config_dict, source, progress=output.report))
     except Exception as e:
         _handle_db_error(e)
         raise
@@ -441,15 +500,17 @@ def web_command(port: int, host: str, reload: bool) -> None:
     """
     _load_ariel_config()
 
-    click.echo(f"Starting ARIEL Web Interface on http://{host}:{port}")
-    click.echo("Press Ctrl+C to stop\n")
+    output.report(f"Starting ARIEL Web Interface on http://{host}:{port}")
+    output.note("Press Ctrl+C to stop")
+    output.report("")
 
     try:
         from osprey.interfaces.ariel import run_web
 
         run_web(host=host, port=port, reload=reload)
     except KeyboardInterrupt:
-        click.echo("\nShutting down...")
+        output.report("")
+        output.report("Shutting down...")
 
 
 @ariel_group.command("purge")
@@ -476,22 +537,26 @@ def purge_command(yes: bool, embeddings_only: bool) -> None:
         _handle_db_error(e)
         raise
 
-    click.echo("\n⚠️  WARNING: This will permanently delete:")
     if embeddings_only:
-        click.echo(f"  - Embedding tables: {info.embedding_tables or '(none)'}")
-        click.echo(f"  - Entries will be KEPT ({info.entry_count} entries)")
+        detail = (
+            f"embedding tables: {info.embedding_tables or '(none)'}\n"
+            f"the {info.entry_count} logbook entries are kept"
+        )
     else:
-        click.echo(f"  - All {info.entry_count} logbook entries")
-        click.echo(f"  - All embedding tables: {info.embedding_tables or '(none)'}")
-        click.echo("  - All ingestion history")
+        detail = (
+            f"all {info.entry_count} logbook entries\n"
+            f"all embedding tables: {info.embedding_tables or '(none)'}\n"
+            "all ingestion history"
+        )
+    output.warn("this deletes ARIEL data for good", detail)
 
     if not yes:
         if not click.confirm("\nAre you sure you want to continue?"):
-            click.echo("Aborted.")
+            output.report("Nothing was deleted.")
             return
 
     try:
-        asyncio.run(execute_purge(config_dict, embeddings_only, progress=click.echo))
+        asyncio.run(execute_purge(config_dict, embeddings_only, progress=output.report))
     except Exception as e:
         _handle_db_error(e)
         raise

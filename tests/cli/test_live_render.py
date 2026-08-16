@@ -16,7 +16,13 @@ from rich.console import Console
 from osprey.cli import live_render
 from osprey.cli.live_render import format_duration, render_live_region
 from osprey.cli.styles import ColorTheme, _build_rich_theme, osprey_theme
-from osprey.deployment.build_progress import EXPORT_STEP, BuildRow
+from osprey.deployment.build_progress import EXPORT_STEP, BuildModel, BuildRow
+from tests.deployment.test_build_progress import BOOKKEEPING, PINNED_CAPTIONS
+
+FIXTURES = Path(__file__).resolve().parents[1] / "deployment" / "fixtures"
+
+#: The compose build the parser's own tests replay, rendered here as a table.
+COLD_BUILD = FIXTURES / "buildkit_cold_build.log"
 
 
 def make_row(
@@ -133,6 +139,59 @@ def test_caption_is_never_read_as_markup() -> None:
     """BuildKit captions contain brackets; none of them is a style tag."""
     out = render([make_row(caption="load metadata for [internal] python:3.12")])
     assert "[internal]" in out
+
+
+# -- what the fixture actually puts in the caption column --------------------
+
+#: One rendered row, split back into its columns. The caption is the only one
+#: that may hold spaces, and the duration anchors the split from the right.
+_RENDERED_ROW = re.compile(
+    r" {4}(?P<service>\S+)\s{2,}(?P<step>\S+)\s{2,}(?P<caption>.*?)\s{2,}\d+m\d{2}s"
+)
+
+
+def replay_rendered_captions() -> list[str]:
+    """Every caption the table showed while replaying the cold build.
+
+    The region is re-rendered only when a row actually changed, which is what
+    keeps a 860-line replay to a few hundred frames; the states themselves are
+    all still visited.
+    """
+    model = BuildModel()
+    captions: list[str] = []
+    previous: object = None
+    for tick, line in enumerate(COLD_BUILD.read_bytes().decode().split("\n")):
+        model.feed(line, float(tick))
+        rows = model.snapshot()
+        state = [(row.service, row.step, row.caption, row.finished) for row in rows]
+        if state == previous:
+            continue
+        previous = state
+        for rendered in render(rows, now=float(tick), width=200).splitlines():
+            if not rendered.strip():
+                continue
+            parsed = _RENDERED_ROW.fullmatch(rendered.rstrip())
+            assert parsed is not None, rendered
+            captions.append(parsed["caption"])
+    return captions
+
+
+def test_the_table_never_shows_buildkit_bookkeeping() -> None:
+    """The symptom that started this: a table whose every caption read
+    `DONE 0.0s`, or a step column doubled by BuildKit's own stopwatch
+    (`6/8  21.51 Collecting scikit-learn`)."""
+    captions = replay_rendered_captions()
+
+    assert captions
+    assert [caption for caption in captions if BOOKKEEPING.match(caption)] == []
+
+
+def test_the_table_shows_the_work_the_stream_reported() -> None:
+    """The same five captions the model and the heartbeat lines pin, at the
+    surface an operator on a terminal actually reads."""
+    captions = set(replay_rendered_captions())
+
+    assert [caption for caption in PINNED_CAPTIONS if caption not in captions] == []
 
 
 # -- finished services ------------------------------------------------------

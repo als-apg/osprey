@@ -12,6 +12,7 @@ import os
 
 import click
 
+from osprey.cli.altitude import lift_gate
 from osprey.cli.styles import Messages, Styles, console
 
 
@@ -42,20 +43,16 @@ def _setup_config(project: str | None):
     os.environ["CONFIG_FILE"] = str(config_path)
 
 
-def _initialize_registry(verbose: bool = False):
-    """Initialize the Osprey registry with appropriate logging.
+def _initialize_registry():
+    """Initialize the Osprey registry without its start-up chatter.
 
-    Args:
-        verbose: If True, show detailed initialization logs.
+    Sets no logger levels of its own: what a run renders is the CLI's altitude
+    policy, applied once for every command. The named loggers below are silenced
+    for the duration of this call only — registry wiring narrates each component
+    it loads, and that transcript belongs to ``-v``, not to a database command
+    that happens to need a registry first.
     """
-    import logging
-
     from osprey.registry import initialize_registry
-
-    if not verbose:
-        logging.getLogger("osprey").setLevel(logging.WARNING)
-        logging.getLogger("channel_finder").setLevel(logging.WARNING)
-
     from osprey.utils.log_filter import quiet_logger
 
     with quiet_logger(
@@ -144,6 +141,11 @@ def channel_finder(ctx, project: str | None, verbose: bool):
     ctx.ensure_object(dict)
     ctx.obj["project"] = project
     ctx.obj["verbose"] = verbose
+    if verbose:
+        # The group's own --verbose lifts the CLI altitude gate for this run, so
+        # every subcommand under it renders its transcript rather than only
+        # warnings and errors. Idempotent, and a no-op when nothing is gated.
+        lift_gate()
 
 
 @channel_finder.command("build-database")
@@ -292,11 +294,16 @@ def validate(ctx, database: str | None, verbose: bool, pipeline: str | None):
       osprey channel-finder validate --verbose
       osprey channel-finder validate --pipeline hierarchical
     """
+    if verbose:
+        # Lifts the altitude gate for this run, on top of the detailed
+        # statistics the flag already asks ``run_validation`` for.
+        lift_gate()
+
     project = ctx.obj.get("project")
 
     try:
         _setup_config(project)
-        _initialize_registry(verbose=False)
+        _initialize_registry()
     except click.ClickException:
         if not database:
             raise
@@ -377,7 +384,7 @@ def preview(
     if not database:
         try:
             _setup_config(project)
-            _initialize_registry(verbose=False)
+            _initialize_registry()
         except click.ClickException:
             raise
 
@@ -680,6 +687,13 @@ def benchmark(
       osprey channel-finder benchmark --model ollama/gemma3:4b --queries 0:5
       osprey channel-finder benchmark --model anthropic/claude-haiku-4-5 --runs-per-query 3
     """
+    if verbose:
+        # One half of what --verbose means here: the altitude gate is lifted, so
+        # this run's records are rendered instead of only its warnings. The
+        # other half is the level floor set below, which is what lets the
+        # framework's DEBUG records be emitted in the first place.
+        lift_gate()
+
     import asyncio
     import logging
     from pathlib import Path
@@ -725,7 +739,10 @@ def benchmark(
     indices = _parse_query_indices(queries, len(all_queries))
 
     if verbose:
-        logging.basicConfig(level=logging.DEBUG)
+        # A level floor, and only that: raising the framework logger is what
+        # lets its DEBUG records be emitted at all. Whether an emitted record
+        # reaches the terminal is the CLI's altitude policy — the gate lifted at
+        # the top of this body.
         logging.getLogger("osprey").setLevel(logging.DEBUG)
 
     console.print(

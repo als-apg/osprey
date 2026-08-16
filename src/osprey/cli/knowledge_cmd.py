@@ -14,6 +14,8 @@ from pathlib import Path
 
 import click
 
+from .output import fail, note, report, warn
+
 
 @click.group()
 def knowledge() -> None:
@@ -72,8 +74,8 @@ def regen_index(bundle: Path | None) -> None:
 
     written = regenerate_indexes(bundle)
     for path in written:
-        click.echo(str(path))
-    click.echo(f"Wrote {len(written)} index file(s).")
+        report(str(path))
+    report(f"Wrote {len(written)} index file(s).")
 
 
 @knowledge.command("validate")
@@ -123,12 +125,13 @@ def validate(bundle: Path | None) -> None:
                 failures.append((md_path, str(exc)))
 
     if not failures:
-        click.echo(f"All files in {bundle} are valid.")
+        report(f"All files in {bundle} are valid.")
         return
 
-    click.echo(f"{len(failures)} file(s) failed validation:", err=True)
-    for path, msg in failures:
-        click.echo(f"  {path}: {msg}", err=True)
+    fail(
+        f"{len(failures)} file(s) failed validation",
+        "\n".join(f"{path}: {msg}" for path, msg in failures),
+    )
     raise SystemExit(1)
 
 
@@ -197,23 +200,20 @@ def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
         if concept_path.exists():
             existing = concept_path.read_text(encoding="utf-8")
             if existing == stub.body:
-                click.echo(f"  unchanged  {concept_path.name}")
+                note(f"unchanged   {concept_path.name}")
                 skipped_same += 1
                 continue
             if not force:
-                click.echo(
-                    f"  differs    {concept_path.name}  (use --force to overwrite)",
-                    err=True,
-                )
+                note(f"differs     {concept_path.name}")
                 skipped_differs += 1
                 continue
             concept_path.write_text(stub.body, encoding="utf-8")
-            click.echo(f"  overwritten {concept_path.name}")
+            note(f"overwritten {concept_path.name}")
             overwritten += 1
         else:
             concept_path.parent.mkdir(parents=True, exist_ok=True)
             concept_path.write_text(stub.body, encoding="utf-8")
-            click.echo(f"  written    {concept_path.name}")
+            note(f"written     {concept_path.name}")
             written += 1
 
     parts = []
@@ -224,5 +224,13 @@ def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
     if skipped_same:
         parts.append(f"{skipped_same} unchanged")
     if skipped_differs:
-        parts.append(f"{skipped_differs} skipped (differs; use --force)")
-    click.echo(", ".join(parts) + "." if parts else "Nothing to do.")
+        parts.append(f"{skipped_differs} left alone")
+    report(", ".join(parts) + "." if parts else "Nothing to do.")
+
+    # The one line that asks the operator for a decision, so it is a warning and
+    # not another entry in the per-file record above.
+    if skipped_differs:
+        warn(
+            f"{skipped_differs} file(s) already exist with different content",
+            "They were left as they are. Re-run with --force to overwrite them.",
+        )

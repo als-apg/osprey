@@ -8,6 +8,7 @@ the wait is on an event with a timeout, never on a duration.
 """
 
 import io
+import re
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,6 +26,7 @@ from osprey.cli.phase_reporter import (
 )
 from osprey.cli.styles import osprey_theme
 from osprey.deployment.build_progress import BuildModel
+from tests.deployment.test_build_progress import BOOKKEEPING, PINNED_CAPTIONS
 
 FIXTURES = Path(__file__).resolve().parents[1] / "deployment" / "fixtures"
 
@@ -46,6 +48,41 @@ def vertex_lines(name: str, node: int) -> list[str]:
     """Every line one BuildKit vertex emitted, in order."""
     prefix = f"#{node} "
     return [line for line in fixture_lines(name) if line.startswith(prefix)]
+
+
+#: One heartbeat line, split back into its parts. Every service in the cold
+#: build carries a step by the time it first beats -- its opening line is a
+#: header -- so the step is matched rather than allowed for, which keeps a
+#: mis-split from being read as a caption.
+_BEAT = re.compile(
+    r"  · (?P<service>\S+) (?P<step>\d+/\d+|internal|auth|exporting) (?P<caption>.*)"
+)
+
+
+def beat_caption(beat: str) -> str:
+    """The caption a heartbeat line put on screen."""
+    parsed = _BEAT.fullmatch(beat.rsplit(" (running ", 1)[0])
+    assert parsed is not None, beat
+    return parsed["caption"]
+
+
+def replay_heartbeats(name: str) -> list[str]:
+    """Beat every service after every line of a fixture, and collect the lines.
+
+    A beat is due 30s after the last one, so the replay clock advances 31s per
+    line: every state a row passes through is put on screen exactly once, which
+    is what makes "no heartbeat ever showed X" a claim about the whole build
+    rather than about the moments a real clock happened to land on.
+    """
+    reporter = PhaseReporter(color=False)
+    model = BuildModel()
+    beats: list[str] = []
+    with reporter.watch_build(model):
+        for tick, line in enumerate(fixture_lines(name)):
+            now = 1000.0 + 31.0 * tick
+            model.feed(line, now)
+            beats.extend(reporter._heartbeat_pass(now + 1.0))
+    return beats
 
 
 @pytest.fixture
@@ -306,6 +343,24 @@ def test_a_long_run_caption_is_clipped_to_one_readable_line():
     assert len(lines[0]) > 500
     assert len(beat) < 160
     assert "… (running 31.0s)" in beat
+
+
+def test_no_heartbeat_line_ever_carries_buildkit_bookkeeping():
+    """Off a TTY these lines are the only build output an operator sees, so a
+    caption that is really the vertex's stopwatch or its status reads as the
+    build itself: `· virtual-accelerator 6/8 DONE 0.0s (running 4m10s)`."""
+    captions = [beat_caption(beat) for beat in replay_heartbeats(COLD_BUILD)]
+
+    assert captions
+    assert [caption for caption in captions if BOOKKEEPING.match(caption)] == []
+
+
+def test_a_genuine_caption_reaches_the_heartbeat_line_verbatim():
+    """The filter is between the model and both surfaces; this is the half of
+    it that has to survive the trip to this one."""
+    captions = {beat_caption(beat) for beat in replay_heartbeats(COLD_BUILD)}
+
+    assert [caption for caption in PINNED_CAPTIONS if caption not in captions] == []
 
 
 def test_a_stream_with_no_buildkit_headers_never_beats():

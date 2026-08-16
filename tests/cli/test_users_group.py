@@ -824,7 +824,7 @@ class TestProfileRosterWrite:
         assert "Read-only file system" in flat
         assert "still lists alice" in flat
         assert "osprey users remove alice" in flat  # the converging remedy
-        assert "by hand" in flat  # the manual remedy
+        assert "by hand" in flat  # the fallback, named in the cause
 
     def test_an_unparseable_profile_gets_the_same_true_state_message(
         self, cli_runner, tmp_path, monkeypatch
@@ -1099,11 +1099,15 @@ class TestUsersEnv:
         assert result.exit_code == 0
         assert "STALE" not in (repo_root / "out.env").read_text(encoding="utf-8")
 
-    def test_a_missing_secrets_file_aborts(self, cli_runner, tmp_path, monkeypatch, caplog):
+    def test_a_missing_secrets_file_aborts(self, cli_runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path, USERS_ENV_CONFIG)
         monkeypatch.chdir(repo_root)
 
         result = cli_runner.invoke(users, ["env"])
 
         assert result.exit_code != 0
-        assert "does not exist" in caplog.text
+        # On stderr, and stdout left empty: in the default mode this verb's
+        # stdout IS the rendered secrets file, so a diagnostic printed there
+        # would corrupt a `> .env.production` redirect.
+        assert "does not exist" in result.stderr
+        assert result.stdout == ""

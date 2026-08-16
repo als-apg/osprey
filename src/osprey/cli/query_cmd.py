@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 
 import click
@@ -48,8 +49,16 @@ from osprey.agent_runner import (
     read_only_disallowed_tools,
     run_query,
 )
+from osprey.cli import output
 
 from .repo_resolver import find_repo_root, repo_option
+
+#: Why a repo with no render has nothing to answer with. Spelled here because
+#: the check that refuses and the line that prints the refusal sit in different
+#: functions.
+_NOTHING_RENDERED = (
+    "`osprey query` asks the rendered deployment, and there is nothing rendered yet."
+)
 
 
 def _overlay_repo_env(repo_root: Path) -> None:
@@ -83,14 +92,16 @@ def _overlay_repo_env(repo_root: Path) -> None:
 def _report_drift(repo_root: Path, build_dir: Path) -> None:
     """Say what the build no longer matches, then let the query proceed.
 
-    Written to stderr rather than stdout: ``osprey query`` is built to be piped
-    — ``--json`` especially — and a warning mixed into that stream would break
-    the consumer it was meant to inform.
+    Every line here reaches stderr, because the renderer's warnings always do:
+    ``osprey query`` is built to be piped — ``--json`` especially — and a
+    warning mixed into that stream would break the consumer it was meant to
+    inform.
 
     Raises:
-        click.ClickException: When there is no build to query at all. Its exit
-            code is remapped to :data:`EXIT_USAGE` by the caller, which owns
-            the documented exit-code contract.
+        click.ClickException: When there is no build to query at all. The
+            message is one line, the summary the caller prints; the caller also
+            owns the cause, the remedy, and the remap of the exit code to
+            :data:`EXIT_USAGE`.
     """
     from osprey.deployment.staleness import DriftState, check_drift
 
@@ -102,20 +113,15 @@ def _report_drift(repo_root: Path, build_dir: Path) -> None:
     # config.yml is what the runner unconditionally parses for the provider and
     # model (``resolve_default_model``, ``provider_env_for_project``).
     if report.state is DriftState.NO_BUILD or not (build_dir / "config.yml").is_file():
-        raise click.ClickException(
-            f"no build found at {build_dir} — run `osprey build` first.\n\n"
-            "`osprey query` asks the rendered deployment, and there is "
-            "nothing rendered yet."
-        )
+        raise click.ClickException(f"No build found at {build_dir}")
 
     if report.refuses:
-        click.echo(f"WARNING: {report.message}", err=True)
-        click.echo("Answering from build/ as it was last rendered.", err=True)
+        output.warn(report.message, "Answering from build/ as it was last rendered.")
 
     # Independent of the verdict above: a build can be a faithful render of the
     # current profile and still predate the installed framework.
     if report.version_skew:
-        click.echo(f"WARNING: {report.version_skew.message}", err=True)
+        output.warn(report.version_skew.message)
 
 
 def _build_json_output(result: SDKWorkflowResult, exit_code: int) -> str:
@@ -180,45 +186,58 @@ def query(ctx: click.Context, prompt: str, as_json: bool, repo: Path | None) -> 
     repo_root = find_repo_root(repo)
     build_dir = repo_root / BUILD_DIRNAME
 
-    try:
-        _report_drift(repo_root, build_dir)
-    except click.ClickException as exc:
-        # Remapped rather than left to Click's exit 1: "there is nothing to
-        # query" is a usage error under this command's documented contract, and
-        # a caller distinguishing 1 from 2 must not read it as a failed verdict.
-        click.echo(f"Error: {exc.format_message()}", err=True)
-        ctx.exit(EXIT_USAGE)
-        return
+    with ExitStack() as stack:
+        if as_json:
+            # The whole body, so that a warning raised three frames down lands
+            # on stderr with the rest: `--json` promises stdout carries one
+            # document, and a caller parsing it gets no say in what else in the
+            # process felt like printing.
+            stack.enter_context(output.machine_mode())
 
-    # Before any provider resolution: the secret lives at the repo root, the
-    # provider that needs it is declared in the render.
-    _overlay_repo_env(repo_root)
+        try:
+            _report_drift(repo_root, build_dir)
+        except click.ClickException as exc:
+            # Remapped rather than left to Click's exit 1: "there is nothing to
+            # query" is a usage error under this command's documented contract,
+            # and a caller distinguishing 1 from 2 must not read it as a failed
+            # verdict.
+            output.fail(exc.format_message(), _NOTHING_RENDERED, "run `osprey build` first")
+            ctx.exit(EXIT_USAGE)
+            return
 
-    disallowed_tools = read_only_disallowed_tools(build_dir)
-    expected = expected_mcp_servers(build_dir)
+        # Before any provider resolution: the secret lives at the repo root, the
+        # provider that needs it is declared in the render.
+        _overlay_repo_env(repo_root)
 
-    try:
-        result = asyncio.run(run_query(build_dir, prompt, disallowed_tools=disallowed_tools))
-    except (ImportError, RuntimeError) as exc:
-        # SDK not installed, or run_query wrapped an SDK/connection failure.
-        click.echo(f"Error: {exc}", err=True)
-        ctx.exit(EXIT_USAGE)
-        return
-    except (OSError, yaml.YAMLError, ValueError) as exc:
-        # Config resolution (read before the SDK run) hit a missing/malformed
-        # config.yml, or an unknown/misconfigured provider (the resolver raises
-        # ValueError naming the valid providers) — a usage error, not a verdict
-        # failure. The exception message is echoed so the actionable hint
-        # (e.g. "Built-in providers: …") reaches the user.
-        click.echo(f"Error: could not load project configuration: {exc}", err=True)
-        ctx.exit(EXIT_USAGE)
-        return
+        disallowed_tools = read_only_disallowed_tools(build_dir)
+        expected = expected_mcp_servers(build_dir)
 
-    code = evaluate_verdict(result, expected)
+        try:
+            result = asyncio.run(run_query(build_dir, prompt, disallowed_tools=disallowed_tools))
+        except (ImportError, RuntimeError) as exc:
+            # SDK not installed, or run_query wrapped an SDK/connection failure.
+            output.fail("The query could not run", str(exc))
+            ctx.exit(EXIT_USAGE)
+            return
+        except (OSError, yaml.YAMLError, ValueError) as exc:
+            # Config resolution (read before the SDK run) hit a missing/malformed
+            # config.yml, or an unknown/misconfigured provider (the resolver raises
+            # ValueError naming the valid providers) — a usage error, not a verdict
+            # failure. The exception message is carried through so the actionable
+            # hint (e.g. "Built-in providers: …") reaches the user.
+            output.fail("Could not load the project configuration", str(exc))
+            ctx.exit(EXIT_USAGE)
+            return
 
-    if as_json:
-        click.echo(_build_json_output(result, code))
-    else:
-        click.echo("\n".join(result.text_blocks))
+        code = evaluate_verdict(result, expected)
+
+        # Both branches are pass-through seams and stay on click.echo: the
+        # renderer would style, indent, or (under machine mode) move to stderr
+        # what has to reach stdout exactly as it is — the JSON document a script
+        # parses, and the agent's own words.
+        if as_json:
+            click.echo(_build_json_output(result, code))
+        else:
+            click.echo("\n".join(result.text_blocks))
 
     sys.exit(code)

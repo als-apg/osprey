@@ -318,8 +318,9 @@ class TestDeploymentResolution:
         result = runner.invoke(web, ["--detach"])
 
         assert result.exit_code == 0
-        assert f"Repo:  {deployment}" in result.output
-        assert f"Build: {deployment / 'build'}" in result.output
+        # One section, so the two paths line up as a column under padded labels.
+        assert f"Repo    {deployment}" in result.stdout
+        assert f"Build   {deployment / 'build'}" in result.stdout
 
     def test_ambient_osprey_config_does_not_choose_the_deployment(
         self, runner, tmp_path, monkeypatch, deployment
@@ -922,8 +923,10 @@ class TestPreflightAuthSecret:
         )
 
         assert result.exit_code == 0
-        assert "WARNING" in result.output
-        assert "ANTHROPIC_API_KEY" in result.output
+        # A pre-flight warning is trouble, so it goes to stderr wearing the
+        # renderer's warning mark rather than a hand-typed "WARNING:" prefix.
+        assert "⚠" in result.stderr
+        assert "ANTHROPIC_API_KEY" in result.stderr
 
     def test_no_provider_configured_skipped(self, runner, monkeypatch, deployment):
         self._stub_launch(monkeypatch)

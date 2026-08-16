@@ -22,6 +22,7 @@ from pathlib import Path
 
 import yaml
 
+from osprey.cli.output import report_fact
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
@@ -270,8 +271,9 @@ def _report_unshown_mints(credentials: AuthCredentialsResult) -> None:
     logger.warning(
         "Minted a login password for web-terminal user(s) %s and did NOT print it: stdout "
         "is not a terminal here, and this output can be retained (a CI job log is readable "
-        "by everyone with access to the project). The plaintext is gone — only the hash is "
-        "stored in %s. Set a password you choose with `osprey users passwd <user>`, or put "
+        "by everyone with access to the project). The plaintext is gone, and only the hash "
+        "is stored in %s. Set a password you choose with `osprey users passwd <user>`, or "
+        "put "
         "OSPREY_AUTH_PW_<USER> in .env before the first deploy and it will be hashed in "
         "instead of a random one being minted.",
         users,
@@ -377,7 +379,7 @@ def _warn_if_env_auth_not_gitignored(repo_root: Path) -> None:
         return
     logger.warning(
         "%s does not ignore %s. That file holds this deployment's web-terminal "
-        "password hashes and session-signing secrets — add a %s line to %s so it "
+        "password hashes and session-signing secrets. Add a %s line to %s so it "
         "cannot be committed.",
         gitignore_path,
         AUTH_ENV_FILENAME,
@@ -529,10 +531,10 @@ def build_auth_sidecar_image(
     if effective_image_source(web_terminals) != "local":
         return
     if auth_ctx["auth_image"]:
-        logger.info(
+        report_fact(
+            logger,
             "Skipping the local auth-sidecar build: modules.web_terminals.auth.image "
-            "pins %s, so the deployment supplies the image.",
-            auth_ctx["auth_image"],
+            f"pins {auth_ctx['auth_image']}, so the deployment supplies the image.",
         )
         return
 
@@ -568,7 +570,8 @@ def build_auth_sidecar_image(
     with_plain_build_progress(cmd)
     cmd.append(str(context_dir))
 
-    logger.key_info("Building auth sidecar image %s:", tag)
+    # No "building X:" announcement: the live build region carries the progress
+    # while it runs, and the step line below reports the finished image.
     logger.debug("Running command:\n    %s", " ".join(cmd))
     # Function-level import, like `compose_build_step_reporter` below:
     # container_lifecycle imports this module at its own top level, so the
@@ -778,7 +781,7 @@ def force_recreate_auth_sidecar(
     compose_file = web_compose_file(root)
     if not compose_file.exists():
         logger.warning(
-            "No rendered web stack at %s — skipping the auth sidecar recreate. "
+            "No rendered web stack at %s. Skipping the auth sidecar recreate. "
             "Any %s change takes effect at the next `osprey up`.",
             compose_file,
             AUTH_ENV_FILENAME,
@@ -796,8 +799,8 @@ def force_recreate_auth_sidecar(
     except (ValueError, OSError) as exc:
         logger.warning(
             "Could not re-render the web-terminal artifacts before the auth sidecar "
-            "recreate (%s). Recreating against the existing docker-compose.web.yml — "
-            "the recreated container still bakes the current %s, but its digest label "
+            "recreate (%s). Recreating against the existing docker-compose.web.yml. "
+            "The recreated container still bakes the current %s, but its digest label "
             "lags until the next `osprey up` re-renders (costing one extra "
             "sidecar recreate there).",
             exc,
@@ -1326,7 +1329,7 @@ def deploy_down_web_terminals(
     )
     if result.returncode != 0:
         logger.warning(
-            "web-terminal stack down failed (rc=%s) — its containers may still be running:\n%s",
+            "web-terminal stack down failed (rc=%s). Its containers may still be running:\n%s",
             result.returncode,
             result.stderr,
         )

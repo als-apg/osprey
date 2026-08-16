@@ -548,7 +548,7 @@ def test_verify_script_is_captured_from_the_project_root(monkeypatch, tmp_path, 
     # Advisory: the script's own convention is to always exit 0, and a
     # site-customized copy that does not must still never fail the deploy.
     assert call["check"] is False
-    assert reporter.steps == ["smoke check verify.sh — exit 0"]
+    assert reporter.steps == ["smoke check verify.sh: exit 0"]
 
 
 def test_verify_script_output_never_reaches_the_terminal(
@@ -562,7 +562,7 @@ def test_verify_script_output_never_reaches_the_terminal(
 
     out = capfd.readouterr().out
     assert not BUILDKIT_LINE.search(out)
-    assert "· smoke check verify.sh — exit 0" in out
+    assert "· smoke check verify.sh: exit 0" in out
     spooled = _spool_files(tmp_path)[0].read_text()
     for line in BUILDKIT_OUTPUT:
         assert line in spooled
@@ -637,6 +637,37 @@ def test_host_port_self_heal_restart_is_captured(monkeypatch, tmp_path, reporter
     assert call["repo_root"] == tmp_path
     assert call["check"] is False
     assert reporter.steps == ["bounced the web stack for host-port re-registration"]
+
+
+def test_a_bounce_that_worked_reports_the_endpoint_as_reachable(monkeypatch, tmp_path, reporter):
+    """Disposition row 15: the bounce's payoff is a step, not a log line.
+
+    Without it `bounced the web stack ...` is the last word the operator gets
+    and never says whether the remediation worked. The probe answers only on
+    its second call, which is the shape of a bounce that actually fixed the
+    stale port registration.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
+    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker"])
+    answers = iter([False, True])
+    monkeypatch.setattr(
+        postup_hooks, "_host_port_answers", lambda url, attempts, delay: next(answers)
+    )
+    monkeypatch.setattr(postup_hooks, "run_captured", RunRecorder())
+
+    postup_hooks.warn_if_web_stack_unreachable(
+        {"modules": {"web_terminals": {"nginx_port": 8080}}},
+        attempts=1,
+        delay=0,
+        web_cmd=["docker", "compose", "-f", "web.yml"],
+        run_env={},
+    )
+
+    assert reporter.steps == [
+        "bounced the web stack for host-port re-registration",
+        "web endpoint reachable",
+    ]
 
 
 def test_host_port_probe_that_answers_runs_nothing(monkeypatch, tmp_path, reporter):

@@ -21,7 +21,7 @@ class TestEjectList:
         """Test that eject list shows available components."""
         result = runner.invoke(eject, ["list"])
         assert result.exit_code == 0
-        assert "Services:" in result.output
+        assert "Ejectable services" in result.output
 
     def test_list_shows_channel_finder_service(self, runner):
         """Test that channel_finder service appears in ejectable list."""

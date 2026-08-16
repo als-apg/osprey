@@ -330,16 +330,19 @@ def test_a_start_leaves_no_config_anchor_behind_in_the_environment(
     assert "CONFIG_FILE" not in os.environ
 
 
-def test_a_missing_build_is_a_refusal_naming_the_build_verb(lifecycle_repo, started, caplog):
+def test_a_missing_build_is_a_refusal_naming_the_build_verb(lifecycle_repo, started):
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 1
-    assert "No build found" in caplog.text
-    assert "osprey build" in caplog.text
+    # The renderer's failure shape, on the stream trouble belongs on: someone
+    # piping stdout still sees the mark, the reason and the one fix.
+    assert "✗ No build found" in result.stderr
+    assert "→ run `osprey build` first" in result.stderr
+    assert "No build found" not in result.stdout
     assert not started
 
 
-def test_a_build_without_its_compose_files_is_not_silently_started(lifecycle_repo, started, caplog):
+def test_a_build_without_its_compose_files_is_not_silently_started(lifecycle_repo, started):
     """A manifest and a config alone are not a deployment.
 
     Starting an empty ``-f`` list would bring nothing up and report success —
@@ -352,13 +355,18 @@ def test_a_build_without_its_compose_files_is_not_silently_started(lifecycle_rep
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 1
-    # Rendered on the console by the shared unmet-precondition handler: the
-    # reason, then the one remedy. Collapse whitespace before matching -- the
-    # console wraps to the terminal width, so a phrase this long straddles a
-    # line break and would not be found verbatim.
-    flowed = " ".join(result.output.split())
-    assert "no compose files were rendered" in flowed
-    assert "osprey build" in flowed
+    # Rendered by the shared unmet-precondition handler through the renderer:
+    # the reason, then the remedy the exception carries.
+    #
+    # Matched verbatim, which DEPENDS ON `output._echo` printing with
+    # `soft_wrap=True`. This test used to collapse whitespace first, because the
+    # console it read then folded a phrase this long at the terminal width. If
+    # soft wrapping ever goes away, these needles are what breaks, and this is
+    # the reason why.
+    assert "no compose files were rendered" in result.stderr
+    assert "→ Re-render build/:" in result.stderr
+    assert "osprey build" in result.stderr
+    assert "no compose files were rendered" not in result.stdout
     assert not started
 
 
@@ -430,6 +438,9 @@ def test_a_dev_render_started_plain_warns_it_bakes_the_local_checkout(
 
     assert result.exit_code == 0, result.output
     assert started
+    # Log seam, not the renderer: emitted by container_lifecycle's dev-flavor
+    # check, which stayed on logger.warning. The altitude gate renders WARNING
+    # and above, so the operator sees it either way.
     assert "dev render" in caplog.text
     assert "local osprey checkout" in caplog.text
 
@@ -439,7 +450,7 @@ def test_a_dev_render_started_plain_warns_it_bakes_the_local_checkout(
 # ---------------------------------------------------------------------------
 
 
-def test_drift_refuses_and_names_what_changed(lifecycle_repo, started, caplog):
+def test_drift_refuses_and_names_what_changed(lifecycle_repo, started):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
     profile = lifecycle_repo / "profile.yml"
@@ -448,16 +459,19 @@ def test_drift_refuses_and_names_what_changed(lifecycle_repo, started, caplog):
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 1
-    assert "profile.yml or a file it points at has changed" in caplog.text
-    assert "model" in caplog.text
-    # Both exits, spelled as the operator would type them.
-    assert "osprey up --build" in caplog.text
-    assert "osprey up --as-built" in caplog.text
-    assert "Nothing was started" in caplog.text
+    assert "profile.yml or a file it points at has changed" in result.stderr
+    assert "model" in result.stderr
+    # Both exits, spelled as the operator would type them. They ride in the
+    # cause rather than on a single remedy line: neither is THE fix, so
+    # promoting one would be a recommendation this verb cannot make.
+    assert "osprey up --build" in result.stderr
+    assert "osprey up --as-built" in result.stderr
+    assert "Nothing was started" in result.stderr
+    assert "Nothing was started" not in result.stdout
     assert not started
 
 
-def test_as_built_starts_the_drifted_build_and_says_so(lifecycle_repo, started, caplog):
+def test_as_built_starts_the_drifted_build_and_says_so(lifecycle_repo, started):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
     profile = lifecycle_repo / "profile.yml"
@@ -467,8 +481,9 @@ def test_as_built_starts_the_drifted_build_and_says_so(lifecycle_repo, started, 
 
     assert result.exit_code == 0, result.output
     assert started
-    assert "as it was rendered" in caplog.text
-    assert "will not match profile.yml" in caplog.text
+    assert "⚠ Starting build/ as it was rendered (--as-built)" in result.stderr
+    assert "will not match profile.yml" in result.stderr
+    assert "will not match profile.yml" not in result.stdout
 
 
 def test_build_chains_the_render_then_starts(lifecycle_repo, started, monkeypatch):
@@ -498,16 +513,19 @@ def test_build_and_as_built_are_refused_together(lifecycle_repo, started):
     result = run_up(lifecycle_repo, "-d", "--build", "--as-built")
 
     assert result.exit_code == 2
-    assert "at most one" in result.output
+    # Click's own usage error rather than the renderer's, but answered on the
+    # stream every refusal in this verb answers on.
+    assert "at most one" in result.stderr
     assert not started
 
 
-def test_as_built_is_not_an_escape_from_having_no_build(lifecycle_repo, started, caplog):
+def test_as_built_is_not_an_escape_from_having_no_build(lifecycle_repo, started):
     """The one refusal ``--as-built`` does not answer, and it says so."""
     result = run_up(lifecycle_repo, "-d", "--as-built")
 
     assert result.exit_code == 1
-    assert "--as-built starts a build that already exists" in caplog.text
+    assert "--as-built starts a build that already exists" in result.stderr
+    assert "--as-built starts a build that already exists" not in result.stdout
     assert not started
 
 
@@ -521,22 +539,24 @@ def test_build_is_an_escape_from_having_no_build(lifecycle_repo, started, monkey
     assert started
 
 
-def test_an_unverifiable_build_refuses_with_the_as_built_escape(lifecycle_repo, started, caplog):
+def test_an_unverifiable_build_refuses_with_the_as_built_escape(lifecycle_repo, started):
     """A build carrying no fingerprint cannot be vouched for either way."""
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo, stamped_hash=None)
 
     refused = run_up(lifecycle_repo, "-d")
     assert refused.exit_code == 1
-    assert "cannot verify profile ↔ build consistency" in caplog.text
-    assert "osprey up --as-built" in caplog.text
+    assert "cannot verify profile ↔ build consistency" in refused.stderr
+    assert "osprey up --as-built" in refused.stderr
+    assert "cannot verify profile ↔ build consistency" not in refused.stdout
+    assert "osprey up --as-built" not in refused.stdout
     assert not started
 
     assert run_up(lifecycle_repo, "-d", "--as-built").exit_code == 0
     assert started
 
 
-def test_as_built_on_an_unverifiable_build_claims_no_mismatch(lifecycle_repo, started, caplog):
+def test_as_built_on_an_unverifiable_build_claims_no_mismatch(lifecycle_repo, started):
     """A failed comparison is not a finding.
 
     On DRIFT the mismatch is established and the warning says so. Here nothing
@@ -547,27 +567,30 @@ def test_as_built_on_an_unverifiable_build_claims_no_mismatch(lifecycle_repo, st
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo, stamped_hash=None)
 
-    assert run_up(lifecycle_repo, "-d", "--as-built").exit_code == 0
-    assert "stays unknown" in caplog.text
-    assert "will not match profile.yml" not in caplog.text
+    result = run_up(lifecycle_repo, "-d", "--as-built")
+    assert result.exit_code == 0
+    assert "stays unknown" in result.stderr
+    assert "stays unknown" not in result.stdout
+    assert "will not match profile.yml" not in result.stderr
 
 
 def test_the_env_remedy_only_says_copy_when_there_is_something_to_copy(
-    lifecycle_repo, started, monkeypatch, caplog
+    lifecycle_repo, started, monkeypatch
 ):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     (lifecycle_repo / ".env.example").unlink()
     render_build(lifecycle_repo)
 
-    assert run_up(lifecycle_repo, "-d").exit_code == 1
-    assert "cp .env.example .env" not in caplog.text
-    assert "Create" in caplog.text and ".env" in caplog.text
+    result = run_up(lifecycle_repo, "-d")
+    assert result.exit_code == 1
+    assert "cp .env.example .env" not in result.stderr
+    assert "create" in result.stderr and ".env" in result.stderr
+    # The remedy is still a remedy, whichever branch wrote it.
+    assert result.stderr.count("→ ") == 1
     assert not started
 
 
-def test_an_unparseable_profile_refuses_rather_than_reading_as_clean(
-    lifecycle_repo, started, caplog
-):
+def test_an_unparseable_profile_refuses_rather_than_reading_as_clean(lifecycle_repo, started):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
     (lifecycle_repo / "profile.yml").write_text("{ not: [valid", encoding="utf-8")
@@ -575,11 +598,12 @@ def test_an_unparseable_profile_refuses_rather_than_reading_as_clean(
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 1
-    assert "cannot verify profile ↔ build consistency" in caplog.text
+    assert "cannot verify profile ↔ build consistency" in result.stderr
+    assert "cannot verify profile ↔ build consistency" not in result.stdout
     assert not started
 
 
-def test_version_skew_warns_and_starts(lifecycle_repo, started, caplog):
+def test_version_skew_warns_and_starts(lifecycle_repo, started):
     """A framework upgrade must not stand between an operator and their stack."""
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo, version="1900.1.1")
@@ -588,7 +612,8 @@ def test_version_skew_warns_and_starts(lifecycle_repo, started, caplog):
 
     assert result.exit_code == 0, result.output
     assert started
-    assert "rendered by osprey 1900.1.1" in caplog.text
+    assert "rendered by osprey 1900.1.1" in result.stderr
+    assert "rendered by osprey 1900.1.1" not in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -596,16 +621,25 @@ def test_version_skew_warns_and_starts(lifecycle_repo, started, caplog):
 # ---------------------------------------------------------------------------
 
 
-def test_a_missing_env_refuses_and_names_the_example(lifecycle_repo, started, monkeypatch, caplog):
+def test_a_missing_env_refuses_and_names_the_example(lifecycle_repo, started, monkeypatch):
+    """One ✗ for one refusal, and the reason underneath it.
+
+    The refusal is raised inside the open Preflight phase, which fails with its
+    own ✗ on the way out; a second one in front of the reason would read as two
+    things having gone wrong.
+    """
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     render_build(lifecycle_repo)
 
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 1
-    assert "No .env" in caplog.text
-    assert "cp .env.example .env" in caplog.text
-    assert "ANTHROPIC_API_KEY" in caplog.text  # what to put in it
+    assert "No .env" in result.stderr
+    assert "→ cp .env.example .env" in result.stderr
+    assert "ANTHROPIC_API_KEY" in result.stderr  # what to put in it
+    assert "No .env" not in result.stdout
+    assert result.stdout.count("✗") == 1, result.stdout  # the phase's mark
+    assert result.stderr.count("✗") == 0, result.stderr  # the refusal adds none
     assert not (lifecycle_repo / ".env").exists()
     assert not started
 
@@ -627,6 +661,8 @@ def test_a_missing_env_is_not_seeded_without_a_terminal(
     assert result.exit_code == 1
     assert not (lifecycle_repo / ".env").exists()
     assert "sk-from-the-shell" not in result.output
+    # Both halves matter: result.output covers stdout and stderr together, and
+    # this covers the log sinks, where a secret would outlive the terminal.
     assert "sk-from-the-shell" not in caplog.text
     assert not started
 
@@ -758,7 +794,9 @@ def test_a_wildcard_build_is_treated_as_exposed_without_the_flag(
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 1
-    assert "refusing to start a deployment that is reachable off-host" in caplog.text
+    # The refusal itself is renderer output now; the reachability finding
+    # beneath it is still a log record from the lifecycle module.
+    assert "refusing to start a deployment that is reachable off-host" in result.stderr
     assert "event-dispatcher publish on 0.0.0.0" in caplog.text
     assert not started
 
@@ -791,6 +829,7 @@ def test_a_web_terminal_deploy_counts_as_exposed(lifecycle_repo, started, monkey
     )
 
     assert run_up(lifecycle_repo, "-d").exit_code == 0
+    # Log seam: container_lifecycle's reachability warning, still logger.warning.
     assert "web-terminal stack runs on the host network" in caplog.text
 
 
@@ -949,6 +988,8 @@ def test_a_mint_prints_no_password_when_stdout_is_not_a_terminal(
         assert value not in printed
         assert value not in caplog.text
 
+    # Log seam: web_terminals/provision's minted-password notice, deliberately
+    # left on logger.warning by the task that owns that module.
     assert "did NOT print it" in caplog.text
     assert "osprey users passwd" in caplog.text
     assert "OSPREY_AUTH_PW_<USER>" in caplog.text
@@ -1094,8 +1135,9 @@ def test_dev_mode_refuses_before_any_work_when_it_cannot_be_honored(
     result = run_up(lifecycle_repo, "-d", "--dev")
 
     assert result.exit_code == 1
-    assert "not an editable install" in result.output
-    assert "Nothing was deployed" in result.output  # rendered on the console, not logged
+    assert "not an editable install" in result.stderr
+    assert "Nothing was deployed" in result.stderr
+    assert "Nothing was deployed" not in result.stdout
     assert not started
 
 

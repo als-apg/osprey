@@ -1,0 +1,11 @@
+[
+  "deadline_hit",
+  "elapsed_ms",
+  "errors",
+  "ok",
+  "results",
+  "skips",
+  "summary",
+  "total",
+  "warnings"
+]

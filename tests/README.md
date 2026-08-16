@@ -170,9 +170,12 @@ already be baked into the snapshot and preserved instead of undone.
 
 ### Marker vocabulary
 
-Markers are declared in `pyproject.toml` under `[tool.pytest.ini_options]`, and
-`--strict-markers` is on — a marker you have not declared there is an error, not
-a silent no-op. Four groups matter day to day:
+Markers are declared in `pyproject.toml` under `[tool.pytest.ini_options]`.
+`--strict-markers` is listed in `addopts`, but on the pinned pytest it only bites
+when you pass it on the command line yourself: in a normal run an undeclared
+marker is a `PytestUnknownMarkWarning`, not an error. So declare your marker, and
+run `pytest --strict-markers …` when you want a typo to fail collection rather
+than scroll past in the warnings summary. Four groups matter day to day:
 
 - **`requires_<resource>`** (`requires_ollama`, `requires_als_apg`, …) — declares
   an external dependency. `pytest_collection_modifyitems` in `tests/conftest.py`

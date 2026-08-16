@@ -195,8 +195,7 @@ class TestMainFunction:
         assert mock_cli.called
 
     @mock.patch("osprey.cli.main.cli")
-    @mock.patch("click.echo")
-    def test_main_handles_keyboard_interrupt(self, mock_echo, mock_cli):
+    def test_main_handles_keyboard_interrupt(self, mock_cli, capsys):
         """Test main handles Ctrl+C gracefully."""
         mock_cli.side_effect = KeyboardInterrupt()
 
@@ -206,12 +205,16 @@ class TestMainFunction:
         # Should exit with 130 (standard for SIGINT)
         assert exc_info.value.code == 130
 
-        # Should print goodbye message
-        assert mock_echo.called
+        # An interruption is a warning: stderr, with the warning mark. Asserted
+        # on what reaches the stream rather than on which function printed it,
+        # so the pin survives the next change of printer.
+        captured = capsys.readouterr()
+        assert "⚠" in captured.err
+        assert "Goodbye" in captured.err
+        assert captured.out == ""
 
     @mock.patch("osprey.cli.main.cli")
-    @mock.patch("click.echo")
-    def test_main_handles_general_exception(self, mock_echo, mock_cli):
+    def test_main_handles_general_exception(self, mock_cli, capsys):
         """Test main handles exceptions gracefully."""
         mock_cli.side_effect = Exception("Test error")
 
@@ -221,10 +224,12 @@ class TestMainFunction:
         # Should exit with 1
         assert exc_info.value.code == 1
 
-        # Should print error message
-        assert mock_echo.called
-        call_args = str(mock_echo.call_args)
-        assert "error" in call_args.lower()
+        # The last-resort failure wears the same mark as every other one, and
+        # lands on stderr so a caller piping stdout still sees it.
+        captured = capsys.readouterr()
+        assert "✗" in captured.err
+        assert "Test error" in captured.err
+        assert captured.out == ""
 
 
 class TestLazyLoading:

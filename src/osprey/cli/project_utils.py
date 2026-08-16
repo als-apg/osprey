@@ -30,7 +30,8 @@ from pathlib import Path
 
 from osprey.agent_runner.project_paths import encode_claude_project_path
 
-from .styles import Messages, console
+from .output import report
+from .styles import Styles
 
 
 def _clear_claude_code_project_state(project_path: Path) -> None:
@@ -68,7 +69,7 @@ def _clear_claude_code_project_state(project_path: Path) -> None:
         cleared = True
 
     if cleared:
-        console.print(f"  {Messages.success('Cleared Claude Code project state')}")
+        report("✓ Cleared Claude Code project state", style=Styles.SUCCESS)
 
 
 def project_config_path(project_path: Path) -> Path:

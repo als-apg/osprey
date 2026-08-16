@@ -211,7 +211,7 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
             seen.add(persona_name)
             logger.warning(
                 "Persona %r is referenced but its catalog entry has no "
-                "project_path configured — skipping its local build. "
+                "project_path configured. Skipping its local build. "
                 "compose up will fail on the unbuilt %r tag.",
                 persona_name,
                 entry.get("image"),
@@ -729,7 +729,9 @@ def build_persona_images(
                 dev_mode and wheel_staged,
             )
             image_tag = f"{project}-{persona_name}:local"
-            logger.key_info("Building persona image %s:", image_tag)
+            # No "building X:" announcement: the live build region carries the
+            # progress while it runs, and the step line below reports the
+            # finished image.
             logger.debug("Running command:\n    %s", " ".join(cmd))
             # Function-level import for the same cycle reason as
             # `_resolve_pip_spec` above: container_lifecycle imports this module

@@ -159,13 +159,15 @@ def report_provider_credentials(
     if selected is None:
         # Keyless provider, or a name outside the registry (custom adapter).
         if provider in PROVIDER_API_KEYS:
-            logger.debug("  ✓ Provider: %s — no API key required", provider)
+            logger.debug("  ✓ Provider: %s. No API key required.", provider)
         else:
-            logger.debug("  ✓ Provider: %s — no known API key env var; skipping check", provider)
+            logger.debug(
+                "  ✓ Provider: %s. No known API key env var, so this check is skipped.", provider
+            )
     elif selected.found:
-        logger.debug("  ✓ Provider: %s — %s found (%s)", provider, selected.var, selected.source)
+        logger.debug("  ✓ Provider: %s. %s found (%s).", provider, selected.var, selected.source)
     else:
-        logger.warning("  ✗ Provider: %s — %s NOT SET", provider, selected.var)
+        logger.warning("  ✗ Provider: %s. %s is NOT SET.", provider, selected.var)
         logger.warning("      The build will complete, but the agent cannot reach the model.")
         # Name the PROFILE .env, not the render's. `build/` is output — wiped
         # and re-rendered whole by every build — so a key hand-added to a file
@@ -175,8 +177,8 @@ def report_provider_credentials(
         # Exporting is offered only as what it actually is — a host-local run,
         # not something the build records.
         logger.warning(
-            "      Add %s to %s — the repo owns this deployment's secrets — "
-            "or export it for a host-local run.",
+            "      Add %s to %s, the file where the repo keeps this deployment's secrets. "
+            "You can also export it for a host-local run.",
             selected.var,
             profile_dir / ".env",
         )
@@ -670,7 +672,7 @@ def freeze_base_environment(python_path: Path, inherit_exclude: list[str]) -> li
 
     started = time.perf_counter()
     if not _base_is_venv(python_path):
-        logger.debug("Base interpreter %s is not a venv — nothing to freeze", python_path)
+        logger.debug("Base interpreter %s is not a venv. There is nothing to freeze.", python_path)
         return []
 
     excluded = {canonicalize_name(name) for name in inherit_exclude}
@@ -884,7 +886,8 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
         #   2. The normal install path above will work again
         # ---------------------------------------------------------------
         logger.warning(
-            "  litellm unavailable on PyPI (quarantined) — inheriting from build environment"
+            "  litellm is unavailable on PyPI (quarantined). "
+            "Inheriting it from the build environment."
         )
         # Install osprey (no transitive deps) + profile deps
         if uv_path:

@@ -273,7 +273,8 @@ class TestBuildFlag:
     def test_build_flag_requires_profile(self, runner, tmp_project):
         result = runner.invoke(self._get_audit_cmd(), [str(tmp_project), "--build"])
         assert result.exit_code == 1
-        assert "requires a .yml/.yaml profile" in result.output
+        # Re-pinned for the renderer's failure shape: summary, cause, remedy.
+        assert "--build needs a .yml or .yaml profile" in result.output
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")

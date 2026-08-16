@@ -36,7 +36,10 @@ from click.testing import CliRunner
 from rich.console import Console
 
 import osprey.cli.deploy_cmd as deploy_cmd
+from osprey.cli import styles
 from osprey.cli.deploy_cmd import logs_verb, status_verb
+from osprey.cli.phase_reporter import PhaseReporter, install_reporter
+from osprey.cli.styles import osprey_theme
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
@@ -106,16 +109,45 @@ def runtime(monkeypatch):
     return record
 
 
-def report(repo: Path, **kwargs) -> str:
-    """Render ``osprey status`` for *repo* into a wide recording console.
+#: Where :func:`report` reads the run it just made. The renderer resolves its
+#: own console per call, so a test cannot hand one in — the fixture below
+#: installs a reporter that answers with a recording console and leaves it here.
+_CAPTURE: dict[str, Console] = {}
 
-    Wide deliberately: the CLI's console wraps at the terminal width, and a
-    wrapped sentence defeats every substring assertion below. What is under test
-    is what status *says*, not how Rich folds it.
+
+@pytest.fixture(autouse=True)
+def renderer_capture(monkeypatch):
+    """Capture BOTH renderer streams into one wide recording console.
+
+    Status prints through :mod:`osprey.cli.output`, which sends report/note/
+    section lines to the installed reporter's console and warnings/failures to
+    ``styles.err_console``. Both are pointed at one console here so an assertion
+    reads what an operator sees, whichever stream a line went out on.
+
+    Wide deliberately: the console wraps at the terminal width, and a wrapped
+    sentence defeats every substring assertion below. What is under test is what
+    status *says*, not how Rich folds it.
     """
-    console = Console(record=True, width=200)
-    status_display.show_repo_status(repo, console=console, **kwargs)
-    return console.export_text()
+    console = Console(record=True, width=200, theme=osprey_theme)
+
+    class _Recording(PhaseReporter):
+        # Untyped on purpose: rich's ``Console`` is Any to this repo's mypy
+        # settings, so an annotated override trips ``no-any-return``.
+        def out(self):
+            return console
+
+    previous = install_reporter(_Recording(color=False))
+    monkeypatch.setattr(styles, "err_console", console)
+    _CAPTURE["console"] = console
+    yield console
+    _CAPTURE.clear()
+    install_reporter(previous)
+
+
+def report(repo: Path, **kwargs) -> str:
+    """Render ``osprey status`` for *repo* and return everything it printed."""
+    status_display.show_repo_status(repo, **kwargs)
+    return _CAPTURE["console"].export_text()
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +160,7 @@ def test_a_clean_build_is_reported_as_in_sync(lifecycle_repo, runtime):
 
     text = report(lifecycle_repo)
 
-    assert "build: in sync with profile.yml" in text
+    assert "in sync with profile.yml" in text
 
 
 def test_drift_names_what_moved_and_that_the_start_verbs_refuse(lifecycle_repo, runtime):
@@ -149,7 +181,7 @@ def test_a_repo_with_no_build_says_so_and_still_shows_its_containers(lifecycle_r
 
     text = report(lifecycle_repo)
 
-    assert "build: none — run `osprey build`" in text
+    assert "none — run `osprey build`" in text
     assert "dispatch" in text
     # The two sections that are read out of build/config.yml say they cannot be
     # computed rather than not appearing: two silently absent sections read as a
@@ -480,11 +512,11 @@ def test_an_artifact_check_that_cannot_run_is_not_a_passing_one(
 
     text = report(lifecycle_repo)
 
-    assert "artifacts: could not be checked" in text
+    assert "could not be checked" in text
     # Scoped to the artifact verdict: "in sync" alone also matches the BUILD
     # section's own clean verdict two sections above, and would pass here
     # whatever the artifact check reported.
-    assert "artifacts: in sync" not in text
+    assert "in sync (" not in text
 
 
 def test_the_per_agent_model_table_is_opt_in(lifecycle_repo, runtime):
@@ -494,9 +526,9 @@ def test_the_per_agent_model_table_is_opt_in(lifecycle_repo, runtime):
     default = report(lifecycle_repo)
     with_agents = report(lifecycle_repo, show_agents=True)
 
-    assert "agent models:" not in default
-    assert "agent models:" in with_agents
-    assert "model tiers:" in default
+    assert "agent models" not in default
+    assert "agent models" in with_agents
+    assert "model tiers" in default
 
 
 # ---------------------------------------------------------------------------
@@ -533,13 +565,19 @@ def test_status_never_announces_creating_the_files_it_did_not_create(
     command just rewrote their repo. The renderer now keeps that detail in the
     log rather than on the terminal, and this test is the guard that it stays
     there: it runs the real renderer, not a stub.
+
+    Pinned on BOTH halves of what a terminal shows: the process's own stdout,
+    where the artifact writer would print, and the text status itself renders.
+    Either one alone leaves a hole, since status prints through a console rather
+    than at stdout directly.
     """
     render_build(lifecycle_repo)
     capsys.readouterr()
 
-    report(lifecycle_repo)
+    text = report(lifecycle_repo)
 
     assert "Created" not in capsys.readouterr().out
+    assert "Created" not in text
 
 
 def test_status_only_ever_asks_the_runtime_to_list(lifecycle_repo, runtime):

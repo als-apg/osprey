@@ -96,7 +96,10 @@ def _refresh_service_dir(src_dir: Path, dest_dir: Path, name: str, owned: set[st
     user-owned and the project copy was left untouched.
     """
     if name in owned:
-        logger.debug("  ⏭  services/%s is user-owned — left untouched (scaffold claim)", name)
+        logger.debug(
+            "  ⏭  services/%s is user-owned. The project copy was left untouched (scaffold claim).",
+            name,
+        )
         return False
     if dest_dir.exists():
         shutil.rmtree(dest_dir)
@@ -171,7 +174,7 @@ def _copy_service_templates(project_path: Path) -> int:
     pkg_services = _locate_pkg_services()
 
     if not pkg_services.is_dir():
-        logger.warning("Service templates directory not found — skipping")
+        logger.warning("Service templates directory not found. Skipping the service copy.")
         return 0
 
     dest_services_root = project_path / "services"
@@ -215,7 +218,10 @@ def _copy_service_templates(project_path: Path) -> int:
         elif len(parts) == 1:
             src_dir = pkg_services / name
         else:
-            logger.warning("Skipping service %r — unsupported naming for template copy", name)
+            logger.warning(
+                "Skipping service %r. Its name is not a supported spelling for a template copy.",
+                name,
+            )
             continue
 
         if not src_dir.is_dir():
@@ -292,7 +298,7 @@ def _inject_profile_services(
             # one unresolvable service must not abort the whole build. A missing
             # profile-relative dir is already a validation error, so in practice
             # this only fires for an unknown ``osprey.<name>``.
-            logger.warning("No template for profile service %r at %s — skipping", name, src_dir)
+            logger.warning("No template for profile service %r at %s. Skipping it.", name, src_dir)
             continue
 
         # Copy template directory (skipped for claimed services)
@@ -417,7 +423,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     # 3. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
     if not config_path.exists():
-        logger.warning("config.yml not found — skipping dispatch config registration")
+        logger.warning("config.yml not found. Skipping the dispatch config registration.")
         return
 
     yaml = YAML()
@@ -570,7 +576,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
     if not config_path.exists():
-        logger.warning("config.yml not found — skipping bluesky config registration")
+        logger.warning("config.yml not found. Skipping the bluesky config registration.")
         return
 
     yaml = YAML()
@@ -671,7 +677,9 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
     if not config_path.exists():
-        logger.warning("config.yml not found — skipping virtual_accelerator config registration")
+        logger.warning(
+            "config.yml not found. Skipping the virtual_accelerator config registration."
+        )
         return
 
     yaml = YAML()
@@ -715,9 +723,9 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     )
     logger.debug(
         "    Images:     `osprey up` builds the virtual-accelerator image "
-        "locally for your native architecture (first run is slow — the native deps "
-        "are compiled from source, so no prebuilt aarch64 wheels are "
-        "needed). Use `--dev` to bake in your local osprey checkout; "
+        "locally for your native architecture. The first run is slow: the native "
+        "deps are compiled from source, so no prebuilt aarch64 wheels are "
+        "needed. Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_VA_IMAGE to use a published image."
     )
 
@@ -733,8 +741,8 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
 _RESULTS_PANEL_DEPRECATION = (
     "web.panels.results is deprecated: the RESULTS panel is now BLUESKY "
     "(web.panels.bluesky, served at /bluesky/). The `results` id keeps working for "
-    "ONE release — the sidecar serves the same bundle at /results/ — and is removed "
-    "after that. Rename `results` to `bluesky` in the build profile's web_panels "
+    "ONE release and is removed after that. Until then the sidecar serves the same "
+    "bundle at /results/. Rename `results` to `bluesky` in the build profile's web_panels "
     "list and in any web.panels.results.* config override."
 )
 
@@ -746,8 +754,8 @@ _RESULTS_PANEL_DEPRECATION = (
 _PLAN_PANEL_DEPRECATION = (
     "web.panels.plan is deprecated: the PLAN panel is now the Plans tab of BLUESKY "
     "(web.panels.bluesky, served at /bluesky/). The `plan` id keeps working for "
-    "ONE release — the sidecar serves the same bundle at /plan/ — and is removed "
-    "after that. Drop `plan` from the build profile's web_panels list, along with "
+    "ONE release and is removed after that. Until then the sidecar serves the same "
+    "bundle at /plan/. Drop `plan` from the build profile's web_panels list, along with "
     "any web.panels.plan.* config override."
 )
 
@@ -813,7 +821,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
     if not config_path.exists():
-        logger.warning("config.yml not found — skipping bluesky_panels config registration")
+        logger.warning("config.yml not found. Skipping the bluesky_panels config registration.")
         return
 
     yaml = YAML()
@@ -884,7 +892,7 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
     # 4. Post-build hint.
     logger.debug("  ✓ Injected bluesky-panels sidecar (port %d)", bluesky_panels.port)
     logger.debug(
-        "    Panels:     BLUESKY (Plans | Queue | Results) — reached through the "
+        "    Panels:     BLUESKY (Plans | Queue | Results). Reach it through the "
         "web-terminal proxy at /panel/bluesky."
     )
     logger.debug(
@@ -941,7 +949,7 @@ def _inject_nextcloud_bridge(
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
     if not config_path.exists():
-        logger.warning("config.yml not found — skipping nextcloud_bridge config registration")
+        logger.warning("config.yml not found. Skipping the nextcloud_bridge config registration.")
         return
 
     yaml = YAML()
@@ -979,9 +987,9 @@ def _inject_nextcloud_bridge(
     logger.debug(
         "    Credentials: set NEXTCLOUD_BASE_URL, NEXTCLOUD_BOT_ACCOUNT, "
         "NEXTCLOUD_APP_PASSWORD and NEXTCLOUD_ROOMS in the project .env before "
-        "`osprey up`. These are user-supplied — unlike the dispatch "
-        "tokens, deploy does not mint them, and the bridge aborts at boot "
-        "naming whichever is missing."
+        "`osprey up`. These are user-supplied. Unlike the dispatch tokens, deploy "
+        "does not mint them, and the bridge aborts at boot naming whichever is "
+        "missing."
     )
     logger.debug(
         "    Rooms:       NEXTCLOUD_ROOMS is a comma-separated list of Talk room "
@@ -1040,7 +1048,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
     if not config_path.exists():
-        logger.warning("config.yml not found — skipping gchat_bridge config registration")
+        logger.warning("config.yml not found. Skipping the gchat_bridge config registration.")
         return
 
     yaml = YAML()
@@ -1075,15 +1083,15 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         "    Credentials: set GCHAT_SA_KEY (host path to the service-account JSON "
         "key, mounted read-only at the same path in the container), "
         "GCHAT_SUBSCRIPTION and GCHAT_APP_ID in the project .env before "
-        "`osprey up`. These are user-supplied — unlike the dispatch "
-        "tokens, deploy does not mint them, and the bridge aborts at boot "
-        "naming whichever is missing."
+        "`osprey up`. These are user-supplied. Unlike the dispatch tokens, deploy "
+        "does not mint them, and the bridge aborts at boot naming whichever is "
+        "missing."
     )
     logger.debug(
         "    Subscription: deploy exactly ONE bridge per Pub/Sub subscription. "
         "Pub/Sub load-balances a subscription across its consumers, so a second "
-        "deployment on the same name does not duplicate events — it silently "
-        "splits them, and each half answers only what it received. Give every "
+        "deployment on the same name does not duplicate events. It silently splits "
+        "them, and each half answers only what it received. Give every "
         "deployment its own subscription on the topic."
     )
     logger.debug(
@@ -1152,7 +1160,7 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
     # 2. Write config.yml entries + register in deployed_services.
     config_path = project_path / "config.yml"
     if not config_path.exists():
-        logger.warning("config.yml not found — skipping archiver config registration")
+        logger.warning("config.yml not found. Skipping the archiver config registration.")
         return
 
     yaml = YAML()
@@ -1210,6 +1218,6 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
     )
     logger.debug(
         "    Recording:  the recorder writes only while control_system.type is "
-        "'virtual_accelerator' — on any other control system it idles. It "
+        "'virtual_accelerator'. On any other control system it idles. It "
         "re-reads that setting on an interval, so the flip needs no restart."
     )

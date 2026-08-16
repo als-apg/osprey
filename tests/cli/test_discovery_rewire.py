@@ -432,7 +432,7 @@ class TestQueryResolvesTheRepo:
         result = run_query_cmd(runner, ["anything"], nested(lifecycle_repo))
 
         assert result.exit_code == 2
-        assert "no build found" in result.output
+        assert "No build found" in result.output
         assert "osprey build" in result.output
         assert query_call.project_dir is None
 
@@ -455,7 +455,12 @@ class TestQueryResolvesTheRepo:
 
 
 class TestQueryWarnsOnDrift:
-    """The warning chat gives, given here too — and never in place of an answer."""
+    """The warning chat gives, given here too — and never in place of an answer.
+
+    The needle is the renderer's warning glyph rather than a "WARNING:" prefix:
+    every warning the CLI prints now opens with that mark and nothing else does,
+    so it is what tells a warning apart from the answer around it.
+    """
 
     def test_profile_drift_warns_and_still_answers(self, runner, lifecycle_repo, query_call):
         build = stub_build(lifecycle_repo, stamped_hash="a-build-the-profile-moved-on-from")
@@ -463,7 +468,7 @@ class TestQueryWarnsOnDrift:
         result = run_query_cmd(runner, ["anything"], nested(lifecycle_repo))
 
         assert result.exit_code == 0, result.output
-        assert "WARNING" in result.output
+        assert "⚠" in result.output
         assert query_call.project_dir == build
 
     def test_unverifiable_build_warns_and_still_answers(self, runner, lifecycle_repo, query_call):
@@ -472,7 +477,7 @@ class TestQueryWarnsOnDrift:
         result = run_query_cmd(runner, ["anything"], nested(lifecycle_repo))
 
         assert result.exit_code == 0, result.output
-        assert "WARNING" in result.output
+        assert "⚠" in result.output
 
     def test_version_skew_warns_independently(self, runner, lifecycle_repo, query_call):
         """A build can be a faithful render and still predate the framework."""
@@ -481,7 +486,7 @@ class TestQueryWarnsOnDrift:
         result = run_query_cmd(runner, ["anything"], nested(lifecycle_repo))
 
         assert result.exit_code == 0, result.output
-        assert "WARNING" in result.output
+        assert "⚠" in result.output
 
     def test_a_clean_build_says_nothing(self, runner, lifecycle_repo, query_call):
         stub_build(lifecycle_repo)
@@ -489,7 +494,7 @@ class TestQueryWarnsOnDrift:
         result = run_query_cmd(runner, ["anything"], nested(lifecycle_repo))
 
         assert result.exit_code == 0, result.output
-        assert "WARNING" not in result.output
+        assert "⚠" not in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -534,7 +539,7 @@ class TestSimResolvesTheRepo:
         result = run_sim(runner, ["list"], nested(lifecycle_repo))
 
         assert result.exit_code == 1
-        assert "no build found" in result.output
+        assert "No build found" in result.output
 
     def test_apply_writes_state_under_var_not_into_the_render(self, runner, lifecycle_repo):
         """The scenario an operator activates has to survive the next build.

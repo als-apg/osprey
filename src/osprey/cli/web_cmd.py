@@ -34,6 +34,7 @@ import click
 
 from osprey.utils.workspace import STATE_DIR_NAME
 
+from . import output
 from .repo_resolver import find_repo_root, repo_option
 
 #: The detached server's PID and log files, relative to the repo root and in
@@ -209,12 +210,14 @@ def _preflight_vendor_check() -> None:
     if not problems:
         return
 
-    click.echo("ERROR: offline mode is on but vendor assets are missing or corrupt:", err=True)
-    for p in problems[:5]:
-        click.echo(f"  {p}", err=True)
+    listed = [str(p) for p in problems[:5]]
     if len(problems) > 5:
-        click.echo(f"  ... and {len(problems) - 5} more", err=True)
-    click.echo("\nFix:  uv run osprey vendor fetch", err=True)
+        listed.append(f"and {len(problems) - 5} more")
+    output.fail(
+        "Offline mode is on but vendor assets are missing or corrupt",
+        "\n".join(listed),
+        "fetch them with: uv run osprey vendor fetch",
+    )
     raise SystemExit(1)
 
 
@@ -430,10 +433,9 @@ def _notice_declared_override(env_var: str, flag_name: str, flag_value: object, 
     """
     declared = os.environ.get(env_var)
     if declared and flag_value is not None and str(flag_value) != declared:
-        click.echo(
-            f"NOTICE: {env_var}={declared} is authoritative for the "
-            f"multi-user reverse-proxy {what}; ignoring {flag_name} {flag_value}.",
-            err=True,
+        output.warn(
+            f"{env_var}={declared} is authoritative for the multi-user reverse-proxy {what}",
+            f"Ignoring {flag_name} {flag_value}.",
         )
 
 
@@ -532,8 +534,7 @@ def web(
     # so an unresolvable one must abort here rather than degrade into a mystery
     # terminal serving another directory's defaults.
     repo_root, build_dir, project_config = _resolve_render(repo)
-    click.echo(f"Repo:  {repo_root}")
-    click.echo(f"Build: {build_dir}")
+    output.section("", {"Repo": repo_root, "Build": build_dir})
 
     _preflight_vendor_check()
 
@@ -553,7 +554,7 @@ def web(
     try:
         shell_command = _resolve_web_shell_command(cc_config, user_shell_override, wt_config)
     except FileNotFoundError as e:
-        click.echo(f"ERROR: {e}", err=True)
+        output.fail("Cannot resolve the shell the terminal should run", str(e))
         raise SystemExit(1) from e
 
     if not skip_preflight:
@@ -563,12 +564,13 @@ def web(
             load_osprey_config(), repo_root, build_dir, project_config, host, port
         )
         for warning in warnings:
-            click.echo(f"WARNING: {warning}", err=True)
+            output.warn(warning)
         if failures:
-            click.echo("ERROR: pre-flight checks failed:", err=True)
-            for finding in failures:
-                click.echo(f"  - {finding}", err=True)
-            click.echo("\nRun with --skip-preflight to bypass (not recommended).", err=True)
+            output.fail(
+                "Pre-flight checks failed",
+                "\n".join(f"- {finding}" for finding in failures),
+                "fix the findings above, or pass --skip-preflight to start anyway",
+            )
             raise SystemExit(1)
 
     if detach:
@@ -578,8 +580,10 @@ def web(
     # -- foreground (original behavior) ------------------------------------
 
     if host == "0.0.0.0":
-        click.echo("WARNING: Binding to 0.0.0.0 exposes the terminal to the network.")
-        click.echo("This is a single-user tool. Add authentication before you expose it.\n")
+        output.warn(
+            "Binding to 0.0.0.0 exposes the terminal to the network",
+            "This is a single-user tool. Add authentication before you expose it.",
+        )
 
     # Pre-flight: check if port is already in use. SO_REUSEADDR matches
     # uvicorn's own bind semantics — without it, TIME_WAIT sockets from a
@@ -591,9 +595,11 @@ def web(
             s.bind((host, port))
         except OSError as exc:
             if port_pinned:
-                click.echo(f"ERROR: Port {port} is already in use.", err=True)
-                click.echo(f"  Find the process:  lsof -i :{port}", err=True)
-                click.echo(f"  Or use another:    osprey web --port {port + 1}", err=True)
+                output.fail(
+                    f"Port {port} is already in use",
+                    f"Find the process holding it with: lsof -i :{port}",
+                    f"or start on another port with: osprey web --port {port + 1}",
+                )
                 raise SystemExit(1) from exc
             # Port was left unspecified and the default is taken — let the OS
             # assign a free one instead of hard-failing (single-user QoL). A
@@ -603,7 +609,7 @@ def web(
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as free_sock:
                 free_sock.bind((host, 0))
                 port = free_sock.getsockname()[1]
-            click.echo(f"Port {busy_port} is in use, so this is on :{port} instead.")
+            output.warn(f"Port {busy_port} is in use, so this is on port {port} instead")
 
     # Publish the ACTUAL port to every child process (PTY shells, their MCP
     # servers): web_terminal_url() resolves OSPREY_WEB_PORT first, and
@@ -612,9 +618,10 @@ def web(
     # reporting success while the real terminal never hears the event.
     os.environ["OSPREY_WEB_PORT"] = str(port)
 
-    click.echo(f"Starting OSPREY Web Terminal on http://{host}:{port}")
-    click.echo(f"Shell: {' '.join(shell_command)}")
-    click.echo("Press Ctrl+C to stop\n")
+    output.report(f"Starting OSPREY Web Terminal on http://{host}:{port}")
+    output.note(f"Shell: {' '.join(shell_command)}")
+    output.note("Press Ctrl+C to stop")
+    output.report("")
 
     try:
         if reload:
@@ -646,7 +653,8 @@ def web(
                 project_dir=str(build_dir),
             )
     except KeyboardInterrupt:
-        click.echo("\nShutting down...")
+        output.report("")
+        output.report("Shutting down...")
 
 
 def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) -> None:
@@ -665,8 +673,8 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
     # Idempotent: if already running, just report
     existing = _read_pid(repo_root)
     if existing is not None:
-        click.echo(f"Web terminal already running (PID {existing}).")
-        click.echo("  Stop with: osprey web stop")
+        output.report(f"Web terminal already running (PID {existing}).")
+        output.note("Stop it with: osprey web stop")
         return
 
     # Build the child command (no --detach to avoid recursion). --skip-preflight
@@ -706,19 +714,26 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
     _write_pid(repo_root, proc.pid)
 
     if _wait_for_server(host, port, proc):
-        click.echo(f"Web terminal started (PID {proc.pid}).")
-        click.echo(f"  URL:  http://{host}:{port}")
-        click.echo(f"  Log:  {log_path}")
-        click.echo("  Stop: osprey web stop")
+        output.report(f"Web terminal started (PID {proc.pid}).")
+        output.section(
+            "",
+            {"URL": f"http://{host}:{port}", "Log": log_path, "Stop": "osprey web stop"},
+        )
     else:
         exit_code = proc.poll()
         if exit_code is not None:
-            click.echo(f"Server exited immediately (code {exit_code}). Check {log_path}")
+            output.fail(
+                f"The web terminal exited immediately with code {exit_code}",
+                None,
+                f"read what it wrote to {log_path}",
+            )
             (repo_root / PID_FILE).unlink(missing_ok=True)
         else:
-            click.echo(f"Server started (PID {proc.pid}) but not yet responding on port {port}.")
-            click.echo(f"  Log: {log_path}")
-            click.echo("  Stop: osprey web stop")
+            output.warn(
+                f"The web terminal started with PID {proc.pid} "
+                f"but is not answering on port {port} yet",
+                f"Log:  {log_path}\nStop: osprey web stop",
+            )
 
 
 @web.command("stop")
@@ -744,23 +759,23 @@ def web_stop(ctx: click.Context, repo: Path | None) -> None:
     log_path = repo_root / LOG_FILE
 
     if not pid_path.exists():
-        click.echo("No running web terminal found (no PID file).")
+        output.report("No running web terminal found. There is no PID file.")
         return
 
     try:
         pid = int(pid_path.read_text().strip())
     except (ValueError, OSError):
-        click.echo("Removing a corrupt PID file.")
+        output.warn("Removing a corrupt PID file", str(pid_path))
         pid_path.unlink(missing_ok=True)
         return
 
     try:
         os.kill(pid, signal.SIGTERM)
-        click.echo(f"Stopped web terminal (PID {pid}).")
+        output.report(f"Stopped web terminal (PID {pid}).")
     except ProcessLookupError:
-        click.echo(f"Process {pid} not found (already stopped). Cleaning up.")
+        output.report(f"Process {pid} not found, so it had already stopped. Cleaning up.")
     except PermissionError:
-        click.echo(f"Permission denied killing PID {pid}.")
+        output.fail(f"Permission denied stopping the web terminal (PID {pid})")
         return
 
     pid_path.unlink(missing_ok=True)

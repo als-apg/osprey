@@ -91,27 +91,38 @@ def stubs(monkeypatch, repo: Path):
 
 
 @pytest.fixture
-def errors_on_stdout():
-    """Tee ERROR records onto stdout, so their order against the replay is visible.
+def errors_on_stdout(monkeypatch):
+    """Point the renderer's trouble stream at stdout, so its order against the replay is visible.
 
-    The reporter prints to stdout and ``_abort`` logs to stderr. Two streams
+    The reporter prints to stdout and ``_abort`` renders to stderr. Two streams
     carry no order relative to one another, and "the spool came first" is
-    exactly what has to be asserted — so the record is echoed a second time onto
-    the stream the replay uses. Production behaviour is untouched: this adds a
-    handler for the duration of the test and removes it again.
+    exactly what has to be asserted — so for the duration of the test the stderr
+    console is a stdout-bound one, and the failure lands on the stream the
+    replay uses. Production behaviour is untouched.
+
+    Redirects the console the module already owns rather than substituting a
+    fresh one. ``set_theme`` re-themes ``styles.err_console`` in place by
+    popping the theme it pushed last, and a substitute built here would have
+    nothing on its stack to pop — the theme initialisation that runs on every
+    ``cli.main`` would die on it. Rich resolves ``_file or sys.stderr`` per
+    write, so setting it redirects and clearing it back to ``None`` restores the
+    dynamic lookup exactly as it was.
+
+    The redirect target is a proxy rather than ``sys.stdout`` itself, because
+    pytest's capture swaps that object out from under a long-lived reference and
+    closes the one captured here.
     """
+    import sys
 
-    class Tee(logging.Handler):
-        def emit(self, record: logging.LogRecord) -> None:
-            print(f"LOGGED {record.getMessage()}", flush=True)
+    from osprey.cli import styles
 
-    handler = Tee(level=logging.ERROR)
-    verb_logger = logging.getLogger("deploy")
-    verb_logger.addHandler(handler)
-    try:
-        yield
-    finally:
-        verb_logger.removeHandler(handler)
+    class _LiveStdout:
+        """Whatever ``sys.stdout`` is at the moment of the write."""
+
+        def __getattr__(self, name: str):
+            return getattr(sys.stdout, name)
+
+    monkeypatch.setattr(styles.err_console, "_file", _LiveStdout())
 
 
 def poisoned(*args, **kwargs) -> None:
@@ -156,26 +167,27 @@ def test_a_failed_captured_step_replays_its_spool_before_the_error(
     out = capfd.readouterr().out
     assert POISON in out, out
     assert out.index("✗ Stopping") < out.index(POISON)
-    assert out.index(POISON) < out.index("LOGGED Could not stop this deployment")
+    assert out.index(POISON) < out.index("✗ Could not stop this deployment")
 
 
-def test_the_error_message_names_the_spool_it_replayed(monkeypatch, caplog, wide, stubs, repo):
+def test_the_error_message_names_the_spool_it_replayed(monkeypatch, capfd, wide, stubs, repo):
     """The replay is for now; the path is for the operator who comes back later.
 
-    Read off the record rather than off stderr: the log console is a Rich one,
-    which wraps a long path across lines and colours the pieces, so an
-    assertion on what it printed would be an assertion about terminal width.
+    Read off stderr, where the failure is rendered. This used to read the log
+    record instead, because the log console wrapped a long path across lines and
+    an assertion on it would have been an assertion about terminal width; the
+    renderer prints unwrapped, so the path arrives whole and can be asserted
+    where the operator actually reads it.
     """
     from osprey.deployment import container_lifecycle
 
     monkeypatch.setattr(container_lifecycle, "down_deployment", poisoned)
 
-    with caplog.at_level(logging.ERROR):
-        status = run_verb("down")
+    status = run_verb("down")
 
     assert status != 0
     spool = spools(repo)[0]
-    assert str(spool) in caplog.text
+    assert str(spool) in capfd.readouterr().err
 
 
 def test_a_failed_captured_step_replays_its_spool_only_once(
@@ -208,7 +220,7 @@ def test_a_start_that_fails_on_a_captured_child_replays_it_too(
     out = capfd.readouterr().out
     assert out.count(POISON) == 1
     assert out.index("✗ Starting") < out.index(POISON)
-    assert out.index(POISON) < out.index("LOGGED Deployment failed")
+    assert out.index(POISON) < out.index("✗ Deployment failed")
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +305,10 @@ def test_a_dev_refusal_prints_one_failure_marker(monkeypatch, capfd, wide, stubs
     """The ✗ belongs to the phase that stopped, and there is one of those.
 
     The handler's job is the reason and the remedy; a second ✗ in front of them
-    reads as a second thing having gone wrong.
+    reads as a second thing having gone wrong. So the phase owns the only mark,
+    on stdout, and the handler's block continues it markless on the trouble
+    stream — one failure to read, two records to anything reading the streams
+    apart.
     """
     from osprey.deployment import container_lifecycle
     from osprey.deployment.errors import DevModeUnavailableError
@@ -306,10 +321,40 @@ def test_a_dev_refusal_prints_one_failure_marker(monkeypatch, capfd, wide, stubs
     status = run_verb("up", "-d", "--dev")
 
     assert status != 0
-    out = capfd.readouterr().out
-    assert out.count("✗") == 1, out
-    assert "--dev cannot be honored: this render carries no wheel" in out
-    assert "osprey build --dev" in out
+    captured = capfd.readouterr()
+    out, err = captured.out, captured.err
+    assert out.count("✗") == 1, out  # the phase's mark, and only it
+    assert err.count("✗") == 0, err  # the continuation adds none
+    # The positive half: without it the counts above pass on an empty stream.
+    # Summary, reason and remedy are the three lines of the one trouble shape.
+    assert "--dev cannot be honored" in err
+    assert "this render carries no wheel" in err
+    assert "osprey build --dev" in err
+
+
+def test_an_unexpected_error_wears_its_own_marker(monkeypatch, capfd, wide, stubs, repo):
+    """A refusal continues the phase's mark; an unexpected error does not.
+
+    The two cases differ in what the handler has to say. A refusal restates the
+    failure the phase already marked — same fact, second voice — so it continues
+    that line markless. An unexpected error is a SECOND fact: the phase says
+    which step stopped, and the handler says that the verb hit something it does
+    not have a refusal for. Two facts, two marks, and this pins them landing on
+    the two streams they belong to rather than doubling up on one.
+    """
+    from osprey.deployment import container_lifecycle
+
+    monkeypatch.setattr(container_lifecycle, "down_deployment", poisoned)
+
+    status = run_verb("down")
+
+    assert status != 0
+    captured = capfd.readouterr()
+    out, err = captured.out, captured.err
+    assert out.count("✗") == 1, out  # the phase's, on the reporter's stream
+    assert "✗ Stopping" in out
+    assert err.count("✗") == 1, err  # the handler's, on the trouble stream
+    assert "✗ Could not stop this deployment" in err
 
 
 def test_a_captured_build_failure_is_not_reported_as_unexpected(monkeypatch, caplog, tmp_path):

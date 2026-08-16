@@ -22,6 +22,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.runtime_helper import ComposeProvider, get_runtime_command, runtime_env
 from osprey.deployment.subprocess_capture import run_captured
@@ -43,6 +44,19 @@ from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.compose")
+
+
+def _report_fact(message: str) -> None:
+    """Report ``message`` under this module's logger.
+
+    The promotion contract lives in :func:`osprey.cli.output.report_fact`; this
+    binds it to the compose logger so call sites pass the line alone.
+
+    Args:
+        message: The finished line, built by the caller.
+    """
+    output.report_fact(logger, message)
+
 
 SERVICES_DIR = "services"
 SRC_DIR = "src"
@@ -226,10 +240,13 @@ def compose_env_file_args(repo_root):
     """
     chain = dotenv.chain_files(Path(repo_root))
     if not chain:
+        # The remedy rides on the warning rather than on a line of its own: it
+        # is the second half of the same fact, and on its own it reads as an
+        # instruction nobody asked for.
         logger.warning(
-            "No .env file found - services will start with default/empty environment variables"
+            "No .env file found - services will start with default/empty environment variables\n"
+            "  → cp .env.example .env, then edit .env to fill in the API keys"
         )
-        logger.info("To configure API keys: cp .env.example .env && edit .env")
         return []
 
     args = []
@@ -893,7 +910,7 @@ def render_kernel_templates(source_dir, config, out_dir):
         )
 
         render_template(template_path, config, kernel_out_dir)
-        logger.info(f"Rendered kernel template: {template_path} -> {kernel_out_dir}/kernel.json")
+        logger.debug(f"Rendered kernel template: {template_path} -> {kernel_out_dir}/kernel.json")
 
 
 def _ensure_agent_data_structure(config):
@@ -1218,7 +1235,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
         # Render kernel templates if specified in service configuration
         if container_cfg.get("render_kernel_templates", False):
-            logger.info(f"Processing kernel templates for {source_dir}")
+            logger.debug(f"Processing kernel templates for {source_dir}")
             render_kernel_templates(source_dir, config, out_dir)
 
     return compose_filepath
@@ -1384,7 +1401,8 @@ def clean_deployment(compose_files, config=None, repo_root=None):
         one OSPREY can invoke correctly. A clean that guessed the shape would
         leave the containers and volumes it claimed to remove.
     """
-    logger.key_info("Cleaning up deployment...")
+    # No announcement here: the two steps below name what is being removed as
+    # they remove it, which is the same fact with an outcome attached.
 
     # Deferred for the same reason compose_base_cmd defers it: the lifecycle
     # module owns the probe seam and the merged env file, and it imports this one.
@@ -1413,7 +1431,7 @@ def clean_deployment(compose_files, config=None, repo_root=None):
     )
     cmd_down.extend(["down", "--volumes", "--remove-orphans"])
 
-    logger.info(f"Running: {' '.join(cmd_down)}")
+    logger.debug(f"Running: {' '.join(cmd_down)}")
     report_step("Removing containers and volumes")
     # No check: a clean over a deployment that was never up exits non-zero, and
     # that has always been tolerated here. Capturing must not turn it into a
@@ -1428,13 +1446,13 @@ def clean_deployment(compose_files, config=None, repo_root=None):
     )
     cmd_rmi.extend(["down", "--rmi", "all"])
 
-    logger.info(f"Running: {' '.join(cmd_rmi)}")
+    logger.debug(f"Running: {' '.join(cmd_rmi)}")
     report_step("Removing images")
     run_captured(
         cmd_rmi, env=run_env, spool_name="compose-clean-rmi", repo_root=repo_root, check=False
     )
 
-    logger.success("Cleanup completed")
+    logger.debug("Cleanup completed")
 
 
 def prepare_compose_files(config_path, dev_mode=False, expose_network=False, output_root=None):
@@ -1500,13 +1518,14 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False, out
         )
     elif "bind_address" not in config.get("deployment", {}):
         config["deployment"]["bind_address"] = "127.0.0.1"
-        logger.info("Services will bind to localhost only (127.0.0.1) for security")
+        _report_fact("Services will bind to localhost only (127.0.0.1) for security")
 
     # Get deployed services list
     deployed_services = config.get("deployed_services", [])
     if deployed_services:
+        # Not announced: the render phase's `compose files` step already says
+        # this pass ran, and `osprey status` is where the list is read.
         deployed_service_names = [str(service) for service in deployed_services]
-        logger.info(f"Deployed services: {', '.join(deployed_service_names)}")
     else:
         logger.warning("No deployed_services list found, no services will be processed")
         deployed_service_names = []

@@ -509,14 +509,14 @@ class TestUsersEnvChainBranch:
         assert result.exit_code == 0, result.output
         assert chain_keys_of(parse_dotenv_text(result.output)) == {CONFLICT: "from-the-named-file"}
 
-    def test_no_chain_file_at_all_is_refused_naming_both(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_no_chain_file_at_all_is_refused_naming_both(self, tmp_path: Path) -> None:
         """Nothing to render from, and the refusal says which files were looked for.
 
-        Read from the log rather than stdout on purpose: in the default mode
+        Read off stderr rather than stdout on purpose: in the default mode
         stdout IS the rendered file, so a diagnostic printed there would
-        corrupt a ``> .env.production`` redirect.
+        corrupt a ``> .env.production`` redirect. Asserting stdout is EMPTY is
+        what turns that from an intention into a guarantee -- the refusal moved
+        from the log to the renderer, and a renderer prints where it is told to.
         """
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -524,9 +524,10 @@ class TestUsersEnvChainBranch:
         result = self._run(repo)
 
         assert result.exit_code != 0
-        assert ENV_SHARED_FILENAME in caplog.text
-        assert ENV_LOCAL_FILENAME in caplog.text
-        assert result.output.strip() == "Aborted!"
+        assert ENV_SHARED_FILENAME in result.stderr
+        assert ENV_LOCAL_FILENAME in result.stderr
+        assert result.stdout == ""
+        assert result.stderr.rstrip().endswith("Aborted!")
 
 
 # ---------------------------------------------------------------------------

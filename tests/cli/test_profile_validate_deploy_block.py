@@ -436,7 +436,7 @@ def test_validate_says_nothing_about_deploy_when_the_block_is_absent(
     result = runner.invoke(profile, ["validate", str(_write_profile(tmp_path, None))])
 
     assert result.exit_code == 0, result.output
-    assert "Deploy:" not in result.output
+    assert "Deploy" not in result.output
 
 
 def test_validate_exits_nonzero_and_names_the_problem(runner: CliRunner, tmp_path: Path) -> None:

@@ -417,8 +417,13 @@ class TestEveryEditReachesTheProject:
         self, workspace: Roundtrip, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Silently replacing a framework artifact is how an operator loses
-        track of which version is running, so every shadow says so."""
-        with caplog.at_level(logging.INFO):
+        track of which version is running, so every shadow says so.
+
+        At DEBUG: disposition row 35 puts the per-artifact notice below the
+        default view, where the render it belongs to already narrates. ``-v``
+        is where an operator reads the full list, and this is that reader.
+        """
+        with caplog.at_level(logging.DEBUG):
             _assert_ok(
                 _build(workspace.profile_dir),
                 "rebuild for the shadow notice",
