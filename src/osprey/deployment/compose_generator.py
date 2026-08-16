@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import stat
 from pathlib import Path, PurePosixPath
 
 import yaml
@@ -101,6 +102,23 @@ ENV_CHAIN_MARKER_KEY = "env_chain"
 #: template that mounts a volume INTO that repo takes the path from the same
 #: derivation the image was built with instead of re-typing the prefix.
 _CONTAINER_APP_ROOT = "/app"
+
+#: Directory the qmd sidecar's read-only corpus mounts live under, inside the
+#: container. Each corpus lands at ``<root>/<collection>``, so the mount target
+#: and the collection name cannot drift apart.
+QMD_CORPUS_ROOT = "/corpus"
+
+#: qmd collection the OKF facility-knowledge bundle is indexed under. This is a
+#: contract, not a label: a query filters on the collection name, so this must
+#: equal ``osprey.services.facility_knowledge.okf.bundle.OKF_COLLECTION``.
+#: Restated here rather than imported, because rendering a compose file must not
+#: drag the facility-knowledge service into the deployment import graph; a test
+#: asserts the two spellings agree.
+QMD_OKF_COLLECTION = "okf"
+
+#: qmd collection ARIEL's markdown mirror is indexed under. Same contract: the
+#: ARIEL search module filters on this name.
+QMD_ARIEL_COLLECTION = "ariel"
 
 
 def resolve_repo_root(config=None, config_path=None):
@@ -565,6 +583,141 @@ def resolve_user_volume_names(config, user):
     return f"{project}_{user}-claude-config", f"{project}_{user}-agent-data"
 
 
+def repo_relative_mount_source(raw, repo_root=None):
+    """Spell a configured host path as a compose bind source.
+
+    The one spelling rule every renderer uses, shared so the base compose files
+    and the web-terminal overlay cannot disagree about how the same configured
+    directory is written. Every relative path in a rendered compose file
+    resolves against the pinned compose project directory, which is the
+    deployment repo root (see :func:`compose_base_cmd`), so a repo-relative path
+    is emitted with an explicit ``./`` — a bind source that is neither absolute
+    nor dot-prefixed is not reliably read as a path by every runtime.
+
+    :param raw: Path as configured, absolute or repo-relative
+    :type raw: str
+    :param repo_root: The deployment repo root, when the caller has one. An
+        absolute path inside it is then spelled relative to it, so the rendered
+        file survives the repo being moved. ``None`` — for a renderer with no
+        repo root to resolve against, such as
+        :func:`osprey.deployment.web_terminals.render.render_web_terminals`,
+        which reads no filesystem — leaves absolute paths absolute. Both spell
+        the same directory; only relocatability differs.
+    :type repo_root: str | None
+    :return: A compose-safe bind source
+    :rtype: str
+    """
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        return f"./{PurePosixPath(path)}"
+    if repo_root is None:
+        return path.as_posix()
+    try:
+        relative = path.relative_to(repo_root)
+    except ValueError:
+        return path.as_posix()
+    return f"./{PurePosixPath(relative)}"
+
+
+def _resolve_qmd_corpora(config, repo_root):
+    """List the corpora the qmd sidecar indexes, one entry per collection.
+
+    This is the single derivation behind BOTH of the sidecar's rendered
+    artifacts: ``docker-compose.yml.j2`` turns each entry into a read-only bind
+    mount and ``index.yml.j2`` turns the same entry into a qmd collection. Doing
+    it once here is the point — a corpus mounted without a collection indexes
+    nothing, and a collection declared without a mount points at an empty
+    directory, and both fail as "the search returns nothing" rather than as an
+    error.
+
+    Two corpora are recognized, each gated on the config that produces it:
+
+    * the facility-knowledge bundle, when ``facility_knowledge.bundle_path``
+      names one;
+    * ARIEL's markdown mirror, when
+      ``ariel.enhancement_modules.qmd_export`` is enabled AND names a
+      ``mirror_path`` (an enabled export with no path is a config error the
+      exporter itself refuses at runtime; there is nothing to mount here).
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :param repo_root: The deployment repo root, for relative bind sources
+    :type repo_root: str
+    :return: Corpus descriptors with ``collection``, ``source`` and ``target``
+    :rtype: list[dict]
+    """
+
+    def corpus(collection, raw_path):
+        return {
+            "collection": collection,
+            "source": repo_relative_mount_source(raw_path, repo_root),
+            "target": f"{QMD_CORPUS_ROOT}/{collection}",
+        }
+
+    corpora = []
+
+    knowledge = config.get("facility_knowledge")
+    bundle_path = knowledge.get("bundle_path") if isinstance(knowledge, dict) else None
+    if isinstance(bundle_path, str) and bundle_path.strip():
+        corpora.append(corpus(QMD_OKF_COLLECTION, bundle_path.strip()))
+
+    ariel = config.get("ariel")
+    modules = ariel.get("enhancement_modules") if isinstance(ariel, dict) else None
+    export = modules.get("qmd_export") if isinstance(modules, dict) else None
+    if isinstance(export, dict) and export.get("enabled"):
+        # `mirror_path` may be written directly on the module block or inside
+        # its `settings:` mapping — ARIEL's own loader merges the two with
+        # `settings` winning, and the mount must follow whichever the exporter
+        # will actually write to.
+        settings = export.get("settings")
+        mirror_path = export.get("mirror_path")
+        if isinstance(settings, dict) and settings.get("mirror_path"):
+            mirror_path = settings["mirror_path"]
+        if isinstance(mirror_path, str) and mirror_path.strip():
+            corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path.strip()))
+
+    return corpora
+
+
+def _resolve_qmd_render_context(config, repo_root):
+    """Build the ``osprey_qmd`` render context for the sidecar's templates.
+
+    The port, the publish interface and the sweep interval are resolved through
+    :mod:`osprey.deployment.qmd_service` rather than re-spelled as
+    ``| default(...)`` filters in the template, because the compose fragment,
+    the sidecar entrypoint and the Python client all have to agree on those
+    three numbers and that module is where they are defined.
+
+    A deployment with no ``services.qmd`` block still gets a context built from
+    the schema defaults. The sidecar's templates are only rendered when qmd is a
+    deployed service, so the fallback is never what a real deploy uses; it
+    exists so that a render cannot fail with an attribute error on a name the
+    template legitimately expects to be there.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :param repo_root: The deployment repo root, for relative bind sources
+    :type repo_root: str
+    :return: ``port``, ``bind_address``, ``interval_seconds`` and ``corpora``
+    :rtype: dict
+    """
+    from osprey.deployment.qmd_service import (
+        QMDServiceConfig,
+        resolve_bind_address,
+        resolve_qmd_service_config,
+    )
+
+    resolved = resolve_qmd_service_config(config) or QMDServiceConfig(
+        bind_address=resolve_bind_address(config)
+    )
+    return {
+        "port": resolved.port,
+        "bind_address": resolved.bind_address,
+        "interval_seconds": resolved.interval_seconds,
+        "corpora": _resolve_qmd_corpora(config, repo_root),
+    }
+
+
 def _inject_project_metadata(config):
     """Add project tracking metadata for container labels.
 
@@ -703,6 +856,16 @@ def _inject_project_metadata(config):
         if agent_data_base.is_absolute()
         else container_project_dir / agent_data_base
     ).as_posix()
+
+    # The qmd sidecar's resolved settings and its corpus list, derived here for
+    # the same reason ``osprey_state_mount_source`` is: a mount source has to
+    # follow whatever the config actually points at, and the sidecar's two
+    # rendered artifacts — the compose fragment's read-only corpus mounts and
+    # index.yml's collections — must be generated from ONE list or they drift
+    # into a mount with no collection (indexes nothing) or a collection with no
+    # mount (an empty directory). Injected unconditionally, like every other
+    # derived key here; templates that do not name it are unaffected.
+    config_with_labels["osprey_qmd"] = _resolve_qmd_render_context(config, repo_root)
 
     # Default the dispatch worker's image to the project image that
     # ``osprey up`` builds (``<project>:local``). The worker compose
@@ -913,6 +1076,246 @@ def render_kernel_templates(source_dir, config, out_dir):
         logger.debug(f"Rendered kernel template: {template_path} -> {kernel_out_dir}/kernel.json")
 
 
+#: Bits a shared corpus directory must carry: ``rwxrws---``, ORed onto whatever
+#: mode the directory already has (see :func:`ensure_shared_corpus_dir` — this
+#: is a floor, not a replacement, so an operator's narrower `other` triad is
+#: preserved).
+#:
+#: The ``s`` is the whole point. A **setgid** directory hands every file and
+#: subdirectory created inside it the DIRECTORY's group, not the creating
+#: process's primary group — so a concept drafted from ``web-alice``, a concept
+#: drafted from ``web-bob`` and the bundle the operator wrote on the host all
+#: end up group-OWNED by one group, whatever uid each writer ran as.
+#:
+#: Ownership is only half of it: setgid does not make any container process a
+#: MEMBER of that group. The other half is the ``group_add:`` the compose
+#: renderers emit from the gid :func:`ensure_shared_corpus_dir` returns. Group
+#: ownership without membership grants nothing.
+#:
+#: Group-write then lets a second container edit or replace what the first one
+#: wrote, which is what "shared corpus" has to mean for a multi-user roster.
+#: Nothing is granted to ``other``: the qmd sidecar reads as root and the web
+#: terminals come in through their group, so a world-readable corpus would widen
+#: access to a facility's knowledge for no consumer that needs it.
+SHARED_CORPUS_DIR_MODE = 0o2770
+
+
+def resolve_facility_bundle_dir(config, repo_root=None):
+    """The deployment's facility-knowledge bundle on the host, or ``None``.
+
+    One reader for ``facility_knowledge.bundle_path``, so the directory that is
+    provisioned, the one the qmd sidecar indexes and the one bound into each
+    entitled web terminal are provably the same directory. A relative value
+    anchors on the deployment repo root, matching how every other configured
+    path in a rendered compose file resolves.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :param repo_root: Deployment repo root; ``None`` resolves it from *config*
+    :type repo_root: str | pathlib.Path | None
+    :return: Absolute path to the bundle, or ``None`` when none is configured
+    :rtype: pathlib.Path | None
+    """
+    knowledge = (config or {}).get("facility_knowledge")
+    raw = knowledge.get("bundle_path") if isinstance(knowledge, dict) else None
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    path = Path(raw.strip()).expanduser()
+    if path.is_absolute():
+        return path
+    root = Path(repo_root) if repo_root is not None else Path(resolve_repo_root(config))
+    return root / path
+
+
+def shared_corpus_gid(path):
+    """The group a container must join to share *path*, or ``None``.
+
+    A pure read, deliberately separate from :func:`ensure_shared_corpus_dir`:
+    the renderers need this number to emit ``group_add:``, and they must not
+    acquire a side effect on the filesystem to get it. The deploy path
+    provisions the directory first; every later render just asks what group it
+    ended up with.
+
+    ``None`` — the directory does not exist yet, or the platform reports no gid
+    — means no ``group_add`` is emitted. That is the honest render: joining a
+    group that was never established would be a guess, and the mount still works
+    wherever the container's own uid already has access.
+
+    :param path: The corpus directory, or ``None``
+    :type path: str | pathlib.Path | None
+    :return: The directory's group id, or ``None``
+    :rtype: int | None
+    """
+    if path is None:
+        return None
+    try:
+        return Path(path).expanduser().stat().st_gid
+    except (OSError, AttributeError):
+        return None
+
+
+def _display_path(target, relative_to):
+    """Spell *target* for a log line: relative to *relative_to* when it can be.
+
+    Absolute paths in the default INFO view are a hygiene problem, not a
+    cosmetic one — each one wraps a normal terminal and pushes the line that
+    matters off the screen, which is why the build guards its output view down
+    to a single one. A directory outside *relative_to* (or an unset root) has no
+    relative spelling and is named absolutely rather than mangled.
+
+    :param target: Path to display
+    :type target: pathlib.Path
+    :param relative_to: Root to spell it against, or ``None``
+    :type relative_to: str | pathlib.Path | None
+    :return: The path as it should appear in a log line
+    :rtype: str
+    """
+    if relative_to is None:
+        return str(target)
+    try:
+        return Path(target).relative_to(Path(relative_to).expanduser()).as_posix()
+    except ValueError:
+        return str(target)
+
+
+def ensure_shared_corpus_dir(path, relative_to=None):
+    """Create a shared corpus directory group-writable, and report its GID.
+
+    Called on the deploy path before any bind mount is created, for the
+    directories several writers share: the facility-knowledge bundle (bound into
+    every entitled web-terminal container read-write, and into the qmd sidecar
+    read-only) and any other corpus the sidecar indexes.
+
+    Two failures this prevents, in order of how often they bite:
+
+    1. **Root-owned mount source.** Left to the container runtime, a rootful
+       daemon creates a missing bind source owned by root. The host operator who
+       authors the bundle can then no longer write it, and neither can a
+       container that does not run as root. Pre-creating it here means the
+       directory always exists, owned by whoever ran the deploy.
+    2. **Cross-container invisibility.** See :data:`SHARED_CORPUS_DIR_MODE` —
+       the setgid bit is what gives every writer's output one common group.
+
+    GID STRATEGY, stated rather than implied, in two halves:
+
+    * **Host side — the group is inherited, never invented.** This sets the
+      setgid *mode*; it does not ``chown`` the directory to a numeric GID. A
+      hardcoded GID is wrong on every host but the one it was chosen on, and
+      changing a directory's group needs privileges the deploy path is not
+      guaranteed to have. The shared group is therefore whatever group the
+      deploying user's directory already carries, retargetable by an operator
+      with one out-of-band ``chgrp`` and no code change.
+    * **Container side — membership is granted explicitly.** setgid confers
+      group OWNERSHIP of newly created files; it does NOT make any process a
+      MEMBER of that group, and a container's process carries only the groups
+      its image's ``/etc/group`` gives it. The returned gid is therefore emitted
+      as ``group_add:`` on every service that mounts the corpus (see
+      :func:`osprey.deployment.web_terminals.render.render_web_terminals`),
+      which is what actually gives those containers access. Without that half,
+      access would hold only where the deploying user's uid happens to match the
+      image's — an accident, not a property.
+
+    Known limit, not worked around here: setgid fixes group ownership, while the
+    permission BITS on each new file still come from the writing process's
+    umask. A container writing under the common ``022`` creates ``rw-r--r--``
+    files — group-readable, which is all the sidecar's indexing and another
+    container's reading need, but not group-writable. Making one container able
+    to overwrite another's individual files would need ``umask 002`` inside the
+    image, which is an image property and not this function's to set.
+
+    :param path: The corpus directory to provision
+    :type path: str | pathlib.Path
+    :param relative_to: Root to spell the directory against in the INFO line
+        below. The default view carries exactly one absolute path — the tree the
+        build wrote — and a second one wraps a normal terminal and buries it, so
+        this line names ``data/facility_knowledge`` rather than 90 characters of
+        ``/private/var/folders/...``. Affects the message only; the directory
+        acted on is always *path*.
+    :type relative_to: str | pathlib.Path | None
+    :return: The directory's group id after provisioning, or ``None`` when the
+        platform does not report one (Windows) or the directory could not be
+        provisioned. This is the gid the mounting services join.
+    :rtype: int | None
+    """
+    target = Path(path).expanduser()
+    existed = target.is_dir()
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        current = stat.S_IMODE(target.stat().st_mode)
+        # ADD the bits sharing needs; never replace the mode. An operator who
+        # deliberately keeps a bundle at 0700 must not have it silently widened
+        # to world-readable by a deploy — the corpus can hold sensitive facility
+        # information, and neither consumer needs the `other` triad anyway (the
+        # sidecar runs as root; the web containers come in through group_add).
+        # A directory this call CREATED has no operator intent to preserve, so it
+        # starts at exactly the bits sharing needs and nothing wider.
+        wanted = (current | SHARED_CORPUS_DIR_MODE) if existed else SHARED_CORPUS_DIR_MODE
+        if wanted != current:
+            os.chmod(target, wanted)
+            if existed:
+                # INFO, not DEBUG: this changed permissions on a directory the
+                # operator already had, which they are entitled to see reported
+                # rather than discover later. Named RELATIVELY and kept to one
+                # unwrapped line — the default view already carries the one
+                # absolute path worth printing (where the build landed), and a
+                # second one pushes it off the screen. The full reasoning lives
+                # in this function's docstring, where someone investigating the
+                # change will look.
+                logger.info(
+                    f"Shared corpus {_display_path(target, relative_to)}: "
+                    f"{current:04o} -> {wanted:04o} (setgid, group-writable)"
+                )
+    except OSError as e:
+        # Never fatal. A corpus on a filesystem that refuses setgid (many
+        # network mounts) or a directory owned by someone else still deploys —
+        # single-user sharing works regardless, and the multi-user case fails
+        # visibly at read time rather than by refusing the whole deploy here.
+        logger.warning(
+            f"Could not provision shared corpus directory {target}: {e}. "
+            "Files written from one container may not be readable by another "
+            "or indexable by the qmd sidecar."
+        )
+        return None
+    gid = getattr(target.stat(), "st_gid", None)
+    logger.debug(f"Provisioned shared corpus directory {target} (gid {gid})")
+    return gid
+
+
+def render_service_templates(source_dir, config, out_dir):
+    """Render a service's non-compose ``.j2`` siblings into its build context.
+
+    The build directory copy deliberately skips every ``.j2`` file, because
+    templates are inputs and a container must never receive one unrendered. That
+    leaves a service whose container needs a *rendered* config file — the qmd
+    sidecar's ``index.yml``, which declares the collections it indexes — with no
+    way to produce it. This closes that: any ``.j2`` sitting beside the service's
+    ``docker-compose.yml.j2`` is rendered with the same context, dropping the
+    extension (``index.yml.j2`` -> ``index.yml``).
+
+    Only the service's own directory is scanned, not its subdirectories:
+    ``kernel.json.j2`` files live one level down and belong to
+    :func:`render_kernel_templates`, which is opt-in per service and would
+    otherwise render them twice.
+
+    :param source_dir: The service's template directory
+    :type source_dir: str
+    :param config: Configuration dictionary for template rendering
+    :type config: dict
+    :param out_dir: The service's build context directory
+    :type out_dir: str
+    :return: Paths of the rendered files, in the order they were rendered
+    :rtype: list[str]
+    """
+    rendered = []
+    for name in sorted(os.listdir(source_dir)):
+        if not name.endswith(".j2") or name in (TEMPLATE_FILENAME, "kernel.json.j2"):
+            continue
+        template_path = os.path.relpath(os.path.join(source_dir, name), os.getcwd())
+        rendered.append(render_template(template_path, config, out_dir))
+        logger.debug(f"Rendered service template: {template_path} -> {out_dir}/{name[:-3]}")
+    return rendered
+
+
 def _ensure_agent_data_structure(config):
     """Ensure the agent-data directory and subdirectories exist before deployment.
 
@@ -969,6 +1372,17 @@ def _ensure_agent_data_structure(config):
         state_path = resolve_simulation_state_dir(config, Path(project_root))
         state_path.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Created scenario state directory: {state_path}")
+
+    # The facility-knowledge bundle, for the same root-owned-mount-source reason
+    # as the scenario state directory above — the qmd sidecar binds it READ-ONLY
+    # and so could never create it — plus the shared-group mode the multi-user
+    # case needs (see :func:`ensure_shared_corpus_dir`). Provisioned here rather
+    # than only on the web-terminal path, because a single-user deployment
+    # mounts the same directory into the sidecar and must not be left to the
+    # container runtime either.
+    bundle_dir = resolve_facility_bundle_dir(config, project_root)
+    if bundle_dir is not None:
+        ensure_shared_corpus_dir(bundle_dir, relative_to=project_root)
 
     logger.debug(f"Ensured agent data structure exists at: {agent_data_path}")
 
@@ -1124,6 +1538,12 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     compose_filepath = render_template(template_path, render_config, out_dir)
 
     if source_dir != SERVICES_DIR:  # ignore the top level dir
+        # Rendered config files the container mounts (the qmd sidecar's
+        # index.yml). Rendered from the same context as the compose file, so a
+        # mount the compose fragment declares and the file it points at are
+        # generated from one set of values.
+        render_service_templates(source_dir, render_config, out_dir)
+
         # Copy the source directory
         if container_cfg.get("copy_src", False):
             shutil.copytree(SRC_DIR, os.path.join(out_dir, OUT_SRC_DIR))
@@ -1295,9 +1715,15 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
 
     # Create/update the docker compose file from the template (dev_mode gated
     # on staging success, exactly as in setup_build_dir).
-    compose_filepath = render_template(
-        template_path, {**config, "dev_mode": dev_mode and wheel_staged}, out_dir
-    )
+    render_config = {**config, "dev_mode": dev_mode and wheel_staged}
+    compose_filepath = render_template(template_path, render_config, out_dir)
+
+    # Same rendered-config step as the full path (see setup_build_dir): a
+    # service whose container mounts a rendered file must get it here too, or
+    # the incremental fallback silently produces a build context the compose
+    # fragment's bind mounts point into and find nothing.
+    if source_dir != SERVICES_DIR:
+        render_service_templates(source_dir, render_config, out_dir)
 
     # Handle source directory copying if needed
     if service_config.get("copy_src", False):

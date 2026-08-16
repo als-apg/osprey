@@ -1,0 +1,134 @@
+{#- The network axis — network membership, published ports and the matching
+    file-level stanza — comes from the shared macro rather than being spelled
+    here, so every service template states the same topology the same way. -#}
+{%- import "services/_network_axis.j2" as net -%}
+{#- Paths inside the container. Each is used twice (as a mount target and as
+    the environment variable that tells the entrypoint where to look), so they
+    are named once here: a volume mounted at one path while the process reads
+    another is a silent, empty-index failure. The values match the entrypoint's
+    own fallbacks — stated explicitly rather than inherited, because the
+    entrypoint's defaults exist for running the image bare, not for a
+    deployment. -#}
+{%- set state_dir = '/var/lib/qmd' -%}
+{%- set index_config = '/etc/qmd/index.yml' -%}
+{#- Port, publish interface and sweep interval come pre-resolved from
+    `deployment/qmd_service.py` (injected as `osprey_qmd`), not from
+    `| default(...)` filters here. That module is the single place the three
+    numbers are defined, and the compose fragment, the entrypoint and the
+    Python client all have to agree on them. -#}
+{%- set port = osprey_qmd.port -%}
+# The qmd search sidecar runs a locally-built image (see ./Dockerfile), which
+# bakes in the qmd CLI and its 2.1 GB of GGUF models so a cold container never
+# reaches out to huggingface.co. `osprey up` builds it on first run; subsequent
+# runs reuse the local tag, which is project-prefixed —
+# {{ osprey_labels.project_name }}-qmd:local — so two OSPREY projects on one host
+# never race to tag one shared image. To use a prebuilt/published image instead,
+# set OSPREY_QMD_IMAGE (e.g. OSPREY_QMD_IMAGE=my-registry/osprey-qmd:2.5.3).
+#
+# PORT SPLIT. qmd's daemon hardcodes `httpServer.listen(port, "localhost")`,
+# which resolves to IPv6 loopback only — there is no --host flag and no env
+# override — so it is unreachable from any other container. The entrypoint runs
+# it on the container's internal 8181 and fronts it with a socat forwarder that
+# owns the port published below, which is the one clients talk to. The security
+# posture is the point: qmd itself never listens on a routable address.
+#
+# The endpoint carries no token, no TLS and no per-caller identity — it answers
+# any request that reaches it. That is safe exactly as long as only this host
+# can reach it, which is what publishing on the project-wide
+# `deployment.bind_address` (default 127.0.0.1) guarantees. There is
+# deliberately no per-service bind key: a sidecar exposed on an interface the
+# rest of the stack is not on would publish unauthenticated search over the
+# whole corpus.
+
+services:
+  qmd:
+    image: ${OSPREY_QMD_IMAGE:-{{ services.qmd.image | default(osprey_labels.project_name ~ '-qmd:local') }}}
+    build:
+      # EVERY relative path in this file — the build context and the bind-mount
+      # sources alike — resolves against the pinned compose project directory,
+      # which is the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd), never this file's own subdir. So
+      # render output is addressed under build/ and the repo's own zones by
+      # their plain names (data/). The corpus mounts below follow the same rule.
+      context: ./build/services/qmd
+      dockerfile: Dockerfile
+      args:
+        OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy a sidecar on one host without colliding
+    # on one name. In-network consumers reach this service by its compose
+    # service key `qmd`, which this rename does not touch.
+    container_name: {{ osprey_labels.project_name }}-qmd
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+    restart: unless-stopped
+{#- Published ports, suppressed under `host`, where the container shares the
+    host's namespace and there is no port map left to publish. -#}
+{{- net.ports(services.qmd, entries=[
+      osprey_qmd.bind_address ~ ':' ~ port ~ ':' ~ port
+    ]) }}
+    environment:
+      # The routable port socat owns inside the container. It must equal the
+      # container side of the publish above, or the published port forwards to
+      # nothing.
+      OSPREY_QMD_PORT: "{{ port }}"
+      # Fallback sweep period, NOT the expected freshness lag: a corpus writer
+      # touches its `.qmd-touch` marker and the sidecar re-indexes within a
+      # poll. The sweep only catches writers that forgot to touch it, and its
+      # cost grows with corpus size (~12.5 s at 135,000 documents), so a large
+      # corpus wants a larger value via `services.qmd.interval`.
+      OSPREY_QMD_UPDATE_INTERVAL: "{{ osprey_qmd.interval_seconds }}"
+      # Where the entrypoint keeps the qmd config and the SQLite index. Backed
+      # by the named volume below, and deliberately NOT under the model cache —
+      # persisting the index must not shadow the models baked into the image.
+      OSPREY_QMD_STATE_DIR: "{{ state_dir }}"
+      # The rendered collection config, mounted read-only. The entrypoint copies
+      # it into the state directory on every start, so changing what gets
+      # indexed is a redeploy, not an image rebuild.
+      OSPREY_QMD_INDEX_CONFIG: "{{ index_config }}"
+      TZ: {{ system.timezone }}
+    volumes:
+      # The index. A named volume rather than a bind: it is derived data the
+      # sidecar owns end to end, it is large, and rebuilding it from scratch
+      # costs ~41 minutes at ALS scale — which is exactly why it must survive a
+      # container recreate.
+      - qmd_index:{{ state_dir }}
+      - ./build/services/qmd/index.yml:{{ index_config }}:ro
+{#- One read-only mount per configured corpus. The list is resolved in
+    compose_generator._resolve_qmd_corpora, which the collection config below
+    is rendered from as well, so a corpus cannot end up mounted without a
+    collection or declared without a mount. Read-only is load-bearing: the
+    sidecar indexes these trees, and the processes that write them (the OKF
+    bundle's authors, ARIEL's mirror exporter) are outside this container. #}
+{%- for corpus in osprey_qmd.corpora %}
+      # collection `{{ corpus.collection }}`
+      - {{ corpus.source }}:{{ corpus.target }}:ro
+{%- endfor %}
+{{- net.network(services.qmd) }}
+    healthcheck:
+      # /health is the daemon's own probe, reached through the forwarder — so a
+      # pass means the whole published path works, not just that qmd is alive.
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:{{ port }}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Long by design, not by accident. The entrypoint refuses to open the port
+      # until the index is built and provably non-empty, and a first-boot full
+      # build measured 41 minutes at ALS scale (~135,000 documents). A shorter
+      # grace period would report a container that is working correctly as
+      # unhealthy for most of its first hour.
+      start_period: 3600s
+
+volumes:
+  qmd_index:
+    labels:
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
+{# A deliberate blank line precedes the file-level stanza, so this call carries
+   no left-trim marker (`{{-` would eat the blank line along with the newline it
+   is meant to keep). Under `host` nothing is declared and the file simply ends
+   after the volume. -#}
+{{ net.network_declaration(services.qmd) }}
