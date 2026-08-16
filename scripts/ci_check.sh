@@ -85,11 +85,25 @@ fi
 echo ""
 
 echo "→ Running pytest with coverage..."
-if ! uv run pytest tests/ --ignore=tests/e2e -n 4 --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
+if ! uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n 4 --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else
     echo "✅ Tests passed"
+fi
+echo ""
+
+# The real-terminal suite, deselected above and re-run here on its own, exactly
+# as the CI lane does it. Each scenario drives a verb on a pty and asserts on
+# what the terminal showed, including that a spinner advanced between frames,
+# so it must not compete with four workers for the machine. Deselecting it
+# without this step would make a green run here mean less than it did before.
+echo "→ Running the real-terminal pty suite (serial)..."
+if ! uv run pytest tests/pty -m pty -v --tb=short; then
+    FAILED_CHECKS+=("pytest-pty")
+    echo "❌ Real-terminal tests failed"
+else
+    echo "✅ Real-terminal tests passed"
 fi
 echo ""
 

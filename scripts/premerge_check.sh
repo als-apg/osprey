@@ -43,7 +43,10 @@ fi
 # --maxfail=1 (same option -x aliases): fast-fail under xdist is approximate —
 # the other workers still finish their in-flight tests, so a short-circuited
 # run can report more than one failure.
-if ! uv run pytest tests/ --ignore=tests/e2e -n 4 --dist loadgroup --maxfail=1 --tb=no -q >/dev/null 2>&1; then
+# -m "not pty": the real-terminal suite times its own repaints and cannot share
+# the machine with four workers. This script is the fast pre-merge sweep, so it
+# does not re-run the suite serially; ci_check.sh does, and so does CI.
+if ! uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n 4 --dist loadgroup --maxfail=1 --tb=no -q >/dev/null 2>&1; then
   echo "✗ Tests failing"
   ERRORS=$((ERRORS + 1))
 else

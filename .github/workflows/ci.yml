@@ -167,6 +167,17 @@ jobs:
       # Linux runner. tests/deployment/test_ci_workflow_wiring.py pins both
       # this invocation and the conftest override, so the flag cannot outlive
       # the scheduler that makes it safe.
+      #
+      # -m "not pty" hands the real-terminal suite to the serial step below.
+      # Those scenarios assert on repaint cadence and on a spinner ADVANCING
+      # between two frames, so they measure the box as much as the code, and
+      # three other xdist workers competing for it is exactly the load that
+      # turns "the monitor thread is running" into an intermittent red.
+      # Written as a marker deselection rather than `--ignore=tests/pty`
+      # because tests/pty/test_stub_coverage.py is unmarked on purpose and
+      # belongs in this lane: it scans the deploy path for runtime argv the
+      # stub cannot answer, needs no terminal, and is what makes the serial
+      # step's failures worth reading.
       run: |
         if [ "${{ matrix.python-version }}" = "3.11" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
           COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov-report=xml --cov-report=term"
@@ -197,7 +208,7 @@ jobs:
         # minutes later in an unrelated test and EPICS' signal handling turns
         # it into a silent wedge rather than a death. A live CA client/server
         # pair is only safe in a process of its own.
-        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -v --tb=short -n 4 --dist loadgroup $COV_ARGS
+        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short -n 4 --dist loadgroup $COV_ARGS
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is one line, and on
@@ -223,6 +234,47 @@ jobs:
         path: ci-diag/
         retention-days: 14
         if-no-files-found: warn
+
+    - name: Run real-terminal pty suite serially
+      # Linux only, and not because the suite cannot run elsewhere: it is POSIX
+      # and passes on macOS too (it self-skips only off-POSIX, which no cell in
+      # this matrix is). It is pinned here because the scenarios assert on
+      # timing (a spinner ADVANCING between two frames, a late line arriving
+      # after a kill), and the macOS runners are the noisier, slower, more
+      # contended ones, so they would be where this suite starts flaking. What
+      # it covers is not OS-specific either: it is how OSPREY's own renderer
+      # drives a terminal. Both Linux Python cells run it, so it is not
+      # single-interpreter, and a developer on macOS runs it locally.
+      if: matrix.os == 'ubuntu-latest'
+      # Serial by construction, and no xdist flags. Each scenario allocates a
+      # pty, starts a real verb on it in its own session, and asserts on what
+      # the terminal showed, including that a spinner ADVANCED between two
+      # frames, which is how the monitor thread is proven to be running. That
+      # measures the box as much as the code, so it is exactly the assertion a
+      # loaded runner turns into an intermittent red. Hence its own step here
+      # rather than a share of the parallel lane above, which deselects the
+      # marker.
+      #
+      # `-m pty` and not the bare directory: tests/pty/test_stub_coverage.py is
+      # unmarked on purpose, needs no terminal, and already ran in the parallel
+      # step. Selecting the directory alone would run it twice.
+      #
+      # No actions/cache for .cache/pty-exemplar. The session fixture renders
+      # that repo with the real `osprey init` and `osprey build` in ~1.2 s for
+      # ~380 KB, which is less than a cache round trip costs, and its key is a
+      # content hash of the templates plus the scaffolder that stamps them out:
+      # every PR touching a rendered file would miss the cache anyway. The
+      # checkout is writable, so the fixture writes there and the runner throws
+      # it away with everything else.
+      #
+      # The job cap above stays at 45 rather than growing to absorb this step.
+      # 40 (the unit step) plus 10 (here) exceeds it on paper, but only in a run
+      # where the unit step has already burned its own cap, which is a red lane
+      # whatever happens next: nothing is lost by the job cap cutting a step
+      # short in that case. On a healthy lane this step costs well under a
+      # minute, so the tail margin the job cap comment argues for is untouched.
+      timeout-minutes: 10
+      run: uv run pytest tests/pty/ -m pty -v --tb=short
 
     - name: Run live Channel Access suites in isolation
       # One pytest process per module via the live-CA gate — the same venue

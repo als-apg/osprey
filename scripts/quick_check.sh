@@ -30,7 +30,10 @@ echo "ℹ️  Browser-based theming tests are slow-marked; they run in ci_check.
 # the other workers still finish their in-flight tests, so a short-circuited
 # run can report more than one failure.
 echo "→ Running fast unit tests..."
-uv run pytest tests/ --ignore=tests/e2e -m "not slow" -n 4 --dist loadgroup --maxfail=1 --tb=line -q
+# "not pty" alongside "not slow": the real-terminal suite is ~40s on its own and
+# has to run serially (it times its own repaints), which is both halves of what
+# this check exists to avoid. ci_check.sh runs it before you push.
+uv run pytest tests/ --ignore=tests/e2e -m "not slow and not pty" -n 4 --dist loadgroup --maxfail=1 --tb=line -q
 
 echo ""
 echo "✅ Quick checks passed! Safe to commit."
