@@ -9,8 +9,10 @@ on:
 # ORDERING: the framework wheel depends on osprey-connectors from PyPI
 # (workspace sources apply only to local dev), so a connectors release
 # satisfying the framework's `osprey-connectors` requirement must be published
-# BEFORE a v*.*.* tag that needs it — validate-install-docs resolves the
-# framework wheel's deps from PyPI and blocks the publish otherwise.
+# BEFORE a v*.*.* tag that needs it — verify-pypi-resolvable installs the built
+# framework wheel with its dependencies resolved from PyPI alone and blocks the
+# publish otherwise. (validate-install-docs cannot be that gate: it installs
+# with `--find-links dist`, so unpublished siblings resolve locally there.)
 
 permissions:
   contents: write  # Required for creating GitHub releases
@@ -76,9 +78,35 @@ jobs:
     if: startsWith(github.ref_name, 'v')
     uses: ./.github/workflows/validate-install-docs.yml
 
+  verify-pypi-resolvable:
+    name: Verify Deps Resolve From PyPI
+    needs: [build]
+    if: startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+
+    # The wheel about to be published, installed the way the docs tell users to
+    # install it: every dependency — workspace siblings included — must resolve
+    # from the index, with no --find-links escape hatch. This is what refuses to
+    # publish a framework wheel whose `osprey-connectors` pin nothing on PyPI
+    # satisfies yet.
+    steps:
+    - name: Download distribution artifacts
+      uses: actions/download-artifact@v8
+      with:
+        name: python-package-distributions
+        path: dist/
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Install framework wheel with deps from PyPI only
+      run: |
+        uv tool install ./dist/osprey_framework-*.whl
+        osprey --version
+
   publish-to-pypi:
     name: Publish to PyPI
-    needs: [build, validate-install-docs]
+    needs: [build, validate-install-docs, verify-pypi-resolvable]
     if: startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
     environment:

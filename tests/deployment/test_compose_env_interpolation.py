@@ -167,6 +167,36 @@ def test_ensure_service_tokens_refuses_a_dollar_outside_the_validated_vars(tmp_p
     assert "battery" not in str(excinfo.value)
 
 
+def test_ensure_service_tokens_refuses_a_dollar_in_the_shared_defaults(tmp_path) -> None:
+    """`.env.shared` rides the same two routes out of the repo as `.env`.
+
+    On the docker shape it is one of the `--env-file` fragments and a member of
+    the worker's `env_file:` list, so a `$` there is mangled identically — but
+    the only chain-wide scan used to live on the podman branch (the merged-file
+    writer), leaving the DEFAULT provider unguarded. The scan must be
+    provider-independent.
+    """
+    (tmp_path / ".env").write_text("CLEAN=value\n", encoding="utf-8")
+    (tmp_path / ".env.shared").write_text("SHARED_TOKEN=s3cr3t$HOME\n", encoding="utf-8")
+
+    with pytest.raises(ComposeInterpolationError) as excinfo:
+        container_lifecycle._ensure_service_tokens({}, False, tmp_path / ".env")
+
+    assert "SHARED_TOKEN" in str(excinfo.value)
+    assert "s3cr3t" not in str(excinfo.value)
+
+
+def test_ensure_service_tokens_scans_the_shared_file_when_no_local_env_exists(tmp_path) -> None:
+    """A fresh clone can carry `.env.shared` (git-tracked) with no `.env` yet;
+    the chain scan must not be gated on the local file existing."""
+    (tmp_path / ".env.shared").write_text("SHARED_TOKEN=s3cr3t$HOME\n", encoding="utf-8")
+
+    with pytest.raises(ComposeInterpolationError) as excinfo:
+        container_lifecycle._ensure_service_tokens({}, False, tmp_path / ".env")
+
+    assert "SHARED_TOKEN" in str(excinfo.value)
+
+
 def test_ensure_service_tokens_refuses_before_minting_anything(tmp_path) -> None:
     """A refused deploy must not leave freshly minted tokens behind.
 

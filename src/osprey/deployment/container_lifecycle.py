@@ -407,6 +407,20 @@ def _ensure_service_tokens(
         if offenders:
             raise ComposeInterpolationError(offenders, env_path)
 
+    # The rest of the chain rides the SAME two routes: `.env.shared` is one of
+    # the `--env-file` fragments on the docker shape and a member of the
+    # worker's `env_file:` list, so a `$` there is mangled exactly like one in
+    # `.env`. The podman shape re-scans the chain in
+    # _write_env_merged_for_compose, but that runs only on the podman branch —
+    # this scan is the one every provider gets. (`.env` is re-scanned as a
+    # chain member; the file-specific refusal above keeps its precise path.)
+    chain_offenders = compose_unsafe_vars_in_chain(env_path.parent)
+    if chain_offenders:
+        raise ComposeInterpolationError(
+            chain_offenders,
+            " + ".join(str(path) for path in chain_files(env_path.parent)),
+        )
+
     if required_vars:
         existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
 
@@ -3001,7 +3015,7 @@ def _migrate_ariel_store(ariel_config: dict) -> None:
     asyncio.run(run_migrate(ariel_config))
 
 
-def _stage_ariel_store(config, compose_files, env, project_dir) -> None:
+def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None) -> None:
     """Start ARIEL's store, create its schema, and seed a first narrative.
 
     The logbook counterpart of :func:`_stage_archiver_store`, and staged ahead of
@@ -3030,18 +3044,25 @@ def _stage_ariel_store(config, compose_files, env, project_dir) -> None:
     :param compose_files: Rendered compose file paths for this deploy.
     :param env: The environment the deploy hands compose.
     :param project_dir: Root of the built project (holds ``.env``).
+    :param provider: The compose provider this deploy resolved, so the staging
+        invocation is shaped like the ``up`` that follows it. ``None`` is the
+        docker shape.
     """
     if not _ariel_store_deployed(config):
         return
 
     from osprey.simulation import apply as simulation_apply
 
-    run_env = runtime_env(config, env)
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
+    # The invocation contract, same as _stage_archiver_store: one
+    # provider-shaped base, anchored on the repo root, so the store this brings
+    # up joins the same compose project the `up` below it starts.
     base_cmd = compose_base_cmd(
         get_runtime_command(config),
         compose_files,
         project_dir,
-        _env_file_args(project_dir),
+        _env_file_args(project_dir, provider),
+        provider,
     )
 
     up_cmd = base_cmd + ["up", "-d", _ARIEL_STORE_SERVICE]
@@ -3483,7 +3504,7 @@ def _start_stack(
     # it. Ordered AFTER the archiver so the logbook is seeded against a machine
     # whose history is already in place — the two halves of one narrative, in the
     # order they document each other.
-    _stage_ariel_store(config, compose_files, env, Path(repo_root))
+    _stage_ariel_store(config, compose_files, env, Path(repo_root), provider=provider)
 
     if web_terminals_enabled:
         # The provider goes down with the fragment it shaped: that fragment is
