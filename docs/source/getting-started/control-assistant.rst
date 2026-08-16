@@ -77,16 +77,26 @@ recorder service — that holds what those channels did.
 
 **The first deploy seeds the archive**, and it is the step that takes the
 longest. It writes about a month of history for every channel the machine
-serves, printing a progress line every 15 seconds or so while it works. The
-duration on each line is how long that slice of the seeding took:
+serves, reporting a step under the start phase every 15 seconds or so while it
+works. The duration at the end of each step is how long that slice took:
+
+.. Renderer-generated block, not a captured run: a real seed needs a container
+   runtime, the store, and several minutes, so the shape below was produced by
+   printing the deploy path's own strings through the real phase reporter. The
+   counts and durations are historical, carried over from an earlier capture.
+   To regenerate: build each line the way ``container_lifecycle`` does (the two
+   ``_report_step`` literals around the seed, plus
+   ``SeedReport.describe()`` for the last one) and print them through
+   ``Phase.step`` on a ``LiveReporter``.
 
 .. code-block:: text
 
-   Seeding 2,908 channels over 30 days (48h at 10s, then 60s). This takes minutes on a first deploy.
+   → Starting my-control-assistant
+     · seeding the archive base: 2,908 channels over 30 days (minutes on a first deploy)
      · seeding archive: 8,960 documents written across 2,908 channels (17.4s)
      · seeding archive: 17,920 documents written across 2,908 channels (15.0s)
      ...
-   seeded 57,600 documents x 2,908 channels (2026-07-12 09:14 to 2026-08-11 09:14 UTC) in 96.3s
+     · archive base: seeded 57,600 documents x 2,908 channels (2026-07-12 09:14 to 2026-08-11 09:14 UTC) in 96.3s (14.2s)
 
 Each of those documents holds one instant across every channel, which is why
 the count is in the tens of thousands rather than the millions. Expect a minute

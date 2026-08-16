@@ -53,7 +53,12 @@ Global Options
    Show framework version and exit.
 
 ``-v, --verbose``
-   Show debug output, including every container command run.
+   Show debug output, including every container command run. The transcript
+   takes the place of the progress report rather than joining it, so under
+   ``-v`` no phase or step lines are printed at all. Without it, a run prints
+   the progress report and the command's own output only; log records below
+   WARNING never reach the screen, though they still reach every sink the
+   deployment configures.
 
 ``--help``
    Show help for any command (e.g., ``osprey build --help``).
