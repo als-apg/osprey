@@ -207,11 +207,26 @@ class TestRunSearch:
         out = await ops.run_search({}, "q", "keyword", 5)
         assert out == {"error": "ARIEL not configured"}
 
-    async def test_invalid_mode_raises_keyerror(self):
-        # SearchMode[mode.upper()] is evaluated before the try-block, so an
-        # unknown mode surfaces as an uncaught KeyError.
-        with pytest.raises(KeyError):
-            await ops.run_search(dict(_DB), "q", "does-not-exist", 5)
+    async def test_malformed_mode_reports_error_without_calling_service(self):
+        # normalize_search_mode rejects blank names before the service is built.
+        out = await ops.run_search(dict(_DB), "q", "   ", 5)
+        assert out == {"error": "search mode cannot be empty"}
+
+    async def test_unroutable_mode_reports_available_modes(self, monkeypatch):
+        # A well-formed but unregistered mode reaches the service, which raises
+        # ConfigurationError naming the modes a caller may actually ask for.
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
+        _patch_service_raises(
+            monkeypatch,
+            ConfigurationError(
+                "Unknown search mode 'does-not-exist'. Available modes: keyword, semantic",
+                config_key="modes",
+            ),
+        )
+        out = await ops.run_search(dict(_DB), "q", "does-not-exist", 5)
+        assert "Unknown search mode 'does-not-exist'" in out["error"]
+        assert "keyword, semantic" in out["error"]
 
     async def test_connection_error_maps_to_friendly_message(self, monkeypatch):
         _patch_service_raises(monkeypatch, RuntimeError("connection refused"))
@@ -235,7 +250,7 @@ class TestRunSearch:
         result = SimpleNamespace(
             answer="the answer",
             sources=["S1", "S2"],
-            search_modes_used=[_mode_keyword()],
+            search_modes_used=["keyword"],
             reasoning="because",
             entries=[{"entry_id": "E1", "raw_text": "First line\nmore", "_score": 0.9}],
         )
@@ -252,12 +267,6 @@ class TestRunSearch:
         assert out["search_modes"] == ["keyword"]
         assert out["entries"][0]["title"] == "First line"
         assert out["entries"][0]["score"] == 0.9
-
-
-def _mode_keyword():
-    from osprey.services.ariel_search import SearchMode
-
-    return SearchMode.KEYWORD
 
 
 # ---------------------------------------------------------------------------

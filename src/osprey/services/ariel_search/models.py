@@ -4,7 +4,7 @@ This module defines the core data models for ARIEL search service:
 - EnhancedLogbookEntry: The core logbook entry data model
 - ARIELSearchRequest: Request model for search operations
 - ARIELSearchResult: Result model from search operations
-- SearchMode: Search mode enumeration
+- normalize_search_mode: Normalizer for search mode names
 - Supporting models for health checks, embedding tables, etc.
 
 """
@@ -135,17 +135,31 @@ def enhanced_entry_from_row(row: Any) -> EnhancedLogbookEntry:
     return entry
 
 
-class SearchMode(Enum):
-    """Search mode enumeration.
+DEFAULT_SEARCH_MODE = "keyword"
 
-    Attributes:
-        KEYWORD: PostgreSQL full-text search (direct function call)
-        SEMANTIC: Embedding similarity search (direct function call)
+
+def normalize_search_mode(mode: object) -> str:
+    """Normalize a search mode name to its canonical lowercase form.
+
+    A search mode is the registry name of a search module (e.g. ``"keyword"``,
+    ``"semantic"``). Whether a given name is actually registered and enabled is
+    decided by the search service and the API layer, not here.
+
+    Args:
+        mode: Candidate mode name. Must be a non-empty string.
+
+    Returns:
+        The mode name, stripped of surrounding whitespace and lowercased.
+
+    Raises:
+        ValueError: If ``mode`` is not a string, or is empty/whitespace-only.
     """
-
-    KEYWORD = "keyword"
-    SEMANTIC = "semantic"
-    SQL = "sql_query"
+    if not isinstance(mode, str):
+        raise ValueError(f"search mode must be a string, got {type(mode).__name__}")
+    normalized = mode.strip().lower()
+    if not normalized:
+        raise ValueError("search mode cannot be empty")
+    return normalized
 
 
 class DiagnosticLevel(Enum):
@@ -181,7 +195,8 @@ class ARIELSearchRequest:
 
     Attributes:
         query: The search query text
-        modes: Search modes to use (default: [KEYWORD])
+        modes: Search module names to use, normalized to lowercase
+            (default: ``["keyword"]``)
         time_range: Default time range filter (see Time Range Semantics)
         facility: Facility filter
         max_results: Maximum results to return (default: 10, range: 1-100)
@@ -189,7 +204,7 @@ class ARIELSearchRequest:
     """
 
     query: str
-    modes: list[SearchMode] = field(default_factory=lambda: [SearchMode.KEYWORD])
+    modes: list[str] = field(default_factory=lambda: [DEFAULT_SEARCH_MODE])
     time_range: tuple[datetime, datetime] | None = None
     facility: str | None = None
     max_results: int = 10
@@ -197,9 +212,15 @@ class ARIELSearchRequest:
     advanced_params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Validate request fields."""
+        """Validate request fields and normalize mode names.
+
+        Raises:
+            ValueError: If the query is empty, or a mode is not a non-empty
+                string.
+        """
         if not self.query or not self.query.strip():
             raise ValueError("query is required and cannot be empty")
+        self.modes = [normalize_search_mode(mode) for mode in self.modes]
         if self.max_results < 1:
             self.max_results = 1
         elif self.max_results > 100:
@@ -216,14 +237,14 @@ class ARIELSearchResult:
         entries: Matching entries, ranked by relevance
         answer: Optional answer text (set by callers that synthesize output)
         sources: Entry IDs used as sources
-        search_modes_used: Modes that were executed
+        search_modes_used: Names of the search modules that were executed
         reasoning: Explanation of results
     """
 
     entries: tuple[dict[str, Any], ...]
     answer: str | None = None
     sources: tuple[str, ...] = field(default_factory=tuple)
-    search_modes_used: tuple[SearchMode, ...] = field(default_factory=tuple)
+    search_modes_used: tuple[str, ...] = field(default_factory=tuple)
     reasoning: str = ""
     diagnostics: tuple[SearchDiagnostic, ...] = field(default_factory=tuple)
 

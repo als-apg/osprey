@@ -10,19 +10,9 @@ from osprey.services.ariel_search.models import (
     ARIELStatusResult,
     EmbeddingTableInfo,
     MetadataSchema,
-    SearchMode,
     enhanced_entry_from_row,
     resolve_time_range,
 )
-
-
-class TestSearchMode:
-    """Tests for SearchMode enumeration."""
-
-    def test_mode_values(self) -> None:
-        """Test that all expected modes exist."""
-        assert SearchMode.KEYWORD.value == "keyword"
-        assert SearchMode.SEMANTIC.value == "semantic"
 
 
 class TestARIELSearchRequest:
@@ -32,7 +22,7 @@ class TestARIELSearchRequest:
         """Test basic request creation."""
         request = ARIELSearchRequest(query="test query")
         assert request.query == "test query"
-        assert request.modes == [SearchMode.KEYWORD]
+        assert request.modes == ["keyword"]
         assert request.time_range is None
         assert request.facility is None
         assert request.max_results == 10
@@ -44,13 +34,13 @@ class TestARIELSearchRequest:
         time_range = (now, now)
         request = ARIELSearchRequest(
             query="test query",
-            modes=[SearchMode.KEYWORD, SearchMode.SEMANTIC],
+            modes=["keyword", "semantic"],
             time_range=time_range,
             facility="ALS",
             max_results=50,
             include_images=True,
         )
-        assert request.modes == [SearchMode.KEYWORD, SearchMode.SEMANTIC]
+        assert request.modes == ["keyword", "semantic"]
         assert request.time_range == time_range
         assert request.facility == "ALS"
         assert request.max_results == 50

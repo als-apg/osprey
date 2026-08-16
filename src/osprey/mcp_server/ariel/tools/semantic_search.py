@@ -47,7 +47,7 @@ async def semantic_search(
         exclude_entry_ids: Entry IDs to exclude from results (for iterative search).
 
     Returns:
-        JSON with matching entries, similarity scores, and workspace file path.
+        JSON with matching entries and similarity scores.
     """
     if not query or not query.strip():
         return make_error(
@@ -57,8 +57,6 @@ async def semantic_search(
         )
 
     try:
-        from osprey.services.ariel_search.models import SearchMode
-
         registry = get_ariel_context()
         service = await registry.service()
 
@@ -81,7 +79,7 @@ async def semantic_search(
             query,
             max_results=fetch_count,
             time_range=time_range,
-            mode=SearchMode.SEMANTIC,
+            mode="semantic",
             advanced_params=adv,
         )
 

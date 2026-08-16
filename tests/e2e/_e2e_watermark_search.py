@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from osprey.services.ariel_search.models import SearchMode, enhanced_entry_from_row
+from osprey.services.ariel_search.models import enhanced_entry_from_row
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
 
 if TYPE_CHECKING:
@@ -89,7 +89,7 @@ def get_tool_descriptor() -> SearchToolDescriptor:
             "Search for logbook entries that have been stamped with a watermark. "
             "Use this tool when the user asks about watermarked entries."
         ),
-        search_mode=SearchMode.KEYWORD,
+        search_mode="keyword",
         args_schema=WatermarkSearchInput,
         execute=watermark_search,
         format_result=format_watermark_result,

@@ -55,8 +55,6 @@ async def keyword_search(
         )
 
     try:
-        from osprey.services.ariel_search.models import SearchMode
-
         registry = get_ariel_context()
         service = await registry.service()
 
@@ -77,7 +75,7 @@ async def keyword_search(
             query,
             max_results=fetch_count,
             time_range=time_range,
-            mode=SearchMode.KEYWORD,
+            mode="keyword",
             advanced_params=adv,
         )
 

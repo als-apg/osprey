@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from osprey.services.ariel_search.models import SearchMode
 from osprey.services.ariel_search.search.base import ParameterDescriptor, SearchToolDescriptor
 from osprey.utils.logger import get_logger
 
@@ -331,7 +330,7 @@ def get_tool_descriptor() -> SearchToolDescriptor:
             "Use for specific terms, equipment names, PV names, or phrases. "
             "Supports quoted phrases and AND/OR/NOT operators."
         ),
-        search_mode=SearchMode.KEYWORD,
+        search_mode="keyword",
         args_schema=KeywordSearchInput,
         execute=keyword_search,
         format_result=format_keyword_result,

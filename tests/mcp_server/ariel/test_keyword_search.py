@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
-from osprey.services.ariel_search.models import SearchMode
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
@@ -18,7 +17,7 @@ def _make_search_result(entries, reasoning="", sources=()):
     result.answer = None
     result.reasoning = reasoning
     result.sources = tuple(sources)
-    result.search_modes_used = (SearchMode.KEYWORD,)
+    result.search_modes_used = ("keyword",)
     result.diagnostics = ()
     result.pipeline_details = None
     return result

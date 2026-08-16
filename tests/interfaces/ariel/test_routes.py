@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
 from osprey.services.ariel_search.config import ARIELConfig
-from osprey.services.ariel_search.models import SearchMode
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
 
 
@@ -25,7 +24,7 @@ def _build_mock_registry():
     keyword_mod.get_tool_descriptor = lambda: SearchToolDescriptor(  # type: ignore[attr-defined]
         name="keyword_search",
         description="Full-text keyword search",
-        search_mode=SearchMode.KEYWORD,
+        search_mode="keyword",
         args_schema=MagicMock(),
         execute=AsyncMock(),
         format_result=MagicMock(),
@@ -36,7 +35,7 @@ def _build_mock_registry():
     semantic_mod.get_tool_descriptor = lambda: SearchToolDescriptor(  # type: ignore[attr-defined]
         name="semantic_search",
         description="Semantic similarity search",
-        search_mode=SearchMode.SEMANTIC,
+        search_mode="semantic",
         args_schema=MagicMock(),
         execute=AsyncMock(),
         format_result=MagicMock(),
@@ -581,28 +580,47 @@ def test_entry_to_response_helper():
     assert result.metadata == {"key": "value"}
 
 
-def test_search_mode_mapping(client, mock_ariel_service):
-    """Test that search modes are correctly mapped."""
-    from osprey.services.ariel_search.models import SearchMode as ServiceSearchMode
+@pytest.mark.parametrize("mode", ["keyword", "semantic"])
+def test_search_enabled_mode_reaches_service(client, mock_ariel_service, mode):
+    """An enabled module name is forwarded to the service verbatim."""
+    response = client.post(
+        "/api/search",
+        json={"query": "test", "mode": mode, "max_results": 10},
+    )
 
-    modes = {
-        "keyword": ServiceSearchMode.KEYWORD,
-        "semantic": ServiceSearchMode.SEMANTIC,
-    }
+    assert response.status_code == 200
+    assert mock_ariel_service.search.call_args.kwargs["mode"] == mode
 
-    for api_mode, expected_service_mode in modes.items():
-        client.post(
-            "/api/search",
-            json={
-                "query": "test",
-                "mode": api_mode,
-                "max_results": 10,
-            },
-        )
 
-        # Check that correct mode was passed
-        call_kwargs = mock_ariel_service.search.call_args.kwargs
-        assert call_kwargs["mode"] == expected_service_mode
+def test_search_unknown_mode_rejected_with_available_modes(client, mock_ariel_service):
+    """An unknown mode is a 400 listing the enabled modes, not a silent fallback.
+
+    The API used to map anything it did not recognize onto keyword search, so a
+    typo returned plausible-looking results for the wrong mode.
+    """
+    response = client.post(
+        "/api/search",
+        json={"query": "test", "mode": "keywrod", "max_results": 10},
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "Unknown search mode 'keywrod'" in detail
+    assert "keyword" in detail.split("Available modes:")[1]
+    assert "semantic" in detail.split("Available modes:")[1]
+    mock_ariel_service.search.assert_not_called()
+
+
+def test_search_blank_mode_rejected(client, mock_ariel_service):
+    """A malformed (blank) mode is rejected before the service is consulted."""
+    response = client.post(
+        "/api/search",
+        json={"query": "test", "mode": "   ", "max_results": 10},
+    )
+
+    assert response.status_code == 400
+    assert "search mode cannot be empty" in response.json()["detail"]
+    mock_ariel_service.search.assert_not_called()
 
 
 def test_capabilities_endpoint(client):
@@ -658,7 +676,6 @@ def test_search_defaults_to_keyword_mode(client, mock_ariel_service):
     )
 
     assert response.status_code == 200
-    from osprey.services.ariel_search.models import SearchMode as ServiceSearchMode
 
     call_kwargs = mock_ariel_service.search.call_args.kwargs
-    assert call_kwargs["mode"] == ServiceSearchMode.KEYWORD
+    assert call_kwargs["mode"] == "keyword"

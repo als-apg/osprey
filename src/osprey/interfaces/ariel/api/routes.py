@@ -24,7 +24,6 @@ from osprey.interfaces.ariel.api.schemas import (
     EntryCreateRequest,
     EntryCreateResponse,
     EntryResponse,
-    SearchMode,
     SearchRequest,
     SearchResponse,
     StatusResponse,
@@ -108,6 +107,63 @@ def _entry_to_response(
     )
 
 
+def _capabilities_modes(service: ARIELSearchService) -> list[str]:
+    """List the search module names the capabilities endpoint advertises.
+
+    Reuses the capabilities builder rather than re-deriving the module list, so
+    the modes the API routes are exactly the ones the UI offers as tabs.
+
+    Args:
+        service: The ARIEL service whose config decides which modules are enabled.
+
+    Returns:
+        Enabled search module names, in registry order.
+    """
+    from osprey.services.ariel_search.capabilities import get_capabilities as _get_caps
+
+    capabilities = _get_caps(service.config)
+    return [mode["name"] for mode in capabilities["categories"]["direct"]["modes"]]
+
+
+def _resolve_search_mode(service: ARIELSearchService, requested: str | None) -> str:
+    """Resolve a requested search mode against the enabled search modules.
+
+    The API takes a module name rather than a fixed enum, so a mode that names
+    no enabled module is rejected outright instead of silently falling back to
+    keyword search.
+
+    Args:
+        service: The ARIEL service handling the request.
+        requested: Mode name from the request body, or ``None`` for the default.
+
+    Returns:
+        The normalized name of an enabled search module.
+
+    Raises:
+        HTTPException: 400 if the mode is malformed, or names no enabled module.
+    """
+    from osprey.services.ariel_search.models import DEFAULT_SEARCH_MODE, normalize_search_mode
+
+    if requested is None:
+        mode = DEFAULT_SEARCH_MODE
+    else:
+        try:
+            mode = normalize_search_mode(requested)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    available = _capabilities_modes(service)
+    if mode not in available:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown search mode '{mode}'. "
+                f"Available modes: {', '.join(available) if available else '(none enabled)'}"
+            ),
+        )
+    return mode
+
+
 @router.get("/capabilities")
 async def get_capabilities(request: Request) -> dict:
     """Return available search modes and their tunable parameters.
@@ -185,21 +241,16 @@ async def get_filter_options(request: Request, field_name: str) -> dict:
 async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     """Execute search query.
 
-    Supports keyword and semantic modes.
+    Routes to the search module named by ``mode``; an unknown or disabled mode
+    is rejected with 400 rather than falling back to another module.
     """
     service = _require_service(request)
     start_time = time.time()
 
+    # Validated before the try block so the 400 is not swallowed into a 500.
+    service_mode = _resolve_search_mode(service, search_req.mode)
+
     try:
-        # Map API mode to service mode
-        from osprey.services.ariel_search.models import SearchMode as ServiceSearchMode
-
-        mode_map = {
-            SearchMode.KEYWORD: ServiceSearchMode.KEYWORD,
-            SearchMode.SEMANTIC: ServiceSearchMode.SEMANTIC,
-        }
-        service_mode = mode_map.get(search_req.mode)
-
         # advanced_params takes precedence over top-level filter fields
         adv = search_req.advanced_params
         start_date = adv.pop("start_date", None) or search_req.start_date
@@ -241,7 +292,7 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
             entries=entries,
             answer=result.answer,
             sources=list(result.sources),
-            search_modes_used=[m.value for m in result.search_modes_used],
+            search_modes_used=list(result.search_modes_used),
             reasoning=result.reasoning,
             total_results=len(entries),
             execution_time_ms=execution_time,

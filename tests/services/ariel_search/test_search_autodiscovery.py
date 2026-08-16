@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from osprey.services.ariel_search.models import SearchMode
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
 from osprey.services.ariel_search.search.keyword import (
     KeywordSearchInput,
@@ -59,14 +58,14 @@ class TestSearchToolDescriptor:
         desc = SearchToolDescriptor(
             name="test_search",
             description="A test search tool",
-            search_mode=SearchMode.KEYWORD,
+            search_mode="keyword",
             args_schema=KeywordSearchInput,
             execute=AsyncMock(),
             format_result=MagicMock(),
         )
         assert desc.name == "test_search"
         assert desc.description == "A test search tool"
-        assert desc.search_mode == SearchMode.KEYWORD
+        assert desc.search_mode == "keyword"
         assert desc.args_schema is KeywordSearchInput
         assert desc.needs_embedder is False
 
@@ -75,7 +74,7 @@ class TestSearchToolDescriptor:
         desc = SearchToolDescriptor(
             name="x",
             description="x",
-            search_mode=SearchMode.KEYWORD,
+            search_mode="keyword",
             args_schema=KeywordSearchInput,
             execute=AsyncMock(),
             format_result=MagicMock(),
@@ -87,7 +86,7 @@ class TestSearchToolDescriptor:
         desc = SearchToolDescriptor(
             name="x",
             description="x",
-            search_mode=SearchMode.KEYWORD,
+            search_mode="keyword",
             args_schema=KeywordSearchInput,
             execute=AsyncMock(),
             format_result=MagicMock(),
@@ -104,7 +103,7 @@ class TestKeywordDescriptor:
         desc = keyword_get_tool_descriptor()
         assert desc.name == "keyword_search"
         assert len(desc.description) > 0
-        assert desc.search_mode == SearchMode.KEYWORD
+        assert desc.search_mode == "keyword"
         assert desc.args_schema is KeywordSearchInput
         assert desc.needs_embedder is False
 
@@ -128,7 +127,7 @@ class TestSemanticDescriptor:
         desc = semantic_get_tool_descriptor()
         assert desc.name == "semantic_search"
         assert len(desc.description) > 0
-        assert desc.search_mode == SearchMode.SEMANTIC
+        assert desc.search_mode == "semantic"
         assert desc.args_schema is SemanticSearchInput
         assert desc.needs_embedder is True
 

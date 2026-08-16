@@ -19,8 +19,6 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
-    from osprey.services.ariel_search.models import SearchMode
-
 
 @dataclass(frozen=True)
 class ParameterDescriptor:
@@ -87,7 +85,8 @@ class SearchToolDescriptor:
     Attributes:
         name: Tool name for LangChain (e.g. "keyword_search")
         description: Tool description shown to the LLM
-        search_mode: Corresponding SearchMode enum value
+        search_mode: Registry module name this tool dispatches to
+            (e.g. "keyword"), as accepted in a search request's ``modes``
         args_schema: Pydantic model for tool input validation
         execute: Async function that performs the search
         format_result: Formats raw search results for the agent
@@ -96,7 +95,7 @@ class SearchToolDescriptor:
 
     name: str
     description: str
-    search_mode: SearchMode
+    search_mode: str
     args_schema: type[BaseModel]
     execute: Callable[..., Awaitable[Any]]
     format_result: Callable[..., dict[str, Any]]

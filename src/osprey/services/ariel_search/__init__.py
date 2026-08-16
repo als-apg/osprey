@@ -50,7 +50,6 @@ from osprey.services.ariel_search.models import (
     EmbeddingTableInfo,
     EnhancedLogbookEntry,
     MetadataSchema,
-    SearchMode,
     enhanced_entry_from_row,
     resolve_time_range,
 )
@@ -99,7 +98,6 @@ __all__ = [
     "EmbeddingTableInfo",
     "EnhancedLogbookEntry",
     "MetadataSchema",
-    "SearchMode",
     "enhanced_entry_from_row",
     "resolve_time_range",
 ]

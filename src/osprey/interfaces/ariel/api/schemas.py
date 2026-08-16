@@ -4,17 +4,9 @@ Request and response models for the ARIEL search interface.
 """
 
 from datetime import datetime
-from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
-
-
-class SearchMode(StrEnum):
-    """Search mode options."""
-
-    KEYWORD = "keyword"
-    SEMANTIC = "semantic"
 
 
 class AttachmentResponse(BaseModel):
@@ -55,7 +47,10 @@ class SearchRequest(BaseModel):
     """Search request payload."""
 
     query: str = Field(..., min_length=1, description="Search query text")
-    mode: SearchMode = Field(SearchMode.KEYWORD, description="Search mode")
+    # Name of a registered search module (as advertised by /api/capabilities).
+    # Validated by the route against the enabled modules; omitting it selects
+    # the service's default mode.
+    mode: str | None = Field(None, description="Search module name")
     max_results: int = Field(10, ge=1, le=100, description="Maximum results")
     start_date: datetime | None = Field(None, description="Filter start date")
     end_date: datetime | None = Field(None, description="Filter end date")
