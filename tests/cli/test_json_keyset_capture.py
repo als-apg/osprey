@@ -348,12 +348,10 @@ def test_ariel_search_json_keyset(
     runner: CliRunner, ariel_service, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``ariel search --json`` emits the recorded ``run_search`` shape."""
-    from osprey.services.ariel_search.models import SearchMode
-
     search_result = SimpleNamespace(
         answer="Two coupler trips overnight.",
         sources=["E1"],
-        search_modes_used=[SearchMode.KEYWORD],
+        search_modes_used=["keyword"],
         reasoning="keyword match on 'coupler'",
         entries=[{"entry_id": "E1", "author": "op", "raw_text": "coupler trip", "_score": 0.9}],
     )

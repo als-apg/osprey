@@ -315,12 +315,10 @@ def _invoke_ariel_search(
     runner: CliRunner, tmp_path: Path, repo: Path, hook: Callable[[], None]
 ) -> Result:
     """Run ``ariel search --json`` against a stub service."""
-    from osprey.services.ariel_search.models import SearchMode
-
     search_result = SimpleNamespace(
         answer="Two coupler trips overnight.",
         sources=["E1"],
-        search_modes_used=[SearchMode.KEYWORD],
+        search_modes_used=["keyword"],
         reasoning="keyword match on 'coupler'",
         entries=[{"entry_id": "E1", "author": "op", "raw_text": "coupler trip", "_score": 0.9}],
     )
