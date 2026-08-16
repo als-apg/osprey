@@ -20,8 +20,8 @@ The region never repeats the phase's title. The phase announced itself with a
 permanent ``→ title`` line the moment it opened, and a title redrawn underneath
 that line reads as a rendering glitch rather than as progress; what the region
 adds is the part that could not be printed once — a spinner and a duration that
-keep moving. Printing the title exactly once also keeps the terminal's scrollback
-identical to the output of a run that was piped to a file.
+keep moving. Printing the title exactly once also keeps the phase lines in the
+terminal's scrollback in the same words a piped run writes them.
 
 The ticker sits at the indent of the ``  · step`` lines the phase reporter
 prints, so it reads as belonging to the ``→ title`` above it, and the rows sit
@@ -42,8 +42,8 @@ reason :meth:`BuildModel.feed` takes its timestamp: the caller measures time
 once, and a fifteen-minute build renders identically from a fixture.
 
 Every style here is a semantic token from :mod:`osprey.cli.styles`, resolved
-through the active Rich theme. Nothing names a color, so a retheme (or
-``osprey theme-lab``) reaches this region like it reaches the rest of the CLI.
+through the active Rich theme. Nothing names a color, so a ``cli.theme`` change
+reaches this region like it reaches the rest of the CLI.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ from rich.text import Text
 
 from osprey.deployment.build_progress import EXPORT_STEP, BuildRow
 
-from .styles import Styles, ThemeConfig
+from .styles import LAYOUT_TABLE_GUTTER, Styles, ThemeConfig, layout_table
 
 #: Columns the service rows are indented by. The phase reporter's sub-steps sit
 #: at 2, so 4 nests the table one level below them.
@@ -69,8 +69,10 @@ _INDENT = 4
 #: than as the start of something new.
 _TICKER_INDENT = 2
 
-#: Blank columns between two adjacent table columns.
-_GUTTER = 3
+#: Blank columns between two adjacent table columns. Owned by
+#: :mod:`osprey.cli.styles` along with the rest of the layout table's shape;
+#: aliased here because the caption budget has to subtract it.
+_GUTTER = LAYOUT_TABLE_GUTTER
 
 #: The width the step column is held at. The step vocabulary is closed — a
 #: Dockerfile index, a header word (``internal``, ``auth``), or
@@ -186,7 +188,7 @@ def _row_table(rows: Sequence[BuildRow], now: float, width: int) -> RenderableTy
         (row.service, row.step or _NO_STEP, row.caption, format_duration(now - row.started_at))
         for row in rows
     ]
-    table = Table(box=None, show_header=False, padding=(0, 0, 0, _GUTTER), pad_edge=False)
+    table = layout_table()
     table.add_column(style=Styles.ACCENT, no_wrap=True)
     table.add_column(style=Styles.SUCCESS, no_wrap=True, min_width=_STEP_WIDTH)
     table.add_column(

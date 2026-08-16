@@ -24,8 +24,10 @@ import click
 import pytest
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.spinner import Spinner
 
 from osprey.cli import phase_reporter
+from osprey.cli.altitude import gate_installed, install_gate, lift_gate
 from osprey.cli.phase_reporter import (
     LiveReporter,
     NullReporter,
@@ -50,6 +52,13 @@ _ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 #: words the hand-off's committed line uses: they are one format, and a test
 #: that stopped matching both would go quietly half-blind.
 _HEARTBEAT_MARK = "(running "
+
+#: Every frame of the ticker's spinner -- ``dots``, the one
+#: ``live_render.render_live_region`` builds. Which frame a repaint catches is
+#: read off the wall clock rather than off any state these tests set, so it is
+#: the one character in a painted region that two paints milliseconds apart can
+#: legitimately disagree about.
+_SPINNER_FRAMES = re.compile(f"[{re.escape(Spinner('dots').frames)}]")
 
 
 @pytest.fixture(autouse=True)
@@ -109,6 +118,17 @@ def live():
 def visible_lines(text: str) -> list[str]:
     """The words in ``text``, with escapes and blank lines dropped."""
     return [line for line in _ANSI.sub("", text).splitlines() if line.strip()]
+
+
+def without_the_spinner_frame(text: str) -> str:
+    """``text`` with whichever spinner frame it caught pinned to one glyph.
+
+    For comparing two paints of the same region. Everything else a region shows
+    is state these tests set -- the rows, the elapsed clock, and the style
+    escapes around them -- so normalising the frame away leaves a comparison
+    that is still byte-exact about all of it.
+    """
+    return _SPINNER_FRAMES.sub("*", text)
 
 
 def after(text: str, marker: str) -> str:
@@ -304,7 +324,16 @@ def test_closing_a_phase_takes_its_region_down_with_it(live):
 def test_a_styled_line_does_not_take_the_region_with_it(monkeypatch):
     """A ``style=`` argument applies to everything a print renders -- including
     the region Rich appends to it, which would repaint the whole build table in
-    the colour of the line that happened to scroll past."""
+    the colour of the line that happened to scroll past.
+
+    The property is style SURVIVAL: the region painted under a styled line must
+    carry the same escapes as the one painted under a bare line. Asserted as an
+    escapes-included comparison of the two paints, with the spinner frame -- the
+    one thing in a region that comes off the wall clock rather than off the
+    state set here -- normalised out of both. Comparing the frames too would
+    fail whenever the two loop passes straddle one of its 80ms boundaries, on a
+    difference of a single glyph that says nothing about styles.
+    """
     monkeypatch.setattr(phase_reporter, "time", SimpleNamespace(monotonic=lambda: 1000.0))
     regions = []
 
@@ -322,7 +351,10 @@ def test_a_styled_line_does_not_take_the_region_with_it(monkeypatch):
         finally:
             reporter.stop_rendering()
 
-    assert regions[0] == regions[1]
+    # A region that painted no styles at all would compare equal to anything,
+    # so the escapes are asserted present before they are asserted identical.
+    assert _ANSI.search(regions[0]) is not None
+    assert without_the_spinner_frame(regions[0]) == without_the_spinner_frame(regions[1])
     assert "virtual-accelerator" in regions[0]
 
 
@@ -867,6 +899,14 @@ class _FakeStdout:
 # ---------------------------------------------------------------------------
 # Log records while a region is mounted
 # ---------------------------------------------------------------------------
+#
+# Two contracts meet here. The altitude gate (``osprey.cli.altitude``) decides
+# WHETHER a record is painted at all -- WARNING and above in a normal run,
+# everything under ``-v``. The borrow decides WHERE a painted record lands: on
+# the console the region is mounted on, above it and in one piece, rather than
+# straight down the handler's own stream and through the middle of a repaint.
+# The gate is a handler filter, so a record it drops is still emitted and still
+# reaches ``caplog``; only the terminal is quieter.
 
 
 @pytest.fixture
@@ -877,6 +917,11 @@ def log_handler():
     the assertions about wrapping: one handler, one console, bound to a stream
     that is emphatically NOT the reporter's -- which is the whole reason a record
     can garble the region in the first place.
+
+    Ungated, as ``configure_logging()`` leaves it: the gate is the CLI's, put on
+    by the group callback, so a test that wants one installs the altitude it
+    means to assert about. Teardown is the suite's ``restore_root_logging``,
+    which strips gates off every root ``RichHandler`` either side of a test.
 
     Removed again afterwards, level included: a handler left on the root logger
     prints every later test's log records, and a swapped console left on it would
@@ -923,17 +968,85 @@ def live_over_logging(log_handler):
         reporter.stop_rendering()
 
 
-def test_a_log_record_lands_as_one_intact_line_above_the_region(live_over_logging, log_handler):
+def painted_records(buffer: io.StringIO, message: str) -> list[str]:
+    """Every line in ``buffer`` carrying ``message``, padding dropped.
+
+    Rich pads a log line out to the console width, so the trailing run of
+    spaces is the renderer's and not part of the record. A list rather than a
+    membership test: a record that arrived in two pieces, or twice, is exactly
+    what these tests are looking for.
+    """
+    return [line.rstrip() for line in visible_lines(buffer.getvalue()) if message in line]
+
+
+def test_a_warning_lands_as_one_intact_line_above_the_region(live_over_logging, log_handler):
     """The symptom the swap exists for: a record written straight to stderr
     lands in the middle of a repainting region and the two interleave.
 
-    Asserted on the reporter's buffer rather than on the absence of garbling,
-    because "not garbled" is only visible on a real terminal -- here the proof
-    is that the record went through the console the ``Live`` is mounted on, in
-    one piece, with its own stream left empty.
+    A WARNING under an installed gate is the record a normal run actually
+    paints, so it is the one this asserts on. Asserted on the reporter's buffer
+    rather than on the absence of garbling, because "not garbled" is only
+    visible on a real terminal -- here the proof is that the record went through
+    the console the ``Live`` is mounted on, in one piece, with its own stream
+    left empty.
     """
     reporter, buffer, _console = live_over_logging
-    _handler, stderr, _own = log_handler
+    handler, stderr, _own = log_handler
+    install_gate(handler)
+    reporter.phase("Building services")
+
+    with reporter.watch_build(build_with_rows()):
+        reporter.refresh_live()
+        get_logger("deploy").warning("pulling base image")
+        reporter.refresh_live()
+
+    assert gate_installed(handler) is True
+    assert painted_records(buffer, "pulling base image") == ["WARNING  pulling base image"]
+    assert "pulling base image" not in stderr.getvalue()
+
+
+def test_the_gate_keeps_an_info_record_off_the_region(live_over_logging, log_handler, caplog):
+    """A normal run's INFO transcript is not painted above the region.
+
+    The WARNING beside it is, and is asserted in the same test: without that
+    witness the assertion would go on passing for a reporter that had stopped
+    painting records at all, or for a logger call that never reached a handler.
+
+    The dropped record is still EMITTED -- the gate filters the handler, not the
+    logger -- so ``caplog`` sees it. Nothing downstream of the terminal loses a
+    line to the altitude policy.
+    """
+    reporter, buffer, _console = live_over_logging
+    handler, stderr, _own = log_handler
+    install_gate(handler)
+    reporter.phase("Building services")
+
+    with reporter.watch_build(build_with_rows()):
+        reporter.refresh_live()
+        get_logger("deploy").key_info("pulling base image")
+        get_logger("deploy").warning("image pull failed")
+        reporter.refresh_live()
+
+    assert painted_records(buffer, "pulling base image") == []
+    assert painted_records(buffer, "image pull failed") == ["WARNING  image pull failed"]
+    # Not on the handler's own stream either: gated means unrendered, not
+    # rendered somewhere the region cannot be garbled.
+    assert "pulling base image" not in stderr.getvalue()
+    assert "pulling base image" in caplog.text
+
+
+def test_a_lifted_gate_paints_the_info_transcript_above_the_region(live_over_logging, log_handler):
+    """``-v`` restores the transcript, and the borrow carries it unchanged.
+
+    The two seams are independent: lifting the gate changes which records are
+    painted, never where they land. An INFO record under a lifted gate takes the
+    same route a WARNING does -- one intact line on the region's console, and
+    nothing down the handler's own stream.
+    """
+    reporter, buffer, _console = live_over_logging
+    handler, stderr, _own = log_handler
+    install_gate(handler)
+    lift_gate(handler)
     reporter.phase("Building services")
 
     with reporter.watch_build(build_with_rows()):
@@ -941,12 +1054,8 @@ def test_a_log_record_lands_as_one_intact_line_above_the_region(live_over_loggin
         get_logger("deploy").key_info("pulling base image")
         reporter.refresh_live()
 
-    written = buffer.getvalue()
-    # Rich pads a log line out to the console width, so the trailing run of
-    # spaces is the renderer's and not part of the record.
-    assert [line.rstrip() for line in visible_lines(written) if "pulling base image" in line] == [
-        "INFO     pulling base image"
-    ]
+    assert gate_installed(handler) is False
+    assert painted_records(buffer, "pulling base image") == ["INFO     pulling base image"]
     assert "pulling base image" not in stderr.getvalue()
 
 
@@ -956,19 +1065,26 @@ def test_the_plain_reporter_leaves_the_log_handler_on_stderr(monkeypatch, log_ha
     Piped and CI consumers read records on stderr and program output on stdout,
     and there is no region off a TTY for a record to garble -- so the plain
     reporter has nothing to borrow for and must not touch the handler at all.
+
+    Gated, and a WARNING: the altitude policy is the whole run's, not the live
+    region's, and off a terminal it decides what reaches the pipe exactly as it
+    decides what reaches the screen.
     """
     handler, stderr, original = log_handler
+    install_gate(handler)
     console, buffer = recording_console()
     monkeypatch.setattr(phase_reporter, "console", console)
 
     reporter = PhaseReporter(color=False)
     reporter.start_rendering()
     reporter.phase("Building services")
-    get_logger("deploy").key_info("pulling base image")
+    get_logger("deploy").warning("pulling base image")
+    get_logger("deploy").key_info("resolving the image tag")
     reporter.stop_rendering()
 
     assert handler.console is original
     assert "pulling base image" in stderr.getvalue()
+    assert "resolving the image tag" not in stderr.getvalue()
     assert "pulling base image" not in buffer.getvalue()
 
 

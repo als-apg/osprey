@@ -191,9 +191,10 @@ def cli(ctx, verbose):
     import logging
 
     from osprey.utils.config import load_project_dotenv
-    from osprey.utils.logger import configure_logging
+    from osprey.utils.logger import configure_logging, set_handler_console
 
-    from .styles import initialize_theme_from_config
+    from .altitude import install_gate
+    from .styles import err_console, initialize_theme_from_config
 
     # The CLI is a process entry point: nothing else populates the environment
     # from `.env`, and importing the framework deliberately does not. Do this
@@ -211,12 +212,33 @@ def cli(ctx, verbose):
     # needs when reproducing a deploy step by hand.
     configure_logging(logging.DEBUG if verbose else logging.INFO)
 
+    # Logging is configured for entry points that have no console of their own,
+    # so it builds one — a second stderr renderer, at a fixed width that fights
+    # the real terminal's. The CLI does have one, so the handler is pointed at
+    # it: one console owns stderr, and log lines wrap where printed lines do.
+    handler = set_handler_console(err_console)
+
+    # The altitude policy lives on that handler, and only for the CLI: a normal
+    # run renders WARNING and above, `-v` renders everything. Gating here rather
+    # than inside configure_logging() leaves every non-CLI entry point — and
+    # every external consumer of the shared logging package — untouched, and
+    # gating at the handler drops records from the *terminal* only: they are
+    # still emitted, so caplog and any other sink still see them.
+    #
+    # The handler outlives one invocation, so install_gate() removes whatever a
+    # previous invocation left before deciding what this one wants.
+    install_gate(handler, verbose=verbose)
+
     initialize_theme_from_config()
 
     if ctx.invoked_subcommand is None:
         # The bare command lists what there is to run. Every verb is
         # zero-argument, so the help is the menu — an interactive wrapper would
         # be a surface with nothing to wrap.
+        #
+        # ALLOWLISTED raw click.echo, not a renderer primitive: Click has
+        # already laid this text out, `\b`-preformatted blocks included, and
+        # putting it through Rich would re-wrap it to a different width.
         click.echo(ctx.get_help())
 
 
@@ -284,13 +306,21 @@ def _tty_aware_reporter() -> "PhaseReporter":
 
 def main():
     """Entry point for the osprey CLI."""
+    # Imported here rather than at module scope: this module is the whole of
+    # what `osprey --help` loads, and the renderer pulls in the phase reporter
+    # and the themed consoles. Both handlers below run only after `cli()` has
+    # already loaded them, so the import costs nothing on the path that matters.
     try:
         cli()
     except KeyboardInterrupt:
-        click.echo("\nGoodbye!", err=True)
+        from .output import warn
+
+        warn("Interrupted. Goodbye!")
         sys.exit(130)
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        from .output import fail
+
+        fail(str(e))
         sys.exit(1)
 
 

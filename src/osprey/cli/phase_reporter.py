@@ -32,7 +32,6 @@ from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING
 
-import click
 from rich.console import Group
 from rich.live import Live
 from rich.logging import RichHandler
@@ -272,23 +271,6 @@ class PhaseReporter:
         """
         self.out().print(text, markup=False, highlight=False, soft_wrap=True)
 
-    def echo_error(self, text: str) -> None:
-        """Print one line of trouble, on the channel its reader is watching.
-
-        Off a terminal that is stderr verbatim: a caller reading stdout for a
-        verb's output reads its trouble on the other stream, and which stream is
-        part of the contract rather than a detail.
-
-        While a region is mounted, stderr is not this process's to write to
-        directly -- a raw write lands in the middle of a repaint -- so the line
-        goes through the console instead. On a terminal the two are the same
-        device anyway, so nothing is lost by routing it.
-        """
-        if self._is_rendering():
-            self.echo(text)
-        else:
-            click.echo(text, err=True)
-
     def phase(self, title: str) -> Phase:
         """Start a phase, printing its opening line."""
         self.emit(f"→ {title}", style=Styles.BOLD)
@@ -444,7 +426,9 @@ class PhaseReporter:
         ``✗`` line reads as a build that failed and then kept building. Callers
         are entitled to assume that when this returns, the monitor is silent.
 
-        Idempotent, and a no-op when called from the monitor thread itself.
+        Idempotent. Called from the monitor thread itself it still signals the
+        stop and drops the handle; only the join is skipped, because a thread
+        cannot join itself.
         """
         with self._monitor_lock:
             monitor, self._monitor = self._monitor, None
@@ -496,8 +480,9 @@ class PhaseReporter:
         its monitor at the first watcher instead. Defined here so that the
         install site can call it on whatever it just installed -- the same
         reason :meth:`stop_rendering` is defined here -- and so that the pair
-        reads as one seam: everything :meth:`stop_rendering` tears down is
-        exactly what this puts back.
+        reads as one seam in the subclass that has one: everything
+        :meth:`LiveReporter.stop_rendering` tears down is exactly what
+        :meth:`LiveReporter.start_rendering` puts back.
 
         Idempotent.
         """
@@ -513,7 +498,7 @@ class PhaseReporter:
         """
         self._stop_monitor()
 
-    def _is_rendering(self) -> bool:
+    def is_rendering(self) -> bool:
         """Whether this reporter is currently drawing something transient.
 
         False on this class: plain lines are written and forgotten, and there is
@@ -521,6 +506,11 @@ class PhaseReporter:
         :meth:`suspended` a true no-op off a terminal -- it puts back exactly
         what it took away, and so can never start something that was not running
         when the block opened.
+
+        Public because it answers a question outside this module too:
+        :mod:`osprey.cli.output` routes a trouble line onto the region's console
+        for as long as one is up, and asks here rather than keeping a second
+        answer of its own.
         """
         return False
 
@@ -554,7 +544,7 @@ class PhaseReporter:
         self._suspend_depth += 1
         # Whether the OUTERMOST block found something to pause. Held as a local
         # so the restart is conditional on what this block actually stopped.
-        resume = self._suspend_depth == 1 and self._is_rendering()
+        resume = self._suspend_depth == 1 and self.is_rendering()
         if resume:
             self.stop_rendering()
         try:
@@ -667,11 +657,11 @@ class LiveReporter(PhaseReporter):
     def __init__(self, *, console: Console | None = None) -> None:
         # Only ever installed on a terminal, so the lines are always styled.
         super().__init__(color=True)
-        # Read off the module at construction -- which the install site does
-        # immediately before installing -- rather than from-imported at module
-        # load: applying a theme REBINDS ``styles.console``, so a load-time
-        # capture would hand the Live a console the rest of the CLI has already
-        # stopped printing through, and the two would repaint over each other.
+        # Read off the module at construction rather than from-imported at
+        # module load, so a caller that swapped ``styles.console`` (tests do) is
+        # what the Live is built on. A theme change needs no such care:
+        # ``set_theme`` re-themes the module consoles in place and they keep
+        # their identity for the process lifetime.
         self._console = console if console is not None else styles.console
         self._live: Live | None = None
         # The log handlers whose console this reporter has borrowed, each with
@@ -756,7 +746,7 @@ class LiveReporter(PhaseReporter):
         super().stop_rendering()
         self._close_live()
 
-    def _is_rendering(self) -> bool:
+    def is_rendering(self) -> bool:
         """True exactly while a region is mounted.
 
         False again once a repaint has raised and taken the region down, which
