@@ -23,6 +23,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   script reading a command's output no longer has to filter trouble out of it.
   Under `--json`, stdout carries the JSON document and nothing else.
 
+- ARIEL search modes are plain strings dispatched through the registry:
+  `search(mode="keyword")` rather than `SearchMode.KEYWORD`. The `SearchMode`
+  enum is gone, so code that imports it needs updating — the mode names
+  themselves are unchanged. `osprey ariel search --mode` now takes its choices
+  from the registry, so a facility that registers its own search module gets it
+  as a mode without a framework change.
+
 - Lifecycle commands no longer go quiet while they work. `osprey init`,
   `build`, `up`, `restart`, `down` and `reset` keep a spinner and a running
   elapsed under the phase they are in, and while images are building there is
@@ -119,6 +126,47 @@ Compatibility is documented in release notes, not encoded in the version string.
   and each browser tab is titled after its role.
 
 ### Added
+
+- An optional `qmd` search sidecar indexes the deployment's markdown corpora —
+  the facility-knowledge bundle, and a markdown mirror of the ARIEL logbook
+  where that is enabled — and answers hybrid keyword-plus-semantic queries. It
+  ships off: `services.qmd` is commented out in the `control-assistant` and
+  `ariel-standalone` templates, and its image is built locally rather than
+  pulled, so turning it on means uncommenting that block, adding `qmd` to
+  `deployed_services`, and building the image first. The endpoint carries no
+  authentication and publishes on the project-wide `deployment.bind_address`,
+  which defaults to loopback and should stay there. Budget about 1.25 GB of
+  disk per 135,000 logbook entries, and expect the first index build to take
+  around 40 minutes at that size.
+
+- Facility-knowledge search is ranked when that sidecar is configured. The
+  KNOWLEDGE panel and the facility-knowledge `search` tool return hits in
+  relevance order with a `score`, so a question phrased in an operator's own
+  words can find a document that never uses those words. Without a sidecar both
+  fall back to substring matching and `score` is `null`. `rerank` under
+  `facility_knowledge.search` is off by default: it costs roughly four times
+  the query latency, and these surfaces are interactive.
+
+- ARIEL gains a `qmd` search mode and a matching `qmd_search` tool for the
+  OSPREY agent, answering over a markdown mirror of the logbook written by the
+  new `qmd_export` enhancement module. Both are off by default, and both are
+  needed — the mirror with no search mode is never queried, and the search mode
+  with no mirror has nothing to read. Configure them under
+  `ariel.search_modules.qmd` and `ariel.enhancement_modules.qmd_export`; the
+  search knobs must sit under `settings:`, as keys written beside `enabled` are
+  ignored. `rerank` is on here, where ranking quality is worth the latency.
+
+  Filtering in this mode is best-effort: results are ranked first and the date,
+  author and source filters applied afterwards, so a selective filter can
+  return fewer entries than asked for even when more exist. Use `keyword_search`
+  or `sql_query` when a filter has to be exhaustive.
+
+- `osprey ariel qmd-resync` re-exports logbook entries the markdown mirror never
+  saw — those written by paths that bypass the enhancement modules, such as
+  creating an entry in the ARIEL web interface. `ingest` and `watch` run this
+  pass themselves, so a routine deployment never needs it by hand. `--rebuild`
+  clears the mirror and re-exports everything, which is what to reach for after
+  `osprey ariel purge`.
 
 - `close_panel` takes a panel's tile off the operator's screen and leaves it on
   the rail, so it is one click from coming back. There was previously no way to
