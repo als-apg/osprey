@@ -524,6 +524,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The source-tree sweep behind the lifecycle criteria no longer fails when a
+  file disappears while it is reading. It walks the live tree, so a temporary
+  file another test had staged under `src/` could be listed and then deleted
+  before its turn came, failing a criterion that was never evaluated.
+
 - A control-system write whose read-back could not be verified now fails instead
   of reporting success. `write_channel` logged `Wrote <channel>` whenever the
   write itself returned, so an operator could be told a setpoint had moved when
