@@ -80,10 +80,21 @@ def recording_console() -> tuple[Console, io.StringIO]:
     skips the repaint entirely. The theme is not optional either -- the region's
     styles are semantic tokens, and a bare ``Console()`` raises ``MissingStyle``
     on the first one.
+
+    ``get_time`` is frozen because the spinner frame is picked from it: Rich's
+    ``Spinner`` asks the console for the time on every render, so a spinner that
+    outlives one render advances on wall-clock alone. Any test comparing two
+    renders would then be comparing the machine's speed, not its own subject.
     """
     buffer = io.StringIO()
     return (
-        Console(file=buffer, theme=osprey_theme, force_terminal=True, width=100),
+        Console(
+            file=buffer,
+            theme=osprey_theme,
+            force_terminal=True,
+            width=100,
+            get_time=lambda: 1000.0,
+        ),
         buffer,
     )
 
