@@ -39,6 +39,10 @@ WHITELIST: dict[str, set[str]] = {
     "benchmark/test_matrix_lanes.py": {"sys.modules"},
     "scripts/test_config_key_guard.py": {"sys.modules"},
     "va/e2e/conftest.py": {"sys.modules"},
+    # the root conftest scrubs FORCE_COLOR/CLICOLOR_FORCE before collection
+    # imports any osprey module: osprey.cli.styles builds its Console at import
+    # time, so a fixture would un-force a console that already exists.
+    "conftest.py": {"os.environ"},
 }
 
 #: Marker every whitelisted site must carry, next to the mutation.

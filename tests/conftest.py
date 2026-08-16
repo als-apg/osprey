@@ -44,10 +44,11 @@ _PRISTINE_LOGGING = {
 # spawn share their ports), so a key is removed only when it BOTH appeared
 # during collection AND carries exactly the value an ancestor .env defines.
 
-# Color-forcing variables must be gone BEFORE collection imports any osprey
-# module: `osprey.cli.styles` builds its module-level Rich Console at import
-# time and Rich reads FORCE_COLOR in `Console.__init__`, so a fixture runs too
-# late to un-force a console that already exists. A developer terminal that
+# import-time required because `osprey.cli.styles` builds its module-level
+# Rich Console at import time and Rich reads FORCE_COLOR in `Console.__init__`,
+# so a fixture runs too late to un-force a console that already exists: the
+# color-forcing variables must be gone BEFORE collection imports any osprey
+# module. A developer terminal that
 # exports FORCE_COLOR otherwise turns CliRunner captures into ANSI-laced text
 # and fails seven CLI tests on pristine main — CI is green only because its
 # runners never export it. `NO_COLOR` is left alone: unset is the same default
