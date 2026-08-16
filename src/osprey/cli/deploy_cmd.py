@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import click
 
+from osprey.cli import output
 from osprey.cli.styles import Styles, console
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.utils.config import load_project_config
@@ -29,6 +30,19 @@ if TYPE_CHECKING:
 
 logger = get_logger("deploy")
 
+
+def _report_fact(message: str) -> None:
+    """Report ``message`` under this module's logger.
+
+    The promotion contract lives in :func:`osprey.cli.output.report_fact`; this
+    binds it to the deploy logger so call sites pass the line alone.
+
+    Args:
+        message: The finished line, built by the caller.
+    """
+    output.report_fact(logger, message)
+
+
 # ---------------------------------------------------------------------------
 # osprey up — the four-zone start verb
 # ---------------------------------------------------------------------------
@@ -40,39 +54,57 @@ logger = get_logger("deploy")
 _UP_SEEDED_ENV_BANNER = "# ── Seeded by `osprey up` from your shell ──"
 
 
-def _abort(message: str) -> NoReturn:
-    """Log a refusal and stop, with no traceback and exit code 1."""
-    logger.error(message)
+def _abort(
+    summary: str,
+    cause: str | None = None,
+    remedy: str | None = None,
+    *,
+    mark: bool = True,
+) -> NoReturn:
+    """Render a refusal in the CLI's one failure shape, then stop.
+
+    :func:`osprey.cli.output.fail` only prints, so the ``click.Abort`` below is
+    what ends the run: no traceback, exit code 1, exactly as before.
+
+    Args:
+        summary: What the verb will not do, in one line and without the glyph.
+        cause: Why, and what is unchanged as a result. Multi-line is fine.
+        remedy: The one thing to do about it, or ``None`` when there is nothing
+            honest to name.
+        mark: Whether to open with ``✗``. Pass ``False`` only where a phase has
+            already printed one for this same failure — the block then continues
+            that line instead of reading as a second thing having gone wrong.
+    """
+    output.fail(summary, cause, remedy, mark=mark)
     raise click.Abort()
 
 
 def _abort_unmet_precondition(
-    exc: DeploymentPreconditionError, *, nothing_done: str | None = None
+    exc: DeploymentPreconditionError,
+    *,
+    nothing_done: str | None = None,
+    mark: bool = True,
 ) -> NoReturn:
-    """Render an unmet deploy precondition — what is not true, then the one fix.
+    """Render an unmet deploy precondition: what is not true, then the one fix.
 
     Every :class:`~osprey.deployment.errors.DeploymentPreconditionError` carries
-    the same two fields, so ONE renderer serves all of them: no verb hand-writes
-    a per-error string, and a new precondition needs no new handler here.
-
-    No ``✗`` of its own. These are raised from inside a reporter phase whose
-    failure line has already marked the run, and two markers for one refusal
-    read as two things having gone wrong.
+    the same three fields, so ONE renderer serves all of them: no verb
+    hand-writes a per-error string, and a new precondition needs no new handler
+    here. The fields land on :func:`_abort`'s three in order, which is why the
+    error type was given them.
 
     Args:
         exc: The refusal, carrying ``summary``/``reason``/``remedy``.
         nothing_done: What is unchanged as a result ("Nothing was started."),
             for the verbs that act. ``None`` for the read-only verbs, which
             changed nothing whether they refused or not.
+        mark: ``False`` where the refusal left through an open phase, whose ``✗``
+            is already the run's one failure marker. Decided by the CALLER, not
+            here: this same renderer serves the read-only verbs, which refuse
+            outside any phase and so have no marker to continue.
     """
-    console.print(f"\n{exc.summary}: {exc.reason}\n", style=Styles.ERROR)
-    for line in exc.remedy.splitlines():
-        console.print(f"  {line}" if line else "")
-    if nothing_done is not None:
-        console.print(f"\n  {nothing_done}\n", style=Styles.WARNING)
-    else:
-        console.print()
-    raise click.Abort() from None
+    cause = exc.reason if nothing_done is None else f"{exc.reason}\n{nothing_done}"
+    _abort(exc.summary, cause, exc.remedy, mark=mark)
 
 
 def _stdin_is_a_terminal() -> bool:
@@ -163,16 +195,17 @@ def gate_start_from_build(
 
     report = check_drift(repo_root)
     if report.version_skew:
-        logger.warning(report.version_skew.message)
+        output.warn(report.version_skew.message)
 
     if report.state is DriftState.NO_BUILD:
         note = ""
         if as_built:
             note = "\n--as-built starts a build that already exists; this repo has none to start."
         _abort(
-            f"No build found in {report.build_dir}. Run `osprey build` first — "
-            f"`osprey {verb}` starts what a build rendered and never renders it "
-            f"itself.{note}\nNothing was started."
+            f"No build found in {report.build_dir}",
+            f"`osprey {verb}` starts what a build rendered, and never renders one "
+            f"itself.{note}\nNothing was started.",
+            "run `osprey build` first",
         )
 
     if not report.refuses:
@@ -190,17 +223,21 @@ def gate_start_from_build(
             else "Whether the running stack matches profile.yml is unknown, and stays "
             "unknown until the comparison can be made."
         )
-        logger.warning(
-            "Starting build/ as it was rendered (--as-built). %s %s", report.message, consequence
+        output.warn(
+            "Starting build/ as it was rendered (--as-built)", f"{report.message} {consequence}"
         )
         return
 
+    # No `→` remedy line here, deliberately: there are two valid ways through
+    # and they are not interchangeable. Naming one of them as *the* remedy
+    # would be a recommendation this verb cannot honestly make, so both are
+    # spelled in the cause as an aligned block and the operator picks.
     _abort(
-        f"{report.message}\n"
-        f"  osprey {verb} --build      re-render build/ from profile.yml, then start it\n"
-        f"  osprey {verb} --as-built   start build/ as it was rendered, leaving the "
+        report.message,
+        f"osprey {verb} --build      re-render build/ from profile.yml, then start it\n"
+        f"osprey {verb} --as-built   start build/ as it was rendered, leaving the "
         f"change unbuilt\n"
-        "Nothing was started."
+        "Nothing was started.",
     )
 
 
@@ -235,7 +272,7 @@ def _chain_build(ctx: click.Context, repo_root: Path, *, dev: bool = False) -> N
     ctx.invoke(build_cmd, repo=repo_root, dev=dev)
 
 
-def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
+def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = True) -> None:
     """Refuse to start a deployment repo that has no ``.env``, offering to seed one.
 
     ``.env`` at the repo root is the deployment's whole secret store and the
@@ -261,6 +298,10 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
     Args:
         repo_root: The deployment repo.
         config: The rendered ``build/config.yml``, which names the provider.
+        mark: Whether the refusal opens with ``✗``. ``False`` from inside an
+            open phase, whose own ``✗`` is already the run's failure marker.
+            Defaults to ``True`` because this function is also called on its
+            own, with no phase above it to carry the mark.
 
     Raises:
         click.Abort: When there is no ``.env`` and none was seeded.
@@ -299,7 +340,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
             from osprey.utils.dotenv import append_profile_env
 
             append_profile_env(env_path, {secret_var: exported}, _UP_SEEDED_ENV_BANNER)
-            logger.key_info("Seeded %s (mode 0600) with %s", env_path, secret_var)
+            _report_fact(f"Seeded {env_path} (mode 0600) with {secret_var}")
             return
 
     needed = f" It needs {secret_var} for provider {provider!r}." if secret_var else ""
@@ -307,14 +348,17 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any]) -> None:
     # .env.example has been removed would otherwise be told to copy a file that
     # is not there — a small lie that costs an operator a minute of hunting.
     remedy = (
-        "    cp .env.example .env\nthen fill it in and re-run."
+        "cp .env.example .env, then fill it in and re-run"
         if (repo_root / ".env.example").is_file()
-        else f"Create {env_path} with that variable in it and re-run."
+        else f"create {env_path} with that variable in it, then re-run"
     )
     _abort(
-        f"No .env in {repo_root}. It is this deployment's only secret store, and every "
-        f"compose invocation reads it — without it the stack starts with every "
-        f"credential empty.{needed}\n{remedy} Nothing was started."
+        f"No .env in {repo_root}",
+        f"It is this deployment's only secret store, and every compose invocation "
+        f"reads it. Without it the stack starts with every credential "
+        f"empty.{needed}\nNothing was started.",
+        remedy,
+        mark=mark,
     )
 
 
@@ -339,14 +383,20 @@ def _preflight(repo_root: Path, reporter: PhaseReporter, *, nothing_done: str) -
     """
     from osprey.deployment.container_lifecycle import as_built_config_path
 
+    # Both refusals below leave through the open phase, which fails it with its
+    # own ✗ on the way out — so neither prints one of its own.
     with reporter.phase("Preflight") as phase:
         config_path = as_built_config_path(repo_root)
         if not config_path.is_file():
             _abort(
-                f"No build found at {config_path.parent}. Run `osprey build` to render it. "
-                f"{nothing_done}"
+                f"No build found at {config_path.parent}",
+                nothing_done,
+                "run `osprey build` to render it",
+                mark=False,
             )
-        ensure_repo_env(repo_root, load_project_config(str(config_path), wrap_errors=True))
+        ensure_repo_env(
+            repo_root, load_project_config(str(config_path), wrap_errors=True), mark=False
+        )
         phase.done("build/ and .env are in place")
 
 
@@ -475,15 +525,17 @@ def up_verb(
             # One handler for every unmet precondition on this path — a missing
             # render, a --dev that cannot be honored, an unreleased pin. They
             # differ only in their reason and remedy, which the renderer reads
-            # off the exception.
-            _abort_unmet_precondition(e, nothing_done="Nothing was deployed.")
+            # off the exception. The start phase closed with its own ✗ on the
+            # way out, so this block continues that line rather than marking it
+            # a second time.
+            _abort_unmet_precondition(e, nothing_done="Nothing was deployed.", mark=False)
         except KeyboardInterrupt:
-            console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+            output.warn("Operation cancelled by user")
             raise click.Abort() from None
         except (click.Abort, click.ClickException):
             raise
         except Exception as e:
-            _abort(f"Deployment failed: {e}")
+            _abort("Deployment failed", str(e))
         finally:
             os.chdir(previous)
 
@@ -552,12 +604,12 @@ def down_verb(repo: Path | None) -> None:
                 down_deployment(repo_root)
             print_summary_card(repo_root, "stopped")
     except KeyboardInterrupt:
-        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+        output.warn("Operation cancelled by user")
         raise click.Abort() from None
     except (click.Abort, click.ClickException):
         raise
     except Exception as e:
-        _abort(f"Could not stop this deployment: {e}")
+        _abort("Could not stop this deployment", str(e))
     finally:
         os.chdir(previous)
 
@@ -680,14 +732,14 @@ def restart_verb(
         except DeploymentPreconditionError as e:
             # Same single handler as `up`; the restart phase's ✗ is the run's
             # marker, so the renderer adds none of its own.
-            _abort_unmet_precondition(e, nothing_done="Nothing was stopped.")
+            _abort_unmet_precondition(e, nothing_done="Nothing was stopped.", mark=False)
         except KeyboardInterrupt:
-            console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+            output.warn("Operation cancelled by user")
             raise click.Abort() from None
         except (click.Abort, click.ClickException):
             raise
         except Exception as e:
-            _abort(f"Restart failed: {e}")
+            _abort("Restart failed", str(e))
         finally:
             os.chdir(previous)
 
@@ -747,12 +799,12 @@ def status_verb(repo: Path | None, show_agents: bool) -> None:
     try:
         show_repo_status(repo_root, console=console, styles=Styles, show_agents=show_agents)
     except KeyboardInterrupt:
-        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+        output.warn("Operation cancelled by user")
         raise click.Abort() from None
     except (click.Abort, click.ClickException):
         raise
     except Exception as e:
-        _abort(f"Could not report this deployment's status: {e}")
+        _abort("Could not report this deployment's status", str(e))
 
 
 @click.command("logs")
@@ -806,11 +858,13 @@ def logs_verb(repo: Path | None, service: str | None, follow: bool, tail: int | 
     try:
         follow_logs(repo_root, service=service, follow=follow, tail=tail)
     except DeploymentPreconditionError as e:
+        # Keeps its ✗: `logs` reads, so it opens no phase, and a refusal with no
+        # phase line above it is the only marker this run will get.
         _abort_unmet_precondition(e)
     except KeyboardInterrupt:
-        console.print("\n!  Operation cancelled by user", style=Styles.WARNING)
+        output.warn("Operation cancelled by user")
         raise click.Abort() from None
     except (click.Abort, click.ClickException):
         raise
     except Exception as e:
-        _abort(f"Could not read this deployment's logs: {e}")
+        _abort("Could not read this deployment's logs", str(e))

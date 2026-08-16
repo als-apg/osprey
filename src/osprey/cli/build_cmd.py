@@ -91,6 +91,21 @@ from .templates.manager import TemplateManager
 
 logger = get_logger("build")
 
+
+def _report_fact(message: str) -> None:
+    """Report ``message`` under this module's logger.
+
+    The promotion contract lives in :func:`osprey.cli.output.report_fact`; this
+    binds it to the build logger so call sites pass the line alone.
+
+    Args:
+        message: The finished line, built by the caller.
+    """
+    from . import output
+
+    output.report_fact(logger, message)
+
+
 __all__ = [
     "_SHELL_METACHARACTERS",
     "_apply_config_overrides",
@@ -900,8 +915,8 @@ def _openobserve_endpoint_errors(
         logger.warning(
             "  services.openobserve.port publishes the store on %s, while %s runs on the "
             "host network and derives the telemetry endpoint's port from a pinned %s. "
-            "Nothing is broken today — claude_code.telemetry is not deriving an endpoint "
-            "— but enabling it with backend: openobserve will need "
+            "Nothing is broken today, since claude_code.telemetry is not deriving an "
+            "endpoint. Enabling it with backend: openobserve will need "
             "claude_code.telemetry.endpoint set explicitly.",
             published,
             named,
@@ -984,10 +999,9 @@ def _render_compose_files(
         ``None`` when compose generation did not run.
     """
     if runtime_root:
-        logger.info(
-            "  Compose files not rendered: --runtime-root points this build at %s, "
-            "and compose bind sources are resolved on the host that deploys it.",
-            runtime_root,
+        _report_fact(
+            f"Compose files not rendered: --runtime-root points this build at {runtime_root}, "
+            "and compose bind sources are resolved on the host that deploys it."
         )
         return None
 
@@ -1007,7 +1021,9 @@ def _render_compose_files(
         os.chdir(previous)
     if network_errors:
         raise click.UsageError("Network axis check failed:\n  - " + "\n  - ".join(network_errors))
-    logger.info("  ✓ Rendered %d compose file(s)", len(compose_files))
+    # Not reported here: the render phase's `compose files` step fires the
+    # moment this returns and says the same thing.
+    logger.debug("Rendered %d compose file(s)", len(compose_files))
     return dict(config)
 
 
@@ -1966,8 +1982,8 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
         for key in sorted(BUILD_DERIVED_KEYS & on_file.keys()):
             logger.warning(
                 "  %s is set in %s, but this build generated no virtual-accelerator "
-                "channel manifest for it to point at. The value was left alone — it is "
-                "yours, not the build's — but the IOC will fail to start against a "
+                "channel manifest for it to point at. The value was left alone, since it is "
+                "yours and not the build's. The IOC will fail to start against a "
                 "manifest that is not there. Remove the line, or restore the channel "
                 "databases the manifest is generated from.",
                 key,
@@ -1990,18 +2006,20 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
     result = append_profile_env(env_path, entries, BUILD_DERIVED_BANNER)
 
     if result.added:
-        logger.info(
-            "  ✓ Pointed %s at the generated channel manifest (%s)",
-            COMPOSE_ENV_FILENAME,
-            ", ".join(sorted(result.added)),
+        # The build's one write outside build/, into a file that is the
+        # operator's rather than a build artifact. It runs after the render
+        # phase has closed, so it is reported rather than stepped.
+        _report_fact(
+            f"Pointed {COMPOSE_ENV_FILENAME} at the generated channel manifest "
+            f"({', '.join(sorted(result.added))})"
         )
     for conflict in result.conflicts:
         # Named, never valued: the store this reads is the one holding the
         # facility's provider keys, and a warning is not a safe place for it.
         logger.warning(
-            "  %s in %s disagrees with what this build generated. Your value was kept — "
-            "the build never overwrites this file — so the IOC will serve the channel set "
-            "you named, not the one in build/. Remove the line to take the build's.",
+            "  %s in %s disagrees with what this build generated. Your value was kept, "
+            "because the build never overwrites this file. The IOC will serve the channel "
+            "set you named, not the one in build/. Remove the line to take the build's.",
             conflict.key,
             env_path,
         )
@@ -2098,9 +2116,16 @@ def _build_repo(
             )
         _check_osprey_version_requirement(build_profile)
 
-        logger.info("  Profile: %s", build_profile.name)
-        logger.info("  Data bundle: %s", build_profile.data_bundle)
-        logger.info("  Tier: %d", build_profile.resolved_tier())
+        # Outside every phase, on purpose. The next thing this build opens is
+        # `Preparing the project environment`, the long pole: hung under a
+        # phase this identity would arrive minutes after the wait it labels,
+        # and as a step it would vanish entirely (no phase is open here).
+        from . import output
+
+        output.report(
+            f"profile {build_profile.name} (bundle {build_profile.data_bundle}, "
+            f"tier {build_profile.resolved_tier()})"
+        )
 
         # A fresh staging tree, and the output zone it will replace. Both are
         # created now: the venv below is written into `build/` directly, at the
@@ -2269,11 +2294,7 @@ def _build_repo(
 
     if backup_dir is not None:
         logger.debug("  ✓ Previous Claude Code artifacts saved to %s", backup_dir)
-    logger.info("✓ Rendered %s", zones.build_dir)
     _warn_if_deployment_running(config, name)
-
-    if (zones.build_dir / "data" / "simulation" / "scenarios").is_dir():
-        logger.info("  → Seed the demo logbook with: osprey sim apply nominal")
 
 
 def _check_osprey_version_requirement(build_profile: Any) -> None:
@@ -2439,8 +2460,8 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     """
     if not build_profile.deploy_services:
         logger.debug(
-            "deploy_services: false — attached project; no services scaffolded "
-            "(connects to a shared OSPREY services stack)"
+            "deploy_services: false. This is an attached project, so no services were "
+            "scaffolded (it connects to a shared OSPREY services stack)."
         )
         return []
 

@@ -51,7 +51,7 @@ def restore_installed_reporter():
 class SeamRecorder(PhaseReporter):
     """A reporter that IS rendering, recording every seam call in order.
 
-    ``_is_rendering`` is what decides whether ``suspended()`` has anything to
+    ``is_rendering`` is what decides whether ``suspended()`` has anything to
     do, so claiming it here is what makes the real seam act — the block is
     exercised, not stubbed out.
     """
@@ -63,7 +63,7 @@ class SeamRecorder(PhaseReporter):
     def emit(self, text: str, style: str | None = None) -> None:
         """Swallow the line: only the seam calls are being counted."""
 
-    def _is_rendering(self) -> bool:
+    def is_rendering(self) -> bool:
         return True
 
     def stop_rendering(self) -> None:
@@ -177,7 +177,7 @@ def test_the_prompt_path_is_a_no_op_with_nothing_rendering(offered, monkeypatch,
     here, nothing at all.
     """
     reporter = SeamRecorder()
-    monkeypatch.setattr(SeamRecorder, "_is_rendering", lambda self: False)
+    monkeypatch.setattr(SeamRecorder, "is_rendering", lambda self: False)
     install_reporter(reporter)
     _answer(monkeypatch, reporter)
     repo = _repo(tmp_path)

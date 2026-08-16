@@ -495,7 +495,7 @@ def _warn_shadowed_bare_exclusions(root_dir: Path, shadow_candidates: set[str]) 
         source, _, name = artifact.partition("/")
         _LOGGER.warning(
             "Profile %s excludes the bare name %r under %r, but it also ships its own "
-            "%r in %s — that file still renders, so the exclusion has no effect. "
+            "%r in %s. That file still renders, so the exclusion has no effect. "
             "Did you mean %r? A bare name only unselects the BUILT-IN artifact, which "
             "this profile already shadows; the qualified spelling omits the profile's "
             "own file, which is what makes the built-in version render again.",
@@ -525,7 +525,7 @@ def _warn_unmatched_exclusions(root_dir: Path, artifacts: set[str]) -> None:
             continue
         source, _, _name = artifact.partition("/")
         _LOGGER.warning(
-            "Profile %s excludes %r, but no such artifact exists under %s — the "
+            "Profile %s excludes %r, but no such artifact exists under %s. The "
             "exclusion has no effect. Check the spelling.",
             root_dir,
             artifact,

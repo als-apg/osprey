@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
+from .phase_reporter import report_step
+
 logger = get_logger("build")
 
 
@@ -38,7 +40,7 @@ def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> 
 
     config_path = project_path / "config.yml"
     if not config_path.exists():
-        logger.warning("config.yml not found at %s — skipping config overrides", config_path)
+        logger.warning("config.yml not found at %s. Skipping the config overrides.", config_path)
         return
     config_update_fields(config_path, config_dict)
 
@@ -310,7 +312,9 @@ def _apply_conventions(
         if shadowed:
             # Anything already at the destination was rendered by this build
             # (step 11 runs on a fresh or force-cleared tree).
-            logger.info("  ↷ profile overrides framework %s '%s'", entry_nouns[copy.category], name)
+            logger.debug(
+                "  ↷ profile overrides framework %s '%s'", entry_nouns[copy.category], name
+            )
         canonical = ownership_canonical(copy)
         if canonical is not None:
             result.owned_artifacts.append(canonical)
@@ -321,23 +325,24 @@ def _apply_conventions(
     if result.departed_users:
         logger.warning(
             "  %s/ has context for %d user(s) not on the roster: %s\n"
-            "     Skipped — add them to modules.web_terminals.users or remove the "
-            "directory from the profile.",
+            "     They were skipped. Add them to modules.web_terminals.users, or remove "
+            "the directory from the profile.",
             per_user_source,
             len(result.departed_users),
             ", ".join(result.departed_users),
         )
     if result.seeded_users:
-        logger.info(
-            "  ✓ Seeded %d empty context directory/ies in the profile: %s",
-            len(result.seeded_users),
+        # A write into the operator's own profile, outside build/: it stays in
+        # the default view, as a step under the render phase.
+        report_step(f"seeded {len(result.seeded_users)} empty context dir(s) in the profile")
+        logger.debug(
+            "Seeded empty context directories: %s",
             ", ".join(f"{per_user_source}/{user}" for user in result.seeded_users),
         )
     if PROJECT_MIRROR_DIR in result.by_category:
-        logger.info(
-            "  ✓ Mirrored %d file(s) from %s/ onto the project root",
-            result.by_category[PROJECT_MIRROR_DIR],
-            PROJECT_MIRROR_DIR,
+        # As above: this one lands on the project root.
+        report_step(
+            f"mirrored {result.by_category[PROJECT_MIRROR_DIR]} file(s) onto the project root"
         )
     return result
 

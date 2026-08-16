@@ -14,6 +14,7 @@ from pathlib import Path
 
 import click
 
+from . import output
 from .repo_resolver import find_repo_root, repo_option
 
 
@@ -124,16 +125,18 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
             # paused, and it is reentrant — is what makes the wider scope safe
             # for anything reset later reaches that does open a phase.
             with reporter.suspended():
-                # `echo`, never the reporter's `emit`: under the global
-                # `--verbose` that is a NullReporter and swallows its argument,
-                # and the plan is the one thing this verb may never go quiet
-                # about.
+                # `output.report`, never the reporter's `emit`: report is
+                # echo-class, so it survives the NullReporter the global
+                # `--verbose` installs, and the plan is the one thing this verb
+                # may never go quiet about. It is also the printer
+                # `init --reset` hands the same call, so the plan an operator
+                # reads is line-identical on both paths.
                 outcome = reset_deployment(
                     repo_root,
                     dry_run=dry_run,
                     assume_yes=assume_yes,
                     purge_audit=purge_audit,
-                    emit=reporter.echo,
+                    emit=output.report,
                 )
         except ForeignCheckoutError as e:
             # Shown verbatim rather than summarized: the message is already the
@@ -153,14 +156,14 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
             # leaves. Reporting 1 here would tell a caller "nothing was touched"
             # about a half-wiped deployment.
             #
-            # `echo_error` rather than `click.echo(err=True)`: piped, this is
+            # `output.fail` rather than `click.echo(err=True)`: this is the one
+            # shape every refusal in the CLI wears, and it puts the notice on
             # stderr verbatim, which is the channel a caller reading stdout for
-            # the plan watches for trouble; on a terminal it goes through the
-            # console that owns the region instead of into the middle of it.
-            reporter.echo_error(
-                "Reset interrupted while it was removing things. It does not roll back, so "
-                "this deployment is in a partly-reset state. Re-run `osprey reset` to finish; "
-                "it re-reads what is actually there."
+            # the plan watches for trouble.
+            output.fail(
+                "Reset interrupted while it was removing things",
+                "It does not roll back, so this deployment is in a partly-reset state.",
+                "re-run `osprey reset` to finish; it re-reads what is actually there",
             )
             raise click.exceptions.Exit(PARTIAL_RESET_EXIT_CODE) from None
         except RuntimeError as e:

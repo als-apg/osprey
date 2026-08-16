@@ -31,7 +31,7 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
-from osprey.cli import phase_reporter
+from osprey.cli import phase_reporter, styles
 from osprey.cli.phase_reporter import LiveReporter, install_reporter
 from osprey.cli.reset_cmd import reset as reset_command
 from osprey.cli.styles import osprey_theme
@@ -55,17 +55,19 @@ no_down = scoping.no_down
 #: pattern alone does not catch.
 _NOISE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\r")
 
-#: The interrupt notice, in full. Written out rather than imported so that a
-#: reword has to come past these tests and re-affirm the stream it goes to.
+#: The interrupt notice, in full, exactly as the renderer's failure shape lays
+#: it out: what failed, then why, then the one thing to do. Written out rather
+#: than imported so that a reword has to come past these tests and re-affirm
+#: both the wording and the stream it goes to.
 INTERRUPT_NOTICE = (
-    "Reset interrupted while it was removing things. It does not roll back, so this "
-    "deployment is in a partly-reset state. Re-run `osprey reset` to finish; it re-reads "
-    "what is actually there."
+    "✗ Reset interrupted while it was removing things\n"
+    "  It does not roll back, so this deployment is in a partly-reset state.\n"
+    "  → re-run `osprey reset` to finish; it re-reads what is actually there\n"
 )
 
-#: Wide enough that the region's table has room, narrow enough that the notice
-#: and the longest plan lines are past it -- which is what makes "not wrapped"
-#: an observation rather than a coincidence.
+#: Wide enough that the region's table has room, narrow enough that the longest
+#: plan lines are past it -- which is what makes "not wrapped" an observation
+#: rather than a coincidence.
 _WIDTH = 100
 
 
@@ -173,7 +175,7 @@ def test_the_interrupt_notice_off_a_terminal_is_still_on_stderr(
     result = CliRunner().invoke(reset_command, ["--repo", str(repo), "-y"])
 
     assert result.exit_code == 3
-    assert result.stderr == f"{INTERRUPT_NOTICE}\n"
+    assert result.stderr == INTERRUPT_NOTICE
     assert "partly-reset" not in result.stdout
 
 
@@ -214,7 +216,7 @@ def test_the_typed_confirmation_runs_with_the_region_taken_down(
     at_the_prompt: dict[str, object] = {}
 
     def answer(_prompt: str) -> str:
-        at_the_prompt["rendering"] = reporter._is_rendering()
+        at_the_prompt["rendering"] = reporter.is_rendering()
         at_the_prompt["depth"] = reporter._suspend_depth
         return confirmation_token(repo)
 
@@ -225,23 +227,32 @@ def test_the_typed_confirmation_runs_with_the_region_taken_down(
 
     assert result.exit_code == 0, result.output
     assert at_the_prompt == {"rendering": False, "depth": 1}
-    assert reporter._is_rendering()
+    assert reporter.is_rendering()
 
 
 def test_the_interrupt_notice_goes_through_the_console_while_a_region_is_up(
     repo: Path, monkeypatch: pytest.MonkeyPatch, live_reporter
 ) -> None:
-    """On a terminal the notice belongs to the console, on ONE line.
+    """On a terminal the notice still belongs to the console that owns the region.
 
     stdout and stderr are the same device here, so nothing is lost by routing
-    it; what would be lost by not routing it is the line itself, written into a
-    region that is about to repaint over it. Asserted as an unwrapped line
-    because that is the observable difference: anything reaching this terminal
-    other than through the console arrives without the soft wrap and comes back
-    folded at the console's width.
+    it; what would be lost by not routing it is the notice itself, written into
+    a region that is about to repaint over it. The renderer's trouble path
+    borrows the region's console for exactly that reason, so the notice is read
+    out of the region's buffer and NOT out of the stderr console, which is
+    replaced here with a recording one and asserted to have taken nothing.
+
+    Asserted as the whole three-line block rather than as a substring: a
+    transport that folded it at the console's width, or dropped the indent that
+    makes the cause and the remedy subordinate, would pass every substring
+    assertion ever written against it.
     """
 
     _, buffer = live_reporter
+    err_buffer = io.StringIO()
+    monkeypatch.setattr(
+        styles, "err_console", Console(file=err_buffer, width=_WIDTH, theme=osprey_theme)
+    )
 
     def interrupt_during_teardown(_root: Path) -> None:
         raise KeyboardInterrupt
@@ -252,5 +263,5 @@ def test_the_interrupt_notice_goes_through_the_console_while_a_region_is_up(
     result = CliRunner().invoke(reset_command, ["--repo", str(repo), "-y"])
 
     assert result.exit_code == 3
-    assert len(INTERRUPT_NOTICE) > _WIDTH
-    assert f"{INTERRUPT_NOTICE}\n" in rendered(buffer)
+    assert INTERRUPT_NOTICE in rendered(buffer)
+    assert err_buffer.getvalue() == ""

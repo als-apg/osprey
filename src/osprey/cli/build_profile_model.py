@@ -617,8 +617,8 @@ class BuildProfile:
                         "web_panels entry 'results' is deprecated: the RESULTS panel is now "
                         "BLUESKY. Rename it to 'bluesky' (and any web.panels.results.* config "
                         "override to web.panels.bluesky.*). The old id keeps working for ONE "
-                        "release — the bluesky-panels sidecar serves the same bundle at "
-                        "/results/ — and is removed after that.",
+                        "release and is removed after that. Until then the bluesky-panels sidecar "
+                        "serves the same bundle at /results/.",
                         UserWarning,
                         stacklevel=2,
                     )
@@ -627,8 +627,8 @@ class BuildProfile:
                         "web_panels entry 'plan' is deprecated: the PLAN panel is now the "
                         "Plans tab of BLUESKY. Drop it (and any web.panels.plan.* config "
                         "override); 'bluesky' covers it. The old id keeps working for ONE "
-                        "release — the bluesky-panels sidecar serves the same bundle at "
-                        "/plan/ — and is removed after that.",
+                        "release and is removed after that. Until then the bluesky-panels sidecar "
+                        "serves the same bundle at /plan/.",
                         UserWarning,
                         stacklevel=2,
                     )

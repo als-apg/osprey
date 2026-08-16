@@ -44,6 +44,7 @@ from osprey.utils.dotenv import ENV_SHARED_FILENAME
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import STATE_ZONE_DIRS
 
+from . import output
 from .profile_conventions import BUILD_OUTPUT_DIR, STATE_DIR
 from .repo_resolver import HELD_SOURCE_ZONE_DIRNAME
 
@@ -624,12 +625,11 @@ def _reinstate_held_source_zone(target: Path) -> None:
 
     unrecognized = sorted(entry.name for entry in stash.iterdir())
     if unrecognized:
-        click.echo(
-            f"\n⚠ Put your files back from {stash}, but left "
-            f"{', '.join(unrecognized)} in it. This version of osprey has no "
-            f"place for anything by those names, and nothing will read them. "
-            f"Move them out, or delete that directory yourself.",
-            err=True,
+        output.warn(
+            f"Put your files back from {stash}, but left {', '.join(unrecognized)} in it",
+            "This version of osprey has no place for anything by those names, "
+            "and nothing will read them. Move them out, or delete that "
+            "directory yourself.",
         )
         return
     shutil.rmtree(stash, ignore_errors=True)
@@ -734,11 +734,11 @@ def _replacing_source_zone(target: Path, *, active: bool) -> Iterator[None]:
     # this entry existed would sweep it into the next `git add --all`.
     shutil.rmtree(stash, ignore_errors=True)
     if stash.exists():
-        click.echo(
-            f"\n⚠ Could not remove {stash}. It holds the files that were just "
-            f"replaced, so everything in it is an older copy of what is now in "
-            f"the repo. Remove it before you commit.",
-            err=True,
+        output.warn(
+            f"Could not remove {stash}",
+            "It holds the files that were just replaced, so everything in it "
+            "is an older copy of what is now in the repo. Remove it before "
+            "you commit.",
         )
 
 
@@ -1132,8 +1132,16 @@ def init(
             # and `reset` pulls in the whole deployment stack.
             from osprey.deployment.reset import reset_deployment
 
+            # `output.report`, and NOT a logger call: the destruction plan is
+            # this verb's own output, not a transcript line. Routed through the
+            # logger it is an INFO record, which the altitude gate drops on a
+            # normal run -- so `osprey init --reset` used to destroy a
+            # deployment without ever showing the operator the list of what it
+            # was about to take, while `osprey reset` printed the same plan in
+            # full. One printer for both call sites is what keeps the two paths
+            # line-identical rather than merely similar.
             with reporter.phase(f"Discarding the previous {target.name}"):
-                reset_deployment(target, assume_yes=True, emit=logger.key_info)
+                reset_deployment(target, assume_yes=True, emit=output.report)
 
             # `reset` removes only what carries this checkout's repo-id label,
             # so a deployment predating that label survives it — correctly, since
@@ -1191,9 +1199,9 @@ def _abort_incomplete_reset(target: Path, survivors: list[str]) -> None:
     logger.error(
         "✗ --reset could not clear %s: %d resource(s) of this project remain.\n\n%s\n\n"
         "`osprey reset` removes only what carries this checkout's `com.osprey.repo-id` "
-        "label. These predate it — a deployment created before the label existed — so it "
-        "cannot prove they are this repo's and declines to touch them, which is what keeps "
-        "one checkout from destroying another's.\n\n"
+        "label, and these were created before that label existed. It cannot prove they "
+        "belong to this repo, so it leaves them alone, which is what keeps one checkout "
+        "from destroying another's.\n\n"
         "Remove them yourself, once, and every later deployment of this name will carry the "
         "label and reset cleanly:\n"
         "    docker ps -aq --filter label=com.docker.compose.project=%s | xargs docker rm -f\n"

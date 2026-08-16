@@ -301,7 +301,10 @@ def test_missing_user_directory_is_seeded_in_the_profile(
 ):
     _write(profile_dir / "web-terminal-context" / "alice" / "extra.md")
 
-    with caplog.at_level(logging.INFO):
+    # Renderer migration (disposition row 36): the default view now carries only
+    # the count, as a render sub-step; the list of seeded directories stayed on
+    # the logger and dropped to DEBUG.
+    with caplog.at_level(logging.DEBUG):
         applied = _apply_conventions(profile_dir, project_path, ["alice", "bob"])
 
     assert applied.seeded_users == ["bob"]
