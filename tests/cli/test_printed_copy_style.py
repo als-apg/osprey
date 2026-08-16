@@ -24,10 +24,51 @@ import pytest
 SRC = Path(__file__).resolve().parents[2] / "src" / "osprey"
 
 #: Calls whose string arguments land on a terminal, by attribute or bare name.
-#: ``emit``, ``echo`` and ``echo_error`` are the phase reporter's (``echo`` is
-#: also click's, along with ``secho``), and ``print`` is rich's console and the
-#: builtin.
-_PRINTERS = frozenset({"echo", "echo_error", "secho", "emit", "print"})
+#: ``emit`` and ``echo`` are the phase reporter's (``echo`` is also click's,
+#: along with ``secho``), and ``print`` is rich's console and the builtin.
+#:
+#: ``report``, ``note``, ``section``, ``table``, ``warn`` and ``fail`` are
+#: :mod:`osprey.cli.output`'s primitives, the renderer every printed line is
+#: moving onto. Matching is by bare name, so ``warn`` also catches
+#: ``warnings.warn`` -- which is the right reach anyway: a deprecation warning
+#: is read by whoever runs the build, not by whoever wrote it. ``table`` takes a
+#: renderable rather than prose, so it normally contributes nothing; it is here
+#: so that a string handed to it is caught rather than silently exempt.
+#:
+#: The last three are wrappers rather than primitives, and they are here because
+#: of the rule they state: a wrapper around a renderer primitive either joins
+#: this set, or carries a comment at its own definition saying its copy is
+#: unguarded and why. A wrapper that does neither reads as covered while being
+#: invisible, which is the one outcome this file exists to prevent.
+#:
+#: ``_abort`` is ``deploy_cmd``'s refusal wrapper, which hands its three
+#: arguments straight to ``fail`` and then stops the run. ``_report_fact`` and
+#: ``report_fact`` are the promotion wrappers: each prints through ``report``
+#: and keeps a log record at the level it already had, and between them they
+#: carry the deploy and web-terminal facts an operator reads.
+#:
+#: Named exception, so the rule above is enforced rather than merely stated:
+#: ``_emit`` at ``cli/config_cmd.py`` and ``interfaces/okf_panel/validation.py``
+#: prints, and stays out. Matching is by bare name, and ``cli/deploy_scaffold.py``
+#: has an ``_emit`` that writes a FILE -- registering the name would judge a
+#: file's contents as prose. Both printing ``_emit``s carry the comment.
+_PRINTERS = frozenset(
+    {
+        "echo",
+        "secho",
+        "emit",
+        "print",
+        "report",
+        "note",
+        "section",
+        "table",
+        "warn",
+        "fail",
+        "_abort",
+        "_report_fact",
+        "report_fact",
+    }
+)
 
 #: In-house vocabulary. Each of these has a plain equivalent that costs no
 #: precision, and none of them is defined anywhere the reader will have been.
@@ -153,17 +194,39 @@ def test_the_walk_still_reaches_the_output_people_read() -> None:
     a wrapper this does not match should fail HERE, loudly, rather than quietly
     switching the lint off.
 
-    The floors are well under today's numbers (438 literals across 48 files) --
-    this is a canary for the walk breaking, not a quota on how much OSPREY is
-    allowed to print.
+    Two reaches it cannot pin, both of them the same shape -- the walk reads the
+    POSITIONAL ARGUMENTS of a printing call, and nothing else:
+
+    * copy built elsewhere and handed over in a variable, however loudly it
+      prints afterwards. ``format_conflict_report`` is the worked example, and
+      it is pinned in its own test instead.
+    * copy passed by KEYWORD, even where the callee is registered here. Live
+      today at ``deploy_cmd``'s ``nothing_done="Nothing was deployed."``, which
+      is concatenated into a printed cause this walk never reads.
+
+    Widening the matcher to keywords is not obviously right (it would start
+    reading ``style=`` and every other non-prose keyword), so both stay review's
+    job. What matters is that they are written down: a blind spot nobody has
+    named reads as coverage.
+
+    Measured on rebaseline: 454 literals across 55 files. That is the reading of
+    one run rather than a constant, since every line of copy added or deleted
+    moves it. The floors sit about
+    10% under that, which is room for ordinary copy churn and not much more --
+    a block getting deleted should not turn this red, and the walk losing a
+    whole module should. Re-derive both numbers from a real run when they next
+    move, and note that the count moves whenever a WRAPPER joins ``_PRINTERS``,
+    not only when copy changes. Do not raise them to whatever the day's count
+    happens to be: a floor pinned to the ceiling fails on the next honest
+    deletion.
     """
     strings = _printed_strings()
     files = {path for path, _, _ in strings}
 
-    assert len(strings) > 300, (
+    assert len(strings) > 405, (
         f"only {len(strings)} printed literals found -- has _PRINTERS drifted?"
     )
-    assert len(files) > 30, f"only {len(files)} files matched -- has the walk stopped descending?"
+    assert len(files) > 49, f"only {len(files)} files matched -- has the walk stopped descending?"
 
     # The onboarding path specifically, since that is what these rules exist for.
     # `validate_cmd.py` rather than `profile_cmd.py`: the profile group's verdict
