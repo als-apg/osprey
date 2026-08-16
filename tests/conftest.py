@@ -259,16 +259,34 @@ def restore_root_logging():
     Only ``RichHandler`` instances are ever removed. ``caplog`` installs its
     ``LogCaptureHandler`` around each test, and anything a test or fixture owns
     itself, are left alone.
+
+    The CLI adds a fourth process-global change: it installs its altitude gate
+    (``osprey.cli.altitude``) as a filter on that ``RichHandler``, which decides
+    what a run renders. A handler a test survives with — one that was already
+    pristine, or one a fixture owns — would carry that gate into every later
+    test on the worker, so any gate is stripped as well.
     """
     root = logging.getLogger()
     # `in` on handlers is an identity check — they define no __eq__.
     pristine_handlers = _PRISTINE_LOGGING["root_handlers"]
 
+    def _strip_altitude_gate(handler: logging.Handler) -> None:
+        # A RichHandler carries no filters until the CLI gates it, so the
+        # import — which pulls in osprey.cli — stays out of runs that never
+        # touch the CLI.
+        if not handler.filters:
+            return
+        from osprey.cli.altitude import lift_gate
+
+        lift_gate(handler)
+
     def _reset() -> None:
         root.setLevel(_PRISTINE_LOGGING["root_level"])
         for handler in list(root.handlers):
-            if isinstance(handler, RichHandler) and handler not in pristine_handlers:
-                root.removeHandler(handler)
+            if isinstance(handler, RichHandler):
+                _strip_altitude_gate(handler)
+                if handler not in pristine_handlers:
+                    root.removeHandler(handler)
         for name, level in _PRISTINE_LOGGING["third_party"].items():
             logging.getLogger(name).setLevel(level)
 

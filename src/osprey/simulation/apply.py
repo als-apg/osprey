@@ -264,8 +264,11 @@ def apply_scenarios(
     # the narrative hours away from its archiver evidence on a non-UTC facility.
     t0 = now or datetime.now(get_facility_timezone())
     # set_active_scenarios validates composition and raises on collisions/unknowns.
+    # Not announced here. Both callers already say it: `osprey sim apply` echoes
+    # `✓ Active scenarios: …`, and the deploy-time reseed closes with a step
+    # naming the same scenarios. The anchor is internal -- the reseed reuses the
+    # persisted one precisely so nothing slides.
     active = engine.set_active_scenarios(names, anchor=t0)
-    logger.info(f"Activated scenarios {list(active)!r} with anchor {t0.isoformat()}")
 
     seeded = 0
     purged = False
@@ -822,7 +825,8 @@ def seed_archiver(
             f"{result.uncovered} dense sample(s) an event window called for were left out: "
             f"the archive has no coverage there to densify."
         )
-    logger.info(result.describe())
+    # As above: `osprey sim apply` echoes `✓ Archive rewritten: <describe()>`
+    # itself, and on a deploy the reseed's closing step carries the same counts.
     return result
 
 

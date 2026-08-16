@@ -57,6 +57,11 @@ class ComponentLogger:
     - timing: Timing information
     - approval: Approval messages
     - resume: Resume messages
+
+    Every emitted record carries the name of the method that produced it as the
+    ``osprey_intent`` attribute, so handlers and filters can tell intents apart
+    where the level cannot (``info`` and ``key_info`` both log at INFO). It is
+    metadata only: no level is remapped and no formatter reads it.
     """
 
     def __init__(
@@ -80,63 +85,79 @@ class ComponentLogger:
         self.color = color
         self._state = state
 
-    def _log(self, level: int, message: str, *args, **kwargs) -> None:
-        """Core logging method that delegates to the stdlib logger."""
+    def _log(self, level: int, message: str, *args, intent: str, **kwargs) -> None:
+        """Core logging method that delegates to the stdlib logger.
+
+        Args:
+            level: Standard library level for the record.
+            message: Log message, possibly a %-style format string.
+            *args: %-style format arguments for ``message``.
+            intent: Name of the public intent method that produced this record.
+                Rides along as the ``osprey_intent`` record attribute so
+                handlers can tell intents apart without guessing from the level
+                (``info`` and ``key_info`` both log at INFO). Metadata only —
+                it changes no level and nothing about rendering.
+            **kwargs: Forwarded to :meth:`logging.Logger.log`. A caller-supplied
+                ``extra`` mapping is merged, not replaced; its dict is left
+                unmutated.
+        """
         # Strip event-system kwargs that callers may still pass
         kwargs.pop("error", None)
         kwargs.pop("error_type", None)
         kwargs.pop("recoverable", None)
         kwargs.pop("stack_trace", None)
         kwargs.pop("warning", None)
-        self.base_logger.log(level, message, *args, **kwargs)
+        caller_extra = kwargs.pop("extra", None)
+        extra = {**(caller_extra or {}), "osprey_intent": intent}
+        self.base_logger.log(level, message, *args, extra=extra, **kwargs)
 
     def status(self, message: str, *args, **kwargs) -> None:
         """Status update — high-level progress messages."""
-        self._log(logging.INFO, message, *args, **kwargs)
+        self._log(logging.INFO, message, *args, intent="status", **kwargs)
 
     def key_info(self, message: str, *args, **kwargs) -> None:
         """Important operational information."""
-        self._log(logging.INFO, message, *args, **kwargs)
+        self._log(logging.INFO, message, *args, intent="key_info", **kwargs)
 
     def info(self, message: str, *args, **kwargs) -> None:
         """Normal operational messages."""
-        self._log(logging.INFO, message, *args, **kwargs)
+        self._log(logging.INFO, message, *args, intent="info", **kwargs)
 
     def debug(self, message: str, *args, **kwargs) -> None:
         """Debug-level messages."""
-        self._log(logging.DEBUG, message, *args, **kwargs)
+        self._log(logging.DEBUG, message, *args, intent="debug", **kwargs)
 
     def warning(self, message: str, *args, **kwargs) -> None:
         """Warning messages."""
-        self._log(logging.WARNING, message, *args, **kwargs)
+        self._log(logging.WARNING, message, *args, intent="warning", **kwargs)
 
     def error(self, message: str, *args, exc_info: bool = False, **kwargs) -> None:
         """Error messages."""
-        self._log(logging.ERROR, message, *args, exc_info=exc_info, **kwargs)
+        self._log(logging.ERROR, message, *args, intent="error", exc_info=exc_info, **kwargs)
 
     def success(self, message: str, *args, **kwargs) -> None:
         """Success messages."""
-        self._log(logging.INFO, message, *args, **kwargs)
+        self._log(logging.INFO, message, *args, intent="success", **kwargs)
 
     def timing(self, message: str, *args, **kwargs) -> None:
         """Timing information."""
-        self._log(logging.INFO, message, *args, **kwargs)
+        self._log(logging.INFO, message, *args, intent="timing", **kwargs)
 
     def approval(self, message: str, *args, **kwargs) -> None:
         """Approval messages."""
-        self._log(logging.INFO, message, *args, **kwargs)
+        self._log(logging.INFO, message, *args, intent="approval", **kwargs)
 
     def resume(self, message: str, *args, **kwargs) -> None:
         """Resume messages."""
-        self._log(logging.INFO, message, *args, **kwargs)
+        self._log(logging.INFO, message, *args, intent="resume", **kwargs)
 
     def critical(self, message: str, *args, **kwargs) -> None:
         """Critical error messages."""
-        self._log(logging.CRITICAL, message, *args, **kwargs)
+        self._log(logging.CRITICAL, message, *args, intent="critical", **kwargs)
 
     def exception(self, message: str, *args, **kwargs) -> None:
         """Exception with traceback."""
-        self._log(logging.ERROR, message, *args, exc_info=True, **kwargs)
+        self._log(logging.ERROR, message, *args, intent="exception", exc_info=True, **kwargs)
 
     # Delegate stdlib Logger interface so callers can treat ComponentLogger as a Logger.
     @property
@@ -166,11 +187,18 @@ QUIET_THIRD_PARTY_LOGGERS: tuple[str, ...] = (
 )
 
 
-def _build_rich_handler() -> RichHandler:
+def _build_rich_handler(console: Console | None = None) -> RichHandler:
     """Build the Osprey ``RichHandler``, writing to **stderr**.
 
     stdout is reserved for program output — MCP stdio JSON-RPC frames and
     ``--json`` CLI payloads — so log records must never land there.
+
+    Args:
+        console: Console to render records through. ``None`` — every non-CLI
+            entry point, and every external consumer of this package — builds
+            the fixed-width stderr console this module has always built, so
+            their output is unchanged. The CLI passes the terminal-sized
+            stderr console it already owns.
     """
     try:
         # Security-conscious defaults: hide locals to prevent sensitive data exposure
@@ -184,13 +212,14 @@ def _build_rich_handler() -> RichHandler:
         show_traceback_locals = False
         show_full_paths = False
 
-    # force_terminal keeps colors in containers and CI, where stderr is a pipe.
-    console = Console(
-        stderr=True,
-        force_terminal=True,
-        width=120,
-        color_system="truecolor",
-    )
+    if console is None:
+        # force_terminal keeps colors in containers and CI, where stderr is a pipe.
+        console = Console(
+            stderr=True,
+            force_terminal=True,
+            width=120,
+            color_system="truecolor",
+        )
 
     return RichHandler(
         console=console,
@@ -201,6 +230,37 @@ def _build_rich_handler() -> RichHandler:
         show_level=True,
         tracebacks_show_locals=show_traceback_locals,
     )
+
+
+def set_handler_console(console: Console) -> RichHandler | None:
+    """Render root-logger records through ``console`` from now on.
+
+    For entry points that already own a console of their own — the CLI owns the
+    themed, terminal-sized stderr console every command prints through — so
+    that logging and printed output share one renderer instead of interleaving
+    two consoles with different widths on the same stream.
+
+    Deliberately separate from ``configure_logging()``, which stays untouched:
+    the 15+ non-CLI entry points and external consumers of this package call
+    that and must keep the console it has always built for them.
+
+    Repointing an existing handler rather than rebuilding it keeps this safe to
+    call any number of times in one process — CLI invocations repeat inside a
+    single test process — with no handler ever stacking on the root logger.
+
+    Args:
+        console: Console the Rich handler should render through.
+
+    Returns:
+        The handler that was repointed, so a caller can go on to configure that
+        same instance; ``None`` if the root logger has no ``RichHandler`` (a
+        caller that has not called ``configure_logging()`` yet).
+    """
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, RichHandler):
+            handler.console = console
+            return handler
+    return None
 
 
 def configure_logging(level: int = logging.INFO) -> None:

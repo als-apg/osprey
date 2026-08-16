@@ -238,7 +238,7 @@ class TestSimCliTypeAwareness:
         monkeypatch.chdir(repo / "build")
         result = CliRunner().invoke(sim_group, ["list"])
         assert result.exit_code == 1
-        assert "Error: no mock 'simulation_file' configured in config.yml." in result.output
+        assert "✗ No mock 'simulation_file' is configured in config.yml" in result.output
         assert "This project does not use the simulation engine." in result.output
 
     def test_va_mode_lists_scenarios(self, tmp_path, monkeypatch):

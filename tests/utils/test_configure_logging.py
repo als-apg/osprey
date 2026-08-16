@@ -7,6 +7,7 @@ loggers.
 
 from __future__ import annotations
 
+import io
 import logging
 import subprocess
 import sys
@@ -17,7 +18,13 @@ from rich.logging import RichHandler
 
 import osprey
 import osprey.utils.logger
-from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS, configure_logging, get_logger
+from osprey.utils.logger import (
+    QUIET_THIRD_PARTY_LOGGERS,
+    _build_rich_handler,
+    configure_logging,
+    get_logger,
+    set_handler_console,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -222,6 +229,67 @@ class TestPackageRootExport:
             f"bare `import osprey` should import neither rich nor "
             f"osprey.utils.logger; got {result.stdout.strip()!r}"
         )
+
+
+class TestInjectedHandlerConsole:
+    """The handler's console is the CLI's to replace; nobody else's changes.
+
+    ``configure_logging()`` serves entry points with no console of their own —
+    MCP servers, bridges, services, and consumers of the connectors package
+    outside this repo — so it keeps building the stderr console it always has.
+    The CLI, which owns a themed terminal-sized stderr console already, points
+    the installed handler at that one afterwards.
+    """
+
+    def test_no_argument_builds_the_documented_stderr_console(self):
+        console = _build_rich_handler().console
+
+        assert console.stderr is True
+        assert console.is_terminal is True
+        assert console.width == 120
+        assert console.color_system == "truecolor"
+
+    def test_an_injected_console_is_used_as_is(self):
+        injected = Console(file=io.StringIO(), width=42)
+
+        handler = _build_rich_handler(injected)
+
+        assert handler.console is injected
+
+    def test_set_handler_console_repoints_the_installed_handler(self):
+        configure_logging()
+        injected = Console(file=io.StringIO(), width=42)
+
+        returned = set_handler_console(injected)
+
+        assert returned is _rich_handlers()[0]
+        assert returned.console is injected
+
+    def test_repointing_is_repeatable_and_stacks_nothing(self):
+        """15+ test files invoke the CLI more than once per process."""
+        configure_logging()
+        first = Console(file=io.StringIO(), width=42)
+        second = Console(file=io.StringIO(), width=42)
+
+        handler = set_handler_console(first)
+        again = set_handler_console(second)
+        configure_logging()
+
+        assert again is handler
+        assert _rich_handlers() == [handler]
+        assert handler.console is second
+
+    def test_records_render_through_the_injected_console(self):
+        configure_logging()
+        sink = io.StringIO()
+        set_handler_console(Console(file=sink, width=100))
+
+        logging.getLogger("osprey.test.injected_console").warning("injected-marker")
+
+        assert "injected-marker" in sink.getvalue()
+
+    def test_unconfigured_logging_has_no_handler_to_repoint(self):
+        assert set_handler_console(Console(file=io.StringIO())) is None
 
 
 class TestAcceptedStdoutLimitation:
