@@ -573,12 +573,13 @@ is in <a class="reference internal" href="#deploy-a-facility-own-service"><span 
 </pre></div>
 </div>
 <p>The command writes the whole repository, runs <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> at its root, and
-commits nothing. It prints the directory layout, the two persona deltas it
-rendered, and where the secrets go.</p>
-<p>It also tells you there is no CI pipeline yet. That is expected: the profile
-ships with its <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so there are no coordinates to
-render a pipeline from. Step 5 fills the block in and Step 7 renders the
-pipeline from it.</p>
+commits nothing. It prints the handful of entries you edit: the profile, the
+data directory, the two personas it rendered, the two env files, and the
+README.</p>
+<p>It says nothing about CI, which is expected: the profile ships with its
+<code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so there are no coordinates to render a
+pipeline from. Step 5 fills the block in and Step 7 renders the pipeline from
+it.</p>
 </section>
 <section id="step-2-trim-the-profile-to-this-facility-s-stack">
 <h2>Step 2 — Trim the profile to this facility’s stack<a class="headerlink" href="#step-2-trim-the-profile-to-this-facility-s-stack" title="Link to this heading">#</a></h2>

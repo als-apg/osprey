@@ -54,9 +54,9 @@ On startup, ``osprey chat`` launches the same companion servers as
 
 .. code-block:: text
 
-   Companion servers:
-     * Artifact gallery  http://127.0.0.1:8086
-     * ARIEL server      http://127.0.0.1:8085
+   Companion servers
+     Artifact gallery   http://127.0.0.1:8086
+     ARIEL server       http://127.0.0.1:8085
 
 Open any of these URLs in a browser to access the service while the Osprey agent
 runs in your terminal. Which servers start depends on your ``config.yml`` —

@@ -32,13 +32,21 @@ Create a ready-to-run deployment, then render it:
    osprey build
 
 ``osprey init`` writes one git repository with the preset's configuration
-spelled out in full:
+spelled out in full, and prints the entries you edit:
 
 .. code-block:: text
 
-   my-first-agent/
-     profile.yml   the manifest — your editable source of truth
-     build/        rendered by `osprey build`; disposable
+   ✓ Created my-first-agent
+
+     profile.yml   your assistant's settings; edit this
+     data/         channel lists and facility docs; edit these
+     .env          from your shell: ANTHROPIC_API_KEY. Not in git
+     .env.shared   settings shared by every host; your .env wins
+     README.md     what everything here does
+     ...
+
+``osprey build`` adds ``build/`` beside them, which is disposable and rendered
+again on every build.
 
 ``osprey init`` copies the preset into ``profile.yml``; every later build reads
 that file as it stands. Nothing in this tutorial needs you to edit it, but that

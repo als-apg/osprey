@@ -530,7 +530,12 @@ osprey<span class="w"> </span>vendor<span class="w">             </span><span cl
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">--version</span></code></dt><dd><p>Show framework version and exit.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code></dt><dd><p>Show debug output, including every container command run.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">-v,</span> <span class="pre">--verbose</span></code></dt><dd><p>Show debug output, including every container command run. The transcript
+takes the place of the progress report rather than joining it, so under
+<code class="docutils literal notranslate"><span class="pre">-v</span></code> no phase or step lines are printed at all. Without it, a run prints
+the progress report and the command’s own output only; log records below
+WARNING never reach the screen, though they still reach every sink the
+deployment configures.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">--help</span></code></dt><dd><p>Show help for any command (e.g., <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--help</span></code>).</p>
 </dd>

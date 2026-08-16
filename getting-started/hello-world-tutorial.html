@@ -460,12 +460,19 @@ osprey<span class="w"> </span>build
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes one git repository with the preset’s configuration
-spelled out in full:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-first-agent/
-  profile.yml   the manifest — your editable source of truth
-  build/        rendered by `osprey build`; disposable
+spelled out in full, and prints the entries you edit:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>✓ Created my-first-agent
+
+  profile.yml   your assistant&#39;s settings; edit this
+  data/         channel lists and facility docs; edit these
+  .env          from your shell: ANTHROPIC_API_KEY. Not in git
+  .env.shared   settings shared by every host; your .env wins
+  README.md     what everything here does
+  ...
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> adds <code class="docutils literal notranslate"><span class="pre">build/</span></code> beside them, which is disposable and rendered
+again on every build.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> copies the preset into <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>; every later build reads
 that file as it stands. Nothing in this tutorial needs you to edit it, but that
 is where changes go when you want them to survive a rebuild — see
