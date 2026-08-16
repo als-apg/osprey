@@ -1435,9 +1435,9 @@ def reset_deployment(
     dry_run: bool = False,
     assume_yes: bool = False,
     purge_audit: bool = False,
-    emit: Callable[[str], None] = print,
+    emit: Callable[[str], None],
     probe: RuntimeProbe | None = None,
-) -> bool:
+) -> ResetOutcome:
     """Plan, show, confirm, and carry out a factory reset.
 
     Args:
@@ -1446,6 +1446,8 @@ def reset_deployment(
         assume_yes: Skip the typed confirmation — the scripted path.
         purge_audit: Destroy ``var/audit`` too, under the same gate.
         emit: Where the plan is written. The CLI passes its own printer.
+            Required rather than defaulted, so no caller can fall through to a
+            raw write that lands inside a mounted live region.
         probe: The runtime seam. Resolved from the deployment's configured
             runtime when not supplied; tests inject one.
 

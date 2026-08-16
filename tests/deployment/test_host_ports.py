@@ -243,6 +243,51 @@ class TestReport:
         # Nothing here binds on the host namespace, so that paragraph stays out.
         assert "host network namespace" not in report
 
+    def test_the_report_carries_no_em_dash_asides(self):
+        """The house style for printed copy, pinned where the guard cannot see it.
+
+        ``tests/cli/test_printed_copy_style.py`` reads the arguments of printing
+        calls, and this report reaches the terminal as a variable instead: it is
+        built here, returned, and handed to ``output.fail`` by
+        ``container_lifecycle._report_port_conflicts``. So the em-dash rule has
+        to be pinned at the source, or it is not pinned at all.
+        """
+        conflicts = [
+            PortConflict(
+                host_port=5432,
+                bind_address="127.0.0.1",
+                service="postgresql",
+                kind="external",
+                holder="container 'other-ariel-postgres' (compose project 'other')",
+                remedy="services.postgresql.port_host",
+            ),
+            PortConflict(
+                host_port=9190,
+                bind_address="127.0.0.1",
+                service="dispatch-worker-1",
+                kind="duplicate",
+                holder="service 'dispatch-worker-0'",
+                remedy="dispatch.worker_port_base",
+                host_network=True,
+            ),
+        ]
+
+        # Both branches of every paragraph, so no wording is exempt by luck.
+        # Each call carries a positive anchor too: an absence assertion alone
+        # stays green on a report that degenerated to an empty string, which
+        # would read as clean copy while printing nothing at all.
+        both = format_conflict_report(conflicts)
+        assert "shared services stack" in both and "host network namespace" in both
+        assert "—" not in both
+
+        foreign_only = format_conflict_report(conflicts[:1])
+        assert "shared services stack" in foreign_only
+        assert "—" not in foreign_only
+
+        host_network_only = format_conflict_report(conflicts[1:])
+        assert "host network namespace" in host_network_only
+        assert "—" not in host_network_only
+
 
 class TestHostNetworkDerivation:
     """Ports of services that bind on the host namespace and publish nothing."""

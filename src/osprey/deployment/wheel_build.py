@@ -23,6 +23,7 @@ import re
 import shutil
 from pathlib import Path
 
+from osprey.cli.phase_reporter import report_step
 from osprey.deployment.errors import DevModeUnavailableError
 from osprey.utils.logger import get_logger
 
@@ -244,8 +245,9 @@ def _build_dev_wheel_cached(osprey_source_root):
         return _wheel_build_cache[key]
 
     cached_wheel = None
-    # Build the wheel package from local source
-    logger.info("Building osprey wheel from local source...")
+    # Build the wheel package from local source. Not announced first: the build
+    # is memoized to one shot per process, and the step below carries the fact
+    # with its outcome attached.
     with tempfile.TemporaryDirectory() as tmpdir:
         # Use sys.executable, NOT bare "python3": in a non-activated venv,
         # PATH "python3" resolves to the system/pyenv interpreter (which
@@ -293,7 +295,7 @@ def _build_dev_wheel_cached(osprey_source_root):
                         _wheel_cache_cleanup_registered = True
                 cached_wheel = Path(_wheel_cache_dir) / wheel_files[0].name
                 shutil.copy2(wheel_files[0], cached_wheel)
-                logger.success(f"Built osprey wheel: {wheel_files[0].name}")
+                report_step("built osprey wheel from the local checkout")
 
     _wheel_build_cache[key] = cached_wheel
     return cached_wheel
@@ -408,7 +410,10 @@ def _copy_local_framework_for_override(out_dir):
                 "dependencies.\nCheck that the build context directory is writable.",
             ) from manifest_error
 
-        logger.success(f"Copied osprey wheels: {cached_wheel.name}, {cached_connectors_wheel.name}")
+        # Fires once per build context -- the deployment, each persona, each
+        # image copy -- so as a step it would repeat one fact N times. The step
+        # on the build above states it once.
+        logger.debug(f"Copied osprey wheels: {cached_wheel.name}, {cached_connectors_wheel.name}")
 
         return True
 

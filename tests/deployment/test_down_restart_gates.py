@@ -250,7 +250,7 @@ def test_the_working_directory_survives_a_down(lifecycle_repo, runtime, no_web, 
 
 
 def test_a_failed_compose_down_says_the_containers_may_still_be_running(
-    lifecycle_repo, runtime, no_web, caplog
+    lifecycle_repo, runtime, no_web
 ):
     render_build(lifecycle_repo)
     runtime["fail"]["down"] = 1
@@ -258,7 +258,9 @@ def test_a_failed_compose_down_says_the_containers_may_still_be_running(
     result = run_down(lifecycle_repo)
 
     assert result.exit_code != 0
-    assert "may still be running" in caplog.text
+    assert "✗ Could not stop this deployment" in result.stderr
+    assert "may still be running" in result.stderr
+    assert "may still be running" not in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +355,12 @@ def test_finding_no_labelled_container_does_not_claim_the_stack_is_down(
     # All five elements of the message, because each carries a different part of
     # the answer: WHERE it looked, WHAT it looked for, WHY that can miss, what
     # may therefore still be true, and what to do about it.
+    #
+    # Log seam, not the renderer: this path's emitters live in
+    # container_lifecycle and web_terminals/provision, which stayed on the
+    # logger. The refusal assertions elsewhere in this module read
+    # result.stderr because their emitter moved to the renderer; both are
+    # deliberate, and which one applies is decided by who emits.
     text = caplog.text
     assert str(lifecycle_repo / "build") in text
     assert REPO_ID_LABEL in text
@@ -362,7 +370,7 @@ def test_finding_no_labelled_container_does_not_claim_the_stack_is_down(
 
 
 def test_a_failed_label_listing_refuses_rather_than_reporting_success(
-    lifecycle_repo, runtime, no_web, caplog
+    lifecycle_repo, runtime, no_web
 ):
     render_build(lifecycle_repo)
     runtime["fail"]["ps"] = 1
@@ -371,12 +379,13 @@ def test_a_failed_label_listing_refuses_rather_than_reporting_success(
     result = run_down(lifecycle_repo)
 
     assert result.exit_code != 0
-    assert "Could not list" in caplog.text
+    assert "Could not list" in result.stderr
+    assert "Could not list" not in result.stdout
     assert verbs_in_order(runtime) == ["ps"]
 
 
 def test_a_failed_label_stop_says_the_containers_may_still_be_running(
-    lifecycle_repo, runtime, no_web, caplog
+    lifecycle_repo, runtime, no_web
 ):
     render_build(lifecycle_repo)
     runtime["ps_stdout"] = "abc123\n"
@@ -386,7 +395,8 @@ def test_a_failed_label_stop_says_the_containers_may_still_be_running(
     result = run_down(lifecycle_repo)
 
     assert result.exit_code != 0
-    assert "may still be running" in caplog.text
+    assert "may still be running" in result.stderr
+    assert "may still be running" not in result.stdout
 
 
 def test_a_build_with_a_config_but_no_compose_files_still_stops_by_label(
@@ -466,7 +476,7 @@ def test_restart_starts_the_compose_files_the_build_left(lifecycle_repo, runtime
 # ---------------------------------------------------------------------------
 
 
-def test_drift_refuses_the_restart_and_stops_nothing(lifecycle_repo, runtime, no_web, caplog):
+def test_drift_refuses_the_restart_and_stops_nothing(lifecycle_repo, runtime, no_web):
     """The property that makes the gate worth having on this verb.
 
     A restart that stopped the stack and *then* discovered it could not start it
@@ -480,21 +490,22 @@ def test_drift_refuses_the_restart_and_stops_nothing(lifecycle_repo, runtime, no
 
     assert result.exit_code != 0
     assert runtime["cmds"] == []
-    assert "osprey restart --build" in caplog.text
-    assert "osprey restart --as-built" in caplog.text
+    assert "osprey restart --build" in result.stderr
+    assert "osprey restart --as-built" in result.stderr
+    assert "osprey restart --build" not in result.stdout
 
 
-def test_the_drift_refusal_names_this_verb_not_up(lifecycle_repo, runtime, no_web, caplog):
+def test_the_drift_refusal_names_this_verb_not_up(lifecycle_repo, runtime, no_web):
     """The remedies have to be commands the operator can actually type."""
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo, stamped_hash="stale")
 
-    run_restart(lifecycle_repo, "-d")
+    result = run_restart(lifecycle_repo, "-d")
 
-    assert "osprey up --build" not in caplog.text
+    assert "osprey up --build" not in result.output
 
 
-def test_as_built_restarts_the_drifted_build_and_says_so(lifecycle_repo, runtime, no_web, caplog):
+def test_as_built_restarts_the_drifted_build_and_says_so(lifecycle_repo, runtime, no_web):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo, stamped_hash="stale")
 
@@ -502,7 +513,8 @@ def test_as_built_restarts_the_drifted_build_and_says_so(lifecycle_repo, runtime
 
     assert result.exit_code == 0, result.output
     assert verbs_in_order(runtime).index("down") < verbs_in_order(runtime).index("up")
-    assert "--as-built" in caplog.text
+    assert "⚠ Starting build/ as it was rendered (--as-built)" in result.stderr
+    assert "Starting build/ as it was rendered (--as-built)" not in result.stdout
 
 
 def test_build_chains_the_render_then_stops_and_starts(
@@ -537,24 +549,26 @@ def test_build_and_as_built_are_refused_together(lifecycle_repo, runtime, no_web
     assert runtime["cmds"] == []
 
 
-def test_a_missing_build_refuses_and_stops_nothing(lifecycle_repo, runtime, no_web, caplog):
+def test_a_missing_build_refuses_and_stops_nothing(lifecycle_repo, runtime, no_web):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
 
     result = run_restart(lifecycle_repo, "-d")
 
     assert result.exit_code != 0
     assert runtime["cmds"] == []
-    assert "osprey build" in caplog.text
+    assert "→ run `osprey build` first" in result.stderr
+    assert "run `osprey build` first" not in result.stdout
 
 
-def test_as_built_is_not_an_escape_from_having_no_build(lifecycle_repo, runtime, no_web, caplog):
+def test_as_built_is_not_an_escape_from_having_no_build(lifecycle_repo, runtime, no_web):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
 
     result = run_restart(lifecycle_repo, "-d", "--as-built")
 
     assert result.exit_code != 0
     assert runtime["cmds"] == []
-    assert "--as-built starts a build that already exists" in caplog.text
+    assert "--as-built starts a build that already exists" in result.stderr
+    assert "--as-built starts a build that already exists" not in result.stdout
 
 
 def test_dev_mode_refuses_before_anything_is_stopped(lifecycle_repo, runtime, no_web, monkeypatch):
@@ -572,17 +586,23 @@ def test_dev_mode_refuses_before_anything_is_stopped(lifecycle_repo, runtime, no
 
     assert result.exit_code != 0
     assert runtime["cmds"] == []
-    assert "Nothing was stopped" in result.output
+    assert "Nothing was stopped" in result.stderr
+    assert "Nothing was stopped" not in result.stdout
 
 
-def test_a_missing_env_refuses_before_anything_is_stopped(lifecycle_repo, runtime, no_web, caplog):
+def test_a_missing_env_refuses_before_anything_is_stopped(lifecycle_repo, runtime, no_web):
     render_build(lifecycle_repo)
 
     result = run_restart(lifecycle_repo, "-d")
 
     assert result.exit_code != 0
     assert runtime["cmds"] == []
-    assert "No .env in" in caplog.text
+    # Markless: the refusal is raised inside the open Preflight phase, whose own
+    # ✗ on the way out is this run's one failure marker.
+    assert "No .env in" in result.stderr
+    assert "No .env in" not in result.stdout
+    assert result.stdout.count("✗") == 1, result.stdout
+    assert result.stderr.count("✗") == 0, result.stderr
 
 
 # ---------------------------------------------------------------------------

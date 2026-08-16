@@ -28,8 +28,10 @@ import json
 import subprocess
 from pathlib import Path
 
-from rich.table import Table
+from rich.text import Text
 
+from osprey.cli import output
+from osprey.cli.styles import Styles, data_table
 from osprey.deployment.compose_generator import (
     REPO_ID_LABEL,
     repo_identity,
@@ -53,41 +55,31 @@ logger = get_logger("deployment.status")
 PROJECT_LABEL = "osprey.project.name"
 
 
-class _DefaultStyles:
-    """Fallback styles when cli.styles is not available."""
-
-    BOLD_PRIMARY = "bold"
-    ACCENT = "cyan"
-    SUCCESS = "green"
-    PRIMARY = "bold"
-    INFO = "cyan"
-    DIM = "dim"
-    ERROR = "red"
-    WARNING = "yellow"
-
-
-def _format_state(state, styles):
-    """Format a container ``State`` value as a colored Rich status label.
+def _format_state(state):
+    """Format a container ``State`` value as a colored status label.
 
     Shared by the project/other container tables (``_add_container_to_table``)
-    and the per-user web terminal table (``_format_container_health``) so the
-    state->label mapping can't drift between the two.
+    and the per-user web terminal table so the state->label mapping can't drift
+    between the two.
+
+    A pre-styled :class:`~rich.text.Text`, never a markup string: the renderer
+    prints with ``markup=False``, and Rich propagates that into every nested
+    renderable, so a cell holding ``"[success]● Running[/success]"`` would print
+    those brackets literally and take the column widths with it.
 
     :param state: Raw ``State`` value from the container runtime's ps output
     :type state: str
-    :param styles: Style constants object with SUCCESS/ERROR/WARNING/DIM attributes
-    :type styles: object
-    :return: Rich markup string, e.g. ``"[green]● Running[/green]"``
-    :rtype: str
+    :return: The label, styled for the state
+    :rtype: rich.text.Text
     """
     if state == "running":
-        return f"[{styles.SUCCESS}]● Running[/{styles.SUCCESS}]"
+        return Text("● Running", style=Styles.SUCCESS)
     elif state == "exited":
-        return f"[{styles.ERROR}]● Stopped[/{styles.ERROR}]"
+        return Text("● Stopped", style=Styles.ERROR)
     elif state == "restarting":
-        return f"[{styles.WARNING}]● Restarting[/{styles.WARNING}]"
+        return Text("● Restarting", style=Styles.WARNING)
     else:
-        return f"[{styles.DIM}]● {state}[/{styles.DIM}]"
+        return Text(f"● {state}", style=Styles.DIM)
 
 
 def _extract_web_terminal_user_names(users_raw):
@@ -159,7 +151,7 @@ def _container_display_name(container):
     return names[0] if names else "unknown"
 
 
-def _query_containers(config, console):
+def _query_containers(config):
     """Every container on this host, or ``None`` when the runtime could not say.
 
     ``ps -a``, so a stopped container is part of the answer: "the database
@@ -172,7 +164,6 @@ def _query_containers(config, console):
     "nothing is deployed", which is the one wrong answer that looks right.
 
     :param config: Rendered config, for runtime selection; may be ``None``
-    :param console: Where to report a failed query
     :return: Decoded ``ps`` records, or ``None`` when the query failed
     """
     try:
@@ -180,8 +171,10 @@ def _query_containers(config, console):
             get_ps_command(config, all_containers=True), capture_output=True, text=True, timeout=10
         )
         if result.returncode != 0:
-            console.print("\n[red]Error: Could not query container status[/red]")
-            console.print(f"[dim]Command failed with return code {result.returncode}[/dim]\n")
+            output.fail(
+                "Could not query container status",
+                f"the runtime's ps command exited with code {result.returncode}",
+            )
             return None
 
         containers = []
@@ -195,18 +188,17 @@ def _query_containers(config, console):
                         containers.append(json.loads(line))
         return containers
     except subprocess.TimeoutExpired:
-        console.print("\n[red]Error: Container query timed out[/red]\n")
+        output.fail("Could not query container status", "the container query timed out")
         return None
     except json.JSONDecodeError as e:
-        console.print("\n[red]Error: Could not parse container data[/red]")
-        console.print(f"[dim]{e}[/dim]\n")
+        output.fail("Could not parse container data", str(e))
         return None
     except Exception as e:
-        console.print(f"\n[red]Error: {e}[/red]\n")
+        output.fail("Could not query container status", str(e))
         return None
 
 
-def _existing_volume_names(config, console, styles):
+def _existing_volume_names(config):
     """Names of every volume the runtime has, or ``None`` when it could not say.
 
     Read-only: volumes are listed, never created or removed.
@@ -221,11 +213,11 @@ def _existing_volume_names(config, console, styles):
         )
         if result.returncode == 0:
             return {line.strip() for line in result.stdout.splitlines() if line.strip()}
-        console.print(f"[{styles.DIM}]Warning: could not query volumes for user status[/]")
+        output.warn("Could not query volumes for user status")
     except subprocess.TimeoutExpired:
-        console.print(f"[{styles.DIM}]Warning: volume query timed out[/]")
+        output.warn("The volume query timed out")
     except Exception as e:
-        console.print(f"[{styles.DIM}]Warning: could not query volumes ({e})[/]")
+        output.warn("Could not query volumes for user status", str(e))
     return None
 
 
@@ -234,14 +226,19 @@ def _existing_volume_names(config, console, styles):
 # ---------------------------------------------------------------------------
 
 
-def _create_status_table(styles):
-    """Create a status table with consistent styling."""
-    table = Table(show_header=True, header_style=styles.BOLD_PRIMARY)
-    table.add_column("Service", style=styles.ACCENT, no_wrap=True)
-    table.add_column("Project", style=styles.SUCCESS, no_wrap=True)
-    table.add_column("Status", style=styles.PRIMARY)
-    table.add_column("Ports", style=styles.INFO)
-    table.add_column("Image", style=styles.DIM)
+def _create_status_table():
+    """Create a status table with consistent styling.
+
+    Built by the shared :func:`~osprey.cli.styles.data_table` factory, so the
+    box, the header style and the border are the CLI's one data-table look
+    rather than this module's own.
+    """
+    table = data_table()
+    table.add_column("Service", style=Styles.ACCENT, no_wrap=True)
+    table.add_column("Project", style=Styles.SUCCESS, no_wrap=True)
+    table.add_column("Status", style=Styles.PRIMARY)
+    table.add_column("Ports", style=Styles.INFO)
+    table.add_column("Image", style=Styles.DIM)
     return table
 
 
@@ -265,7 +262,7 @@ def _format_ports(container):
     return ", ".join(port_list) if port_list else "-"
 
 
-def _add_container_to_table(table, container, styles):
+def _add_container_to_table(table, container):
     """Add a container as a row in the status table."""
     project_name = _container_label(container, PROJECT_LABEL) or "unknown"
     if len(project_name) > 12:
@@ -278,21 +275,21 @@ def _add_container_to_table(table, container, styles):
     table.add_row(
         _container_display_name(container),
         project_name,
-        _format_state(container.get("State", "unknown"), styles),
+        _format_state(container.get("State", "unknown")),
         _format_ports(container),
         image,
     )
 
 
-def _container_table(containers, styles):
+def _container_table(containers):
     """A populated status table for *containers*."""
-    table = _create_status_table(styles)
+    table = _create_status_table()
     for container in containers:
-        _add_container_to_table(table, container, styles)
+        _add_container_to_table(table, container)
     return table
 
 
-def _show_web_terminal_users(config, all_containers, console, styles):
+def _show_web_terminal_users(config, all_containers):
     """Print the per-user web terminal table, when this deployment has one.
 
     One row per rostered user: whether their container exists and what state it
@@ -322,34 +319,36 @@ def _show_web_terminal_users(config, all_containers, console, styles):
         for name in _container_names(container):
             by_name.setdefault(name, container)
 
-    existing_volumes = _existing_volume_names(config, console, styles)
+    existing_volumes = _existing_volume_names(config)
 
     def _format_volume_status(volume_name):
+        """One volume cell, pre-styled -- see :func:`_format_state` on markup."""
         if existing_volumes is None:
-            return f"[{styles.DIM}]? {volume_name} (unknown)[/{styles.DIM}]"
+            return Text(f"? {volume_name} (unknown)", style=Styles.DIM)
         if volume_name in existing_volumes:
-            return f"[{styles.SUCCESS}]✓ {volume_name}[/{styles.SUCCESS}]"
-        return f"[{styles.ERROR}]✗ {volume_name} (missing)[/{styles.ERROR}]"
+            return Text(f"✓ {volume_name}", style=Styles.SUCCESS)
+        return Text(f"✗ {volume_name} (missing)", style=Styles.ERROR)
 
-    table = Table(show_header=True, header_style=styles.BOLD_PRIMARY)
-    table.add_column("User", style=styles.ACCENT, no_wrap=True)
-    table.add_column("Container", style=styles.PRIMARY)
-    table.add_column("Claude Config Volume", style=styles.INFO)
-    table.add_column("Agent Data Volume", style=styles.INFO)
+    table = data_table()
+    table.add_column("User", style=Styles.ACCENT, no_wrap=True)
+    table.add_column("Container", style=Styles.PRIMARY)
+    table.add_column("Claude Config Volume", style=Styles.INFO)
+    table.add_column("Agent Data Volume", style=Styles.INFO)
 
-    console.print("\n[bold]Web Terminal Users:[/bold]")
+    output.report("")
+    output.section("Web Terminal Users:", ())
     for user in user_names:
         container = by_name.get(web_container_name(facility_prefix, user))
         claude_config_volume, agent_data_volume = resolve_user_volume_names(config, user)
         table.add_row(
             user,
-            f"[{styles.DIM}]● Not created[/{styles.DIM}]"
+            Text("● Not created", style=Styles.DIM)
             if container is None
-            else _format_state(container.get("State", "unknown"), styles),
+            else _format_state(container.get("State", "unknown")),
             _format_volume_status(claude_config_volume),
             _format_volume_status(agent_data_volume),
         )
-    console.print(table)
+    output.table(table)
 
 
 def show_status(config_path, *, console=None, styles=None):
@@ -364,26 +363,17 @@ def show_status(config_path, *, console=None, styles=None):
 
     :param config_path: Path to the configuration file
     :type config_path: str
-    :param console: Rich Console instance for output (default: creates new Console)
-    :type console: rich.console.Console, optional
-    :param styles: Style constants object with attributes like SUCCESS, ERROR, etc.
-        (default: uses _DefaultStyles with standard Rich markup)
-    :type styles: object, optional
+    :param console: Accepted and ignored. Output goes through the CLI renderer,
+        which resolves its own console per call.
+    :param styles: Accepted and ignored, for the same reason.
     """
-    if console is None:
-        from rich.console import Console
-
-        console = Console()
-    if styles is None:
-        styles = _DefaultStyles
-
     config = load_project_config(config_path, wrap_errors=True)
 
     # Advisory render-provenance note: a stale project deploys an out-of-date
     # service set that looks perfectly healthy here, so status is the other
     # place (besides osprey up) the drift must be visible.
     for reason in staleness_reasons(Path(config_path).resolve().parent):
-        console.print(f"[yellow]⚠ The build is out of date: {reason}. Re-run osprey build[/yellow]")
+        output.warn(f"The build is out of date: {reason}", "Re-run `osprey build`.")
 
     deployed_services = config.get("deployed_services", [])
     deployed_service_names = (
@@ -397,7 +387,7 @@ def show_status(config_path, *, console=None, styles=None):
     # its own containers show up under "other Osprey containers".
     current_project = resolve_project_name(config)
 
-    all_containers = _query_containers(config, console)
+    all_containers = _query_containers(config)
     if all_containers is None:
         return
 
@@ -414,26 +404,25 @@ def show_status(config_path, *, console=None, styles=None):
         elif container_project != "unknown":
             other_containers.append(container)
 
-    console.print("\n[bold]Service Status:[/bold]")
+    output.report("")
+    output.section("Service Status:", ())
 
     if project_containers:
-        console.print(_container_table(project_containers, styles))
+        output.table(_container_table(project_containers))
     else:
-        console.print(
-            f"\n[warning]ℹ️  No services running for project '{current_project}'[/warning]"
-        )
+        output.note(f"No services running for project '{current_project}'")
         if deployed_service_names:
-            console.print(f"[dim]Configured services: {', '.join(deployed_service_names)}[/dim]")
-        console.print("\n[info]Start services with:[/info]")
-        console.print("  • [command]osprey up[/command]")
+            output.note(f"Configured services: {', '.join(deployed_service_names)}")
+        output.note("Start them with `osprey up`.")
 
     if other_containers:
-        console.print("\n[bold]Other Osprey Containers:[/bold]")
-        console.print(_container_table(other_containers, styles))
+        output.report("")
+        output.section("Other Osprey Containers:", ())
+        output.table(_container_table(other_containers))
 
-    _show_web_terminal_users(config, all_containers, console, styles)
+    _show_web_terminal_users(config, all_containers)
 
-    console.print()
+    output.report("")
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +430,7 @@ def show_status(config_path, *, console=None, styles=None):
 # ---------------------------------------------------------------------------
 
 
-def _print_build_section(repo_root, console, styles):
+def _print_build_section(repo_root):
     """Print what ``build/`` is, and return the drift report the rest reads.
 
     Three facts, in the order an operator needs them: whether ``build/`` still
@@ -458,27 +447,24 @@ def _print_build_section(repo_root, console, styles):
     :return: The drift report, so callers can key later sections off its state
     """
     from osprey.cli.templates.manifest import get_framework_release_version
-    from osprey.deployment.staleness import DriftState, build_manifest_path, check_drift
+    from osprey.deployment.staleness import build_manifest_path, check_drift
 
     report = check_drift(repo_root)
 
-    state_style = {
-        DriftState.CLEAN: styles.SUCCESS,
-        DriftState.DRIFT: styles.WARNING,
-        DriftState.UNRESOLVABLE: styles.WARNING,
-        DriftState.NO_BUILD: styles.ERROR,
-    }[report.state]
-    console.print("\n[bold]Build:[/bold]")
-    console.print(f"  [{state_style}]{report.status_line}[/{state_style}]")
+    # ``status_line`` already opens with its own ``build:`` label, which is the
+    # section's first row label here — carrying both would print it twice.
+    rows = [("build", report.status_line.removeprefix("build: "))]
     if report.refuses:
-        console.print(
-            f"  [{styles.DIM}]`osprey up` and `osprey restart` refuse until this is "
-            f"resolved: {report.remedy}[/{styles.DIM}]"
+        rows.append(
+            (
+                "start",
+                f"`osprey up` and `osprey restart` refuse until this is resolved: {report.remedy}",
+            )
         )
 
     installed = get_framework_release_version()
     if report.version_skew:
-        console.print(f"  [{styles.WARNING}]{report.version_skew.message}[/{styles.WARNING}]")
+        rows.append(("version", report.version_skew.message))
     else:
         # The stamp itself, read from the same manifest `check_drift` read.
         # `version_skew` is only populated when the two versions DIFFER, so a
@@ -486,14 +472,19 @@ def _print_build_section(repo_root, console, styles):
         # build recorded no version to compare — and those are different facts.
         stamped = _stamped_version(build_manifest_path(repo_root))
         if stamped == installed:
-            console.print(f"  [{styles.DIM}]rendered by osprey {installed} (installed)[/]")
+            rows.append(("version", f"rendered by osprey {installed} (installed)"))
         elif stamped:
-            console.print(f"  [{styles.DIM}]rendered by osprey {stamped}[/]")
+            rows.append(("version", f"rendered by osprey {stamped}"))
         else:
-            console.print(
-                f"  [{styles.DIM}]osprey {installed} installed; build/ records no "
-                f"version that rendered it[/]"
+            rows.append(
+                (
+                    "version",
+                    f"osprey {installed} installed; build/ records no version that rendered it",
+                )
             )
+
+    output.report("")
+    output.section("Build:", rows)
     return report
 
 
@@ -558,7 +549,7 @@ def _partition_by_checkout(containers, identity, project_name):
     return mine, unlabelled, foreign, others
 
 
-def _print_containers_section(repo_root, config, console, styles):
+def _print_containers_section(repo_root, config):
     """Print what is running for this deployment, and what else is on the host.
 
     Returns every container the runtime reported, so the caller can answer the
@@ -576,8 +567,9 @@ def _print_containers_section(repo_root, config, console, styles):
     project_name = resolve_project_name(config) if config else Path(repo_root).name
     provenance = "project" if config else "project, from the directory name"
 
-    console.print(f"\n[bold]Containers[/bold] [{styles.DIM}]({provenance} {project_name})[/]")
-    all_containers = _query_containers(config, console)
+    output.report("")
+    output.section("Containers", [(provenance, project_name)])
+    all_containers = _query_containers(config)
     if all_containers is None:
         return None
 
@@ -586,23 +578,23 @@ def _print_containers_section(repo_root, config, console, styles):
     )
 
     if mine or unlabelled:
-        console.print(_container_table([*mine, *unlabelled], styles))
+        output.table(_container_table([*mine, *unlabelled]))
     else:
-        console.print(f"  [{styles.DIM}]Nothing is running for this deployment.[/]")
-        console.print(f"  [{styles.DIM}]Start it with `osprey up -d`.[/]")
+        output.note("Nothing is running for this deployment.")
+        output.note("Start it with `osprey up -d`.")
 
     if unlabelled:
         # Not a footnote for tidiness: these are exactly the containers
         # `osprey down`'s label fallback cannot see, so an operator who deletes
         # build/ and runs `down` would be told nothing was found while these
         # kept running.
-        console.print(
-            f"  [{styles.WARNING}]{len(unlabelled)} of these were matched by name, not by "
-            f"label ({', '.join(_container_display_name(c) for c in unlabelled)}): they "
-            f"carry no {REPO_ID_LABEL} label, because they were started before this repo "
-            f"began labelling its containers. `osprey down` finds them through build/'s "
-            f"compose files, but not through the label fallback that takes over when "
-            f"build/ is gone.[/{styles.WARNING}]"
+        output.warn(
+            f"{len(unlabelled)} of these were matched by name, not by label "
+            f"({', '.join(_container_display_name(c) for c in unlabelled)})",
+            f"They carry no {REPO_ID_LABEL} label, because they were started before this "
+            f"repo began labelling its containers. `osprey down` finds them through "
+            f"build/'s compose files, but not through the label fallback that takes over "
+            f"when build/ is gone.",
         )
 
     if foreign:
@@ -613,19 +605,20 @@ def _print_containers_section(repo_root, config, console, styles):
         # them too. The label is what distinguishes them HERE; claiming it
         # isolates them would be exactly backwards for the operator who then
         # runs `osprey down`.
-        console.print(
-            f"\n  [{styles.WARNING}]{len(foreign)} container(s) named for '{project_name}' "
-            f"were started from a DIFFERENT copy of this deployment "
+        output.warn(
+            f"{len(foreign)} container(s) named for '{project_name}' were started from a "
+            f"DIFFERENT copy of this deployment "
             f"({', '.join(sorted({_container_label(c, REPO_ID_LABEL) or '?' for c in foreign}))}; "
-            f"this copy is {identity}). They share a name with yours, so `osprey down` run "
-            f"here stops them too. Only their label tells the two copies "
-            f"apart.[/{styles.WARNING}]"
+            f"this copy is {identity})",
+            "They share a name with yours, so `osprey down` run here stops them too. "
+            "Only their label tells the two copies apart.",
         )
-        console.print(_container_table(foreign, styles))
+        output.table(_container_table(foreign))
 
     if others:
-        console.print("\n[bold]Other OSPREY containers on this host:[/bold]")
-        console.print(_container_table(others, styles))
+        output.report("")
+        output.section("Other OSPREY containers on this host:", ())
+        output.table(_container_table(others))
 
     return all_containers
 
@@ -648,26 +641,28 @@ def _absolute_compose_files(compose_files, repo_root):
     ]
 
 
-def _print_endpoints_section(config, compose_files, console, styles):
+def _print_endpoints_section(config, compose_files):
     """Print where this deployment's services are reachable, as ``build/`` declares it.
 
     Derived from the published ports in the rendered compose files — the same
     source the post-deploy summary uses — so what status prints and what ``up``
     printed cannot diverge. It says where a service *would* answer, not that it
     is answering: whether it is running is the table above.
-    """
-    from osprey.deployment.deploy_summary import format_endpoint_summary
 
-    console.print()
+    The pairs come from :func:`~osprey.deployment.deploy_summary.endpoint_entries`
+    rather than from the formatted text block above it, so the rows are laid out
+    by the renderer's section vocabulary rather than by a second one.
+    """
+    from osprey.deployment.deploy_summary import endpoint_entries
+
+    output.report("")
     try:
-        summary = format_endpoint_summary(config, compose_files)
+        entries = endpoint_entries(config, compose_files)
     except Exception as exc:
-        console.print(f"  [{styles.DIM}]Endpoints unavailable: {exc}[/]")
+        output.warn("The endpoint list could not be read from the build", str(exc))
         return
-    console.print(f"[bold]{summary.splitlines()[0]}[/bold]")
-    for line in summary.splitlines()[1:]:
-        console.print(line)
-    console.print(f"  [{styles.DIM}](listed by the build; nothing was contacted to check)[/]")
+    output.section(f"Service endpoints ({resolve_project_name(config)}):", entries)
+    output.note("(listed by the build; nothing was contacted to check)")
 
 
 def _auth_availability(secret_env, repo_root):
@@ -754,7 +749,7 @@ def _artifact_drift(repo_root, build_dir, config):
             logger.debug("Artifact dry run said: %s", chatter.getvalue().strip())
 
 
-def _print_agent_section(repo_root, build_dir, config, console, styles, *, show_agents):
+def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     """Print how the agent in this deployment is configured, and whether it is in sync.
 
     Reports the provider, the environment block its settings carry, whether the
@@ -764,20 +759,27 @@ def _print_agent_section(repo_root, build_dir, config, console, styles, *, show_
     The per-agent model assignments are behind *show_agents* rather than
     printed always: there are a dozen of them, and a status report whose longest
     section is a model table buries the two lines an operator came for.
+
+    Every fact is a row of ONE section, sub-blocks included: a label column that
+    restarted for each sub-block would read as several unrelated reports. What
+    went sideways is not a row at all — it goes to the trouble primitives, and
+    therefore to stderr, after the block it qualifies.
     """
     import os
 
     from osprey.build.claude_code_resolver import AGENT_DEFAULT_TIERS, load_provider_spec
 
-    console.print("\n[bold]Agent:[/bold]")
+    rows: list[tuple[str, object]] = []
+    notes: list[str] = []
+    troubles: list[tuple[str, str | None]] = []
 
     claude_code = (config or {}).get("claude_code") or {}
     provider_name = claude_code.get("provider")
     if not provider_name:
-        console.print(f"  [{styles.DIM}]provider: not configured[/]")
-        console.print(
-            f"  [{styles.DIM}]Set claude_code.provider in profile.yml and rebuild to "
-            f"resolve models and provider environment automatically.[/]"
+        rows.append(("provider", "not configured"))
+        notes.append(
+            "Set claude_code.provider in profile.yml and rebuild to resolve models "
+            "and provider environment automatically."
         )
     else:
         try:
@@ -791,86 +793,92 @@ def _print_agent_section(repo_root, build_dir, config, console, styles, *, show_
             spec = load_provider_spec(build_dir, env_dir=repo_root)
         except Exception as exc:
             spec = None
-            console.print(f"  [{styles.ERROR}]provider {provider_name}: {exc}[/{styles.ERROR}]")
+            troubles.append(
+                (f"provider {provider_name} could not be read from the build", str(exc))
+            )
         else:
             if spec is None:
                 # The config names a provider and the resolver declined to
                 # resolve one. Reporting the name alone would present a
                 # configured provider where there is none in effect.
-                console.print(
-                    f"  [{styles.WARNING}]provider {provider_name}: named in the build, but "
-                    f"could not be resolved from it[/{styles.WARNING}]"
+                troubles.append(
+                    (
+                        f"provider {provider_name} is named in the build, but could not be "
+                        f"resolved from it",
+                        None,
+                    )
                 )
 
         if spec is not None:
-            console.print(f"  provider: {spec.provider}")
+            rows.append(("provider", spec.provider))
 
             available, where = _auth_availability(spec.auth_secret_env, repo_root)
             if available:
-                console.print(
-                    f"  auth:     [{styles.SUCCESS}]✓[/{styles.SUCCESS}] ${spec.auth_secret_env} "
-                    f"[{styles.DIM}]({where})[/]"
-                )
+                rows.append(("auth", f"✓ ${spec.auth_secret_env} ({where})"))
             else:
-                console.print(
-                    f"  auth:     [{styles.ERROR}]✗[/{styles.ERROR}] ${spec.auth_secret_env} not "
-                    f"found in this shell or in {repo_root / '.env'}"
+                rows.append(
+                    (
+                        "auth",
+                        f"✗ ${spec.auth_secret_env} not found in this shell or in "
+                        f"{repo_root / '.env'}",
+                    )
                 )
 
             if spec.env_block:
-                console.print(f"  [{styles.DIM}]environment (rendered into settings.json):[/]")
-                for key, value in spec.env_block.items():
-                    console.print(f"    {key} = [{styles.DIM}]{value}[/]")
+                rows.append(("environment", "rendered into settings.json"))
+                rows.extend((key, value) for key, value in spec.env_block.items())
 
-            console.print(f"  [{styles.DIM}]model tiers:[/]")
+            rows.append(("model tiers", ""))
             model_overrides = claude_code.get("models") or {}
             for tier in ("haiku", "sonnet", "opus"):
-                suffix = f" [{styles.DIM}](override)[/]" if tier in model_overrides else ""
-                console.print(f"    {tier:8s} → {spec.tier_to_model.get(tier, '?')}{suffix}")
+                suffix = " (override)" if tier in model_overrides else ""
+                rows.append((tier, f"{spec.tier_to_model.get(tier, '?')}{suffix}"))
 
             if show_agents:
-                console.print(f"  [{styles.DIM}]agent models:[/]")
+                rows.append(("agent models", ""))
                 agent_overrides = claude_code.get("agent_models") or {}
                 for agent_name, default_tier in sorted(AGENT_DEFAULT_TIERS.items()):
                     if agent_name in agent_overrides:
-                        note = f"(override: {agent_overrides[agent_name]})"
+                        origin = f"(override: {agent_overrides[agent_name]})"
                     else:
-                        note = f"({default_tier})"
-                    console.print(
-                        f"    {agent_name:28s} → {spec.agent_model(agent_name)} "
-                        f"[{styles.DIM}]{note}[/]"
-                    )
+                        origin = f"({default_tier})"
+                    rows.append((agent_name, f"{spec.agent_model(agent_name)} {origin}"))
 
             conflicts = spec.detect_env_conflicts(dict(os.environ))
             if conflicts:
-                console.print(
-                    f"  [{styles.WARNING}]⚠ this shell sets provider variables that "
-                    f"disagree with the build:[/{styles.WARNING}]"
-                )
-                for var, (shell_val, settings_val) in sorted(conflicts.items()):
-                    console.print(f"    {var}: shell {shell_val} / build {settings_val}")
-                console.print(
-                    f"  [{styles.DIM}]`osprey chat` resolves these in favour of the build.[/]"
+                detail = [
+                    f"{var}: shell {shell_val} / build {settings_val}"
+                    for var, (shell_val, settings_val) in sorted(conflicts.items())
+                ]
+                detail.append("`osprey chat` resolves these in favour of the build.")
+                troubles.append(
+                    (
+                        "this shell sets provider variables that disagree with the build",
+                        "\n".join(detail),
+                    )
                 )
 
     result = _artifact_drift(repo_root, build_dir, config)
+    changed = (result or {}).get("changed") or []
+    unchanged = (result or {}).get("unchanged") or []
     if result is None:
-        console.print(f"  [{styles.DIM}]artifacts: could not be checked[/]")
-        return
-    changed = result.get("changed") or []
-    unchanged = result.get("unchanged") or []
-    if changed:
-        console.print(
-            f"  [{styles.WARNING}]artifacts: {len(changed)} no longer match "
-            f"build/config.yml. Run `osprey build`[/{styles.WARNING}]"
+        rows.append(("artifacts", "could not be checked"))
+    elif changed:
+        troubles.append(
+            (
+                f"artifacts: {len(changed)} no longer match build/config.yml. Run `osprey build`",
+                "\n".join(str(path) for path in changed),
+            )
         )
-        for path in changed:
-            console.print(f"    [{styles.WARNING}]~[/{styles.WARNING}] {path}")
     else:
-        console.print(
-            f"  artifacts: [{styles.SUCCESS}]in sync[/{styles.SUCCESS}] "
-            f"[{styles.DIM}]({len(unchanged)} files)[/]"
-        )
+        rows.append(("artifacts", f"in sync ({len(unchanged)} files)"))
+
+    output.report("")
+    output.section("Agent:", rows)
+    for line in notes:
+        output.note(line)
+    for summary, detail in troubles:
+        output.warn(summary, detail)
 
 
 def show_repo_status(repo_root, *, console=None, styles=None, show_agents=False):
@@ -899,18 +907,12 @@ def show_repo_status(repo_root, *, console=None, styles=None, show_agents=False)
     was deleted is exactly the case an operator most needs to see.
 
     :param repo_root: The deployment repo — the directory holding ``profile.yml``
-    :param console: Rich Console to print to (default: a fresh one)
-    :param styles: Style constants object (default: :class:`_DefaultStyles`)
+    :param console: Accepted and ignored. Output goes through the CLI renderer,
+        which resolves its own console per call.
+    :param styles: Accepted and ignored, for the same reason.
     :param show_agents: Also print the per-agent model assignments
     """
     from osprey.deployment.container_lifecycle import as_built_compose_files, as_built_config_path
-
-    if console is None:
-        from rich.console import Console
-
-        console = Console()
-    if styles is None:
-        styles = _DefaultStyles
 
     repo_root = Path(repo_root)
     build_dir = repo_root / BUILD_DIRNAME
@@ -919,30 +921,31 @@ def show_repo_status(repo_root, *, console=None, styles=None, show_agents=False)
         load_project_config(str(config_path), wrap_errors=True) if config_path.is_file() else None
     )
 
-    console.print(f"\n[bold]{repo_root}[/bold]")
+    output.report("")
+    output.report(str(repo_root), style=Styles.BOLD)
 
-    _print_build_section(repo_root, console, styles)
-    all_containers = _print_containers_section(repo_root, config, console, styles)
+    _print_build_section(repo_root)
+    all_containers = _print_containers_section(repo_root, config)
 
     if config is None:
         # Both remaining sections are read out of build/config.yml. Saying that
         # once beats letting two whole sections silently not appear, which reads
         # as a deployment that has no endpoints and no agent.
-        console.print(
-            f"\n[{styles.DIM}]Endpoints and agent are read from build/config.yml, "
-            f"which this repo has none of yet.[/]"
+        output.report("")
+        output.note(
+            "Endpoints and agent are read from build/config.yml, which this repo has none of yet."
         )
     else:
         compose_files = _absolute_compose_files(
             as_built_compose_files(config, repo_root), repo_root
         )
         if compose_files:
-            _print_endpoints_section(config, compose_files, console, styles)
+            _print_endpoints_section(config, compose_files)
         if all_containers is not None:
-            _show_web_terminal_users(config, all_containers, console, styles)
-        _print_agent_section(repo_root, build_dir, config, console, styles, show_agents=show_agents)
+            _show_web_terminal_users(config, all_containers)
+        _print_agent_section(repo_root, build_dir, config, show_agents=show_agents)
 
-    console.print()
+    output.report("")
 
 
 # ---------------------------------------------------------------------------

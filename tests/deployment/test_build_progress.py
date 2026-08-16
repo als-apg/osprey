@@ -9,6 +9,7 @@ by hand.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,27 @@ COLD_BUILD = FIXTURES / "buildkit_cold_build.log"
 
 #: A single-image build, whose headers carry no service name at all.
 PROJECT_IMAGE = FIXTURES / "buildkit_project_image.log"
+
+#: BuildKit bookkeeping that is not a caption: the vertex stopwatch and the
+#: vertex's own status. Before the parser told the two apart, six caption
+#: observations in ten of the cold build replay matched this — the whole table
+#: read ``DONE 0.0s`` for most of a quarter-hour build.
+BOOKKEEPING = re.compile(r"^(\d+\.\d+\s|DONE\b|CACHED\b|ERROR\b|sha256:)")
+
+#: Real captions from the cold build, pinned verbatim. Filtering bookkeeping is
+#: only half the job: a filter that also ate these would leave a tidy table that
+#: says nothing. Each one is chosen for a different shape the filters could trip
+#: over — a stopwatch-prefixed line whose text starts with a word and a colon,
+#: one carrying its own digits-and-dots, one ending in ``done``, and two that
+#: never carried a stopwatch at all. All five arrive before their service's
+#: image is named, so all three surfaces are still showing that row.
+PINNED_CAPTIONS = [
+    "Hit:1 https://deb.debian.org/debian trixie InRelease",
+    "Fetched 10.0 MB in 1s (6811 kB/s)",
+    "Reading package lists...",
+    "transferring dockerfile: 10.59kB done",
+    "exporting layers",
+]
 
 
 def replay(path: Path, model: BuildModel) -> list[dict[str, str | None]]:
@@ -56,6 +78,23 @@ def steps_per_service(seen: list[dict[str, str | None]]) -> dict[str, set[str]]:
 
 def rows_by_service(model: BuildModel) -> dict[str, BuildRow]:
     return {row.service: row for row in model.snapshot()}
+
+
+def caption_trace(path: Path) -> dict[str, list[str]]:
+    """Every caption each service's row carried during a replay, in order.
+
+    Consecutive repeats are collapsed: what a caption filter can get wrong is
+    which strings reach a row, not how many ticks each one stayed there.
+    """
+    model = BuildModel()
+    trace: dict[str, list[str]] = {}
+    for tick, line in enumerate(path.read_bytes().decode().split("\n")):
+        model.feed(line, float(tick))
+        for row in model.snapshot():
+            captions = trace.setdefault(row.service, [])
+            if not captions or captions[-1] != row.caption:
+                captions.append(row.caption)
+    return trace
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +200,128 @@ def test_a_service_carries_a_caption_for_what_it_is_doing(cold_build):
     rows = rows_by_service(model)
     assert all(row.caption for row in rows.values())
     assert rows["virtual-accelerator"].started_at < rows["bluesky-panels"].started_at
+
+
+# ---------------------------------------------------------------------------
+# Captions carry work, never bookkeeping
+# ---------------------------------------------------------------------------
+#
+# Most of what a vertex prints is not a caption. BuildKit stamps its own
+# stopwatch onto every line a step's command writes, and reports each vertex's
+# status on lines of the same shape -- and both used to land in the caption
+# column, where the stopwatch reads as a second step index (`6/8  21.51
+# Collecting scikit-learn`) and `DONE 0.0s` reads as a finished build. The
+# replay is the instrument: no hand-written line would have found sixty
+# percent.
+
+
+def test_no_caption_is_buildkit_bookkeeping():
+    """The stopwatch and the vertex-status lines never reach a row."""
+    trace = caption_trace(COLD_BUILD)
+
+    polluted = [
+        (service, caption)
+        for service, captions in trace.items()
+        for caption in captions
+        if BOOKKEEPING.match(caption)
+    ]
+    assert polluted == []
+
+
+def test_genuine_captions_survive_the_filter_verbatim():
+    """The other half: a filter that ate the work too would pass the test above
+    with an empty table."""
+    trace = caption_trace(COLD_BUILD)
+
+    seen = {caption for captions in trace.values() for caption in captions}
+    assert [caption for caption in PINNED_CAPTIONS if caption not in seen] == []
+
+
+def test_filtering_captions_changes_no_row(cold_build):
+    """Bookkeeping lines still prove their service is alive, so the rows they
+    belong to must all still be there — the filter drops text, not rows."""
+    model, _, _ = cold_build
+
+    assert list(caption_trace(COLD_BUILD)) == [row.service for row in model.snapshot()]
+
+
+def test_the_vertex_stopwatch_is_not_part_of_the_caption():
+    """`#12 0.322 Hit:1 ...` is one caption with a timestamp in front of it, and
+    the timestamp is the vertex's, not the step's."""
+    model = BuildModel()
+
+    model.feed("#12 [virtual-accelerator 5/8] RUN apt-get update", 0.0)
+    model.feed("#12 0.322 Hit:1 https://deb.debian.org/debian trixie InRelease", 1.0)
+
+    assert model.snapshot()[0].caption == "Hit:1 https://deb.debian.org/debian trixie InRelease"
+
+
+def test_the_stopwatch_is_stripped_from_the_frame_that_survived():
+    """The stamp is per write, so a redrawn line carries one on every frame —
+    including the last one, which is the only one anybody saw."""
+    model = BuildModel()
+
+    model.feed("#17 [virtual-accelerator 6/8] RUN pip install", 0.0)
+    model.feed("#17 21.51 Collecting numpy\r21.52 Collecting scikit-learn", 1.0)
+
+    assert model.snapshot()[0].caption == "Collecting scikit-learn"
+
+
+@pytest.mark.parametrize(
+    "echo",
+    [
+        "DONE 0.0s",
+        "CACHED",
+        "ERROR: process did not complete successfully: exit code 1",
+        "sha256:00430733972c 14.40MB / 14.40MB 0.3s done",
+    ],
+)
+def test_a_vertex_status_echo_leaves_the_row_s_work_on_screen(echo: str):
+    """These close a vertex; they do not describe what the service is doing.
+    They arrive last, so a row that showed them would show nothing else."""
+    model = BuildModel()
+
+    model.feed("#12 [virtual-accelerator 5/8] RUN pip install osprey-framework", 0.0)
+    model.feed("#12 3.551 Collecting scikit-learn", 1.0)
+    model.feed(f"#12 {echo}", 2.0)
+
+    row = model.snapshot()[0]
+    assert row.caption == "Collecting scikit-learn"
+    assert row.step == "5/8"
+
+
+def test_a_status_echo_still_proves_its_service_is_alive():
+    """It is the one thing such a line does say, and the heartbeats read it:
+    dropping the line outright would make a chatty service look stalled."""
+    model = BuildModel()
+
+    model.feed("#12 [virtual-accelerator 5/8] RUN pip install", 0.0)
+    model.feed("#12 DONE 4.2s", 9.0)
+
+    assert model.snapshot()[0].last_line_at == 9.0
+
+
+def test_a_mid_build_vertex_done_does_not_finish_the_service():
+    """A service's Dockerfile is a dozen vertices and every one of them reports
+    `DONE`. Only `naming to ... done` means the image is built — reading the
+    first `DONE` as one would drop a still-building service from the table and
+    silence its heartbeats for the rest of the build."""
+    model = BuildModel()
+
+    model.feed("#12 [virtual-accelerator 5/8] RUN pip install", 0.0)
+    model.feed("#12 DONE 4.2s", 1.0)
+
+    assert model.snapshot()[0].finished is None
+
+
+def test_a_status_echo_alone_opens_no_row():
+    """Labelled, so the line could have bound to a row — it carries no step and
+    no caption, so the row it would open is a blank line in the table."""
+    model = BuildModel("proj")
+
+    model.feed("#1 DONE 0.1s", 0.0)
+
+    assert model.snapshot() == []
 
 
 # ---------------------------------------------------------------------------
@@ -280,12 +441,12 @@ def test_a_reused_vertex_number_follows_its_latest_header():
     model = BuildModel()
 
     model.feed("#7 [event-dispatcher 1/8] FROM python:3.12-slim", 0.0)
-    model.feed("#7 sha256:abc extracting", 1.0)
+    model.feed("#7 extracting sha256:abc", 1.0)
     model.feed("#7 [bluesky-bridge 1/8] FROM python:3.11-slim", 2.0)
     model.feed("#7 resolving python:3.11-slim", 3.0)
 
     rows = rows_by_service(model)
-    assert rows["event-dispatcher"].caption == "sha256:abc extracting"
+    assert rows["event-dispatcher"].caption == "extracting sha256:abc"
     assert rows["bluesky-bridge"].caption == "resolving python:3.11-slim"
 
 
@@ -311,8 +472,10 @@ def test_a_repeated_infrastructure_header_stays_on_the_labelled_row():
 
     rows = model.snapshot()
     assert [row.service for row in rows] == ["proj"]
-    assert rows[0].caption == "DONE 0.6s"
+    assert rows[0].caption == "load metadata for docker.io/library/python:3.12-slim"
     assert rows[0].started_at == 0.0
+    # The `DONE` lines carry no caption, but they are still this row's output.
+    assert rows[0].last_line_at == 5.0
 
 
 def test_a_redrawn_progress_caption_keeps_only_its_last_frame():

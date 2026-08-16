@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from osprey.cli import output
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.host_ports import (
     _WILDCARD_HOSTS,
@@ -125,6 +126,16 @@ def as_built_endpoint_entries(repo_root: Path | str) -> list[tuple[str, str]]:
     return endpoint_entries(config, files)
 
 
+def _summary_title(config: dict) -> str:
+    """The heading both the printed section and the logged block carry."""
+    return f"Service endpoints ({resolve_project_name(config)}):"
+
+
+def _summary_text(title: str, entries: list[tuple[str, str]]) -> str:
+    """Lay ``entries`` out under ``title`` as the block a caller wants as text."""
+    return "\n".join([title] + [f"  {service:<20} {address}" for service, address in entries])
+
+
 def format_endpoint_summary(config: dict, compose_files: list[str]) -> str:
     """Render :func:`endpoint_entries` as the text block a deploy or report prints.
 
@@ -133,16 +144,35 @@ def format_endpoint_summary(config: dict, compose_files: list[str]) -> str:
         resolvable from the working directory — they are opened here
     :return: Multi-line summary text
     """
-    lines = [f"Service endpoints ({resolve_project_name(config)}):"]
-    lines += [
-        f"  {service:<20} {address}" for service, address in endpoint_entries(config, compose_files)
-    ]
-    return "\n".join(lines)
+    return _summary_text(_summary_title(config), endpoint_entries(config, compose_files))
 
 
 def log_endpoint_summary(config: dict, compose_files: list[str]) -> None:
-    """Log the endpoint summary; advisory, never fails a deploy."""
+    """Print the endpoint summary, and keep it in the record for sinks.
+
+    Where a deployment answers is what the operator ran ``osprey up`` to find
+    out, so it is printed as the verb's own output rather than logged: an
+    INFO record is not rendered on a normal run, and a fact that only a
+    ``--verbose`` run shows is a fact the deploy did not report. Every exit
+    path of ``deploy_up`` calls this function, so all of them inherit the
+    printed form from here.
+
+    The logged block stays as it was, at the same level, so file and
+    aggregation sinks keep the whole summary in one record. It reaches a
+    terminal only on a ``--verbose`` run, where the transcript is what was
+    asked for.
+
+    Advisory: a summary that cannot be derived is reported to the debug record
+    and never fails a deploy that otherwise succeeded.
+
+    :param config: Loaded configuration dictionary
+    :param compose_files: Rendered compose file paths, spelled absolutely or
+        resolvable from the working directory — they are opened here
+    """
     try:
-        logger.key_info(format_endpoint_summary(config, compose_files))
+        title = _summary_title(config)
+        entries = endpoint_entries(config, compose_files)
+        output.section(title, entries)
+        logger.key_info(_summary_text(title, entries))
     except Exception as exc:
         logger.debug(f"Endpoint summary skipped: {exc}")

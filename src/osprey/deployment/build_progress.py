@@ -13,7 +13,7 @@ and no I/O: every line arrives through :meth:`BuildModel.feed` with the
 timestamp already measured by the caller, which is what makes a fifteen-minute
 build replayable from a fixture in milliseconds.
 
-The stream is messier than it looks, and three of its shapes will silently
+The stream is messier than it looks, and four of its shapes will silently
 corrupt a naive parser:
 
 * **Vertex numbers are not unique.** ``compose build`` numbers each service's
@@ -26,6 +26,11 @@ corrupt a naive parser:
 * **Captions carry embedded carriage returns.** ``dpkg`` and ``pip`` redraw a
   progress line in place, so one physical line holds a dozen overwrites. Only
   the last one was ever visible, and only that one is kept.
+* **Most continuation lines are not captions.** Six lines in ten carry either
+  BuildKit's elapsed stopwatch (``3.551 Reading package lists...``) or a
+  vertex's own status (``DONE 0.0s``, ``sha256:… 249B / 249B``). Passed
+  through, they turn the table into a column of ``DONE 0.0s``; the stopwatch is
+  stripped and the status lines only prove the service is still alive.
 
 Anything unrecognized is dropped rather than guessed at. A stream with no
 BuildKit headers at all — a podman provider with its own progress format —
@@ -49,6 +54,20 @@ _HEADER = re.compile(r"^\[(?P<bracket>[^\]]*)\](?: (?P<caption>.*))?$")
 
 #: A Dockerfile step index, as it appears inside a header: ``1/13``.
 _STEP_INDEX = re.compile(r"^\d+/\d+$")
+
+#: BuildKit's stopwatch, stamped onto every line a step's own command writes:
+#: ``#17 3.551 Reading package lists...``. It is a property of the vertex, not
+#: of what the step is doing, and left in place it reads as a second step index
+#: in the table (``6/8  21.51 Collecting scikit-learn``). Stripped from the
+#: visible frame, so the token that survives a carriage-return redraw goes too.
+_ELAPSED_PREFIX = re.compile(r"^\d+\.\d+\s+")
+
+#: Continuation lines that report the vertex's own state rather than its work.
+#: ``DONE``/``CACHED``/``ERROR`` close a vertex and ``sha256:`` lines are layer
+#: transfer accounting; none of them says what the service is doing, and all of
+#: them arrive last, so a row that showed them would read ``DONE 0.0s`` for the
+#: whole of a fifteen-minute build.
+_STATUS_ECHO = re.compile(r"^(?:DONE\b|CACHED\b|ERROR\b|sha256:)")
 
 #: The line that marks one image finished. Kept in step with the equivalent in
 #: :mod:`osprey.deployment.container_lifecycle`: the bare ``naming to`` line is
@@ -207,7 +226,15 @@ class BuildModel:
             # this vertex number, or to the single-image label.
             service = self._nodes.get(node, self._label)
             step = None
-            caption = _visible(rest)
+            caption = _ELAPSED_PREFIX.sub("", _visible(rest))
+            if _STATUS_ECHO.match(caption):
+                # Vertex-level status, not work: it proves the service is still
+                # alive and nothing else. In particular it does not finish the
+                # row — a vertex closes many times during a build, while the
+                # service is finished only by its `naming to ... done` line.
+                if service is not None:
+                    self._touch_time(service, now)
+                return None
         else:
             name, step = _split_bracket(header["bracket"])
             if name is None and step is None:
@@ -267,6 +294,17 @@ class BuildModel:
             last_line_at=now,
             finished=ref if ref is not None else row.finished,
         )
+
+    def _touch_time(self, service: str, now: float) -> None:
+        """Record that a service is still producing output, and nothing else.
+
+        An unknown service opens no row: a bare ``DONE`` carries no step and no
+        caption, so a row minted from one would be a blank line in the table
+        saying only that something happened somewhere.
+        """
+        row = self._rows.get(service)
+        if row is not None:
+            self._rows[service] = replace(row, last_line_at=now)
 
 
 def _split_bracket(bracket: str) -> tuple[str | None, str | None]:
