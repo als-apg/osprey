@@ -114,7 +114,12 @@ def _scan(pattern: re.Pattern[str]) -> list[tuple[str, int, str]]:
     for path in _shipped_files():
         try:
             text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:  # pragma: no cover - defensive, no such file today
+        except (UnicodeDecodeError, FileNotFoundError):
+            # A file that is gone by the time we read it ships nothing, so it
+            # cannot violate a criterion. Tests elsewhere stage a temp artifact
+            # under ``src/`` to model a source checkout that has run the
+            # benchmark; under xdist its owning worker can unlink it between
+            # this scan's glob and this read.
             continue
         lines = text.splitlines()
         stripped = [_COMMENT_LEAD.sub("", line.strip()) for line in lines]
@@ -541,6 +546,23 @@ def test_every_retired_spelling_exemption_still_has_something_to_explain() -> No
     }
     stale = sorted(set(_RETIRED_SPELLING_ALLOWLIST) - seen)
     assert stale == [], f"allowlist entries with no remaining occurrence: {stale}"
+
+
+def test_scan_tolerates_a_file_that_vanishes_between_the_glob_and_the_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The sweep walks the live tree, so its file list can go stale as it reads.
+
+    ``test_benchmark_results_in_a_source_checkout_are_not_materialized`` writes
+    a real artifact under ``src/`` to model a checkout that has run the
+    benchmark, then unlinks it. Run under xdist, that unlink can land while this
+    module's sweep is mid-walk, and a sweep that dies on the missing file fails
+    a criterion it never actually evaluated — on whichever test drew the race.
+    """
+    vanished = tmp_path / "gone.py"  # deliberately never created
+    monkeypatch.setattr(sys.modules[__name__], "_shipped_files", lambda: [vanished])
+
+    assert _scan(re.compile(r"anything")) == []
 
 
 # --------------------------------------------------------------------------
