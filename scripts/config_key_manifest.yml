@@ -105,6 +105,42 @@ keys:
   services.postgresql.database_name: {evidence: 'database_name'}
   services.postgresql.username: {covered-by: services.postgresql}
   services.postgresql.port_host: {evidence: 'port_host'}
+  # The qmd semantic-search sidecar. `rendered: false` on all four: the schema,
+  # its defaults and its readers exist (deployment/qmd_service.py), but no
+  # shipped template carries a `services.qmd` stanza yet — the block that
+  # documents it is a separate task's file. Dispositioned ahead of that stanza
+  # so the keys cannot land unmapped, and so the reader is pinned meanwhile:
+  # every regex below anchors on qmd_service.py and matches exactly one file,
+  # so deleting the resolver fails the guard rather than rotting quietly. When
+  # the template stanza lands COMMENTED (the facility.prefix precedent) these
+  # entries need no change; if it lands LIVE, drop `rendered: false`.
+  services.qmd:
+    rendered: false
+    evidence: 'services\.get\("qmd"\)'
+  services.qmd.path:
+    rendered: false
+    evidence: 'service_config\["path"\]'
+    note: >-
+      Same generic compose-generator read as the openobserve/postgresql `path`
+      keys — it resolves any service's fragment directory, qmd included.
+  services.qmd.port:
+    rendered: false
+    evidence: '_positive_int\(block\.get\("port"\)'
+    note: >-
+      Defaults to 8180, deliberately NOT qmd's own 8181: the daemon hardcodes
+      an IPv6-loopback bind, so the container fronts it with a forwarder that
+      owns the routable port. `deployment/host_ports.py` cites this key from
+      the same module, so the port-conflict remedy cannot drift from it.
+  services.qmd.interval:
+    rendered: false
+    evidence: 'block\.get\("interval"\)'
+    note: >-
+      Fallback corpus-sweep period, not the freshness lag — `.qmd-touch` is the
+      primary trigger. Default 30 s; a no-op sweep costs ~12.5 s at 135k
+      documents, so a large corpus should raise it.
+  # `services.qmd.bind_address` is deliberately absent: the sidecar publishes on
+  # the project-wide `deployment.bind_address` like every other service. See
+  # deployment/qmd_service.py for why a per-service key would be a hazard.
 
   # ── Safety / approval ───────────────────────────────────────────────
   approval:
@@ -373,6 +409,36 @@ keys:
   ariel.search_modules.semantic.enabled: {covered-by: ariel.search_modules.semantic}
   ariel.search_modules.semantic.provider: {covered-by: ariel.search_modules.semantic}
   ariel.search_modules.semantic.model: {covered-by: ariel.search_modules.semantic}
+  # The qmd sidecar search mode. Unlike its keyword/semantic siblings the knobs
+  # get their OWN evidence rather than a covered-by chain, because the loader
+  # they pass through is the one place this block can silently evaporate:
+  # SearchModuleConfig.from_dict keeps `enabled`, `provider`, `model` and
+  # `settings` and DROPS every other key without a word (unlike the enhancement
+  # loader beside it, which folds extras into settings). A knob written as a
+  # sibling of `enabled` is therefore inert forever — no error, just defaults —
+  # so each regex below anchors on the reader that proves the nested spelling
+  # is the one being read.
+  ariel.search_modules.qmd:
+    evidence: 'config\.search_modules\.get\("qmd"\)'
+  ariel.search_modules.qmd.enabled: {covered-by: ariel.search_modules.qmd}
+  ariel.search_modules.qmd.settings:
+    evidence: '_SETTINGS_PREFIX = "search_modules\.qmd\.settings"'
+  ariel.search_modules.qmd.settings.rerank:
+    evidence: '_SETTINGS_PREFIX\}\.rerank must be a boolean'
+    note: >-
+      Shipped as `true`, matching DEFAULT_RERANK and qmd's own default. The
+      reranker costs ~4x the query latency at near-constant cost in corpus
+      size; this is the agent-facing tool, which has no interactive budget to
+      protect, so it keeps the quality path. The OKF side defaults the other
+      way. The evidence anchors on the type refusal rather than the read: a
+      present-but-malformed knob is rejected, never defaulted, because
+      defaulting it would strand a deployment on the path it asked to leave.
+  ariel.search_modules.qmd.settings.candidate_limit:
+    evidence: '_SETTINGS_PREFIX\}\.candidate_limit must be a positive integer'
+    note: >-
+      Shipped as `40`, matching DEFAULT_CANDIDATE_LIMIT and qmd's own
+      `candidateLimit`. The other documented latency lever: lowering it trades
+      recall for speed.
   ariel.enhancement_modules: {evidence: 'enhancement_modules'}
   ariel.enhancement_modules.semantic_processor: {evidence: 'semantic_processor'}
   ariel.enhancement_modules.semantic_processor.enabled: {covered-by: ariel.enhancement_modules.semantic_processor}
@@ -384,6 +450,32 @@ keys:
   ariel.enhancement_modules.text_embedding.enabled: {covered-by: ariel.enhancement_modules.text_embedding}
   ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding}
   ariel.enhancement_modules.text_embedding.models: {covered-by: ariel.enhancement_modules.text_embedding}
+  # The markdown mirror the qmd sidecar indexes — one file per logbook entry,
+  # written during ingestion. Paired with `ariel.search_modules.qmd` above: the
+  # export without the search mode indexes a corpus nobody queries, and the
+  # search mode without the export queries a corpus nobody wrote.
+  ariel.enhancement_modules.qmd_export:
+    evidence: 'get_enhancement_module_config\("qmd_export"\)'
+  ariel.enhancement_modules.qmd_export.enabled: {covered-by: ariel.enhancement_modules.qmd_export}
+  ariel.enhancement_modules.qmd_export.settings:
+    evidence: 'export\.get\("settings"\)'
+    note: >-
+      Evidence is the compose generator, not the ARIEL loader, and that is the
+      point. EnhancementModuleConfig.from_dict folds unknown top-level keys
+      into `settings`, so both spellings reach the exporter identically — but
+      the compose generator reads the raw config.yml, where they are still
+      distinct, and prefers the nested one. The template ships the nested
+      spelling so the bind mount and the exporter cannot disagree about which
+      directory the mirror is.
+  ariel.enhancement_modules.qmd_export.settings.mirror_path:
+    evidence: 'config\.get\("mirror_path"\)'
+    note: >-
+      Config-relative, resolved against the directory holding config.yml — the
+      same rule as `facility_knowledge.bundle_path`. Shipped under var/, the
+      gitignored STATE zone: the mirror is machine-written from Postgres and is
+      as large as the logbook, so a path under the tracked data/ zone would
+      commit a generated corpus. An enabled export with no value here is
+      refused at configure() time rather than skipped.
   ariel.embedding: {covered-by: ariel}
   ariel.embedding.provider: {covered-by: ariel.embedding}
 
@@ -700,11 +792,13 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 251
+  expected_union_size: 269
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on
-    it.
+    it. Because it cannot fail, it only stays useful if it is re-derived
+    whenever a template's key set changes; it had drifted 9 low before the qmd
+    blocks landed, which is exactly how a soft counter stops being a signal.
 
 # ---------------------------------------------------------------------------
 # governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no
