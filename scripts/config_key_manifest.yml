@@ -439,7 +439,12 @@ keys:
       Shipped as `40`, matching DEFAULT_CANDIDATE_LIMIT and qmd's own
       `candidateLimit`. The other documented latency lever: lowering it trades
       recall for speed.
-  ariel.enhancement_modules: {evidence: 'enhancement_modules'}
+  ariel.enhancement_modules:
+    evidence: 'get\("enhancement_modules", \{\}\)'
+    note: >-
+      Pinned to the loader that reads the block rather than to the bare word,
+      which by now appears in enough modules and tests to pass the vacuity
+      check on mentions alone.
   ariel.enhancement_modules.semantic_processor: {evidence: 'semantic_processor'}
   ariel.enhancement_modules.semantic_processor.enabled: {covered-by: ariel.enhancement_modules.semantic_processor}
   ariel.enhancement_modules.semantic_processor.provider: {covered-by: ariel.enhancement_modules.semantic_processor}
