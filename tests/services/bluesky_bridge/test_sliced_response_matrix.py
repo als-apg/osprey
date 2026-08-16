@@ -107,7 +107,7 @@ def test_matches_polyfit_within_1e_12_on_a_bidirectional_sweep():
 
 
 def test_fits_a_monodirectional_sweep_that_the_legacy_path_rejects():
-    """Index slicing drops the zero-mean-sweep requirement entirely."""
+    """Index slicing drops the centred-sweep requirement entirely."""
     correctors = ["CH1", "CH2"]
     detectors = ["BPM1", "BPM2", "BPM3"]
     truth = _truth_matrix(len(detectors), len(correctors))
@@ -121,7 +121,7 @@ def test_fits_a_monodirectional_sweep_that_the_legacy_path_rejects():
 
     # The per-pair polyfit path cannot take this input at all: a one-sided
     # sweep leaves the idle-corrector rows with real leverage on the fit.
-    with pytest.raises(DegenerateFitError, match="not symmetric about 0"):
+    with pytest.raises(DegenerateFitError, match="not symmetric about its idle value"):
         build_response_matrix(rows, correctors, detectors)
 
 

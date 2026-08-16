@@ -524,6 +524,17 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The `orm` scan plan now kicks each corrector either side of where it found it
+  and puts it back there. It previously drove absolute currents either side of
+  zero and ended every corrector's sweep at 0 A, which is only correct on a
+  machine whose correctors idle at zero — on a ring holding a corrected orbit it
+  would have measured about a point the machine was not at and then dropped the
+  correction. `span_a` is now the size of the kick away from a corrector's
+  working point, and its 10 A ceiling is gone: what a corrector will take is the
+  deployment's own `channel_limits.json`, which is checked on every write. A
+  corrector whose read-back is not a number is refused before anything is
+  written to it.
+
 - The source-tree sweep behind the lifecycle criteria no longer fails when a
   file disappears while it is reading. It walks the live tree, so a temporary
   file another test had staged under `src/` could be listed and then deleted

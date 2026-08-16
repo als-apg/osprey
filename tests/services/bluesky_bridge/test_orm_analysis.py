@@ -120,10 +120,11 @@ def _real_shape_rows(
 
 
 def test_guard_is_quiet_on_a_real_shaped_symmetric_sweep() -> None:
-    """Every idle-corrector row (current 0.0) sits at the fit's x-mean when
-    each corrector's own sweep is symmetric about 0, so it carries zero
-    leverage on the slope -- the guard must not fire on this, the real
-    plan's shape.
+    """Every idle-corrector row sits at the fit's x-mean when each
+    corrector's own sweep is symmetric about the value it idles at, so it
+    carries zero leverage on the slope -- the guard must not fire on this,
+    the real plan's shape. Here the idle value is 0.0, the virtual
+    accelerator's; see the nonzero-working-point case below for a ring's.
     """
     currents = np.linspace(-1.0, 1.0, 5)
     rows = _real_shape_rows(KNOWN_MATRIX, CORRECTORS, DETECTORS, [currents] * len(CORRECTORS))
@@ -133,18 +134,83 @@ def test_guard_is_quiet_on_a_real_shaped_symmetric_sweep() -> None:
     assert np.allclose(result, KNOWN_MATRIX)
 
 
+def _relative_shape_rows(
+    matrix: np.ndarray,
+    correctors: list[str],
+    detectors: list[str],
+    kicks: np.ndarray,
+    working_points: list[float],
+) -> list[dict]:
+    """Rows shaped like a real `orm` run on a ring with a corrected orbit.
+
+    The difference from `_real_shape_rows` is the whole point of the relative
+    sweep: each corrector holds its own nonzero working point, is swept
+    *about* it, and is put back — so an idle corrector's key carries ITS
+    working point rather than 0.0. BPM readings respond to the kick away from
+    the working point (`matrix @ kick`) on top of the arbitrary corrected
+    orbit those working points are already holding, so a fit that mistook the
+    absolute setpoint for the kick would land on the wrong slope.
+    """
+    base_orbit = np.linspace(-3e-4, 3e-4, len(detectors))
+    rows = []
+    for j, corrector in enumerate(correctors):
+        for kick in kicks:
+            row = {name: working_points[k] for k, name in enumerate(correctors)}
+            row[corrector] = working_points[j] + float(kick)
+            for i, detector in enumerate(detectors):
+                row[detector] = float(base_orbit[i] + matrix[i, j] * kick)
+            rows.append(row)
+    return rows
+
+
+def test_guard_is_quiet_on_a_sweep_about_a_nonzero_working_point() -> None:
+    """The real plan sweeps each corrector about its own pre-scan working
+    point, so an idle corrector reads back that working point, not 0.0.
+
+    The zero-leverage argument survives that intact — a sweep symmetric about
+    `w` puts the fit's x-mean exactly at `w`, which is precisely where every
+    idle sample sits — so the guard must stay quiet and the fitted slopes
+    must still be the truth. The invariant was never "about zero"; zero was
+    only the value a machine with no orbit to correct happens to idle at.
+    """
+    working_points = [2.5, -1.25, 4.0]
+    kicks = np.linspace(-1.0, 1.0, 5)
+    rows = _relative_shape_rows(KNOWN_MATRIX, CORRECTORS, DETECTORS, kicks, working_points)
+
+    result = build_response_matrix(rows, CORRECTORS, DETECTORS)
+
+    assert np.allclose(result, KNOWN_MATRIX)
+
+
+def test_guard_fires_on_a_sweep_not_centred_on_the_idle_value() -> None:
+    """A corrector swept about something other than where it idles is still
+    rejected. Widening the invariant to "symmetric about the working point"
+    must not widen it to "anything goes": here the corrector idles at 2.5 but
+    is swept about 7.5, so the idle rows sit off the fit's x-mean and would
+    bias its slope exactly as before.
+    """
+    working_points = [2.5, -1.25, 4.0]
+    kicks = np.linspace(-1.0, 1.0, 5)
+    rows = _relative_shape_rows(KNOWN_MATRIX, CORRECTORS, DETECTORS, kicks, working_points)
+    for row in rows[: len(kicks)]:
+        row[CORRECTORS[0]] += 5.0  # swept about 7.5 while idling at 2.5
+
+    with pytest.raises(DegenerateFitError, match="symmetric about"):
+        build_response_matrix(rows, CORRECTORS, DETECTORS)
+
+
 def test_guard_fires_on_a_real_shaped_asymmetric_sweep() -> None:
-    """A corrector swept off-center (here [4, 6] instead of [-1, 1]) breaks
-    the zero-mean invariant `build_response_matrix` depends on -- idle rows
-    from the *other* correctors' symmetric sweeps no longer sit at this
-    corrector's x-mean, so they would silently bias its fitted slope. The
-    guard must raise instead of fitting garbage.
+    """A corrector swept off-center (here [4, 6] while idling at 0.0) breaks
+    the invariant `build_response_matrix` depends on -- idle rows from the
+    *other* correctors' sweeps no longer sit at this corrector's x-mean, so
+    they would silently bias its fitted slope. The guard must raise instead
+    of fitting garbage.
     """
     currents = np.linspace(-1.0, 1.0, 5)
-    off_center = currents + 5.0  # [4.0, ..., 6.0] -- not symmetric about 0
+    off_center = currents + 5.0  # [4.0, ..., 6.0] -- not centred on the 0.0 idle value
     rows = _real_shape_rows(KNOWN_MATRIX, CORRECTORS, DETECTORS, [off_center, currents, currents])
 
-    with pytest.raises(DegenerateFitError, match="symmetric about 0"):
+    with pytest.raises(DegenerateFitError, match="symmetric about its idle value"):
         build_response_matrix(rows, CORRECTORS, DETECTORS)
 
 

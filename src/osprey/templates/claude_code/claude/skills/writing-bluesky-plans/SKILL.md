@@ -56,8 +56,9 @@ optional fourth, `render` — see *The plan's own view* below):
 **Study the two shipped plans for the full worked pattern — do not
 invent new accelerator physics:**
 - `orm` (`src/osprey/services/bluesky_bridge/plans_core/orm.py`)
-  — sweeps each corrector over a bounded current range, reading every BPM
-  detector at each point, to measure an orbit-response matrix.
+  — kicks each corrector either side of its own pre-scan working point,
+  reading every BPM detector at each point, to measure an orbit-response
+  matrix.
 - `grid_scan` (`src/osprey/services/bluesky_bridge/plans_core/grid_scan.py`)
   — steps a set of setpoint devices over a rectangular grid, reading a set of
   detectors at every grid point.
@@ -65,6 +66,41 @@ invent new accelerator physics:**
 These are the ONLY accelerator scan patterns this framework ships. Never
 propose or author a BBA (beam-based alignment) or tune-scan plan — they are
 explicitly out of scope.
+
+## A plan that moves a device sweeps relative, and puts it back
+
+**Never write an absolute setpoint you did not read first, and never restore
+to a literal.** A running machine is not at zero: correctors hold an
+orbit-correction working point, and a magnet, mover, or phase shifter sits
+wherever operations left it. A plan that drives absolute values measures
+about a point the machine is not at, and one that "restores" to `0.0` does
+not restore anything — it drives the machine to zero, which on a stored beam
+is the orbit gone.
+
+The idiom, per device, is three lines (`orm`'s `build_plan` is the worked
+version):
+
+```python
+working_point = float((yield from bps.rd(device)))   # before the try
+try:
+    for step in steps:                               # steps are OFFSETS
+        yield from bps.mv(device, working_point + step)
+        yield from bps.trigger_and_read(all_devices)
+finally:
+    yield from bps.mv(device, working_point)         # never a literal
+```
+
+Read **before** the `try`, not inside it, so a device whose read fails is
+never entered and the `finally` can never run without a target. Your range
+parameters are then *excursions*, not absolute setpoints — say so in their
+descriptions, and do not give them a magnitude ceiling of your own: what a
+device tolerates is the deployment's `channel_limits.json`, which the
+connector's reference monitor enforces on every write.
+
+`grid_scan` is the deliberate exception: a grid's whole purpose is to visit
+declared absolute coordinates, so it neither reads nor restores. If your
+plan maps a space, follow `grid_scan`; if it perturbs a working machine to
+measure a response, follow `orm`.
 
 **The plan's name must be a valid Python identifier that does not begin with
 an underscore.** A leading-underscore name is rejected at authoring time

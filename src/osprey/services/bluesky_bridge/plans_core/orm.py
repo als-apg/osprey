@@ -1,9 +1,9 @@
 """Shipped plan: ``orm``, an orbit-response-matrix sweep.
 
 Discovered via the layered directory catalog's ``shipped`` tier (a folder
-scan of this package's ``plans_core/`` dir — see ``plan_loader.py``): sweep
-each corrector, one at a time, over a bounded current range, reading every
-BPM detector at each point.
+scan of this package's ``plans_core/`` dir — see ``plan_loader.py``): kick
+each corrector, one at a time, either side of the working point it was
+already holding, reading every BPM detector at each point, then put it back.
 
 Device-agnostic: ``correctors``/``detectors`` are resolved by string name
 against whatever ``devices`` dict the bridge passes in; nothing here names a
@@ -48,8 +48,9 @@ logger = logging.getLogger("osprey.services.bluesky_bridge.plans_core.orm")
 PLAN_METADATA = {
     "name": "orm",
     "description": (
-        "Sweep each corrector over a bounded current range, reading all BPM "
-        "detectors at every point, to measure an orbit-response matrix."
+        "Kick each corrector either side of its own pre-scan working point, "
+        "reading all BPM detectors at every point, to measure an "
+        "orbit-response matrix. Every corrector is put back where it was."
     ),
     "category": "accelerator",
     "required_devices": ["correctors", "detectors"],
@@ -61,11 +62,21 @@ class PARAMS(BaseModel):
     """Parameters for ``orm``: correctors to sweep, BPMs to read.
 
     Sweeps each corrector in ``correctors``, one at a time, over ``num``
-    evenly-spaced currents, reading every detector in ``detectors`` at each
-    point. ``sweep`` selects the current range: ``bidirectional`` spans the
-    symmetric ``[-span_a, +span_a]`` (kicks both ways, so a linear fit rejects
-    a corrector's hysteresis/offset); ``monodirectional`` spans ``[0, span_a]``
-    (one-sided, for a corrector that should never be driven negative).
+    evenly-spaced kicks *away from that corrector's own pre-scan working
+    point*, reading every detector in ``detectors`` at each point. ``sweep``
+    selects the kick range: ``bidirectional`` spans the symmetric
+    ``[-span_a, +span_a]`` (kicks both ways, so a linear fit rejects a
+    corrector's hysteresis/offset); ``monodirectional`` spans ``[0, span_a]``
+    (one-sided, for a corrector that should never be driven below where it
+    already sits).
+
+    ``span_a`` carries no upper bound of its own. It is an excursion, not an
+    absolute setpoint, and how large an excursion a corrector tolerates is a
+    property of the deployment, not of this schema — the connector's
+    reference monitor checks every setpoint against that project's own
+    ``channel_limits.json`` at write time and refuses (aborting the run) what
+    the machine will not take. A literal ceiling here would only ever be one
+    facility's number.
 
     The ``x-widget`` schema hints steer the plan panel's parameter GUI —
     device lists render as scrollable channel columns, ``sweep`` as a two-way
@@ -89,9 +100,12 @@ class PARAMS(BaseModel):
     span_a: float = Field(
         ...,
         gt=0,
-        le=10.0,
+        allow_inf_nan=False,
         title="Max kick (A)",
-        description="Maximum corrector kick, in amps, at the far end of the sweep.",
+        description=(
+            "Largest kick, in amps, away from a corrector's own pre-scan "
+            "working point at the far end of the sweep."
+        ),
     )
     num: int = Field(
         ...,
@@ -122,26 +136,55 @@ class PARAMS(BaseModel):
 def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     """Build the orbit-response-matrix sweep generator.
 
-    Mirrors the built-in ``orm`` plan's (``plans.py``) idiom: for each
-    corrector, sweep ``num`` currents evenly spaced over the range ``sweep``
-    selects — ``[-span_a, +span_a]`` (bidirectional) or ``[0, +span_a]``
-    (monodirectional) — moving the corrector then ``trigger_and_read``-ing
-    every corrector together with every BPM detector in one bundle, so each
-    point emits exactly one event carrying the driven corrector's current
-    alongside every BPM reading. Each corrector is restored to 0 A once its
-    own sweep finishes, including on abort (the ``try``/``finally`` runs on
+    For each corrector in turn: read where it is already sitting, sweep it
+    over ``num`` kicks evenly spaced across the range ``sweep`` selects —
+    ``[-span_a, +span_a]`` (bidirectional) or ``[0, +span_a]``
+    (monodirectional) — and put it back. Each kick is applied *relative to
+    that corrector's own pre-scan working point*, and at each point the plan
+    ``trigger_and_read``-s every corrector together with every BPM detector
+    in one bundle, so each point emits exactly one event carrying the driven
+    corrector's current alongside every BPM reading.
+
+    **Relative, because a machine with beam in it is not at zero.** A ring
+    running corrected orbit holds every corrector at a nonzero
+    orbit-correction working point. Sweeping absolute currents about zero
+    would measure the response about a point the machine is not at, and
+    "restoring" to a literal 0 A would drop the entire correction the ring
+    was holding — on a stored beam, that is the orbit gone. Reading each
+    corrector's working point costs one extra read per corrector and makes
+    the plan mean the same thing on a real ring as on a virtual accelerator
+    whose correctors happen to idle at zero.
+
+    The read is `bps.rd`, so the working point is the corrector's own
+    readback — which is the right value to restore under this bridge's
+    device contract, where a settable's ``set()`` does not complete until
+    the readback agrees with the demand (see ``devices/connector.py``'s
+    ``ConnectorSettable``). It happens BEFORE the ``try``, so a corrector
+    whose read fails is never entered at all and the restore below can never
+    run without a target.
+
+    Each corrector is restored to its recorded working point once its own
+    sweep finishes, including on abort (the ``try``/``finally`` runs on
     ``GeneratorExit`` too) — a restore failure is caught and logged rather
     than allowed to replace an in-flight sweep exception.
+
+    Raises:
+        ValueError: A corrector read back a non-finite working point. Every
+            setpoint derived from it would be non-finite too, and a NaN
+            demand is not something a limits check can refuse (``nan <
+            low`` and ``nan > high`` are both false), so it would reach the
+            IOC and only then fail as a readback-settle timeout. Refusing
+            here means no write is attempted at all.
     """
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
     detector_devices = [devices[name] for name in params.detectors]
     if params.sweep == "monodirectional":
         step = params.span_a / (params.num - 1)
-        currents = [i * step for i in range(params.num)]
+        kicks = [i * step for i in range(params.num)]
     else:
         step = (2 * params.span_a) / (params.num - 1)
-        currents = [-params.span_a + i * step for i in range(params.num)]
+        kicks = [-params.span_a + i * step for i in range(params.num)]
 
     all_devices = corrector_devices + detector_devices
 
@@ -149,18 +192,26 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     @bpp.run_decorator()
     def _sweep():
         for name, corrector in correctors:
+            working_point = float((yield from bps.rd(corrector)))
+            if not math.isfinite(working_point):
+                raise ValueError(
+                    f"orm plan: corrector {name!r} read back a non-finite working "
+                    f"point ({working_point}); refusing to sweep relative to it"
+                )
             try:
-                for current in currents:
-                    yield from bps.mv(corrector, current)
+                for kick in kicks:
+                    yield from bps.mv(corrector, working_point + kick)
                     yield from bps.trigger_and_read(all_devices)
             finally:
                 try:
-                    yield from bps.mv(corrector, 0.0)
+                    yield from bps.mv(corrector, working_point)
                 except Exception:
                     logger.warning(
-                        "orm plan: failed to restore corrector %s to 0 A "
-                        "during cleanup; preserving the original error",
+                        "orm plan: failed to restore corrector %s to its pre-scan "
+                        "working point (%r) during cleanup; preserving the original "
+                        "error",
                         name,
+                        working_point,
                         exc_info=True,
                     )
 
