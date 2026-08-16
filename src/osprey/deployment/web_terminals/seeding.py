@@ -38,6 +38,7 @@ import tarfile
 from pathlib import Path
 from typing import Any
 
+from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.compose_generator import resolve_repo_root
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.web_terminals.naming import web_container_name
@@ -264,9 +265,9 @@ def seed_user_containers(
         )
     base_content = base_md_path.read_text(encoding="utf-8") if base_md_exists else ""
 
-    logger.info("Seeding per-user CLAUDE.md and skills into claude-config volumes...")
     attempted = 0
     failed = 0
+    skipped: list[str] = []
     for entry in targets:
         resolved = resolved_by_name[entry["name"]]
         # Project scope, not $CLAUDE_CONFIG_DIR — the launcher runs the CLI with
@@ -283,10 +284,23 @@ def seed_user_containers(
             env=run_env,
         )
         if outcome is None:
-            continue  # container not ready — never counts toward the systemic check
+            # Container not ready — never counts toward the systemic check, but
+            # the count below and the warning after it keep it visible.
+            skipped.append(entry["name"])
+            continue
         attempted += 1
         if not outcome:
             failed += 1
+
+    # Counts, not an announcement: the per-user lines are DEBUG now, so a short
+    # seed has to be legible on this line alone.
+    _report_step(f"seeded {attempted - failed}/{len(targets)} user contexts")
+    if skipped:
+        logger.warning(
+            f"No container was running for web-terminal user(s) {', '.join(skipped)}, "
+            "so their context was not seeded. Re-run this once those containers "
+            "are up, or those users start with no CLAUDE.md and no skills."
+        )
 
     if attempted and failed == attempted:
         raise RuntimeError(
@@ -326,7 +340,7 @@ def _seed_one_user(
     """
     container = web_container_name(facility_prefix, user)
     if not _container_exists(runtime, container, env=env):
-        logger.info(f"  (skipped {user}: container not ready)")
+        logger.debug(f"  (skipped {user}: container not ready)")
         return None
     try:
         owner = _container_seed_owner(runtime, container, env=env)
@@ -335,7 +349,7 @@ def _seed_one_user(
         _seed_claude_md(runtime, container, payload, owner, env=env)
         skills_src = context_dir / user / "skills"
         _seed_skills(runtime, container, skills_src, project_skills_dir, owner, env=env)
-        logger.info(f"  seeded {user}")
+        logger.debug(f"  seeded {user}")
         return True
     except Exception as exc:
         logger.warning(f"  (skipped {user}: seeding failed: {_describe_seed_error(exc)})")

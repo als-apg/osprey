@@ -79,6 +79,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, NoReturn
 
+from osprey.cli.output import fail, note, report
 from osprey.deployment.compose_generator import (
     compose_provider_env,
     resolve_project_name,
@@ -356,20 +357,20 @@ def prune_users(
     orphan_users = sorted(set(orphan_containers) | set(orphan_volumes))
 
     if not orphan_users:
-        print("prune: no off-roster web-terminal resources found; nothing to do.")
+        report("prune: no off-roster web-terminal resources found; nothing to do.")
         return
 
     policy = "archive" if archive else "purge" if purge else "retain"
-    print(f"prune: found {len(orphan_users)} off-roster user(s) (volume policy: {policy}):")
+    report(f"prune: found {len(orphan_users)} off-roster user(s) (volume policy: {policy}):")
     for user in orphan_users:
         container = orphan_containers.get(user)
         if container:
-            print(f"  - {user}: remove container {container!r}")
+            note(f"- {user}: remove container {container!r}")
         for volume in orphan_volumes.get(user, []):
-            print(f"      volume {volume!r}: {policy}")
+            note(f"    volume {volume!r}: {policy}")
 
     if dry_run:
-        print("prune: dry run, so nothing was removed.")
+        report("prune: dry run, so nothing was removed.")
         return
 
     prompt = (
@@ -554,21 +555,21 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
             continue
         images_to_remove.append(image)
 
-    print(
+    report(
         f"nuke: this will tear down project {project!r}'s entire web-terminal and "
         f"service stack: every container in the project, {len(volumes)} "
         f"volume(s) ({len(roster_names)} roster user(s), "
         f"{len(orphan_volumes)} off-roster user(s)), and {len(images_to_remove)} "
         "image(s):"
     )
-    print(f"  - containers: {' '.join(runtime_cmd)} -p {project} down")
+    note(f"- containers: {' '.join(runtime_cmd)} -p {project} down")
     for volume in volumes:
-        print(f"  - volume {volume!r}: removed permanently (no retain/archive)")
+        note(f"- volume {volume!r}: removed permanently (no retain/archive)")
     for image in images_to_remove:
-        print(f"  - image {image!r}: removed permanently (com.osprey.project verified)")
+        note(f"- image {image!r}: removed permanently (com.osprey.project verified)")
     for image, label_value in skipped_images:
-        print(
-            f"  - image {image!r}: SKIPPED. Its com.osprey.project label {label_value!r} "
+        note(
+            f"- image {image!r}: SKIPPED. Its com.osprey.project label {label_value!r} "
             f"does not match this deployment's project {project!r}"
         )
 
@@ -582,7 +583,11 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
 
     result = _compose_down_project(runtime_cmd, project, env=env)
     if result.returncode != 0:
-        print(f"nuke: 'compose down' failed (exit {result.returncode}): {result.stderr.strip()}")
+        fail(
+            f"nuke: 'compose down' failed (exit {result.returncode})",
+            result.stderr.strip(),
+            "No volumes were removed. Fix the reported problem and run nuke again.",
+        )
         raise RuntimeError(
             f"Nuke aborted: 'compose down' for project {project!r} failed (exit "
             f"{result.returncode}); no volumes were removed."
@@ -703,7 +708,7 @@ def _reconcile_auth_after_user_removal(
         logger.warning(
             "Could not check whether a removed web-terminal user's plaintext password "
             "survives in %s (%s). If that file sets %s<USER> for any of %s, remove the "
-            "line by hand — the next `osprey up` would otherwise hash it back in.",
+            "line by hand. The next `osprey up` would otherwise hash it back in.",
             repo_root / ".env",
             exc,
             PW_PLAINTEXT_VAR_PREFIX,
@@ -825,7 +830,7 @@ def _warn_if_plaintext_password_survives(removed: list[str], project_root: Path)
             logger.warning(
                 "%s still sets %s for the removed web-terminal user %r. Their password "
                 "was purged from %s, but the next `osprey up` would hash that "
-                "plaintext back in — so re-adding this username would re-establish the "
+                "plaintext back in, so re-adding this username would re-establish the "
                 "DEPARTED holder's password. Remove that line from %s.",
                 dotenv_path,
                 variable,
