@@ -267,6 +267,36 @@ body {
   line-height: var(--okf-leading-normal);
 }
 
+/* Ranked results — the qmd sidecar answered, so position carries meaning.
+   That is all it carries: the score behind it is rank-derived, so the panel
+   shows the rank and a caption naming the ordering, never the number. Without
+   a sidecar neither element is rendered and the list above is unchanged. */
+
+.result-mode {
+  margin: var(--okf-space-2) var(--okf-space-2) 0;
+  font-size: var(--okf-text-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.result-list-ranked .result-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--okf-space-2);
+  align-items: baseline;
+}
+
+.result-rank {
+  font-size: var(--okf-text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.result-list-ranked .result-link,
+.result-list-ranked .result-snippet {
+  grid-column: 2;
+}
+
 /* -- Reading pane --------------------------------------------------------- */
 
 #reader {

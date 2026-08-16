@@ -14,6 +14,49 @@ from __future__ import annotations
 
 import re
 
+#: Leading ``"<n>: "`` line-number prefix qmd puts on every snippet line.
+_QMD_LINE_NUMBER_RE = re.compile(r"^\s*\d+:\s?")
+
+#: Diff-hunk header qmd emits as the first line of a snippet (``@@ -1,3 @@``).
+#: Anchored: a ``@@...@@`` span mid-line is document content, and deleting it
+#: would silently drop words out of an operator-facing excerpt. The leading
+#: ``\s*`` is free because the line-number prefix is stripped before this runs.
+_QMD_HUNK_RE = re.compile(r"^\s*@@[^@]*@@")
+
+
+def format_qmd_snippet(snippet: str) -> str:
+    """Flatten a qmd excerpt into one line of readable prose.
+
+    qmd hands back a match-centered excerpt that is line-numbered and prefixed
+    with a diff-hunk header — ``"1: @@ -1,3 @@ ...\\n2: # RF system"``. That
+    markup is addressing information for a tool that will fetch more context;
+    rendered verbatim in a reading panel it is noise an operator has to look
+    past. The panel shows a single-line excerpt, so strip the markers and let
+    the document's own words through.
+
+    Args:
+        snippet: The raw ``OKFSearchResult.snippet``. Empty on the substring
+            fallback, which produces no excerpt.
+
+    Returns:
+        The excerpt as one whitespace-collapsed line, or "" when *snippet* is
+        empty or holds nothing but markers (the caller then falls back to its
+        own snippet/description chain, exactly as on the fallback path).
+    """
+    if not snippet:
+        return ""
+
+    parts = []
+    for raw_line in snippet.splitlines():
+        line = _QMD_LINE_NUMBER_RE.sub("", raw_line)
+        line = _QMD_HUNK_RE.sub("", line)
+        line = line.strip()
+        # A hunk-header line collapses to a bare "..." continuation marker.
+        if line and line.strip(". "):
+            parts.append(line)
+
+    return re.sub(r"\s+", " ", " ".join(parts)).strip()
+
 
 def make_snippet(body: str, query: str, before: int = 60, after: int = 120) -> str:
     """Build a short context snippet around the first match of ``query`` in ``body``.

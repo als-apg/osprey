@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -57,6 +60,82 @@ _bundle: OKFBundle | None = None  # resolved lazily at startup by create_server
 # event loop and this set will not fire under normal operation.  It is kept as
 # a latent safeguard in case an await is introduced in the write path later.
 _drafts_in_flight: set[str] = set()
+
+# ---------------------------------------------------------------------------
+# Freshness marker
+# ---------------------------------------------------------------------------
+
+#: Fixed-name freshness marker written at the bundle root after every draft.
+#: A search sidecar watching the bundle remembers the last mtime it acted on and
+#: re-indexes when that mtime advances, so a fresh draft becomes searchable
+#: promptly instead of waiting out the sidecar's full fallback sweep.  The file
+#: is only ever *replaced*, never deleted, so a consumer can never observe it
+#: missing and skip an update.
+TOUCH_MARKER_NAME = ".qmd-touch"
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write *text* to *path* atomically, replacing any existing file.
+
+    The content is written to a temp file in the *same* directory (so the final
+    rename stays within one filesystem), flushed to disk, and then moved over
+    *path* with :func:`os.replace`.  A reader therefore sees either the previous
+    file or the complete new one, never a partially written one.  Synchronous by
+    design: callers rely on this function introducing no ``await`` point.
+
+    Args:
+        path: Destination file.  Its parent directory must already exist.
+        text: Full file content to write, UTF-8 encoded.
+
+    Raises:
+        OSError: If the temp file cannot be created, written, or renamed.  The
+            temp file is removed on any failure, leaving *path* untouched.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+def _touch_bundle_marker(root: Path) -> bool:
+    """Advance the bundle's :data:`TOUCH_MARKER_NAME` freshness marker.
+
+    Atomically rewrites ``<root>/.qmd-touch`` with the current UTC timestamp,
+    which advances the file's mtime.  The marker is never deleted or truncated
+    in place, so a consumer polling its mtime cannot race a producer.
+
+    Marker mtime resolution is the filesystem's, so two drafts landing inside
+    the same mtime tick may present as one advance; the consumer's interval
+    sweep is the backstop for that case.
+
+    A failure here does not invalidate the draft that was just written — the
+    document is on disk and the consumer's interval sweep will still find it —
+    so the error is logged and reported rather than raised.
+
+    Args:
+        root: Bundle root directory to write the marker into.
+
+    Returns:
+        ``True`` if the marker was rewritten, ``False`` if the write failed.
+    """
+    marker = root / TOUCH_MARKER_NAME
+    try:
+        _atomic_write_text(marker, f"{datetime.now(UTC).isoformat()}\n")
+    except OSError as exc:
+        logger.warning(
+            "draft_concept: could not update freshness marker %s: %s — the search "
+            "index will pick the draft up on its next interval sweep",
+            marker,
+            exc,
+        )
+        return False
+    return True
 
 
 def _get_bundle() -> OKFBundle:
@@ -298,17 +377,34 @@ async def read_concept(concept_id: str) -> str:
 async def search(query: str) -> str:
     """Search the facility knowledge bundle for a query string.
 
-    Performs a case-insensitive substring match over each concept's
-    frontmatter values and body text.  Reserved index/log files are
-    never returned.
+    The bundle answers in one of two modes, and every result says which one it
+    came from through its ``score`` field.
+
+    **Ranked** (``score`` is a number) - a search sidecar indexes the bundle and
+    answered, so the query was a hybrid keyword-plus-semantic one: a paraphrase
+    finds the concept that answers it, and results come back in descending
+    relevance order.  The score is an ordering signal derived from rank
+    (1.0, 0.5, 0.33 ...), **not** a calibrated relevance probability - do not
+    threshold it against a fixed number and do not compare it across queries.
+    ``snippet`` is the sidecar's line-numbered excerpt centred on the match.
+
+    **Fallback** (``score`` is ``null``) - no sidecar is configured, or the one
+    that is could not answer.  The query degrades to a case-insensitive
+    substring match over each concept's frontmatter values and body text, so
+    only literal occurrences are found and the order is filesystem traversal
+    order, not relevance.  ``snippet`` is then the first 200 characters of the
+    body, which need not contain the query at all.
+
+    Reserved index/log files are never returned by either mode.
 
     Args:
-        query: Substring to search for (case-insensitive).
+        query: Natural language in ranked mode; a literal substring in
+            fallback mode (case-insensitive).
 
     Returns:
-        JSON object with a ``results`` list, each entry containing
-        ``concept_id``, ``title``, ``description``, and a ``snippet``
-        (first 200 characters of the body).
+        JSON object with ``query``, ``count``, and a ``results`` list.  Each
+        entry has ``concept_id``, ``title``, ``description``, ``score``
+        (number when ranked, ``null`` in fallback mode), and ``snippet``.
     """
     with _tool_error_envelope(f"search for query {query!r}"):
         bundle = _get_bundle()
@@ -318,12 +414,15 @@ async def search(query: str) -> str:
                 "query": query,
                 "results": [
                     {
-                        "concept_id": cid,
-                        "title": doc.frontmatter.get("title", cid),
-                        "description": doc.frontmatter.get("description", ""),
-                        "snippet": doc.body[:200].strip(),
+                        "concept_id": m.concept_id,
+                        "title": m.document.frontmatter.get("title", m.concept_id),
+                        "description": m.document.frontmatter.get("description", ""),
+                        "score": m.score,
+                        # The ranked backend centres its excerpt on the match;
+                        # the fallback produces none, so lead with the body.
+                        "snippet": m.snippet or m.document.body[:200].strip(),
                     }
-                    for cid, doc in matches
+                    for m in matches
                 ],
                 "count": len(matches),
             }
@@ -344,6 +443,10 @@ async def draft_concept(
     Creates or replaces the ``.md`` file for *concept_id* in the bundle.
     The document is validated at the ``"authoring"`` level (OKF §9) before
     writing: ``type``, ``title``, and ``description`` must all be non-empty.
+    The file is written atomically (temp file plus rename), and the bundle's
+    ``.qmd-touch`` freshness marker is then rewritten — also atomically — so a
+    search sidecar re-indexes the new document promptly rather than waiting for
+    its next interval sweep.
 
     **Human approval required** — this tool is listed in the ``approval``
     config under ``draft_concept: always``.  The OSPREY ``PreToolUse`` hook
@@ -352,11 +455,20 @@ async def draft_concept(
     call and this function is never invoked.
 
     **Collision policy** — the effective policy is last-write-wins.  Because
-    this function contains no ``await`` points, the asyncio event loop never
-    yields mid-call; approval-gated calls are therefore serialised in practice
-    and each overwrites the previous file.  ``_drafts_in_flight`` is kept as
-    a latent defense-in-depth guard in case the write path ever acquires an
-    ``await``; it does not fire under the current execution model.
+    this function contains no ``await`` points — the document write and the
+    marker rewrite are both synchronous — the asyncio event loop never yields
+    mid-call; approval-gated calls are therefore serialised in practice and each
+    overwrites the previous file.  ``_drafts_in_flight`` is kept as a latent
+    defense-in-depth guard in case the write path ever acquires an ``await``;
+    it does not fire under the current execution model.
+
+    Last-write-wins spans **users**, not just calls: several operators may run
+    their own agent against one shared bundle, and that set is only serialised
+    within a single server process.  Two users drafting the same concept ID
+    still each write a whole, valid document — the atomic rename rules out a
+    torn file — but the later write silently supersedes the earlier one, and
+    ``_drafts_in_flight`` cannot detect the cross-process case.  Concurrent
+    edits to one concept must be coordinated outside this tool.
 
     Args:
         concept_id: OKF §2 path-minus-extension identifier for the concept to
@@ -374,7 +486,9 @@ async def draft_concept(
 
     Returns:
         JSON object with ``concept_id``, ``path`` (absolute path written),
-        and ``status: "written"``.
+        ``status: "written"``, and ``touch_marker`` — ``"updated"`` when the
+        freshness marker was rewritten, ``"failed"`` when it could not be (the
+        document is still written; indexing then waits for the sweep).
 
     Raises:
         ToolError: On validation failure, path traversal, bundle not
@@ -445,8 +559,13 @@ async def draft_concept(
             # Ensure parent directories exist.
             target.parent.mkdir(parents=True, exist_ok=True)
 
-            # Atomic write: serialise and flush to disk.
-            target.write_text(doc.serialize(), encoding="utf-8")
+            # Atomic write: serialise into a sibling temp file, then rename over
+            # the target so a concurrent reader never sees a half-written doc.
+            _atomic_write_text(target, doc.serialize())
+
+            # Advance the freshness marker so a search sidecar re-indexes the
+            # bundle promptly instead of waiting out its full fallback sweep.
+            marker_updated = _touch_bundle_marker(bundle.root)
 
             logger.info("draft_concept: wrote %s → %s", concept_id, target)
             return json.dumps(
@@ -454,6 +573,7 @@ async def draft_concept(
                     "concept_id": concept_id,
                     "path": str(target),
                     "status": "written",
+                    "touch_marker": "updated" if marker_updated else "failed",
                 }
             )
         finally:
