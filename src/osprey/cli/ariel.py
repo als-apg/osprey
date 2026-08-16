@@ -164,7 +164,7 @@ def _qmd_resync_pre_step(config_dict: dict) -> None:
     """
     from osprey.services.ariel_search.cli_operations import resync_qmd_mirror_best_effort
 
-    asyncio.run(resync_qmd_mirror_best_effort(config_dict, progress=click.echo))
+    asyncio.run(resync_qmd_mirror_best_effort(config_dict, progress=output.report))
 
 
 # ---------------------------------------------------------------------------
@@ -682,9 +682,13 @@ def qmd_resync_command(rebuild: bool) -> None:
 
     config_dict = _load_ariel_config()
     try:
-        result = asyncio.run(run_qmd_resync(config_dict, rebuild=rebuild, progress=click.echo))
+        result = asyncio.run(run_qmd_resync(config_dict, rebuild=rebuild, progress=output.report))
     except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
+        output.fail(
+            "the qmd markdown mirror has nowhere to write",
+            str(e),
+            "set ariel.enhancement_modules.qmd_export.settings.mirror_path in config.yml",
+        )
         raise SystemExit(1) from None
     except Exception as e:
         _handle_db_error(e)
@@ -692,17 +696,24 @@ def qmd_resync_command(rebuild: bool) -> None:
         raise
 
     if result is None:
-        click.echo("The qmd_export enhancement module is not enabled; nothing to resync.")
+        output.report("The qmd_export enhancement module is not enabled; nothing to resync")
         return
 
-    click.echo(f"\nMirror: {result.mirror_path}")
+    rows: list[tuple[str, object]] = []
     if result.rebuild:
-        click.echo(f"  Removed before rebuild: {result.removed}")
-    click.echo(f"  Scanned: {result.scanned}")
-    click.echo(f"  Written: {result.written}")
-    click.echo(f"  Unchanged: {result.unchanged}")
+        rows.append(("Removed before rebuild", result.removed))
+    rows.extend(
+        [
+            ("Scanned", result.scanned),
+            ("Written", result.written),
+            ("Unchanged", result.unchanged),
+        ]
+    )
     if result.failed:
-        click.echo(f"  Failed: {result.failed}")
+        rows.append(("Failed", result.failed))
+
+    output.report("")
+    output.section(f"Mirror: {result.mirror_path}", rows)
 
 
 __all__ = ["ariel_group"]

@@ -25,6 +25,7 @@ because "did the bytes change" is the contract under test.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -571,8 +572,11 @@ class TestQmdResyncCommand:
 
         assert result.exit_code == 0, result.output
         assert seen == [{"rebuild": False}]
-        assert "Written: 2" in result.output
-        assert "Unchanged: 1" in result.output
+        # The summary renders as a key/value section, whose label column is
+        # padded to the widest label present -- so match the pairing, not the
+        # run of spaces, which changes with the other rows.
+        assert re.search(r"Written\s+2", result.output), result.output
+        assert re.search(r"Unchanged\s+1", result.output), result.output
 
     def test_rebuild_flag_reaches_the_pass(self, monkeypatch) -> None:
         seen: list[bool] = []
@@ -597,7 +601,7 @@ class TestQmdResyncCommand:
 
         assert result.exit_code == 0, result.output
         assert seen == [True]
-        assert "Removed before rebuild: 7" in result.output
+        assert re.search(r"Removed before rebuild\s+7", result.output), result.output
 
     def test_disabled_module_reports_rather_than_failing(self, monkeypatch) -> None:
         async def _fake(config_dict, rebuild=False, page_size=0, progress=None):
