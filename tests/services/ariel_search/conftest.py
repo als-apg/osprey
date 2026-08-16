@@ -19,6 +19,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from osprey.services.ariel_search.enhancement.qmd_export.exporter import (
+    QmdExportModule,
+)
 from osprey.services.ariel_search.enhancement.semantic_processor.processor import (
     SemanticProcessorModule,
 )
@@ -74,13 +77,22 @@ def _build_ariel_mock_registry():
         description="Text embedding",
         execution_order=20,
     )
+    qe_reg = ArielEnhancementModuleRegistration(
+        name="qmd_export",
+        module_path="osprey.services.ariel_search.enhancement.qmd_export.exporter",
+        class_name="QmdExportModule",
+        description="qmd markdown mirror export",
+        execution_order=30,
+    )
     _enhancement_modules = {
         "semantic_processor": (SemanticProcessorModule, sp_reg),
         "text_embedding": (TextEmbeddingModule, te_reg),
+        "qmd_export": (QmdExportModule, qe_reg),
     }
     registry.list_ariel_enhancement_modules.return_value = [
         "semantic_processor",
         "text_embedding",
+        "qmd_export",
     ]
     registry.get_ariel_enhancement_module.side_effect = _enhancement_modules.get
 

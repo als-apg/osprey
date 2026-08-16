@@ -192,6 +192,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "AttachmentMigration",
         None,  # Always runs
     ),
+    (
+        "qmd_resync_index",
+        "osprey.services.ariel_search.database.qmd_resync_migration",
+        "QmdResyncMigration",
+        "qmd_export",
+    ),
 ]
 
 

@@ -4,8 +4,10 @@ Tests for base enhancement module, factory, and module implementations.
 """
 
 import logging
+import os
 import sys
-from datetime import UTC
+from datetime import UTC, datetime
+from unittest import mock
 
 import pytest
 
@@ -14,6 +16,10 @@ from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
 from osprey.services.ariel_search.enhancement.factory import (
     create_enhancers_from_config,
     get_enhancer_names,
+)
+from osprey.services.ariel_search.enhancement.qmd_export import (
+    TOUCH_MARKER_NAME,
+    QmdExportModule,
 )
 from osprey.services.ariel_search.enhancement.semantic_processor import (
     SemanticProcessorModule,
@@ -33,7 +39,7 @@ class TestEnhancementFactory:
     def test_get_enhancer_names(self):
         """get_enhancer_names returns correct list."""
         names = get_enhancer_names()
-        assert names == ["semantic_processor", "text_embedding"]
+        assert names == ["semantic_processor", "text_embedding", "qmd_export"]
 
     def test_create_enhancers_no_modules_enabled(self):
         """Factory returns empty list when no modules enabled."""
@@ -1290,3 +1296,163 @@ class TestTextEmbeddingHealthCheckBranches:
 
         assert healthy is False
         assert message == "unknown embedding provider 'fake'"
+
+
+class TestQmdExportModule:
+    """Tests for QmdExportModule."""
+
+    @pytest.fixture
+    def entry(self):
+        """Sample entry with a timestamp that picks a known shard."""
+        return {
+            "entry_id": "entry-001",
+            "author": "operator",
+            "source_system": "elog",
+            "raw_text": "Replaced vacuum pump VP-103.",
+            "timestamp": datetime(2024, 5, 17, 13, 45, 9, tzinfo=UTC),
+        }
+
+    def _module(self, mirror_root):
+        """Return a module configured to mirror into an absolute root."""
+        module = QmdExportModule()
+        module.configure({"mirror_path": str(mirror_root)})
+        return module
+
+    def test_module_name(self):
+        """Module has correct name."""
+        assert QmdExportModule().name == "qmd_export"
+
+    def test_module_has_no_migration(self):
+        """The mirror lives on the filesystem, so no migration is needed."""
+        assert QmdExportModule().migration is None
+
+    def test_configure_keeps_absolute_path(self, tmp_path):
+        """An absolute mirror_path is used verbatim."""
+        module = self._module(tmp_path / "mirror")
+        assert module._mirror_root == tmp_path / "mirror"
+
+    def test_configure_resolves_relative_path_against_config_dir(self, tmp_path, monkeypatch):
+        """A relative mirror_path resolves against the directory holding config.yml."""
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "build" / "config.yml"))
+        module = QmdExportModule()
+
+        module.configure({"mirror_path": "qmd-mirror"})
+
+        assert module._mirror_root == (tmp_path / "build" / "qmd-mirror").resolve()
+
+    def test_configure_expands_user_home(self, tmp_path, monkeypatch):
+        """A tilde-prefixed mirror_path expands before the absolute check."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        module = QmdExportModule()
+
+        module.configure({"mirror_path": "~/mirror"})
+
+        assert module._mirror_root == tmp_path / "mirror"
+
+    def test_configure_without_mirror_path_raises(self):
+        """An enabled exporter with nowhere to write is a broken config."""
+        with pytest.raises(ValueError, match="mirror_path is required"):
+            QmdExportModule().configure({"enabled": True})
+
+    @pytest.mark.asyncio
+    async def test_enhance_writes_entry_and_touches_marker(self, tmp_path, entry):
+        """A first export writes the sharded file and the freshness marker."""
+        module = self._module(tmp_path)
+
+        await module.enhance(entry, _FakeConnection())
+
+        mirrored = tmp_path / "2024" / "05" / "entry-001.md"
+        assert mirrored.is_file()
+        assert "Replaced vacuum pump VP-103." in mirrored.read_text()
+        assert (tmp_path / TOUCH_MARKER_NAME).is_file()
+
+    @pytest.mark.asyncio
+    async def test_enhance_leaves_marker_alone_when_nothing_changed(self, tmp_path, entry):
+        """Re-exporting an unchanged entry must not manufacture reindex work."""
+        module = self._module(tmp_path)
+        await module.enhance(entry, _FakeConnection())
+
+        marker = tmp_path / TOUCH_MARKER_NAME
+        mirrored = tmp_path / "2024" / "05" / "entry-001.md"
+        stale = 1_000_000.0
+        os.utime(marker, (stale, stale))
+        os.utime(mirrored, (stale, stale))
+
+        await module.enhance(entry, _FakeConnection())
+
+        assert marker.stat().st_mtime == stale
+        assert mirrored.stat().st_mtime == stale
+
+    @pytest.mark.asyncio
+    async def test_enhance_touches_marker_when_content_changed(self, tmp_path, entry):
+        """A changed entry rewrites the file and advances the marker."""
+        module = self._module(tmp_path)
+        await module.enhance(entry, _FakeConnection())
+
+        marker = tmp_path / TOUCH_MARKER_NAME
+        stale = 1_000_000.0
+        os.utime(marker, (stale, stale))
+
+        changed = {**entry, "raw_text": "Pump VP-103 replaced again."}
+        await module.enhance(changed, _FakeConnection())
+
+        assert marker.stat().st_mtime > stale
+
+    @pytest.mark.asyncio
+    async def test_enhance_is_a_noop_without_a_configured_mirror(self, tmp_path, entry):
+        """A module that was never configured writes nothing rather than guessing."""
+        module = QmdExportModule()
+
+        await module.enhance(entry, _FakeConnection())
+
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_enhance_raises_on_an_unmirrorable_entry_id(self, tmp_path):
+        """An id that cannot be encoded is a failure, not a silent search gap."""
+        module = self._module(tmp_path)
+
+        with pytest.raises(ValueError, match="entry_id"):
+            await module.enhance({"entry_id": "", "raw_text": "x"}, _FakeConnection())
+
+    @pytest.mark.asyncio
+    async def test_marker_failure_does_not_fail_the_entry(self, tmp_path, entry, caplog):
+        """A marker that cannot be written is logged; the mirrored file still stands."""
+        module = self._module(tmp_path)
+
+        def boom(path, text):
+            raise OSError("read-only file system")
+
+        target = "osprey.services.ariel_search.enhancement.qmd_export.exporter._atomic_write_text"
+        with caplog.at_level(logging.WARNING), mock.patch(target, boom):
+            await module.enhance(entry, _FakeConnection())
+
+        assert (tmp_path / "2024" / "05" / "entry-001.md").is_file()
+        assert "freshness marker" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_health_check_reports_missing_configuration(self):
+        """Health check is explicit about an unconfigured mirror."""
+        assert await QmdExportModule().health_check() == (False, "mirror_path is not configured")
+
+    @pytest.mark.asyncio
+    async def test_health_check_creates_the_mirror_root(self, tmp_path):
+        """A configured, creatable mirror root reports healthy."""
+        module = self._module(tmp_path / "mirror")
+
+        healthy, message = await module.health_check()
+
+        assert (healthy, message) == (True, "OK")
+        assert (tmp_path / "mirror").is_dir()
+
+    @pytest.mark.asyncio
+    async def test_health_check_reports_an_unwritable_mirror_root(self, tmp_path):
+        """A mirror root that cannot be created reports unhealthy rather than raising."""
+        blocker = tmp_path / "mirror"
+        blocker.write_text("not a directory")
+        module = self._module(blocker)
+
+        healthy, message = await module.health_check()
+
+        assert healthy is False
+        assert "not writable" in message
