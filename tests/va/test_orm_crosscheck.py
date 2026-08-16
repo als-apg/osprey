@@ -36,8 +36,11 @@ from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
 from osprey.services.virtual_accelerator.lattice import inventory, orbit_response
 
 # Symmetric sweep parameters, matching the real `orm` plan's contract
-# (`plans.py::_orm_plan`): a zero-mean sweep is required by
-# `build_response_matrix`'s degenerate-fit guard.
+# (`plans_core/orm.py`'s `build_plan`): a sweep centred on each corrector's
+# own idle value is required by `build_response_matrix`'s degenerate-fit
+# guard. The VA's correctors idle at 0 A, so here that centre IS zero — on a
+# ring holding a corrected orbit it would be the working point instead, and
+# the same symmetric sweep would be written about that.
 SPAN_A = 5.0
 NUM_POINTS = 5
 
@@ -75,7 +78,7 @@ def _corrector_and_bpm_names() -> tuple[list[str], list[str]]:
 
 
 def _sweep_currents(span: float, num: int) -> list[float]:
-    """The same symmetric, zero-mean current sequence `_orm_plan` sweeps."""
+    """The symmetric kick sequence `build_plan` sweeps, about a 0 A idle."""
     step = (2 * span) / (num - 1)
     return [-span + i * step for i in range(num)]
 

@@ -112,36 +112,41 @@ def _resolve_anchors(project_path: Path) -> tuple[Path, Path, Path]:
     flat spelling a container project directory uses — the same order
     :func:`osprey.utils.workspace.resolve_config_path` reads, and the same one
     the ``channel-finder`` group resolves through), the repo root is derived from
-    wherever that landed, and the ``.env`` comes from
-    :func:`osprey.utils.workspace.deployment_env_path` — the same
+    wherever that landed, and the env chain comes from
+    :func:`osprey.utils.workspace.deployment_env_chain` — the same
     repo-root-with-container-fallback rule the loader uses, spelled once so the
-    two cannot disagree.
+    two cannot disagree. The CHAIN, not just ``.env``: resolved through the
+    config path rather than the working directory, so ``--project`` from
+    another directory reads the target repo's ``.env.shared`` the same way
+    build/chat/query/compose do.
 
     Returns:
-        ``(config_path, repo_root, env_path)``. Nothing is required to exist;
+        ``(config_path, repo_root, env_paths)``. Nothing is required to exist;
         a missing config is reported by the ``configuration`` category.
     """
-    from osprey.utils.workspace import deployment_env_path, repo_root_for_config
+    from osprey.utils.workspace import deployment_env_chain, repo_root_for_config
 
     from .project_utils import project_config_path
 
     config_path = project_config_path(project_path)
-    return config_path, repo_root_for_config(config_path), deployment_env_path(config_path)
+    return config_path, repo_root_for_config(config_path), deployment_env_chain(config_path)
 
 
-def _load_project_env(dotenv_path: Path) -> None:
-    """Load the deployment's ``.env`` into ``os.environ`` with override semantics.
+def _load_project_env(dotenv_paths: list[Path]) -> None:
+    """Load the deployment's env chain into ``os.environ`` with override semantics.
 
-    The ``.env`` file is the source of truth for API keys and facility settings,
-    so it overrides any pre-existing process environment. A missing file or a
-    missing ``python-dotenv`` is silently ignored.
+    The chain is the source of truth for API keys and facility settings, so it
+    overrides any pre-existing process environment — walked in ascending
+    precedence (``.env.shared`` before ``.env``) so the local file wins. A
+    missing file or a missing ``python-dotenv`` is silently ignored.
     """
     try:
         from dotenv import load_dotenv
     except ImportError:
         return
-    if dotenv_path.exists():
-        load_dotenv(dotenv_path, override=True)
+    for dotenv_path in dotenv_paths:
+        if dotenv_path.exists():
+            load_dotenv(dotenv_path, override=True)
 
 
 def _validate_categories(
@@ -299,15 +304,15 @@ def health(
 
         try:
             project_path = resolve_project_path(project)
-            config_path, repo_root, env_path = _resolve_anchors(project_path)
+            config_path, repo_root, env_paths = _resolve_anchors(project_path)
 
             with _quiet_run_logs(as_json=as_json, verbose=verbose):
                 config_state, expanded, settings, config_ok = load_config(config_path, repo_root)
 
-                # Load the deployment .env after the config load so its values
-                # are present in os.environ for the run-time checks (provider
-                # canaries, env scan).
-                _load_project_env(env_path)
+                # Load the deployment env chain after the config load so its
+                # values are present in os.environ for the run-time checks
+                # (provider canaries, env scan).
+                _load_project_env(env_paths)
 
                 suite_timeout_s = settings.suite_timeout_s if settings else DEFAULT_SUITE_TIMEOUT_S
                 on_demand_timeout_s = settings.on_demand_timeout_s if settings else None

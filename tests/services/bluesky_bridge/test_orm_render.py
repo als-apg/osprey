@@ -102,7 +102,8 @@ def test_monodirectional_run_renders_a_full_response_matrix() -> None:
 
     That contrast is the whole reason `render` fits by acquisition index:
     `build_response_matrix` needs every corrector's samples to be symmetric
-    about 0, which a `monodirectional` sweep is not.
+    about that corrector's idle value, which a `monodirectional` sweep — one
+    that starts AT the idle value and only goes one way — is not.
     """
     correctors, detectors = ["hcm1", "hcm2"], ["bpm1", "bpm2", "bpm3"]
     truth = _truth(len(detectors), len(correctors))

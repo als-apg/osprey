@@ -534,6 +534,50 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The `orm` scan plan now kicks each corrector either side of where it found it
+  and puts it back there. It previously drove absolute currents either side of
+  zero and ended every corrector's sweep at 0 A, which is only correct on a
+  machine whose correctors idle at zero — on a ring holding a corrected orbit it
+  would have measured about a point the machine was not at and then dropped the
+  correction. `span_a` is now the size of the kick away from a corrector's
+  working point, and its 10 A ceiling is gone: what a corrector will take is the
+  deployment's own `channel_limits.json`, which is checked on every write. A
+  corrector whose read-back is not a number is refused before anything is
+  written to it.
+
+- The source-tree sweep behind the lifecycle criteria no longer fails when a
+  file disappears while it is reading. It walks the live tree, so a temporary
+  file another test had staged under `src/` could be listed and then deleted
+  before its turn came, failing a criterion that was never evaluated.
+
+- Deploys with the ARIEL logbook store no longer break on podman-compose hosts:
+  the store's own `up` was the one compose invocation still built in the docker
+  shape, so it aborted the deploy (or ran against the wrong project directory
+  with `.env.shared` dropped) in the middle of an otherwise podman-shaped start.
+
+- `osprey users nuke` now completes on podman-compose hosts. Its container
+  teardown is built like every other compose command — rendered files, provider
+  shape, pinned project directory — instead of a bare `docker compose -p down`
+  only Docker can parse.
+
+- A `$` in an `.env.shared` value now stops a deploy on every compose provider,
+  not only podman-compose. Docker Compose interpolates env-file values, so such
+  a secret reached containers truncated or spliced with host values, silently.
+
+- The host-port preflight and the `osprey up` closing summary now cover any
+  facility service placed on the host network, read from its
+  `services.<name>.port` key. A host-mode service without that key is named in
+  a warning instead of silently escaping the check.
+
+- `osprey health --project <repo>` run from another directory now resolves the
+  target repo's whole env chain — `.env.shared` included — the way build, chat
+  and compose do, and the long-lived health surfaces notice `.env.shared`
+  edits instead of answering from a stale environment forever.
+
+- The release pipeline again verifies that the framework wheel's dependencies
+  resolve from PyPI before anything is published; the check had been quietly
+  lost when the install-docs lane switched to local wheels for PR runs.
+
 - A control-system write whose read-back could not be verified now fails instead
   of reporting success. `write_channel` logged `Wrote <channel>` whenever the
   write itself returned, so an operator could be told a setpoint had moved when

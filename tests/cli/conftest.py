@@ -50,6 +50,23 @@ def _guard_os_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "_exit", _raise)
 
 
+@pytest.fixture(autouse=True)
+def _neutral_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strip color-forcing variables from the environment CLI tests run under.
+
+    Leak guarded: Rich and Click honor ``FORCE_COLOR``/``CLICOLOR_FORCE`` as a
+    documented opt-in, so a developer whose terminal exports either gets ANSI
+    escapes inside ``CliRunner``'s captured output — and a false-red lane on
+    pristine main (seven tests: exact-output asserts, plus two whose captured
+    YAML stops parsing on ``\\x1b``). CI is green only because its runners
+    never export them; this makes the suite hermetic instead of lucky.
+    ``NO_COLOR`` is left alone: unset it is the same default CI runs under,
+    and pinning it would hide a command that fails to honor the opt-out.
+    """
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.delenv("CLICOLOR_FORCE", raising=False)
+
+
 @pytest.fixture
 def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect ``Path.home()`` and ``$HOME`` to a tmp directory.

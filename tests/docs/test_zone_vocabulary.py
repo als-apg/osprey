@@ -64,6 +64,15 @@ SCAN_SUFFIXES = (
     ".sh",
 )
 
+#: Shipped files that carry no extension at all, admitted by name instead — the
+#: same clause as ``test_env_production_retired.py``, and for the same reason:
+#: an extension-only rule cannot see them, and the two files that actually
+#: narrate the zones to an operator both live in that class (the project
+#: ``gitignore`` and ``dockerignore`` templates, emitted verbatim into every
+#: scaffolded repo). Matched with any leading dot stripped, because the same
+#: kind of file ships both ways.
+SCAN_STEMS = frozenset({"gitignore", "dockerignore", "Dockerfile"})
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: Coincidental "three ... zone" pairs that are not about the zone count at
@@ -85,7 +94,9 @@ def _shipped_sources() -> list[Path]:
         if not base.exists():
             continue
         for path in base.rglob("*"):
-            if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
+            if not path.is_file():
+                continue
+            if path.suffix not in SCAN_SUFFIXES and path.name.lstrip(".") not in SCAN_STEMS:
                 continue
             if "__pycache__" in path.parts:
                 continue
@@ -107,7 +118,9 @@ def _stale_count_hits(root_dir: Path | None = None) -> list[tuple[str, str]]:
         if not base.exists():
             continue
         for path in base.rglob("*"):
-            if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
+            if not path.is_file():
+                continue
+            if path.suffix not in SCAN_SUFFIXES and path.name.lstrip(".") not in SCAN_STEMS:
                 continue
             if "__pycache__" in path.parts:
                 continue
@@ -163,6 +176,23 @@ def test_four_zones_is_actually_live() -> None:
     assert hits > 0, "no shipped text says 'four zones' — the vocabulary rename regressed"
 
 
+def test_the_extensionless_zone_narrators_are_actually_swept() -> None:
+    """The two shipped files that narrate the zones carry no extension at all.
+
+    The project ``gitignore``/``dockerignore`` templates are emitted verbatim
+    into every scaffolded repo and explain the layout in comments — exactly the
+    operator-facing prose this gate exists for. A suffix-only admission rule
+    silently skips both, so their membership is pinned here rather than
+    assumed.
+    """
+    swept = {str(path.relative_to(_REPO_ROOT)) for path in _shipped_sources()}
+    for expected in (
+        "src/osprey/templates/project/gitignore",
+        "src/osprey/templates/project/dockerignore",
+    ):
+        assert expected in swept, f"{expected} is outside the sweep's admission rule"
+
+
 @pytest.mark.parametrize(
     "path_parts,text",
     (
@@ -171,6 +201,10 @@ def test_four_zones_is_actually_live() -> None:
         (
             ("src", "osprey", "regress_wrapped.py"),
             "# the source zone is tracked, and the three\n# generated or secret zones never are\n",
+        ),
+        (
+            ("src", "osprey", "gitignore"),
+            "# SECRETS zone — one of the repo's three generated zones\n",
         ),
     ),
 )

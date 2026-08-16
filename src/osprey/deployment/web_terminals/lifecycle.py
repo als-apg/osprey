@@ -81,6 +81,7 @@ from typing import Any, NoReturn
 
 from osprey.cli.output import fail, note, report
 from osprey.deployment.compose_generator import (
+    compose_base_cmd,
     compose_provider_env,
     resolve_project_name,
     resolve_repo_root,
@@ -499,6 +500,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     runtime = runtime_cmd[0]
     env = runtime_env(config, ignore_orphans=True)
     project = resolve_project_name(config)
+    repo_root = resolve_repo_root(config, config_path)
     facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
 
     volumes: list[str] = []
@@ -581,7 +583,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     if not confirm_destroy(prompt, assume_yes, expected="nuke"):
         raise RuntimeError("Nuke aborted: confirmation did not match.")
 
-    result = _compose_down_project(runtime_cmd, project, env=env)
+    result = _compose_down_project(config, project, repo_root=Path(repo_root))
     if result.returncode != 0:
         fail(
             f"nuke: 'compose down' failed (exit {result.returncode})",
@@ -965,16 +967,32 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
 
 
 def _compose_down_project(
-    runtime_cmd: list[str], project: str, *, env: dict[str, str] | None = None
+    config: dict, project: str, *, repo_root: Path
 ) -> subprocess.CompletedProcess:
     """Project-scoped ``compose down`` — containers/networks only, never volumes.
 
-    ``-p <project>`` is the only resource selector: compose resolves it against
+    Built through the invocation seam like every other compose command — the
+    pinned base plus the provider env — because a bare ``-p <project> down``
+    is an argv only the docker shape can act on: podman-compose has no
+    file-less, label-only ``down``, takes its project directory from the first
+    ``-f`` file's dirname (or ``COMPOSE_PROJECT_DIR``, 1.4.1+), and exits
+    non-zero, which aborted every nuke on a podman-compose host before it
+    removed anything.
+
+    ``-p <project>`` still pins the project name — compose resolves it against
     the ``com.docker.compose.project`` label every container this project ever
-    started carries, so this reaches exactly this project's containers with no
-    name enumeration and no wildcard. Never passed ``--volumes``/``-v`` — volume
-    destruction is the caller's responsibility, one exact name at a time (see
-    :func:`nuke_stack`).
+    started carries — and ``--remove-orphans`` keeps the file-less
+    invocation's reach: containers of services no longer in the rendered files
+    (a renamed roster, a dropped service) go down with the roster, matching
+    the off-roster volume sweep beside this call. The subprocess environment
+    is built WITHOUT ``COMPOSE_IGNORE_ORPHANS``: docker compose hard-errors on
+    that variable combined with ``--remove-orphans`` rather than letting one
+    win. Never passed ``--volumes``/``-v`` — volume destruction is the
+    caller's responsibility, one exact name at a time (see :func:`nuke_stack`).
+
+    A repo with no rendered compose files at all falls back to the bare
+    file-less argv: there is nothing for the seam to address, and the docker
+    shape is the one provider that can still act on labels alone.
 
     Does not raise on a non-zero exit and does not itself decide what a failure
     means — :func:`nuke_stack` is the caller that must inspect
@@ -983,18 +1001,49 @@ def _compose_down_project(
     again downstream while masking the real error.
 
     Args:
-        runtime_cmd: Full runtime+compose command, e.g. ``["docker", "compose"]``
-            (the return value of
-            :func:`osprey.deployment.runtime_helper.get_runtime_command`).
+        config: Raw deploy config, for the runtime, the provider probe and the
+            env chain.
         project: Exact compose project name to tear down. Never a glob.
-        env: Environment for the subprocess call.
+        repo_root: The deployment repo — the compose project directory.
 
     Returns:
         The completed subprocess. The caller must check ``returncode`` — this
         function does not raise on failure.
     """
+    # Function-local imports: container_lifecycle and provision both import
+    # pieces of this module at their top level, so importing them back at
+    # module scope would be a cycle (the module's established pattern).
+    from osprey.deployment.container_lifecycle import _env_file_args, as_built_compose_files
+    from osprey.deployment.web_terminals.artifacts import web_compose_file
+    from osprey.deployment.web_terminals.provision import _resolved_compose_provider
+
+    runtime_cmd = get_runtime_command(config)
+    compose_files = [str(path) for path in as_built_compose_files(config, repo_root)]
+    web_file = web_compose_file(repo_root)
+    if web_file.is_file():
+        compose_files.append(str(web_file))
+
+    if not compose_files:
+        return subprocess.run(
+            [*runtime_cmd, "-p", project, "down"],
+            capture_output=True,
+            text=True,
+            env=runtime_env(config, ignore_orphans=True),
+        )
+
+    provider = _resolved_compose_provider(config, None)
+    cmd = compose_base_cmd(
+        runtime_cmd,
+        compose_files,
+        repo_root,
+        _env_file_args(repo_root, provider),
+        provider,
+    )
     return subprocess.run(
-        [*runtime_cmd, "-p", project, "down"], capture_output=True, text=True, env=env
+        [*cmd, "-p", project, "down", "--remove-orphans"],
+        capture_output=True,
+        text=True,
+        env=runtime_env(config, compose_provider_env(provider, repo_root)),
     )
 
 

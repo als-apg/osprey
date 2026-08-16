@@ -35,6 +35,14 @@ SCAN_SUFFIXES = (
     ".toml",
     ".sh",
 )
+
+#: Shipped files with no extension, admitted by name — the same clause as the
+#: sibling gates (``test_env_production_retired.py``, ``test_zone_vocabulary``):
+#: a suffix-only rule cannot see the ``gitignore``/``dockerignore``/
+#: ``Dockerfile`` templates the scaffold emits verbatim. Matched with any
+#: leading dot stripped, because the same kind of file ships both ways.
+SCAN_STEMS = frozenset({"gitignore", "dockerignore", "Dockerfile"})
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -45,7 +53,9 @@ def _shipped_sources() -> list[Path]:
         if not base.exists():
             continue
         for path in base.rglob("*"):
-            if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
+            if not path.is_file():
+                continue
+            if path.suffix not in SCAN_SUFFIXES and path.name.lstrip(".") not in SCAN_STEMS:
                 continue
             if "__pycache__" in path.parts:
                 continue

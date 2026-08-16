@@ -384,6 +384,46 @@ class TestHostNetworkDerivation:
         )
         assert [b.host_port for b in bindings] == [9190, 9200, 9210]
 
+    def test_a_facility_host_mode_service_derives_from_its_port_key(self):
+        """The docs invite a facility to put its own service on the host
+        network; the preflight and the deploy summary must see it there.
+        Derived from ``services.<name>.port`` — the same per-service
+        convention the generic remedy key already assumes."""
+        (binding,) = derive_host_network_bindings(
+            _host_config(my_ioc_gw={"network": "host", "port": 5075})
+        )
+        assert binding.service == "my_ioc_gw"
+        assert (binding.host_ip, binding.host_port) == ("127.0.0.1", 5075)
+        assert binding.host_network is True
+        # The config-key spelling is what makes the generic remedy correct.
+        assert host_ports._remedy_for_service(binding.service) == "services.my_ioc_gw.port"
+
+    def test_a_facility_service_bind_override_is_honoured(self):
+        (binding,) = derive_host_network_bindings(
+            _host_config(my_ioc_gw={"network": "host", "port": 5075, "bind": "0.0.0.0"})
+        )
+        assert binding.host_ip == "0.0.0.0"
+
+    def test_a_portless_host_mode_service_is_announced_not_silently_skipped(self, caplog):
+        """A host-mode block with no usable port key cannot be derived — and
+        the whole failure mode this derivation exists for is a silent gap, so
+        the escape is said out loud."""
+        with caplog.at_level("WARNING"):
+            bindings = derive_host_network_bindings(_host_config(my_ioc_gw={"network": "host"}))
+        assert bindings == []
+        assert "my_ioc_gw" in caplog.text
+        assert "preflight" in caplog.text
+
+    def test_the_outbound_only_bridges_neither_derive_nor_warn(self, caplog):
+        """The bundled bridges legitimately run host-mode with no listening
+        socket; a warning for them would be noise on a valid config."""
+        with caplog.at_level("WARNING"):
+            bindings = derive_host_network_bindings(
+                _host_config(nextcloud_bridge={"network": "host"}, gchat_bridge={"network": "host"})
+            )
+        assert bindings == []
+        assert "host network" not in caplog.text
+
     def test_both_halves_on_host_derive_both(self):
         bindings = derive_host_network_bindings(
             _host_config(

@@ -242,6 +242,11 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # natively on Python 3.9+ without it -- see PEP 585), so this body simply
 # omits the future import; `typing`/`logging` have no such positional rule
 # and are used exactly as the shipped exemplar does.
+#
+# What this body mirrors is the exemplar's IMPORTS and module shape -- the
+# only thing the stage-1 allowlist this test exists to probe can see. It does
+# not carry the shipped plan's read-relative-restore sweep idiom, which adds
+# no import and so is invisible to that allowlist.
 _POSITIVE_PLAN_BODY = '''"""Session-authored positive plan body for the sandbox-escape e2e
 (tests/e2e/test_bluesky_sandbox_escape_e2e.py) -- mirrors plans_core/
 orm.py's PARAMS/build_plan, proving the author -> validate ->

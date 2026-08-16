@@ -174,6 +174,30 @@ class TestChangeGate:
         loader.load()
         assert os.environ["OSPREY_LOADER_CANARY"] == "v2"
 
+    def test_shared_env_change_reloads_the_chain(self, project):
+        """``.env.shared`` is a chain member like ``.env``: an edit must both
+        invalidate the cache and be reloaded. Watching ``.env`` alone left the
+        long-lived surface unconditionally blind to shared-default edits."""
+        shared_path = project / ".env.shared"
+        shared_path.write_text("OSPREY_LOADER_CANARY=shared-v1\n")
+        loader = HealthConfigLoader(project / "config.yml")
+        loader.load()
+        assert os.environ["OSPREY_LOADER_CANARY"] == "shared-v1"
+
+        shared_path.write_text("OSPREY_LOADER_CANARY=shared-v2\n")
+        _bump_mtime(shared_path)
+        loader.load()
+        assert os.environ["OSPREY_LOADER_CANARY"] == "shared-v2"
+
+    def test_the_local_file_wins_the_chain_conflict(self, project):
+        """Ascending-order load with override semantics: `.env` over `.env.shared`."""
+        (project / ".env.shared").write_text("OSPREY_LOADER_CANARY=from-shared\n")
+        (project / ".env").write_text("OSPREY_LOADER_CANARY=from-local\n")
+
+        HealthConfigLoader(project / "config.yml").load()
+
+        assert os.environ["OSPREY_LOADER_CANARY"] == "from-local"
+
     def test_edit_observed_between_loads(self, project):
         config_path = project / "config.yml"
         loader = HealthConfigLoader(config_path)

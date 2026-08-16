@@ -10,6 +10,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
+
 logger = logging.getLogger("osprey_connectors.workspace")
 
 #: Zone directory names inside a deployment repo. ``build/`` is the render zone,
@@ -279,20 +281,47 @@ def deployment_env_path(config_path: Path | str) -> Path:
     on a host, where the config is ``<repo>/build/config.yml``, and the right
     one in a container, whose project directory *is* the render.
 
-    Both are covered the way :func:`osprey.mcp_env.load_dotenv_from_project`
-    covers them: prefer the repo root, fall back to the config's directory when
-    nothing is there. The fallback is what keeps the container case working
-    without a second rule.
+    Both are covered by one rule: prefer the repo root, fall back to the
+    config's directory when nothing is there. The fallback is what keeps the
+    container case working without a second rule.
 
-    Spelled here rather than at each caller because the callers that ask this
-    have to agree exactly — a reader that watches one file for changes and a
-    signature that stats another produces a cache which never invalidates, and
-    reports nothing at all while doing it.
+    This answers for the SINGLE local file only. A consumer that reads or
+    watches the deployment's whole environment wants
+    :func:`deployment_env_chain`, which applies the same anchoring to every
+    chain member — ``.env.shared`` included.
     """
     root_env = repo_root_for_config(config_path) / ".env"
     if root_env.is_file():
         return root_env
     return Path(config_path).parent / ".env"
+
+
+def deployment_env_chain(config_path: Path | str) -> list[Path]:
+    """Every env-chain file of the deployment whose config is *config_path*.
+
+    The chain counterpart of :func:`deployment_env_path`, with the same
+    root-then-container anchoring: the repo root's chain when any member exists
+    there, else the config's own directory (the container case, whose project
+    directory *is* the render). Paths come back in ascending precedence —
+    ``.env.shared`` before ``.env`` — so an ``override=True`` loader can walk
+    the list as-is and land on local-wins.
+
+    Every member path is returned whether or not the file exists. A watcher
+    has to stat the places a member could *appear*, or a ``.env`` created
+    after start-up never invalidates anything — the same reason
+    :func:`deployment_env_path` is spelled once for its readers and watchers.
+
+    Spelled here rather than at each caller because the callers that ask this
+    have to agree exactly — a reader that loads one set of files and a
+    signature that stats another produces a cache which never invalidates, and
+    reports nothing at all while doing it.
+    """
+    root = repo_root_for_config(config_path)
+    if any((root / name).is_file() for name in ENV_CHAIN_FILENAMES):
+        base = root
+    else:
+        base = Path(config_path).parent
+    return [base / name for name in ENV_CHAIN_FILENAMES]
 
 
 def repo_root_for_agent_data(

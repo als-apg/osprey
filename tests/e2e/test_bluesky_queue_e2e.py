@@ -1067,6 +1067,11 @@ def test_4_unknown_run_data_is_404_not_an_empty_scan(stack: QueueStack) -> None:
 # ===========================================================================
 
 # An orm-shaped session plan body, mirroring plans_core/orm.py's house style.
+# Deliberately NOT a copy of that plan: it is the smallest body that exercises
+# author -> validate -> upload -> enqueue -> execute, so it carries no `sweep`
+# mode, no `render`, and an absolute sweep rather than the shipped plan's
+# read-relative-restore idiom. Nothing here asserts corrector physics, and the
+# idiom adds no import, so it would exercise nothing this file tests.
 # NO `from __future__ import annotations`: `POST /plans/session` writes
 # `f"PLAN_METADATA = {...}\n\n{body}"`, so the generated metadata assignment
 # always precedes this text, and Python requires a __future__ import to be the

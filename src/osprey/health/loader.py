@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from osprey.health.signatures import stat_signature
-from osprey.utils.workspace import deployment_env_path, repo_root_for_config
+from osprey.utils.workspace import deployment_env_chain, repo_root_for_config
 
 if TYPE_CHECKING:
     from osprey.health.config import CategoryRecord, HealthSettings
@@ -58,18 +58,22 @@ class LoadedHealthConfig(NamedTuple):
     config_ok: bool
 
 
-def _load_project_env(env_path: Path) -> None:
-    """Load *env_path* into ``os.environ`` with override semantics (best-effort).
+def _load_project_env(env_paths: list[Path]) -> None:
+    """Load the env chain into ``os.environ`` with override semantics (best-effort).
 
-    A missing file or a missing ``python-dotenv`` is silently ignored, matching
-    the CLI's ``.env`` handling.
+    Walked in the ascending order :func:`deployment_env_chain` returns —
+    ``.env.shared`` before ``.env`` — so with ``override=True`` the local file
+    wins, the same local-over-shared contract every other loader resolves. A
+    missing file or a missing ``python-dotenv`` is silently ignored, matching
+    the CLI's handling.
     """
     try:
         from dotenv import load_dotenv
     except ImportError:
         return
-    if env_path.exists():
-        load_dotenv(env_path, override=True)
+    for env_path in env_paths:
+        if env_path.exists():
+            load_dotenv(env_path, override=True)
 
 
 def _load_config(
@@ -114,23 +118,24 @@ class HealthConfigLoader:
         """
         self._config_path_override = config_path
         self._config_sig: tuple[int, int] | None = None
-        self._env_sig: tuple[int, int] | None = None
+        self._env_sig: tuple[tuple[int, int], ...] | None = None
         self._cached: LoadedHealthConfig | None = None
 
     def load(self) -> LoadedHealthConfig:
         """Run one synchronous refresh phase and return the resolved inputs."""
         config_path = self._resolve_path()
-        # The deployment's own `.env` at the repo root, not the config's
+        # The deployment's own env CHAIN at the repo root, not the config's
         # sibling. `build/.env` is a file no build writes, so watching it
         # meant an edit or a token rotation in the real `.env` never
-        # invalidated this cache — canaries and env scans kept answering
-        # from the environment as it was at process start. Paired with
-        # `signatures.disk_signature`, which must stat the same file or the
-        # two disagree silently.
-        env_path = deployment_env_path(config_path)
+        # invalidated this cache — and watching `.env` alone meant an edit to
+        # `.env.shared` never did either: canaries and env scans kept
+        # answering from the environment as it was at process start. Paired
+        # with `signatures.disk_signature`, which must stat the same files or
+        # the two disagree silently.
+        env_paths = deployment_env_chain(config_path)
 
         config_sig = stat_signature(config_path)
-        env_sig = stat_signature(env_path)
+        env_sig = tuple(stat_signature(path) for path in env_paths)
 
         first_run = self._cached is None
         env_changed = first_run or env_sig != self._env_sig
@@ -142,10 +147,10 @@ class HealthConfigLoader:
             assert self._cached is not None  # narrowed by ``first_run`` above
             return self._cached
 
-        # A changed ``.env`` must precede builder construction so ``${VAR}``
+        # A changed chain must precede builder construction so ``${VAR}``
         # placeholders expand against the fresh environment.
         if env_changed:
-            _load_project_env(env_path)
+            _load_project_env(env_paths)
 
         result = self._build(config_path)
 
@@ -178,7 +183,7 @@ class HealthConfigLoader:
         # — the `.env` presence check, the `registry_path` join, the disk
         # sample — all belong to the repo, while the config it was resolved
         # from lives one level down in `build/`. The same split the CLI makes
-        # (health_cmd._resolve_anchors) and the same root `deployment_env_path`
+        # (health_cmd._resolve_anchors) and the same root `deployment_env_chain`
         # above just watched, so the loader cannot report on one deployment
         # while watching another.
         project_path = repo_root_for_config(config_path)

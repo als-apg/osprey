@@ -276,6 +276,6 @@ class HealthCheckEngine:
 
     # -- default disk-change probe ----------------------------------------------
 
-    def _default_disk_signature(self) -> tuple[Any, Any]:
-        """Stat ``config.yml`` and its sibling ``.env`` for the breaker fast-path."""
+    def _default_disk_signature(self) -> tuple[Any, ...]:
+        """Stat ``config.yml`` and the deployment's env chain for the breaker fast-path."""
         return _resolve_disk_signature(self._config_path)
