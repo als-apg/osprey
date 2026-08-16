@@ -111,12 +111,28 @@ def test_orm_params_rejects_an_empty_detector_list() -> None:
         ORMParams(correctors=["hcm1"], detectors=[], span_a=2.0, num=5)
 
 
-def test_orm_params_rejects_a_span_beyond_the_channel_limits_band() -> None:
-    """`channel_limits.json` bounds a corrector `:SP` to +-12 A; ORMParams'
-    own `span_a` bound (+-10 A, the response model's typical linear-kick
-    range — see `lattice/response.py`) is tighter and rejected first."""
+def test_orm_params_accepts_a_span_larger_than_any_one_facilitys_band() -> None:
+    """`span_a` carries no schema-level magnitude cap.
+
+    It is an *excursion* about each corrector's own pre-scan working point,
+    expressed in whatever unit that corrector's channel speaks — so any
+    literal ceiling here would be one facility's number standing in for
+    every facility's. The real bound is the deployment's own
+    `channel_limits.json`, enforced by the connector's reference monitor
+    when the plan actually writes: an out-of-band setpoint is refused
+    there, aborting the run, rather than being guessed at here.
+    """
+    params = ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=120.0, num=5)
+    assert params.span_a == 120.0
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
+def test_orm_params_rejects_a_non_finite_span(value: float) -> None:
+    """With the upper bound gone, `gt=0` is the only magnitude constraint —
+    and `inf > 0` is true, so infinity would sail through and generate a
+    sweep of non-finite setpoints. Non-finite spans are rejected outright."""
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=12.0, num=5)
+        ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=value, num=5)
 
 
 def test_orm_params_rejects_a_non_positive_span() -> None:
@@ -166,38 +182,78 @@ def test_orm_params_rejects_an_unknown_sweep() -> None:
         ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=2.0, num=5, sweep="sideways")
 
 
-def _corrector_sweep_setpoints(params: ORMParams) -> list[float]:
-    """Drive the `orm` generator directly (no RunEngine) and collect, in
-    order, the current values it commands onto its single corrector — the
-    sweep points followed by the restore-to-0 in the `finally`. Iterating a
-    plan just walks its `Msg` stream; none of `orm`'s control flow branches on
-    a yielded value, so this needs no RunEngine."""
-    devices = asyncio.run(build_devices(motor_names=["hcm1"], detector_names=["bpm1"]))
-    corrector = devices["hcm1"]
+def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) -> list[float]:
+    """Run `orm` against a corrector idling at *working_point* and collect,
+    in order, the current values it commands onto that corrector — the sweep
+    points followed by the restore in the `finally`.
+
+    Driven by a real `RunEngine` with a `msg_hook`, NOT by iterating the
+    generator by hand. The plan reads each corrector's pre-scan working point
+    with `bps.rd`, and `bps.rd` walked by hand runs in bluesky's "list-ify"
+    mode: nothing answers its `read`, so it silently returns its
+    `default_value` of 0 instead of the device's real value. A hand-walked
+    stream would therefore report a sweep centred on zero no matter what the
+    plan does — it would keep passing against an absolute sweep and pin
+    nothing. The `msg_hook` gets the identical `Msg` stream with a live
+    device on the other end of it.
+    """
+    corrector = MockMotor("hcm1", initial_value=working_point)
+    devices = asyncio.run(connect_all({"hcm1": corrector, "bpm1": MockDetector("bpm1")}))
+
     setpoints: list[float] = []
-    for msg in orm_plan(devices, params):
+
+    def _record(msg) -> None:
         if msg.command == "set" and msg.obj is corrector:
             setpoints.append(msg.args[0])
+
+    RE = RunEngine(context_managers=[])
+    RE.msg_hook = _record
+    RE(orm_plan(devices, params))
     return setpoints
 
 
-def test_orm_bidirectional_sweep_spans_symmetric_range() -> None:
-    """The default sweep drives the corrector across the symmetric
-    `[-span_a, +span_a]` (both signs present), then restores it to 0."""
+@pytest.mark.parametrize("working_point", [0.0, 2.5])
+def test_orm_bidirectional_sweep_is_symmetric_about_the_working_point(
+    working_point: float,
+) -> None:
+    """The default sweep kicks the corrector both ways about wherever it was
+    already sitting — `working_point ± span_a` — then puts it back there.
+
+    The `0.0` case is the virtual accelerator, whose correctors do idle at
+    zero; the `2.5` case is a real ring, whose correctors hold an
+    orbit-correction working point. Both are the same arithmetic, which is
+    the point: the plan no longer has a privileged origin.
+    """
     params = ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=3.0, num=4)
-    setpoints = _corrector_sweep_setpoints(params)
-    assert setpoints == [-3.0, -1.0, 1.0, 3.0, 0.0]
+    setpoints = _corrector_sweep_setpoints(params, working_point)
+    assert setpoints == [
+        working_point - 3.0,
+        working_point - 1.0,
+        working_point + 1.0,
+        working_point + 3.0,
+        working_point,
+    ]
 
 
-def test_orm_monodirectional_sweep_spans_zero_to_span() -> None:
-    """A monodirectional sweep never drives the corrector negative: it spans
-    `[0, +span_a]` only, then restores to 0."""
+@pytest.mark.parametrize("working_point", [0.0, 2.5])
+def test_orm_monodirectional_sweep_never_kicks_below_the_working_point(
+    working_point: float,
+) -> None:
+    """A monodirectional sweep is one-sided about the working point: it spans
+    `[working_point, working_point + span_a]` and never drives the corrector
+    below where it started, then restores it."""
     params = ORMParams(
         correctors=["hcm1"], detectors=["bpm1"], span_a=3.0, num=4, sweep="monodirectional"
     )
-    setpoints = _corrector_sweep_setpoints(params)
-    assert setpoints == [0.0, 1.0, 2.0, 3.0, 0.0]
-    assert all(value >= 0.0 for value in setpoints)
+    setpoints = _corrector_sweep_setpoints(params, working_point)
+    assert setpoints == [
+        working_point,
+        working_point + 1.0,
+        working_point + 2.0,
+        working_point + 3.0,
+        working_point,
+    ]
+    assert all(value >= working_point for value in setpoints)
 
 
 # =========================================================================
@@ -219,8 +275,13 @@ class _FailOnValueMotor(MockMotor):
     device without needing a real connector.
     """
 
-    def __init__(self, name: str, fail_values: dict[float, Exception]) -> None:
-        super().__init__(name=name)
+    def __init__(
+        self,
+        name: str,
+        fail_values: dict[float, Exception],
+        initial_value: float = 0.0,
+    ) -> None:
+        super().__init__(name=name, initial_value=initial_value)
         self._fail_values = fail_values
 
     @AsyncStatus.wrap
@@ -234,26 +295,31 @@ class _FailOnValueMotor(MockMotor):
 def test_orm_plan_restore_refusal_does_not_mask_the_original_sweep_error(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """CC-1: if BOTH a mid-sweep move and the cleanup restore-to-0 raise, the
+    """CC-1: if BOTH a mid-sweep move and the cleanup restore raise, the
     exception that surfaces from the RunEngine must be the ORIGINAL sweep
     failure, not the restore's — and the restore failure must be logged, not
     silently dropped, so the operator still learns the corrector was left
-    off-zero.
+    away from its working point.
 
     The RunEngine wraps a device `set()` error in its own
     `bluesky.utils.FailedStatus` (which carries the underlying exception's
     message), so the check below matches on that wrapper's message rather
     than the bare `RuntimeError` type.
     """
-    # span_a=3.0, num=4 -> currents = [-3.0, -1.0, 1.0, 3.0]; 0.0 (the
-    # restore target) is deliberately NOT among the swept currents, so the
-    # two failures below are unambiguous distinct write attempts.
+    # The corrector idles at 2.5, so span_a=3.0, num=4 sweeps
+    # [-0.5, 1.5, 3.5, 5.5] and restores to 2.5. Failing the FIRST swept
+    # point and the restore target covers both writes, and 2.5 is
+    # deliberately NOT among the swept currents, so the two failures below
+    # are unambiguous distinct write attempts. A nonzero idle value is what
+    # makes the restore target observable at all: at zero it would coincide
+    # with the value the plan used to hard-code.
     hcm1 = _FailOnValueMotor(
         "hcm1",
         fail_values={
-            -3.0: RuntimeError("ORIGINAL sweep failure"),
-            0.0: RuntimeError("RESTORE refused"),
+            -0.5: RuntimeError("ORIGINAL sweep failure"),
+            2.5: RuntimeError("RESTORE refused"),
         },
+        initial_value=2.5,
     )
     devices = asyncio.run(connect_all({"hcm1": hcm1, "bpm1": MockDetector("bpm1")}))
 
@@ -277,8 +343,9 @@ def test_orm_plan_restore_refusal_does_not_mask_the_original_sweep_error(
 
 
 def test_orm_plan_restores_every_corrector_to_zero_when_no_refusal_occurs() -> None:
-    """The ordinary (non-error) path: with no write refused, every corrector
-    still ends its own sweep restored to 0 A."""
+    """The ordinary (non-error) path on a machine whose correctors idle at
+    zero — the virtual accelerator: with no write refused, every corrector
+    ends its own sweep back at 0 A."""
     devices = asyncio.run(build_devices(motor_names=["hcm1", "hcm2"], detector_names=["bpm1"]))
     params = ORMParams(correctors=["hcm1", "hcm2"], detectors=["bpm1"], span_a=2.0, num=3)
     plan = orm_plan(devices, params)
@@ -289,3 +356,63 @@ def test_orm_plan_restores_every_corrector_to_zero_when_no_refusal_occurs() -> N
     for name in ("hcm1", "hcm2"):
         readback = asyncio.run(devices[name].readback.get_value())
         assert readback == 0.0
+
+
+def test_orm_plan_refuses_to_sweep_a_corrector_reading_back_non_finite() -> None:
+    """A corrector whose readback is NaN — dead, disconnected, or unscaled —
+    has no working point to sweep about, and every setpoint derived from it
+    would be NaN too.
+
+    That must fail before the first write, not at it: a NaN demand passes a
+    limits check (`nan < low` and `nan > high` are both false, so the
+    reference monitor has nothing to refuse), reaches the IOC, and only then
+    surfaces as a readback-settle timeout — having already written. The plan
+    refuses up front, and no `set` is ever issued.
+    """
+    hcm1 = MockMotor("hcm1", initial_value=float("nan"))
+    devices = asyncio.run(connect_all({"hcm1": hcm1, "bpm1": MockDetector("bpm1")}))
+    params = ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=2.0, num=3)
+
+    writes: list[float] = []
+
+    def _record(msg) -> None:
+        if msg.command == "set" and msg.obj is hcm1:
+            writes.append(msg.args[0])
+
+    RE = RunEngine(context_managers=[])
+    RE.msg_hook = _record
+    with pytest.raises(ValueError, match="non-finite"):
+        RE(orm_plan(devices, params))
+
+    assert writes == []
+
+
+def test_orm_plan_restores_every_corrector_to_its_own_pre_scan_working_point() -> None:
+    """The same path on a real ring: correctors holding an orbit-correction
+    working point are each put back where THEY were, not where the plan
+    assumed they were.
+
+    Two different nonzero working points, because a single shared one could
+    be passed by a plan that recorded one corrector's value and restored all
+    of them to it. Parking these at 0 A — what the plan used to do — is what
+    would destroy a stored-beam orbit.
+    """
+    working_points = {"hcm1": 2.5, "hcm2": -1.25}
+    devices = asyncio.run(
+        connect_all(
+            {
+                **{
+                    name: MockMotor(name, initial_value=value)
+                    for name, value in working_points.items()
+                },
+                "bpm1": MockDetector("bpm1"),
+            }
+        )
+    )
+    params = ORMParams(correctors=["hcm1", "hcm2"], detectors=["bpm1"], span_a=2.0, num=3)
+
+    RE = RunEngine(context_managers=[])
+    RE(orm_plan(devices, params))
+
+    for name, value in working_points.items():
+        assert asyncio.run(devices[name].readback.get_value()) == value

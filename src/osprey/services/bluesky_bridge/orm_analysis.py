@@ -22,12 +22,14 @@ Four pieces:
 `build_response_matrix`'s fit depends on an invariant the real `orm` plan
 upholds (see `plans_core/orm.py`'s `build_plan` docstring): every emitted row carries
 EVERY corrector's current, not just the one being swept — a non-swept
-corrector simply reads back its idle (~0 A) value in that row. The fit still
+corrector simply reads back its idle value in that row. The fit still
 recovers the right slope only because each corrector's own sweep is
-symmetric about 0 and its idle reading is (numerically) exactly 0: together
-those put every idle sample at the fit's x-mean, so it carries zero leverage
-on the polyfit slope no matter what BPM reading that row actually carries
-(driven by whichever OTHER corrector was being swept at the time).
+symmetric about that same idle value: together those put every idle sample
+at the fit's x-mean, so it carries zero leverage on the polyfit slope no
+matter what BPM reading that row actually carries (driven by whichever OTHER
+corrector was being swept at the time). The idle value is NOT assumed to be
+zero — the plan sweeps each corrector about its own pre-scan working point,
+which on a ring running corrected orbit is nonzero, and restores it there.
 `build_response_matrix` checks this per corrector and raises
 `DegenerateFitError` if it's violated — see its docstring below.
 
@@ -69,12 +71,13 @@ def _match_value(row: Mapping[str, Any], device_name: str) -> Any | None:
     return None
 
 
-#: Tolerance for the zero-mean-sweep guard in `build_response_matrix`: a
-#: corrector's collected currents fail the check when their mean exceeds this
-#: fraction of their spread (max - min). Floating-point noise on an exactly
-#: symmetric sweep + exactly-zero idle readings sits around 1e-15 relative,
-#: so this leaves ~9 orders of magnitude of margin before a genuine
-#: asymmetric sweep or biased idle reading is required to trip it.
+#: Tolerance for the centred-sweep guard in `build_response_matrix`: a
+#: corrector's collected currents fail the check when their mean differs from
+#: their median by more than this fraction of their spread (max - min).
+#: Floating-point noise on an exactly symmetric sweep + exactly-equal idle
+#: readings sits around 1e-15 relative, so this leaves ~9 orders of magnitude
+#: of margin before a genuine off-centre sweep or biased idle reading is
+#: required to trip it.
 _SWEEP_SYMMETRY_TOL = 1e-6
 
 
@@ -93,17 +96,29 @@ def build_response_matrix(
     (current, BPM reading) sample; `numpy.polyfit` (degree 1) over those
     samples gives the response slope for each (BPM, corrector) pair.
 
-    This only recovers the correct slope because the real plan's sweep is
-    symmetric about 0 and idle correctors read back (numerically) exactly 0:
-    together those put the fit's x-mean at 0, so every idle-corrector sample
-    sits exactly at that mean and carries zero leverage on the fitted slope —
-    regardless of what BPM reading that row actually carries (driven by
-    whichever OTHER corrector was being swept at the time). Before fitting,
-    each corrector's collected currents are checked against that zero-mean
-    invariant (see `_SWEEP_SYMMETRY_TOL`); a sweep that isn't symmetric about
-    0, or an idle reading with a non-negligible bias, would silently corrupt
-    the slope, so a violation raises `DegenerateFitError` naming the
-    corrector instead of fitting garbage.
+    This only recovers the correct slope because the real plan sweeps each
+    corrector symmetrically about the very value that corrector reads back
+    while idle — its pre-scan working point. That puts the fit's x-mean
+    exactly at the idle value (the sweep's own offsets sum to zero), so every
+    idle-corrector sample sits exactly at that mean and carries zero leverage
+    on the fitted slope — regardless of what BPM reading that row actually
+    carries (driven by whichever OTHER corrector was being swept at the
+    time). Note the invariant is "centred on the idle value", not "centred on
+    zero": zero is simply where a machine with no orbit to correct happens to
+    idle, and a real ring's correctors do not.
+
+    Before fitting, each corrector's collected currents are checked against
+    that invariant (see `_SWEEP_SYMMETRY_TOL`) by comparing their mean to
+    their median. The median IS the idle value for any run this function is
+    meant to take: idle samples are `(n_correctors - 1) / n_correctors` of a
+    corrector's rows, so they are at least half of them whenever more than
+    one corrector was swept, and for a single corrector every sample is a
+    swept one and a symmetric sweep's median is its centre either way. A
+    sweep not centred on where the corrector idles — an off-centre sweep, a
+    one-sided (`monodirectional`) one, or an idle reading with a bias —
+    separates mean from median and would silently corrupt the slope, so it
+    raises `DegenerateFitError` naming the corrector instead of fitting
+    garbage.
 
     A row missing a given corrector's key entirely — not the real plan's
     shape, but a valid input for a caller building rows by hand (e.g. this
@@ -119,7 +134,8 @@ def build_response_matrix(
 
     Raises:
         DegenerateFitError: a corrector's collected currents are not
-            symmetric about 0 within `_SWEEP_SYMMETRY_TOL` — see above.
+            symmetric about that corrector's own idle value within
+            `_SWEEP_SYMMETRY_TOL` — see above.
     """
     matrix = np.zeros((len(detectors), len(correctors)))
 
@@ -139,16 +155,18 @@ def build_response_matrix(
             continue  # not enough points along this corrector to fit a slope
 
         mean_current = float(np.mean(currents))
+        idle_current = float(np.median(currents))
         spread = float(np.max(currents) - np.min(currents))
-        if spread > 0 and abs(mean_current) > _SWEEP_SYMMETRY_TOL * spread:
+        if spread > 0 and abs(mean_current - idle_current) > _SWEEP_SYMMETRY_TOL * spread:
             raise DegenerateFitError(
-                f"corrector {corrector!r}'s sweep is not symmetric about 0 "
-                f"(mean current {mean_current:.6g} over a spread of "
-                f"{spread:.6g}): build_response_matrix's polyfit depends on "
-                f"a zero-mean sweep so idle-corrector rows carry zero "
-                f"leverage on the fitted slope -- an asymmetric sweep or a "
-                f"nonzero idle reading would silently bias every slope for "
-                f"this corrector"
+                f"corrector {corrector!r}'s sweep is not symmetric about its "
+                f"idle value (mean current {mean_current:.6g} against an idle "
+                f"value of {idle_current:.6g}, over a spread of {spread:.6g}): "
+                f"build_response_matrix's polyfit depends on idle-corrector "
+                f"rows sitting at the fit's x-mean so they carry zero leverage "
+                f"on the fitted slope -- an off-centre sweep, or an idle "
+                f"reading that is not where the sweep is centred, would "
+                f"silently bias every slope for this corrector"
             )
 
         for i in range(len(detectors)):
@@ -240,11 +258,14 @@ def sliced_response_matrix(
     `rows[j * num : (j + 1) * num]` — no need to infer which rows belong to
     which corrector from the data. Each corrector's slope is then fitted
     against its OWN currents over its OWN slice only, which drops
-    `build_response_matrix`'s zero-mean-sweep requirement entirely: idle
+    `build_response_matrix`'s centred-sweep requirement entirely: idle
     correctors' rows are never in the slice to begin with, so a
     `monodirectional` sweep over `[0, span_a]` (which that function rejects
-    with `DegenerateFitError`, its polyfit having no way to tell an
-    asymmetric sweep from a biased idle reading) fits correctly here.
+    with `DegenerateFitError`, its polyfit having no way to tell a one-sided
+    sweep from a biased idle reading) fits correctly here. A slope is
+    invariant to a shift in its x axis, so this path needs to know nothing
+    about where a corrector's sweep is centred — a sweep about a nonzero
+    working point fits exactly as a sweep about zero does.
 
     The caller owes that slicing invariant: *rows* must be the run's events
     in emission order, un-truncated at the front and with nothing dropped in

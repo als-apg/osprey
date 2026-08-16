@@ -109,7 +109,8 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
     for row in buf["rows"]:
         assert all(value is not None for value in row)
 
-    # Each corrector restored to 0 A after its own sweep.
+    # Each corrector restored to its pre-scan working point after its own
+    # sweep. These mock motors start at 0 A, so here that value is 0 A.
     assert asyncio.run(orm_devices["hcm1"].readback.get_value()) == 0.0
     assert asyncio.run(orm_devices["hcm2"].readback.get_value()) == 0.0
 
