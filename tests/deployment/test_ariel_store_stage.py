@@ -146,6 +146,43 @@ def test_a_project_without_ariel_stages_nothing(ariel_stubs, tmp_path):
     assert ariel_stubs["migrated"] == []
 
 
+def test_the_staging_invocation_is_shaped_by_the_provider_it_is_handed(
+    ariel_stubs, tmp_path, monkeypatch
+):
+    """The provider must reach all three halves of the invocation contract:
+    the argv builder, the env-file arguments, and the process environment.
+    Left unthreaded, the store's `up` runs docker-shaped in the middle of a
+    podman-shaped deploy."""
+    from osprey.deployment.runtime_helper import ComposeProvider
+
+    seen: dict = {}
+
+    def _record_base(runtime_cmd, files, root, env_args, provider=None):
+        seen["base_provider"] = provider
+        return ["docker", "compose"]
+
+    def _record_env_files(root=None, provider=None):
+        seen["env_file_provider"] = provider
+        return []
+
+    def _record_run(cmd, *, env=None, **kwargs):
+        seen["run_env"] = dict(env or {})
+
+    monkeypatch.setattr(container_lifecycle, "compose_base_cmd", _record_base)
+    monkeypatch.setattr(container_lifecycle, "_env_file_args", _record_env_files)
+    monkeypatch.setattr(container_lifecycle, "run_captured", _record_run)
+
+    # Act
+    container_lifecycle._stage_ariel_store(
+        ARIEL_CONFIG, ["compose.yml"], {}, tmp_path, provider=ComposeProvider.PODMAN_COMPOSE
+    )
+
+    # Assert
+    assert seen["base_provider"] is ComposeProvider.PODMAN_COMPOSE
+    assert seen["env_file_provider"] is ComposeProvider.PODMAN_COMPOSE
+    assert seen["run_env"]["COMPOSE_PROJECT_DIR"] == str(tmp_path)
+
+
 def test_an_unreachable_store_warns_and_leaves_the_deploy_standing(
     ariel_stubs, tmp_path, monkeypatch, caplog
 ):

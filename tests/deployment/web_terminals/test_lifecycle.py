@@ -835,6 +835,83 @@ def test_nuke_sweeps_off_roster_orphan_volumes_too(
     ]
 
 
+def test_nuke_compose_down_runs_through_the_invocation_seam_when_files_exist(
+    tmp_path, monkeypatch, fake_runtime_nuke
+):
+    """The teardown must carry the pinned base, not a bare ``-p <project> down``.
+
+    With rendered compose files on disk, the down is built through
+    ``compose_base_cmd``: project directory pinned in argv (docker shape),
+    the rendered files as ``-f``, the project still pinned with ``-p``, and
+    ``--remove-orphans`` preserving the file-less invocation's reach.
+    """
+    calls, listing, _down_result, _image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    (tmp_path / "build").mkdir(exist_ok=True)
+    web_file = tmp_path / "build" / "docker-compose.web.yml"
+    web_file.write_text("services: {}\n", encoding="utf-8")
+    _assert_no_input_prompt(monkeypatch)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    down_calls = [c for c in calls if "down" in c]
+    assert len(down_calls) == 1
+    argv = down_calls[0]
+    assert argv[:2] == ["docker", "compose"]
+    assert "--project-directory" in argv, f"unpinned project directory: {argv}"
+    assert str(web_file) in argv, f"rendered web compose file not addressed: {argv}"
+    assert argv[-4:] == ["-p", "demo-project", "down", "--remove-orphans"]
+
+
+def test_nuke_compose_down_emits_the_podman_shape_on_a_podman_host(
+    tmp_path, monkeypatch, fake_runtime_nuke
+):
+    """The defect this seam routing exists for: podman-compose cannot parse the
+    bare label-only ``down`` at all, so on that host class the nuke aborted
+    before removing anything. The podman shape is the single merged ``-f``
+    plus ``COMPOSE_PROJECT_DIR`` in the environment — and the environment must
+    NOT carry ``COMPOSE_IGNORE_ORPHANS`` beside ``--remove-orphans``, a
+    combination docker compose hard-errors on."""
+    from osprey.deployment.runtime_helper import ComposeProvider
+
+    calls, listing, _down_result, _image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    (tmp_path / "build").mkdir(exist_ok=True)
+    (tmp_path / "build" / "docker-compose.web.yml").write_text("services: {}\n", encoding="utf-8")
+    _assert_no_input_prompt(monkeypatch)
+
+    from osprey.deployment import container_lifecycle
+
+    monkeypatch.setattr(
+        container_lifecycle, "_compose_provider", lambda config=None: ComposeProvider.PODMAN_COMPOSE
+    )
+    down_envs: list[dict] = []
+    fixture_run = lifecycle.subprocess.run
+
+    def _spy(argv, capture_output=True, text=True, env=None, **kwargs):
+        if "down" in argv:
+            down_envs.append(dict(env or {}))
+        return fixture_run(argv, capture_output=capture_output, text=text, env=env, **kwargs)
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", _spy)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    down_calls = [c for c in calls if "down" in c]
+    assert len(down_calls) == 1
+    argv = down_calls[0]
+    assert "--project-directory" not in argv, f"podman-compose parses no such flag: {argv}"
+    assert argv.count("-f") == 1, f"podman shape is ONE merged file: {argv}"
+    assert argv[argv.index("-f") + 1].endswith(".osprey-compose.yml")
+    assert argv[-4:] == ["-p", "demo-project", "down", "--remove-orphans"]
+    assert down_envs[0].get("COMPOSE_PROJECT_DIR") == str(tmp_path)
+    assert "COMPOSE_IGNORE_ORPHANS" not in down_envs[0]
+
+
 def test_nuke_aborts_before_removing_any_volume_when_compose_down_fails(
     tmp_path, monkeypatch, fake_runtime_nuke
 ):

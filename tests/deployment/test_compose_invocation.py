@@ -617,6 +617,32 @@ def test_the_archiver_staging_runs_in_the_shape_the_start_resolved(
     assert staged[0]["provider"] is ComposeProvider.PODMAN_COMPOSE
 
 
+def test_the_ariel_staging_runs_in_the_shape_the_start_resolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The logbook twin of the archiver test above, for the same reason.
+
+    ARIEL's store is brought up by its own invocation of the same project;
+    unthreaded it would run docker-shaped in the middle of a podman-shaped
+    ``up``, addressing a different project directory with part of the env chain
+    dropped.
+    """
+    repo = _started_repo(tmp_path)
+    _podman_host(monkeypatch)
+    staged: list[dict] = []
+    monkeypatch.setattr(container_lifecycle, "_ariel_store_deployed", lambda config: True)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_stage_ariel_store",
+        lambda *args, **kwargs: staged.append(kwargs),
+    )
+
+    container_lifecycle.up_as_built(repo, detached=True)
+
+    assert staged, "the ARIEL staging step never ran"
+    assert staged[0]["provider"] is ComposeProvider.PODMAN_COMPOSE
+
+
 def test_a_refused_provider_still_reaches_the_label_sweep(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
