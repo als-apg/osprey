@@ -59,6 +59,12 @@ _SERVICE_REMEDY_KEYS = {
 # Compose service key of worker ``i``, and the prefix its remedy is keyed on.
 _WORKER_SERVICE_PREFIX = "dispatch-worker"
 
+# Bundled services that legitimately run host-mode WITHOUT binding a port:
+# outbound-only bridges with no listening socket (their templates say so).
+# Exempt from the "host-mode service escapes the preflight" warning, which
+# exists for services that DO bind something the framework cannot derive.
+_HOST_MODE_PORTLESS_SERVICES = frozenset({"nextcloud_bridge", "gchat_bridge"})
+
 # Config values the host-mode templates fall back on. Both worker keys are
 # absent from a bridge-mode render, and a hand-authored config may omit any of
 # them, so the defaults are spelled here exactly as the templates spell theirs.
@@ -304,7 +310,20 @@ def derive_host_network_bindings(config):
       named by its optional ``bind`` override;
     - worker ``i`` (1-based) binds
       ``worker_port_base + (i - 1) * worker_port_stride``, one port per
-      ``worker_count``.
+      ``worker_count``;
+    - every OTHER host-mode service block binds ``services.<name>.port`` — the
+      same per-service convention :func:`_remedy_for_service` already names as
+      the generic remedy — on its optional ``bind`` override. A facility
+      template is free to bind something the framework cannot know about, so a
+      host-mode block with no usable ``port`` key is *announced* as escaping
+      the preflight rather than silently skipped: the whole failure mode this
+      derivation exists for is a port that appears in no ``ports:`` block. The
+      bundled outbound-only bridges (:data:`_HOST_MODE_PORTLESS_SERVICES`)
+      bind nothing and are exempt from both the derivation and the warning.
+
+    Derived bindings are labeled with the service's CONFIG key (``my_ioc_gw``),
+    not a compose service name: the binding comes from the rendered config, and
+    that spelling is what makes the generic remedy key correct as written.
 
     :param config: Loaded (rendered) configuration dictionary
     :type config: dict
@@ -338,6 +357,37 @@ def derive_host_network_bindings(config):
                 HostPortBinding(
                     service=f"{_WORKER_SERVICE_PREFIX}-{index}",
                     host_ip=_HOST_NETWORK_BIND,
+                    host_port=port,
+                    container_port=port,
+                    compose_file=_DERIVED_SOURCE,
+                    host_network=True,
+                )
+            )
+
+    services = config.get("services") if isinstance(config, dict) else None
+    if isinstance(services, dict):
+        for name, block in services.items():
+            if name in ("event_dispatcher", "dispatch_worker"):
+                continue  # specialized above (bind override / worker fan-out)
+            if name in _HOST_MODE_PORTLESS_SERVICES:
+                continue  # outbound-only: nothing bound, nothing to preflight
+            block = block if isinstance(block, dict) else {}
+            if not _on_host_network(block):
+                continue
+            try:
+                port = int(block.get("port"))
+            except (TypeError, ValueError):
+                logger.warning(
+                    f"Service {name!r} runs on the host network but declares no integer "
+                    f"`services.{name}.port`, so whatever it binds is NOT covered by "
+                    "the host-port preflight or the deploy summary. A collision there "
+                    'will surface as the runtime\'s bare "address already in use".'
+                )
+                continue
+            bindings.append(
+                HostPortBinding(
+                    service=str(name),
+                    host_ip=str(block.get("bind") or _HOST_NETWORK_BIND),
                     host_port=port,
                     container_port=port,
                     compose_file=_DERIVED_SOURCE,
