@@ -78,7 +78,7 @@ dependencies = [
     "python-dateutil>=2.9.0",
     "matplotlib>=3.11.1",  # Required for Python capability visualization (core use case)
     # Networking and protocols
-    "aiohttp>=3.10",  # Required by litellm (ConnectionTimeoutError added in 3.10)
+    "aiohttp>=3.14.3",  # Required by litellm (ConnectionTimeoutError added in 3.10)
     "websocket-client>=1.7.0",
     "urllib3>=2.7.0",
     "certifi>=2025.4.26",
