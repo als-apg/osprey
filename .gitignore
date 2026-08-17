@@ -191,8 +191,7 @@ node_modules/
 src/osprey/_version.py
 
 # feature-scaffolding logs (not committed)
-.claude/.logs/.state/
-.claude/.logs/*.jsonl
+.claude/.logs/
 
 # Process scaffolding — never committed (specs/plans live here uncommitted)
 docs/superpowers/
