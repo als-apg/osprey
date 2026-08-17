@@ -17,13 +17,18 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.deployment.compose_generator import repo_identity, resolve_repo_root
+from osprey.deployment.compose_generator import (
+    repo_identity,
+    repo_relative_mount_source,
+    resolve_repo_root,
+)
 from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
     USERNAME_CHARSET_RE,
     as_dict,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
+    config_needs_facility_bundle,
     config_needs_launch_token,
     effective_image_source,
     env_var_suffix,
@@ -140,12 +145,57 @@ def _container_agent_data_dir(config: Any, container_project_dir: str) -> str:
     return (PurePosixPath(container_project_dir) / base).as_posix()
 
 
+def _container_bundle_dir(config: Any, container_project_dir: str) -> str | None:
+    """Where the deployment's knowledge bundle mounts, as this container sees it.
+
+    The per-service counterpart of :func:`_container_agent_data_dir`, and derived
+    the same way and for the same reason: the mount target has to be the
+    directory the processes inside the container actually read — the OKF panel
+    and the ``facility_knowledge`` MCP server both resolve it from
+    ``facility_knowledge.bundle_path``, anchored on the config's ``project_root``,
+    which in-container is *container_project_dir*. A literal here would be a
+    second spelling of that key, free to drift.
+
+    Per-service rather than one shared path, because personas differ: two
+    personas built from different projects have different
+    ``container_project_dir`` values, so the same configured
+    ``data/facility_knowledge`` resolves to two different in-container paths and
+    a single hardcoded target would mount the bundle where only one of them
+    looks. An ABSOLUTE ``bundle_path`` names the same absolute path on both
+    sides and is NOT re-anchored — the same distinction
+    :func:`_container_agent_data_dir` makes, and the same reason the join happens
+    in Python rather than as a template concatenation.
+
+    Known limit, shared with its sibling: the path is read from the DEPLOY
+    config, not from each persona's own ``config.yml``. A persona that relocates
+    its bundle relative to what the deploy config declares would have the
+    directory bound at the deploy's path while its readers look at the persona's
+    — visible as an empty bundle, not as silent data loss, since nothing writes
+    to an unmounted target here. Reading it per persona would mean this function
+    touching disk, which :func:`render_web_terminals` is contractually forbidden
+    from doing.
+
+    :return: The in-container mount target, or ``None`` when the deployment
+        configures no bundle at all.
+    """
+    knowledge = as_dict(as_dict(config).get("facility_knowledge"))
+    raw = knowledge.get("bundle_path")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    base = PurePosixPath(raw.strip())
+    if base.is_absolute():
+        return base.as_posix()
+    return (PurePosixPath(container_project_dir) / base).as_posix()
+
+
 def render_web_terminals(
     config: Any,
     auth_env_digest: str | None = None,
     dispatcher_personas: set[str] | None = None,
     ariel_personas: set[str] | None = None,
     launch_token_personas: set[str] | None = None,
+    facility_bundle_personas: set[str] | None = None,
+    facility_bundle_gid: int | None = None,
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -204,6 +254,29 @@ def render_web_terminals(
             what lets the ``bluesky`` MCP server arm a queue start without a
             second confirmation, so a read-only persona holding it would be able
             to move hardware. ``None`` emits no line.
+        facility_bundle_personas: Persona names whose project names a
+            ``facility_knowledge.bundle_path``, and whose container therefore
+            gets the deployment's knowledge bundle bind-mounted (see
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_facility_bundle`).
+            Resolved from disk and passed in for the same reason the credential
+            sets are. Unlike them this grants a MOUNT rather than a secret, so it
+            is not a tier boundary: the bundle is the same corpus every entitled
+            persona reads, and the tier that matters for it is decided by what
+            the agent inside is allowed to write. ``None`` emits no mount for
+            any user.
+        facility_bundle_gid: Group id of the bundle directory on the host,
+            resolved from disk by
+            :func:`osprey.deployment.compose_generator.shared_corpus_gid` and
+            emitted as ``group_add:`` on every entitled service. This is the
+            half of the sharing story that setgid alone cannot supply: the
+            directory's setgid bit decides which group new files are OWNED by,
+            but a container's process is a MEMBER of only the groups its image
+            gives it, so without this the group bits grant nothing and access
+            holds only where the deploying user's uid happens to equal the
+            image's — an accident that breaks on any other host. ``None`` (the
+            directory does not exist yet, or a platform with no gids) emits no
+            ``group_add``, which is the honest render rather than a guessed
+            group.
 
     Returns:
         Mapping of output-relative-path to rendered content, for exactly three
@@ -334,6 +407,23 @@ def render_web_terminals(
                     if entry.get("persona")
                     else config_needs_launch_token(root)
                 ),
+                # Where the deployment's knowledge bundle mounts inside THIS
+                # user's container, or None when the user is not entitled or the
+                # deployment configures no bundle. One key rather than a
+                # boolean + a shared path: personas differ in
+                # container_project_dir, so the target is per service and the
+                # template must not be able to emit a mount without one.
+                # Persona-less entries are answered from this same config with
+                # no disk read, exactly as the three grants above.
+                "container_bundle_dir": (
+                    _container_bundle_dir(root, entry["container_project_dir"])
+                    if (
+                        entry["persona"] in (facility_bundle_personas or set())
+                        if entry.get("persona")
+                        else config_needs_facility_bundle(root)
+                    )
+                    else None
+                ),
             }
         )
 
@@ -378,6 +468,12 @@ def render_web_terminals(
     )
     landing_url = _landing_url(root, nginx_port, tls_enabled=tls_enabled) if services else ""
 
+    # The bundle's host path AS CONFIGURED. Read here rather than inside the
+    # per-service loop: every entitled user mounts the same one directory, and
+    # only the target differs per persona.
+    raw_bundle_path = as_dict(root.get("facility_knowledge")).get("bundle_path")
+    bundle_path = raw_bundle_path.strip() if isinstance(raw_bundle_path, str) else ""
+
     compose_ctx = {
         "facility_prefix": facility_prefix,
         "registry_url": registry.get("url") or "",
@@ -406,6 +502,23 @@ def render_web_terminals(
         # services stack renders from, so one deployment cannot end up with two
         # identities depending on which of its two compose files is read.
         "repo_id": repo_identity(resolve_repo_root(config)),
+        # The ONE host directory every entitled user's bundle mount reads from —
+        # the deployment's bundle, not a per-user copy. That is what makes the
+        # corpus shared: a concept alice drafts is the same file bob's container
+        # and the qmd sidecar see. Empty string (not None) when the deployment
+        # configures no bundle, so the template gates on plain truthiness.
+        #
+        # Spelled through the shared bind-source rule, with no repo root to
+        # resolve against because this function reads no filesystem: a relative
+        # `bundle_path` becomes `./<path>` (resolved by compose against the
+        # pinned project directory, which IS the repo root) and an absolute one
+        # is emitted verbatim.
+        "facility_bundle_source": (repo_relative_mount_source(bundle_path) if bundle_path else ""),
+        # The group every entitled container joins, so the shared mode on that
+        # directory actually reaches it. Emitted as a STRING: compose's
+        # `group_add` accepts group names as well as numeric ids, and quoting
+        # keeps a numeric one from being read as anything else.
+        "facility_bundle_gid": str(facility_bundle_gid) if facility_bundle_gid is not None else "",
         **auth_tls_ctx,
     }
 

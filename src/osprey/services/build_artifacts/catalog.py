@@ -374,6 +374,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/qmd",
+            template_path="qmd",
+            output_path="services/qmd",
+            description="qmd search sidecar compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/dispatch_worker",
             template_path="dispatch_worker",
             output_path="services/dispatch_worker",

@@ -10,6 +10,7 @@ import json
 import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context, reset_ariel_context
+from osprey.registry import get_registry
 from osprey.utils.workspace import reset_config_cache
 from tests.mcp_server.conftest import get_tool_fn
 
@@ -30,6 +31,9 @@ def capabilities_payload(tmp_path, monkeypatch):
             }
         )
     )
+    # ``search_modes`` is now derived from the framework registry, so it has to
+    # be initialized for the payload to advertise anything.
+    get_registry().initialize()
     initialize_ariel_context()
     try:
         from osprey.mcp_server.ariel.tools.capabilities import capabilities
@@ -56,5 +60,5 @@ async def test_capabilities_still_reports_live_config(capabilities_payload):
     data = json.loads(await capabilities_payload())
 
     assert data["enabled_search_modules"] == ["keyword"]
-    assert "keyword" in data["search_modes"]
+    assert data["search_modes"] == ["keyword"]
     assert data["embedding"]["provider"] == "ollama"

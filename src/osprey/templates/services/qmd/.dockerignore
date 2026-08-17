@@ -1,0 +1,23 @@
+# Build-context hygiene for the qmd search sidecar image.
+#
+# The build context is the rendered service directory. The Dockerfile needs
+# exactly one file from it — entrypoint.sh — plus this file, which doubles as
+# the guaranteed COPY sibling that keeps the optional `entrypoint.s[h]` glob
+# matching. Everything else is a deploy artifact or a runtime bind-mount and
+# must not be baked into the image.
+**/__pycache__/
+*.pyc
+.git/
+.env
+# Compose files + templates are runtime/deploy artifacts, not image inputs.
+docker-compose.yml
+*.j2
+# Bind-mounted read-only at runtime; must not be baked into the image.
+config.yml
+# The corpus mirror and the qmd index are volumes, never image content — a
+# stray copy here would silently add gigabytes to the build context.
+corpus/
+index/
+*.db
+*.sqlite*
+*.gguf

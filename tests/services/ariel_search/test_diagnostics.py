@@ -114,7 +114,7 @@ class TestServiceDiagnostics:
 
     @pytest.mark.asyncio
     async def test_keyword_search_failure_returns_diagnostic(self) -> None:
-        """_run_keyword wraps exception in graceful result with diagnostic."""
+        """A failing keyword module yields a graceful result with a diagnostic."""
         from osprey.services.ariel_search.service import ARIELSearchService
 
         config = _make_config(keyword_enabled=True)
@@ -135,7 +135,7 @@ class TestServiceDiagnostics:
             new_callable=AsyncMock,
             side_effect=RuntimeError("pg_trgm missing"),
         ):
-            result = await service._run_keyword(request)
+            result = await service._run_module("keyword", request)
 
         assert result.entries == ()
         assert len(result.diagnostics) == 1
@@ -145,7 +145,7 @@ class TestServiceDiagnostics:
 
     @pytest.mark.asyncio
     async def test_semantic_search_failure_returns_diagnostic(self) -> None:
-        """_run_semantic wraps exception in graceful result with diagnostic."""
+        """A failing semantic module yields a graceful result with a diagnostic."""
         from osprey.services.ariel_search.service import ARIELSearchService
 
         config = _make_config(keyword_enabled=False, semantic_enabled=True)
@@ -154,6 +154,8 @@ class TestServiceDiagnostics:
             pool=MagicMock(),
             repository=MagicMock(),
         )
+        # Pre-set so _get_embedder() never reaches the provider registry.
+        service._embedder = MagicMock()
 
         request = MagicMock()
         request.query = "test"
@@ -166,7 +168,7 @@ class TestServiceDiagnostics:
             new_callable=AsyncMock,
             side_effect=RuntimeError("embedding table missing"),
         ):
-            result = await service._run_semantic(request)
+            result = await service._run_module("semantic", request)
 
         assert result.entries == ()
         assert len(result.diagnostics) == 1
@@ -191,7 +193,7 @@ class TestServiceDiagnostics:
 
         with patch.object(
             service,
-            "_run_keyword",
+            "_run_module",
             new_callable=AsyncMock,
             side_effect=SearchTimeoutError(
                 message="timed out",

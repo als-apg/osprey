@@ -9,11 +9,17 @@ Strategy:
     (b) Verify no filesystem write occurs if we DON'T call it (simulates "rejected"
         path by simply not calling the tool — the hook blocks it before invocation).
 - Concurrent collision is tested by manipulating ``_drafts_in_flight`` directly.
+- The ``.qmd-touch`` freshness marker is asserted on directly (existence, mtime
+  advance, atomicity), plus an AST check that the handler stays await-free.
 """
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
+import os
+from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 
@@ -450,3 +456,188 @@ class TestDraftConceptPathSafety:
                 description="Test.",
                 body="Body.\n",
             )
+
+
+# ---------------------------------------------------------------------------
+# Freshness marker (.qmd-touch)
+# ---------------------------------------------------------------------------
+
+
+async def _draft(concept_id: str = "my_concept", title: str = "My Concept") -> dict:
+    """Call draft_concept with defaults and return the parsed JSON result."""
+    from osprey.mcp_server.facility_knowledge.server import draft_concept
+
+    return json.loads(
+        await get_tool_fn(draft_concept)(
+            concept_id=concept_id,
+            doc_type="note",
+            title=title,
+            description="Description.",
+            body="Body.\n",
+        )
+    )
+
+
+class TestTouchMarker:
+    """draft_concept advances the bundle's ``.qmd-touch`` freshness marker."""
+
+    @pytest.mark.asyncio
+    async def test_marker_written_with_current_timestamp(self, fixture_bundle: Path):
+        from osprey.mcp_server.facility_knowledge.server import TOUCH_MARKER_NAME
+
+        before = datetime.now().astimezone()
+        result = await _draft()
+        after = datetime.now().astimezone()
+
+        marker = fixture_bundle / TOUCH_MARKER_NAME
+        assert result["touch_marker"] == "updated"
+        assert marker.exists()
+
+        stamp = datetime.fromisoformat(marker.read_text(encoding="utf-8").strip())
+        assert stamp.tzinfo is not None, "marker timestamp must be timezone-aware"
+        assert before <= stamp <= after
+
+    @pytest.mark.asyncio
+    async def test_marker_mtime_advances_on_second_draft(self, fixture_bundle: Path):
+        from osprey.mcp_server.facility_knowledge.server import TOUCH_MARKER_NAME
+
+        await _draft(title="Version 1")
+        marker = fixture_bundle / TOUCH_MARKER_NAME
+
+        # Backdate the marker so the advance is observable regardless of the
+        # filesystem's mtime granularity.
+        backdated = marker.stat().st_mtime - 60
+        os.utime(marker, (backdated, backdated))
+
+        await _draft(title="Version 2")
+
+        assert marker.stat().st_mtime > backdated
+
+    @pytest.mark.asyncio
+    async def test_marker_advances_even_when_document_is_unchanged(self, fixture_bundle: Path):
+        """Re-drafting identical content still advances the marker."""
+        from osprey.mcp_server.facility_knowledge.server import TOUCH_MARKER_NAME
+
+        await _draft()
+        marker = fixture_bundle / TOUCH_MARKER_NAME
+        backdated = marker.stat().st_mtime - 60
+        os.utime(marker, (backdated, backdated))
+
+        await _draft()
+
+        assert marker.stat().st_mtime > backdated
+
+    @pytest.mark.asyncio
+    async def test_marker_is_replaced_never_deleted(self, fixture_bundle: Path, monkeypatch):
+        """The marker is only ever renamed over — a consumer can never see it gone."""
+        from osprey.mcp_server.facility_knowledge.server import TOUCH_MARKER_NAME
+
+        await _draft()
+        marker = fixture_bundle / TOUCH_MARKER_NAME
+
+        removed: list[str] = []
+        real_remove = os.remove
+
+        def _spy_remove(path, *args, **kwargs):
+            removed.append(str(path))
+            return real_remove(path, *args, **kwargs)
+
+        # os.remove and os.unlink are separate bindings; Path.unlink goes
+        # through os.unlink, so both are spied.
+        monkeypatch.setattr(os, "remove", _spy_remove)
+        monkeypatch.setattr(os, "unlink", _spy_remove)
+
+        await _draft(title="Version 2")
+
+        assert str(marker) not in removed
+        assert marker.exists()
+
+    @pytest.mark.asyncio
+    async def test_writes_go_through_atomic_replace(self, fixture_bundle: Path, monkeypatch):
+        """Both the document and the marker land via a same-directory rename."""
+        from osprey.mcp_server.facility_knowledge.server import TOUCH_MARKER_NAME
+
+        renames: list[tuple[Path, Path]] = []
+        real_replace = os.replace
+
+        def _spy_replace(src, dst, **kwargs):
+            renames.append((Path(src), Path(dst)))
+            return real_replace(src, dst, **kwargs)
+
+        monkeypatch.setattr(os, "replace", _spy_replace)
+
+        await _draft(concept_id="tables/beam_params")
+
+        destinations = {dst for _, dst in renames}
+        assert fixture_bundle / "tables" / "beam_params.md" in destinations
+        assert fixture_bundle / TOUCH_MARKER_NAME in destinations
+        # Same-directory renames only — os.replace is atomic within one filesystem.
+        for src, dst in renames:
+            assert src.parent == dst.parent
+
+    @pytest.mark.asyncio
+    async def test_no_temp_files_left_behind(self, fixture_bundle: Path):
+        await _draft(concept_id="tables/beam_params")
+
+        assert list(fixture_bundle.rglob("*.tmp")) == []
+
+    @pytest.mark.asyncio
+    async def test_marker_failure_does_not_fail_the_draft(self, fixture_bundle: Path):
+        """A marker that cannot be written degrades to the sidecar interval sweep."""
+        from osprey.mcp_server.facility_knowledge.server import TOUCH_MARKER_NAME
+
+        # A directory at the marker path makes the rename fail with OSError.
+        (fixture_bundle / TOUCH_MARKER_NAME).mkdir()
+
+        result = await _draft()
+
+        assert result["status"] == "written"
+        assert result["touch_marker"] == "failed"
+        assert (fixture_bundle / "my_concept.md").exists()
+        assert list(fixture_bundle.glob("*.tmp")) == []
+
+    def test_marker_is_not_listed_as_a_concept(self, fixture_bundle: Path):
+        """The dotfile marker must not leak into bundle listings."""
+        from osprey.services.facility_knowledge.okf.bundle import OKFBundle
+
+        (fixture_bundle / ".qmd-touch").write_text("2026-01-01T00:00:00+00:00\n", encoding="utf-8")
+
+        ids = {e.concept_id for e in OKFBundle(fixture_bundle).list_concepts()}
+        assert ".qmd-touch" not in ids
+        assert "" not in ids
+
+
+class TestDraftConceptHasNoAwaitPoints:
+    """The handler must stay synchronous — the collision policy depends on it."""
+
+    def test_handler_body_contains_no_await(self):
+        """No ``await``/``async with``/``async for`` anywhere in draft_concept.
+
+        Parsed from a fresh read of the source file rather than
+        ``inspect.getsource``, which can mis-slice under .py/.pyc skew.
+        """
+        import osprey.mcp_server.facility_knowledge.server as srv
+
+        source_file = inspect.getsourcefile(srv)
+        assert source_file is not None
+        tree = ast.parse(Path(source_file).read_text(encoding="utf-8"))
+
+        handlers = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "draft_concept"
+        ]
+        assert len(handlers) == 1, "expected exactly one draft_concept definition"
+
+        offenders = [
+            type(node).__name__
+            for node in ast.walk(handlers[0])
+            if isinstance(node, ast.Await | ast.AsyncWith | ast.AsyncFor)
+        ]
+        assert offenders == [], f"draft_concept gained await points: {offenders}"
+
+    def test_write_helpers_are_synchronous(self):
+        import osprey.mcp_server.facility_knowledge.server as srv
+
+        assert not inspect.iscoroutinefunction(srv._atomic_write_text)
+        assert not inspect.iscoroutinefunction(srv._touch_bundle_marker)

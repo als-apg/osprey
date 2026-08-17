@@ -11,16 +11,27 @@ slash-id round-trip, missing-id 404, empty bundle, guarded None bundle, and the
 broken-cross-link bundle-health path. A final test drives the real launch chain
 (registry definition → factory resolution → create_app) so the panel is proven
 launchable the same way ``ServerLauncher`` builds it.
+
+Search is covered in both of its backends — ranked through a stub qmd sidecar
+and unranked through the substring fallback — since the panel renders the two
+differently and both are normal states.
 """
 
 from __future__ import annotations
 
+import asyncio
+import inspect
+import logging
+import time
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.okf_panel.app import create_app
+from osprey.services.facility_knowledge.okf.bundle import OKF_COLLECTION
+from osprey.services.qmd import QMDSearchResult
 
 BUNDLE = Path(__file__).parent / "fixtures" / "bundle"
 
@@ -98,6 +109,19 @@ def test_search_returns_title_and_snippet(client):
     assert "GEECS" in hit["snippet"]
 
 
+def test_search_without_sidecar_scores_every_hit_null(client):
+    """No sidecar → substring backend → every hit carries an explicit null score.
+
+    The key is present rather than absent: the front end decides between the
+    ranked and unranked presentations by reading it, so a missing key would be
+    a different contract than an unranked one.
+    """
+    results = client.get("/api/search", params={"q": "GEECS"}).json()["results"]
+    assert results
+    assert all(r["score"] is None for r in results)
+    assert all(set(r) == {"id", "title", "snippet", "score"} for r in results)
+
+
 def test_search_empty_query_short_circuits(client):
     assert client.get("/api/search", params={"q": "   "}).json() == {
         "query": "   ",
@@ -121,6 +145,245 @@ def test_bundle_health_reports_broken_cross_link(client):
     assert health["counts"].get("broken-link", 0) >= 1
     broken = [w for w in health["warnings"] if w["kind"] == "broken-link"]
     assert any(w["concept_id"] == "control-system/channel-finding" for w in broken)
+
+
+# ---------------------------------------------------------------------------
+# Ranked search (qmd sidecar answering)
+#
+# The sidecar itself is out of scope here — 3.7 covers the real container. What
+# these tests pin is the panel's half of the contract: an available client
+# makes /api/search return qmd's order, qmd's scores and qmd's excerpts, and an
+# unavailable one leaves the payload exactly as the block above asserts it.
+# ---------------------------------------------------------------------------
+
+
+class _StubQMDClient:
+    """Stand-in for :class:`QMDClient` that answers with a fixed result set.
+
+    Only the three members :meth:`OKFBundle.search` touches are implemented.
+    """
+
+    is_configured = True
+
+    def __init__(self, hits):
+        self.hits = hits
+        self.calls = []
+
+    def is_available(self) -> bool:
+        return True
+
+    def query(self, collection, query, **kwargs):
+        self.calls.append((collection, query, kwargs))
+        return list(self.hits)
+
+
+def _hit(concept_id: str, score: float, snippet: str = "") -> QMDSearchResult:
+    """Build one qmd hit for *concept_id*, in the shape the daemon returns."""
+    return QMDSearchResult(
+        docid="#" + concept_id[:6],
+        file=f"{concept_id}.md",  # collection prefix already stripped by the client
+        collection="okf",
+        title=concept_id,
+        score=score,
+        line=1,
+        snippet=snippet,
+    )
+
+
+def _ranked_client(app) -> _StubQMDClient:
+    """Attach a stub sidecar to *app*'s bundle and return it."""
+    client = _StubQMDClient(
+        [
+            _hit("devices/rf-system", 1.0, "1: @@ -1,3 @@ ...\n2: The RF system provides"),
+            _hit("devices/bpm", 0.5),
+        ]
+    )
+    app.state.bundle.qmd_client = client
+    return client
+
+
+def test_search_ranked_results_keep_qmd_order_and_scores():
+    app = create_app(str(BUNDLE))
+    _ranked_client(app)
+    c = TestClient(app)
+
+    results = c.get("/api/search", params={"q": "how is the beam accelerated"}).json()["results"]
+
+    # qmd's order is preserved verbatim — the panel never re-sorts.
+    assert [r["id"] for r in results] == ["devices/rf-system", "devices/bpm"]
+    assert [r["score"] for r in results] == [1.0, 0.5]
+    assert [r["title"] for r in results] == ["RF System", "Beam Position Monitor"]
+
+
+def test_search_ranked_hit_uses_the_qmd_excerpt():
+    """qmd's match-centered excerpt is shown, stripped of its line markup."""
+    app = create_app(str(BUNDLE))
+    _ranked_client(app)
+    c = TestClient(app)
+
+    results = c.get("/api/search", params={"q": "acceleration"}).json()["results"]
+    assert results[0]["snippet"] == "The RF system provides"
+
+
+def test_search_ranked_hit_without_excerpt_falls_back_to_description():
+    """A semantic hit need not contain the query text, so both local snippet
+    sources can come up empty; the concept's own description is the last resort
+    and keeps every result card populated."""
+    app = create_app(str(BUNDLE))
+    _ranked_client(app)
+    c = TestClient(app)
+
+    results = c.get("/api/search", params={"q": "where is the beam"}).json()["results"]
+    bpm = next(r for r in results if r["id"] == "devices/bpm")
+    assert bpm["snippet"] == "Measures transverse beam position."
+
+
+def test_search_ranked_hit_with_markup_only_excerpt_uses_the_local_snippet():
+    """Middle rung of the snippet chain: qmd's excerpt collapses to nothing, so
+    the local substring snippet supplies the text — not the description, which
+    is the last resort and carries less of the match."""
+    app = create_app(str(BUNDLE))
+    app.state.bundle.qmd_client = _StubQMDClient(
+        [_hit("devices/rf-system", 1.0, "1: @@ -1,3 @@ ...")]
+    )
+    c = TestClient(app)
+
+    results = c.get("/api/search", params={"q": "accelerating voltage"}).json()["results"]
+    assert results[0]["snippet"] == "The RF system provides the accelerating voltage."
+
+
+def test_search_forwards_the_query_to_the_okf_collection():
+    app = create_app(str(BUNDLE))
+    client = _ranked_client(app)
+    TestClient(app).get("/api/search", params={"q": "rf cavities"})
+
+    collection, query, _kwargs = client.calls[0]
+    assert (collection, query) == (OKF_COLLECTION, "rf cavities")
+
+
+def test_unavailable_sidecar_falls_back_to_substring_search():
+    """A configured-but-down sidecar renders the unranked payload, not an error."""
+    app = create_app(str(BUNDLE))
+    client = _ranked_client(app)
+    client.is_available = lambda: False  # type: ignore[method-assign]
+    c = TestClient(app)
+
+    results = c.get("/api/search", params={"q": "GEECS"}).json()["results"]
+    assert [r["score"] for r in results] == [None] * len(results)
+    assert results
+
+
+async def test_slow_search_does_not_block_the_rest_of_the_panel():
+    """A slow sidecar must cost the search and nothing else.
+
+    ``bundle.search`` blocks on HTTP once a sidecar answers — up to the client's
+    30 s timeout when one hangs, and seconds at a time with ``rerank: true`` in
+    a perfectly healthy deployment. On the event loop that stalls every other
+    request in the process, so ``/api/search`` is a sync route and Starlette
+    runs it in a threadpool. Both halves are asserted: the shape, which cannot
+    flake, and the behaviour it exists for.
+    """
+    app = create_app(str(BUNDLE))
+    route = next(r for r in app.routes if getattr(r, "path", "") == "/api/search")
+    assert not inspect.iscoroutinefunction(route.endpoint)  # type: ignore[attr-defined]
+
+    blocked = 1.0
+    real_search = app.state.bundle.search
+
+    def slow_search(query, **kwargs):
+        time.sleep(blocked)
+        return real_search(query, **kwargs)
+
+    app.state.bundle.search = slow_search
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://panel") as client:
+        started = time.monotonic()
+
+        async def search():
+            await client.get("/api/search", params={"q": "GEECS"})
+            return time.monotonic() - started
+
+        async def concept():
+            await client.get("/api/concept", params={"id": "devices/bpm"})
+            return time.monotonic() - started
+
+        search_done, concept_done = await asyncio.gather(search(), concept())
+
+    assert search_done >= blocked  # the stub really did block
+    # Generous margin: the point is "did not wait for the search", not a
+    # latency budget. A blocking handler lands at ~1.0 s here.
+    assert concept_done < blocked / 2
+
+
+# ---------------------------------------------------------------------------
+# Ranked-backend wiring: the factory reads the project config itself
+# ---------------------------------------------------------------------------
+
+
+def test_factory_wires_a_qmd_client_from_the_project_config(monkeypatch):
+    """``services.qmd`` in config.yml reaches the bundle the panel serves."""
+    import osprey.utils.workspace as workspace
+
+    monkeypatch.setattr(
+        workspace,
+        "load_osprey_config",
+        lambda: {"services": {"qmd": {"port": 8180}}},
+    )
+    app = create_app(str(BUNDLE))
+    assert app.state.bundle.qmd_client.is_configured is True
+
+
+def test_factory_without_services_qmd_opens_no_socket(monkeypatch):
+    """No sidecar is a supported configuration: the client stays unconfigured."""
+    import osprey.utils.workspace as workspace
+
+    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
+    app = create_app(str(BUNDLE))
+    assert app.state.bundle.qmd_client.is_configured is False
+
+
+def test_malformed_search_settings_degrade_to_substring_not_to_a_dead_panel(monkeypatch, caplog):
+    """A bad search knob must not cost the operator the whole reading pane."""
+    import osprey.utils.workspace as workspace
+
+    monkeypatch.setattr(
+        workspace,
+        "load_osprey_config",
+        lambda: {"facility_knowledge": {"search": {"rerank": "yes"}}},
+    )
+    with caplog.at_level(logging.WARNING):
+        app = create_app(str(BUNDLE))
+    c = TestClient(app)
+
+    assert app.state.bundle.qmd_client is None
+    assert c.get("/health").json()["configured"] is True
+    assert c.get("/api/search", params={"q": "GEECS"}).json()["results"]
+    assert any("misconfigured" in r.message for r in caplog.records)
+
+
+def test_unreadable_config_degrades_to_substring_not_to_a_dead_panel(monkeypatch, caplog):
+    """The same guarantee for a failure that is not a ValueError.
+
+    The backend resolver runs inside the factory's own catch-all, so anything
+    escaping it costs the whole panel rather than just ranked search — the
+    reading pane included. This pins that nothing gets that far, whatever the
+    config layer raises.
+    """
+    import osprey.utils.workspace as workspace
+
+    def boom():
+        raise TypeError("config layer changed shape")
+
+    monkeypatch.setattr(workspace, "load_osprey_config", boom)
+    with caplog.at_level(logging.WARNING):
+        app = create_app(str(BUNDLE))
+    c = TestClient(app)
+
+    assert app.state.bundle.qmd_client is None
+    assert c.get("/health").json()["configured"] is True
+    assert c.get("/api/search", params={"q": "GEECS"}).json()["results"]
+    assert any("misconfigured" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

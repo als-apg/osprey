@@ -130,6 +130,9 @@ def lint_web_terminals(config: Any, *, rendered_project: bool = True) -> list[Fi
     findings.extend(_check_local_mode_requires_catalog(web_terminals))
     if rendered_project:
         findings.extend(_check_persona_project_paths(web_terminals, users))
+        # Reads each persona's rendered config.yml, so it rides on the same
+        # gate: a profile has no rendered project to compare against yet.
+        findings.extend(_check_persona_bundle_path_agreement(root, web_terminals, users))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
     findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
@@ -883,6 +886,85 @@ def _read_project_name(config_yml_path: Path) -> str | None:
         return None
     name = parsed.get("project_name")
     return name if isinstance(name, str) and name else None
+
+
+def _read_bundle_path(config_yml_path: Path) -> str | None:
+    """Best-effort read of a config's ``facility_knowledge.bundle_path``.
+
+    Degrades to ``None`` on any read/parse failure, exactly like
+    :func:`_read_project_name`, whose caller already reports an unreadable
+    ``config.yml`` as its own error.
+    """
+    try:
+        with config_yml_path.open("r", encoding="utf-8") as fh:
+            parsed = yaml.safe_load(fh)
+    except (OSError, yaml.YAMLError):
+        return None
+    raw = as_dict(as_dict(parsed).get("facility_knowledge")).get("bundle_path")
+    return raw.strip() if isinstance(raw, str) and raw.strip() else None
+
+
+def _check_persona_bundle_path_agreement(
+    root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """Every entitled persona must put its knowledge bundle where the deploy does.
+
+    The split this catches: **entitlement** is decided by each persona's own
+    rendered ``config.yml`` (does it name a ``facility_knowledge.bundle_path``?),
+    while the in-container **mount target** is derived from the DEPLOY config's
+    ``bundle_path`` anchored on that persona's project directory. Where the two
+    values disagree, a persona is entitled and gets the deployment's bundle bound
+    at the deployment's path — while its OKF panel and ``facility_knowledge`` MCP
+    server both read the persona's path, which nothing mounted.
+
+    The result is an empty bundle with no error anywhere: the panel lists no
+    concepts, the agent's knowledge tools return nothing, and every layer reports
+    success. Nothing at runtime can tell that apart from a facility that simply
+    has not written any concepts yet, which is why it is caught here.
+
+    An ERROR rather than a warning: unlike a persona that is merely unrendered,
+    nothing an operator does later resolves this. The two keys have to be made to
+    agree.
+
+    Read from disk on the same terms as :func:`_check_persona_project_paths` —
+    ``project_path`` resolved against the working directory, an unreadable or
+    unrendered project contributing nothing, since a persona that has not been
+    built yet is already reported by that check.
+    """
+    deploy_bundle = as_dict(root.get("facility_knowledge")).get("bundle_path")
+    if not isinstance(deploy_bundle, str) or not deploy_bundle.strip():
+        return []  # nothing is mounted at all — no target to disagree with
+    deploy_bundle = deploy_bundle.strip()
+
+    catalog = _persona_catalog(web_terminals)
+    findings: list[Finding] = []
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue
+        project_path_raw = entry.get("project_path")
+        if not isinstance(project_path_raw, str) or not project_path_raw:
+            continue
+        config_yml = Path(project_path_raw) / "config.yml"
+        if not config_yml.is_file():
+            continue
+        persona_bundle = _read_bundle_path(config_yml)
+        if persona_bundle is None or persona_bundle == deploy_bundle:
+            continue
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.persona_bundle_path_divergence",
+                message=(
+                    f"persona {persona_name!r} sets facility_knowledge.bundle_path to "
+                    f"{persona_bundle!r}, but this deployment sets {deploy_bundle!r}. "
+                    "The bundle is bind-mounted at the DEPLOYMENT's path while the "
+                    "persona's knowledge tools read its own, so that container would "
+                    "see an empty bundle and report no error. Make the two agree"
+                ),
+            )
+        )
+    return findings
 
 
 def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:

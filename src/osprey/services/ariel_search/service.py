@@ -1,8 +1,10 @@
 """ARIEL Search Service.
 
 This module provides the main ARIELSearchService class that orchestrates
-search execution. The service routes queries to:
-- KEYWORD / SEMANTIC: Direct calls to search functions
+search execution. A request names a search module (``"keyword"``,
+``"semantic"``, ...); the service resolves that name against the registered
+ARIEL search modules and invokes the module's own ``execute``. Adding a
+search module therefore needs no change here.
 
 Higher-level reasoning is handled by the Osprey agent layer.
 
@@ -19,6 +21,7 @@ from osprey.services.ariel_search.exceptions import (
     SearchTimeoutError,
 )
 from osprey.services.ariel_search.models import (
+    DEFAULT_SEARCH_MODE,
     ARIELSearchRequest,
     ARIELSearchResult,
     ARIELStatusResult,
@@ -27,7 +30,6 @@ from osprey.services.ariel_search.models import (
     FacilityEntryCreateRequest,
     FacilityEntryCreateResult,
     SearchDiagnostic,
-    SearchMode,
     SyncStatus,
 )
 from osprey.utils.logger import get_logger
@@ -38,6 +40,7 @@ if TYPE_CHECKING:
     from osprey.models.embeddings.base import BaseEmbeddingProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.search.base import SearchToolDescriptor
 
 logger = get_logger("ariel")
 
@@ -45,9 +48,10 @@ logger = get_logger("ariel")
 class ARIELSearchService:
     """Main service class for ARIEL search functionality.
 
-    Routes queries based on SearchMode:
-    - KEYWORD: Direct keyword_search() call
-    - SEMANTIC: Direct semantic_search() call
+    Routes a request's mode name to the matching registered search module and
+    calls that module's ``execute``. The registry is the only source of
+    routable modes, so the service, the capabilities API, and the agent tools
+    always agree on which modes exist.
 
     Higher-level reasoning is handled by the Osprey agent layer.
 
@@ -99,7 +103,7 @@ class ARIELSearchService:
         source: str,
         category: str,
         message: str | None = None,
-        modes: tuple[SearchMode, ...] = (),
+        modes: tuple[str, ...] = (),
     ) -> ARIELSearchResult:
         """Build an empty result carrying a single diagnostic.
 
@@ -126,12 +130,12 @@ class ARIELSearchService:
 
     @staticmethod
     def _error_result(
-        mode: SearchMode,
+        mode: str,
         source: str,
         error: Exception,
     ) -> ARIELSearchResult:
         return ARIELSearchService._diagnostic_result(
-            reasoning=f"{mode.value.capitalize()} search failed: {error}",
+            reasoning=f"{mode.capitalize()} search failed: {error}",
             level=DiagnosticLevel.ERROR,
             source=source,
             category="search",
@@ -167,7 +171,7 @@ class ARIELSearchService:
         *,
         max_results: int | None = None,
         time_range: tuple[Any, Any] | None = None,
-        mode: SearchMode | None = None,
+        mode: str | None = None,
         advanced_params: dict[str, Any] | None = None,
     ) -> ARIELSearchResult:
         """Execute a search.
@@ -179,7 +183,7 @@ class ARIELSearchService:
             query: Natural language query
             max_results: Maximum results (default: ``ARIELSearchRequest``'s)
             time_range: Optional (start, end) datetime tuple
-            mode: Optional search mode (default: KEYWORD)
+            mode: Optional search module name (default: ``"keyword"``)
             advanced_params: Mode-specific advanced parameters from the frontend
 
         Returns:
@@ -192,7 +196,7 @@ class ARIELSearchService:
                 max_results if max_results is not None else ARIELSearchRequest.max_results
             ),
             time_range=time_range,
-            modes=[mode] if mode else [SearchMode.KEYWORD],
+            modes=[mode] if mode else [DEFAULT_SEARCH_MODE],
             advanced_params=advanced_params or {},
         )
 
@@ -204,30 +208,26 @@ class ARIELSearchService:
     ) -> ARIELSearchResult:
         """Invoke ARIEL with a search request.
 
-        Routes to the appropriate execution strategy based on mode.
+        Resolves the requested mode against the registered search modules and
+        runs that module.
 
         Args:
             request: Search request with query and parameters
 
         Returns:
             ARIELSearchResult with entries, answer, and sources
+
+        Raises:
+            ConfigurationError: If the requested mode is not registered or is
+                registered but disabled.
         """
         try:
             if self.config.is_search_module_enabled("semantic"):
                 await self._validate_search_model()
 
-            mode = request.modes[0] if request.modes else SearchMode.KEYWORD
+            mode = request.modes[0] if request.modes else DEFAULT_SEARCH_MODE
 
-            match mode:
-                case SearchMode.KEYWORD:
-                    return await self._run_keyword(request)
-                case SearchMode.SEMANTIC:
-                    return await self._run_semantic(request)
-                case _:
-                    raise ConfigurationError(
-                        f"Unsupported mode: {mode.value}",
-                        config_key="modes",
-                    )
+            return await self._run_module(mode, request)
 
         except SearchTimeoutError as e:
             # Return graceful timeout result instead of propagating exception
@@ -245,126 +245,126 @@ class ARIELSearchService:
             raise
         except Exception as e:
             logger.exception(f"Search failed: {e}")
-            mode = request.modes[0] if request.modes else SearchMode.KEYWORD
+            mode = request.modes[0] if request.modes else DEFAULT_SEARCH_MODE
             raise SearchExecutionError(
                 f"Search execution failed: {e}",
-                search_mode=mode.value,
+                search_mode=mode,
                 query=request.query,
             ) from e
 
-    async def _run_keyword(self, request: ARIELSearchRequest) -> ARIELSearchResult:
-        """Run keyword search directly.
+    @staticmethod
+    def _registered_descriptors() -> dict[str, SearchToolDescriptor]:
+        """Collect the tool descriptor of every registered search module.
+
+        Uses the same registry listing as the capabilities API so the routable
+        modes and the advertised modes can never drift apart.
+
+        Returns:
+            Mapping of module name to descriptor, in registry order. A module
+            name is what a request's ``modes`` carries and what
+            ``search_modules.<name>`` configures.
+        """
+        from osprey.registry import get_registry
+
+        registry = get_registry()
+        descriptors: dict[str, SearchToolDescriptor] = {}
+        for name in registry.list_ariel_search_modules():
+            module = registry.get_ariel_search_module(name)
+            if module is None:
+                continue
+            descriptors[name] = module.get_tool_descriptor()
+        return descriptors
+
+    def _enabled_mode_names(self, descriptors: dict[str, SearchToolDescriptor]) -> str:
+        """Render the modes a caller may actually ask for, for error messages."""
+        enabled = [name for name in descriptors if self.config.is_search_module_enabled(name)]
+        return ", ".join(enabled) if enabled else "(none enabled)"
+
+    async def _run_module(self, mode: str, request: ARIELSearchRequest) -> ARIELSearchResult:
+        """Run the registered search module named by ``mode``.
 
         Args:
+            mode: Search module name, normalized to lowercase by the request.
             request: Search request
 
         Returns:
-            ARIELSearchResult with matching entries
+            ARIELSearchResult with matching entries, or a diagnostic-only
+            result when the module failed or is gracefully unavailable.
+
+        Raises:
+            ConfigurationError: If ``mode`` names no registered module, or
+                names one that is disabled in configuration.
         """
-        if not self.config.is_search_module_enabled("keyword"):
+        descriptors = self._registered_descriptors()
+        descriptor = descriptors.get(mode)
+
+        if descriptor is None:
             raise ConfigurationError(
-                "Keyword search module not enabled",
-                config_key="search_modules.keyword.enabled",
+                f"Unknown search mode '{mode}'. "
+                f"Available modes: {self._enabled_mode_names(descriptors)}",
+                config_key="modes",
             )
 
-        from osprey.services.ariel_search.search.keyword import keyword_search
+        if not self.config.is_search_module_enabled(mode):
+            if descriptor.needs_embedder:
+                # Contract: embedding-backed search "degrades gracefully to
+                # keyword-only" when embeddings are unavailable -- whether
+                # disabled in config or auto-disabled at runtime by
+                # _validate_search_model (missing pgvector table / Ollama).
+                # Return a non-error result that steers the caller to keyword
+                # search rather than raising, which would otherwise surface as
+                # a hard MCP tool error (#276).
+                return self._diagnostic_result(
+                    reasoning=(
+                        f"{mode.capitalize()} search is unavailable "
+                        f"(embeddings not configured). Use keyword search instead."
+                    ),
+                    level=DiagnosticLevel.INFO,
+                    source=f"service.{mode}",
+                    category="search",
+                )
+            raise ConfigurationError(
+                f"Search mode '{mode}' is not enabled. "
+                f"Available modes: {self._enabled_mode_names(descriptors)}",
+                config_key=f"search_modules.{mode}.enabled",
+            )
 
         start_date, end_date = request.time_range if request.time_range else (None, None)
 
-        ap = request.advanced_params
-        include_highlights = ap.get("include_highlights", True)
-        fuzzy_fallback = ap.get("fuzzy_fallback", True)
+        args: list[Any] = [request.query, self.repository, self.config]
+        if descriptor.needs_embedder:
+            args.append(self._get_embedder())
+
+        # Advanced params come first so the request's own fields win on collision.
+        kwargs: dict[str, Any] = {
+            **request.advanced_params,
+            "max_results": request.max_results,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
 
         try:
-            results = await keyword_search(
-                request.query,
-                self.repository,
-                self.config,
-                max_results=request.max_results,
-                start_date=start_date,
-                end_date=end_date,
-                author=ap.get("author"),
-                source_system=ap.get("source_system"),
-                include_highlights=include_highlights,
-                fuzzy_fallback=fuzzy_fallback,
-            )
+            results = await descriptor.execute(*args, **kwargs)
         except Exception as e:
-            logger.warning(f"Keyword search failed: {e}")
-            return self._error_result(SearchMode.KEYWORD, "service.keyword", e)
+            logger.warning(f"{mode.capitalize()} search failed: {e}")
+            return self._error_result(mode, f"service.{mode}", e)
 
-        entries = tuple(
-            {**dict(entry), "_score": score, "_highlights": highlights}
-            for entry, score, highlights in results
-        )
-        sources = tuple(entry["entry_id"] for entry, _score, _highlights in results)
+        entries: list[dict[str, Any]] = []
+        sources: list[Any] = []
+        for entry, score, *extra in results:
+            # Modules return (entry, score) or (entry, score, highlights).
+            shaped = {**dict(entry), "_score": score}
+            if extra:
+                shaped["_highlights"] = extra[0]
+            entries.append(shaped)
+            sources.append(entry["entry_id"])
 
         return ARIELSearchResult(
-            entries=entries,
+            entries=tuple(entries),
             answer=None,
-            sources=sources,
-            search_modes_used=(SearchMode.KEYWORD,),
-            reasoning=f"Keyword search: {len(results)} results",
-        )
-
-    async def _run_semantic(self, request: ARIELSearchRequest) -> ARIELSearchResult:
-        """Run semantic search directly.
-
-        Args:
-            request: Search request
-
-        Returns:
-            ARIELSearchResult with matching entries
-        """
-        if not self.config.is_search_module_enabled("semantic"):
-            # Contract: semantic search "degrades gracefully to keyword-only"
-            # when embeddings are unavailable -- whether disabled in config or
-            # auto-disabled at runtime by _validate_search_model (missing
-            # pgvector table / Ollama). Return a non-error result that steers
-            # the caller to keyword search rather than raising, which would
-            # otherwise surface as a hard MCP tool error (#276).
-            return self._diagnostic_result(
-                reasoning=(
-                    "Semantic search is unavailable (embeddings not configured). "
-                    "Use keyword search instead."
-                ),
-                level=DiagnosticLevel.INFO,
-                source="service.semantic",
-                category="search",
-            )
-
-        from osprey.services.ariel_search.search.semantic import semantic_search
-
-        start_date, end_date = request.time_range if request.time_range else (None, None)
-
-        ap = request.advanced_params
-        similarity_threshold = ap.get("similarity_threshold")
-
-        try:
-            results = await semantic_search(
-                request.query,
-                self.repository,
-                self.config,
-                self._get_embedder(),
-                max_results=request.max_results,
-                similarity_threshold=similarity_threshold,
-                start_date=start_date,
-                end_date=end_date,
-                author=ap.get("author"),
-                source_system=ap.get("source_system"),
-            )
-        except Exception as e:
-            logger.warning(f"Semantic search failed: {e}")
-            return self._error_result(SearchMode.SEMANTIC, "service.semantic", e)
-
-        entries = tuple({**dict(entry), "_score": similarity} for entry, similarity in results)
-        sources = tuple(entry["entry_id"] for entry, _similarity in results)
-
-        return ARIELSearchResult(
-            entries=entries,
-            answer=None,
-            sources=sources,
-            search_modes_used=(SearchMode.SEMANTIC,),
-            reasoning=f"Semantic search: {len(results)} results",
+            sources=tuple(sources),
+            search_modes_used=(mode,),
+            reasoning=f"{mode.capitalize()} search: {len(entries)} results",
         )
 
     async def create_entry(

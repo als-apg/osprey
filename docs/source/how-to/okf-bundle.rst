@@ -145,6 +145,37 @@ Working with a Bundle
       (the project root).  For the ``control-assistant`` preset the example
       bundle is scaffolded into ``data/facility_knowledge/`` automatically.
 
+      .. _shared-bundle-multi-user:
+
+      **One bundle, many terminals.** In a multi-user deployment every web
+      terminal whose persona configures ``facility_knowledge.bundle_path`` gets
+      the *deployment's* bundle bind-mounted, read-write. There is one directory,
+      not a copy per user: a concept drafted in one terminal is the same file the
+      next terminal opens, and the same file the search sidecar indexes.
+
+      Two consequences are worth knowing before you debug either of them.
+
+      *The mounted bundle hides the one baked into the image.* Each build copies
+      the profile's ``data/`` tree into the persona image, so the image ships a
+      bundle of its own — and the mount covers it. That is intended: the bundle is
+      operational knowledge that changes between image builds. Edit the
+      deployment's bundle to change what a running terminal sees; edit the
+      profile's to change what a fresh deployment starts from.
+
+      *Sharing works through a group, and ``osprey up`` sets it up.* On each
+      deploy the bundle directory is made **setgid and group-writable**, and each
+      terminal is added to that directory's group (compose ``group_add``). Both
+      halves are needed — the setgid bit decides which group *owns* a newly
+      written file, while ``group_add`` is what makes a container a *member* of
+      that group. The group itself is never invented: it is whichever group the
+      directory already has, so you can retarget it with one ``chgrp`` and a
+      re-deploy. ``osprey up`` reports the group it used.
+
+      One limit follows from how Unix works rather than from OSPREY: setgid fixes
+      who *owns* a new file, not its permission bits, which come from the writing
+      process's umask (normally ``rw-r--r--``). So one terminal can always read
+      and index another's drafts, but cannot overwrite another's file in place.
+
    .. tab-item:: Connecting to OSPREY
 
       The ``osprey_facility_knowledge`` MCP server reads the OKF bundle at
@@ -153,7 +184,8 @@ Working with a Bundle
       * ``list_concepts`` — browse the index to discover what topics exist
       * ``read_concept`` — retrieve a document by its concept ID (its bundle
         path minus the ``.md`` extension, e.g. ``subsystems/timing-system``)
-      * ``search`` — full-text search across all concept documents
+      * ``search`` — ranked search across all concept documents (see
+        `Searching the Bundle`_)
       * ``capabilities`` — report the bundle's path, size, concept types, and
         whether draft writes are enabled
       * ``draft_concept`` — author a new concept document (requires human approval)
@@ -264,6 +296,85 @@ Working with a Bundle
 
          ``--force`` overwrites existing stubs.  Omit it to protect hand-edited
          documents.
+
+
+Searching the Bundle
+====================
+
+``OKFBundle.search`` backs both the KNOWLEDGE panel and the MCP ``search``
+tool. It has two backends and picks between them by itself:
+
+* **Ranked search**, when the :ref:`qmd search sidecar <qmd-search-sidecar>` is
+  deployed. Hybrid keyword-plus-semantic, so a question phrased in the
+  operator's own words can find a document that never uses those words.
+* **Substring search**, when it is not. No ranking, no scores, no excerpts —
+  a document matches only if it literally contains the string.
+
+You do not choose; a deployment without the sidecar simply gets the fallback.
+
+Tuning ranked search
+--------------------
+
+.. code-block:: yaml
+
+   facility_knowledge:
+     bundle_path: data/facility_knowledge
+     search:
+       rerank: false        # default
+       candidate_limit: 40  # omit to use qmd's own default
+
+Both keys are optional and the whole ``search:`` block can be left out. A key
+that *is* present but has the wrong type is refused at startup rather than
+quietly defaulted — silently ignoring ``rerank: "false"`` would leave the
+deployment on the path it explicitly asked to leave.
+
+**``rerank`` defaults to ``false`` here, and to ``true`` on the ARIEL side.**
+That split is deliberate. qmd's reranker improves ranking quality but costs
+roughly **4x** the query budget — measured p95 3927 ms with it against 811 ms
+without, on a 135,000-document corpus — and its cost barely changes with corpus
+size, so no bundle is small enough to outrun it. The OKF surfaces are
+interactive and hold a sub-second budget that reranking does not fit in. The
+ARIEL ``qmd_search`` tool is an agent tool with no such budget, so it keeps the
+quality path. Set ``rerank: true`` if you would rather have the ranking than
+the latency.
+
+``candidate_limit`` is how many candidates the reranker considers. Lowering it
+trades recall for latency.
+
+.. note::
+
+   The score on a ranked hit **orders** the results; it is not a calibrated
+   relevance probability. With ``rerank: false`` qmd derives it from rank alone
+   (1.0, 0.5, 0.33 …). Render it or ignore it, but do not threshold it against
+   a fixed number and do not compare scores across queries.
+
+How well does it retrieve?
+--------------------------
+
+Honestly measured, on a small and deliberately hostile fixture bundle: over 19
+concept documents and 14 paraphrased queries — questions worded so that the
+answer document does *not* contain the query's words — ranked search puts the
+expected document in the top 3 for **10 of the 14**. Substring search scores
+**0 of 14** on the same queries, which is the whole point of the exercise.
+
+Three of the four misses return instead a document written specifically to
+contain the query verbatim, which is a reasonable thing for a search engine to
+do. This is the only retrieval-quality measurement this feature has, on a
+fixture corpus rather than a facility one; treat it as evidence that ranked
+search beats substring search on paraphrases, not as a benchmark of your own
+bundle.
+
+.. admonition:: Known limitation — concept IDs that normalise together
+   :class: note
+
+   qmd normalises the document paths it reports: ``_`` and ``%`` both become
+   ``-``, runs collapse, and a leading one is dropped. Two concept IDs that
+   differ *only* in those characters therefore look identical to it. The bundle
+   handles this by matching hits on a normalisation-invariant key rather than
+   on the reported path — and when that is genuinely ambiguous it drops the hit
+   and logs a warning rather than guessing at which document you meant. If a
+   document you expect never appears in results, check the log for that
+   warning, and prefer hyphens over underscores in file names.
 
 
 .. seealso::

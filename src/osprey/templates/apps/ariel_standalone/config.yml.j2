@@ -147,10 +147,43 @@ services:
     retention_days: 14  # Growth bound: drop data older than N days (min 3). A
                         # named volume has no size cap, so age is the size knob.
 
+  # Semantic-search sidecar. It indexes the deployment's markdown corpora — the
+  # ARIEL mirror that `ariel.enhancement_modules.qmd_export` writes, and a
+  # facility-knowledge bundle if one is configured — and answers hybrid
+  # keyword+semantic queries over HTTP.
+  #
+  # Commented out because deploying it takes three steps, not one: uncomment
+  # this block AND the `- qmd` line below, build the sidecar image (it is not
+  # pulled — `osprey build` renders ./services/qmd, whose image must exist
+  # before `osprey up`), and enable the ARIEL blocks that feed and query it
+  # (`ariel.enhancement_modules.qmd_export`, then `ariel.search_modules.qmd`).
+  # Any one of those alone gets you a container nobody queries, or a search mode
+  # with nothing to search.
+  # qmd:
+  #   path: ./services/qmd
+  #   port: 8180      # Host port clients talk to. Deliberately NOT qmd's own
+  #                   # 8181: the daemon binds IPv6 loopback only, hardcoded, so
+  #                   # the container runs it on an internal 8181 and fronts it
+  #                   # with a forwarder that owns this port.
+  #                   #
+  #                   # There is no per-service bind_address, on purpose. Like
+  #                   # every service here this one publishes on the
+  #                   # project-wide `deployment.bind_address` (default
+  #                   # 127.0.0.1), and that default is load-bearing: the
+  #                   # endpoint carries no token and no TLS, so an interface
+  #                   # other than loopback exposes the whole indexed corpus to
+  #                   # anything that can route to it.
+  #   interval: 30    # Fallback corpus-sweep period, in seconds. The bundle's
+  #                   # `.qmd-touch` marker is the primary re-index trigger, so
+  #                   # this is the ceiling on staleness, not the usual lag.
+  #                   # Raise it on a large corpus, where a no-op sweep is not
+  #                   # free.
+
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
   - openobserve
+  # - qmd           # Uncomment together with the `qmd:` block above.
 {% else %}
 # Attached project (deploy_services: false): connects to a services stack
 # another OSPREY project deployed on the same host, so it scaffolds nothing.
@@ -244,6 +277,27 @@ ariel:
       provider: ollama   # References api.providers.ollama
       model: nomic-embed-text
 
+    # Hybrid keyword+semantic search answered by the qmd sidecar instead of
+    # Postgres. Off by default because it needs two other things running: a
+    # `services.qmd` sidecar, and the markdown mirror that the `qmd_export`
+    # enhancement below writes for it to index. Enabled without them, the mode
+    # is advertised to the agent and then fails every call with "search is
+    # down" — which is the intended behaviour, but not a useful default.
+    qmd:
+      enabled: false
+      # These knobs MUST stay under `settings:`. The search-config loader keeps
+      # only `enabled`, `provider`, `model` and `settings` and drops every
+      # other key without a word, so a knob written as a sibling of `enabled`
+      # is silently inert — no error, just the defaults forever.
+      settings:
+        rerank: true          # qmd's LLM reranker. Costs roughly 4x the query
+                              # latency and its cost barely grows with corpus
+                              # size. This is an agent tool with no interactive
+                              # budget to blow, so it keeps the quality path;
+                              # set false for the fast one.
+        candidate_limit: 40   # Candidates the reranker considers. Lowering it
+                              # trades recall for latency.
+
   # Enhancement modules — run during ingestion
   enhancement_modules:
     # Semantic processor: LLM-based keyword extraction and summarization
@@ -261,6 +315,20 @@ ariel:
       models:
         - name: nomic-embed-text
           dimension: 768
+
+    # qmd export: writes one markdown file per entry into a mirror tree that
+    # the qmd sidecar indexes. It is what makes `search_modules.qmd` above
+    # able to answer, and it is off for the same reason that one is.
+    qmd_export:
+      enabled: false
+      settings:
+        # Resolved against the directory holding this file, like every other
+        # config-relative path here. It belongs under var/, the durable STATE
+        # zone: the mirror is machine-written from Postgres, is as large as the
+        # logbook, and the repo's .gitignore keeps var/ out of git. The compose
+        # generator binds this same path into the sidecar read-only, so moving
+        # it stays a one-place edit.
+        mirror_path: var/ariel_mirror
 
   # Default provider for EMBEDDING modules that name none of their own. It is
   # not a general fallback: the semantic_processor LLM module above requires

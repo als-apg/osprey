@@ -5,6 +5,7 @@ import json
 import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
+from osprey.registry import get_registry
 from tests.mcp_server.ariel.conftest import get_tool_fn
 
 
@@ -14,20 +15,34 @@ def _get_capabilities():
     return get_tool_fn(capabilities)
 
 
-def _setup_registry(tmp_path, monkeypatch):
+def _setup_registry(tmp_path, monkeypatch, search_modules=None):
+    """Write a config, initialize the framework registry and the ARIEL context.
+
+    The framework registry must be initialized because ``capabilities`` now
+    advertises the modes the registry actually carries, not a hardcoded list.
+
+    Args:
+        tmp_path: Temporary working directory fixture.
+        monkeypatch: Pytest monkeypatch fixture, used to chdir.
+        search_modules: Optional ``search_modules`` config block. Defaults to
+            keyword and semantic both enabled.
+    """
     monkeypatch.chdir(tmp_path)
+    if search_modules is None:
+        search_modules = {
+            "keyword": {"enabled": True},
+            "semantic": {"enabled": True, "model": "nomic-embed-text"},
+        }
     config = json.dumps(
         {
             "ariel": {
                 "database": {"uri": "postgresql://localhost/test"},
-                "search_modules": {
-                    "keyword": {"enabled": True},
-                    "semantic": {"enabled": True, "model": "nomic-embed-text"},
-                },
+                "search_modules": search_modules,
             }
         }
     )
     (tmp_path / "config.yml").write_text(config)
+    get_registry().initialize()
     initialize_ariel_context()
 
 
@@ -47,7 +62,7 @@ async def test_capabilities_returns_modules(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_capabilities_includes_search_modes(tmp_path, monkeypatch):
-    """Capabilities includes all search mode enum values."""
+    """Capabilities advertises every registered, enabled search module."""
     _setup_registry(tmp_path, monkeypatch)
 
     fn = _get_capabilities()
@@ -56,6 +71,38 @@ async def test_capabilities_includes_search_modes(tmp_path, monkeypatch):
     data = json.loads(result)
     assert "keyword" in data["search_modes"]
     assert "semantic" in data["search_modes"]
+
+
+@pytest.mark.unit
+async def test_capabilities_omits_sql_query_mode(tmp_path, monkeypatch):
+    """``sql_query`` is a tool, not a mode, so it never appears in the mode list."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    fn = _get_capabilities()
+    result = await fn()
+
+    data = json.loads(result)
+    assert "sql_query" not in data["search_modes"]
+
+
+@pytest.mark.unit
+async def test_capabilities_omits_disabled_modes(tmp_path, monkeypatch):
+    """A registered module that config disables is not advertised as a mode."""
+    _setup_registry(
+        tmp_path,
+        monkeypatch,
+        search_modules={
+            "keyword": {"enabled": True},
+            "semantic": {"enabled": False},
+        },
+    )
+
+    fn = _get_capabilities()
+    result = await fn()
+
+    data = json.loads(result)
+    assert "keyword" in data["search_modes"]
+    assert "semantic" not in data["search_modes"]
 
 
 @pytest.mark.unit

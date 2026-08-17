@@ -62,21 +62,29 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 import yaml
 
-from osprey.deployment.compose_generator import resolve_user_volume_names
+from osprey.deployment.compose_generator import (
+    QMD_CORPUS_ROOT,
+    QMD_OKF_COLLECTION,
+    resolve_user_volume_names,
+)
+from osprey.deployment.qmd_service import QMDServiceConfig
 from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.personas import normalize_users
+from osprey.services.qmd.client import QMDClient
 from osprey.utils import config_writer
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
@@ -1396,3 +1404,605 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
     finally:
         _teardown_all_project_resources()
         _runtime_cli("rmi", "-f", never_built_tag)
+
+
+# =============================================================================
+# Shared facility-knowledge bundle + qmd search sidecar
+# =============================================================================
+#
+# The tests above prove web-terminal lifecycle mechanics. This one proves the
+# CROSS-CONTAINER SHARING property the bundle mount exists for: one host
+# directory bound read-write into every entitled `web-<user>` container and
+# read-only into the qmd sidecar, such that a file written from one terminal is
+# readable in another and reaches the sidecar's index.
+#
+# WHAT MAKES THIS A REAL TEST, AND NOT A TAUTOLOGY
+# ------------------------------------------------
+# Sharing has two independent halves and only one of them is filesystem state:
+#
+#   * setgid on the host directory decides which group OWNS a newly written
+#     file (compose_generator.SHARED_CORPUS_DIR_MODE), and
+#   * `group_add: ["<gid>"]` on each entitled service decides which groups the
+#     container's processes are MEMBERS of (render.render_web_terminals).
+#
+# A write-then-read check alone exercises neither: every persona image in this
+# module runs the same uid, so the read would succeed by uid coincidence with
+# `group_add` deleted. So the membership half is asserted directly, three times
+# over: in the RENDERED overlay (the gid the deploy read off the provisioned
+# directory), in the container's RUNTIME CONFIG (`HostConfig.GroupAdd` — proof
+# compose passed it down), and INSIDE a running process (`id -G`). Removing the
+# renderer's `group_add` emission fails all three, regardless of what the
+# filesystem would have allowed.
+#
+# The `id -G` probe runs as the image's unprivileged `dispatch` user and not as
+# root, and that is a correctness requirement rather than a nicety: alpine's
+# root already belongs to gids 0-27, so on a host whose shared-corpus group
+# falls in that range — macOS `staff` is gid 20 — a root probe reports
+# membership the IMAGE granted and passes with `group_add` deleted. Measured on
+# this branch, not assumed.
+#
+# HOST CAVEAT, measured on this branch rather than assumed: Docker Desktop for
+# macOS remaps bind-mount ownership -- a host directory owned by 501:20 with
+# mode 2770 appears inside the container as root:root, and a container process
+# of any uid may write it. The filesystem leg below therefore proves the MOUNT
+# TOPOLOGY (one directory, three containers, `:ro` where it must be) on every
+# host, and proves permission enforcement only on a Linux runtime. The two
+# membership assertions are host-independent, which is why they carry the
+# property.
+#
+# WHAT IS NOT CROSS-CONTAINER WRITABLE, by design: setgid fixes group
+# ownership, not permission BITS, which still come from the writer's umask
+# (022 -> rw-r--r--). Another container can READ and the sidecar can INDEX a
+# drafted file; it cannot overwrite it in place. The assertions below stop
+# exactly there.
+#
+# THE SIDECAR IMAGE IS NEVER BUILT HERE. It is a ~5 GB image whose build bakes
+# 2.1 GB of GGUF models; this test consumes whatever `OSPREY_QMD_IMAGE` names
+# (the same variable the rendered compose fragment overrides `image:` with, and
+# the one the CI lane sets), defaulting to the locally verified tag. A missing
+# image is a loud failure naming the tag -- never a skip, which would report
+# success having proved nothing.
+#
+# Because that refusal is a hard failure rather than a skip, the test carries
+# its own `qmd` marker: two CI lanes run this module wholesale without building
+# or loading a sidecar image, and they deselect it with `-m 'not qmd'`. It is
+# reached instead from the lane that builds the image. Adding another
+# image-dependent test here means marking it the same way.
+#
+# Same container-ops safety guardrail as the rest of this file: the sidecar is
+# exact-named `osprey-e2e-mus-p3-qmd`, removed by that name, and its stack goes
+# down with the project-scoped `compose -p <project> down` the module already
+# uses. No prune, no `-a`, no wildcard, no `-v`.
+
+#: Host port the sidecar publishes. Disjoint from every other port this file
+#: uses (19080/19081 nginx + registry, 19100-19400 the web tiers, 19180-20201
+#: the two-project isolation test, 20280-20600 the heterogeneous tests).
+QMD_PORT = 19085
+
+#: Exact container name the sidecar fragment declares -- `<project>-qmd`, the
+#: same namespacing rule the shipped service template applies.
+QMD_CONTAINER = f"{PROJECT_NAME}-qmd"
+
+#: The sidecar image, honouring `OSPREY_QMD_IMAGE`. Never built by this file.
+QMD_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-validate"
+
+#: `facility_knowledge.bundle_path` for this scenario, relative to the repo
+#: root exactly as a facility config spells it.
+BUNDLE_REL = "data/facility_knowledge"
+
+#: Where that same directory lands inside a web-terminal container. Derived by
+#: render._container_bundle_dir as `<container_project_dir>/<bundle_path>`, and
+#: `container_project_dir` for this fixture's persona-less roster is
+#: `/app/<facility_prefix>-assistant` (resolve_personas' zero-migration path) --
+#: the directory Dockerfile.web_terminal_stub already creates.
+CONTAINER_BUNDLE_DIR = f"/app/{FACILITY_PREFIX}-assistant/{BUNDLE_REL}"
+
+#: Where the sidecar mounts it, and the collection it is indexed under. Both
+#: come from the framework's own constants rather than being re-spelled, since
+#: the collection name is a contract with every OKF query.
+SIDECAR_CORPUS_TARGET = f"{QMD_CORPUS_ROOT}/{QMD_OKF_COLLECTION}"
+
+#: Marker file a corpus writer touches to ask the sidecar to re-index without
+#: waiting out the fallback sweep (the sidecar entrypoint's `MARKER_NAME`).
+QMD_TOUCH_MARKER = ".qmd-touch"
+
+#: The seed corpus. The sidecar's entrypoint REFUSES to open its port on an
+#: empty index (a healthy-looking sidecar that can find nothing is worse than
+#: one that will not start), so the bundle must hold documents before `up`.
+#: Two short documents, deliberately: this is a mount/sharing test, and a
+#: larger corpus buys nothing but embedding time.
+BUNDLE_SEED_DIR = FIXTURES_DIR / "facility_bundle"
+
+#: How long the sidecar gets to build its first index and open the port. Two
+#: documents index in seconds, but the embedder loads on CPU on first use.
+QMD_READY_TIMEOUT_SEC = 300.0
+
+#: How long a marker-triggered re-index gets to make a new document findable.
+#: The sidecar polls markers on its own interval and then re-runs `qmd update`
+#: + `qmd embed`; on macOS the bind-mount stat() also has to cross the VM.
+QMD_REINDEX_TIMEOUT_SEC = 240.0
+
+#: Marker poll interval the sidecar runs with here -- below the entrypoint's
+#: own 5 s default (`POLL_INTERVAL`), because the freshness assertion waits on
+#: it and the MECHANISM is what is under test, not the production tuning. Not
+#: to be confused with the fallback SWEEP, a separate knob
+#: (`OSPREY_QMD_UPDATE_INTERVAL`, shipped default 30 s) that this fixture pins
+#: to 300 s precisely so a re-index inside the assertion window can only be
+#: explained by the marker.
+QMD_MARKER_POLL_SEC = 2
+
+
+def _write_qmd_service_render(repo: Path) -> None:
+    """Place the sidecar's rendered service artifacts under ``build/``.
+
+    Hand-authored for the same reason ``build/config.yml`` is (see
+    :func:`_seed_repo`): these fixtures drive lifecycle mechanics against a
+    committed render rather than one a profile produced, and ``osprey up``
+    reads ``build/`` without re-rendering anything.
+
+    It is a deliberately NARROWED copy of the shipped fragment
+    (``osprey/templates/services/qmd/docker-compose.yml.j2``). It diverges from
+    it in five places, and each one is a choice rather than an omission:
+
+    * **No ``build:`` block.** The shipped fragment carries one so a real
+      deployment can produce the image on first run. Here the image is a
+      prebuilt ~5 GB tag, and a fragment that *could* fall back to building it
+      is a fragment that eventually will.
+    * **No named index volume.** The shipped fragment persists the index
+      because rebuilding it costs ~41 minutes at facility scale. Two fixture
+      documents rebuild in seconds, and a per-run index means a stale volume
+      can never make this test pass on a previous run's corpus.
+    * **No ``labels:`` block and no network stanza or ``TZ``.** Those carry the
+      deployment's identity and topology, which nothing here asserts on; the
+      test finds the container by its exact name and reaches it over the
+      published loopback port.
+    * **No ``healthcheck:``.** The shipped probe exists so an orchestrator can
+      report readiness; this test waits on ``GET /health`` itself, with its own
+      timeout and its own failure message carrying the container's logs.
+    * **``OSPREY_QMD_UPDATE_INTERVAL: "300"`` and an added
+      ``OSPREY_QMD_MARKER_POLL_INTERVAL``.** A rendered deploy emits the sweep
+      interval from ``qmd_service.DEFAULT_INTERVAL_SECONDS`` (30 s) and emits no
+      marker-poll value at all. Both are retuned here so the freshness
+      assertion has one explanation: the sweep is pushed far outside the
+      assertion window and the marker poll is pulled well inside it, which is
+      what makes a re-index attributable to the marker rather than to a sweep
+      that happened to land.
+
+    What the test asserts on is spelled exactly as the template spells it: the
+    published loopback port, the ``:ro`` corpus mount at
+    ``/corpus/<collection>``, the collection name, and the entrypoint's
+    ``OSPREY_QMD_*`` contract. The rendered template itself is covered
+    independently by ``tests/deployment/test_qmd_compose_fragment.py``, so this
+    copy is not the only thing standing behind that fragment.
+    """
+    service_dir = repo / BUILD_DIRNAME / "services" / "qmd"
+    service_dir.mkdir(parents=True, exist_ok=True)
+
+    # One collection per mounted corpus, at the mount target below. The
+    # entrypoint copies this into its state directory on every start.
+    (service_dir / "index.yml").write_text(
+        f"collections:\n"
+        f"  {QMD_OKF_COLLECTION}:\n"
+        f"    path: {SIDECAR_CORPUS_TARGET}\n"
+        f'    pattern: "**/*.md"\n',
+        encoding="utf-8",
+    )
+
+    # Every relative path resolves against the pinned compose project
+    # directory, which is the repo root -- never this file's own subdir.
+    (service_dir / "docker-compose.yml").write_text(
+        f"""services:
+  qmd:
+    image: {QMD_IMAGE}
+    container_name: {QMD_CONTAINER}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:{QMD_PORT}:{QMD_PORT}"
+    environment:
+      OSPREY_QMD_PORT: "{QMD_PORT}"
+      OSPREY_QMD_UPDATE_INTERVAL: "300"
+      OSPREY_QMD_MARKER_POLL_INTERVAL: "{QMD_MARKER_POLL_SEC}"
+      OSPREY_QMD_STATE_DIR: "/var/lib/qmd"
+      OSPREY_QMD_INDEX_CONFIG: "/etc/qmd/index.yml"
+    volumes:
+      - ./{BUILD_DIRNAME}/services/qmd/index.yml:/etc/qmd/index.yml:ro
+      # collection `{QMD_OKF_COLLECTION}` -- READ-ONLY on purpose: the sidecar
+      # indexes this tree, and every process that writes it (the web terminals)
+      # is outside this container.
+      - ./{BUNDLE_REL}:{SIDECAR_CORPUS_TARGET}:ro
+""",
+        encoding="utf-8",
+    )
+
+
+def _image_user_gid(image: str, user: str) -> int | None:
+    """Primary gid of *user* inside *image*, or ``None`` when it cannot be read.
+
+    One ephemeral, self-removing container off a local tag — never the registry
+    ref, which the ``stub_image`` fixture deliberately untags so that
+    ``compose pull`` is a genuine pull.
+    """
+    result = _runtime_cli("run", "--rm", "-u", user, image, "id", "-g", timeout=60)
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return int(value) if value.isdigit() else None
+
+
+def _retarget_bundle_group_if_vacuous(bundle_dir: Path, probe_gid: int) -> None:
+    """Make sure the shared corpus group is one the image does not already grant.
+
+    The ``id -G`` probe below is only evidence when the gid it looks for is a
+    gid the container could not have had anyway. The unprivileged ``dispatch``
+    user the stub image creates takes the first free gid, 1000 — and a Linux
+    deploying user whose own primary group is 1000 (the shape GitHub-hosted
+    runners have, where ``runner``'s primary group is ``docker``) hands the
+    bundle directory that same gid. The probe would then pass with ``group_add``
+    deleted, on exactly the hosts CI uses.
+
+    So on that collision the directory is chgrp'd to another group the
+    deploying user belongs to. This is not a workaround bolted onto the test:
+    it is the documented retargeting path (``ensure_shared_corpus_dir`` inherits
+    the group and never invents one, and the compose template says to retarget
+    by chgrp'ing the bundle), exercised here for the reason it exists.
+
+    Deliberately conditional. On a host with no collision the directory keeps
+    the group a real deploy would have given it, which is the shape worth
+    testing; only the pathological host takes the other branch.
+    """
+    if bundle_dir.stat().st_gid != probe_gid:
+        return
+    alternatives = [gid for gid in os.getgroups() if gid != probe_gid]
+    assert alternatives, (
+        f"the deploying user belongs to no group other than {probe_gid}, which is also "
+        "the stub image's own 'dispatch' group. The container-side membership probe "
+        "cannot be made non-vacuous on this host."
+    )
+    os.chown(bundle_dir, -1, alternatives[0])
+
+
+def _wait_for_qmd_health(timeout: float) -> None:
+    """Block until the sidecar opens its port, or fail naming what went wrong.
+
+    The entrypoint runs its whole startup index pass BEFORE it opens the port,
+    so this covers indexing the seed corpus, not just process start. A sidecar
+    that never opens the port has almost always died in that pass; the last
+    lines of its log say why, so they are carried into the failure.
+    """
+    deadline = time.monotonic() + timeout
+    last_err = "(no attempt yet)"
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(  # noqa: S310 - loopback only
+                f"http://127.0.0.1:{QMD_PORT}/health", timeout=5.0
+            ) as resp:
+                if resp.status == 200:
+                    return
+                last_err = f"HTTP {resp.status}"
+        except (urllib.error.URLError, ConnectionError, OSError) as exc:
+            last_err = str(exc)
+        time.sleep(2.0)
+    logs = _runtime_cli("logs", "--tail", "40", QMD_CONTAINER, timeout=30)
+    raise AssertionError(
+        f"qmd sidecar did not answer /health on :{QMD_PORT} within {timeout:.0f}s "
+        f"(last: {last_err})\n--- {QMD_CONTAINER} logs (tail) ---\n"
+        f"{logs.stdout}\n{logs.stderr}"
+    )
+
+
+def _wait_for_indexed(client: QMDClient, token: str, filename: str, timeout: float) -> list:
+    """Poll the sidecar until *filename* is among the hits for *token*.
+
+    The wait condition is that ONE named document is findable, never that the
+    query returned anything: the semantic half of a hybrid search returns its
+    nearest neighbours for any input, so a query for a token that is nowhere in
+    the corpus still comes back with the corpus's other documents. Polling on
+    "non-empty" would therefore return instantly, before the re-index it is
+    supposed to be waiting for, and the freshness assertion would prove
+    nothing.
+
+    Returns:
+        The last hit list observed — the matching one when the wait succeeded,
+        and whatever the sidecar was answering with when it timed out, which is
+        what the caller reports.
+    """
+    deadline = time.monotonic() + timeout
+    hits: list = []
+    while time.monotonic() < deadline:
+        # rerank=False deliberately: the reranker is a 610 MB model that loads
+        # on CPU on first use and blows the client's timeout against a cold
+        # sidecar. Nothing here is a ranking-quality assertion.
+        hits = client.query(QMD_OKF_COLLECTION, token, limit=10, rerank=False)
+        if any(hit.file == filename for hit in hits):
+            return hits
+        time.sleep(3.0)
+    return hits
+
+
+@pytest.mark.qmd
+def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path, stub_image: str) -> None:
+    """One shared knowledge bundle across two web terminals and the sidecar.
+
+    Reuses the single-project ``repo``/``stub_image`` infrastructure -- its
+    committed ``[alice, bob]`` roster and the throwaway local registry the stub
+    image was pushed into -- and adds only what this scenario needs: a
+    ``facility_knowledge.bundle_path``, a seeded corpus at that path, and a
+    ``services.qmd`` sidecar deployed alongside the web tier.
+
+    Asserted, in order:
+
+    1. the deploy provisioned the bundle directory setgid + group-writable;
+    2. the RENDERED web overlay binds that one directory into both users'
+       containers and puts both in the directory's group (``group_add``);
+    3. a running container is actually IN that group (``id -G``) -- the half
+       setgid cannot supply, and the assertion that makes this test fail if the
+       renderer stops emitting ``group_add``;
+    4. the sidecar holds the same directory read-only, and cannot write it;
+    5. a file written from alice's container is readable from bob's; and
+    6. touching the corpus marker makes that file findable through the
+       sidecar's endpoint -- the whole path, host to index to query.
+    """
+    osprey_bin = _find_osprey_console_script()
+    config_path = repo / BUILD_DIRNAME / "config.yml"
+
+    # Seed the corpus BEFORE `up`: the sidecar's entrypoint refuses to open its
+    # port on an empty index, so an unseeded bundle would fail as a health
+    # timeout rather than as the thing it is.
+    bundle_dir = repo / BUNDLE_REL
+    shutil.copytree(BUNDLE_SEED_DIR, bundle_dir)
+
+    # The gid the container-side membership probe must NOT be looking for, read
+    # off the image rather than assumed. See _retarget_bundle_group_if_vacuous.
+    dispatch_primary_gid = _image_user_gid(LOCAL_BUILD_TAG, "dispatch")
+    assert dispatch_primary_gid is not None, (
+        f"could not read dispatch's primary gid from {LOCAL_BUILD_TAG}; the "
+        "container-side membership probe cannot be shown to be non-vacuous"
+    )
+    _retarget_bundle_group_if_vacuous(bundle_dir, dispatch_primary_gid)
+
+    config_writer.config_update_fields(
+        config_path,
+        {
+            # The entitlement AND the location, in one key: a project that
+            # names a bundle path gets the mount
+            # (personas.config_needs_facility_bundle), and this fixture's
+            # roster carries no persona references, so both users resolve
+            # their entitlement from here.
+            "facility_knowledge.bundle_path": BUNDLE_REL,
+            # `path` is what find_service_config resolves the rendered compose
+            # fragment under build/ from; `port` is what the client and the
+            # published binding agree on (deployment.qmd_service).
+            "services.qmd": {"path": "services/qmd", "port": QMD_PORT},
+            "deployed_services": ["qmd"],
+        },
+    )
+    _write_qmd_service_render(repo)
+
+    # A missing image is a loud failure, never a skip: nothing here builds one,
+    # and a lane that skipped on an absent image would report success having
+    # proved nothing.
+    assert _image_exists(QMD_IMAGE), (
+        f"qmd sidecar image {QMD_IMAGE!r} is not present locally. This test never "
+        "builds it (it is a ~5 GB image). Build or load it, or point "
+        "OSPREY_QMD_IMAGE at a tag that exists."
+    )
+
+    try:
+        up = _run_osprey(osprey_bin, ["up"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+        assert up.returncode == 0, _fmt("osprey up (shared bundle + qmd sidecar)", up)
+
+        # --------------------------------------------------------------
+        # 1 — the deploy provisioned the shared directory itself
+        # --------------------------------------------------------------
+        bundle_stat = bundle_dir.stat()
+        bundle_gid = bundle_stat.st_gid
+        assert bundle_stat.st_mode & stat.S_ISGID, (
+            f"{bundle_dir} is not setgid after 'osprey up' "
+            f"(mode {stat.S_IMODE(bundle_stat.st_mode):04o}); files written from one "
+            "container would not take the directory's group"
+        )
+        assert bundle_stat.st_mode & stat.S_IWGRP, (
+            f"{bundle_dir} is not group-writable after 'osprey up' "
+            f"(mode {stat.S_IMODE(bundle_stat.st_mode):04o})"
+        )
+
+        # --------------------------------------------------------------
+        # 2 — the RENDERED overlay: one source directory for both users,
+        # and the group that makes its shared bits reach them.
+        # --------------------------------------------------------------
+        web_compose = yaml.safe_load(
+            (repo / BUILD_DIRNAME / "docker-compose.web.yml").read_text(encoding="utf-8")
+        )
+        expected_mount = f"./{BUNDLE_REL}:{CONTAINER_BUNDLE_DIR}"
+        for user in ("alice", "bob"):
+            service = web_compose["services"][f"web-{user}"]
+            assert expected_mount in service["volumes"], (
+                f"web-{user} does not bind the deployment's bundle: "
+                f"expected {expected_mount!r} in {service['volumes']!r}"
+            )
+            assert service.get("group_add") == [str(bundle_gid)], (
+                f"web-{user} was rendered without the shared corpus group. Expected "
+                f"group_add == ['{bundle_gid}'] (the bundle directory's own gid), got "
+                f"{service.get('group_add')!r}. setgid gives a new file its group; only "
+                "group_add makes the container a MEMBER of that group, and without it "
+                "cross-container sharing holds only where the deploying user's uid "
+                "happens to equal the image's."
+            )
+
+        # --------------------------------------------------------------
+        # 3 — and the RUNNING container is genuinely in that group. This is
+        # the half a naive write-then-read test cannot reach: every persona
+        # image in this module runs the same uid, so a read would succeed by
+        # coincidence with group_add deleted.
+        #
+        # Two probes, because they fail for different reasons. The runtime
+        # config says compose passed the group down at all; `id -G` says a
+        # process inside actually carries it.
+        # --------------------------------------------------------------
+        host_group_add = _runtime_cli(
+            "inspect",
+            "--type",
+            "container",
+            "-f",
+            "{{json .HostConfig.GroupAdd}}",
+            _web_container("alice"),
+            timeout=20,
+        )
+        assert host_group_add.returncode == 0, _fmt("inspect alice's GroupAdd", host_group_add)
+        assert str(bundle_gid) in (json.loads(host_group_add.stdout) or []), (
+            f"alice's container was created without the shared corpus group {bundle_gid}: "
+            f"HostConfig.GroupAdd is {host_group_add.stdout.strip()}. The rendered "
+            "group_add never reached the container runtime."
+        )
+
+        # Probed as `dispatch`, NOT as the image's default user, and the choice
+        # is load-bearing rather than stylistic: alpine's root already carries
+        # gids 0-27 (20 among them), so on a host whose bundle group happens to
+        # fall in that range a root probe would report membership the IMAGE
+        # granted and pass with group_add deleted. `dispatch` -- the
+        # unprivileged user Dockerfile.web_terminal_stub creates, and the one a
+        # real persona image runs its agent as -- carries only its own primary
+        # group, so a gid that shows up beside it was granted by group_add.
+        #
+        # That reasoning has one hole, and it is checked rather than assumed:
+        # `adduser -D dispatch` takes the first free gid, which is 1000, and a
+        # Linux deploying user whose primary group is also 1000 -- the common
+        # shape on the runners CI uses -- makes the bundle directory gid 1000
+        # too. The probe would then be a tautology. Asserting the two differ
+        # turns that into a loud failure naming the collision, instead of a leg
+        # that quietly stops testing anything. The remedy is to give the bundle
+        # directory a different group, not to delete the check.
+        dispatch_gid = _runtime_cli(
+            "exec", "-u", "dispatch", _web_container("alice"), "id", "-g", timeout=20
+        )
+        assert dispatch_gid.returncode == 0, _fmt("id -g as dispatch", dispatch_gid)
+        assert str(bundle_gid) != dispatch_gid.stdout.strip(), (
+            f"this probe would be vacuous: the shared corpus gid ({bundle_gid}) is "
+            f"dispatch's own primary group inside the image, so 'id -G' would report it "
+            "with or without group_add. chgrp the bundle directory to a group the image "
+            "does not already grant, then re-run."
+        )
+
+        groups = _runtime_cli("exec", "-u", "dispatch", _web_container("alice"), "id", "-G")
+        assert groups.returncode == 0, _fmt("id -G as dispatch in alice's container", groups)
+        assert str(bundle_gid) in groups.stdout.split(), (
+            f"alice's container is not a member of the shared corpus group {bundle_gid}: "
+            f"'id -G' as dispatch reported {groups.stdout.strip()!r}. The rendered "
+            "group_add did not reach the running process, so the bundle's group bits "
+            "grant it nothing."
+        )
+
+        # --------------------------------------------------------------
+        # 4 — the sidecar holds the SAME directory, read-only
+        # --------------------------------------------------------------
+        assert _container_id(QMD_CONTAINER) is not None, (
+            f"{QMD_CONTAINER} not created by 'osprey up' -- the co-deployed services "
+            "stack did not start"
+        )
+        corpus_mounts = [
+            mount
+            for mount in _container_mounts(QMD_CONTAINER)
+            if mount.get("Destination") == SIDECAR_CORPUS_TARGET
+        ]
+        assert corpus_mounts, (
+            f"{QMD_CONTAINER} has no mount at {SIDECAR_CORPUS_TARGET}; "
+            f"mounts were {_container_mounts(QMD_CONTAINER)!r}"
+        )
+        assert Path(corpus_mounts[0].get("Source", "")).resolve() == bundle_dir.resolve(), (
+            "the sidecar indexes a different directory than the web terminals write: "
+            f"{corpus_mounts[0].get('Source')!r} vs {bundle_dir}"
+        )
+        assert corpus_mounts[0].get("RW") is False, (
+            f"{QMD_CONTAINER} holds the corpus read-WRITE; the sidecar indexes this "
+            "tree and must never be able to modify it"
+        )
+        sidecar_write = _runtime_cli(
+            "exec", QMD_CONTAINER, "sh", "-c", f"touch {SIDECAR_CORPUS_TARGET}/nope", timeout=20
+        )
+        assert sidecar_write.returncode != 0, (
+            f"the sidecar was able to write into {SIDECAR_CORPUS_TARGET}; the ':ro' "
+            "mount is not in force"
+        )
+
+        # --------------------------------------------------------------
+        # 5 — a file written from alice's container is readable from bob's
+        # --------------------------------------------------------------
+        # Hyphens only, never underscores: qmd normalises `_` to `-` in every
+        # path it reports, so an underscored name would come back from the
+        # query below spelled differently than it is on disk.
+        token = f"osprey{uuid.uuid4().hex[:10]}"
+        draft_name = f"alice-draft-{token}.md"
+        draft_body = (
+            f"# Sextupole chromaticity survey {token}\n\n"
+            f"The {token} survey records the chromaticity measured after each "
+            f"sextupole family change. Operators reference {token} when a tune "
+            f"footprint moves without a corresponding lattice edit.\n"
+        )
+        write = _runtime_cli(
+            "exec",
+            _web_container("alice"),
+            "sh",
+            "-c",
+            f"cat > {CONTAINER_BUNDLE_DIR}/{draft_name} <<'DRAFTEOF'\n{draft_body}DRAFTEOF",
+            timeout=30,
+        )
+        assert write.returncode == 0, _fmt("write a draft from alice's container", write)
+
+        read_back = _runtime_cli(
+            "exec", _web_container("bob"), "cat", f"{CONTAINER_BUNDLE_DIR}/{draft_name}", timeout=20
+        )
+        assert read_back.returncode == 0, _fmt("read alice's draft from bob's container", read_back)
+        assert token in read_back.stdout, (
+            f"bob's container read the draft but not its content: {read_back.stdout!r}"
+        )
+
+        # The umask limit, asserted rather than assumed: setgid fixes group
+        # OWNERSHIP, not the permission bits, so the draft is group-readable
+        # and not group-writable. This test claims read+index, never overwrite.
+        draft_mode = stat.S_IMODE((bundle_dir / draft_name).stat().st_mode)
+        assert draft_mode & stat.S_IRGRP, (
+            f"{draft_name} landed without group read ({draft_mode:04o}); neither the "
+            "other terminal nor the sidecar could see it"
+        )
+
+        # --------------------------------------------------------------
+        # 6 — and the sidecar indexes it, end to end over its endpoint
+        # --------------------------------------------------------------
+        _wait_for_qmd_health(QMD_READY_TIMEOUT_SEC)
+        client = QMDClient(QMDServiceConfig(port=QMD_PORT))
+        assert client.is_available(), (
+            "qmd sidecar answered /health but QMDClient reports it unavailable at "
+            f"{client.base_url}"
+        )
+
+        # Touch the corpus marker, exactly as a bundle writer does, so the
+        # sidecar re-indexes within a poll instead of waiting out its sweep.
+        marker = _runtime_cli(
+            "exec",
+            _web_container("alice"),
+            "touch",
+            f"{CONTAINER_BUNDLE_DIR}/{QMD_TOUCH_MARKER}",
+            timeout=20,
+        )
+        assert marker.returncode == 0, _fmt("touch the corpus marker from alice", marker)
+
+        hits = _wait_for_indexed(client, token, draft_name, QMD_REINDEX_TIMEOUT_SEC)
+        logs = _runtime_cli("logs", "--tail", "30", QMD_CONTAINER, timeout=30)
+        assert any(hit.file == draft_name for hit in hits), (
+            f"the sidecar never indexed {draft_name}, written from alice's container "
+            f"into the shared bundle. A query for {token!r} in collection "
+            f"{QMD_OKF_COLLECTION!r} was still answering with "
+            f"{[hit.file for hit in hits]!r} after {QMD_REINDEX_TIMEOUT_SEC:.0f}s.\n"
+            f"--- {QMD_CONTAINER} logs (tail) ---\n{logs.stdout}\n{logs.stderr}"
+        )
+        assert all(hit.collection == QMD_OKF_COLLECTION for hit in hits), (
+            "a hit came back under an unexpected collection: "
+            f"{[(hit.collection, hit.file) for hit in hits]!r}"
+        )
+
+    finally:
+        # Exact-named, same guardrail as every other teardown in this file: one
+        # named container for the sidecar, then the module's own sweep (which
+        # is exact names plus the project-scoped `compose down`).
+        _runtime_cli("rm", "-f", QMD_CONTAINER)
+        _teardown_all_project_resources()

@@ -49,6 +49,18 @@
                                         #   config agree on it.
                                         #   Joined in Python, not here: an ABSOLUTE base_dir must
                                         #   not be re-anchored under the project directory.
+          "container_bundle_dir": str | None,
+                                        # where the DEPLOYMENT's facility-knowledge bundle
+                                        #   mounts for this user, or None when the user is not
+                                        #   entitled (its persona's project names no
+                                        #   `facility_knowledge.bundle_path`) or the deployment
+                                        #   configures no bundle at all. Built by
+                                        #   render._container_bundle_dir() from that key anchored
+                                        #   on container_project_dir — per service, because two
+                                        #   personas read the bundle at two different paths.
+                                        #   Joined in Python for the same reason as
+                                        #   container_agent_data_dir above.
+                                        #   Pairs with the file-level `facility_bundle_source`.
           "extra_mounts": [str, ...],   # resolved by resolve_personas() from the persona's
                                         #   `extra_mounts` -> extra per-user `volumes:` lines
                                         #   (compose volume strings, e.g. "/opt/data:/app/data:ro").
@@ -76,6 +88,22 @@
       two `nginx:` keys wouldn't fail loudly on its own: PyYAML silently
       keeps the last duplicate key, so the whole nginx service would just
       vanish with no error if the lint didn't run first.
+
+    facility_bundle_source: str, required (may be "")
+      The deployment's facility-knowledge bundle on the HOST, spelled as a compose
+      bind source (`./data/facility_knowledge`, or an absolute path verbatim).
+      ONE directory for every user — the corpus is shared, not copied per user —
+      paired with each service's own `container_bundle_dir` target. `""` when the
+      deployment configures no `facility_knowledge.bundle_path`, which emits no
+      mount for anyone. Note this mount SHADOWS whatever the persona image baked
+      at that path; the reasoning is at the mount line itself.
+
+    facility_bundle_gid: str, required (may be "")
+      Group id of that host directory, read off disk by the deploy and emitted as
+      `group_add:` on every entitled service. Without it the directory's shared
+      group bits reach no container: setgid decides which group OWNS a new file,
+      not which groups a process belongs to. `""` (directory not provisioned yet,
+      or a platform with no gids) emits no `group_add` rather than a guess.
 
     nginx_port: int, required
       Host port nginx publishes for the landing page + per-user redirects.
@@ -477,9 +505,78 @@ services:
          mounted over an empty directory, while memory, sessions and artifacts
          accumulate in the writable layer and vanish at the next recreate. #}
       - {{ svc.user }}-agent-data:{{ svc.container_agent_data_dir }}
+{%- if facility_bundle_source and svc.container_bundle_dir %}
+      {#- THE DEPLOYMENT BUNDLE SHADOWS THE PERSONA'S BAKED COPY. BY DESIGN.
+
+         If you are here because a concept you baked into a persona image is not
+         showing up: this line is why. The persona image may ship its own
+         `data/facility_knowledge/` — `osprey build` renders one into the project
+         — and this bind mount covers that directory entirely. The container sees
+         the DEPLOYMENT's bundle at that path and nothing of the image's own.
+
+         That is the intended behaviour, not an accident of mount ordering. The
+         bundle is operational knowledge: it is edited by operators and drafted
+         into by the agents themselves, between image builds and without one.
+         A container reading its baked copy would be reading a snapshot frozen at
+         build time, and two personas built at different times would disagree
+         about the facility. To change what a container sees, edit the
+         deployment's bundle; to change what a fresh deployment STARTS from,
+         edit the persona's.
+
+         Read-WRITE, unlike the qmd sidecar's `:ro` mount of the same directory.
+         The agent drafts concepts here; the sidecar only indexes them. The
+         shared group that lets one container's draft be read by the next (and by
+         the sidecar) comes from the setgid mode the deploy path provisions this
+         directory with — see compose_generator.ensure_shared_corpus_dir.
+
+         Source is the ONE deployment bundle for every user, so the corpus is
+         genuinely shared rather than per-user copies. The target is per service:
+         it comes from render._container_bundle_dir(), which anchors
+         `facility_knowledge.bundle_path` on THIS persona's
+         container_project_dir, because two personas built from different
+         projects read the bundle at two different in-container paths.
+
+         The short form below is a YAML comment, not a Jinja one, so it survives
+         into the rendered build/docker-compose.web.yml — which is the file an
+         operator on the deploy host actually opens when a baked concept has
+         gone missing. #}
+      # The DEPLOYMENT's facility-knowledge bundle, shared by every entitled
+      # user. This SHADOWS the copy baked into the persona image at this path,
+      # by design: the bundle is edited between image builds, and a container
+      # reading its baked copy would serve a snapshot frozen at build time.
+      # Edit the deployment's bundle to change what runs; edit the persona's to
+      # change what a fresh deployment starts from.
+      #
+      # SHARING: the deploy makes this directory setgid + group-writable, so
+      # every file written into it is owned by the directory's group whichever
+      # container wrote it, and `group_add` below puts this container in that
+      # group. Both halves are needed -- setgid decides which group owns a new
+      # file, not which groups a process belongs to. If a concept drafted in one
+      # terminal is unreadable in another, check that pair first.
+      # LIMIT: setgid does not change each file's permission BITS, which still
+      # come from the writer's umask (usually 022 -> rw-r--r--). That is enough
+      # for another container to READ a draft and for the qmd sidecar to index
+      # it, but not for one container to overwrite another's file in place.
+      - {{ facility_bundle_source }}:{{ svc.container_bundle_dir }}
+{%- endif %}
 {%- for mount in svc.extra_mounts %}
       - {{ mount }}
 {%- endfor %}
+{%- if facility_bundle_gid and svc.container_bundle_dir %}
+    # Supplementary group for the shared bundle mounted above. This is the half
+    # of the sharing story setgid cannot supply: setgid decides which group OWNS
+    # a newly written file, but a process is a MEMBER of only the groups its
+    # image gives it, so without this line the directory's group bits would
+    # grant this container nothing and access would hold only where the
+    # deploying user's uid happened to equal the image's.
+    #
+    # The value is the bundle directory's OWN group id, read off the host at
+    # render time -- never a hardcoded id, which would be wrong on every host
+    # but the one it was chosen on. Retarget it by chgrp'ing the bundle and
+    # re-running `osprey up`.
+    group_add:
+      - "{{ facility_bundle_gid }}"
+{%- endif %}
     healthcheck:
       # osprey web's own default listen port is the fixed constant 8087
       # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no

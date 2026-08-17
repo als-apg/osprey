@@ -658,7 +658,7 @@ class TestSearchResultRendering:
         """Build an ARIELSearchResult as _run_keyword returns it: entries, no answer."""
         from datetime import datetime
 
-        from osprey.services.ariel_search.models import ARIELSearchResult, SearchMode
+        from osprey.services.ariel_search.models import ARIELSearchResult
 
         entries = tuple(
             {
@@ -680,7 +680,7 @@ class TestSearchResultRendering:
             entries=entries,
             answer=None,
             sources=tuple(e["entry_id"] for e in entries),
-            search_modes_used=(SearchMode.KEYWORD,),
+            search_modes_used=("keyword",),
             reasoning=f"Keyword search: {n} results",
         )
 

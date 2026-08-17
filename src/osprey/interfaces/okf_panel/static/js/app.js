@@ -39,6 +39,12 @@ import {
 import "/design-system/js/components/osprey-theme-switcher.js";
 import { el, isFallback, readPanelParams, STRUCTURE_MARKER } from "./helpers.js";
 import { initTree, renderTree, highlightActive, highlightStructure, selectConcept } from "./tree.js";
+import {
+  initSearchResults,
+  clearSearchResults,
+  renderSearchMessage,
+  renderSearchResults,
+} from "./search.js";
 import { initSidebarResize } from "./resize.js";
 
 // Panel embedded in the Web Terminal hub: apply the hub's broadcast theme and
@@ -108,14 +114,6 @@ initSidebarResize();
  */
 
 /**
- * A single `/api/search` result item.
- * @typedef {Object} SearchResultItem
- * @property {string} id
- * @property {string} [title]
- * @property {string} [snippet]
- */
-
-/**
  * @param {string} id
  * @returns {HTMLElement}
  */
@@ -135,6 +133,7 @@ function requireEl(id) {
   const structureLink = document.getElementById("structure-link");
 
   initTree({ treeEl, structureLink, onSelect: loadConcept });
+  initSearchResults({ containerEl: searchResultsEl, onSelect: selectConcept });
 
   // -------------------------------------------------------------------------
   // Render hook for task 3.2.
@@ -363,11 +362,9 @@ function requireEl(id) {
   }
 
   // -- search ----------------------------------------------------------------
-
-  function clearSearchResults() {
-    searchResultsEl.hidden = true;
-    searchResultsEl.innerHTML = "";
-  }
+  //
+  // Rendering lives in search.js (see its header for the ranked/unranked
+  // presentation decision); this only fetches and hands over the hits.
 
   /**
    * @param {string} query
@@ -385,52 +382,10 @@ function requireEl(id) {
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       data = await resp.json();
     } catch {
-      searchResultsEl.hidden = false;
-      searchResultsEl.innerHTML = "";
-      searchResultsEl.appendChild(
-        el("p", { class: "muted", text: "Search failed." })
-      );
+      renderSearchMessage("Search failed.");
       return;
     }
     renderSearchResults(data.results || []);
-  }
-
-  /**
-   * @param {SearchResultItem[]} results
-   */
-  function renderSearchResults(results) {
-    searchResultsEl.hidden = false;
-    searchResultsEl.innerHTML = "";
-
-    if (results.length === 0) {
-      searchResultsEl.appendChild(
-        el("p", { class: "muted", text: "No matches." })
-      );
-      return;
-    }
-
-    const list = el("ul", { class: "result-list" });
-    for (const r of results) {
-      const item = el("li", { class: "result-item" });
-      const link = el("a", {
-        class: "result-link",
-        href: "#",
-        text: r.title || r.id,
-      });
-      link.dataset.conceptId = r.id;
-      link.addEventListener("click", function (ev) {
-        ev.preventDefault();
-        selectConcept(r.id);
-      });
-      item.appendChild(link);
-      if (r.snippet) {
-        item.appendChild(
-          el("p", { class: "result-snippet", text: String(r.snippet) })
-        );
-      }
-      list.appendChild(item);
-    }
-    searchResultsEl.appendChild(list);
   }
 
   // debounce is imported from the shared design-system dom.js (identical

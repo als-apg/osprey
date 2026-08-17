@@ -29,6 +29,8 @@ from osprey.deployment.compose_generator import (
     _stage_dev_wheel_for_context,
     compose_base_cmd,
     compose_provider_env,
+    ensure_shared_corpus_dir,
+    resolve_facility_bundle_dir,
     resolve_project_name,
     resolve_repo_root,
 )
@@ -1005,6 +1007,36 @@ def deploy_up_web_terminals(
     # and the anchor for every secret file this path reads.
     repo_root = _resolved_repo_root(config, repo_root)
     provider = _resolved_compose_provider(config, provider)
+
+    # The facility-knowledge bundle every entitled web terminal is about to
+    # bind-mount. Provisioned BEFORE the render, not merely before compose:
+    #
+    # * A missing bind source is created by the container runtime instead, and a
+    #   rootful daemon creates it owned by ROOT — after which neither the
+    #   operator who authors the bundle nor a non-root container can write it.
+    # * The GID strategy is inherit-never-invent on the host side: the directory
+    #   is made setgid and group-writable so every writer's files take the
+    #   DIRECTORY's group, whichever uid each container runs as. No numeric GID
+    #   is chosen here.
+    # * Ordering is why this sits above the render rather than below it. setgid
+    #   confers group OWNERSHIP, not group MEMBERSHIP, so the containers only
+    #   reach the corpus because the render emits `group_add: [<gid>]` — and it
+    #   can only read that gid off a directory that already exists. Rendering
+    #   first would emit no group at all on a first deploy, and the multi-user
+    #   case would silently not work until the next `osprey up`.
+    #
+    # Non-fatal by construction: a directory that cannot be provisioned warns
+    # and deploys anyway, because single-user sharing works regardless.
+    bundle_dir = resolve_facility_bundle_dir(config, repo_root)
+    if bundle_dir is not None:
+        bundle_gid = ensure_shared_corpus_dir(bundle_dir, relative_to=repo_root)
+        if bundle_gid is not None:
+            # Stated, not left to be discovered: an operator who needs to grant a
+            # colleague write access to the corpus has to know which group.
+            logger.info(
+                f"Facility-knowledge bundle shared via group {bundle_gid} "
+                "(every web terminal joins it; the sidecar indexes it read-only)."
+            )
 
     write_web_terminal_artifacts(config, repo_root)
 

@@ -1,0 +1,38 @@
+# qmd collection config for the search sidecar. Rendered at deploy time and
+# mounted read-only at /etc/qmd/index.yml; the entrypoint copies it into the
+# state directory before the first qmd invocation, which is what puts qmd in
+# project-local mode and keeps the index inside the named volume.
+#
+# ONE COLLECTION PER MOUNTED CORPUS. Collections are the only mechanism by
+# which a single sidecar serves several corpora side by side: a query names the
+# collections it wants and qmd OR-matches them, and every result's `file` is
+# prefixed with the collection it came from. The names below are therefore a
+# contract with the query code, not a label — `okf` and `ariel` are spelled as
+# constants in compose_generator.py and consumed by the OKF bundle and the
+# ARIEL search module. Renaming one here without renaming it there turns every
+# filtered query into zero results, silently.
+#
+# The paths are the containers' mount targets, and the corresponding read-only
+# bind mounts are rendered from the same list in docker-compose.yml.j2, so a
+# corpus cannot be declared here without being mounted.
+#
+# There is deliberately no `models:` block. qmd would accept one, but the image
+# already pins the embedder, reranker and expansion models through QMD_*_MODEL
+# and bakes those exact files in; a second spelling here could disagree with
+# what is actually on disk, and an embedder that disagrees with the index costs
+# a full rebuild.
+{% if osprey_qmd.corpora -%}
+collections:
+{%- for corpus in osprey_qmd.corpora %}
+  {{ corpus.collection }}:
+    path: {{ corpus.target }}
+    pattern: "**/*.md"
+{%- endfor %}
+{%- else -%}
+{#- No corpus is configured: neither `facility_knowledge.bundle_path` nor an
+    enabled `ariel.enhancement_modules.qmd_export` is present. An empty mapping
+    is the honest render — the sidecar will start, index nothing, and refuse to
+    serve, which is the entrypoint's fail-closed gate reporting a deployment
+    that asked for a search sidecar with nothing to search. -#}
+collections: {}
+{%- endif %}

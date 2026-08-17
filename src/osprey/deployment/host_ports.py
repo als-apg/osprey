@@ -32,6 +32,7 @@ from pathlib import Path
 
 import yaml
 
+from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
 from osprey.utils.logger import get_logger
 
@@ -44,6 +45,8 @@ logger = get_logger("deployment.host_ports")
 # catalog sidecar, whose host port lives under the bluesky service's config.
 # The workers are keyed on their un-indexed name: every ``dispatch-worker-<i>``
 # port is derived from the one base key, so moving the block moves them all.
+# "qmd" cites its key from the schema module that also owns the port default,
+# so the remedy this preflight prints cannot drift from the key that moves it.
 _SERVICE_REMEDY_KEYS = {
     "postgresql": "services.postgresql.port_host",
     "mongodb": "services.mongodb.port_host",
@@ -54,6 +57,7 @@ _SERVICE_REMEDY_KEYS = {
     "tiled": "services.bluesky.tiled_port",
     "bluesky-panels": "services.bluesky_panels.port",
     "virtual-accelerator": "services.virtual_accelerator.port",
+    "qmd": QMD_PORT_CONFIG_KEY,
 }
 
 # Compose service key of worker ``i``, and the prefix its remedy is keyed on.

@@ -6,6 +6,7 @@ to the core import paths and the facility-neutral structure title.
 
 from osprey.interfaces.okf_panel.helpers import (
     build_structure_markdown,
+    format_qmd_snippet,
     group_concepts,
     make_snippet,
 )
@@ -74,6 +75,49 @@ def test_snippet_collapses_whitespace_runs():
     assert "  " not in snippet
     assert "\n" not in snippet
     assert "\t" not in snippet
+
+
+# ---------------------------------------------------------------------------
+# format_qmd_snippet
+# ---------------------------------------------------------------------------
+
+
+def test_qmd_snippet_strips_line_numbers_and_hunk_header():
+    # Shape observed from qmd 2.5.3 — a diff-hunk header on the first line and
+    # a "<n>: " prefix on every line.
+    raw = "1: @@ -1,3 @@ ...\n2: # RF System\n3: The main RF cavities run at 500 MHz."
+    assert format_qmd_snippet(raw) == "# RF System The main RF cavities run at 500 MHz."
+
+
+def test_qmd_snippet_keeps_colons_inside_the_text():
+    # Only the leading line number is a prefix; a colon in the content stays.
+    raw = "12: 0203: sr 09 magnet water leak"
+    assert format_qmd_snippet(raw) == "0203: sr 09 magnet water leak"
+
+
+def test_qmd_snippet_keeps_an_at_at_span_inside_the_text():
+    # Only a LEADING hunk header is markup; the same shape mid-line is document
+    # content, and dropping it would silently lose words from the excerpt.
+    raw = "3: use the @@here@@ marker for the interlock"
+    assert format_qmd_snippet(raw) == "use the @@here@@ marker for the interlock"
+
+
+def test_qmd_snippet_collapses_whitespace_to_one_line():
+    raw = "1: alpha   beta\n2:\tgamma\n\n3:   delta"
+    snippet = format_qmd_snippet(raw)
+
+    assert snippet == "alpha beta gamma delta"
+    assert "\n" not in snippet
+
+
+def test_qmd_snippet_empty_input_returns_empty():
+    assert format_qmd_snippet("") == ""
+
+
+def test_qmd_snippet_of_markers_only_returns_empty():
+    # Nothing but a hunk header: the caller must fall through to its own
+    # snippet/description chain rather than render an empty line.
+    assert format_qmd_snippet("1: @@ -1,3 @@ ...") == ""
 
 
 # ---------------------------------------------------------------------------

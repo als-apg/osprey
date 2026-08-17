@@ -11,12 +11,41 @@ from osprey.services.facility_knowledge.okf.bundle import (
     ConceptEntry,
     OKFBundle,
     OKFBundleError,
+    OKFSearchResult,
 )
 from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
+from osprey.services.qmd import QMDClient, QMDResponse
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _ids(results: list[OKFSearchResult]) -> list[str]:
+    """Return the concept IDs of *results*, in the order they came back."""
+    return [r.concept_id for r in results]
+
+
+class _RecordingTransport:
+    """A transport that records requests and answers none of them.
+
+    Every method fails the test if it is ever reached: the tests using it
+    assert that an unconfigured client performs no I/O at all, and a recorded
+    call would mean it did.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def get(self, url: str, timeout: float) -> QMDResponse:
+        """Record a GET that should never happen."""
+        self.calls.append(f"GET {url}")
+        raise AssertionError(f"unconfigured client issued GET {url}")
+
+    def post(self, url: str, body: bytes, headers: object, timeout: float) -> QMDResponse:
+        """Record a POST that should never happen."""
+        self.calls.append(f"POST {url}")
+        raise AssertionError(f"unconfigured client issued POST {url}")
 
 
 def _write(path: Path, body: str) -> None:
@@ -299,23 +328,21 @@ class TestSearch:
         bundle = OKFBundle(tmp_path)
         results = bundle.search("synchrotron")
 
-        ids = {cid for cid, _ in results}
-        assert "accelerator_overview" in ids
+        assert "accelerator_overview" in _ids(results)
 
     def test_search_matches_frontmatter_value(self, tmp_path: Path):
         _make_bundle(tmp_path)
         bundle = OKFBundle(tmp_path)
         results = bundle.search("epics")
 
-        ids = {cid for cid, _ in results}
-        assert "tables/beam_params" in ids
+        assert "tables/beam_params" in _ids(results)
 
     def test_search_is_case_insensitive(self, tmp_path: Path):
         _make_bundle(tmp_path)
         bundle = OKFBundle(tmp_path)
 
-        lower = {cid for cid, _ in bundle.search("synchrotron")}
-        upper = {cid for cid, _ in bundle.search("SYNCHROTRON")}
+        lower = set(_ids(bundle.search("synchrotron")))
+        upper = set(_ids(bundle.search("SYNCHROTRON")))
         assert lower == upper
 
     def test_search_returns_okf_documents(self, tmp_path: Path):
@@ -323,7 +350,7 @@ class TestSearch:
         bundle = OKFBundle(tmp_path)
         results = bundle.search("beam")
 
-        assert all(isinstance(doc, OKFDocument) for _, doc in results)
+        assert all(isinstance(r.document, OKFDocument) for r in results)
 
     def test_search_no_match_returns_empty_list(self, tmp_path: Path):
         _make_bundle(tmp_path)
@@ -337,7 +364,7 @@ class TestSearch:
         # The index contains the word "Facility" in a heading.
         results = bundle.search("Facility")
 
-        ids = {cid for cid, _ in results}
+        ids = _ids(results)
         assert "index" not in ids
         assert "tables/index" not in ids
 
@@ -347,5 +374,37 @@ class TestSearch:
         bundle = OKFBundle(tmp_path)
         results = bundle.search("beam")
 
-        ids = {cid for cid, _ in results}
-        assert "tables/beam_params" in ids
+        assert "tables/beam_params" in _ids(results)
+
+    def test_fallback_results_are_unscored_and_unsnippeted(self, tmp_path: Path):
+        """The substring backend does not rank, and says so with ``None``."""
+        _make_bundle(tmp_path)
+        bundle = OKFBundle(tmp_path)
+
+        results = bundle.search("beam")
+        assert results
+        assert all(r.score is None for r in results)
+        assert all(r.snippet == "" for r in results)
+
+    def test_fallback_honours_the_limit(self, tmp_path: Path):
+        """``limit`` bounds both backends, not just the ranked one."""
+        _make_bundle(tmp_path)
+        bundle = OKFBundle(tmp_path)
+
+        assert len(bundle.search("beam", limit=1)) == 1
+
+    def test_unconfigured_client_never_touches_the_network(self, tmp_path: Path):
+        """A deployment with no sidecar searches silently and offline.
+
+        ``QMDClient(None)`` is what an unconfigured deployment resolves to, and
+        passing it must be indistinguishable from passing nothing.
+        """
+        _make_bundle(tmp_path)
+        transport = _RecordingTransport()
+        bundle = OKFBundle(tmp_path, qmd_client=QMDClient(None, transport=transport))
+
+        results = bundle.search("synchrotron")
+
+        assert "accelerator_overview" in _ids(results)
+        assert all(r.score is None for r in results)
+        assert transport.calls == []

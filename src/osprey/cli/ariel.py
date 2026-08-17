@@ -75,6 +75,69 @@ def _handle_db_error(e: Exception) -> None:
         raise SystemExit(1) from None
 
 
+def _framework_search_modes() -> tuple[str, ...]:
+    """Return the search module names the framework registers by default."""
+    from osprey.registry.builtins import FrameworkRegistryProvider
+
+    config = FrameworkRegistryProvider().get_registry_config()
+    return tuple(registration.name for registration in config.ariel_search_modules)
+
+
+def _registered_search_modes() -> tuple[str, ...]:
+    """Return the ARIEL search module names the registry knows about.
+
+    The project registry is authoritative, so a deployment that registers its
+    own search module gets it as a ``--mode`` choice without a code change.
+    Building that registry needs a project ``config.yml``; when there is none
+    (``--help`` run outside a project directory, say) the framework's own
+    baseline registrations stand in. That failure is expected here, so the
+    registry loggers are muted while it is probed — a help screen is not the
+    place to report a missing project config.
+
+    Returns:
+        Search module names, in registry order.
+    """
+    import logging
+
+    muted = {name: logging.getLogger(name) for name in ("registry", "registry.loader")}
+    previous_levels = {name: log.level for name, log in muted.items()}
+    try:
+        from osprey.registry import get_registry
+
+        for log in muted.values():
+            log.setLevel(logging.CRITICAL)
+        try:
+            names = tuple(module.name for module in get_registry().config.ariel_search_modules)
+        finally:
+            for name, log in muted.items():
+                log.setLevel(previous_levels[name])
+        if names:
+            return names
+    except Exception:
+        logger.debug("Registry unavailable; using framework search modules", exc_info=True)
+
+    return _framework_search_modes()
+
+
+class _SearchModeChoice(click.Choice):
+    """Click choice type whose options come from the registry when parsed.
+
+    ``click.Choice`` freezes its options when the decorator runs, which is
+    import time — too early to reach the registry, since building one requires
+    a project config. Resolving on attribute access defers the lookup to
+    parsing and help rendering.
+    """
+
+    def __init__(self) -> None:
+        """Build a choice type with no fixed option list."""
+        self.case_sensitive = True
+
+    @property
+    def choices(self) -> tuple[str, ...]:  # type: ignore[override]
+        """Registered search module names, resolved on each access."""
+        return _registered_search_modes()
+
+
 def _handle_missing_tables(e: Exception) -> None:
     """Raise SystemExit on missing-table errors, otherwise return."""
     msg = str(e)
@@ -85,6 +148,23 @@ def _handle_missing_tables(e: Exception) -> None:
             "run `osprey ariel migrate` to create the required tables",
         )
         raise SystemExit(1) from None
+
+
+def _qmd_resync_pre_step(config_dict: dict) -> None:
+    """Bring the qmd markdown mirror up to date before ingesting.
+
+    Entries written straight to Postgres never reach an enhancer, so without
+    this pass their content would sit in the database unmirrored until the next
+    time something happened to touch them. Failures are reported and swallowed:
+    ingestion's job is the database, and a mirror that cannot be written is not
+    a reason to abandon it.
+
+    Args:
+        config_dict: Raw ``ariel`` config section.
+    """
+    from osprey.services.ariel_search.cli_operations import resync_qmd_mirror_best_effort
+
+    asyncio.run(resync_qmd_mirror_best_effort(config_dict, progress=output.report))
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +305,7 @@ def ingest_command(
     from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
     config_dict = _load_ariel_config()
+    _qmd_resync_pre_step(config_dict)
     try:
         result = asyncio.run(
             run_ingest(config_dict, source, adapter, since, limit, dry_run, progress=output.report)
@@ -283,6 +364,9 @@ def watch_command(
     from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
     config_dict = _load_ariel_config()
+    # Covers the single --once cycle; in daemon mode run_watch repeats this
+    # pre-step at the head of every poll the scheduler makes.
+    _qmd_resync_pre_step(config_dict)
     try:
         result = asyncio.run(
             run_watch(config_dict, source, adapter, once, interval, dry_run, progress=output.report)
@@ -317,7 +401,7 @@ def watch_command(
 @click.option(
     "--module",
     "-m",
-    type=click.Choice(["text_embedding", "semantic_processor"]),
+    type=click.Choice(["text_embedding", "semantic_processor", "qmd_export"]),
     help="Enhancement module to run",
 )
 @click.option("--force", is_flag=True, help="Re-process already enhanced entries")
@@ -364,7 +448,7 @@ def models_command() -> None:
 
 @ariel_group.command("search")
 @click.argument("query")
-@click.option("--mode", type=click.Choice(["keyword", "semantic"]), default="keyword")
+@click.option("--mode", type=_SearchModeChoice(), default="keyword")
 @click.option("--limit", type=int, default=10, help="Maximum results")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 def search_command(query: str, mode: str, limit: int, output_json: bool) -> None:
@@ -560,6 +644,76 @@ def purge_command(yes: bool, embeddings_only: bool) -> None:
     except Exception as e:
         _handle_db_error(e)
         raise
+
+
+@ariel_group.command("qmd-resync")
+@click.option("--rebuild", is_flag=True, help="Wipe the mirror and re-export every entry")
+def qmd_resync_command(rebuild: bool) -> None:
+    """Re-export logbook entries the markdown mirror never saw.
+
+    The qmd sidecar searches a markdown mirror of the logbook, and that mirror
+    is normally written by the qmd_export enhancement module as entries are
+    ingested. Three mutation paths write straight to the database and never
+    reach an enhancer, so their content would otherwise never be searchable:
+
+    \b
+      - creating a local entry in the ARIEL web interface
+        (interfaces/ariel/api/routes.py:395)
+      - re-upserting an entry when an attachment is uploaded
+        (interfaces/ariel/api/routes.py:533)
+      - entry_create upserts from the logbook write service
+        (services/ariel_search/service.py:431 and :439)
+
+    This command finds every entry changed since the last run and re-exports
+    it. Entries whose content is unchanged are left alone, so a run that finds
+    only bookkeeping updates writes nothing and costs the sidecar nothing.
+
+    Ingest and watch already run this pass before their own work, so a routine
+    deployment never needs to run it by hand. Reach for --rebuild after
+    'osprey ariel purge' or any other wholesale change: it is the only pass
+    that clears mirrored files for entries that no longer exist.
+
+    \b
+    Example:
+        osprey ariel qmd-resync              # Catch up on recent changes
+        osprey ariel qmd-resync --rebuild    # Rebuild the mirror from scratch
+    """
+    from osprey.services.ariel_search.cli_operations import run_qmd_resync
+
+    config_dict = _load_ariel_config()
+    try:
+        result = asyncio.run(run_qmd_resync(config_dict, rebuild=rebuild, progress=output.report))
+    except ValueError as e:
+        output.fail(
+            "the qmd markdown mirror has nowhere to write",
+            str(e),
+            "set ariel.enhancement_modules.qmd_export.settings.mirror_path in config.yml",
+        )
+        raise SystemExit(1) from None
+    except Exception as e:
+        _handle_db_error(e)
+        _handle_missing_tables(e)
+        raise
+
+    if result is None:
+        output.report("The qmd_export enhancement module is not enabled; nothing to resync")
+        return
+
+    rows: list[tuple[str, object]] = []
+    if result.rebuild:
+        rows.append(("Removed before rebuild", result.removed))
+    rows.extend(
+        [
+            ("Scanned", result.scanned),
+            ("Written", result.written),
+            ("Unchanged", result.unchanged),
+        ]
+    )
+    if result.failed:
+        rows.append(("Failed", result.failed))
+
+    output.report("")
+    output.section(f"Mirror: {result.mirror_path}", rows)
 
 
 __all__ = ["ariel_group"]

@@ -128,6 +128,11 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.services.ariel_search.search.semantic",
                     description="Embedding similarity search using vector cosine distance",
                 ),
+                ArielSearchModuleRegistration(
+                    name="qmd",
+                    module_path="osprey.services.ariel_search.search.qmd",
+                    description="Hybrid keyword and semantic search via the qmd sidecar",
+                ),
             ],
             # ARIEL enhancement modules
             ariel_enhancement_modules=[
@@ -144,6 +149,13 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="TextEmbeddingModule",
                     description="Generate vector embeddings for logbook entries",
                     execution_order=20,
+                ),
+                ArielEnhancementModuleRegistration(
+                    name="qmd_export",
+                    module_path="osprey.services.ariel_search.enhancement.qmd_export.exporter",
+                    class_name="QmdExportModule",
+                    description="Mirror entries to the markdown tree the qmd sidecar indexes",
+                    execution_order=30,
                 ),
             ],
             # ARIEL ingestion adapters

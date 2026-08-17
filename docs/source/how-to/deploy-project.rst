@@ -393,9 +393,183 @@ default:
    * - virtual_accelerator
      - ``OSPREY_VA_IMAGE``
      - ``services.virtual_accelerator.image``
+   * - qmd
+     - ``OSPREY_QMD_IMAGE``
+     - ``services.qmd.image``
 
 Point either layer at an internal registry mirror or a pinned digest when
 your deployment host cannot (or should not) pull public images.
+
+.. _qmd-search-sidecar:
+
+The Search Sidecar (``qmd``)
+============================
+
+``qmd`` is an optional service that indexes the deployment's **markdown
+corpora** and answers hybrid keyword-plus-semantic queries over HTTP. Two parts
+of OSPREY use it:
+
+* the :doc:`facility-knowledge (OKF) bundle <okf-bundle>` --- its panel and its
+  MCP ``search`` tool;
+* ARIEL's logbook mirror --- the ``qmd`` :doc:`search mode <ariel/search-modes>`
+  and the ``qmd_search`` MCP tool.
+
+Neither needs it. Both fall back or report an outage without it, so a
+deployment that does not want a second index simply leaves it off, which is the
+default.
+
+Turning it on
+-------------
+
+Three steps, not one. The templates ship the config block commented out for
+exactly this reason.
+
+1. **Uncomment the block** in ``config.yml`` --- both the ``qmd:`` entry under
+   ``services:`` and the ``- qmd`` line under ``deployed_services:``. The
+   ``ariel-standalone`` and ``control-assistant`` templates ship both, commented.
+2. **Build the image.** It is built locally, never pulled. ``osprey build``
+   renders ``./services/qmd``; ``osprey up`` builds the image on first run and
+   tags it ``<project>-qmd:local``, project-prefixed so two OSPREY projects on
+   one host cannot race for one tag. The image bakes in the qmd CLI and its
+   language models (about 2.1 GB) so a cold container never reaches out to the
+   internet.
+3. **Enable a consumer.** For ARIEL that means the ``qmd_export`` enhancement
+   module *and* the ``qmd`` search mode; the OKF bundle needs only
+   ``facility_knowledge.bundle_path``, which it already has. A sidecar with no
+   consumer is a container nobody queries.
+
+.. code-block:: yaml
+
+   services:
+     qmd:
+       path: ./services/qmd
+       port: 8180      # host port clients talk to
+       interval: 30    # fallback corpus-sweep period, seconds
+
+   deployed_services:
+     - qmd
+
+Those three keys are the whole schema. Notably **there is no
+``bind_address`` here** --- see `Where the sidecar listens`_ below.
+
+``interval`` is a ceiling on staleness, not the usual lag: a corpus writer
+touches a ``.qmd-touch`` marker file and the sidecar re-indexes within one poll.
+The interval only catches writers that forgot to touch it. Raise it on a large
+corpus --- a sweep that finds nothing changed still costs about 12.5 seconds at
+135,000 documents, so the 30-second default leaves the loop busy roughly 42% of
+the time discovering nothing.
+
+What gets mounted
+-----------------
+
+Each corpus is bind-mounted **read-only** into the sidecar at
+``/corpus/<collection>``, and the same list generates the sidecar's collection
+config --- so a corpus can never end up mounted without a collection, or
+declared without a mount. Read-only is deliberate: the sidecar indexes these
+trees, and everything that *writes* them lives outside the container.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * - Collection
+     - Source
+     - Present when
+   * - ``okf``
+     - ``facility_knowledge.bundle_path``
+     - the bundle path is set
+   * - ``ariel``
+     - ``ariel.enhancement_modules.qmd_export`` → ``mirror_path``
+     - the export is enabled and names a path
+
+The index itself lives in a named volume rather than a bind mount. It is
+derived data the sidecar owns end to end, it is large, and rebuilding it costs
+about **41 minutes** at ALS scale --- which is precisely why it must survive a
+container recreate. The service's health check allows a one-hour start period
+for the same reason: the sidecar refuses to open its port until the index is
+built and provably non-empty, and a container that is working correctly should
+not be reported unhealthy for most of its first hour.
+
+Sharing the knowledge bundle
+----------------------------
+
+The OKF bundle is different from the other corpora: web terminals write to it.
+So the *deployment's* bundle is bind-mounted **read-write** into every
+``web-<user>`` service whose persona enables facility knowledge, at a target
+computed from that persona's own project directory inside its container. There
+is one directory, not a copy per user --- and it deliberately **shadows the
+copy baked into each persona image**, because the bundle is operational
+knowledge that changes far more often than images are rebuilt.
+
+Sharing it works through a Unix group, and ``osprey up`` sets both halves up:
+
+* The shared corpus directory is made **setgid and group-writable** (mode
+  ``2770`` --- note that the ``other`` triad is deliberately left unset). An
+  operator's pre-existing directory only ever *gains* bits here; it never
+  loses any.
+* Each entitled ``web-<user>`` service is rendered with
+  ``group_add: ["<gid>"]``.
+
+Both halves are needed, and this is the part that is easy to get wrong: setgid
+makes **new files inherit the directory's group**. It does *not* make any
+container process a member of that group. Without ``group_add`` the container
+is not in the group at all, and the group-write bit grants it nothing.
+
+One limit follows from how Unix works rather than from OSPREY: setgid fixes who
+*owns* a new file, not its permission bits, which come from the writing
+process's umask --- normally ``rw-r--r--``. So the supported cross-container
+operation is **read and index**, not overwrite. See
+:ref:`One bundle, many terminals <shared-bundle-multi-user>` for the operator's
+view of the same mechanism.
+
+Disk footprint
+--------------
+
+Measured against a real 134,996-entry ALS logbook:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 60 40
+
+   * - Component
+     - Size
+   * - Markdown mirror (logical)
+     - 41 MB
+   * - Markdown mirror (allocated on disk)
+     - 553 MB
+   * - qmd index
+     - 695 MB
+   * - **Total per 135,000 entries**
+     - **1.25 GB** (~925 MB per 100,000)
+
+The gap between logical and allocated size is the point to budget for: the
+mirror is one small file per entry, so it is dominated by filesystem block
+overhead rather than by content. Chunking is close to 1:1 for logbook
+micro-documents (2,000 documents produced 2,001 chunks), so the index grows with
+entry count rather than with entry length.
+
+.. _qmd-where-the-sidecar-listens:
+
+Where the sidecar listens
+-------------------------
+
+The sidecar publishes port **8180**. qmd's own daemon runs on **8181** on the
+container's internal loopback and is fronted by a small forwarder. That split is
+not cosmetic: qmd hardcodes a loopback-only, IPv6-only bind with no option to
+change it, which makes it unreachable from any other container. Only the
+forwarder owns a routable port.
+
+.. warning::
+
+   **The sidecar has no authentication.** No token, no TLS, no per-caller
+   identity --- it answers any request that reaches it, over the whole indexed
+   corpus. That is safe exactly as long as only this host can reach it.
+
+   This is why ``bind_address`` is **not** a ``services.qmd`` key. Like every
+   other service, the sidecar publishes on the project-wide
+   ``deployment.bind_address`` (default ``127.0.0.1``), so a deployment cannot
+   put an unauthenticated search endpoint on an interface the rest of the stack
+   is not already on. Moving that one key off loopback moves this service too.
 
 Network Binding and Security
 ============================

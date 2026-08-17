@@ -30,6 +30,7 @@ _SERVICE_ARTIFACTS = [
     "services/virtual_accelerator",
     "services/mongodb",
     "services/archiver_recorder",
+    "services/qmd",
 ]
 
 

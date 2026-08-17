@@ -177,6 +177,7 @@ def create_server() -> FastMCP:
         entry,
         keyword_search,
         publish,
+        qmd_search,
         semantic_search,
         sql_query,
         status,

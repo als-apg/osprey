@@ -97,8 +97,8 @@ agent:
      - ``tuple[str, ...]``
      - Entry IDs used as sources
    * - ``search_modes_used``
-     - ``tuple[SearchMode, ...]``
-     - Modes executed (e.g., ``KEYWORD``, ``SEMANTIC``)
+     - ``tuple[str, ...]``
+     - Modes executed (e.g., ``keyword``, ``semantic``)
    * - ``reasoning``
      - ``str``
      - Explanation of results

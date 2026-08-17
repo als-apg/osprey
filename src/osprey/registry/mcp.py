@@ -272,6 +272,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         permissions_allow=[
             "keyword_search",
             "semantic_search",
+            "qmd_search",
             "sql_query",
             "entries_by_ids",
             "browse",

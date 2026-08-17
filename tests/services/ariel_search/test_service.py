@@ -5,12 +5,12 @@ Tests for service routing and formatting functionality.
 
 import logging
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
-from osprey.services.ariel_search.models import ARIELSearchResult, SearchMode
+from osprey.services.ariel_search.models import ARIELSearchResult
 from osprey.services.ariel_search.search.keyword import (
     KeywordSearchInput,
     format_keyword_result,
@@ -244,61 +244,49 @@ class TestServiceRouting:
 
     @pytest.mark.asyncio
     async def test_search_routes_to_keyword(self):
-        """Search routes to _run_keyword for KEYWORD mode."""
+        """Search dispatches to the registered keyword module for "keyword"."""
         service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
 
-        mock_result = ARIELSearchResult(
-            entries=(),
-            answer=None,
-            sources=(),
-            search_modes_used=(SearchMode.KEYWORD,),
-            reasoning="Keyword search: 0 results",
-        )
-        service._run_keyword = AsyncMock(return_value=mock_result)
+        with patch(
+            "osprey.services.ariel_search.search.keyword.keyword_search",
+            new=AsyncMock(return_value=[]),
+        ) as keyword_search:
+            result = await service.search("test query", mode="keyword")
 
-        result = await service.search("test query", mode=SearchMode.KEYWORD)
-
-        service._run_keyword.assert_called_once()
-        assert result.search_modes_used == (SearchMode.KEYWORD,)
+        keyword_search.assert_called_once()
+        assert result.search_modes_used == ("keyword",)
 
     @pytest.mark.asyncio
-    async def test_search_routes_to_semantic(self):
-        """Search routes to _run_semantic for SEMANTIC mode."""
+    async def test_search_routes_to_semantic(self, fake_embedding_provider):
+        """Search dispatches to the registered semantic module for "semantic"."""
         service = self._create_mock_service(
             search_modules={"semantic": {"enabled": True, "model": "test"}}
         )
+        # Pre-set so _get_embedder() never reaches the provider registry.
+        service._embedder = fake_embedding_provider
 
-        mock_result = ARIELSearchResult(
-            entries=(),
-            answer=None,
-            sources=(),
-            search_modes_used=(SearchMode.SEMANTIC,),
-            reasoning="Semantic search: 0 results",
-        )
-        service._run_semantic = AsyncMock(return_value=mock_result)
+        with patch(
+            "osprey.services.ariel_search.search.semantic.semantic_search",
+            new=AsyncMock(return_value=[]),
+        ) as semantic_search:
+            result = await service.search("test query", mode="semantic")
 
-        result = await service.search("test query", mode=SearchMode.SEMANTIC)
-
-        service._run_semantic.assert_called_once()
-        assert result.search_modes_used == (SearchMode.SEMANTIC,)
+        semantic_search.assert_called_once()
+        assert result.search_modes_used == ("semantic",)
 
     @pytest.mark.asyncio
     async def test_search_defaults_to_keyword_mode(self):
-        """Search defaults to KEYWORD mode when no mode specified."""
+        """Search defaults to the keyword module when no mode is specified."""
         service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
 
-        mock_result = ARIELSearchResult(
-            entries=(),
-            answer=None,
-            sources=(),
-            search_modes_used=(SearchMode.KEYWORD,),
-            reasoning="Keyword search: 0 results",
-        )
-        service._run_keyword = AsyncMock(return_value=mock_result)
+        with patch(
+            "osprey.services.ariel_search.search.keyword.keyword_search",
+            new=AsyncMock(return_value=[]),
+        ) as keyword_search:
+            result = await service.search("test query")
 
-        await service.search("test query")
-
-        service._run_keyword.assert_called_once()
+        keyword_search.assert_called_once()
+        assert result.search_modes_used == ("keyword",)
 
     @pytest.mark.asyncio
     async def test_keyword_preserves_highlights(self):
@@ -327,27 +315,25 @@ class TestServiceRouting:
         async def fake_keyword_search(query, repo, config, **kwargs):
             return await repo.keyword_search(query)
 
-        # Use the real _run_keyword but with mocked keyword_search
-        from unittest.mock import patch
-
+        # Dispatch runs the real keyword module with keyword_search stubbed.
         with patch(
             "osprey.services.ariel_search.search.keyword.keyword_search",
             side_effect=fake_keyword_search,
         ):
-            result = await service.search("beam", mode=SearchMode.KEYWORD)
+            result = await service.search("beam", mode="keyword")
 
         assert len(result.entries) == 1
         assert result.entries[0]["_highlights"] == ["<b>beam</b> alignment"]
 
     @pytest.mark.asyncio
     async def test_keyword_mode_raises_when_disabled(self):
-        """KEYWORD mode raises ConfigurationError when module disabled."""
+        """A disabled keyword module raises ConfigurationError."""
         from osprey.services.ariel_search.exceptions import ConfigurationError
 
         service = self._create_mock_service(search_modules={"keyword": {"enabled": False}})
 
         with pytest.raises(ConfigurationError):
-            await service.search("test query", mode=SearchMode.KEYWORD)
+            await service.search("test query", mode="keyword")
 
     @pytest.mark.asyncio
     async def test_semantic_mode_degrades_gracefully_when_disabled(self):
@@ -363,7 +349,7 @@ class TestServiceRouting:
 
         service = self._create_mock_service(search_modules={"semantic": {"enabled": False}})
 
-        result = await service.search("test query", mode=SearchMode.SEMANTIC)
+        result = await service.search("test query", mode="semantic")
 
         # No exception, no entries, and the caller is steered to keyword search.
         assert result.entries == ()
@@ -375,20 +361,23 @@ class TestServiceRouting:
 
     @pytest.mark.asyncio
     async def test_unroutable_mode_raises_configuration_error(self):
-        """A mode with no routing arm raises ConfigurationError naming the mode.
+        """A mode naming no registered module raises, naming the alternatives.
 
-        SearchMode carries SQL, which ainvoke's match statement does not route,
-        so it falls through to the catch-all arm. ConfigurationError is an
-        ARIELException, so it propagates rather than being wrapped.
+        Dispatch is registry-driven, so an unregistered name has nothing to
+        route to and must not silently fall back to keyword search. The error
+        names the requested mode and lists the modes that are actually enabled.
+        ConfigurationError is an ARIELException, so it propagates unwrapped.
         """
         from osprey.services.ariel_search.exceptions import ConfigurationError
 
         service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
 
         with pytest.raises(ConfigurationError) as exc_info:
-            await service.search("test query", mode=SearchMode.SQL)
+            await service.search("test query", mode="not_a_module")
 
-        assert "sql_query" in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "Unknown search mode 'not_a_module'" in message
+        assert "keyword" in message.split("Available modes:")[1]
         assert exc_info.value.config_key == "modes"
 
     @pytest.mark.asyncio
@@ -408,7 +397,7 @@ class TestServiceRouting:
         )
 
         with pytest.raises(SearchExecutionError) as exc_info:
-            await service.search("beam current", mode=SearchMode.KEYWORD)
+            await service.search("beam current", mode="keyword")
 
         error = exc_info.value
         assert error.search_mode == "keyword"
@@ -419,8 +408,6 @@ class TestServiceRouting:
     @pytest.mark.asyncio
     async def test_semantic_results_projected_to_entries_and_sources(self, fake_embedding_provider):
         """Semantic hits become entries carrying _score, plus an entry_id source tuple."""
-        from unittest.mock import patch
-
         service = self._create_mock_service(
             search_modules={"semantic": {"enabled": True, "model": "test-model"}}
         )
@@ -440,10 +427,10 @@ class TestServiceRouting:
             "osprey.services.ariel_search.search.semantic.semantic_search",
             side_effect=fake_semantic_search,
         ):
-            result = await service.search("cavity", mode=SearchMode.SEMANTIC)
+            result = await service.search("cavity", mode="semantic")
 
         assert seen_embedders == [fake_embedding_provider]
-        assert result.search_modes_used == (SearchMode.SEMANTIC,)
+        assert result.search_modes_used == ("semantic",)
         assert result.reasoning == "Semantic search: 2 results"
         assert result.sources == ("entry-sem-001", "entry-sem-002")
         assert [entry["_score"] for entry in result.entries] == [0.91, 0.77]
@@ -749,7 +736,7 @@ class TestARIELSearchResultModel:
         """ARIELSearchResult search_modes_used is immutable."""
         result = ARIELSearchResult(
             entries=(),
-            search_modes_used=(SearchMode.KEYWORD, SearchMode.SEMANTIC),
+            search_modes_used=("keyword", "semantic"),
         )
 
         assert isinstance(result.search_modes_used, tuple)
@@ -792,44 +779,39 @@ class TestAdvancedParamsWiring:
 
     @pytest.mark.asyncio
     async def test_advanced_params_reach_keyword(self):
-        """Advanced params are forwarded to _run_keyword."""
+        """Advanced params are forwarded to the keyword module as keywords."""
         service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
 
-        mock_result = ARIELSearchResult(
-            entries=(),
-            search_modes_used=(SearchMode.KEYWORD,),
-            reasoning="Keyword search: 0 results",
-        )
-        service._run_keyword = AsyncMock(return_value=mock_result)
+        with patch(
+            "osprey.services.ariel_search.search.keyword.keyword_search",
+            new=AsyncMock(return_value=[]),
+        ) as keyword_search:
+            await service.search(
+                "test",
+                mode="keyword",
+                advanced_params={"include_highlights": False, "fuzzy_fallback": False},
+            )
 
-        await service.search(
-            "test",
-            mode=SearchMode.KEYWORD,
-            advanced_params={"include_highlights": False, "fuzzy_fallback": False},
-        )
-
-        # Verify the request passed to _run_keyword has the advanced_params
-        call_args = service._run_keyword.call_args[0]
-        request = call_args[0]
-        assert request.advanced_params == {"include_highlights": False, "fuzzy_fallback": False}
+        kwargs = keyword_search.call_args.kwargs
+        assert kwargs["include_highlights"] is False
+        assert kwargs["fuzzy_fallback"] is False
 
     @pytest.mark.asyncio
     async def test_advanced_params_default_empty(self):
-        """advanced_params defaults to empty dict when not provided."""
+        """With no advanced params, only the request's own fields are passed."""
         service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
 
-        mock_result = ARIELSearchResult(
-            entries=(),
-            search_modes_used=(SearchMode.KEYWORD,),
-            reasoning="Keyword search",
-        )
-        service._run_keyword = AsyncMock(return_value=mock_result)
+        with patch(
+            "osprey.services.ariel_search.search.keyword.keyword_search",
+            new=AsyncMock(return_value=[]),
+        ) as keyword_search:
+            await service.search("test")
 
-        await service.search("test")
-
-        call_args = service._run_keyword.call_args[0]
-        request = call_args[0]
-        assert request.advanced_params == {}
+        assert set(keyword_search.call_args.kwargs) == {
+            "max_results",
+            "start_date",
+            "end_date",
+        }
 
 
 class TestServiceState:

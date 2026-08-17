@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from osprey.services.ariel_search.models import SearchMode
 from osprey.services.ariel_search.search.base import ParameterDescriptor, SearchToolDescriptor
 from osprey.utils.logger import get_logger
 
@@ -228,7 +227,7 @@ def get_tool_descriptor() -> SearchToolDescriptor:
             "Use for queries describing concepts, situations, or events "
             "where exact words may not match."
         ),
-        search_mode=SearchMode.SEMANTIC,
+        search_mode="semantic",
         args_schema=SemanticSearchInput,
         execute=semantic_search,
         format_result=format_semantic_result,

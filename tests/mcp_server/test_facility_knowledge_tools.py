@@ -13,6 +13,8 @@ from textwrap import dedent
 
 import pytest
 
+from osprey.deployment.qmd_service import QMDServiceConfig
+from osprey.services.qmd import QMDClient, QMDSearchResult
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 # ---------------------------------------------------------------------------
@@ -62,6 +64,30 @@ def fixture_bundle(tmp_path: Path) -> Path:
         """,
     )
     return root
+
+
+class _FakeQMDClient(QMDClient):
+    """A configured client that answers every query with canned hits.
+
+    Subclasses the real client so the bundle is driven through the type it
+    actually holds; the MCP conversation itself is proven in
+    ``tests/services/qmd/test_client.py``.
+
+    Args:
+        hits: Results :meth:`query` returns.
+    """
+
+    def __init__(self, hits: list[QMDSearchResult]) -> None:
+        super().__init__(QMDServiceConfig(port=8180))
+        self._hits = hits
+
+    def is_available(self) -> bool:
+        """Report the sidecar as up without probing it."""
+        return True
+
+    def query(self, *args: object, **kwargs: object) -> list[QMDSearchResult]:
+        """Return the canned hits."""
+        return self._hits
 
 
 @pytest.fixture(autouse=True)
@@ -259,11 +285,35 @@ class TestSearch:
 
         result = json.loads(await get_tool_fn(search)(query="beam"))
 
+        assert result["results"]
         for r in result["results"]:
             assert "concept_id" in r
             assert "title" in r
             assert "description" in r
+            assert "score" in r
             assert "snippet" in r
+
+    @pytest.mark.asyncio
+    async def test_fallback_results_score_null(self):
+        """No sidecar means no ranking, and the response has to say so."""
+        from osprey.mcp_server.facility_knowledge.server import search
+
+        result = json.loads(await get_tool_fn(search)(query="beam"))
+
+        assert result["results"]
+        assert all(r["score"] is None for r in result["results"])
+
+    @pytest.mark.asyncio
+    async def test_fallback_snippet_is_the_body_prefix(self):
+        """Without a sidecar excerpt the snippet leads with the body."""
+        from osprey.mcp_server.facility_knowledge.server import search
+
+        result = json.loads(await get_tool_fn(search)(query="synchrotron"))
+        by_id = {r["concept_id"]: r for r in result["results"]}
+
+        assert by_id["accelerator_overview"]["snippet"].startswith(
+            "The facility uses a synchrotron"
+        )
 
     @pytest.mark.asyncio
     async def test_snippet_is_truncated(self, fixture_bundle: Path):
@@ -298,6 +348,96 @@ class TestSearch:
 
         with assert_raises_error(error_type="server_not_initialised"):
             await get_tool_fn(search)(query="anything")
+
+
+class TestSearchRanked:
+    """What the tool reports when a sidecar ranks the hits.
+
+    The bundle's own mapping of qmd hits onto concepts is covered in
+    ``tests/services/facility_knowledge/test_okf_ranked_search.py``; what is
+    proven here is only what the MCP response adds on top of it.
+    """
+
+    @pytest.fixture
+    def ranked_bundle(self, fixture_bundle: Path, monkeypatch):
+        """Install a bundle whose sidecar returns caller-supplied hits."""
+        import osprey.mcp_server.facility_knowledge.server as srv
+        from osprey.services.facility_knowledge.okf.bundle import OKF_COLLECTION, OKFBundle
+
+        def install(*hits: QMDSearchResult) -> None:
+            monkeypatch.setattr(
+                srv, "_bundle", OKFBundle(fixture_bundle, qmd_client=_FakeQMDClient(list(hits)))
+            )
+
+        def hit(file: str, *, score: float, snippet: str) -> QMDSearchResult:
+            return QMDSearchResult(
+                docid="#abc123",
+                file=file,
+                collection=OKF_COLLECTION,
+                title="",
+                score=score,
+                line=1,
+                snippet=snippet,
+            )
+
+        install.hit = hit  # type: ignore[attr-defined]
+        return install
+
+    @pytest.mark.asyncio
+    async def test_ranked_results_carry_the_score(self, ranked_bundle):
+        from osprey.mcp_server.facility_knowledge.server import search
+
+        ranked_bundle(
+            ranked_bundle.hit("accelerator_overview.md", score=1.0, snippet="1: ring"),
+            ranked_bundle.hit("tables/beam_params.md", score=0.5, snippet="1: pvs"),
+        )
+
+        result = json.loads(await get_tool_fn(search)(query="what steers the beam"))
+
+        assert [(r["concept_id"], r["score"]) for r in result["results"]] == [
+            ("accelerator_overview", 1.0),
+            ("tables/beam_params", 0.5),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_ranked_snippet_is_the_sidecar_excerpt(self, ranked_bundle):
+        """The match-centred excerpt wins over the body prefix."""
+        from osprey.mcp_server.facility_knowledge.server import search
+
+        ranked_bundle(
+            ranked_bundle.hit(
+                "accelerator_overview.md",
+                score=1.0,
+                snippet="7: bright X-ray light is produced here",
+            )
+        )
+
+        result = json.loads(await get_tool_fn(search)(query="x-rays"))
+
+        assert result["results"][0]["snippet"] == "7: bright X-ray light is produced here"
+
+    @pytest.mark.asyncio
+    async def test_ranked_snippet_falls_back_to_body_when_absent(self, ranked_bundle):
+        """A ranked hit with no excerpt still gets a usable snippet."""
+        from osprey.mcp_server.facility_knowledge.server import search
+
+        ranked_bundle(ranked_bundle.hit("accelerator_overview.md", score=1.0, snippet=""))
+
+        result = json.loads(await get_tool_fn(search)(query="x-rays"))
+
+        assert result["results"][0]["snippet"].startswith("The facility uses a synchrotron")
+
+    @pytest.mark.asyncio
+    async def test_ranked_entry_reports_concept_id_and_frontmatter(self, ranked_bundle):
+        """A hit names a qmd path; the response names the concept it is."""
+        from osprey.mcp_server.facility_knowledge.server import search
+
+        ranked_bundle(ranked_bundle.hit("tables/beam_params.md", score=0.33, snippet="1: epics"))
+
+        result = json.loads(await get_tool_fn(search)(query="control system"))
+
+        assert result["results"][0]["concept_id"] == "tables/beam_params"
+        assert result["results"][0]["title"] == "Beam Parameters"
 
 
 # ---------------------------------------------------------------------------

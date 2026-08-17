@@ -200,7 +200,6 @@ class TestServiceSearchModes:
     ):
         """Service performs keyword search correctly."""
         from osprey.services.ariel_search.database.connection import create_connection_pool
-        from osprey.services.ariel_search.models import SearchMode
         from osprey.services.ariel_search.service import ARIELSearchService
 
         # Add test entry
@@ -217,7 +216,7 @@ class TestServiceSearchModes:
             repository=repository,
         )
 
-        result = await service.search("vacuum pump", mode=SearchMode.KEYWORD)
+        result = await service.search("vacuum pump", mode="keyword")
 
         # Should return result object
         assert result is not None
