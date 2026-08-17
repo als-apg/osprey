@@ -489,8 +489,8 @@
                   
   <section id="search-modes">
 <h1>Search Modes<a class="headerlink" href="#search-modes" title="Link to this heading">#</a></h1>
-<p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and <code class="docutils literal notranslate"><span class="pre">qmd</span></code>, a hybrid of the two answered by a separate search sidecar container. All three produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the Osprey agent layer, which calls these search modules through ARIEL’s MCP tools.</p>
-<p><strong>Dispatch is registry-driven.</strong> A search request names a mode as a plain string — <code class="docutils literal notranslate"><span class="pre">&quot;keyword&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;semantic&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;qmd&quot;</span></code>. The <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> looks that name up in Osprey’s central registry and calls the module’s own <code class="docutils literal notranslate"><span class="pre">execute</span></code>; it carries no per-mode branch of its own. The registry is the only source of routable modes, so the service, the web interface’s capabilities API and the agent’s MCP tools cannot disagree about which modes exist, and adding a module needs no change to the service.</p>
+<p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>, a merge of the two answered by a separate search sidecar container (qmd). All three produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the Osprey agent layer, which calls these search modules through ARIEL’s MCP tools.</p>
+<p><strong>Dispatch is registry-driven.</strong> A search request names a mode as a plain string — <code class="docutils literal notranslate"><span class="pre">&quot;keyword&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;semantic&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hybrid&quot;</span></code>. The <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> looks that name up in Osprey’s central registry and calls the module’s own <code class="docutils literal notranslate"><span class="pre">execute</span></code>; it carries no per-mode branch of its own. The registry is the only source of routable modes, so the service, the web interface’s capabilities API and the agent’s MCP tools cannot disagree about which modes exist, and adding a module needs no change to the service.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><code class="docutils literal notranslate"><span class="pre">sql_query</span></code> is a <strong>tool, not a search mode.</strong> It runs read-only SQL against the same database, which is precision filtering — exact matches, exhaustive date and author ranges, counts — not ranked retrieval. It has no relevance score to merge with the others, so it is exposed only as its own MCP tool and never appears as a <code class="docutils literal notranslate"><span class="pre">--mode</span></code> value.</p>
@@ -499,7 +499,7 @@
 <h2>Search Architecture<a class="headerlink" href="#search-architecture" title="Link to this heading">#</a></h2>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>User Query
     ↓
-ARIELSearchService.search(mode=&quot;keyword&quot; | &quot;semantic&quot; | &quot;qmd&quot; | ...)
+ARIELSearchService.search(mode=&quot;keyword&quot; | &quot;semantic&quot; | &quot;hybrid&quot; | ...)
     ↓
 registry lookup  →  that module&#39;s execute()
     ↓
@@ -511,13 +511,13 @@ ARIELSearchResult (entries, search_modes_used)
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w">                  </span><span class="c1"># default: keyword</span>
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>keyword
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>semantic
-osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>qmd
+osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>hybrid
 </pre></div>
 </div>
 <p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> choices are read from the registry when the command runs, so a facility that registers its own search module gets it as a choice — and in <code class="docutils literal notranslate"><span class="pre">--help</span></code> — without any code change.</p>
 <section id="search-modules">
 <h3>Search Modules<a class="headerlink" href="#search-modules" title="Link to this heading">#</a></h3>
-<p>Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL’s capabilities API; each built-in module is exposed to the Osprey agent through its own ARIEL MCP tool (<code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code>, <code class="docutils literal notranslate"><span class="pre">qmd_search</span></code>). The framework ships with the following built-in search modules:</p>
+<p>Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL’s capabilities API; each built-in module is exposed to the Osprey agent through its own ARIEL MCP tool (<code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code>, <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code>). The framework ships with the following built-in search modules:</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
@@ -604,20 +604,20 @@ Semantic Search</label><div class="sd-tab-content docutils">
 </div>
 <input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-2">
-qmd (Hybrid)</label><div class="sd-tab-content docutils">
+hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 <p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">search/qmd.py</span></code></p>
 <p>Hybrid keyword-plus-semantic search, answered by the <strong>qmd search sidecar</strong> — a separate container that indexes a markdown mirror of the logbook and returns one merged ranking. Best when a question mixes specific terms with a described situation, or when keyword search returned too little.</p>
-<p>Unlike the other two modes, <code class="docutils literal notranslate"><span class="pre">qmd</span></code> does not search PostgreSQL. It needs two things running together:</p>
+<p>Unlike the other two modes, <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> does not search PostgreSQL. It needs two things running together:</p>
 <ol class="arabic simple">
 <li><p>the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar (see <a class="reference internal" href="../deploy-project.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>), and</p></li>
 <li><p>the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> <a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a>, which writes the markdown mirror the sidecar indexes.</p></li>
 </ol>
-<p>Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. Both are off by default.</p>
-<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as <em>search is down</em>, deliberately, so that the agent cannot read an outage as “nothing matched”.</p>
+<p>Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> templates enable both, together with the sidecar itself.</p>
+<p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as <em>search is down</em>, deliberately, so that the agent cannot read an outage as “nothing matched”.</p>
 <p><strong>Configuration:</strong></p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">search_modules</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">qmd</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">hybrid</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="nt">settings</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">rerank</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># default</span>
@@ -653,9 +653,9 @@ qmd (Hybrid)</label><div class="sd-tab-content docutils">
 </tbody>
 </table>
 </div>
-<p>Reranking costs roughly <strong>4x</strong> the query budget, and its cost barely grows with corpus size — so no logbook is small enough to outrun it. <code class="docutils literal notranslate"><span class="pre">qmd_search</span></code> is an agent tool with no interactive budget to protect, so it ships with the quality path on. Set <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">false</span></code> for the fast path. (The OKF bundle, which backs an interactive panel, defaults the other way; see <a class="reference internal" href="../okf-bundle.html"><span class="doc">The OKF Bundle</span></a>.)</p>
+<p>Reranking costs roughly <strong>4x</strong> the query budget, and its cost barely grows with corpus size — so no logbook is small enough to outrun it. <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> is an agent tool with no interactive budget to protect, so it ships with the quality path on. Set <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">false</span></code> for the fast path. (The OKF bundle, which backs an interactive panel, defaults the other way; see <a class="reference internal" href="../okf-bundle.html"><span class="doc">The OKF Bundle</span></a>.)</p>
 <p><code class="docutils literal notranslate"><span class="pre">candidate_limit</span></code> is how many candidates the reranker considers. Lowering it trades recall for latency.</p>
-<p><strong>Filtering is best-effort.</strong> <code class="docutils literal notranslate"><span class="pre">qmd_search</span></code> ranks the corpus first and applies the date, author and source filters <em>afterwards</em>, to the top of that ranking — not inside the database. A selective filter can therefore return fewer entries than you asked for even when more matching entries exist. Read a short result set as “the ranked window ran out”, not as “there is nothing else”. When a filter has to be exhaustive, use <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> or <code class="docutils literal notranslate"><span class="pre">sql_query</span></code>, which filter in the database.</p>
+<p><strong>Filtering is best-effort.</strong> <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> ranks the corpus first and applies the date, author and source filters <em>afterwards</em>, to the top of that ranking — not inside the database. A selective filter can therefore return fewer entries than you asked for even when more matching entries exist. Read a short result set as “the ranked window ran out”, not as “there is nothing else”. When a filter has to be exhaustive, use <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> or <code class="docutils literal notranslate"><span class="pre">sql_query</span></code>, which filter in the database.</p>
 <div class="warning admonition">
 <p class="admonition-title">Known limitation — the first reranked query times out</p>
 <p>The first query with <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">true</span></code> loads a 610 MB model on CPU, and that load exceeds the client’s default timeout. A deployment that enables reranking gets a hard failure on its <strong>first</strong> query; subsequent queries are fine. Run one throwaway query after starting the sidecar, or start with <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">false</span></code>.</p>
@@ -693,14 +693,14 @@ qmd (Hybrid)</label><div class="sd-tab-content docutils">
 </section>
 <section id="the-semantic-mode-s-planned-retirement">
 <span id="semantic-mode-retirement"></span><h3>The Semantic Mode’s Planned Retirement<a class="headerlink" href="#the-semantic-mode-s-planned-retirement" title="Link to this heading">#</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> covers what <code class="docutils literal notranslate"><span class="pre">semantic</span></code> covers and more: it is hybrid rather than
+<p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> covers what <code class="docutils literal notranslate"><span class="pre">semantic</span></code> covers and more: it is hybrid rather than
 vector-only, it needs no embedding provider and no pgvector extension, and it
 keeps its index in its own container instead of in the logbook database. The
-plan is therefore to retire the semantic leg once <code class="docutils literal notranslate"><span class="pre">qmd</span></code> has been through a
+plan is therefore to retire the semantic leg once <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> has been through a
 burn-in comparison against it in production.</p>
 <p>Nothing has been removed and no date has been set. <code class="docutils literal notranslate"><span class="pre">semantic</span></code> is fully
 supported in this release, and the burn-in is the gate — if it does not show
-<code class="docutils literal notranslate"><span class="pre">qmd</span></code> matching or beating <code class="docutils literal notranslate"><span class="pre">semantic</span></code> on real queries, the semantic leg
+<code class="docutils literal notranslate"><span class="pre">hybrid</span></code> matching or beating <code class="docutils literal notranslate"><span class="pre">semantic</span></code> on real queries, the semantic leg
 stays. Treat this as a direction to plan for, not a deprecation to act on: keep
 <code class="docutils literal notranslate"><span class="pre">semantic</span></code> configured if you use it, and read the release notes before
 assuming otherwise.</p>

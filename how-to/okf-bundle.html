@@ -780,7 +780,7 @@ roughly <strong>4x</strong> the query budget — measured p95 3927 ms with it ag
 without, on a 135,000-document corpus — and its cost barely changes with corpus
 size, so no bundle is small enough to outrun it. The OKF surfaces are
 interactive and hold a sub-second budget that reranking does not fit in. The
-ARIEL <code class="docutils literal notranslate"><span class="pre">qmd_search</span></code> tool is an agent tool with no such budget, so it keeps the
+ARIEL <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> tool is an agent tool with no such budget, so it keeps the
 quality path. Set <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">true</span></code> if you would rather have the ranking than
 the latency.</p>
 <p><code class="docutils literal notranslate"><span class="pre">candidate_limit</span></code> is how many candidates the reranker considers. Lowering it

@@ -894,37 +894,27 @@ your deployment host cannot (or should not) pull public images.</p>
 </section>
 <section id="the-search-sidecar-qmd">
 <span id="qmd-search-sidecar"></span><h2>The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)<a class="headerlink" href="#the-search-sidecar-qmd" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> is an optional service that indexes the deployment’s <strong>markdown
-corpora</strong> and answers hybrid keyword-plus-semantic queries over HTTP. Two parts
-of OSPREY use it:</p>
+<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> is a service that indexes the deployment’s <strong>markdown corpora</strong> and
+answers hybrid keyword-plus-semantic queries over HTTP. Two parts of OSPREY
+use it:</p>
 <ul class="simple">
 <li><p>the <a class="reference internal" href="okf-bundle.html"><span class="doc">facility-knowledge (OKF) bundle</span></a> — its panel and its
 MCP <code class="docutils literal notranslate"><span class="pre">search</span></code> tool;</p></li>
-<li><p>ARIEL’s logbook mirror — the <code class="docutils literal notranslate"><span class="pre">qmd</span></code> <a class="reference internal" href="ariel/search-modes.html"><span class="doc">search mode</span></a>
-and the <code class="docutils literal notranslate"><span class="pre">qmd_search</span></code> MCP tool.</p></li>
+<li><p>ARIEL’s logbook mirror — the <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> <a class="reference internal" href="ariel/search-modes.html"><span class="doc">search mode</span></a> and the <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> MCP tool.</p></li>
 </ul>
-<p>Neither needs it. Both fall back or report an outage without it, so a
-deployment that does not want a second index simply leaves it off, which is the
-default.</p>
-<section id="turning-it-on">
-<h3>Turning it on<a class="headerlink" href="#turning-it-on" title="Link to this heading">#</a></h3>
-<p>Three steps, not one. The templates ship the config block commented out for
-exactly this reason.</p>
-<ol class="arabic simple">
-<li><p><strong>Uncomment the block</strong> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — both the <code class="docutils literal notranslate"><span class="pre">qmd:</span></code> entry under
-<code class="docutils literal notranslate"><span class="pre">services:</span></code> and the <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">qmd</span></code> line under <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code>. The
-<code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> and <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> templates ship both, commented.</p></li>
-<li><p><strong>Build the image.</strong> It is built locally, never pulled. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
-renders <code class="docutils literal notranslate"><span class="pre">./services/qmd</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds the image on first run and
-tags it <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-qmd:local</span></code>, project-prefixed so two OSPREY projects on
-one host cannot race for one tag. The image bakes in the qmd CLI and its
-language models (about 2.1 GB) so a cold container never reaches out to the
-internet.</p></li>
-<li><p><strong>Enable a consumer.</strong> For ARIEL that means the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> enhancement
-module <em>and</em> the <code class="docutils literal notranslate"><span class="pre">qmd</span></code> search mode; the OKF bundle needs only
-<code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code>, which it already has. A sidecar with no
-consumer is a container nobody queries.</p></li>
-</ol>
+<p>It is entirely self-contained — its language models are baked into the image,
+so unlike the <code class="docutils literal notranslate"><span class="pre">semantic</span></code> search mode it needs no Ollama on the host — and
+the <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> and <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> templates deploy it <strong>by
+default</strong>, together with its two ARIEL consumers (the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code>
+enhancement module and the <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> search mode). The OKF bundle needs only
+<code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code>, which it already has.</p>
+<p>The image is built locally, never pulled. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders
+<code class="docutils literal notranslate"><span class="pre">./services/qmd</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds the image on first run and tags it
+<code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-qmd:local</span></code>, project-prefixed so two OSPREY projects on one host
+cannot race for one tag. The baked-in models make that first build about
+2.1 GB of download; later runs reuse the local tag.</p>
+<section id="configuration">
+<h3>Configuration<a class="headerlink" href="#configuration" title="Link to this heading">#</a></h3>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">qmd</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/qmd</span>
@@ -937,6 +927,14 @@ consumer is a container nobody queries.</p></li>
 </div>
 <p>Those three keys are the whole schema. Notably <strong>there is no
 ``bind_address`` here</strong> — see <a class="reference internal" href="#where-the-sidecar-listens">Where the sidecar listens</a> below.</p>
+<p>Neither consumer strictly needs the sidecar — OKF search falls back to
+substring matching and hybrid logbook search reports an outage — so a
+deployment that does not want a second index can switch it off. That is three
+edits, not one, because any subset leaves either a container nobody queries or
+a search mode with nothing to search: comment out the <code class="docutils literal notranslate"><span class="pre">qmd:</span></code> entry under
+<code class="docutils literal notranslate"><span class="pre">services:</span></code> and the <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">qmd</span></code> line under <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code>, and disable
+both <code class="docutils literal notranslate"><span class="pre">ariel.search_modules.hybrid</span></code> and
+<code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.qmd_export</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">interval</span></code> is a ceiling on staleness, not the usual lag: a corpus writer
 touches a <code class="docutils literal notranslate"><span class="pre">.qmd-touch</span></code> marker file and the sidecar re-indexes within one poll.
 The interval only catches writers that forgot to touch it. Raise it on a large
@@ -1442,7 +1440,7 @@ containers this page covers.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-template-ownership">Service Template Ownership</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-search-sidecar-qmd">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turning-it-on">Turning it on</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration">Configuration</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gets-mounted">What gets mounted</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sharing-the-knowledge-bundle">Sharing the knowledge bundle</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#disk-footprint">Disk footprint</a></li>

@@ -432,38 +432,30 @@ your deployment host cannot (or should not) pull public images.
 The Search Sidecar (``qmd``)
 ============================
 
-``qmd`` is an optional service that indexes the deployment's **markdown
-corpora** and answers hybrid keyword-plus-semantic queries over HTTP. Two parts
-of OSPREY use it:
+``qmd`` is a service that indexes the deployment's **markdown corpora** and
+answers hybrid keyword-plus-semantic queries over HTTP. Two parts of OSPREY
+use it:
 
 * the :doc:`facility-knowledge (OKF) bundle <okf-bundle>` --- its panel and its
   MCP ``search`` tool;
-* ARIEL's logbook mirror --- the ``qmd`` :doc:`search mode <ariel/search-modes>`
-  and the ``qmd_search`` MCP tool.
+* ARIEL's logbook mirror --- the ``hybrid`` :doc:`search mode
+  <ariel/search-modes>` and the ``hybrid_search`` MCP tool.
 
-Neither needs it. Both fall back or report an outage without it, so a
-deployment that does not want a second index simply leaves it off, which is the
-default.
+It is entirely self-contained --- its language models are baked into the image,
+so unlike the ``semantic`` search mode it needs no Ollama on the host --- and
+the ``ariel-standalone`` and ``control-assistant`` templates deploy it **by
+default**, together with its two ARIEL consumers (the ``qmd_export``
+enhancement module and the ``hybrid`` search mode). The OKF bundle needs only
+``facility_knowledge.bundle_path``, which it already has.
 
-Turning it on
+The image is built locally, never pulled. ``osprey build`` renders
+``./services/qmd``; ``osprey up`` builds the image on first run and tags it
+``<project>-qmd:local``, project-prefixed so two OSPREY projects on one host
+cannot race for one tag. The baked-in models make that first build about
+2.1 GB of download; later runs reuse the local tag.
+
+Configuration
 -------------
-
-Three steps, not one. The templates ship the config block commented out for
-exactly this reason.
-
-1. **Uncomment the block** in ``config.yml`` --- both the ``qmd:`` entry under
-   ``services:`` and the ``- qmd`` line under ``deployed_services:``. The
-   ``ariel-standalone`` and ``control-assistant`` templates ship both, commented.
-2. **Build the image.** It is built locally, never pulled. ``osprey build``
-   renders ``./services/qmd``; ``osprey up`` builds the image on first run and
-   tags it ``<project>-qmd:local``, project-prefixed so two OSPREY projects on
-   one host cannot race for one tag. The image bakes in the qmd CLI and its
-   language models (about 2.1 GB) so a cold container never reaches out to the
-   internet.
-3. **Enable a consumer.** For ARIEL that means the ``qmd_export`` enhancement
-   module *and* the ``qmd`` search mode; the OKF bundle needs only
-   ``facility_knowledge.bundle_path``, which it already has. A sidecar with no
-   consumer is a container nobody queries.
 
 .. code-block:: yaml
 
@@ -478,6 +470,15 @@ exactly this reason.
 
 Those three keys are the whole schema. Notably **there is no
 ``bind_address`` here** --- see `Where the sidecar listens`_ below.
+
+Neither consumer strictly needs the sidecar --- OKF search falls back to
+substring matching and hybrid logbook search reports an outage --- so a
+deployment that does not want a second index can switch it off. That is three
+edits, not one, because any subset leaves either a container nobody queries or
+a search mode with nothing to search: comment out the ``qmd:`` entry under
+``services:`` and the ``- qmd`` line under ``deployed_services:``, and disable
+both ``ariel.search_modules.hybrid`` and
+``ariel.enhancement_modules.qmd_export``.
 
 ``interval`` is a ceiling on staleness, not the usual lag: a corpus writer
 touches a ``.qmd-touch`` marker file and the sidecar re-indexes within one poll.

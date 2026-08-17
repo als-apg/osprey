@@ -2,9 +2,9 @@
 Search Modes
 ============
 
-ARIEL's search system is built around **search modules** --- leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and ``qmd``, a hybrid of the two answered by a separate search sidecar container. All three produce a common ``ARIELSearchResult``. Higher-level reasoning over results --- multi-step retrieval, answer synthesis, custom prompting --- lives in the Osprey agent layer, which calls these search modules through ARIEL's MCP tools.
+ARIEL's search system is built around **search modules** --- leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and ``hybrid``, a merge of the two answered by a separate search sidecar container (qmd). All three produce a common ``ARIELSearchResult``. Higher-level reasoning over results --- multi-step retrieval, answer synthesis, custom prompting --- lives in the Osprey agent layer, which calls these search modules through ARIEL's MCP tools.
 
-**Dispatch is registry-driven.** A search request names a mode as a plain string --- ``"keyword"``, ``"semantic"``, ``"qmd"``. The ``ARIELSearchService`` looks that name up in Osprey's central registry and calls the module's own ``execute``; it carries no per-mode branch of its own. The registry is the only source of routable modes, so the service, the web interface's capabilities API and the agent's MCP tools cannot disagree about which modes exist, and adding a module needs no change to the service.
+**Dispatch is registry-driven.** A search request names a mode as a plain string --- ``"keyword"``, ``"semantic"``, ``"hybrid"``. The ``ARIELSearchService`` looks that name up in Osprey's central registry and calls the module's own ``execute``; it carries no per-mode branch of its own. The registry is the only source of routable modes, so the service, the web interface's capabilities API and the agent's MCP tools cannot disagree about which modes exist, and adding a module needs no change to the service.
 
 .. note::
 
@@ -17,7 +17,7 @@ Search Architecture
 
    User Query
        ↓
-   ARIELSearchService.search(mode="keyword" | "semantic" | "qmd" | ...)
+   ARIELSearchService.search(mode="keyword" | "semantic" | "hybrid" | ...)
        ↓
    registry lookup  →  that module's execute()
        ↓
@@ -32,7 +32,7 @@ The service refuses a mode that is not registered, or is registered but disabled
    osprey ariel search "RF cavity fault"                  # default: keyword
    osprey ariel search "RF cavity fault" --mode keyword
    osprey ariel search "RF cavity fault" --mode semantic
-   osprey ariel search "RF cavity fault" --mode qmd
+   osprey ariel search "RF cavity fault" --mode hybrid
 
 The ``--mode`` choices are read from the registry when the command runs, so a facility that registers its own search module gets it as a choice --- and in ``--help`` --- without any code change.
 
@@ -40,7 +40,7 @@ The ``--mode`` choices are read from the registry when the command runs, so a fa
 Search Modules
 ==============
 
-Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a ``get_tool_descriptor()`` function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL's capabilities API; each built-in module is exposed to the Osprey agent through its own ARIEL MCP tool (``keyword_search``, ``semantic_search``, ``qmd_search``). The framework ships with the following built-in search modules:
+Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a ``get_tool_descriptor()`` function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL's capabilities API; each built-in module is exposed to the Osprey agent through its own ARIEL MCP tool (``keyword_search``, ``semantic_search``, ``hybrid_search``). The framework ships with the following built-in search modules:
 
 .. tab-set::
 
@@ -133,20 +133,20 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
       **Requirements:** Ollama (or another embedding provider) running with the configured model, embedding table populated via the ``text_embedding`` :ref:`enhancement module <Enhancement Pipeline>`, and the pgvector extension installed in PostgreSQL.
 
-   .. tab-item:: qmd (Hybrid)
+   .. tab-item:: hybrid (qmd sidecar)
 
       **Module:** ``search/qmd.py``
 
       Hybrid keyword-plus-semantic search, answered by the **qmd search sidecar** --- a separate container that indexes a markdown mirror of the logbook and returns one merged ranking. Best when a question mixes specific terms with a described situation, or when keyword search returned too little.
 
-      Unlike the other two modes, ``qmd`` does not search PostgreSQL. It needs two things running together:
+      Unlike the other two modes, ``hybrid`` does not search PostgreSQL. It needs two things running together:
 
       1. the ``services.qmd`` sidecar (see :ref:`qmd-search-sidecar`), and
       2. the ``qmd_export`` :ref:`enhancement module <Enhancement Pipeline>`, which writes the markdown mirror the sidecar indexes.
 
-      Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. Both are off by default.
+      Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``control-assistant`` and ``ariel-standalone`` templates enable both, together with the sidecar itself.
 
-      ``qmd`` also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as *search is down*, deliberately, so that the agent cannot read an outage as "nothing matched".
+      ``hybrid`` also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as *search is down*, deliberately, so that the agent cannot read an outage as "nothing matched".
 
       **Configuration:**
 
@@ -154,7 +154,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
          ariel:
            search_modules:
-             qmd:
+             hybrid:
                enabled: true
                settings:
                  rerank: true          # default
@@ -180,11 +180,11 @@ Search modules are leaf-level functions that execute a single search strategy ag
            - --
            - 1587 ms
 
-      Reranking costs roughly **4x** the query budget, and its cost barely grows with corpus size --- so no logbook is small enough to outrun it. ``qmd_search`` is an agent tool with no interactive budget to protect, so it ships with the quality path on. Set ``rerank: false`` for the fast path. (The OKF bundle, which backs an interactive panel, defaults the other way; see :doc:`../okf-bundle`.)
+      Reranking costs roughly **4x** the query budget, and its cost barely grows with corpus size --- so no logbook is small enough to outrun it. ``hybrid_search`` is an agent tool with no interactive budget to protect, so it ships with the quality path on. Set ``rerank: false`` for the fast path. (The OKF bundle, which backs an interactive panel, defaults the other way; see :doc:`../okf-bundle`.)
 
       ``candidate_limit`` is how many candidates the reranker considers. Lowering it trades recall for latency.
 
-      **Filtering is best-effort.** ``qmd_search`` ranks the corpus first and applies the date, author and source filters *afterwards*, to the top of that ranking --- not inside the database. A selective filter can therefore return fewer entries than you asked for even when more matching entries exist. Read a short result set as "the ranked window ran out", not as "there is nothing else". When a filter has to be exhaustive, use ``keyword_search`` or ``sql_query``, which filter in the database.
+      **Filtering is best-effort.** ``hybrid_search`` ranks the corpus first and applies the date, author and source filters *afterwards*, to the top of that ranking --- not inside the database. A selective filter can therefore return fewer entries than you asked for even when more matching entries exist. Read a short result set as "the ranked window ran out", not as "there is nothing else". When a filter has to be exhaustive, use ``keyword_search`` or ``sql_query``, which filter in the database.
 
       .. admonition:: Known limitation --- the first reranked query times out
          :class: warning
@@ -234,15 +234,15 @@ Modules may also export ``get_parameter_descriptors()`` to declare tunable param
 The Semantic Mode's Planned Retirement
 ======================================
 
-``qmd`` covers what ``semantic`` covers and more: it is hybrid rather than
+``hybrid`` covers what ``semantic`` covers and more: it is hybrid rather than
 vector-only, it needs no embedding provider and no pgvector extension, and it
 keeps its index in its own container instead of in the logbook database. The
-plan is therefore to retire the semantic leg once ``qmd`` has been through a
+plan is therefore to retire the semantic leg once ``hybrid`` has been through a
 burn-in comparison against it in production.
 
 Nothing has been removed and no date has been set. ``semantic`` is fully
 supported in this release, and the burn-in is the gate --- if it does not show
-``qmd`` matching or beating ``semantic`` on real queries, the semantic leg
+``hybrid`` matching or beating ``semantic`` on real queries, the semantic leg
 stays. Treat this as a direction to plan for, not a deprecation to act on: keep
 ``semantic`` configured if you use it, and read the release notes before
 assuming otherwise.
