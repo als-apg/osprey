@@ -173,8 +173,9 @@ class TestHelloWorldBuildOutput:
         hooks_dir = hello_world_project / ".claude" / "hooks"
         assert hooks_dir.exists()
 
-        # Hello-world profile declares: writes-check, approval, limits
-        # These map to osprey_writes_check.py, osprey_approval.py, osprey_limits.py
+        # writes-check, approval, and limits are the write-safety chain
+        # among the preset's ten hooks; they map to osprey_writes_check.py,
+        # osprey_approval.py, osprey_limits.py
         assert (hooks_dir / "osprey_writes_check.py").exists()
         assert (hooks_dir / "osprey_approval.py").exists()
         assert (hooks_dir / "osprey_limits.py").exists()
