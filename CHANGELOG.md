@@ -145,6 +145,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   a chat-first simple layout without them, both default to the light theme,
   and each browser tab is titled after its role.
 
+- Dependency floors raised — `accelerator-toolbox`, `aiohttp`, `authlib`,
+  `certifi`, `google-auth`, `openai`, `plotly`, `ruff`, `testcontainers`;
+  `uv.lock` regenerated to match. `openai` is now capped below 3.x: the 3.0
+  major is a client rewrite, so adopting it should be a deliberate change
+  rather than something a lock refresh picks up on its own.
+
 ### Added
 
 - The `control-assistant` preset now stands up a third web terminal beside
