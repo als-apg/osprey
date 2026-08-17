@@ -39,6 +39,16 @@ USERS_ENV_FILENAME = ".env.users"
 #: nothing ever writes it again.
 LEGACY_USERS_ENV_FILENAME = ".env.production"
 
+#: Where :func:`migrate_users_env` sets a leftover legacy file aside when the
+#: current name is already taken: the legacy spelling plus a ``.superseded``
+#: suffix. Derived rather than spelled out, so the two names cannot drift apart.
+#:
+#: A fixed literal and not a timestamp, deliberately: a repeated ``osprey up``
+#: must not be able to accumulate an unbounded pile of files holding live
+#: secrets. That is the whole reason the collision rule is "keep the earlier
+#: copy, skip the rename" rather than "overwrite".
+SUPERSEDED_USERS_ENV_FILENAME = f"{LEGACY_USERS_ENV_FILENAME}.superseded"
+
 
 def migrate_users_env(project_root: str | Path) -> Path | None:
     """Move a leftover ``.env.production`` onto :data:`USERS_ENV_FILENAME`.
@@ -55,16 +65,39 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
     guess: registry-mode CI renders a fresh ``.env.users`` on the host just
     before ``osprey up``, while the old file — gitignored, so untouched by the
     ``git reset --hard`` that precedes a CI checkout — survives from an earlier
-    pipeline. The new file is therefore always kept, and the leftover is
-    deleted rather than left to look like a second source of truth. Either way
-    the operator gets one line naming both paths.
+    pipeline. The new file is therefore always kept, and the leftover must stop
+    looking like a second source of truth. Either way the operator gets one
+    line naming both paths.
+
+    Getting there costs a rename, not a delete. The reasoning above is about
+    OSPREY's OWN artifact, and it is sound about one — but this function
+    identifies that artifact by filename alone, and a file at that name need
+    never have been OSPREY's: another tool on the host may keep its own secrets
+    under the same spelling, on a deployment that never had a pre-rename
+    ``.env.users`` at all. A delete cannot tell the two cases apart, so on the
+    second one it destroys the operator's only copy on the strength of a
+    filename match, during an ``osprey up`` that asked nothing and warned about
+    nothing. Moving the leftover to :data:`SUPERSEDED_USERS_ENV_FILENAME` buys
+    the whole of what the delete bought — nothing is left at the old name for a
+    later reader to mistake for the live file — and costs an operator one
+    ``rm`` instead of a restore from backup.
+
+    The set-aside name is fixed rather than timestamped (see
+    :data:`SUPERSEDED_USERS_ENV_FILENAME`), so a copy may already be sitting
+    there from an earlier deploy. When one is, the EARLIER copy is kept
+    untouched and the rename is skipped: it is the copy closer to the last
+    deployment that worked, and overwriting it would lose exactly what this
+    branch exists to preserve. The leftover stays where it is, and the one
+    reported line names both paths.
 
     A moved file lands at mode ``0600`` whatever it carried before, matching
-    every other write of this artifact.
+    every other write of this artifact — the set-aside copy included, since it
+    still holds live secrets and a rename would otherwise carry a
+    world-readable mode along with it.
 
     :param project_root: Project root directory holding both files.
-    :return: Path to ``.env.users`` when a file was moved or a leftover
-        removed, ``None`` when there was no old file to act on.
+    :return: Path to ``.env.users`` when a file was moved or a leftover set
+        aside, ``None`` when there was no old file to act on.
     :raises OSError: When something that is not a regular file already occupies
         the new name; the old file is left where it is.
     """
@@ -74,16 +107,35 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
     if not legacy_path.is_file():
         return None
 
-    # is_file, not exists: deleting the operator's only copy of the web tier's
-    # secrets is justified by a real file standing in its place and by nothing
-    # else. Anything else at that name (a directory, a dangling symlink) falls
-    # through to os.replace below, which fails loudly with the leftover intact.
+    # is_file, not exists: setting the operator's only copy of the web tier's
+    # secrets aside is justified by a real file standing in its place and by
+    # nothing else. Anything else at that name (a directory, a dangling symlink)
+    # falls through to os.replace below, which fails loudly with the leftover
+    # intact.
     if users_path.is_file():
-        legacy_path.unlink()
+        superseded_path = root / SUPERSEDED_USERS_ENV_FILENAME
+        if superseded_path.exists():
+            report_fact(
+                logger,
+                f"{LEGACY_USERS_ENV_FILENAME} left in place: {SUPERSEDED_USERS_ENV_FILENAME} "
+                "from an earlier deploy is kept rather than overwritten",
+            )
+            return users_path
+        # Same atomic same-directory rename as the migrate branch below, and the
+        # same explicit mode after it: this copy carries the same live secrets
+        # the file it came from did.
+        os.replace(legacy_path, superseded_path)
+        os.chmod(superseded_path, 0o600)
         report_fact(
             logger,
-            f"removed leftover {LEGACY_USERS_ENV_FILENAME} ({USERS_ENV_FILENAME} is the "
-            "current name and already exists)",
+            f"{LEGACY_USERS_ENV_FILENAME} set aside as {SUPERSEDED_USERS_ENV_FILENAME} "
+            f"({USERS_ENV_FILENAME} is the current name and already exists)",
+            wrote=(
+                SUPERSEDED_USERS_ENV_FILENAME,
+                f"the leftover {LEGACY_USERS_ENV_FILENAME} this deploy set aside, at mode "
+                f"0600; nothing reads it — delete it once {USERS_ENV_FILENAME} is confirmed "
+                "good",
+            ),
         )
         return users_path
 

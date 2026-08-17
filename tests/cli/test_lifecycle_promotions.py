@@ -1424,17 +1424,24 @@ class TestWebTerminalSecretsAreReported:
         assert env_production.LEGACY_USERS_ENV_FILENAME in printed.flowed
         assert ".env.users" in printed.flowed
 
-    def test_a_deleted_leftover_secrets_file_says_which_one_it_removed(
+    def test_a_superseded_leftover_secrets_file_says_where_it_went(
         self, default_altitude, printed, tmp_path
     ):
-        """The other half of the migration: a delete, of a file holding secrets."""
+        """The other half of the migration: a leftover secrets file set aside.
+
+        Set aside rather than deleted, so the line names the path the operator
+        can go and read -- and the promotion is what tells them a second
+        secret-bearing file is now sitting in the repo root.
+        """
         (tmp_path / env_production.LEGACY_USERS_ENV_FILENAME).write_text("A=1\n", encoding="utf-8")
         (tmp_path / ".env.users").write_text("B=2\n", encoding="utf-8")
 
         assert env_production.migrate_users_env(tmp_path) == tmp_path / ".env.users"
 
-        assert_promoted(default_altitude, printed, "removed leftover .env.production")
+        assert_promoted(default_altitude, printed, ".env.production set aside as")
+        assert env_production.SUPERSEDED_USERS_ENV_FILENAME in printed.flowed
         assert not (tmp_path / env_production.LEGACY_USERS_ENV_FILENAME).exists()
+        assert (tmp_path / env_production.SUPERSEDED_USERS_ENV_FILENAME).is_file()
 
 
 class TestWebTerminalHostChangesAreReported:
