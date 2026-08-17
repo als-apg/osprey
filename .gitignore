@@ -196,3 +196,8 @@ src/osprey/_version.py
 
 # Process scaffolding — never committed (specs/plans live here uncommitted)
 docs/superpowers/
+
+# Locally scaffolded deployment project. Carries a real .env, build output and
+# run data; belongs to the working copy, never to the repo. Anchored to the root
+# so the pattern cannot swallow a same-named path elsewhere in the tree.
+/my-control-assistant/
