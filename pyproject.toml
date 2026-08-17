@@ -132,7 +132,7 @@ dependencies = [
     # Lattice physics (Accelerator Toolbox for lattice dashboard + shared ring).
     # Floor-pinned for the save_mat/load_mat(use='RING'), disable_6d, and
     # get_optics(get_chrom=) surface the shared ALS-U AR ring relies on.
-    "accelerator-toolbox[plot]>=0.7.1",
+    "accelerator-toolbox[plot]>=0.8.0",
     # LUMEModel physics-backend contract for the VA (osprey.services.virtual_accelerator).
     # Exact-pinned: young/fast-moving API (8 releases between 0.3.2 and 0.5.0) and the
     # adapter code is written against the 0.5.0 contract specifically. Core, not optional —
