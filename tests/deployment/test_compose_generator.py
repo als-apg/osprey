@@ -5360,6 +5360,25 @@ _DIGEST_LABEL_LINE = '      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"\n'
 #: :func:`test_render_carries_no_deploy_timestamp`.
 _DEPLOYED_AT_LABEL_LINE = '      osprey.deployed.at: ""\n'
 
+#: The config-digest label and the comment that carries its reasoning, as the
+#: committed side does not render them yet while this addition is uncommitted.
+#: The mirror image of :data:`_DEPLOYED_AT_LABEL_LINE` — one delta is a removal
+#: and this one an addition, and both have to be nameable for the comparison
+#: below to survive its own commit. Includes the comment because the delta IS
+#: the whole block: stripping the label alone would leave the comment as an
+#: unexplained difference and fail for the wrong reason.
+_CONFIG_DIGEST_BLOCK = (
+    "      # Content fingerprint of the rendered config this deploy built\n"
+    "      # (runtime_helper's as_built_config_digest, carried in by\n"
+    "      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for\n"
+    "      # the other file a container reads its settings from: this service mounts\n"
+    "      # the rendered config.yml, so `osprey set` changes a file the compose\n"
+    "      # document never mentions and compose would leave the container running on\n"
+    "      # the settings it parsed at startup. Empty when the invocation did not set\n"
+    "      # the variable (a hand-run `docker compose up`).\n"
+    '      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"\n'
+)
+
 
 def _head_dispatcher_render() -> str:
     """Render the dispatcher template as of ``HEAD`` in the same Environment.
@@ -5402,7 +5421,7 @@ def _head_dispatcher_render() -> str:
 
 
 def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_label() -> None:
-    """One enumerated delta, byte for byte, and nothing else.
+    """The enumerated deltas, byte for byte, and nothing else.
 
     Asserted on raw text rather than parsed YAML: the macros' whole whitespace
     contract is that a default render moves no byte, and a parsed comparison
@@ -5413,11 +5432,16 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_
     """
 
     def _normalized(text: str) -> str:
-        return text.replace(_DIGEST_LABEL_LINE, "", 1).replace(_DEPLOYED_AT_LABEL_LINE, "", 1)
+        return (
+            text.replace(_DIGEST_LABEL_LINE, "", 1)
+            .replace(_DEPLOYED_AT_LABEL_LINE, "", 1)
+            .replace(_CONFIG_DIGEST_BLOCK, "", 1)
+        )
 
     rendered = _render_dispatcher_template()
 
     assert rendered.count(_DIGEST_LABEL_LINE) == 1, "the digest label renders exactly once"
+    assert rendered.count(_CONFIG_DIGEST_BLOCK) == 1, "the config digest renders exactly once"
     assert _normalized(rendered) == _normalized(_head_dispatcher_render())
 
 

@@ -280,6 +280,33 @@ def test_goldens_pin_the_env_chain_deltas() -> None:
     assert "./.env.shared" not in worker, "the default shape has no shared chain file"
 
 
+def test_every_labelled_golden_carries_the_config_digest() -> None:
+    """A service that mounts the rendered config must be recreated when it moves.
+
+    Enumerated across the whole baseline rather than spot-checked on one service,
+    because the failure is silent per service: a template without this label
+    renders, deploys and comes up healthy, and simply keeps serving the settings
+    it parsed the first time — so ``osprey set`` reports success and changes
+    nothing an operator can see.
+
+    Keyed on carrying the project labels at all: the services-root template
+    declares only the shared network and has no container to label.
+    """
+    missing = []
+    for name in sorted(path.name for path in _GOLDEN_DIR.glob("*.yml")):
+        text = (_GOLDEN_DIR / name).read_text(encoding="utf-8")
+        if "osprey.project.name:" not in text:
+            continue
+        if 'osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"' not in text:
+            missing.append(name)
+
+    assert not missing, (
+        f"these rendered services carry container labels but no config digest: {missing}. "
+        "A service that mounts the rendered config.yml needs it, or a config change "
+        "never reaches the running container."
+    )
+
+
 def _regenerate() -> None:
     """Overwrite every golden from today's templates. See the update discipline."""
     _GOLDEN_DIR.mkdir(parents=True, exist_ok=True)

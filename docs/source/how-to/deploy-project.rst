@@ -332,6 +332,23 @@ container was started, ask the runtime: ``docker inspect`` reports it as
 ``osprey.deployed.at`` label; a template you have customized that still sets it
 keeps building, and the label just renders empty, but you should drop the line.
 
+What that timestamp was doing by accident, two labels now do on purpose::
+
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+
+Your service reads its settings from files — the env chain, and the
+``config.yml`` mounted into the container — and the container runtime decides
+whether to restart a container by comparing the compose document, which names
+neither file's *contents*. So editing ``.env`` or running ``osprey set`` would
+leave the running container on the values it started with. Each label carries a
+hash of one of those files, which turns such an edit into a document change and
+restarts exactly the containers that read it. ``osprey up`` sets both variables
+for you; they interpolate to empty if you run ``docker compose`` by hand. **A
+service template you wrote yourself should carry both lines** — without them
+your service keeps serving its old settings after a change, with nothing to say
+so.
+
 Service Template Ownership
 ==========================
 

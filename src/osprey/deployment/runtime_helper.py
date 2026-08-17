@@ -352,6 +352,11 @@ def detect_compose_provider(
 #: contract and is spelled here once for every producer and consumer of it.
 ENV_DIGEST_VAR = "OSPREY_ENV_DIGEST"
 
+#: The same contract as :data:`ENV_DIGEST_VAR`, for the other file a container
+#: reads its settings out of: the rendered config the build decided on. Carried
+#: into an ``osprey.config.digest`` label by every service template.
+CONFIG_DIGEST_VAR = "OSPREY_CONFIG_DIGEST"
+
 
 def env_chain_digest(repo_root: Path | str) -> str:
     """Fingerprint of the env chain's *contents* under ``repo_root``.
@@ -391,6 +396,44 @@ def env_chain_digest(repo_root: Path | str) -> str:
     for path in paths:
         digest.update(path.read_bytes())
     return digest.hexdigest()
+
+
+def as_built_config_digest(repo_root: Path | str) -> str:
+    """Fingerprint of the *contents* of the config this repo's build decided on.
+
+    :func:`env_chain_digest`'s twin, for the other file whose contents reach a
+    container without passing through the compose document. Every service
+    directory receives the rendered project configuration as its own
+    ``config.yml`` and mounts it, so ``osprey set`` changes a FILE — and compose
+    decides whether to recreate a container by comparing service definitions,
+    which such a change leaves identical. Without a label carrying this, the
+    container keeps serving the configuration it parsed at startup, and ``set``
+    -> ``build`` -> ``up`` reports success having changed nothing an operator
+    can observe.
+
+    Hashes ``<repo_root>/build/config.yml`` — the single as-built config
+    (:func:`osprey.deployment.container_lifecycle.as_built_config_path`), which
+    is what ``up`` starts from and what every per-service copy is rendered from.
+    One file rather than the copies: they are one document, and hashing the
+    source keeps this answer independent of how many services a deployment has.
+
+    Raw bytes, like the env chain, and for the same reason — parsing would be a
+    second, subtly different answer to "did the config change?". A **comment**
+    edit therefore moves the digest and recreates containers. That is the honest
+    trade: the alternative is a semantic diff that has to stay in step with
+    every reader of the file, and a spurious recreate costs a restart while a
+    missed one leaves a container lying about its own configuration.
+
+    :param repo_root: The deployment repo root (the compose project directory).
+    :return: Hex sha256 of the as-built config, or ``""`` when the repo has no
+        rendered build yet — a valid state for every verb that runs before one.
+    """
+    from osprey.deployment.container_lifecycle import as_built_config_path
+
+    path = as_built_config_path(repo_root)
+    if not path.is_file():
+        return ""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def runtime_env(
@@ -471,7 +514,13 @@ def runtime_env(
     env["COMPOSE_PROJECT_NAME"] = resolve_project_name(config or {})
     # Derived from the repo compose_base_cmd pins as --project-directory, so the
     # digest covers the same chain files compose itself resolves ./.env* against.
-    env[ENV_DIGEST_VAR] = env_chain_digest(resolve_repo_root(config))
+    repo_root = resolve_repo_root(config)
+    env[ENV_DIGEST_VAR] = env_chain_digest(repo_root)
+    # Unconditional for the same reason the env digest is: the value only works
+    # as a recreate trigger if every invocation that can reach `up` computes the
+    # same one, and a call site that skipped it would interpolate the label to
+    # empty, read as a document change, and recreate the whole stack for nothing.
+    env[CONFIG_DIGEST_VAR] = as_built_config_digest(repo_root)
     if ignore_orphans:
         env["COMPOSE_IGNORE_ORPHANS"] = "1"
     return env
