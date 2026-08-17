@@ -78,6 +78,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   needs that one key renamed. Facility-authored plans are unaffected: a plan of
   your own may still call its read side `detectors`, `dets`, or `readables`.
 
+- The `hello-world` preset is now the onboarding path. Its `profile.yml` leaves
+  most keys unset on purpose, so each one arrives in your copy as a commented
+  block you can turn on later, and its tutorial runs the agent in the web
+  terminal (`osprey init` → `osprey build` → `osprey web`) instead of a terminal
+  chat session.
+
 - Lifecycle output now carries the CLI's theme. Phase openers anchor in the
   theme's primary color with a blank line before each phase, finished phases
   and durations dim so the open phase stays prominent, promoted facts and

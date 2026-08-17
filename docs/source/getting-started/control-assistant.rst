@@ -141,14 +141,16 @@ same safety hooks, then adds production capabilities. The most visible additions
 
 The **safety model is unchanged**: limits checking, the pre-write check, and the
 human-approval prompt all behave exactly as in the Hello World Tutorial. Refer
-back to that tutorial's "Safety & Limits" step for the write-approval walkthrough
-— we won't repeat it here.
+back to that tutorial's "Write with the Guards Watching" step for the
+write-approval walkthrough — we won't repeat it here.
 
-Start the agent the same way as before, from the project directory:
+Start the agent from anywhere inside the project — this tutorial stays in the
+terminal with ``osprey chat``; the web terminal from Hello World
+(``osprey web``) works just as well:
 
 .. code-block:: bash
 
-   claude
+   osprey chat
 
 .. note::
 
