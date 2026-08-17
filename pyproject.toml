@@ -152,6 +152,13 @@ dependencies = [
     "bluesky>=1.15.1",
     "ophyd-async[ca]>=0.16,<1.0",
     "tiled[client]>=0.2.14",
+    # Bluesky's own client view of a Tiled catalog: `BlueskyRun` /
+    # `BlueskyEventStream`, which know how a run's documents are laid out in the
+    # catalog so the bridge's read path does not have to. Exact-pinned, like the
+    # queue-server client below and for the same reason: it is a compatibility
+    # pairing, not a floor — 2.0.9 is the release that matches the shipped
+    # `ghcr.io/bluesky/tiled` server image and the `tiled` client floor above.
+    "bluesky-tiled-plugins==2.0.9",
     # Queue-server client the bridge's `QueueBackend` speaks to the RE manager
     # with. Exact-pinned (not floor-pinned like the rest of the stack): the
     # 0.0.x API still moves between patch releases, and the adapter is the only

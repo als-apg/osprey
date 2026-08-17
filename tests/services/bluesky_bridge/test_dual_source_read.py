@@ -4,10 +4,10 @@
 (`live_rows.py`) and Tiled (`_from_tiled`). This file tests only the BRANCHING
 between them — which source gets consulted, and in what order — by mocking
 `app_module._from_tiled` directly rather than a real or faked Tiled client
-(that boundary is already covered by `test_tiled_read_source.py`). `_window`'s
+(that boundary is already covered by `test_data_route.py`). `_window`'s
 pagination/truncation math is already covered by `test_read_bounded.py`'s live-
-path tests and `test_tiled_read_source.py`'s Tiled-path tests; this file does
-not re-test it.
+path tests and `test_data_route.py`'s Tiled-path tests; this file does not
+re-test it.
 
 The route holds no run state of its own: `run_id` is looked up in the buffer
 directly. That single lookup is what makes both live-row keyings work — a
@@ -27,7 +27,14 @@ Exercised here:
   `unknown_run`; a 200-empty would make a nonexistent run look like a valid
   empty scan).
 - Schema parity: a completed live-sourced response and a Tiled-sourced
-  response carry the identical key set.
+  response carry the identical key set — including the `analysis` block, whose
+  own keys are pinned to match across the two sources so an absent result reads
+  the same either way.
+
+The `_from_tiled` stubs below stand in for a function that computes an
+`analysis` block from the snapshot it read, so they carry one: a stub whose
+shape the real function never produces would let a missing key pass here and
+fail only in production.
 """
 
 from __future__ import annotations
@@ -37,8 +44,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.services.bluesky_bridge import analysis, live_rows
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import live_rows
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
 
@@ -57,10 +64,12 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     for the concrete failure mode this guards against.
     """
     live_rows._clear()
+    analysis._clear()
     monkeypatch.delenv(_TILED_URI_ENV, raising=False)
     monkeypatch.delenv(_TILED_API_KEY_ENV, raising=False)
     yield
     live_rows._clear()
+    analysis._clear()
 
 
 @pytest.fixture
@@ -260,6 +269,7 @@ def test_matched_but_empty_tiled_run_returns_200_not_404(
         "rows": [],
         "row_count": 0,
         "truncated": False,
+        "analysis": analysis.absent(analysis.REASON_PLAN_IDENTITY_UNAVAILABLE),
     }
     monkeypatch.setattr(app_module, "_from_tiled", lambda *a, **kw: empty_but_real)
 
@@ -296,15 +306,29 @@ def test_schema_parity_between_live_and_tiled_sourced_responses(
     _feed("run-schema-live", [{"x": 1.0}], stop=True)
     live_body = client.get("/runs/run-schema-live/data").json()
 
+    # Neither run carries a plan stamp, so this is the analysis block the real
+    # `_from_tiled` computes for the run it stands in for.
     tiled_body_payload = {
         "run_uid": "uid-schema-tiled",
         "columns": ["x"],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,
+        "analysis": analysis.absent(analysis.REASON_PLAN_IDENTITY_UNAVAILABLE),
     }
     monkeypatch.setattr(app_module, "_from_tiled", lambda *a, **kw: tiled_body_payload)
     tiled_body = client.get("/runs/some-other-run-id/data").json()
 
     assert set(live_body.keys()) == set(tiled_body.keys())
-    assert set(live_body.keys()) == {"run_uid", "columns", "rows", "row_count", "truncated"}
+    assert set(live_body.keys()) == {
+        "run_uid",
+        "columns",
+        "rows",
+        "row_count",
+        "truncated",
+        "analysis",
+    }
+    # Parity goes one level deeper for `analysis`: a stored run's statistics
+    # must read exactly like a live one's, absent results included — which is
+    # why the absent shape carries the same keys an available one does.
+    assert live_body["analysis"] == tiled_body["analysis"]
