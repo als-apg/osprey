@@ -1,4 +1,4 @@
-"""Tests for the qmd_search MCP tool."""
+"""Tests for the hybrid_search MCP tool."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,7 +17,7 @@ def _make_search_result(entries, reasoning="", sources=(), diagnostics=()):
     result.answer = None
     result.reasoning = reasoning
     result.sources = tuple(sources)
-    result.search_modes_used = ("qmd",)
+    result.search_modes_used = ("hybrid",)
     result.diagnostics = tuple(diagnostics)
     result.pipeline_details = None
     return result
@@ -27,16 +27,16 @@ def _qmd_error(message):
     """Build the diagnostic the service returns when the qmd module raised."""
     return SearchDiagnostic(
         level=DiagnosticLevel.ERROR,
-        source="service.qmd",
+        source="service.hybrid",
         message=message,
         category="search",
     )
 
 
-def _get_qmd_search():
-    from osprey.mcp_server.ariel.tools.qmd_search import qmd_search
+def _get_hybrid_search():
+    from osprey.mcp_server.ariel.tools.hybrid_search import hybrid_search
 
-    return get_tool_fn(qmd_search)
+    return get_tool_fn(hybrid_search)
 
 
 def _setup_registry(tmp_path, monkeypatch, config=None):
@@ -47,12 +47,12 @@ def _setup_registry(tmp_path, monkeypatch, config=None):
 
 
 @pytest.mark.unit
-async def test_qmd_search_basic(tmp_path, monkeypatch):
-    """Basic qmd search returns matching entries."""
+async def test_hybrid_search_basic(tmp_path, monkeypatch):
+    """Basic hybrid search returns matching entries."""
     _setup_registry(tmp_path, monkeypatch)
 
     entries = [make_mock_entry(entry_id="e1", raw_text="Beam loss event", score=0.9)]
-    mock_result = _make_search_result(entries, reasoning="Qmd search: 1 results")
+    mock_result = _make_search_result(entries, reasoning="Hybrid search: 1 results")
 
     mock_service = AsyncMock()
     mock_service.search.return_value = mock_result
@@ -61,7 +61,7 @@ async def test_qmd_search_basic(tmp_path, monkeypatch):
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         result = await fn(query="beam loss problems")
 
     data = extract_response_dict(result)
@@ -69,11 +69,11 @@ async def test_qmd_search_basic(tmp_path, monkeypatch):
     assert data["results_found"] == 1
     assert data["entries"][0]["entry_id"] == "e1"
     assert data["entries"][0]["score"] == 0.9
-    assert data["mode"] == "qmd"
+    assert data["mode"] == "hybrid"
 
 
 @pytest.mark.unit
-async def test_qmd_search_dispatches_to_the_qmd_mode(tmp_path, monkeypatch):
+async def test_hybrid_search_dispatches_to_the_hybrid_mode(tmp_path, monkeypatch):
     """The tool must route to its own search module, not a neighbour's."""
     _setup_registry(tmp_path, monkeypatch)
 
@@ -84,14 +84,14 @@ async def test_qmd_search_dispatches_to_the_qmd_mode(tmp_path, monkeypatch):
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         await fn(query="beam loss")
 
-    assert mock_service.search.call_args.kwargs["mode"] == "qmd"
+    assert mock_service.search.call_args.kwargs["mode"] == "hybrid"
 
 
 @pytest.mark.unit
-async def test_qmd_search_forwards_author_and_source_filters(tmp_path, monkeypatch):
+async def test_hybrid_search_forwards_author_and_source_filters(tmp_path, monkeypatch):
     """author and source_system travel as advanced params."""
     _setup_registry(tmp_path, monkeypatch)
 
@@ -102,7 +102,7 @@ async def test_qmd_search_forwards_author_and_source_filters(tmp_path, monkeypat
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         await fn(query="test", author="chen", source_system="ALS eLog")
 
     adv = mock_service.search.call_args.kwargs["advanced_params"]
@@ -111,7 +111,7 @@ async def test_qmd_search_forwards_author_and_source_filters(tmp_path, monkeypat
 
 
 @pytest.mark.unit
-async def test_qmd_search_forwards_date_range(tmp_path, monkeypatch):
+async def test_hybrid_search_forwards_date_range(tmp_path, monkeypatch):
     """start_date and end_date become the request's time range."""
     _setup_registry(tmp_path, monkeypatch)
 
@@ -122,7 +122,7 @@ async def test_qmd_search_forwards_date_range(tmp_path, monkeypatch):
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         await fn(query="test", start_date="2024-01-15", end_date="2024-02-15")
 
     start, end = mock_service.search.call_args.kwargs["time_range"]
@@ -131,7 +131,7 @@ async def test_qmd_search_forwards_date_range(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_qmd_search_exclude_entry_ids(tmp_path, monkeypatch):
+async def test_hybrid_search_exclude_entry_ids(tmp_path, monkeypatch):
     """exclude_entry_ids filters out entries and over-fetches to compensate."""
     _setup_registry(tmp_path, monkeypatch)
 
@@ -146,7 +146,7 @@ async def test_qmd_search_exclude_entry_ids(tmp_path, monkeypatch):
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         result = await fn(query="entry", max_results=2, exclude_entry_ids=["e1"])
 
     data = extract_response_dict(result)
@@ -156,7 +156,7 @@ async def test_qmd_search_exclude_entry_ids(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_qmd_search_caps_at_max_results(tmp_path, monkeypatch):
+async def test_hybrid_search_caps_at_max_results(tmp_path, monkeypatch):
     """The response never exceeds what the caller asked for."""
     _setup_registry(tmp_path, monkeypatch)
 
@@ -168,16 +168,16 @@ async def test_qmd_search_caps_at_max_results(tmp_path, monkeypatch):
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         result = await fn(query="entry", max_results=2)
 
     assert extract_response_dict(result)["results_found"] == 2
 
 
 @pytest.mark.unit
-async def test_qmd_search_empty_query():
+async def test_hybrid_search_empty_query():
     """Empty query returns validation error."""
-    fn = _get_qmd_search()
+    fn = _get_hybrid_search()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(query="")
 
@@ -187,18 +187,18 @@ async def test_qmd_search_empty_query():
 
 
 @pytest.mark.unit
-async def test_qmd_search_no_results_is_not_an_error(tmp_path, monkeypatch):
+async def test_hybrid_search_no_results_is_not_an_error(tmp_path, monkeypatch):
     """A query that matched nothing is a normal, empty response."""
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
-    mock_service.search.return_value = _make_search_result([], reasoning="Qmd search: 0 results")
+    mock_service.search.return_value = _make_search_result([], reasoning="Hybrid search: 0 results")
 
     with patch(
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         result = await fn(query="nothing matches this")
 
     data = extract_response_dict(result)
@@ -224,10 +224,10 @@ async def test_sidecar_down_is_an_error_not_an_empty_result(tmp_path, monkeypatc
     mock_service = AsyncMock()
     mock_service.search.return_value = _make_search_result(
         [],
-        reasoning="Qmd search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering",
+        reasoning="Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering",
         diagnostics=[
             _qmd_error(
-                "Qmd search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering"
+                "Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering"
             )
         ],
     )
@@ -236,7 +236,7 @@ async def test_sidecar_down_is_an_error_not_an_empty_result(tmp_path, monkeypatc
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
 
@@ -256,14 +256,14 @@ async def test_sidecar_down_names_the_health_endpoint(tmp_path, monkeypatch):
 
     mock_service = AsyncMock()
     mock_service.search.return_value = _make_search_result(
-        [], diagnostics=[_qmd_error("Qmd search failed: sidecar unreachable")]
+        [], diagnostics=[_qmd_error("Hybrid search failed: sidecar unreachable")]
     )
 
     with patch(
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
 
@@ -279,14 +279,14 @@ async def test_unconfigured_sidecar_points_at_the_config_block(tmp_path, monkeyp
 
     mock_service = AsyncMock()
     mock_service.search.return_value = _make_search_result(
-        [], diagnostics=[_qmd_error("Qmd search failed: no qmd sidecar is configured")]
+        [], diagnostics=[_qmd_error("Hybrid search failed: no qmd sidecar is configured")]
     )
 
     with patch(
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
 
@@ -302,7 +302,7 @@ async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(tmp_path, monkeypa
 
     unrelated = SearchDiagnostic(
         level=DiagnosticLevel.WARNING,
-        source="service.qmd",
+        source="service.hybrid",
         message="some entries were dropped",
         category="search",
     )
@@ -323,7 +323,7 @@ async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(tmp_path, monkeypa
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         result = await fn(query="beam loss")
 
     data = extract_response_dict(result)
@@ -340,20 +340,20 @@ async def test_disabled_mode_names_the_enable_key(tmp_path, monkeypatch):
 
     mock_service = AsyncMock()
     mock_service.search.side_effect = ConfigurationError(
-        "Search mode 'qmd' is not enabled. Available modes: keyword, semantic",
-        config_key="search_modules.qmd.enabled",
+        "Search mode 'hybrid' is not enabled. Available modes: keyword, semantic",
+        config_key="search_modules.hybrid.enabled",
     )
 
     with patch(
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
 
     data = _exc_ctx["envelope"]
-    assert any("search_modules.qmd.enabled" in s for s in data["suggestions"])
+    assert any("search_modules.hybrid.enabled" in s for s in data["suggestions"])
 
 
 @pytest.mark.unit
@@ -371,7 +371,7 @@ async def test_unregistered_mode_does_not_advise_the_enable_key(tmp_path, monkey
 
     mock_service = AsyncMock()
     mock_service.search.side_effect = ConfigurationError(
-        "Unknown search mode 'qmd'. Available modes: keyword, semantic",
+        "Unknown search mode 'hybrid'. Available modes: keyword, semantic",
         config_key="modes",
     )
 
@@ -379,18 +379,18 @@ async def test_unregistered_mode_does_not_advise_the_enable_key(tmp_path, monkey
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
             await fn(query="beam loss")
 
     suggestions = _exc_ctx["envelope"]["suggestions"]
-    assert not any("search_modules.qmd.enabled" in s for s in suggestions)
+    assert not any("search_modules.hybrid.enabled" in s for s in suggestions)
     assert any("not registered" in s for s in suggestions)
     assert any("startup log" in s for s in suggestions)
 
 
 @pytest.mark.unit
-async def test_qmd_search_service_error(tmp_path, monkeypatch):
+async def test_hybrid_search_service_error(tmp_path, monkeypatch):
     """Service failure returns standard error format."""
     _setup_registry(tmp_path, monkeypatch)
 
@@ -401,7 +401,7 @@ async def test_qmd_search_service_error(tmp_path, monkeypatch):
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
         new=AsyncMock(return_value=mock_service),
     ):
-        fn = _get_qmd_search()
+        fn = _get_hybrid_search()
         with assert_raises_error(error_type="internal_error") as _exc_ctx:
             await fn(query="test")
 
@@ -416,9 +416,9 @@ async def test_qmd_search_service_error(tmp_path, monkeypatch):
 @pytest.mark.unit
 def test_docstring_states_the_best_effort_filtering_caveat():
     """The caveat is the tool's substance: an agent that misses it stops early."""
-    from osprey.mcp_server.ariel.tools.qmd_search import qmd_search
+    from osprey.mcp_server.ariel.tools.hybrid_search import hybrid_search
 
-    doc = get_tool_fn(qmd_search).__doc__ or ""
+    doc = get_tool_fn(hybrid_search).__doc__ or ""
 
     assert "best-effort" in doc
     assert "fewer than max_results" in doc
@@ -435,9 +435,9 @@ def test_docstring_promises_no_field_the_response_omits():
     search tool has ever populated, which invites the agent to hunt for it or
     to report its absence as a failure.
     """
-    from osprey.mcp_server.ariel.tools.qmd_search import qmd_search
+    from osprey.mcp_server.ariel.tools.hybrid_search import hybrid_search
 
-    doc = get_tool_fn(qmd_search).__doc__ or ""
+    doc = get_tool_fn(hybrid_search).__doc__ or ""
 
     assert "workspace file path" not in doc
     assert "matching entries and relevance scores" in doc
@@ -452,14 +452,14 @@ def test_tool_is_registered_on_the_ariel_server():
 
     source = Path(server.__file__).read_text(encoding="utf-8")
     tool_import = source.split("from osprey.mcp_server.ariel.tools import")[1]
-    assert "qmd_search," in tool_import.split(")")[0]
+    assert "hybrid_search," in tool_import.split(")")[0]
 
 
 @pytest.mark.unit
 def test_tool_is_auto_allowed():
-    """qmd_search is a read tool, so it belongs in permissions_allow."""
+    """hybrid_search is a read tool, so it belongs in permissions_allow."""
     from osprey.registry.mcp import FRAMEWORK_SERVERS
 
     ariel = FRAMEWORK_SERVERS["ariel"]
-    assert "qmd_search" in ariel.permissions_allow
-    assert "qmd_search" not in ariel.permissions_ask
+    assert "hybrid_search" in ariel.permissions_allow
+    assert "hybrid_search" not in ariel.permissions_ask

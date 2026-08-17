@@ -162,7 +162,7 @@ The built-in enhancement modules:
 
       **Module:** ``enhancement/qmd_export/`` (entry point: ``exporter.py``)
 
-      Writes one markdown file per entry into a **mirror tree** --- the corpus the qmd search sidecar indexes. It is what makes the ``qmd`` :doc:`search mode <search-modes>` able to answer anything, and it is off by default for the same reason that mode is: both halves have to be turned on together.
+      Writes one markdown file per entry into a **mirror tree** --- the corpus the qmd search sidecar indexes. It is what makes the ``hybrid`` :doc:`search mode <search-modes>` able to answer anything, and it is off by default for the same reason that mode is: both halves have to be turned on together.
 
       **Configuration:**
 

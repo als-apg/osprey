@@ -1,4 +1,4 @@
-"""ARIEL qmd search module.
+"""ARIEL hybrid search module, backed by the qmd sidecar.
 
 Answers a search request from the qmd sidecar's ARIEL mirror collection rather
 than from Postgres. The sidecar indexes the markdown tree that the ``qmd_export``
@@ -39,7 +39,7 @@ would starve the result set, so a filtered query asks the sidecar for
 dominates query latency — roughly 4x — and its cost is near-constant in corpus
 size. This is an agent-facing tool with no interactive budget to blow, so the
 default is qmd's own (``True``), and a deployment that wants the fast path sets
-``search_modules.qmd.settings.rerank: false``.
+``search_modules.hybrid.settings.rerank: false``.
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ MAX_FETCH_LIMIT = 200
 TITLE_ENTRY_PREFIX = "Entry "
 
 #: Config block the query knobs are read from.
-_SETTINGS_PREFIX = "search_modules.qmd.settings"
+_SETTINGS_PREFIX = "search_modules.hybrid.settings"
 
 # Built once and reused: the client caches its health verdict and its MCP
 # session, and a fresh client per query would re-handshake every time.
@@ -107,8 +107,8 @@ _cached_client: QMDClient | None = None
 
 
 @dataclass(frozen=True)
-class QmdSearchSettings:
-    """Query knobs read from ``search_modules.qmd.settings``.
+class HybridSearchSettings:
+    """Query knobs read from ``search_modules.hybrid.settings``.
 
     Attributes:
         rerank: Whether qmd reranks candidates with its LLM reranker. Defaults
@@ -125,7 +125,7 @@ class QmdSearchSettings:
     collection: str = ARIEL_COLLECTION
 
     @classmethod
-    def from_ariel_config(cls, config: ARIELConfig | None) -> QmdSearchSettings:
+    def from_ariel_config(cls, config: ARIELConfig | None) -> HybridSearchSettings:
         """Read the module's ``settings`` block, defaults filled in.
 
         An absent block is the normal case and yields the defaults. A *present*
@@ -144,7 +144,7 @@ class QmdSearchSettings:
             ValueError: If ``rerank`` is present but not a boolean, or
                 ``candidate_limit`` is present but not a positive integer.
         """
-        module = config.search_modules.get("qmd") if config is not None else None
+        module = config.search_modules.get("hybrid") if config is not None else None
         settings = module.settings if module is not None else None
         if not isinstance(settings, dict):
             return cls()
@@ -222,7 +222,7 @@ def _reset_client_cache() -> None:
         _cached_client = None
 
 
-async def qmd_search(
+async def hybrid_search(
     query: str,
     repository: ARIELRepository,
     config: ARIELConfig,
@@ -274,7 +274,7 @@ async def qmd_search(
     if not query.strip():
         return []
 
-    settings = QmdSearchSettings.from_ariel_config(config)
+    settings = HybridSearchSettings.from_ariel_config(config)
     effective_rerank = settings.rerank if rerank is None else bool(rerank)
     effective_candidates = settings.candidate_limit if candidate_limit is None else candidate_limit
 
@@ -290,7 +290,7 @@ async def qmd_search(
     fetch_limit = _fetch_limit(max_results, filters.any_active)
 
     logger.info(
-        f"qmd_search: query={query!r}, max_results={max_results}, fetch_limit={fetch_limit}, "
+        f"hybrid_search: query={query!r}, max_results={max_results}, fetch_limit={fetch_limit}, "
         f"rerank={effective_rerank}, candidate_limit={effective_candidates}"
     )
 
@@ -308,7 +308,7 @@ async def qmd_search(
 
     ranked = _decode_hits(hits)
     if not ranked:
-        logger.info("qmd_search: returning 0 results")
+        logger.info("hybrid_search: returning 0 results")
         return []
 
     entries = await repository.get_entries_by_ids([entry_id for entry_id, _ in ranked])
@@ -319,7 +319,7 @@ async def qmd_search(
         entry = by_id.get(entry_id)
         if entry is None:
             # The mirror is a copy of the database and may lag a deletion.
-            logger.debug(f"qmd_search: no row for mirrored entry {entry_id!r}, dropping hit")
+            logger.debug(f"hybrid_search: no row for mirrored entry {entry_id!r}, dropping hit")
             continue
         if not filters.accepts(entry):
             continue
@@ -327,7 +327,7 @@ async def qmd_search(
         if len(results) >= max_results:
             break
 
-    logger.info(f"qmd_search: returning {len(results)} results")
+    logger.info(f"hybrid_search: returning {len(results)} results")
     return results
 
 
@@ -372,7 +372,7 @@ def _decode_hits(hits: list[QMDSearchResult]) -> list[tuple[str, QMDSearchResult
         entry_id = _entry_id_from_title(hit.title)
         if entry_id is None:
             logger.warning(
-                f"qmd_search: hit declares no entry in its title, dropping it: "
+                f"hybrid_search: hit declares no entry in its title, dropping it: "
                 f"title={hit.title!r} file={hit.file!r}"
             )
             continue
@@ -435,7 +435,7 @@ def _warn_on_path_disagreement(entry_id: str, hit: QMDSearchResult) -> None:
         from_path = None
     if from_path is not None and from_path != entry_id:
         logger.warning(
-            f"qmd_search: reported path disagrees with the document's own title; "
+            f"hybrid_search: reported path disagrees with the document's own title; "
             f"trusting the title. title={entry_id!r} path={from_path!r} file={hit.file!r}"
         )
 
@@ -523,7 +523,7 @@ def _as_utc(value: Any) -> datetime | None:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
-class QmdSearchInput(BaseModel):
+class HybridSearchInput(BaseModel):
     """Input schema for the qmd search tool."""
 
     query: str = Field(
@@ -599,14 +599,14 @@ def get_parameter_descriptors() -> list[ParameterDescriptor]:
 def get_tool_descriptor() -> SearchToolDescriptor:
     """Return the descriptor for auto-discovery by the agent executor."""
     return SearchToolDescriptor(
-        name="qmd_search",
+        name="hybrid_search",
         description=(
             "Hybrid keyword and semantic search over the mirrored logbook corpus, "
             "ranked by the qmd sidecar. Use when a query mixes specific terms with "
             "a described situation, or when keyword search returns too little."
         ),
-        search_mode="qmd",
-        args_schema=QmdSearchInput,
-        execute=qmd_search,
+        search_mode="hybrid",
+        args_schema=HybridSearchInput,
+        execute=hybrid_search,
         format_result=format_qmd_result,
     )

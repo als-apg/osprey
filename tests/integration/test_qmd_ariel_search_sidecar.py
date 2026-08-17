@@ -418,9 +418,9 @@ async def sidecar_repository(sidecar_world: _World):
 async def _search(world, repository, client, query=SAFE_TOKEN, **kwargs):
     """Run the real search module against the real sidecar."""
     from osprey.services.ariel_search.config import ARIELConfig
-    from osprey.services.ariel_search.search.qmd import qmd_search
+    from osprey.services.ariel_search.search.qmd import hybrid_search
 
-    return await qmd_search(
+    return await hybrid_search(
         query,
         repository,
         ARIELConfig.from_dict(world.config_dict),
@@ -430,7 +430,7 @@ async def _search(world, repository, client, query=SAFE_TOKEN, **kwargs):
 
 
 def _ids(results) -> set[str]:
-    """The entry ids in a ``qmd_search`` result list."""
+    """The entry ids in a ``hybrid_search`` result list."""
     return {entry["entry_id"] for entry, _score, _snippets in results}
 
 
@@ -608,7 +608,7 @@ class TestUnderscoreCollision:
        problem: two distinct ids must not produce names qmd cannot tell apart.
 
     2. **Closed — do not escalate this.** The reported path *would* invert to the
-       other entry's key, which is exactly why ``qmd_search`` no longer inverts
+       other entry's key, which is exactly why ``hybrid_search`` no longer inverts
        the path: it reads the identifier from the document's own
        ``# Entry <id>`` heading, which qmd reports unchanged. The survivor
        therefore hydrates to ``beam_current_setpoint``, the correct row, logging
@@ -677,7 +677,7 @@ class TestUnderscoreCollision:
         """Pins the path channel that hydration deliberately no longer consults.
 
         This measures ``entry_id_from_path(hit.file)`` directly — a channel
-        ``qmd_search`` stopped using — so it is a counterfactual, not a report of
+        ``hybrid_search`` stopped using — so it is a counterfactual, not a report of
         current behaviour: *had* hydration kept inverting the reported path, this
         hit would have returned the hyphen entry's row for the underscore entry's
         document. Kept measured rather than asserted in prose so the title

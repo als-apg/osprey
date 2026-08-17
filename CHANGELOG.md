@@ -158,12 +158,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   `facility_knowledge.search` is off by default: it costs roughly four times
   the query latency, and these surfaces are interactive.
 
-- ARIEL gains a `qmd` search mode and a matching `qmd_search` tool for the
-  OSPREY agent, answering over a markdown mirror of the logbook written by the
-  new `qmd_export` enhancement module. Both are off by default, and both are
-  needed — the mirror with no search mode is never queried, and the search mode
-  with no mirror has nothing to read. Configure them under
-  `ariel.search_modules.qmd` and `ariel.enhancement_modules.qmd_export`; the
+- ARIEL gains a `hybrid` search mode and a matching `hybrid_search` tool for
+  the OSPREY agent, answering over a markdown mirror of the logbook written by
+  the new `qmd_export` enhancement module. Both are off by default, and both
+  are needed — the mirror with no search mode is never queried, and the search
+  mode with no mirror has nothing to read. Configure them under
+  `ariel.search_modules.hybrid` and `ariel.enhancement_modules.qmd_export`; the
   search knobs must sit under `settings:`, as keys written beside `enabled` are
   ignored. `rerank` is on here, where ranking quality is worth the latency.
 

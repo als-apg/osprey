@@ -409,7 +409,8 @@ keys:
   ariel.search_modules.semantic.enabled: {covered-by: ariel.search_modules.semantic}
   ariel.search_modules.semantic.provider: {covered-by: ariel.search_modules.semantic}
   ariel.search_modules.semantic.model: {covered-by: ariel.search_modules.semantic}
-  # The qmd sidecar search mode. Unlike its keyword/semantic siblings the knobs
+  # The hybrid search mode, answered by the qmd sidecar. Unlike its
+  # keyword/semantic siblings the knobs
   # get their OWN evidence rather than a covered-by chain, because the loader
   # they pass through is the one place this block can silently evaporate:
   # SearchModuleConfig.from_dict keeps `enabled`, `provider`, `model` and
@@ -418,12 +419,12 @@ keys:
   # sibling of `enabled` is therefore inert forever — no error, just defaults —
   # so each regex below anchors on the reader that proves the nested spelling
   # is the one being read.
-  ariel.search_modules.qmd:
-    evidence: 'config\.search_modules\.get\("qmd"\)'
-  ariel.search_modules.qmd.enabled: {covered-by: ariel.search_modules.qmd}
-  ariel.search_modules.qmd.settings:
-    evidence: '_SETTINGS_PREFIX = "search_modules\.qmd\.settings"'
-  ariel.search_modules.qmd.settings.rerank:
+  ariel.search_modules.hybrid:
+    evidence: 'config\.search_modules\.get\("hybrid"\)'
+  ariel.search_modules.hybrid.enabled: {covered-by: ariel.search_modules.hybrid}
+  ariel.search_modules.hybrid.settings:
+    evidence: '_SETTINGS_PREFIX = "search_modules\.hybrid\.settings"'
+  ariel.search_modules.hybrid.settings.rerank:
     evidence: '_SETTINGS_PREFIX\}\.rerank must be a boolean'
     note: >-
       Shipped as `true`, matching DEFAULT_RERANK and qmd's own default. The
@@ -433,7 +434,7 @@ keys:
       way. The evidence anchors on the type refusal rather than the read: a
       present-but-malformed knob is rejected, never defaulted, because
       defaulting it would strand a deployment on the path it asked to leave.
-  ariel.search_modules.qmd.settings.candidate_limit:
+  ariel.search_modules.hybrid.settings.candidate_limit:
     evidence: '_SETTINGS_PREFIX\}\.candidate_limit must be a positive integer'
     note: >-
       Shipped as `40`, matching DEFAULT_CANDIDATE_LIMIT and qmd's own
@@ -456,7 +457,7 @@ keys:
   ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding}
   ariel.enhancement_modules.text_embedding.models: {covered-by: ariel.enhancement_modules.text_embedding}
   # The markdown mirror the qmd sidecar indexes — one file per logbook entry,
-  # written during ingestion. Paired with `ariel.search_modules.qmd` above: the
+  # written during ingestion. Paired with `ariel.search_modules.hybrid` above: the
   # export without the search mode indexes a corpus nobody queries, and the
   # search mode without the export queries a corpus nobody wrote.
   ariel.enhancement_modules.qmd_export:

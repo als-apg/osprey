@@ -25,11 +25,11 @@ from osprey.services.ariel_search.search.qmd import (
     DEFAULT_RERANK,
     MAX_FETCH_LIMIT,
     OVERFETCH_FACTOR,
-    QmdSearchSettings,
+    HybridSearchSettings,
     format_qmd_result,
     get_parameter_descriptors,
     get_tool_descriptor,
-    qmd_search,
+    hybrid_search,
 )
 from osprey.services.qmd import QMDSearchResult, QMDUnavailableError
 
@@ -135,9 +135,9 @@ def mirror_file(entry_id: str, *, shard: str = "2024/06") -> str:
 
 
 def make_config(settings: dict[str, Any] | None = None) -> ARIELConfig:
-    """Build an ARIELConfig whose ``qmd`` module carries *settings*."""
+    """Build an ARIELConfig whose ``hybrid`` module carries *settings*."""
     config = ARIELConfig(database=DatabaseConfig(uri="postgresql://localhost/ariel"))
-    config.search_modules["qmd"] = SearchModuleConfig(enabled=True, settings=settings or {})
+    config.search_modules["hybrid"] = SearchModuleConfig(enabled=True, settings=settings or {})
     return config
 
 
@@ -149,13 +149,13 @@ def make_config(settings: dict[str, Any] | None = None) -> ARIELConfig:
 class TestDescriptor:
     """The descriptor the agent executor auto-discovers."""
 
-    def test_search_mode_is_the_plain_string_qmd(self):
-        assert get_tool_descriptor().search_mode == "qmd"
+    def test_search_mode_is_the_plain_string_hybrid(self):
+        assert get_tool_descriptor().search_mode == "hybrid"
 
     def test_descriptor_fields(self):
         descriptor = get_tool_descriptor()
-        assert descriptor.name == "qmd_search"
-        assert descriptor.execute is qmd_search
+        assert descriptor.name == "hybrid_search"
+        assert descriptor.execute is hybrid_search
         assert descriptor.format_result is format_qmd_result
         assert descriptor.needs_embedder is False
         assert "query" in descriptor.args_schema.model_fields
@@ -170,7 +170,7 @@ class TestDescriptor:
 
         config = FrameworkRegistryProvider().get_registry_config()
         registrations = {r.name: r for r in config.ariel_search_modules}
-        assert registrations["qmd"].module_path == "osprey.services.ariel_search.search.qmd"
+        assert registrations["hybrid"].module_path == "osprey.services.ariel_search.search.qmd"
 
     def test_format_result_carries_score_and_highlights(self):
         formatted = format_qmd_result(make_entry("42"), 0.5, ["1: beam down"])
@@ -185,39 +185,39 @@ class TestDescriptor:
 
 
 class TestSettings:
-    """``search_modules.qmd.settings`` resolution."""
+    """``search_modules.hybrid.settings`` resolution."""
 
     def test_defaults_when_unconfigured(self):
-        settings = QmdSearchSettings.from_ariel_config(make_config())
+        settings = HybridSearchSettings.from_ariel_config(make_config())
         assert settings.rerank is DEFAULT_RERANK is True
         assert settings.candidate_limit == DEFAULT_CANDIDATE_LIMIT
         assert settings.collection == ARIEL_COLLECTION
 
     def test_defaults_when_module_absent_entirely(self):
         bare = ARIELConfig(database=DatabaseConfig(uri="postgresql://localhost/ariel"))
-        assert QmdSearchSettings.from_ariel_config(bare).rerank is True
+        assert HybridSearchSettings.from_ariel_config(bare).rerank is True
 
     def test_config_turns_reranking_off(self):
-        settings = QmdSearchSettings.from_ariel_config(make_config({"rerank": False}))
+        settings = HybridSearchSettings.from_ariel_config(make_config({"rerank": False}))
         assert settings.rerank is False
 
     def test_config_sets_candidate_limit(self):
-        settings = QmdSearchSettings.from_ariel_config(make_config({"candidate_limit": 12}))
+        settings = HybridSearchSettings.from_ariel_config(make_config({"candidate_limit": 12}))
         assert settings.candidate_limit == 12
 
     def test_candidate_limit_none_defers_to_qmd(self):
-        settings = QmdSearchSettings.from_ariel_config(make_config({"candidate_limit": None}))
+        settings = HybridSearchSettings.from_ariel_config(make_config({"candidate_limit": None}))
         assert settings.candidate_limit is None
 
     @pytest.mark.parametrize("bad", ["false", 0, None])
     def test_malformed_rerank_is_refused(self, bad):
-        with pytest.raises(ValueError, match="search_modules.qmd.settings.rerank"):
-            QmdSearchSettings.from_ariel_config(make_config({"rerank": bad}))
+        with pytest.raises(ValueError, match="search_modules.hybrid.settings.rerank"):
+            HybridSearchSettings.from_ariel_config(make_config({"rerank": bad}))
 
     @pytest.mark.parametrize("bad", [0, -1, True, "40"])
     def test_malformed_candidate_limit_is_refused(self, bad):
-        with pytest.raises(ValueError, match="search_modules.qmd.settings.candidate_limit"):
-            QmdSearchSettings.from_ariel_config(make_config({"candidate_limit": bad}))
+        with pytest.raises(ValueError, match="search_modules.hybrid.settings.candidate_limit"):
+            HybridSearchSettings.from_ariel_config(make_config({"candidate_limit": bad}))
 
 
 # --------------------------------------------------------------------------
@@ -232,7 +232,7 @@ class TestQueryKnobs:
     async def test_config_rerank_is_forwarded(self):
         """The assertion documents the mode it measures: config says False."""
         client = StubClient([])
-        await qmd_search(
+        await hybrid_search(
             "beam",
             StubRepository([]),
             make_config({"rerank": False, "candidate_limit": 12}),
@@ -245,14 +245,14 @@ class TestQueryKnobs:
     async def test_default_is_reranked(self):
         """Nothing configured: the agent-facing tool keeps qmd's quality path."""
         client = StubClient([])
-        await qmd_search("beam", StubRepository([]), make_config(), client=client)
+        await hybrid_search("beam", StubRepository([]), make_config(), client=client)
         assert client.calls[0]["rerank"] is True
         assert client.calls[0]["candidate_limit"] == DEFAULT_CANDIDATE_LIMIT
 
     @pytest.mark.asyncio
     async def test_per_query_override_beats_config(self):
         client = StubClient([])
-        await qmd_search(
+        await hybrid_search(
             "beam",
             StubRepository([]),
             make_config({"rerank": True}),
@@ -266,13 +266,13 @@ class TestQueryKnobs:
     @pytest.mark.asyncio
     async def test_query_is_scoped_to_the_ariel_collection(self):
         client = StubClient([])
-        await qmd_search("beam", StubRepository([]), make_config(), client=client)
+        await hybrid_search("beam", StubRepository([]), make_config(), client=client)
         assert client.calls[0]["collection"] == ARIEL_COLLECTION
 
     @pytest.mark.asyncio
     async def test_blank_query_never_reaches_the_sidecar(self):
         client = StubClient([])
-        assert await qmd_search("   ", StubRepository([]), make_config(), client=client) == []
+        assert await hybrid_search("   ", StubRepository([]), make_config(), client=client) == []
         assert client.calls == []
 
 
@@ -327,7 +327,7 @@ class TestIdentityRecovery:
         client = StubClient([mangled_hit(entry_id)])
         repo = StubRepository([make_entry(entry_id)])
 
-        results = await qmd_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search("beam", repo, make_config(), client=client)
 
         assert repo.requested == [[entry_id]]
         assert [entry["entry_id"] for entry, _, _ in results] == [entry_id]
@@ -348,7 +348,7 @@ class TestIdentityRecovery:
         client = StubClient([mangled_hit(underscore), mangled_hit(hyphen, score=0.5)])
         repo = StubRepository([make_entry(underscore), make_entry(hyphen)])
 
-        results = await qmd_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search("beam", repo, make_config(), client=client)
 
         assert [entry["entry_id"] for entry, _, _ in results] == [underscore, hyphen]
 
@@ -363,7 +363,7 @@ class TestIdentityRecovery:
         client = StubClient([mangled_hit("a%2Fb")])
         repo = StubRepository([make_entry("a%2Fb"), make_entry("a/b")])
 
-        results = await qmd_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search("beam", repo, make_config(), client=client)
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["a%2Fb"]
 
@@ -382,7 +382,7 @@ class TestIdentityRecovery:
         )
         repo = StubRepository([make_entry(entry_id)])
 
-        results = await qmd_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search("beam", repo, make_config(), client=client)
 
         # All four name the same entry, so it is requested and returned once.
         assert repo.requested == [[entry_id]]
@@ -402,7 +402,7 @@ class TestIdentityRecovery:
         )
         repo = StubRepository([make_entry(good), make_entry("99")])
 
-        results = await qmd_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search("beam", repo, make_config(), client=client)
 
         # 99 has a row and is what every dropped hit's path pointed at, so it
         # would have appeared had the path been used as a fallback.
@@ -413,7 +413,7 @@ class TestIdentityRecovery:
     async def test_path_disagreement_is_logged(self, caplog):
         """A silent corruption becomes a discoverable one."""
         with caplog.at_level("WARNING", logger="ariel"):
-            await qmd_search(
+            await hybrid_search(
                 "beam",
                 StubRepository([make_entry("beam_current_setpoint")]),
                 make_config(),
@@ -443,7 +443,7 @@ class TestIdentityRecovery:
         client = StubClient([make_hit("gone"), make_hit("here", score=0.5)])
         repo = StubRepository([make_entry("here")])
 
-        results = await qmd_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search("beam", repo, make_config(), client=client)
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["here"]
 
@@ -468,7 +468,7 @@ class TestRankingAndHydration:
         )
         repo = StubRepository([make_entry("a"), make_entry("b"), make_entry("c")])
 
-        results = await qmd_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search("beam", repo, make_config(), client=client)
 
         assert [entry["entry_id"] for entry, _, _ in results] == ["c", "a", "b"]
         assert [score for _, score, _ in results] == [1.0, 0.5, 0.33]
@@ -478,7 +478,7 @@ class TestRankingAndHydration:
         client = StubClient([make_hit("1", snippet="7: water leak")])
         repo = StubRepository([make_entry("1")])
 
-        _, _, highlights = (await qmd_search("beam", repo, make_config(), client=client))[0]
+        _, _, highlights = (await hybrid_search("beam", repo, make_config(), client=client))[0]
 
         assert highlights == ["7: water leak"]
 
@@ -487,7 +487,7 @@ class TestRankingAndHydration:
         client = StubClient([make_hit("1", snippet="")])
         repo = StubRepository([make_entry("1")])
 
-        _, _, highlights = (await qmd_search("beam", repo, make_config(), client=client))[0]
+        _, _, highlights = (await hybrid_search("beam", repo, make_config(), client=client))[0]
 
         assert highlights == []
 
@@ -496,7 +496,7 @@ class TestRankingAndHydration:
         client = StubClient([make_hit("1")])
         repo = StubRepository([make_entry("1", author="Chen")])
 
-        entry, _, _ = (await qmd_search("beam", repo, make_config(), client=client))[0]
+        entry, _, _ = (await hybrid_search("beam", repo, make_config(), client=client))[0]
 
         assert entry["author"] == "Chen"
         assert entry["raw_text"] == "text for 1"
@@ -506,7 +506,7 @@ class TestRankingAndHydration:
         hits = [make_hit(str(i), score=1.0 / (i + 1)) for i in range(6)]
         repo = StubRepository([make_entry(str(i)) for i in range(6)])
 
-        results = await qmd_search(
+        results = await hybrid_search(
             "beam", repo, make_config(), client=StubClient(hits), max_results=2
         )
 
@@ -524,13 +524,15 @@ class TestFiltersAndOverfetch:
     @pytest.mark.asyncio
     async def test_unfiltered_query_fetches_exactly_max_results(self):
         client = StubClient([])
-        await qmd_search("beam", StubRepository([]), make_config(), client=client, max_results=10)
+        await hybrid_search(
+            "beam", StubRepository([]), make_config(), client=client, max_results=10
+        )
         assert client.calls[0]["limit"] == 10
 
     @pytest.mark.asyncio
     async def test_filtered_query_overfetches(self):
         client = StubClient([])
-        await qmd_search(
+        await hybrid_search(
             "beam",
             StubRepository([]),
             make_config(),
@@ -543,7 +545,7 @@ class TestFiltersAndOverfetch:
     @pytest.mark.asyncio
     async def test_overfetch_is_capped(self):
         client = StubClient([])
-        await qmd_search(
+        await hybrid_search(
             "beam",
             StubRepository([]),
             make_config(),
@@ -559,7 +561,7 @@ class TestFiltersAndOverfetch:
         hits = [make_hit(str(i), score=1.0 / (i + 1)) for i in range(12)]
         entries = [make_entry(str(i), author="Chen" if i % 3 == 0 else "Other") for i in range(12)]
 
-        results = await qmd_search(
+        results = await hybrid_search(
             "beam",
             StubRepository(entries),
             make_config(),
@@ -575,7 +577,7 @@ class TestFiltersAndOverfetch:
         hits = [make_hit("1"), make_hit("2", score=0.5)]
         entries = [make_entry("1", author="Wei Chen"), make_entry("2", author="Ada Lovelace")]
 
-        results = await qmd_search(
+        results = await hybrid_search(
             "beam", StubRepository(entries), make_config(), client=StubClient(hits), author="chen"
         )
 
@@ -589,7 +591,7 @@ class TestFiltersAndOverfetch:
             make_entry("2", source_system="JLab Logbook"),
         ]
 
-        results = await qmd_search(
+        results = await hybrid_search(
             "beam",
             StubRepository(entries),
             make_config(),
@@ -608,7 +610,7 @@ class TestFiltersAndOverfetch:
             make_entry("2", timestamp=datetime(2024, 12, 1, tzinfo=UTC)),
         ]
 
-        results = await qmd_search(
+        results = await hybrid_search(
             "beam",
             StubRepository(entries),
             make_config(),
@@ -625,7 +627,7 @@ class TestFiltersAndOverfetch:
         hits = [make_hit("1")]
         entries = [make_entry("1", timestamp=datetime(2024, 6, 1, tzinfo=UTC))]
 
-        results = await qmd_search(
+        results = await hybrid_search(
             "beam",
             StubRepository(entries),
             make_config(),
@@ -641,7 +643,7 @@ class TestFiltersAndOverfetch:
         entries = [make_entry("1")]
         entries[0]["timestamp"] = None
 
-        results = await qmd_search(
+        results = await hybrid_search(
             "beam",
             StubRepository(entries),
             make_config(),
@@ -700,7 +702,7 @@ class TestEventLoopIsNotBlocked:
         client = BlockingClient()
         loop_thread = threading.current_thread().name
 
-        await qmd_search("beam", StubRepository([]), make_config(), client=client)
+        await hybrid_search("beam", StubRepository([]), make_config(), client=client)
 
         assert client.threads["is_available"] != loop_thread
         assert client.threads["query"] != loop_thread
@@ -728,7 +730,7 @@ class TestEventLoopIsNotBlocked:
         client = BlockingClient(probe_seconds=0.2, query_seconds=0.0)
         ticker = asyncio.create_task(counter())
         try:
-            await qmd_search("beam", StubRepository([]), make_config(), client=client)
+            await hybrid_search("beam", StubRepository([]), make_config(), client=client)
         finally:
             ticker.cancel()
 
@@ -748,21 +750,21 @@ class TestSidecarFaults:
         client = StubClient(available=False, configured=False)
 
         with pytest.raises(QMDUnavailableError, match="no qmd sidecar is configured"):
-            await qmd_search("beam", StubRepository([]), make_config(), client=client)
+            await hybrid_search("beam", StubRepository([]), make_config(), client=client)
 
     @pytest.mark.asyncio
     async def test_configured_but_down_sidecar_names_its_endpoint(self):
         client = StubClient(available=False, configured=True)
 
         with pytest.raises(QMDUnavailableError, match="127.0.0.1:8180"):
-            await qmd_search("beam", StubRepository([]), make_config(), client=client)
+            await hybrid_search("beam", StubRepository([]), make_config(), client=client)
 
     @pytest.mark.asyncio
     async def test_a_down_sidecar_is_never_queried(self):
         client = StubClient(available=False)
 
         with pytest.raises(QMDUnavailableError):
-            await qmd_search("beam", StubRepository([]), make_config(), client=client)
+            await hybrid_search("beam", StubRepository([]), make_config(), client=client)
         assert client.calls == []
 
     @pytest.mark.asyncio
@@ -772,13 +774,13 @@ class TestSidecarFaults:
         client = StubClient(error=QMDClientError("qmd tool 'query' failed: index missing"))
 
         with pytest.raises(QMDClientError, match="index missing"):
-            await qmd_search("beam", StubRepository([]), make_config(), client=client)
+            await hybrid_search("beam", StubRepository([]), make_config(), client=client)
 
     @pytest.mark.asyncio
     async def test_empty_result_set_is_not_an_error(self):
         repo = StubRepository([make_entry("1")])
 
-        results = await qmd_search("beam", repo, make_config(), client=StubClient([]))
+        results = await hybrid_search("beam", repo, make_config(), client=StubClient([]))
 
         assert results == []
         # Nothing to hydrate, so Postgres is not touched at all.
@@ -798,7 +800,7 @@ class TestServiceDispatch:
         client = StubClient([make_hit("1")])
         repo = StubRepository([make_entry("1")])
 
-        results = await qmd_search("beam", repo, make_config(), client=client)
+        results = await hybrid_search("beam", repo, make_config(), client=client)
 
         for entry, score, *extra in results:
             assert entry["entry_id"] == "1"
@@ -810,7 +812,7 @@ class TestServiceDispatch:
         """The service forwards a request's advanced params verbatim."""
         client = StubClient([])
 
-        await qmd_search(
+        await hybrid_search(
             "beam",
             StubRepository([]),
             make_config(),
