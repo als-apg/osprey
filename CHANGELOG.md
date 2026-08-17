@@ -147,6 +147,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- A persona can name the landing-page section its terminals appear under, with
+  `landing_group` in the `modules.web_terminals.personas` catalog. The roster
+  then splits: people stay in the default section, and each declared group gets
+  its own below, drawn as a panel — which is how the landing page shows a
+  standalone service as something other than another login. The `users` landing
+  group also takes a `label` now, so both halves can be named. Nothing else
+  about a terminal changes; a deployment that sets neither renders as before.
+
 - An optional `qmd` search sidecar indexes the deployment's markdown corpora —
   the facility-knowledge bundle, and a markdown mirror of the ARIEL logbook
   where that is enabled — and answers hybrid keyword-plus-semantic queries. It

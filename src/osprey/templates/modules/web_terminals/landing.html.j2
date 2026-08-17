@@ -34,6 +34,7 @@
         {
           "label": str,            # group heading, e.g. "Terminals" or "Dashboards"
           "items": list[dict],     # [{"label": str, "url": str, "sublabel"?: str}, ...]
+          "variant": str,          # OPTIONAL, only "tray" is recognized
         }
       ONE shared loop renders every group in this list — the `users` group is not
       special-cased beyond how its data arrives:
@@ -52,6 +53,18 @@
       section. This is the ONLY suppression rule, and it is generic to every group:
       it's what makes the 0-user case disappear cleanly (an empty/omitted `users`
       group) while any other configured group still renders normally.
+
+      `variant` is optional on every group and drives presentation only. The one
+      recognized value, "tray", renders that section inside an accent-edged panel
+      instead of flat on the page: it is how the caller marks a group as a
+      different KIND of destination — a standalone service the deployment runs
+      (a logbook terminal, a dashboard app) rather than a person's login. The
+      page then reads as people on top, services below. Any other value, and the
+      absent case, render the plain section, so a caller that never sets it
+      produces exactly the markup this template produced before the key existed.
+      Compared against the literal "tray" rather than tested for truthiness, so
+      an unrecognized variant degrades to the plain rendering instead of picking
+      up tray styling by accident.
 
   Escaping: this template is rendered with a Jinja2 Environment that has autoescape
   ON (HTML). `label`/`url` are still explicitly piped through `|e` wherever they're
@@ -151,6 +164,49 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--text-secondary);
+    }
+    /* A `variant: "tray"` section: the same heading and card grid, enclosed in
+       an accent-edged panel so a standalone service reads as a different kind
+       of destination from a person's terminal.
+
+       Deliberately NO background fill. Every candidate surface token collides
+       with something in at least one shipped theme — --bg-elevated is the card
+       HOVER color, and --bg-secondary equals elevated in `light` (hovering a
+       card would dissolve it into the tray), equals --bg-panel in
+       `high-contrast-dark` (cards invisible against it) and sits ABOVE panel in
+       `retro-dark` (cards sunken into it, inverting every other card on the
+       page). Leaving the page's own --bg-primary showing through introduces no
+       new color at all, so the cards inside keep exactly the surface
+       relationship — and exactly the hover — that the cards above the tray
+       have, in all eight themes. The accent border carries the "this is
+       something else" signal instead, and it is theme-safe by construction:
+       every theme defines --border-accent as a composite of its own accent. */
+    .landing-tray {
+      margin-top: 2.25rem;
+      padding: 1.25rem 1.25rem 1.4rem;
+      border: 1px solid var(--border-accent);
+      border-radius: 14px;
+    }
+    /* The heading is already inside the tray's own padding, so it does not need
+       the extra top margin .landing-group carries to separate flat sections. */
+    .landing-tray > .landing-group-label {
+      margin-bottom: 0.9rem;
+    }
+    /* Accent mark. An empty `content` with a background, NOT a "◆" glyph:
+       generated content IS folded into the accessible name, so a character
+       here would have every card in the tray announce a stray "black diamond"
+       ahead of its actual label. A box has no text to announce, and it also
+       renders identically everywhere rather than depending on which font on
+       the viewer's machine happens to carry the codepoint. */
+    .landing-tray .landing-card-label::before {
+      content: "";
+      display: inline-block;
+      width: 0.4rem;
+      height: 0.4rem;
+      margin-right: 0.55rem;
+      vertical-align: 0.04rem;
+      background: var(--color-accent);
+      transform: rotate(45deg);
     }
     .landing-cards {
       display: grid;
@@ -255,7 +311,12 @@
 
     {% for group in groups|default([]) %}
       {% if group["items"] %}
-      <section class="landing-group">
+      {#- Equality against the one recognized value, not truthiness: an
+         unrecognized variant must fall back to the plain section rather than
+         emit a class no stylesheet in this page defines. The class name is a
+         literal chosen here, so nothing operator-supplied reaches the class
+         attribute. #}
+      <section class="landing-group{{ " landing-tray" if group["variant"] == "tray" else "" }}">
         <h2 class="landing-group-label">{{ group["label"]|e }}</h2>
         <div class="landing-cards">
           {% for item in group["items"] %}
