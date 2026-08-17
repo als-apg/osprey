@@ -2861,7 +2861,7 @@ _SUBSTRATE_CONFIG = {
 @pytest.fixture
 def substrate_project(monkeypatch, tmp_path):
     """A built project the substrate derivation can read devices out of."""
-    for var in ("BLUESKY_EPICS_SUBSTRATE", "BLUESKY_EPICS_MOTORS", "BLUESKY_EPICS_DETECTORS"):
+    for var in ("BLUESKY_EPICS_SUBSTRATE", "BLUESKY_EPICS_SETPOINTS", "BLUESKY_EPICS_READBACKS"):
         monkeypatch.delenv(var, raising=False)
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "channel_limits.json").write_text(
@@ -2886,13 +2886,13 @@ def test_a_substrate_var_only_the_shared_half_sets_is_derived_over(substrate_pro
     The operator's setting is still in the file they put it in, and no longer
     the value the bridge resolves.
     """
-    _write_shared_half(tmp_path, "BLUESKY_EPICS_MOTORS=shared-half-device-list\n")
+    _write_shared_half(tmp_path, "BLUESKY_EPICS_SETPOINTS=shared-half-device-list\n")
 
     container_lifecycle._ensure_bluesky_substrate_env(_SUBSTRATE_CONFIG, env_path=substrate_project)
 
     local = _dotenv(substrate_project)
-    assert local["BLUESKY_EPICS_MOTORS"], "the shared-only value did not reach the predicate"
-    assert local["BLUESKY_EPICS_MOTORS"] != "shared-half-device-list"
+    assert local["BLUESKY_EPICS_SETPOINTS"], "the shared-only value did not reach the predicate"
+    assert local["BLUESKY_EPICS_SETPOINTS"] != "shared-half-device-list"
 
 
 def test_the_same_substrate_var_is_left_alone_after_the_entry_point_chain_load(
@@ -2904,11 +2904,11 @@ def test_the_same_substrate_var_is_left_alone_after_the_entry_point_chain_load(
     ``k not in os.environ`` guard holds, and only the keys the operator did not
     set are appended.
     """
-    _write_shared_half(tmp_path, "BLUESKY_EPICS_MOTORS=shared-half-device-list\n")
+    _write_shared_half(tmp_path, "BLUESKY_EPICS_SETPOINTS=shared-half-device-list\n")
 
     _load_the_entry_point_chain(monkeypatch, tmp_path)
     container_lifecycle._ensure_bluesky_substrate_env(_SUBSTRATE_CONFIG, env_path=substrate_project)
 
     local = _dotenv(substrate_project)
-    assert "BLUESKY_EPICS_MOTORS" not in local
-    assert local.get("BLUESKY_EPICS_DETECTORS")
+    assert "BLUESKY_EPICS_SETPOINTS" not in local
+    assert local.get("BLUESKY_EPICS_READBACKS")
