@@ -199,8 +199,8 @@ dev = [
     # changes between minors, so an unpinned floor lets CI and the local hook
     # disagree about what "formatted" means.
     "ruff>=0.16.1,<0.17",
-    "testcontainers[postgres]>=4.14.2",  # Real PostgreSQL for integration tests
-    "testcontainers[mongodb]>=4.14.2",  # MongoDB for archiver-mongodb integration tests
+    "testcontainers[postgres]>=4.15.0",  # Real PostgreSQL for integration tests
+    "testcontainers[mongodb]>=4.15.0",  # MongoDB for archiver-mongodb integration tests
     "docker>=7.2.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
