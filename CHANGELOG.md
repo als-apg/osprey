@@ -13,6 +13,15 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The same-name-different-checkout refusal leads with its conclusion. It used
+  to open with the count and the identity hashes, print one line per resource,
+  and only then explain that a worktree or a second clone shares its parent
+  directory's name. On a real deployment that put the explanation and the way
+  out about thirty lines below the top, where nobody reads them. Now the
+  finding, the other copy's path and the remedy come first, each path is listed
+  once instead of once per resource, and the per-resource evidence prints under
+  `--verbose`. No claim changed: it still says only what the labels prove.
+
 - A deploy whose web terminals are unreachable now says so on the terminal. The
   warning naming the Docker Desktop remedy was emitted with `logger.warning`,
   which the altitude gate drops while a lifecycle verb owns the terminal, and
