@@ -82,10 +82,12 @@ import pytest
 #: name a test should expect.
 EXEMPLAR_DIRNAME = "als-exemplar"
 
-#: The preset the exemplar was materialized from, and the two persona presets
-#: whose deltas sit in ``personas/``.
+#: The preset the exemplar was materialized from, and the persona presets whose
+#: deltas sit in ``personas/`` — two operator tiers plus the standalone ARIEL
+#: logbook terminal the stack runs beside them.
 EXEMPLAR_PRESET = "control-assistant"
 PERSONA_PRESETS: Mapping[str, str] = {
+    "ariel": "control-assistant-ariel",
     "readonly": "control-assistant-readonly",
     "readwrite": "control-assistant-readwrite",
 }
@@ -303,10 +305,20 @@ config:
     lattice_base_port: 9491       # first per-user lattice-dashboard port
     channel_finder_base_port: 9591  # first per-user channel-finder panel port
     default_persona: readonly   # used for any user below with no persona
+    # How the landing page is laid out. Omit this whole block and you get one
+    # section holding every entry below, headed "Terminals".
+    landing:
+      groups:
+        # `users` renders the roster. It also SPLITS it: any entry whose
+        # persona declares a `landing_group` (see `ariel` below) moves into a
+        # section of its own, drawn as an accent-edged panel underneath it.
+        # So the page reads people first, services after.
+        - type: users
+          label: Users
     users:
       # One web terminal per entry. `index` pins that user's ports, `persona`
       # picks their permissions from the list below, and `display_name` becomes
-      # the browser tab title, which is how you tell the two terminals apart.
+      # the browser tab title, which is how you tell the terminals apart.
       - name: alice
         index: 0
         persona: readwrite
@@ -315,6 +327,13 @@ config:
         index: 1
         persona: readonly
         display_name: "Read-Only View (Bob)"
+      # Not a person: a second product running beside them. Same machinery as
+      # any other entry — its own container, ports and volumes — but what is
+      # behind the card is the ARIEL logbook assistant, not a control terminal.
+      - name: ariel
+        index: 2
+        persona: ariel
+        display_name: "ARIEL Logbook Research"
     personas:
       # `osprey build` builds one of these per file in personas/, into build/.
       # `osprey up` builds nothing: if one is missing it stops and says so.
@@ -326,6 +345,14 @@ config:
         project: als-exemplar-readwrite
         project_path: build/als-exemplar-readwrite
         build_profile: personas/readwrite.yml
+      ariel:
+        project: als-exemplar-ariel
+        project_path: build/als-exemplar-ariel
+        build_profile: personas/ariel.yml
+        # Puts this persona's users under their own landing-page heading
+        # instead of in with the people. Presentation only — it changes
+        # nothing about the container, its ports, or what it can do.
+        landing_group: Standalone deployments
 
 # ── Answering webhooks (optional) ────────────────────────────────────────────
 # Lets an outside system ask the agent a question over HTTP. The triggers that
@@ -494,6 +521,112 @@ WEB_TERMINALS_IMAGE_SOURCE_LINE = (
 # ─────────────────────────────────────────────────────────────────────────────
 # SOURCE zone — persona deltas
 # ─────────────────────────────────────────────────────────────────────────────
+
+PERSONA_ARIEL_YML = """\
+# Als Exemplar (ariel) — settings for one web login
+#
+# Only the differences from profile.yml belong here. The build merges this
+# file over that one, picking up any edit you make there. To see the combined
+# result:
+#   osprey validate personas/ariel.yml
+#
+# Made from the bundled `control-assistant-ariel` preset.
+#
+#   emitted by OSPREY @OSPREY_VERSION@
+#   preset content hash: @PRESET_HASH:control-assistant-ariel@
+
+name: Als Exemplar (ariel)
+
+# Attached render: this persona builds a per-user terminal image only and
+# connects to the shared web tier the hosting deployment runs on the same host.
+# No services are scaffolded — the ARIEL Postgres it reads is the hosting
+# deployment's, already declared there.
+deploy_services: false
+
+# The logbook-research persona instead of the control-room operator one. This is
+# the single biggest reason this tier feels like a different product: the agent's
+# whole brief is written for logbook work.
+claude_md_template: CLAUDE.ariel.md.j2
+
+# Open on the ARIEL tab rather than the always-on Workspace tab. The workspace
+# tab stays present — the deep-research skill hands artifacts off through it —
+# it is just not the one you land on.
+default_panel: ariel
+
+# ── What this tier drops ─────────────────────────────────────────────────────
+# A persona can only add to an inherited list, never subtract from it, so
+# everything the control-room agent carries and a logbook agent has no use for
+# is removed here by name. What is left is the `ariel-standalone` selection.
+exclude:
+  hooks:
+    - writes-check        # No hardware writes to pre-check
+    - limits              # No per-channel limits to enforce
+    - cf-feedback-capture  # No channel finder to tune
+  rules:
+    - python-execution    # The Python sandbox is off (see config: below)
+    - data-visualization  # Plotting needs the sandbox this tier does not run
+    - control-system-safety  # EPICS PV rules, with no EPICS behind them
+    - test-ioc-safety     # Test-IOC port isolation, likewise
+  skills:
+    - diagnose            # Fault diagnosis is control-room work
+    - demo-gallery
+    - demo-ui
+    - writing-bluesky-plans    # Plan authoring needs the Bluesky server
+    - operating-bluesky-plans  # and so does running one
+  agents:
+    - channel-finder
+    - data-visualizer
+    - facility-knowledge
+    - pyat-specialist
+    # Logbook search and deep research are re-added below as SKILLS, which is
+    # how the standalone ARIEL agent invokes them: from the main agent, with the
+    # whole session's context, rather than through a subagent boundary that a
+    # single-purpose agent gains nothing from crossing.
+    - logbook-search
+    - logbook-deep-research
+  web_panels:
+    - channel-finder
+    - okf
+    - system-health
+# The `safety` rule is deliberately NOT excluded, and this is the one place this
+# tier differs from the standalone preset. Its tools are gone, so the rule
+# governs nothing today and costs a few lines of prompt. It stays because this
+# agent runs inside a deployment that does move hardware: if anyone ever turns a
+# control server back on here, the rule should already be in place rather than
+# be the thing someone remembered to add.
+
+skills:
+  - logbook-deep-research   # Multi-phase logbook investigation
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY — see the base profile's block.
+config:
+  # The axis this tier is defined by: no control-system surface at all. Each
+  # line switches off a tool server the base turns on. Together they are what
+  # makes this a logbook terminal rather than a control-room one with the
+  # panels hidden — the tools are absent, not merely unused.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.channel-finder.enabled: false
+  claude_code.servers.bluesky.enabled: false
+  claude_code.servers.health.enabled: false
+  claude_code.servers.osprey_facility_knowledge.enabled: false
+  # Pinned even though the server that would honour it is gone, for the same
+  # reason the other two tiers pin it: this key is the write boundary, and it
+  # must not drift if the base's default ever changes.
+  control_system.writes_enabled: false
+  # Creating a logbook entry is this agent's only write of any kind, and it is
+  # approval-gated like every other write in OSPREY.
+  approval.tools.entry_create: always
+  # Full split-pane layout: the ARIEL search panel is the point of this tier, so
+  # it needs the panel area. Pinned rather than left to the server default for
+  # the same reason the other two tiers pin theirs.
+  web.ui_mode: expert
+  # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
+  # containers). Without this override the inherited roster would make this
+  # render try to host a second web tier on the same host ports.
+  modules.web_terminals.enabled: false
+"""
 
 PERSONA_READONLY_YML = """\
 # Als Exemplar (readonly) — settings for one web login
@@ -1154,6 +1287,7 @@ if wants web; then
   probe_http 'landing page'      http://localhost:9080/
   probe_http 'terminal (alice)'  http://localhost:9091/
   probe_http 'terminal (bob)'    http://localhost:9092/
+  probe_http 'terminal (ariel)'  http://localhost:9093/
 fi
 
 # ── Event dispatch ───────────────────────────────────────────────────────────
@@ -1474,9 +1608,11 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "README.md": README_MD,
     "ci-extra.yml": CI_EXTRA_YML,
     "triggers.yml": TRIGGERS_YML,
+    "personas/ariel.yml": PERSONA_ARIEL_YML,
     "personas/readonly.yml": PERSONA_READONLY_YML,
     "personas/readwrite.yml": PERSONA_READWRITE_YML,
     "web-terminal-context/alice/.gitkeep": "",
+    "web-terminal-context/ariel/.gitkeep": "",
     "web-terminal-context/bob/.gitkeep": "",
     "data/README.md": DATA_README_MD,
     "data/channel_databases/TEMPLATE_EXAMPLE.json": CHANNEL_DB_TEMPLATE_EXAMPLE_JSON,

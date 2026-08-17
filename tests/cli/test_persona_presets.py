@@ -195,12 +195,17 @@ class TestControlAssistantWebTier:
         assert rendered["system"]["facility_name"] == "Seed Facility"
 
     def test_rendered_web_terminals_shape(self, tmp_path: Path) -> None:
-        """The rendered ``modules.web_terminals`` subtree matches the two-persona
+        """The rendered ``modules.web_terminals`` subtree matches the shipped
         tutorial shape: local image source, readonly default, a
-        readonly/readwrite catalog whose ``project`` equals its ``project_path``
-        basename, and a roster mapping alice→readwrite and bob→readonly, both
-        explicit, each carrying the tab-title ``display_name`` that visibly
-        marks which terminal is write-armed.
+        readonly/readwrite/ariel catalog whose ``project`` equals its
+        ``project_path`` basename, and a roster mapping alice→readwrite,
+        bob→readonly and ariel→ariel, all explicit, each carrying the tab-title
+        ``display_name`` that visibly marks which terminal is which.
+
+        The third entry is not a person: it is the standalone ARIEL logbook
+        deployment the stack ships beside the two operator tiers, and its
+        catalog entry carries the ``landing_group`` that files its card under
+        its own landing-page heading.
 
         Deliberately pins the preset's OWN ``config:`` layer, BEFORE the catalog
         rewrite every build performs — which is why the ``build_profile`` values
@@ -232,17 +237,33 @@ class TestControlAssistantWebTier:
             "persona": "readonly",
             "display_name": "Read-Only View (Bob)",
         }
+        assert wt["users"][2] == {
+            "name": "ariel",
+            "index": 2,
+            "persona": "ariel",
+            "display_name": "ARIEL Logbook Research",
+        }
 
         personas = wt["personas"]
-        assert set(personas) == {"readonly", "readwrite"}
+        assert set(personas) == {"readonly", "readwrite", "ariel"}
         for name, profile in (
             ("readonly", "control-assistant-readonly"),
             ("readwrite", "control-assistant-readwrite"),
+            ("ariel", "control-assistant-ariel"),
         ):
             entry = personas[name]
             # Name invariant: project == basename(project_path).
             assert entry["project"] == os.path.basename(entry["project_path"])
             assert entry["build_profile"] == profile
+
+        # Only the standalone tier declares a landing section of its own; the
+        # two operator tiers stay in the roster's default section.
+        assert personas["ariel"]["landing_group"] == "Standalone deployments"
+        assert "landing_group" not in personas["readonly"]
+        assert "landing_group" not in personas["readwrite"]
+
+        # And the roster's own section is titled for the people in it.
+        assert wt["landing"]["groups"] == [{"type": "users", "label": "Users"}]
 
     def test_port_families_clear_tutorial_service_ports(self, tmp_path: Path) -> None:
         """Every per-user port family sits above the tutorial's own published

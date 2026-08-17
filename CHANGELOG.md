@@ -147,6 +147,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- The `control-assistant` preset now stands up a third web terminal beside
+  Alice and Bob: a standalone ARIEL logbook assistant, on its own card at
+  `/u/ariel/`. It shares the deployment's Postgres and logbook, and runs no
+  control-system tools at all — no channel access, no Python sandbox, no scan
+  queue. Existing deployments are unaffected until they adopt the new preset.
+
 - A persona can name the landing-page section its terminals appear under, with
   `landing_group` in the `modules.web_terminals.personas` catalog. The roster
   then splits: people stay in the default section, and each declared group gets
