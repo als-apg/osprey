@@ -59,6 +59,7 @@ import pytest
 
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
 from osprey.services.ariel_search.search.qmd import ARIEL_COLLECTION
+from tests._container_support import is_docker_available
 from tests.integration._qmd_ariel_support import (
     DEFAULT_QMD_SIDECAR_IMAGE,
     QMD_IMAGE_ENV,
@@ -458,8 +459,11 @@ def _safe_ids(results) -> set[str]:
 class TestSidecarImageSelection:
     """The lane must test the image CI built, not a stale local tag.
 
-    No container is started here — constructing a ``DockerContainer`` does not
-    touch the daemon — so these run anywhere and stay fast.
+    No container is *started* here, so these stay fast. Only the one test that
+    builds a container object needs a daemon: testcontainers resolves the
+    engine in ``DockerContainer.__init__``, which is why it carries the same
+    skip every container-touching helper here does. The other three read the
+    tag alone and run anywhere.
     """
 
     async def test_env_override_is_honoured(self, monkeypatch):
@@ -479,7 +483,13 @@ class TestSidecarImageSelection:
         Checking :func:`qmd_sidecar_image` alone would not notice a hardcoded tag
         reappearing at the construction site — which is exactly how this broke
         the first time — so this inspects the container that would be started.
+
+        Building that object resolves the Docker engine even though nothing is
+        started, so a runner without a daemon skips rather than erroring.
         """
+        if not is_docker_available():
+            pytest.skip("docker daemon is not reachable")
+
         monkeypatch.setenv(QMD_IMAGE_ENV, "ghcr.io/example/qmd:ci-abc123")
 
         container = build_sidecar_container(tmp_path, ARIEL_COLLECTION)
