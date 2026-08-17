@@ -23,6 +23,7 @@ from pathlib import Path
 import yaml
 
 from osprey.cli.output import report_fact, warn_fact
+from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
@@ -1105,6 +1106,7 @@ def deploy_up_web_terminals(
         # anywhere on this path: both invocations share one
         # COMPOSE_PROJECT_NAME, so orphan-removal in either would destroy the
         # OTHER stack's containers as "orphans" of the shared project.
+        _report_group("services")
         services_rm = services_base + ["rm", "-f"]
         logger.debug(f"Running command:\n    {' '.join(services_rm)}")
         run_captured(
@@ -1158,6 +1160,7 @@ def deploy_up_web_terminals(
 
     # Same stale-container preflight as the services stack above (and same
     # no-`--remove-orphans` constraint — see that comment).
+    _report_group("web terminals")
     web_rm = web_cmd + ["rm", "-f"]
     logger.debug(f"Running command:\n    {' '.join(web_rm)}")
     run_captured(web_rm, env=run_env, spool_name="compose-web-rm", repo_root=repo_root, check=False)

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import contextmanager
+from pathlib import PurePath
 from typing import TYPE_CHECKING
 
 from rich.text import Text
@@ -250,7 +251,9 @@ def report_fact(
     :param wrote: The ledger row, or ``None`` for an inline-only fact. The value
         is rendered with :func:`str`, like a :func:`section` value.
     """
-    _echo(Text(f"{_INDENT}{_FACT_GLYPH} {message}"))
+    line = Text(f"{_INDENT}{_FACT_GLYPH} ", style=Styles.ACCENT)
+    line.append(message)
+    _echo(line)
     logger.key_info(message)
     if wrote is not None:
         label, value = wrote
@@ -290,7 +293,7 @@ def warn_fact(
     if remedy:
         body.append(f"{_REMEDY_GLYPH} {remedy}")
     for line in body:
-        _echo(Text(f"{_INDENT}{_INDENT}{line}"), err=True)
+        _echo(_body_text(f"{_INDENT}{_INDENT}", line), err=True)
     logger.warning(" ".join(part for part in (summary, detail, remedy) if part))
 
 
@@ -309,7 +312,7 @@ def flush_ledger() -> None:
         return
     rows, _ledger[:] = list(_ledger), []
     report("")
-    section(_LEDGER_TITLE, rows)
+    section(_LEDGER_TITLE, rows, label_style=Styles.PATH)
 
 
 def clear_ledger() -> None:
@@ -337,14 +340,23 @@ def note(text: str, /) -> None:
     _echo(Text(f"{_INDENT}{text}", style=Styles.DIM))
 
 
-def section(title: str, items: Mapping[str, object] | Sequence[tuple[str, object]], /) -> None:
+def section(
+    title: str,
+    items: Mapping[str, object] | Sequence[tuple[str, object]],
+    /,
+    *,
+    label_style: str = Styles.LABEL,
+) -> None:
     """Print a key/value block: ``title``, then one indented row per item.
 
     The one shape for "here are the facts about this thing" -- an endpoint
     list, a summary card's rows, a config dump. Labels are padded to a common
     width so the values line up as a column; values are rendered with
     :func:`str`, so a caller may hand over paths, ports and booleans as they
-    are.
+    are. The title carries the theme's header token, the same anchor color the
+    phase record's arrows use, and a value handed over as a
+    :class:`~pathlib.PurePath` renders in the path token -- semantic styling
+    by TYPE, never by guessing at strings.
 
     An empty ``items`` prints the title alone, and an empty ``title`` prints
     the rows alone -- a section that continues the line above it.
@@ -354,16 +366,21 @@ def section(title: str, items: Mapping[str, object] | Sequence[tuple[str, object
     :param items: The rows, as a mapping or as an ordered sequence of
         ``(label, value)`` pairs. A sequence when the order is meaningful and
         labels may repeat; either way the rows print in iteration order.
+    :param label_style: The style token for the label column. The default is
+        the bold label; :func:`flush_ledger` passes the path token because its
+        labels ARE paths by :func:`report_fact`'s ``wrote`` contract.
+        Keyword-only: it is not prose, and the copy guard reads prose out of
+        the positional arguments.
     """
     rows = list(items.items()) if isinstance(items, Mapping) else list(items)
     if title:
-        _echo(Text(title, style=Styles.BOLD))
+        _echo(Text(title, style=Styles.HEADER))
     width = max((len(label) for label, _ in rows), default=0)
     for label, value in rows:
         line = Text(_INDENT)
-        line.append(label.ljust(width), style=Styles.LABEL)
+        line.append(label.ljust(width), style=label_style)
         line.append(_GUTTER)
-        line.append(str(value))
+        line.append(str(value), style=Styles.PATH if isinstance(value, PurePath) else "")
         _echo(line)
 
 
@@ -397,6 +414,24 @@ def table(renderable: RenderableType, /) -> None:
     _echo(renderable)
 
 
+def _body_text(indent: str, line: str) -> Text:
+    """Build one indented body line, with a remedy's arrow in the accent.
+
+    The arrow is the one glyph in a trouble body that is an instruction rather
+    than evidence, and the accent is what lets the eye find it without reading
+    the block. The words are untouched: off a terminal the line prints exactly
+    as composed.
+    """
+    text = Text(indent)
+    remedy_head = f"{_REMEDY_GLYPH} "
+    if line.startswith(remedy_head):
+        text.append(remedy_head, style=Styles.ACCENT)
+        text.append(line[len(remedy_head) :])
+    else:
+        text.append(line)
+    return text
+
+
 def _trouble(glyph: str, style: str, summary: str, body: Sequence[str]) -> None:
     """Print one trouble event: a marked summary line, then its indented body.
 
@@ -424,7 +459,7 @@ def _trouble(glyph: str, style: str, summary: str, body: Sequence[str]) -> None:
     """
     _echo(Text(f"{glyph} {summary}" if glyph else summary, style=style), err=True)
     for line in body:
-        _echo(Text(f"{_INDENT}{line}"), err=True)
+        _echo(_body_text(_INDENT, line), err=True)
 
 
 def warn(summary: str, detail: str | None = None, /) -> None:

@@ -13,6 +13,15 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Lifecycle output now carries the CLI's theme. Phase openers anchor in the
+  theme's primary color with a blank line before each phase, finished phases
+  and durations dim so the open phase stays prominent, promoted facts and
+  remedy arrows use the accent, and the closing "This deploy wrote" block
+  styles its heading and file paths like the rest of the CLI. Long phases
+  group their steps under quiet per-service headers (`archiver`, `ariel`,
+  `personas`, `services`, …) so a busy `osprey up` reads as sections instead
+  of one flat column. Piped output is unchanged apart from the new blank
+  lines and group headers — color never reaches a pipe.
 - Deploy output keeps one shape from start to finish. Facts a deploy used to
   print as paragraphs between phases (minted tokens, generated certificates, a
   renamed secrets file) are now one short line each in the step column, with
