@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import cast
 
 from osprey.build.claude_code_resolver import load_provider_spec
+from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
@@ -739,7 +740,9 @@ def build_persona_images(
             from osprey.deployment.container_lifecycle import single_image_build_reporter
 
             # Watched for the duration of the build and no longer; the step line
-            # below is what reports the finished image.
+            # below is what reports the finished image. The group declaration is
+            # idempotent, so the per-persona loop declares it each pass.
+            _report_group("personas")
             with (report := single_image_build_reporter(image_tag)):
                 run_captured(
                     cmd,

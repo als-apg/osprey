@@ -226,7 +226,8 @@ def test_phase_lines_are_untouched_when_no_build_is_watched(sink, fake_clock):
 
     Off a TTY the contract is that nothing about today's output changes except
     the heartbeats that were not there before -- so with no build registered,
-    a phase's lines are byte-for-byte what they have always been.
+    a phase's lines are byte-for-byte what the reporter always prints (the
+    blank line is the phase opener's own rhythm, not a build artifact).
     """
     fake_clock(0.0, 12.0, 90.0)
 
@@ -235,7 +236,7 @@ def test_phase_lines_are_untouched_when_no_build_is_watched(sink, fake_clock):
         phase.step("web-terminal")
 
     assert sink.getvalue() == (
-        "→ Building images\n  · web-terminal (12.0s)\n  ✓ Building images (1m30s)\n"
+        "\n→ Building images\n  · web-terminal (12.0s)\n  ✓ Building images (1m30s)\n"
     )
 
 

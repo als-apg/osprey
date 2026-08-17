@@ -24,6 +24,7 @@ import yaml
 
 from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
+from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
@@ -1701,6 +1702,7 @@ def _build_project_image(
         logger.debug("Running command:\n    %s", " ".join(cmd))
         # Watched for the duration of the build and no longer; the step line
         # below is what reports the finished image.
+        _report_group("images")
         with (report := single_image_build_reporter(project_image)):
             run_captured(
                 cmd,
@@ -2919,6 +2921,7 @@ def _stage_archiver_store(
         provider,
     )
 
+    _report_group("archiver")
     up_cmd = base_cmd + ["up", "-d", _ARCHIVER_STORE_SERVICE]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
     run_captured(up_cmd, env=run_env, spool_name="archiver-store-up", repo_root=project_dir)
@@ -3161,6 +3164,7 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
         provider,
     )
 
+    _report_group("ariel")
     up_cmd = base_cmd + ["up", "-d", _ARIEL_STORE_SERVICE]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
     run_captured(up_cmd, env=run_env, spool_name="ariel-store-up", repo_root=project_dir)
@@ -3649,6 +3653,7 @@ def _start_stack(
     # there is nothing stopped), so a healthy stack's reconcile stays
     # zero-churn. Volumes are never touched — destroying state stays the job
     # of clean/rebuild. Best-effort: if it fails, `up` surfaces the real error.
+    _report_group("services")
     rm_cmd = base_cmd + ["rm", "-f"]
     logger.debug(f"Running command:\n    {' '.join(rm_cmd)}")
     run_captured(rm_cmd, env=run_env, spool_name="compose-rm", repo_root=repo_root, check=False)
