@@ -574,7 +574,7 @@ is in <a class="reference internal" href="#deploy-a-facility-own-service"><span 
 </div>
 <p>The command writes the whole repository, runs <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">init</span></code> at its root, and
 commits nothing. It prints the handful of entries you edit: the profile, the
-data directory, the two personas it rendered, the two env files, and the
+data directory, the three personas it rendered, the two env files, and the
 README.</p>
 <p>It says nothing about CI, which is expected: the profile ships with its
 <code class="docutils literal notranslate"><span class="pre">deploy:</span></code> block commented out, so there are no coordinates to render a
@@ -592,6 +592,11 @@ deployment, whatever else you write below.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">skills:</span></code> — <code class="docutils literal notranslate"><span class="pre">writing-bluesky-plans</span></code> and <code class="docutils literal notranslate"><span class="pre">operating-bluesky-plans</span></code>.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">agents:</span></code> — <code class="docutils literal notranslate"><span class="pre">logbook-search</span></code> and <code class="docutils literal notranslate"><span class="pre">logbook-deep-research</span></code>. Both
 query a logbook database at runtime, and this facility does not deploy one.</p></li>
+<li><p>for the same reason, the <code class="docutils literal notranslate"><span class="pre">ariel</span></code> entries under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code>
+in <code class="docutils literal notranslate"><span class="pre">config:</span></code> — the roster entry (<code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">name:</span> <span class="pre">ariel</span></code>) and the <code class="docutils literal notranslate"><span class="pre">ariel:</span></code>
+persona — plus the <code class="docutils literal notranslate"><span class="pre">personas/ariel.yml</span></code> delta they point at. That login is
+the standalone ARIEL logbook terminal, and it needs the logbook database
+this facility does not run.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">web_panels:</span></code> — <code class="docutils literal notranslate"><span class="pre">ariel</span></code>, <code class="docutils literal notranslate"><span class="pre">events</span></code> and <code class="docutils literal notranslate"><span class="pre">bluesky</span></code>.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">config:</span></code> — the <code class="docutils literal notranslate"><span class="pre">claude_code.servers.bluesky.enabled</span></code> line and every
 <code class="docutils literal notranslate"><span class="pre">web.panels.events.*</span></code> and <code class="docutils literal notranslate"><span class="pre">web.panels.bluesky.*</span></code> override. The panels they
@@ -626,8 +631,9 @@ and this list is what <code class="docutils literal notranslate"><span class="pr
 <p><code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code> becomes the container-name prefix for the web tier
 (<code class="docutils literal notranslate"><span class="pre">demo-nginx</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-web-alice</span></code>), so keep it short and distinct from the
 project name.</p>
-<p>Then rename the two personas, further down the same <code class="docutils literal notranslate"><span class="pre">config:</span></code> block under
-<code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code>:</p>
+<p>Then confirm the persona catalog, further down the same <code class="docutils literal notranslate"><span class="pre">config:</span></code> block
+under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals:</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> derived these names from the
+repository name, so after Step 2’s trim the block already reads:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">personas</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">readonly</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo-facility-readonly</span>
@@ -639,6 +645,8 @@ project name.</p>
 <span class="w">    </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/readwrite.yml</span>
 </pre></div>
 </div>
+<p>Nothing to edit — the block is shown so you know what you are looking at, and
+because its shape matters if you ever rename a persona or the repository:</p>
 <div class="admonition important">
 <p class="admonition-title">Important</p>
 <p>Each persona’s <code class="docutils literal notranslate"><span class="pre">project</span></code> must equal the basename of its <code class="docutils literal notranslate"><span class="pre">project_path</span></code>.

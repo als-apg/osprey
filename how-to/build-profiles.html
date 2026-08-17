@@ -1260,15 +1260,17 @@ twice. Select or unselect a built-in through <code class="docutils literal notra
 <section id="personas">
 <h2>Personas<a class="headerlink" href="#personas" title="Link to this heading">#</a></h2>
 <p>Some presets give each operator their own web terminal, and each terminal runs
-with a persona — a capability posture, such as read-only versus write-capable.
-For those presets (<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>), <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes one
-file per persona:</p>
+with a persona — usually a capability posture, such as read-only versus
+write-capable, though a persona can just as well be a different product
+sharing the deployment. For those presets (<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>),
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes one file per persona:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   profile.yml
   data/
   personas/
     readonly.yml       # a read-only terminal
     readwrite.yml      # a write-capable terminal
+    ariel.yml          # the standalone ARIEL logbook terminal
 </pre></div>
 </div>
 <p>Each file holds only that persona’s <strong>differences</strong> — for the read-only persona,
@@ -1284,8 +1286,9 @@ result with:</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> points at these files by path — its web-terminal catalog carries
 <code class="docutils literal notranslate"><span class="pre">build_profile:</span> <span class="pre">personas/&lt;name&gt;.yml</span></code> for each one — so keep the names in step
-if you rename one. That is also what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads: it renders any
-persona project that does not exist yet from the named delta. A bundled preset
+if you rename one. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads the same catalog but renders nothing: a
+persona project missing from <code class="docutils literal notranslate"><span class="pre">build/</span></code> stops the start and points at
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> as the remedy. A bundled preset
 name in that field is rejected, because a persona built from a preset of its own
 would not share this profile’s data tree, secrets or artifacts.</p>
 <section id="removing-something-a-profile-brings">
