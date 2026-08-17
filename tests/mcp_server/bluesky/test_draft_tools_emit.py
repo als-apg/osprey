@@ -343,8 +343,7 @@ _FAIL_RESP = {"passed": False, "reasons": ["import of 'os' is not allowed"], "up
 
 _WRITE_ARGS = {
     "name": "tiny",
-    "category": "accelerator",
-    "required_devices": ["correctors"],
+    "description": "A tiny test plan.",
     "writes": False,
     "body": "def build_plan(devices, params):\n    yield\n",
 }

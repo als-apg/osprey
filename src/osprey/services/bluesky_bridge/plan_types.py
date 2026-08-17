@@ -31,7 +31,8 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel
 
-from .figure import Figure
+from .figure import Figure, RowWindow
+from .plan_fields import ChannelRole
 from .plan_metadata import PlanMetadata
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
@@ -53,14 +54,29 @@ class PlanSpec(Generic[SchemaT]):
     rather than the common ``BaseModel`` supertype — callers that don't care
     about a specific plan's schema can still hold these as ``PlanSpec[Any]``.
 
-    ``render`` is the plan's own view of a run: ``(rows, params) -> Figure``,
-    where ``rows`` are the run's data rows as plain dicts and ``params`` is a
-    validated ``schema`` instance — the *same* ``SchemaT``, so a plan whose
-    ``render`` takes anything other than its own PARAMS is a type error rather
-    than a runtime surprise at the first poll tick. ``None`` (the default)
-    means the plan has no view of its own and the bridge's default figure
-    stands in for it. The loader only ever populates this for operator-supplied
-    tiers; see ``plan_loader._resolve_render``.
+    ``render`` is the plan's own view of a run: ``(window, params) ->
+    Figure``, where ``window`` is a `RowWindow` — the run's data rows as plain
+    dicts *plus* how much of the run they are — and ``params`` is a validated
+    ``schema`` instance — the *same* ``SchemaT``, so a plan whose ``render``
+    takes anything other than its own PARAMS is a type error rather than a
+    runtime surprise at the first poll tick. The window rather than a bare
+    row list because a render that reads rows positionally cannot tell a whole
+    run from a truncated one by looking at the rows, and guessing (comparing
+    the row count against a duplicated copy of the buffer's cap) is a guess
+    that goes stale silently. ``None`` (the default) means the plan has no view
+    of its own and the bridge's default figure stands in for it. The loader
+    only ever populates this for operator-supplied tiers; see
+    ``plan_loader._resolve_render``.
+
+    ``roles`` is what the plan's ``schema`` declared about its channel fields:
+    ``(field_path, role)`` pairs exactly as ``plan_fields.channel_roles``
+    returns them — depth-first in declaration order, paths spelled
+    ``"correctors"`` / ``"axes[].setpoint"``. The loader introspects the schema
+    once at load time and stores the result here, so request-time consumers
+    (the enqueue pre-check, the pre-flight preview, the default figure,
+    analysis) read the declaration off the spec instead of re-walking the model
+    on every call. An empty tuple (the default, so a hand-built ``PlanSpec``
+    stays valid) means the schema declares no channel roles at all.
     """
 
     name: str
@@ -69,7 +85,8 @@ class PlanSpec(Generic[SchemaT]):
     description: str = ""
     metadata: PlanMetadata | None = None
     provenance: Provenance = "shipped"
-    render: Callable[[list[dict[str, Any]], SchemaT], Figure] | None = None
+    render: Callable[[RowWindow, SchemaT], Figure] | None = None
+    roles: tuple[tuple[str, ChannelRole], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for `GET /plans`: name, description, schema, metadata, provenance."""

@@ -9,7 +9,7 @@ LLM, so this test needs no provider API key — ``hello-world``'s bundled
 
 **Scope, and how it differs from ``test_bluesky_queue_e2e.py``.** That module
 is the full-stack proof: Virtual Accelerator, Tiled, the panels sidecar, real
-plan runs driven to completion, aborts, restarts. THIS module deliberately deploys
+scans driven to completion, aborts, restarts. THIS module deliberately deploys
 the smallest thing the ``bluesky:`` profile block can produce — one bridge, one
 ``bluesky-queueserver`` RE Manager, one Redis — on the ``hello-world`` preset,
 whose ``control_system.type`` is ``mock``. What that buys, and what nothing
@@ -181,7 +181,7 @@ def _seed_repo_env(repo: Path) -> None:
 def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """Init + build + ``osprey up --dev`` a bluesky-only repo; tear down after."""
     osprey_bin = _find_osprey_console_script()
-    base = tmp_path_factory.mktemp("plan_deploy_build")
+    base = tmp_path_factory.mktemp("scan_deploy_build")
     repo = base / PROJECT_NAME
 
     # Only top-level PROFILE keys go through `--set`; a `config.`-scoped key
@@ -489,8 +489,8 @@ def test_plans_are_browsable_but_unqueueable(deployed_bridge: Path) -> None:
         {
             "plan_name": "grid_scan",
             "plan_args_patch": {
-                "readbacks": ["rb1"],
-                "axes": [{"setpoint": "sp1", "start": 0.0, "stop": 1.0, "num_points": 3}],
+                "readables": ["det1"],
+                "axes": [{"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}],
             },
             "client_id": "bluesky-deploy-e2e",
         },

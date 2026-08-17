@@ -461,10 +461,10 @@ def test_malformed_post_422_and_no_dom_change(tmp_path, chromium_browser):
 # must be expressible.
 _PLAN_ARGS: dict[str, dict] = {
     "grid_scan": {
-        "readbacks": ["BPM1"],
+        "readables": ["BPM1"],
         "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
     },
-    "orm": {"correctors": ["COR1"], "readbacks": ["BPM1"], "span_a": 1.0, "num": 3},
+    "orm": {"correctors": ["COR1"], "bpms": ["BPM1"], "span_a": 1.0, "num": 3},
 }
 
 

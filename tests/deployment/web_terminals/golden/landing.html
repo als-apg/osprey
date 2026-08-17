@@ -92,6 +92,49 @@
       text-transform: uppercase;
       color: var(--text-secondary);
     }
+    /* A `variant: "tray"` section: the same heading and card grid, enclosed in
+       an accent-edged panel so a standalone service reads as a different kind
+       of destination from a person's terminal.
+
+       Deliberately NO background fill. Every candidate surface token collides
+       with something in at least one shipped theme — --bg-elevated is the card
+       HOVER color, and --bg-secondary equals elevated in `light` (hovering a
+       card would dissolve it into the tray), equals --bg-panel in
+       `high-contrast-dark` (cards invisible against it) and sits ABOVE panel in
+       `retro-dark` (cards sunken into it, inverting every other card on the
+       page). Leaving the page's own --bg-primary showing through introduces no
+       new color at all, so the cards inside keep exactly the surface
+       relationship — and exactly the hover — that the cards above the tray
+       have, in all eight themes. The accent border carries the "this is
+       something else" signal instead, and it is theme-safe by construction:
+       every theme defines --border-accent as a composite of its own accent. */
+    .landing-tray {
+      margin-top: 2.25rem;
+      padding: 1.25rem 1.25rem 1.4rem;
+      border: 1px solid var(--border-accent);
+      border-radius: 14px;
+    }
+    /* The heading is already inside the tray's own padding, so it does not need
+       the extra top margin .landing-group carries to separate flat sections. */
+    .landing-tray > .landing-group-label {
+      margin-bottom: 0.9rem;
+    }
+    /* Accent mark. An empty `content` with a background, NOT a "◆" glyph:
+       generated content IS folded into the accessible name, so a character
+       here would have every card in the tray announce a stray "black diamond"
+       ahead of its actual label. A box has no text to announce, and it also
+       renders identically everywhere rather than depending on which font on
+       the viewer's machine happens to carry the codepoint. */
+    .landing-tray .landing-card-label::before {
+      content: "";
+      display: inline-block;
+      width: 0.4rem;
+      height: 0.4rem;
+      margin-right: 0.55rem;
+      vertical-align: 0.04rem;
+      background: var(--color-accent);
+      transform: rotate(45deg);
+    }
     .landing-cards {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

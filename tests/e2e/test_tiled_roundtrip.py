@@ -1,8 +1,8 @@
-"""Phase 2 acceptance proof: run data survives a Bluesky bridge restart via
+"""Phase 2 acceptance proof: scan data survives a Bluesky bridge restart via
 the co-deployed Tiled catalog (PROPOSAL.md's success criterion 11).
 
 Deploys the queue stack -- bridge + ``bluesky-queueserver`` RE Manager + Redis
-+ Tiled -- against the Virtual Accelerator, drives ONE plan run to completion
++ Tiled -- against the Virtual Accelerator, drives ONE scan to completion
 through the queue (``PATCH /draft`` -> ``POST /queue/items`` -> token-gated
 ``POST /queue/start``), restarts ONLY the bridge container, and reads the same
 run back through the same agent-facing endpoint (``GET /runs/{run_id}/data``).
@@ -37,7 +37,7 @@ Scope, versus ``tests/e2e/test_bluesky_queue_e2e.py``: that module is the broad
 proof of the whole queue stack (capability, arming, serial drain, session
 plans, abort, browse-only, network isolation) and it exercises this same
 durability path as one stage among nine. THIS module is the narrow, strict
-acceptance proof of criterion 11 alone -- one plan run, one restart, byte-identical
+acceptance proof of criterion 11 alone -- one scan, one restart, byte-identical
 read-back -- and keeps no flaky marker anywhere, so the criterion can never be
 swept into a lenient rerun. Keep it that way if the two ever diverge.
 
@@ -110,8 +110,8 @@ VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
 BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 VA_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-va:local"
 
-# The plan: one corrector axis, one BPM readback, a handful of points. Small on
-# purpose -- this proof is about durability, not about plan size.
+# The scan: one corrector axis, one BPM detector, a handful of points. Small on
+# purpose -- this proof is about durability, not about scan size.
 SCAN_POINTS = 4
 
 BUILD_TIMEOUT_SEC = 600
@@ -155,7 +155,7 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
 
 
 class DeployedStack:
-    """The one deployed repo, plus the devices its plan will drive."""
+    """The one deployed repo, plus the devices its scan will drive."""
 
     def __init__(
         self,
@@ -301,9 +301,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         # (_ensure_bluesky_substrate_env derives them from the render's own
         # channel_limits.json) -- never a hardcoded facility channel, and never a
         # second copy of that derivation living in this test.
-        correctors = _parse_setpoints(_env_value(repo, "BLUESKY_EPICS_SETPOINTS"))
-        bpms = _parse_readbacks(_env_value(repo, "BLUESKY_EPICS_READBACKS"))
-        assert correctors and bpms, "up wired no plan devices into the repo's .env"
+        correctors = _parse_motors(_env_value(repo, "BLUESKY_EPICS_MOTORS"))
+        bpms = _parse_detectors(_env_value(repo, "BLUESKY_EPICS_DETECTORS"))
+        assert correctors and bpms, "up wired no scan devices into the repo's .env"
 
         yield DeployedStack(
             repo=repo,
@@ -333,7 +333,7 @@ def _seed_repo_env(repo: Path) -> None:
     ``osprey init`` writes one only when the shell exports a key for the
     profile's provider, which this lane does not need — this is the ``cp
     .env.example .env`` the CLI itself recommends, done for the operator. The
-    substrate values ``up`` mints (launch token, plan devices) are appended to
+    substrate values ``up`` mints (launch token, scan devices) are appended to
     whatever is here.
     """
     env_path = repo / ".env"
@@ -351,8 +351,8 @@ def _env_value(repo: Path, key: str) -> str:
     return value
 
 
-def _parse_setpoints(value: str) -> dict[str, tuple[str, str]]:
-    """Parse ``BLUESKY_EPICS_SETPOINTS`` (``name=SP|RB,...``) back into a mapping."""
+def _parse_motors(value: str) -> dict[str, tuple[str, str]]:
+    """Parse ``BLUESKY_EPICS_MOTORS`` (``name=SP|RB,...``) back into a mapping."""
     out: dict[str, tuple[str, str]] = {}
     for chunk in value.split(","):
         if not chunk.strip():
@@ -363,8 +363,8 @@ def _parse_setpoints(value: str) -> dict[str, tuple[str, str]]:
     return out
 
 
-def _parse_readbacks(value: str) -> dict[str, str]:
-    """Parse ``BLUESKY_EPICS_READBACKS`` (``name=RB,...``) back into a mapping."""
+def _parse_detectors(value: str) -> dict[str, str]:
+    """Parse ``BLUESKY_EPICS_DETECTORS`` (``name=RB,...``) back into a mapping."""
     out: dict[str, str] = {}
     for chunk in value.split(","):
         if not chunk.strip():
@@ -462,7 +462,7 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
         f"this proof needs an executable deployment: {health['capability']}"
     )
 
-    # --- 2. compose the plan in the shared draft ---------------------------
+    # --- 2. compose the scan in the shared draft ---------------------------
     # One corrector axis swept across the middle half of its OWN
     # channel_limits band, reading one BPM. Device names and bounds both come
     # from the render, never from a hardcoded channel.
@@ -477,7 +477,7 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
         {
             "plan_name": "grid_scan",
             "plan_args_patch": {
-                "readbacks": [next(iter(deployed_stack.bpms))],
+                "readables": [next(iter(deployed_stack.bpms))],
                 "axes": [
                     {
                         "setpoint": axis_name,
@@ -520,7 +520,7 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
         ):
             break
         time.sleep(1.0)
-    assert status_body.get("status") == "completed", f"run did not complete: {status_body}"
+    assert status_body.get("status") == "completed", f"scan did not complete: {status_body}"
 
     # --- 5. capture the pre-restart read; guard against a vacuous proof ----
     status, pre_data = _get(f"/runs/{run_id}/data?max_rows=1000")

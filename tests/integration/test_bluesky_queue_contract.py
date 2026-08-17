@@ -52,6 +52,11 @@ from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import draft, plan_loader, queue
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
+from osprey.services.bluesky_bridge.plan_fields import (
+    CHANNEL_ROLE_KEY,
+    MOVABLE_ROLE,
+    READABLE_ROLE,
+)
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 from osprey.services.bluesky_bridge.session_upload import (
@@ -75,7 +80,7 @@ _SESSION_PLAN_NAME = "contract_sweep"
 def _grid_scan_args(num_points: int = 3) -> dict[str, Any]:
     """A valid draft for the always-registered shipped ``grid_scan`` plan."""
     return {
-        "readbacks": ["BPM1"],
+        "readables": ["BPM1"],
         "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": num_points}],
     }
 
@@ -86,8 +91,6 @@ def _session_plan_source(name: str) -> str:
         "PLAN_METADATA = {\n"
         f'    "name": {name!r},\n'
         '    "description": "A session-tier plan authored for the contract tests.",\n'
-        '    "category": "accelerator",\n'
-        '    "required_devices": [],\n'
         '    "writes": False,\n'
         "}\n\n\n"
         "def build_plan(devices, params):\n"
@@ -478,6 +481,97 @@ def _write_session_plan(name: str = _SESSION_PLAN_NAME, *, validated: bool = Tru
 
 
 # ---------------------------------------------------------------------------
+# The declared plan contract, as a consumer reads it off the catalog
+# ---------------------------------------------------------------------------
+
+
+def test_the_catalog_entry_is_five_keys_with_three_field_metadata(client: TestClient) -> None:
+    """`GET /plans` publishes exactly five keys per entry, and a plan's metadata
+    is exactly ``name``/``description``/``writes``.
+
+    This is the wire half of the metadata contract: the model forbids extras
+    in-process, but what a panel, the MCP tools and the approval hook actually
+    read is this payload. `category` and `required_devices` are retired, so an
+    entry that still carried either would be a consumer teaching an operator
+    about a field the bridge no longer has.
+    """
+    body = client.get("/plans").json()
+    by_name = {entry["name"]: entry for entry in body}
+    assert {"orm", "grid_scan"} <= set(by_name), f"shipped plans missing: {sorted(by_name)}"
+
+    for name, entry in by_name.items():
+        assert set(entry) == {"name", "description", "schema", "metadata", "provenance"}, (
+            f"{name}: unexpected catalog entry keys: {sorted(entry)}"
+        )
+        assert set(entry["metadata"]) == {"name", "description", "writes"}, (
+            f"{name}: plan metadata is no longer the three declared fields: {entry['metadata']}"
+        )
+
+
+def test_the_published_schema_carries_the_plans_own_channel_roles(client: TestClient) -> None:
+    """Roles reach a consumer as ``x-channel-role`` on the FIELD, not on its items.
+
+    The role declaration is the whole contract: it is what replaced guessing a
+    channel's purpose from its parameter name, and every consumer that has to
+    know which channels a launch would MOVE (the approval gate, the pre-flight,
+    the default figure) reads it from here. So the JSON path is pinned, not just
+    the presence of the annotation — a role that moved into ``items`` would be
+    invisible to every one of them while a laxer assertion still passed.
+
+    ``grid_scan`` pins the nested case: its movable is a field of ``GridAxis``,
+    which pydantic emits under ``$defs`` and references from ``axes.items``, so
+    the role lives one level down and the array itself carries none.
+    """
+    by_name = {entry["name"]: entry for entry in client.get("/plans").json()}
+
+    orm = by_name["orm"]["schema"]["properties"]
+    assert orm["correctors"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE
+    assert orm["bpms"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    # The annotation sits beside `type`/`items`, never inside the item schema.
+    assert CHANNEL_ROLE_KEY not in orm["correctors"]["items"], (
+        f"the role moved into the item schema: {orm['correctors']}"
+    )
+
+    grid = by_name["grid_scan"]["schema"]
+    assert grid["properties"]["readables"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    assert grid["$defs"]["GridAxis"]["properties"]["setpoint"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE
+    assert CHANNEL_ROLE_KEY not in grid["properties"]["axes"], (
+        "the axis LIST is not itself a channel field; only GridAxis.setpoint is: "
+        f"{grid['properties']['axes']}"
+    )
+
+
+@pytest.mark.parametrize("retired_key", ["category", "required_devices"])
+def test_session_authoring_refuses_a_retired_metadata_key(
+    client: TestClient, retired_key: str
+) -> None:
+    """`POST /plans/session` 422s on a retired key rather than storing it.
+
+    The write payload is the same three fields the catalog publishes. A stale
+    client sending `category` gets told which key it sent — silently dropping
+    it would let an author believe a declaration reached the plan file when
+    nothing read it.
+    """
+    body = {
+        "name": "retired_key_probe",
+        "description": "probe",
+        "writes": False,
+        "body": "def build_plan(devices, params):\n    yield ('noop', 'probe')\n",
+        retired_key: "scan",
+    }
+
+    resp = client.post("/plans/session", json=body)
+
+    assert resp.status_code == 422, resp.text
+    assert retired_key in resp.text, f"the refusal does not name the rejected key: {resp.text}"
+
+    # The three-field body is what IS accepted — without this, the refusal above
+    # could be passing for an unrelated reason.
+    del body[retired_key]
+    assert client.post("/plans/session", json=body).status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # Enqueue from a pinned draft revision
 # ---------------------------------------------------------------------------
 
@@ -740,7 +834,7 @@ def test_an_aborted_run_reads_as_stopped_and_cannot_silently_re_run(
 
     * ``GET /runs`` must report that run ``stopped`` — the word the record
       contract reserves for "a human stopped it" — and NOT ``pending``, which
-      would present a just-halted run as work still to come.
+      would present a just-halted scan as work still to come.
     * ``POST /queue/start`` must REFUSE while that item is queued, so the plan
       cannot go back on the hardware without a fresh, explicit decision.
 

@@ -28,11 +28,19 @@ which can reject outright before the next ever runs:
    the plan's generator, in a subprocess whose ``EPICS_CA_*`` variables are
    neutralized to explicit inert values (no address, no auto-discovery — see
    :data:`_EPICS_CA_INERT_ENV`), against in-process mock devices
-   (:mod:`osprey.services.bluesky_bridge.devices.mock`). This is an
+   (:mod:`osprey.services.bluesky_bridge.devices.mock`) built for exactly the
+   channels the plan's ``PARAMS`` declared movable or readable. This is an
    **authoring-quality gate** ("does the body actually run"), not a
    containment boundary — containment comes from stages 1-2 above and the
    downstream load and enqueue gates that key off this module's validation
    record, not from anything the dry-run subprocess itself prevents.
+   The same stage also watches what the plan's run(s) declared about their
+   own size, and rejects a plan that says it moves channels but leaves an
+   operator with no way to know how far along it is — see
+   :func:`_point_count_reasons`. That check is enforced HERE, on the session
+   tier, and nowhere else: a shipped/preset/facility plan is reviewed by the
+   people who install it, while a session plan is written on the spot and
+   this validator is the only thing that reads it before it runs.
 
 Every :class:`ValidationResult` (pass or fail) carries a ``content_hash``
 computed by :func:`hash_plan_body`, the single normalization the record store
@@ -57,7 +65,6 @@ from typing import Any
 
 from osprey.mcp_server.sandbox_env import scrub_sensitive_env
 from osprey.mcp_server.workspace.execution.sandbox_executor import validate_sandbox_code
-from osprey.services.bluesky_bridge.device_fields import is_read_only_device_field
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
 )
@@ -77,24 +84,27 @@ _ALLOWED_BLUESKY_SUBMODULES: frozenset[str] = frozenset(
 )
 
 # `osprey` is narrowed the same way, and for a narrower reason: a plan file may
-# declare a `render(rows, params)` returning a `Figure` (see `plan_types.py`),
+# declare a `render(window, params)` returning a `Figure` (see `plan_types.py`),
 # and there is no way to build one without importing the module that defines it.
 # `plans_core/*.py` files are exec'd by `plan_loader` via
 # `spec_from_file_location` with no package, so a relative `from ..figure
 # import` would fail at load — the absolute path below is the only spelling
 # that works, which is what puts it in front of this allowlist at all.
 #
-# Both entries are inert by construction: `figure` is pydantic-only (models,
-# `decimate`, the row adapter) and `orm_analysis` is numpy-only, neither
-# performs I/O, spawns anything, or touches a control system. Nothing else
-# under `osprey` belongs here. In particular the connector, config, queue, and
-# executor packages are the capabilities this validator exists to keep out of
-# an agent-authored plan body, and admitting bare `osprey` would hand a plan
+# All three entries are inert by construction: `figure` is pydantic-only
+# (models, `decimate`, the row adapter), `orm_analysis` is numpy-only, and
+# `plan_fields` is pydantic-only (the role-typed channel field helpers a plan
+# author uses to declare `movable`/`readable` params) — none performs I/O,
+# spawns anything, or touches a control system. Nothing else under `osprey`
+# belongs here. In particular the connector, config, queue, and executor
+# packages are the capabilities this validator exists to keep out of an
+# agent-authored plan body, and admitting bare `osprey` would hand a plan
 # every one of them.
 _ALLOWED_OSPREY_SUBMODULES: frozenset[str] = frozenset(
     {
         "osprey.services.bluesky_bridge.figure",
         "osprey.services.bluesky_bridge.orm_analysis",
+        "osprey.services.bluesky_bridge.plan_fields",
     }
 )
 
@@ -390,37 +400,31 @@ _EPICS_CA_ENV_NAMES_TO_DROP: tuple[str, ...] = ("EPICS_CA_SERVER_PORT",)
 _DRY_RUN_GRACE_SECONDS = 5.0
 
 
-def _collect_device_names(value: Any, *, key: str | None = None) -> tuple[set[str], set[str]]:
-    """Recursively bucket device-name strings out of a plan's ``sample_args``.
+# Mock devices the dry-run builds when a plan's ``PARAMS`` declares no
+# channel role at all — a `PARAMS` with no fields (nothing to declare) still
+# has to drive a RunEngine, and a plan that *should* have declared a channel
+# gets the dressed "available mock devices" failure naming exactly these two
+# rather than an unexplained empty mapping. Injected into the script through
+# the same render seam as every other computed value.
+_FALLBACK_MOVABLE_MOCKS: tuple[str, ...] = ("motor1",)
+_FALLBACK_READABLE_MOCKS: tuple[str, ...] = ("det1",)
 
-    A plan file's `PLAN_METADATA["required_devices"]` names PARAMS *fields*
-    (e.g. ``"correctors"``, ``"readbacks"``), not a fixed shape all plans
-    share — `grid_scan`'s setpoints, for instance, are nested under
-    ``axes[].setpoint`` rather than a flat field. Rather than hard-coding a
-    per-plan device-field shape, this walks ``sample_args`` itself and
-    buckets every string leaf by the nearest enclosing field name:
-    :func:`~osprey.services.bluesky_bridge.device_fields.is_read_only_device_field`
-    is the sole authority on which field names are read-only, and everything
-    it does not claim (correctors/setpoints/unlabeled) goes to the settable
-    bucket — settables are the more capable mock (settable *and* readable),
-    so defaulting an unlabeled device name there is the safer guess for a
-    body that drives it via `bps.mv`.
-    """
-    setpoints: set[str] = set()
-    readbacks: set[str] = set()
-    if isinstance(value, str):
-        (readbacks if is_read_only_device_field(key) else setpoints).add(value)
-    elif isinstance(value, dict):
-        for sub_key, sub_value in value.items():
-            sub_setpoints, sub_readbacks = _collect_device_names(sub_value, key=sub_key)
-            setpoints |= sub_setpoints
-            readbacks |= sub_readbacks
-    elif isinstance(value, (list, tuple, set)):
-        for item in value:
-            sub_setpoints, sub_readbacks = _collect_device_names(item, key=key)
-            setpoints |= sub_setpoints
-            readbacks |= sub_readbacks
-    return setpoints, readbacks
+# The start-document key a run's declared point count arrives under, and this
+# module's only spelling of it — injected into the dry-run script through the
+# render seam so the capture and this file agree by construction. Reading it
+# is what a gate does: the same read the progress reporter performs when a run
+# starts (`document_plane._on_start`). Authors never write this key by hand —
+# `plan_fields.scan_metadata()` is the one place a plan's stamp is built, and
+# that is the function the failure message below points them at.
+_DECLARED_POINT_COUNT_KEY = "num_points"
+
+# The one remedy sentence both point-count rejections end with. Capability
+# vocabulary only: what the plan does (moves channels, declares how many
+# points) and the authoring call that says it.
+_DECLARE_POINTS_REMEDY = (
+    "a plan that moves channels must declare its point count — pass "
+    "md=scan_metadata(movable=..., readable=..., points=...) to your run decorator"
+)
 
 
 def _render_dry_run_script(
@@ -429,18 +433,37 @@ def _render_dry_run_script(
     result_path: Path,
     plan_name: str,
     sample_args: dict[str, Any],
-    settable_names: list[str],
-    readable_names: list[str],
+    fallback_movable_names: tuple[str, ...],
+    fallback_readable_names: tuple[str, ...],
+    point_count_key: str,
     inner_timeout: float,
 ) -> str:
     """Render the subprocess script that drives the dry-run to completion.
 
     Loads the plan body as a standalone module, validates ``sample_args``
     against its ``PARAMS`` schema, and drives the resulting generator through a
-    bluesky ``RunEngine`` against mock devices built for the device names found
-    in ``sample_args``. Writes a JSON result to ``result_path`` in a ``finally``
-    so the parent always has something to read even if construction itself
-    raised.
+    bluesky ``RunEngine`` against mock devices built for the channels those
+    validated params supply — a `MockMotor` for every channel the plan declared
+    movable, a `MockDetector` for every one it declared readable, and nothing
+    at all for a string sitting under a field that declared no role (that is a
+    plain parameter, not a device). Writes a JSON result to ``result_path`` in a
+    ``finally`` so the parent always has something to read even if construction
+    itself raised.
+
+    On a successful drive the result also carries ``declared_points``: one entry
+    per run the plan opened, holding what that run declared about its own size
+    (`None` for a run that declared nothing usable). The script only *reports*
+    it — whether a missing declaration is a rejection depends on what the plan's
+    own metadata says it does, which the parent reads (`_point_count_reasons`).
+
+    Which mock a channel gets is read from the plan's own declaration via
+    `plan_fields.collect_channels`, the single authority every consumer shares.
+    That collection runs here, inside the subprocess, because it needs the
+    body's `PARAMS` class and its *validated* params — and loading a plan body
+    is exactly what the bridge process never does (see the module docstring).
+    `plan_fields` is pydantic-only and already on the plan-body import
+    allowlist, so a validated body could import it itself; the dry-run
+    subprocess reaches for nothing a plan body cannot.
 
     The RunEngine is driven here rather than through any shared runner class:
     the bridge process runs no plans at all (execution belongs to the
@@ -459,8 +482,9 @@ _PLAN_PATH = Path(r"{plan_path}")
 _RESULT_PATH = Path(r"{result_path}")
 _PLAN_NAME = {plan_name!r}
 _SAMPLE_ARGS = {sample_args!r}
-_SETTABLE_NAMES = {tuple(settable_names)!r}
-_READABLE_NAMES = {tuple(readable_names)!r}
+_FALLBACK_MOVABLE = {fallback_movable_names!r}
+_FALLBACK_READABLE = {fallback_readable_names!r}
+_POINT_COUNT_KEY = {point_count_key!r}
 _DEADLINE_S = {inner_timeout!r}
 
 result = {{"success": False, "error": None}}
@@ -487,11 +511,31 @@ try:
     from pydantic import BaseModel as _BaseModel
 
     from osprey.services.bluesky_bridge.devices.mock import build_devices
+    from osprey.services.bluesky_bridge.plan_fields import (
+        MOVABLE_ROLE,
+        READABLE_ROLE,
+        collect_channels,
+    )
 
     params_cls = getattr(module, "PARAMS", None)
     if params_cls is None:
         class params_cls(_BaseModel):
             pass
+
+    params = params_cls.model_validate(_SAMPLE_ARGS)
+
+    # Which channel gets which mock comes from the plan's own declaration, not
+    # from what a field is named: a channel the plan declared movable gets the
+    # settable mock, one it declared readable gets the readable mock, and a
+    # string under a field that declared no role is a plain parameter that gets
+    # no mock at all. A plan declaring neither role falls back to one of each so
+    # a parameterless body still has something to drive.
+    _movable_names = list(collect_channels(params_cls, params, MOVABLE_ROLE)) or list(
+        _FALLBACK_MOVABLE
+    )
+    _readable_names = list(collect_channels(params_cls, params, READABLE_ROLE)) or list(
+        _FALLBACK_READABLE
+    )
 
     # `context_managers=[]` disables the RunEngine's default SIGINT handling,
     # which only works on the main thread -- required because `RE(...)` is
@@ -501,12 +545,33 @@ try:
     # `build_devices` is `async def`, and the devices it builds bind to
     # whichever loop connects them -- which must be `RE.loop`, the loop bluesky
     # drives all signal I/O on, not a throwaway one.
-    devices = asyncio.run_coroutine_threadsafe(
-        build_devices(settable_names=_SETTABLE_NAMES, readable_names=_READABLE_NAMES), RE.loop
-    ).result(timeout=30.0)
+    devices = dict(asyncio.run_coroutine_threadsafe(
+        build_devices(motor_names=_movable_names, detector_names=_readable_names), RE.loop
+    ).result(timeout=30.0))
 
-    params = params_cls.model_validate(_SAMPLE_ARGS)
-    plan_gen = module.build_plan(dict(devices), params)
+    try:
+        plan_gen = module.build_plan(devices, params)
+    except KeyError as exc:
+        _missing = exc.args[0] if exc.args else "<unknown>"
+        raise KeyError(
+            f"plan {{_PLAN_NAME!r}} referenced device {{_missing!r}}, which the dry run "
+            f"did not mock; available mock devices: {{sorted(devices)}}. A channel is "
+            f"mocked only when PARAMS declares it movable or readable."
+        ) from exc
+
+    # What each run this plan opens declares about its own size, captured from
+    # the run's own start document -- the same place, and the same read, the
+    # progress reporter uses when a real run starts. A run that declares
+    # nothing usable records None so the parent can tell "no run at all" from
+    # "a run that said nothing".
+    _declared_points = []
+
+    def _capture_declared_points(name, doc):
+        _value = doc.get(_POINT_COUNT_KEY)
+        _usable = isinstance(_value, int) and not isinstance(_value, bool) and _value >= 1
+        _declared_points.append(_value if _usable else None)
+
+    RE.subscribe(_capture_declared_points, "start")
 
     failure = {{}}
 
@@ -524,6 +589,7 @@ try:
     if "exc" in failure:
         raise failure["exc"]
 
+    result["declared_points"] = _declared_points
     result["success"] = True
 except Exception as exc:
     result["error"] = f"{{type(exc).__name__}}: {{exc}}"
@@ -531,6 +597,72 @@ except Exception as exc:
 finally:
     _RESULT_PATH.write_text(json.dumps(result))
 """
+
+
+def _declares_writes(body: str) -> bool:
+    """Whether the body's own ``PLAN_METADATA`` says the plan moves channels.
+
+    Read statically off the assignment's dict literal, never by importing the
+    body — the bridge process never loads a plan body (see the module
+    docstring), and this runs on the same untrusted text stages 1-2 parse.
+    A body with no ``PLAN_METADATA``, a non-literal one, or one whose
+    ``writes`` value is anything but the literal `True` reads as "does not
+    move channels": the point-count gate then has nothing to enforce, and a
+    plan that genuinely moves channels while declaring otherwise is the LOAD
+    gate's rejection (`plan_loader`), not this one's.
+    """
+    try:
+        tree = ast.parse(body)
+    except SyntaxError:
+        return False
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == "PLAN_METADATA" for target in node.targets
+        ):
+            continue
+        if not isinstance(node.value, ast.Dict):
+            continue
+        for key, value in zip(node.value.keys, node.value.values, strict=True):
+            if (
+                isinstance(key, ast.Constant)
+                and key.value == "writes"
+                and isinstance(value, ast.Constant)
+            ):
+                return value.value is True
+    return False
+
+
+def _point_count_reasons(payload: dict[str, Any], *, plan_name: str) -> list[str]:
+    """Reject a moving plan whose run leaves an operator no way to track it.
+
+    A plan that moves channels is one an operator watches: the panel's
+    progress, the "how much longer" question, and every consumer downstream of
+    the run read the point count the run itself declared. A plan that declares
+    none reports as an unbounded run forever, so this is a rejection at
+    authoring time rather than a surprise at launch.
+
+    Two ways to fail, one remedy: the plan opened no run at all (it said it
+    moves channels, so there is a run to declare), or it opened one that
+    declared nothing usable. Passing does NOT require calling
+    `scan_metadata()` — a plan that hands its work to a stock bluesky plan
+    inherits that plan's own declaration and passes on it — but writing the
+    stamp yourself is the only route for a plan that builds its own run, which
+    is why the remedy names the authoring helper.
+    """
+    declared = payload.get("declared_points") or []
+    if not declared:
+        return [
+            f"Dry-run gate: plan {plan_name!r} declares that it moves channels but "
+            f"opened no run; {_DECLARE_POINTS_REMEDY}."
+        ]
+    if any(count is None for count in declared):
+        return [
+            f"Dry-run gate: plan {plan_name!r} opened a run that declares no point "
+            f"count; {_DECLARE_POINTS_REMEDY}."
+        ]
+    return []
 
 
 async def _dry_run(
@@ -542,15 +674,22 @@ async def _dry_run(
 ) -> list[str]:
     """Stage 3: run the plan body to completion under a mock-device RunEngine.
 
+    The mock devices are the ones the plan's own role declaration asks for —
+    see `_render_dry_run_script`, which is where that collection happens and
+    why it happens there rather than here.
+
     Runs in a subprocess (its own interpreter, own event loop) with the
     shared `scrub_sensitive_env` deny-list applied AND every
     `_EPICS_CA_INERT_ENV` variable set to an inert value (never merely
     deleted — see that constant's docstring for why deleting would be worse)
     on top of it. Authoring-QUALITY gate only — "does it actually run" — not
     a containment boundary (see module docstring).
-    """
-    settable_names, readable_names = _collect_device_names(sample_args)
 
+    A body that runs clean is then held to what its own ``PLAN_METADATA``
+    claims: a plan declaring that it moves channels must leave a declared
+    point count behind on the run(s) it opened (`_point_count_reasons`). A
+    read-only plan is not asked for one.
+    """
     with tempfile.TemporaryDirectory(prefix="osprey_plan_dry_run_") as tmp:
         tmp_path = Path(tmp)
         plan_path = tmp_path / "plan_body.py"
@@ -563,8 +702,9 @@ async def _dry_run(
                 result_path=result_path,
                 plan_name=plan_name,
                 sample_args=sample_args,
-                settable_names=sorted(settable_names) or ["sp1"],
-                readable_names=sorted(readable_names) or ["rb1"],
+                fallback_movable_names=_FALLBACK_MOVABLE_MOCKS,
+                fallback_readable_names=_FALLBACK_READABLE_MOCKS,
+                point_count_key=_DECLARED_POINT_COUNT_KEY,
                 inner_timeout=timeout,
             ),
             encoding="utf-8",
@@ -604,6 +744,8 @@ async def _dry_run(
 
         if not payload.get("success"):
             return [f"Dry-run failed: {payload.get('error', 'unknown error')}"]
+        if _declares_writes(body):
+            return _point_count_reasons(payload, plan_name=plan_name)
         return []
 
 
@@ -633,7 +775,7 @@ async def validate_plan(
         sample_args: Sample ``PARAMS`` field values used to build the stage-3
             dry-run's generator and mock devices. `None` (no sample args)
             still runs the dry-run against an empty-args `PARAMS()` and a
-            single default mock setpoint/readback — appropriate only for a body
+            single default mock motor/detector — appropriate only for a body
             whose `PARAMS` has no required fields.
         dry_run_timeout: Seconds the stage-3 subprocess is given to drive the
             plan to completion.

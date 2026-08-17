@@ -36,7 +36,7 @@ def _item(
     item: dict = {
         "item_type": "plan",
         "name": name,
-        "kwargs": kwargs if kwargs is not None else {"readbacks": ["BPM1"]},
+        "kwargs": kwargs if kwargs is not None else {"readables": ["BPM1"]},
         "item_uid": item_uid,
     }
     if run_id is not None:
@@ -103,7 +103,7 @@ def test_a_failed_item_with_no_message_still_says_something() -> None:
 def test_an_unrecognized_exit_status_reads_as_error_not_completion(result: dict) -> None:
     """Fail-closed on the terminal state: an item that left the queue without
     the manager recording a clean finish must never be mistaken for a
-    successful run."""
+    successful scan."""
     [record] = _records(history=[_item(result=result)])
     assert record["status"] == "error"
 
@@ -114,7 +114,7 @@ def test_an_unrecognized_exit_status_reads_as_error_not_completion(result: dict)
 
 
 def test_record_carries_the_plan_name_and_its_unwrapped_kwargs() -> None:
-    args = {"readbacks": ["BPM1"], "axes": [{"setpoint": "COR1"}]}
+    args = {"readables": ["BPM1"], "axes": [{"setpoint": "COR1"}]}
     [record] = _records(pending=[_item(name="grid_scan", kwargs=args)])
     assert record["plan_name"] == "grid_scan"
     assert record["plan_args"] == args
@@ -125,7 +125,7 @@ def test_plan_args_is_a_copy_not_the_managers_own_dict() -> None:
     serialized to JSON on the way out, so nothing downstream mutates it — this
     only stops the projection from handing out an alias of the manager
     document it was handed."""
-    args = {"readbacks": ["BPM1"]}
+    args = {"readables": ["BPM1"]}
     item = _item(kwargs=args)
     [record] = _records(pending=[item])
     assert record["plan_args"] is not args
@@ -172,9 +172,7 @@ def test_progress_is_absent_when_the_document_plane_knows_nothing() -> None:
 
 
 def test_progress_is_attached_when_the_document_plane_has_rows() -> None:
-    document_plane.record_run_params(
-        "run-1", {"axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 4}]}
-    )
+    document_plane.record_expected_points("run-1", 4)
     recorder = live_rows.LiveRowRecorder(key="run-1")
     recorder("start", {"uid": "re-uid"})
     recorder("event", {"data": {"BPM1": 1.0}})
@@ -273,7 +271,7 @@ def test_find_record_returns_none_for_a_run_the_manager_has_forgotten() -> None:
 # AND pushes a copy back to the FRONT of the queue under a NEW item_uid,
 # keeping the `result`. Since `_ordered_records` walks the queue before history
 # and emits each run id once, that copy would otherwise SHADOW the correct
-# history record and publish a just-aborted run as `pending`.
+# history record and publish a just-aborted scan as `pending`.
 #
 # Found against a real deployed manager by tests/e2e/test_bluesky_queue_e2e.py;
 # the mocked-client tests here were written to the assumption that an aborted

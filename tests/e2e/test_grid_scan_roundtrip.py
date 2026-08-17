@@ -1,6 +1,6 @@
 """Real-container ``grid_scan`` round-trip e2e (task 1.4 / PROPOSAL.md FR7).
 
-Crown re-architects plan registration to a single gold-standard registry
+Crown re-architects scan-plan registration to a single gold-standard registry
 whose shipped set is exactly ``{orm, grid_scan}`` (FR2) — ``grid_scan`` is the
 shipped ``plans_core/grid_scan.py`` file, whose canonical ``PLAN_METADATA``
 name is ``"grid_scan"`` (see that module's docstring).
@@ -157,7 +157,7 @@ def deployed_grid_scan_stack(
     bpms = _orm_stack.select_bpms(limits, count=1)
     # Writes the repo root's `.env` — the deployment's whole secret store, and
     # the file `osprey up` refuses to start without.
-    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -222,13 +222,13 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
     bpm_name = deployed_grid_scan_stack.bpm_name
 
     # Canonical grid_scan schema (plans_core/grid_scan.py's PARAMS): a
-    # `readbacks` list, one `GridAxis` per swept dimension
+    # `readables` list, one `GridAxis` per swept dimension
     # (`setpoint`/`start`/`stop`/`num_points`), and `snake_axes`. A single
     # axis here -- the "n-dimensional" contract is exercised by
     # test_exemplar_plans.py's in-process 2-axis case; this e2e's job is the
     # real HTTP+container round trip, kept minimal to run fast.
     plan_args = {
-        "readbacks": [bpm_name],
+        "readables": [bpm_name],
         "axes": [
             {
                 "setpoint": corrector_name,
@@ -241,7 +241,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
     }
 
     token = _orm_stack.minted_launch_token(deployed_grid_scan_stack.repo)
-    run_id, status_body = _queue_drive.run_plan(
+    run_id, status_body = _queue_drive.run_scan(
         BRIDGE_URL,
         "grid_scan",
         plan_args,

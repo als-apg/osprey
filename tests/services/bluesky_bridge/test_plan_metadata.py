@@ -1,5 +1,9 @@
-"""Coverage for the plan-metadata model, its parser, and `PlanSpec`'s new
-`metadata`/`provenance` fields (task 1.1).
+"""Coverage for the plan-metadata model, its parser, and `PlanSpec`'s
+`metadata`/`provenance` fields.
+
+The model is a closed three-field contract — `name`, `description`, `writes` —
+and nothing else: which channels a plan touches is read off its role-typed
+parameter fields, not re-declared here.
 
 Pure pydantic — no bluesky import, so this runs in the fast import-clean lane
 alongside the rest of `plan_types.py`'s own tests.
@@ -23,8 +27,6 @@ from osprey.services.bluesky_bridge.plan_types import PlanSpec
 _WELL_FORMED = {
     "name": "orm",
     "description": "Sweep each corrector, reading all BPMs at every point.",
-    "category": "accelerator",
-    "required_devices": ["SR:MAG:HCM:01:CURRENT:SP", "SR:DIAG:BPM:01:X"],
     "writes": True,
 }
 
@@ -38,9 +40,11 @@ def test_well_formed_dict_parses_into_plan_metadata_with_all_fields() -> None:
 
     assert metadata.name == "orm"
     assert metadata.description == _WELL_FORMED["description"]
-    assert metadata.category == "accelerator"
-    assert metadata.required_devices == _WELL_FORMED["required_devices"]
     assert metadata.writes is True
+
+
+def test_model_declares_exactly_the_three_contract_fields() -> None:
+    assert set(PlanMetadata.model_fields) == {"name", "description", "writes"}
 
 
 def test_well_formed_module_parses_via_parse_plan_metadata() -> None:
@@ -77,14 +81,7 @@ def test_missing_required_field_raises_typed_error_naming_the_field(missing_fiel
     with pytest.raises(PlanMetadataError, match=missing_field) as excinfo:
         parse_plan_metadata_dict(raw, source="test")
 
-    assert isinstance(excinfo.value, PlanMetadataError)
-
-
-def test_wrong_type_required_devices_raises_typed_error() -> None:
-    raw = {**_WELL_FORMED, "required_devices": "not-a-list"}
-
-    with pytest.raises(PlanMetadataError, match="required_devices"):
-        parse_plan_metadata_dict(raw, source="test")
+    assert "unknown key(s)" not in str(excinfo.value)
 
 
 def test_wrong_type_writes_raises_typed_error() -> None:
@@ -92,6 +89,59 @@ def test_wrong_type_writes_raises_typed_error() -> None:
 
     with pytest.raises(PlanMetadataError, match="writes"):
         parse_plan_metadata_dict(raw, source="test")
+
+
+@pytest.mark.parametrize(
+    "unknown_key, value",
+    [
+        ("required_devices", ["SR:MAG:HCM:01:CURRENT:SP"]),
+        ("category", "accelerator"),
+        ("some_invented_key", 17),
+    ],
+)
+def test_unknown_key_is_rejected_and_named_in_the_error(unknown_key: str, value: object) -> None:
+    """A plan declaring anything outside the three-field contract — including a
+    key from an earlier metadata shape — quarantines loudly, naming the key."""
+    raw = {**_WELL_FORMED, unknown_key: value}
+
+    with pytest.raises(PlanMetadataError) as excinfo:
+        parse_plan_metadata_dict(raw, source="legacy/plan.py")
+
+    message = str(excinfo.value)
+    assert f"unknown key(s): {unknown_key}" in message
+    assert message.startswith("legacy/plan.py: PLAN_METADATA is invalid")
+
+
+def test_unknown_key_rejected_when_loaded_from_a_module() -> None:
+    module = types.SimpleNamespace(
+        PLAN_METADATA={**_WELL_FORMED, "category": "accelerator"},
+        __name__="legacy_plan_module",
+    )
+
+    with pytest.raises(PlanMetadataError, match="unknown key"):
+        parse_plan_metadata(module)
+
+
+def test_error_names_every_unknown_key_at_once() -> None:
+    raw = {**_WELL_FORMED, "category": "accelerator", "required_devices": []}
+
+    with pytest.raises(PlanMetadataError) as excinfo:
+        parse_plan_metadata_dict(raw, source="test")
+
+    message = str(excinfo.value)
+    assert "category" in message
+    assert "required_devices" in message
+
+
+def test_error_separates_bad_fields_from_unknown_keys() -> None:
+    raw = {"name": "orm", "description": "Sweep.", "category": "accelerator"}
+
+    with pytest.raises(PlanMetadataError) as excinfo:
+        parse_plan_metadata_dict(raw, source="test")
+
+    assert str(excinfo.value) == (
+        "test: PLAN_METADATA is invalid for field(s): writes; unknown key(s): category"
+    )
 
 
 def test_plan_spec_to_dict_includes_metadata_when_set() -> None:

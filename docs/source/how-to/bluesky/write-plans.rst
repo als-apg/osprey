@@ -2,7 +2,7 @@
 Write Your Own Scan Plans
 =========================
 
-OSPREY ships two plans — an n-dimensional **grid scan** and an **orbit
+OSPREY ships two scan plans — an n-dimensional **grid scan** and an **orbit
 response matrix** sweep — and they are deliberately generic. Your machine has
 its own measurements, and there are two ways to add them: ask the agent to
 write one during a session, or install a plan library that belongs to your
@@ -31,7 +31,7 @@ Two ways to add a plan
 
       .. code-block:: text
 
-         Write me a plan that ramps one corrector while logging every
+         Write me a scan plan that ramps one corrector while logging every
          BPM, and holds each setpoint for a settling time I can choose.
 
       The agent writes the plan file, runs it through the validator, and
@@ -54,7 +54,7 @@ Two ways to add a plan
          bluesky:
            plan_dir: plans/
 
-      Every plan in it is installed read-only into the plan stack and
+      Every plan in it is installed read-only into the scan stack and
       trusted at **facility** tier — no per-session validation, available in
       every deployment built from the profile, listed in BLUESKY's Plans
       view and the agent's catalog like the shipped plans.
@@ -69,11 +69,13 @@ Two ways to add a plan
 
    A plan file is a small Python module with three parts:
 
-   - **Metadata** — the plan's name, a human description, its category,
-     which kinds of devices it needs, and whether it writes to the machine.
+   - **Metadata** — three things and no more: the plan's name, a human
+     description, and whether it moves anything on the machine.
    - **Parameters** — a schema describing the knobs (names, types, limits).
      This is what BLUESKY's Plans view turns into a form, so a
-     well-described parameter becomes a well-labeled field.
+     well-described parameter becomes a well-labeled field. Each parameter
+     that holds channel names also says what the plan does with them — see
+     *A plan says what it touches* below.
    - **The plan function** — builds the actual Bluesky plan from the
      parameters and the resolved devices.
 
@@ -114,13 +116,44 @@ Two ways to add a plan
    more. Facility-tier plans carry no fingerprint bookkeeping — their trust
    comes from being installed by you.
 
+A plan says what it touches
+===========================
+
+A plan's parameters name channels, but a list of names on its own does not say
+whether the plan will *drive* those channels or only *record* them. Every plan
+file answers that outright: a parameter holding channel names is marked either
+**movable** — the plan drives it to a value — or **readable** — the plan
+records it without changing it.
+
+That one marking is what the rest of OSPREY works from. It decides which
+stand-in devices the validator builds for the rehearsal, which names are
+checked against your machine before a scan is queued, what the approval prompt
+shows the human who is about to say yes, and which channel the default plot
+uses for its x axis. Each of those used to guess from how a parameter was
+spelled. Now the plan says it once, and everything reads the same answer.
+
+Two consequences you will notice:
+
+- **The names are yours.** Call the parameters whatever your facility calls
+  them — correctors, BPMs, setpoints, monitors. The marking carries the
+  meaning, so nothing downstream depends on the spelling.
+- **A plan that moves the machine has to show what it moves.** A plan whose
+  metadata says it writes, but which marks nothing as movable, is refused when
+  the catalog loads it and never appears — with a message saying exactly that.
+  Such a plan must also open a run and state how many points that run will
+  take; that number is what live progress counts against. A plan built on top
+  of one of Bluesky's own scans inherits the run and its point count from that
+  scan, so it states neither itself — but it still marks its own parameters,
+  because those markings are what everything else reads.
+
 Give a plan its own view
 ========================
 
 Every run gets a figure in the BLUESKY panel, and by default it is drawn for
-you: every numeric column the run recorded, plotted against the run's own
-axis. That **default view** is honest and, for a straightforward measurement,
-enough.
+you: every numeric column the run recorded, plotted against the channel the
+plan drives — or simply in the order the readings were taken, when a plan
+drives more than one. That **default view** is honest and, for a
+straightforward measurement, enough.
 
 A plan that measures something the raw columns cannot show can bring its own
 view instead — a small ``render`` function that receives the run's rows and its
@@ -149,7 +182,7 @@ and exactly one **mark**:
 
 Three rules keep a view honest, and the framework enforces all three:
 
-- **Drawing never disturbs a plan.** A view is computed from data already
+- **Drawing never disturbs a scan.** A view is computed from data already
   recorded, after the fact. If it fails, the run and its numbers are untouched
   and the panel simply shows the default view with a note saying why.
 - **Views name no facility.** Labels come from the plan's parameters and the

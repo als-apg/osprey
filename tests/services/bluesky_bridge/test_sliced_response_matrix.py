@@ -163,7 +163,7 @@ def test_no_rows_yet_is_all_incomplete_and_an_empty_matrix():
 
 
 def test_resolves_prefixed_signal_keys_once_per_run():
-    """`name-signal` document keys match, same rules as `_match_value`."""
+    """`name-signal` document keys match, same rules as `resolve_column`."""
     correctors = ["CH1", "CH2"]
     readbacks = ["BPM1", "BPM2"]
     truth = _truth_matrix(len(readbacks), len(correctors))

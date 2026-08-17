@@ -105,14 +105,34 @@ def start_or_skip(
     ``self._container`` before the readiness wait, so reusing the object after a
     timeout would orphan the container started by the first attempt.
 
-    The ``except`` chain is ordered, not a tuple, and the order is load-bearing
-    because ``ImageNotFound ⊂ NotFound ⊂ APIError ⊂ RequestException``:
+    The ``except`` chain is ordered, and the order is load-bearing because
+    ``ImageNotFound ⊂ NotFound ⊂ APIError ⊂ RequestException``:
 
     * ``docker.errors.NotFound`` — a missing image or resource. Not transient,
       so skip immediately; a second 120s readiness wait cannot help.
-    * ``requests.exceptions.RequestException`` — a flaky daemon or registry
-      call. Retried once after ``backoff`` seconds.
+    * ``requests.exceptions.RequestException`` or the BUILTIN ``ConnectionError``
+      — a flaky daemon or registry call, or testcontainers' own port-publish
+      race. Retried once after ``backoff`` seconds.
     * ``Exception`` — anything else, notably ``TimeoutError``. Skip immediately.
+
+    The builtin ``ConnectionError`` is named explicitly because it is NOT one of
+    the requests errors, however much it looks like one:
+    ``requests.exceptions.ConnectionError`` is a ``RequestException`` and is
+    caught by that arm, while the builtin sits on the other branch of
+    ``OSError`` and is not. Testcontainers raises the builtin one directly when
+    a container's port mapping is not published yet
+    (``docker_client.py``, "Port mapping for container ... is not available"),
+    which is the ryuk reaper racing its own port publish — testcontainers itself
+    classes it transient (``waiting_utils.TRANSIENT_EXCEPTIONS``). Without this,
+    that race fell through to the final ``except Exception`` and skipped on the
+    spot, turning a whole container module into an all-skipped run that a reader
+    cannot tell apart from a host with no Docker. A silent green on the only
+    real-server coverage a route has is worse than a red one.
+
+    A host with no Docker engine at all is untouched by this and still skips on
+    the first attempt: ``docker.from_env()`` raises ``DockerException``, which is
+    neither a ``RequestException`` nor a ``ConnectionError`` and lands in the
+    final arm.
 
     ``backoff`` is keyword-only so tests can pass ``backoff=0`` instead of
     paying real wall clock for the retry sleep.
@@ -139,7 +159,7 @@ def start_or_skip(
         except docker.errors.NotFound as exc:
             stop_quietly(container)
             pytest.skip(_skip_message(label, exc, attempt))
-        except requests.exceptions.RequestException as exc:
+        except (requests.exceptions.RequestException, ConnectionError) as exc:
             stop_quietly(container)
             if attempt == max_attempts:
                 pytest.skip(_skip_message(label, exc, attempt))

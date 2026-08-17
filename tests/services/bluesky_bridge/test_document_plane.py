@@ -41,7 +41,6 @@ from osprey.services.bluesky_bridge.document_plane import (
     DocumentPlaneConfig,
     DocumentPlaneError,
     RunDocumentRouter,
-    expected_points_from_params,
 )
 
 pytestmark = pytest.mark.unit
@@ -199,13 +198,10 @@ def test_rows_land_under_the_osprey_run_id(plane, certificates):
     publisher = _publisher(plane, certificates)
     _establish_link(publisher, plane)
 
-    document_plane.record_run_params(
-        "osprey-run-1", {"readbacks": ["bpm"], "axes": [{"num_points": 3}]}
-    )
-
     run_uid = "run-engine-uid-1"
     descriptor_uid = "descriptor-1"
-    publisher("start", _start_doc(run_uid, run_id="osprey-run-1"))
+    # The run declares its own extent; the bridge derives nothing.
+    publisher("start", _start_doc(run_uid, run_id="osprey-run-1", num_points=3))
     publisher("descriptor", _descriptor_doc(descriptor_uid, run_uid))
     for seq, value in enumerate([1.0, 2.0, 3.0], start=1):
         publisher("event", _event_doc(descriptor_uid, seq, {"corrector": value, "bpm": -value}))
@@ -317,8 +313,8 @@ def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certifi
     assert buffer["rows"] == [[0.5]]
 
 
-def test_start_documents_declaring_num_points_seed_progress(plane, certificates):
-    """A plan that declares its own point count gives progress a denominator."""
+def test_a_run_that_declares_its_point_count_gets_a_denominator(plane, certificates):
+    """A run's own declaration of its extent is what progress divides by."""
     publisher = _publisher(plane, certificates)
     _establish_link(publisher, plane)
 
@@ -465,46 +461,20 @@ def test_start_from_env_degrades_when_the_socket_cannot_be_brought_up(
     assert "without live rows" in caplog.text
 
 
-# ------------------------------------------------------------- expected points
+# --------------------------------------------------------- declared denominator
 
 
-@pytest.mark.parametrize(
-    ("params", "expected"),
-    [
-        # grid_scan: the product of every axis's own point count.
-        ({"readbacks": ["bpm"], "axes": [{"num_points": 5}]}, 5),
-        (
-            {"readbacks": ["bpm"], "axes": [{"num_points": 5}, {"num_points": 4}]},
-            20,
-        ),
-        # orm: `num` points per swept corrector; readbacks are read, not swept.
-        ({"correctors": ["ch1", "ch2"], "readbacks": ["bpm1"], "num": 7}, 14),
-        # A scalar count with no swept device list is the count itself.
-        ({"readbacks": ["bpm"], "num_points": 9}, 9),
-        # A read-only field the old exact-key frozenset did not list — singular
-        # `detector` — must not be mistaken for a swept list. Two entries, so
-        # the wrong answer (5 x 2 = 10) is distinguishable from the right one;
-        # a one-element list would multiply by the identity and pin nothing.
-        ({"detector": ["bpm1", "bpm2"], "num_points": 5}, 5),
-        # Unrecognized shapes are honestly unknown, never guessed.
-        ({"readbacks": ["bpm"]}, None),
-        ({"correctors": ["ch1"], "steps": ["a", "b"], "num": 3}, None),
-        ({"readbacks": ["bpm"], "axes": [{"start": 0.0}]}, None),
-        ({"readbacks": ["bpm"], "num_points": 0}, None),
-        # `snake_axes: True` is a bool, not a point count.
-        ({"readbacks": ["bpm"], "num_points": True}, None),
-        (None, None),
-    ],
-)
-def test_expected_points_from_params(params, expected):
-    assert expected_points_from_params(params) == expected
+def test_progress_is_unknown_for_a_run_that_has_not_started():
+    """An item waiting in the queue has no denominator, and that is the contract.
 
-
-def test_progress_is_unknown_for_an_unknown_run():
+    Only the run knows its own extent, and it says so when it starts. Before
+    that there is nothing to report — deliberately nothing, rather than a total
+    reconstructed from the parameters the operator submitted.
+    """
     assert document_plane.progress("never-heard-of-it") is None
 
 
-def test_progress_reports_rows_without_a_fraction_when_the_total_is_unknown():
+def test_progress_reports_rows_without_a_fraction_when_nothing_was_declared():
     router = RunDocumentRouter()
     router("start", _start_doc("uid-a", run_id="run-a"))
     router("descriptor", _descriptor_doc("desc-a", "uid-a"))
@@ -519,9 +489,8 @@ def test_progress_reports_rows_without_a_fraction_when_the_total_is_unknown():
 
 
 def test_progress_never_exceeds_one():
-    document_plane.record_expected_points("run-b", 2)
     router = RunDocumentRouter()
-    router("start", _start_doc("uid-b", run_id="run-b"))
+    router("start", _start_doc("uid-b", run_id="run-b", num_points=2))
     router("descriptor", _descriptor_doc("desc-b", "uid-b"))
     for seq in range(1, 6):
         router("event", _event_doc("desc-b", seq, {"bpm": float(seq)}))
@@ -533,10 +502,27 @@ def test_progress_never_exceeds_one():
     assert progress["complete"] is False
 
 
-def test_record_run_params_clears_a_stale_count():
+def test_a_run_declaring_nothing_clears_a_stale_denominator():
+    """Run ids are reused; the previous occupant's extent is not this run's."""
     document_plane.record_expected_points("run-c", 10)
-    assert document_plane.record_run_params("run-c", {"readbacks": ["bpm"]}) is None
+
+    router = RunDocumentRouter()
+    router("start", _start_doc("uid-c", run_id="run-c"))
+
     assert document_plane.get_expected_points("run-c") is None
+    progress = document_plane.progress("run-c")
+    assert progress is not None
+    assert progress["expected_points"] is None
+    assert progress["fraction"] is None
+
+
+@pytest.mark.parametrize("value", [0, -3, True, "12", 1.5, None])
+def test_a_declaration_that_is_not_a_positive_count_declares_nothing(value):
+    """A flag is not a count — ``bool`` is an ``int`` subclass in Python."""
+    router = RunDocumentRouter()
+    router("start", _start_doc("uid-d", run_id="run-d", num_points=value))
+
+    assert document_plane.get_expected_points("run-d") is None
 
 
 # ---------------------------------------------------------------- doc routing

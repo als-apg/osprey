@@ -38,6 +38,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
+from bluesky.protocols import Hints
 from ophyd_async.core import AsyncStatus, StandardReadable
 
 from ._connect import connect_all
@@ -160,6 +161,24 @@ class ConnectorSettable(StandardReadable):
             }
         }
 
+    @property
+    def hints(self) -> Hints:
+        """Declare this movable's single readback field as the hinted one.
+
+        ``StandardReadable`` builds its hints by aggregating over the
+        ophyd-async signals declared on the device; this class declares
+        none (every read goes through the connector instead), so the
+        inherited property would report no fields at all and consumers of
+        the run — live table, plot axes, ``PeakStats`` — would have nothing
+        to key on. ``read()``/``describe()`` emit exactly one data key,
+        named for the device, so that is the field named here.
+
+        Overriding as a property is required, not stylistic: the base class
+        declares ``hints`` read-only, so assigning an instance attribute in
+        ``__init__`` raises ``AttributeError``.
+        """
+        return {"fields": [self.name]}
+
 
 class ConnectorReadable(StandardReadable):
     """A single read-only channel mediated entirely by the OSPREY connector.
@@ -193,6 +212,18 @@ class ConnectorReadable(StandardReadable):
                 "shape": [],
             }
         }
+
+    @property
+    def hints(self) -> Hints:
+        """Declare this readable's single field as the hinted one.
+
+        Same reasoning as :attr:`ConnectorSettable.hints`: no ophyd-async
+        signals are declared here for ``StandardReadable`` to aggregate, so
+        the inherited property would report no fields, and the one data key
+        ``read()``/``describe()`` emit is named for the device. Must be a
+        property override — the base class declares ``hints`` read-only.
+        """
+        return {"fields": [self.name]}
 
 
 async def build_devices(

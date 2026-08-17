@@ -60,8 +60,6 @@ def _session_plan_source(name: str, *, body: str = "") -> str:
         "PLAN_METADATA = {\n"
         f'    "name": {name!r},\n'
         '    "description": "A session-tier test plan.",\n'
-        '    "category": "accelerator",\n'
-        '    "required_devices": [],\n'
         '    "writes": False,\n'
         "}\n\n\n"
         "def build_plan(devices, params):\n"

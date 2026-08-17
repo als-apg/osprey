@@ -20,6 +20,7 @@ bluesky-capable test in this suite (see `test_plan_validation.py`).
 
 from __future__ import annotations
 
+import ast
 import textwrap
 from pathlib import Path
 from unittest.mock import patch
@@ -31,6 +32,7 @@ from osprey.mcp_server.bluesky.server_context import initialize_server_context, 
 from osprey.mcp_server.bluesky.tools import authoring
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.bluesky_bridge.app import app
+from osprey.services.bluesky_bridge.plan_metadata import parse_plan_metadata_dict
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.validation_record import validation_records
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
@@ -43,28 +45,40 @@ _BENIGN_BODY = textwrap.dedent(
     from bluesky import preprocessors as bpp
     from pydantic import BaseModel, Field
 
+    from osprey.services.bluesky_bridge.plan_fields import (
+        MovableChannels,
+        ReadableChannels,
+        scan_metadata,
+    )
+
 
     class PARAMS(BaseModel):
-        correctors: list[str] = Field(..., min_length=1)
-        readbacks: list[str] = Field(..., min_length=1)
+        correctors: MovableChannels = Field(..., min_length=1)
+        monitors: ReadableChannels = Field(..., min_length=1)
         num: int = Field(..., ge=1)
 
 
     def build_plan(devices, params):
         corrector = devices[params.correctors[0]]
-        readback = devices[params.readbacks[0]]
+        monitor = devices[params.monitors[0]]
 
-        @bpp.stage_decorator([corrector, readback])
-        @bpp.run_decorator()
+        @bpp.stage_decorator([corrector, monitor])
+        @bpp.run_decorator(
+            md=scan_metadata(
+                movable=params.correctors,
+                readable=params.monitors,
+                points=params.num,
+            )
+        )
         def _sweep():
             for i in range(params.num):
                 yield from bps.mv(corrector, float(i))
-                yield from bps.trigger_and_read([corrector, readback])
+                yield from bps.trigger_and_read([corrector, monitor])
 
         return _sweep()
     """
 )
-_BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "readbacks": ["d1"], "num": 3}
+_BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "monitors": ["d1"], "num": 3}
 
 
 # =========================================================================
@@ -74,11 +88,11 @@ _BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "readbacks": ["d1"], "num": 3}
 
 
 def test_both_tools_are_approval_ask_tier_never_writes_checked():
-    bluesky = FRAMEWORK_SERVERS["bluesky"]
-    assert "write_plan" in bluesky.permissions_ask
-    assert "validate_plan" in bluesky.permissions_ask
+    scan = FRAMEWORK_SERVERS["bluesky"]
+    assert "write_plan" in scan.permissions_ask
+    assert "validate_plan" in scan.permissions_ask
 
-    by_matcher = {rule.matcher: rule for rule in bluesky.hooks_pre}
+    by_matcher = {rule.matcher: rule for rule in scan.hooks_pre}
     for tool in ("write_plan", "validate_plan"):
         matcher = f"mcp__bluesky__{tool}"
         assert matcher in by_matcher, f"no hooks_pre rule for {matcher}"
@@ -92,12 +106,12 @@ def test_both_tools_are_approval_ask_tier_never_writes_checked():
 
 
 def test_both_tools_get_distinct_independently_allowlistable_short_names():
-    bluesky = FRAMEWORK_SERVERS["bluesky"]
+    scan = FRAMEWORK_SERVERS["bluesky"]
     # Distinct from the queue/stop tools' own tier, and from each other, so an
     # operator can permit authoring without also permitting execution.
     names = {"queue_add", "queue_start", "queue_stop", "stop_run", "write_plan", "validate_plan"}
     assert len(names) == 6
-    assert set(bluesky.permissions_ask) >= names
+    assert set(scan.permissions_ask) >= names
 
 
 # =========================================================================
@@ -114,7 +128,7 @@ def _validate_fn():
 
 
 @pytest.fixture(autouse=True)
-def _reset_server_context():
+def _reset_scan_context():
     yield
     reset_server_context()
 
@@ -129,8 +143,6 @@ async def test_write_plan_posts_the_structured_payload(tmp_path, monkeypatch):
     ) as m:
         result = await _write_fn()(
             name="tiny",
-            category="accelerator",
-            required_devices=["correctors", "readbacks"],
             writes=True,
             body="def build_plan(devices, params):\n    yield\n",
             description="A tiny plan.",
@@ -138,11 +150,11 @@ async def test_write_plan_posts_the_structured_payload(tmp_path, monkeypatch):
 
     assert m.call_args.args[0] == "/plans/session"
     payload = m.call_args.args[1]
+    # The whole authoring surface: no channel declaration travels through this
+    # call at all — it lives in the body's own role-typed PARAMS fields.
     assert payload == {
         "name": "tiny",
         "description": "A tiny plan.",
-        "category": "accelerator",
-        "required_devices": ["correctors", "readbacks"],
         "writes": True,
         "body": "def build_plan(devices, params):\n    yield\n",
     }
@@ -162,7 +174,7 @@ async def test_write_plan_rejected_maps_to_error_envelope(tmp_path, monkeypatch)
         ),
     ):
         with assert_raises_error(error_type="plan_write_rejected") as ctx:
-            await _write_fn()(name="1bad", category="x", required_devices=[], writes=False, body="")
+            await _write_fn()(name="1bad", writes=False, body="")
     assert "invalid plan name" in ctx["envelope"]["error_message"]
 
 
@@ -231,8 +243,6 @@ def test_write_session_plan_persists_generated_metadata_plus_body(
         json={
             "name": "tiny_sweep",
             "description": "A tiny sweep.",
-            "category": "accelerator",
-            "required_devices": ["correctors", "readbacks"],
             "writes": True,
             "body": "def build_plan(devices, params):\n    yield\n",
         },
@@ -252,13 +262,44 @@ def test_write_session_plan_persists_generated_metadata_plus_body(
     assert data["content_hash"] == hash_plan_body(persisted)
 
 
+def test_generated_metadata_block_is_exactly_the_three_declared_fields(
+    client: TestClient,
+) -> None:
+    """The generated block is the plan's whole authoring declaration: name,
+    description, writes — nothing about which channels it touches, which the
+    body's role-typed `PARAMS` fields carry instead. Parsed with the real
+    loader-side parser, so a key reintroduced here fails as the load gate
+    would (`PlanMetadata` forbids extras), not just as a changed literal."""
+    resp = client.post(
+        "/plans/session",
+        json={
+            "name": "three_field_plan",
+            "description": "A read-only plan.",
+            "writes": False,
+            "body": "def build_plan(devices, params):\n    yield\n",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    from osprey.services.bluesky_bridge.session_dir import resolve_session_plan_dir
+
+    persisted = (resolve_session_plan_dir() / "three_field_plan.py").read_text(encoding="utf-8")
+    block = persisted.split("\n\n", 1)[0]
+    metadata = ast.literal_eval(block.split("=", 1)[1].strip())
+    assert metadata == {
+        "name": "three_field_plan",
+        "description": "A read-only plan.",
+        "writes": False,
+    }
+    parsed = parse_plan_metadata_dict(metadata, source="three_field_plan.py")
+    assert parsed.model_dump() == metadata
+
+
 def test_write_session_plan_overwrite_changes_the_hash(client: TestClient):
     first = client.post(
         "/plans/session",
         json={
             "name": "reauthored",
-            "category": "accelerator",
-            "required_devices": [],
             "writes": False,
             "body": "x = 1\n",
         },
@@ -267,8 +308,6 @@ def test_write_session_plan_overwrite_changes_the_hash(client: TestClient):
         "/plans/session",
         json={
             "name": "reauthored",
-            "category": "accelerator",
-            "required_devices": [],
             "writes": False,
             "body": "x = 2\n",
         },
@@ -281,8 +320,6 @@ def test_write_session_plan_rejects_an_unsafe_name(client: TestClient):
         "/plans/session",
         json={
             "name": "../escape",
-            "category": "accelerator",
-            "required_devices": [],
             "writes": False,
             "body": "x = 1\n",
         },
@@ -301,8 +338,6 @@ def test_write_session_plan_rejects_a_trailing_newline_name(client: TestClient):
         "/plans/session",
         json={
             "name": "foo\n",
-            "category": "accelerator",
-            "required_devices": [],
             "writes": False,
             "body": "x = 1\n",
         },
@@ -318,8 +353,6 @@ def test_write_session_plan_rejects_an_overlong_name(client: TestClient):
         "/plans/session",
         json={
             "name": "a" * 5000,
-            "category": "accelerator",
-            "required_devices": [],
             "writes": False,
             "body": "x = 1\n",
         },
@@ -339,8 +372,6 @@ def test_write_session_plan_never_imports_or_execs_the_body(client: TestClient, 
         "/plans/session",
         json={
             "name": "sentinel_plan",
-            "category": "test",
-            "required_devices": [],
             "writes": False,
             "body": body,
         },
@@ -349,9 +380,39 @@ def test_write_session_plan_never_imports_or_execs_the_body(client: TestClient, 
     assert not sentinel_path.exists(), "write_session_plan must never exec the authored body"
 
 
+def test_write_session_plan_rejects_a_retired_category_key(client: TestClient):
+    """A stale client still POSTing the retired `category`/`required_devices`
+    keys must fail loudly (422 naming the key), not get a silent 200 with the
+    surplus dropped -- `PlanSessionWriteRequest` is `extra="forbid"`, uniform
+    with `PlanMetadata`."""
+    resp = client.post(
+        "/plans/session",
+        json={
+            "name": "stale_client_plan",
+            "writes": False,
+            "body": "def build_plan(devices, params):\n    yield\n",
+            "category": "diagnostics",
+        },
+    )
+    assert resp.status_code == 422
+    assert "category" in resp.text
+
+
 def test_validate_unknown_session_plan_is_404(client: TestClient):
     resp = client.post("/plans/validate", json={"name": "never_written"})
     assert resp.status_code == 404
+
+
+def test_validate_session_plan_rejects_a_retired_required_devices_key(client: TestClient):
+    """Same fail-loudly posture as the write route: `PlanValidateRequest` is
+    also `extra="forbid"`, so a stale client still sending `required_devices`
+    gets a 422 naming the key instead of a silently-accepted request."""
+    resp = client.post(
+        "/plans/validate",
+        json={"name": "never_written", "required_devices": ["c1"]},
+    )
+    assert resp.status_code == 422
+    assert "required_devices" in resp.text
 
 
 def test_session_authoring_routes_ignore_writes_enabled_and_launch_token(
@@ -371,8 +432,6 @@ def test_session_authoring_routes_ignore_writes_enabled_and_launch_token(
         "/plans/session",
         json={
             "name": "writes_off_ok",
-            "category": "accelerator",
-            "required_devices": [],
             "writes": False,
             "body": "def build_plan(devices, params):\n    yield\n",
         },
@@ -410,8 +469,6 @@ def test_hash_contract_write_then_validate_same_hash(client: TestClient):
         json={
             "name": "tiny_session_sweep",
             "description": "Session-authored sweep for the hash-contract test.",
-            "category": "accelerator",
-            "required_devices": ["correctors", "readbacks"],
             "writes": True,
             "body": _BENIGN_BODY,
         },
@@ -444,8 +501,6 @@ def test_a_failing_validation_records_nothing(client: TestClient):
         "/plans/session",
         json={
             "name": "unsafe_plan",
-            "category": "accelerator",
-            "required_devices": [],
             "writes": True,
             "body": "import epics\n\n\ndef build_plan(devices, params):\n    epics.caput('X', 1)\n    yield\n",
         },

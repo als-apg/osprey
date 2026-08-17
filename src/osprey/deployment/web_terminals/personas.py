@@ -645,7 +645,11 @@ def resolve_personas(
         existed. An optional ``"oidc_subject"`` key rides through on the same
         terms, so the auth sidecar's roster→identity mapping is read off the same
         resolved entry as everything else rather than re-derived from the raw
-        roster.
+        roster. An optional ``"landing_group"`` key — the catalog entry's own
+        ``landing_group``, present only for a non-empty string — names the
+        landing-page section this entry's card belongs in; it is read by
+        :func:`osprey.deployment.web_terminals.render._build_groups` and affects
+        nothing else about the deployment.
 
     Raises:
         ValueError: See ``strict`` above.
@@ -768,6 +772,17 @@ def resolve_personas(
         if not isinstance(seed_base, bool):
             seed_base = True
 
+        # landing_group: which landing-page section this persona's users appear
+        # under. A non-empty string lifts them out of the roster's default
+        # terminals section into a section of that name — how a deployment says
+        # "this login is not a person, it is a standalone service" (see
+        # render._build_groups). Presentation only: it changes no image, port,
+        # route, volume or entitlement. Absent or non-string — every catalog
+        # predating this key — leaves the entry in the default section, so the
+        # key is purely additive and a resolution without it is byte-identical
+        # to what it was before (the `_with_optional_fields` convention).
+        landing_group = catalog_entry.get("landing_group")
+
         is_default = persona_ref == default_persona_name
 
         if image_source == "local":
@@ -779,21 +794,22 @@ def resolve_personas(
 
         container_project_dir = f"/app/{project}"
 
-        resolved.append(
-            _with_optional_fields(
-                {
-                    "name": name,
-                    "index": index,
-                    "persona": persona_ref,
-                    "image": image,
-                    "project": project,
-                    "container_project_dir": container_project_dir,
-                    "extra_mounts": extra_mounts,
-                    "seed_base": seed_base,
-                },
-                entry,
-            )
+        entry_resolved = _with_optional_fields(
+            {
+                "name": name,
+                "index": index,
+                "persona": persona_ref,
+                "image": image,
+                "project": project,
+                "container_project_dir": container_project_dir,
+                "extra_mounts": extra_mounts,
+                "seed_base": seed_base,
+            },
+            entry,
         )
+        if isinstance(landing_group, str) and landing_group:
+            entry_resolved["landing_group"] = landing_group
+        resolved.append(entry_resolved)
 
     return resolved
 

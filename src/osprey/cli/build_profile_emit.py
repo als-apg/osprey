@@ -298,7 +298,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   facility_name: ALS
 """,
     "bluesky": """
-# --- Bluesky bridge -----------------------------------------------------
+# --- Bluesky scan bridge -----------------------------------------------------
 # Exposes Bluesky plans to the agent. tiled_enabled adds the data-access
 # service; excluded_plans removes shipped plans from the catalog.
 #

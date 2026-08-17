@@ -718,18 +718,29 @@ def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
     only when the entry resolved to a persona, so a no-persona roster keeps
     producing exactly the same two-key items landing.html.j2 rendered before.
 
+    One case drops the badge even though a persona is in effect: when the
+    persona name and the roster name are the same word. The badge exists to say
+    which tier a login belongs to, and a card reading ``ariel`` above a pill
+    reading ``ARIEL`` says nothing the label did not — the common shape for a
+    single-tenant service persona, where the roster entry and the persona are
+    named after the same thing. Compared case-insensitively because the badge is
+    rendered uppercase, so ``Ariel``/``ariel`` would look duplicated too. Two
+    different personas sharing a section still each show their own badge, which
+    is the case the badge is actually for.
+
     Args:
         resolved_user: One :func:`osprey.deployment.web_terminals.personas.resolve_personas`
             entry (``name`` and ``persona`` are read).
 
     Returns:
         ``{"label", "url"}`` for a persona-less user, plus ``"sublabel"`` (the
-        persona name) when ``persona`` is a non-empty string.
+        persona name) when ``persona`` is a non-empty string that differs from
+        the user's own name.
     """
     name = resolved_user["name"]
     card: dict[str, Any] = {"label": name, "url": f"/u/{name}/"}
     persona = resolved_user.get("persona")
-    if isinstance(persona, str) and persona:
+    if isinstance(persona, str) and persona and persona.casefold() != name.casefold():
         card["sublabel"] = persona
     return card
 
@@ -755,13 +766,32 @@ def _build_groups(
     group entries are dropped rather than raising: lint is the authoritative
     gate on schema well-formedness, this is just the render-time adapter.
 
+    **One ``users`` entry can expand to more than one section.** A roster is not
+    always a list of people: a deployment may also run a standalone service
+    behind its own login — an ARIEL logbook terminal beside the operators, say.
+    Those belong under their own heading rather than mixed in with the staff, so
+    a persona may declare ``landing_group: <heading>`` in the catalog
+    (:func:`resolve_personas` carries it onto each of its users). Users carrying
+    one are lifted out of the default section into a section of that name,
+    emitted after it in first-appearance roster order, and marked
+    ``variant: "tray"`` — the cue landing.html.j2 renders as an accent-edged
+    panel, so the page reads as people on top, services below. Everything else
+    about those users is untouched; this is presentation only.
+
+    ``{type: "users"}`` also takes an optional ``label`` overriding the default
+    ``"Terminals"`` heading on the section that keeps the ungrouped users, so a
+    deployment that splits its roster can name both halves. Sections other than
+    the default never carry ``variant``, so a config that declares no
+    ``landing_group`` anywhere renders byte-identically to before.
+
     Args:
         landing_cfg: The already-dict-coerced ``modules.web_terminals.landing``
             section (only ``groups`` is read).
         resolved_users: :func:`osprey.deployment.web_terminals.personas.resolve_personas`
             output, in roster order — each entry's ``name`` becomes the card label
-            and ``/u/<name>/`` url, and its ``persona`` (when not ``None``) the
-            optional ``sublabel``.
+            and ``/u/<name>/`` url, its ``persona`` (when not ``None``) the
+            optional ``sublabel``, and its ``landing_group`` (when present) the
+            section it is lifted into.
     """
     groups_raw = landing_cfg.get("groups")
     if not isinstance(groups_raw, list) or not groups_raw:
@@ -772,12 +802,51 @@ def _build_groups(
         entry = as_dict(entry)
         group_type = entry.get("type")
         if group_type == "users":
-            items = [_user_card(user) for user in resolved_users]
-            groups.append({"label": "Terminals", "items": items})
+            groups.extend(_user_groups(resolved_users, entry.get("label")))
         elif group_type == "links":
             links = entry.get("links")
             items = [as_dict(link) for link in links] if isinstance(links, list) else []
             groups.append({"label": entry.get("label") or "", "items": items})
+    return groups
+
+
+def _user_groups(resolved_users: list[dict[str, Any]], default_label: Any) -> list[dict[str, Any]]:
+    """Split one ``{type: "users"}`` entry into its default section plus a tray
+    section per distinct persona ``landing_group``.
+
+    The default section is emitted FIRST and always — even empty, so
+    landing.html.j2's own empty-items suppression stays the single rule that
+    decides whether a heading appears, rather than this function second-guessing
+    it. Tray sections follow in the order their group name is first seen walking
+    the roster, so the page order is the roster's order and an operator can
+    predict it from the config alone.
+
+    Args:
+        resolved_users: :func:`resolve_personas` output, in roster order.
+        default_label: The ``{type: "users"}`` entry's own ``label``, used as the
+            heading for the ungrouped users. Anything that is not a non-empty
+            string falls back to ``"Terminals"``.
+
+    Returns:
+        ``[{label, items}, {label, items, variant: "tray"}, ...]``.
+    """
+    label = default_label if isinstance(default_label, str) and default_label else "Terminals"
+    default_items: list[dict[str, Any]] = []
+    # dict, not defaultdict+sorted: insertion order IS first-appearance order,
+    # which is the ordering guarantee this function documents.
+    trays: dict[str, list[dict[str, Any]]] = {}
+    for user in resolved_users:
+        group = user.get("landing_group")
+        card = _user_card(user)
+        if isinstance(group, str) and group:
+            trays.setdefault(group, []).append(card)
+        else:
+            default_items.append(card)
+
+    groups: list[dict[str, Any]] = [{"label": label, "items": default_items}]
+    groups.extend(
+        {"label": name, "items": items, "variant": "tray"} for name, items in trays.items()
+    )
     return groups
 
 

@@ -368,9 +368,10 @@ Personas
 ========
 
 Some presets give each operator their own web terminal, and each terminal runs
-with a persona — a capability posture, such as read-only versus write-capable.
-For those presets (``control-assistant``), ``osprey init`` writes one
-file per persona:
+with a persona — usually a capability posture, such as read-only versus
+write-capable, though a persona can just as well be a different product
+sharing the deployment. For those presets (``control-assistant``),
+``osprey init`` writes one file per persona:
 
 .. code-block:: text
 
@@ -380,6 +381,7 @@ file per persona:
      personas/
        readonly.yml       # a read-only terminal
        readwrite.yml      # a write-capable terminal
+       ariel.yml          # the standalone ARIEL logbook terminal
 
 Each file holds only that persona's **differences** — for the read-only persona,
 chiefly ``control_system.writes_enabled: false``. Sitting in ``personas/`` beside
@@ -397,8 +399,9 @@ result with:
 
 ``profile.yml`` points at these files by path — its web-terminal catalog carries
 ``build_profile: personas/<name>.yml`` for each one — so keep the names in step
-if you rename one. That is also what ``osprey up`` reads: it renders any
-persona project that does not exist yet from the named delta. A bundled preset
+if you rename one. ``osprey up`` reads the same catalog but renders nothing: a
+persona project missing from ``build/`` stops the start and points at
+``osprey build`` as the remedy. A bundled preset
 name in that field is rejected, because a persona built from a preset of its own
 would not share this profile's data tree, secrets or artifacts.
 

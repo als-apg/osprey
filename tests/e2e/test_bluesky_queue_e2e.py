@@ -1,6 +1,6 @@
 """Real-container end-to-end proof of the whole Bluesky *queue* stack.
 
-This is the acceptance instrument for the queue-backed plan stack: a fresh
+This is the acceptance instrument for the queue-backed scan stack: a fresh
 ``osprey init`` + ``osprey build`` of the shipped ``control-assistant`` preset,
 deployed with ``osprey up --dev``, driven through the surface an operator (or
 the agent, or a panel) actually uses -- ``PATCH /draft`` -> ``POST /queue/items``
@@ -30,20 +30,28 @@ Stages, in order, each an independently-reportable test:
    ``/bridge/health`` relay both report ``can_execute: true`` / ``executable``.
 2. ``test_2_enqueue_*``          -- two grid scans from two draft revisions; a
    second enqueue of the SAME revision is refused ``draft_revision_already_launched``.
+   ``test_2_preflight_*``        -- ``POST /plans/{name}/preview`` walks the plan
+   in the real worker and moves nothing: the declared channels with their roles,
+   the exact move total, the cap, and one answer shape even for an unknown plan.
 3. ``test_3_start_*``            -- ``POST /queue/start`` is token-gated
-   (``launch_token_required``), the queue drains STRICTLY SERIALLY, and live
-   rows accumulate at the poller's ~1 s cadence while a plan runs.
+   (``launch_token_required``), the queue drains STRICTLY SERIALLY, live rows
+   accumulate at the poller's ~1 s cadence while a plan runs, and the started
+   run publishes the point count its plan DECLARED.
 4. ``test_4_results_*``          -- both runs' data reads back off the live
-   buffer (``run_uid: null``, the live path).
+   buffer (``run_uid: null``, the live path), each carrying the six-key
+   analysis block keyed on the plan's declared movable channel.
 5. ``test_5_session_plan_*``     -- author -> validate (PASS + uploaded) ->
-   stage in the draft -> enqueue -> drain; and a session plan whose validated
-   bytes no longer match disk is refused ``session_plan_unvalidated``.
-6. ``test_6_abort_*``            -- the emergency halt: a long run is aborted
+   stage in the draft -> enqueue -> drain, with the author's own channel roles
+   and three-field metadata served back by the catalog; a session plan whose
+   validated bytes no longer match disk is refused ``session_plan_unvalidated``;
+   and a write carrying a retired metadata key is refused outright.
+6. ``test_6_abort_*``            -- the emergency halt: a long scan is aborted
    with NO token, its record reaches ``stopped``, the manager returns to a
    startable state, and an abort with nothing running is ``nothing_running``.
 7. ``test_7_restart_*``          -- restarting ONLY the bridge preserves queue
-   and history (they live in Redis, not in the bridge), and the completed runs'
-   data now serves off the DURABLE Tiled path (``run_uid`` populated).
+   and history (they live in Redis, not in the bridge), the completed runs'
+   data now serves off the DURABLE Tiled path (``run_uid`` populated), and that
+   stored table exports as a real CSV and parquet file.
 8. ``test_8_mock_flip_*``        -- ``osprey set connector=mock`` + rebuild +
    redeploy: every container still healthy, ``/health`` still 200 but
    ``can_execute: false`` / ``browse_only_connector``, and enqueue refused --
@@ -109,6 +117,13 @@ from typing import Any
 
 import pytest
 
+from osprey.services.bluesky_bridge.analysis import REASON_RUN_IN_PROGRESS
+from osprey.services.bluesky_bridge.app import PREVIEW_REASON_UNKNOWN_PLAN
+from osprey.services.bluesky_bridge.plan_fields import (
+    CHANNEL_ROLE_KEY,
+    MOVABLE_ROLE,
+    READABLE_ROLE,
+)
 from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
@@ -117,13 +132,38 @@ from osprey.services.bluesky_bridge.queue_backend import (
 from osprey.services.bluesky_bridge.session_upload import REASON_UNVALIDATED
 from tests.e2e import _orm_stack
 
+# The nine keys every pre-flight answer carries, success or not: the approval
+# gate reads `ok` and never a status code, so the shape cannot vary with the
+# outcome.
+_PREVIEW_KEYS = {
+    "ok",
+    "plan",
+    "channels",
+    "moves",
+    "total_moves",
+    "truncated",
+    "move_cap",
+    "reason",
+    "detail",
+}
+
+# The six keys of a data read's analysis block, present whether or not the
+# analysis itself is.
+_ANALYSIS_KEYS = {"available", "reason", "x_channel", "x_column", "points", "channels"}
+
 # ---------------------------------------------------------------------------
 # Ports + names. Every published port is deliberately distinct from BOTH the
-# preset defaults (8090/8091/8095/5064/5432/5080) and every sibling e2e
+# preset defaults (8090/8091/8095/5064/5432/5080/27017) and every sibling e2e
 # module's pinned port (18090/18095/18099/18101/18102/18103/18105/18106), so
 # this module can run on a shared dev machine beside an already-deployed
 # tutorial stack without touching -- or being blocked by -- anything it does
 # not own.
+#
+# The list has to be COMPLETE to be worth anything: `osprey up` runs a host
+# port preflight and aborts the whole deploy on the first service left on a
+# default port, so one unmoved port takes every stage below down at fixture
+# setup. The support services follow one rule -- default + 20000 -- so a
+# service that joins the stack later has an obvious slot.
 # ---------------------------------------------------------------------------
 BRIDGE_PORT = 18108
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
@@ -133,6 +173,8 @@ TILED_PORT = 18191
 VA_CA_PORT = 15064
 POSTGRES_PORT = 25432
 OPENOBSERVE_PORT = 25080
+# The archiver's store, deployed by the preset's `va_archiver:` block.
+MONGODB_PORT = 47017
 
 PROJECT_NAME = "queue-e2e"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
@@ -181,7 +223,7 @@ DOC_PLANE_ARRIVAL_TIMEOUT_SEC = 45.0
 #                    fact of a completed run matters.
 #   LIVE_SAMPLE    — must stay under way for TENS of seconds so ~1 s polling
 #                    can actually observe rows accumulating. At 12 points the
-#                    whole run finished between two polls and stage 3 failed
+#                    whole scan finished between two polls and stage 3 failed
 #                    for a sampling artifact, not a product fault; 600 points
 #                    is ~34 s, i.e. ~30 samples.
 #   LONG           — must still be running when stage 6 aborts it, with room
@@ -331,6 +373,52 @@ def _detail_of(body: Any) -> dict[str, Any]:
     return detail if isinstance(detail, dict) else {}
 
 
+def _analysis_of(data: Any) -> dict[str, Any]:
+    """The analysis block off a ``/runs/{id}/data`` body, shape-checked.
+
+    Six keys, always the same six. An analysis that could not be produced is
+    reported as ``available: false`` plus the reason it is not -- never by
+    dropping keys, which would make every consumer guard for two shapes, and
+    never by inventing statistics for a run that has none.
+    """
+    assert isinstance(data, dict), f"the data read is not an object: {data!r}"
+    analysis = data.get("analysis")
+    assert isinstance(analysis, dict), f"the data read carries no analysis block: {sorted(data)}"
+    assert set(analysis) == _ANALYSIS_KEYS, f"the analysis key set drifted: {sorted(analysis)}"
+    assert isinstance(analysis["available"], bool)
+    assert isinstance(analysis["channels"], list)
+    if analysis["available"]:
+        assert analysis["reason"] is None, f"an available analysis names no reason: {analysis}"
+        assert isinstance(analysis["x_channel"], str) and analysis["x_channel"]
+        assert isinstance(analysis["x_column"], str) and analysis["x_column"]
+    else:
+        assert isinstance(analysis["reason"], str) and analysis["reason"], (
+            f"an absent analysis must say WHY it is absent: {analysis}"
+        )
+        assert analysis["x_channel"] is None and analysis["points"] == 0
+    return analysis
+
+
+def _raw_get(path: str, timeout: float = 60.0) -> tuple[int, dict[str, str], bytes]:
+    """A GET returning ``(status, headers, raw body)``, header names lowercased.
+
+    The export route answers with bytes and headers rather than JSON -- a CSV
+    body, a parquet body, a ``Content-Disposition`` -- none of which survives
+    the JSON-parsing helpers above.
+
+    HTTP header names are case-insensitive and this server sends them
+    lowercase, but ``dict(resp.headers)`` drops the case-insensitive lookup the
+    parsed message object provides. Lowercasing here keeps one spelling for
+    callers instead of pinning whichever case the server happened to use.
+    """
+    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310 - localhost
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            return resp.status, {k.lower(): v for k, v in resp.headers.items()}, resp.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, {k.lower(): v for k, v in exc.headers.items()}, exc.read()
+
+
 def _wait_for_health(url: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     last_err = "(no response yet)"
@@ -386,8 +474,8 @@ def _env_value(repo: Path, key: str) -> str:
     return value
 
 
-def _parse_setpoints(value: str) -> dict[str, tuple[str, str]]:
-    """Parse ``BLUESKY_EPICS_SETPOINTS`` (``name=SP|RB,...``) back into a mapping.
+def _parse_motors(value: str) -> dict[str, tuple[str, str]]:
+    """Parse ``BLUESKY_EPICS_MOTORS`` (``name=SP|RB,...``) back into a mapping.
 
     Read from the .env that ``osprey up`` itself wrote rather than
     re-derived here: the device names this test composes plans against are then
@@ -403,8 +491,8 @@ def _parse_setpoints(value: str) -> dict[str, tuple[str, str]]:
     return out
 
 
-def _parse_readbacks(value: str) -> dict[str, str]:
-    """Parse ``BLUESKY_EPICS_READBACKS`` (``name=RB,...``) back into a mapping."""
+def _parse_detectors(value: str) -> dict[str, str]:
+    """Parse ``BLUESKY_EPICS_DETECTORS`` (``name=RB,...``) back into a mapping."""
     out: dict[str, str] = {}
     for chunk in value.split(","):
         if not chunk.strip():
@@ -420,7 +508,7 @@ def _parse_readbacks(value: str) -> dict[str, str]:
 
 
 def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
-    """Minimal ``grid_scan`` args: one corrector axis, one BPM readback.
+    """Minimal ``grid_scan`` args: one corrector axis, one BPM detector.
 
     The sweep band is the middle half of the corrector's OWN
     ``channel_limits.json`` entry, so this never hardcodes a facility channel
@@ -433,7 +521,7 @@ def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
     start = lo + 0.375 * (hi - lo)
     stop = lo + 0.625 * (hi - lo)
     return {
-        "readbacks": [next(iter(stack.bpms))],
+        "readables": [next(iter(stack.bpms))],
         "axes": [
             {"setpoint": axis_name, "start": start, "stop": stop, "num_points": num_points},
         ],
@@ -557,10 +645,18 @@ def _override_yaml() -> str:
     ``dispatch: null`` drops the event-dispatcher stack (Node + Claude CLI
     image) and ``modules.web_terminals.enabled: false`` drops the per-persona
     web-terminal stack: neither is touched by this proof and both are slow to
-    build (same convention as ``_orm_stack.override_yaml``). The two port keys
-    move ariel-postgres and OpenObserve -- services the preset deploys
+    build (same convention as ``_orm_stack.override_yaml``). The two config port
+    keys move ariel-postgres and OpenObserve -- services the preset deploys
     unconditionally, with no profile knob -- off 5432/5080, which a locally
     running tutorial deploy routinely holds.
+
+    The archiver's MongoDB moves through ``va_archiver.port_host`` instead, and
+    that difference is load-bearing: the archiver injector RENDERS
+    ``services.mongodb.port_host`` from the profile block, so the same key set
+    under ``config:`` here is written and then silently overwritten -- the
+    deploy still tries to publish 27017 and `osprey up`'s port preflight aborts
+    the whole stack. Only the host publish moves; both compose templates address
+    the store in-network as ``archiver-mongodb:27017`` regardless.
 
     ``_orm_stack.VA_ARCHIVER_CI_KNOBS`` shrinks the archive the preset's
     ``va_archiver:`` block declares (see the constant). It is a sizing override,
@@ -581,7 +677,9 @@ def _override_yaml() -> str:
         "config:\n"
         f"  services.postgresql.port_host: {POSTGRES_PORT}\n"
         f"  services.openobserve.port: {OPENOBSERVE_PORT}\n"
-        "  modules.web_terminals.enabled: false\n" + _orm_stack.VA_ARCHIVER_CI_KNOBS
+        "  modules.web_terminals.enabled: false\n"
+        + _orm_stack.VA_ARCHIVER_CI_KNOBS
+        + f"  port_host: {MONGODB_PORT}\n"
     )
 
 
@@ -687,7 +785,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
     # profile's provider, and nothing in this proof shells out to an LLM — this
     # is the `cp .env.example .env` the CLI itself recommends, done for the
     # operator. It is also where `up` mints BLUESKY_LAUNCH_TOKEN and derives
-    # BLUESKY_EPICS_SETPOINTS/_READBACKS, both read back below.
+    # BLUESKY_EPICS_MOTORS/_DETECTORS, both read back below.
     env_path = repo / ".env"
     if not env_path.exists():
         shutil.copy(repo / ".env.example", env_path)
@@ -727,10 +825,10 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # exactly the devices the deployed worker registered, and a change in
         # that derivation shows up here as a real failure rather than a
         # silently-diverging second copy of the same logic.
-        correctors = _parse_setpoints(_env_value(repo, "BLUESKY_EPICS_SETPOINTS"))
-        bpms = _parse_readbacks(_env_value(repo, "BLUESKY_EPICS_READBACKS"))
-        assert correctors, "osprey up wrote no BLUESKY_EPICS_SETPOINTS -- no device to sweep"
-        assert bpms, "osprey up wrote no BLUESKY_EPICS_READBACKS -- no device to read"
+        correctors = _parse_motors(_env_value(repo, "BLUESKY_EPICS_MOTORS"))
+        bpms = _parse_detectors(_env_value(repo, "BLUESKY_EPICS_DETECTORS"))
+        assert correctors, "osprey up wrote no BLUESKY_EPICS_MOTORS -- no device to scan"
+        assert bpms, "osprey up wrote no BLUESKY_EPICS_DETECTORS -- no device to read"
 
         # The render's copy, not the operator-owned source under <repo>/data/:
         # the limits database resolves against CONFIG_FILE's directory, which
@@ -821,12 +919,12 @@ def test_1_capability_never_leaks_the_control_socket_credential(stack: QueueStac
 
 
 # ===========================================================================
-# Stage 2 -- enqueue two plans from two draft revisions
+# Stage 2 -- enqueue two scans from two draft revisions
 # ===========================================================================
 
 
 def test_2_enqueue_two_revisions_and_refuse_a_replay(stack: QueueStack) -> None:
-    """Two plans from two draft revisions; the SAME revision cannot enqueue twice.
+    """Two scans from two draft revisions; the SAME revision cannot enqueue twice.
 
     The draft revision is the unit of "this exact plan, as the operator saw
     it": ``POST /queue/items`` takes ``plan_name``/``plan_args`` from the
@@ -877,6 +975,116 @@ def test_2_enqueue_two_revisions_and_refuse_a_replay(stack: QueueStack) -> None:
         assert "run_uid" not in record, f"a pending run cannot have a RunEngine uid yet: {record}"
 
 
+def test_2_preflight_reports_the_trajectory_a_launch_would_drive(stack: QueueStack) -> None:
+    """``POST /plans/{name}/preview`` walks the plan in the REAL worker and moves nothing.
+
+    This is what the launch-approval gate shows a human before they decide, so
+    both halves matter: the trajectory has to be the one the run would actually
+    drive -- same worker, same devices, same params model, walked by iterating
+    the plan's message stream without a RunEngine -- and the walk must leave the
+    machine and the queue exactly as it found them.
+
+    The channel list is the plan's own role declaration read back against these
+    parameters, movables first. For ``grid_scan`` the movable is buried in a
+    list of ``GridAxis`` objects, so a consumer only finds it by walking the
+    declared roles -- which is precisely what this asserts.
+    """
+    args = _grid_args(stack, SHORT_POINTS)
+    axis = args["axes"][0]
+    runs_before = {r["id"] for r in _get("/runs?limit=100")[1]}
+
+    status, payload = _request(BRIDGE_URL, "/plans/grid_scan/preview", "POST", args, timeout=120.0)
+
+    assert status == 200, f"the pre-flight must always answer 200: {status} {payload}"
+    assert set(payload) == _PREVIEW_KEYS, f"the pre-flight key set drifted: {sorted(payload)}"
+    assert payload["ok"] is True, f"the pre-flight could not walk a valid plan: {payload}"
+    assert payload["reason"] is None and payload["detail"] is None
+    assert payload["plan"] == "grid_scan"
+
+    assert payload["channels"] == [
+        {"channel": axis["setpoint"], "role": MOVABLE_ROLE},
+        {"channel": args["readables"][0], "role": READABLE_ROLE},
+    ], f"the declared channels are wrong or out of movable-first order: {payload['channels']}"
+
+    # A one-axis grid drives exactly one move per point.
+    assert payload["total_moves"] == SHORT_POINTS, f"unexpected move total: {payload}"
+    assert len(payload["moves"]) == SHORT_POINTS
+    assert payload["truncated"] is False
+    assert isinstance(payload["move_cap"], int) and payload["move_cap"] > 0
+
+    assert {move["channel"] for move in payload["moves"]} == {axis["setpoint"]}, (
+        f"the trajectory names a channel the plan never declared: {payload['moves']}"
+    )
+    targets = [move["target"] for move in payload["moves"]]
+    lo, hi = sorted((axis["start"], axis["stop"]))
+    assert all(lo - 1e-6 <= target <= hi + 1e-6 for target in targets), (
+        f"the previewed trajectory leaves the requested sweep band [{lo}, {hi}]: {targets}"
+    )
+    assert targets[0] == pytest.approx(axis["start"]) and targets[-1] == pytest.approx(axis["stop"])
+
+    # Moves nothing: no run was created, and the queue is exactly as stage 2
+    # left it. A pre-flight that enqueued anything would be a launch.
+    assert {r["id"] for r in _get("/runs?limit=100")[1]} == runs_before, (
+        "the pre-flight created a run -- it must walk the plan, never submit it"
+    )
+    assert _queue_snapshot()["status"]["manager_state"] != "executing_queue"
+
+
+def test_2_preflight_caps_the_move_list_but_never_the_total(stack: QueueStack) -> None:
+    """A trajectory longer than the cap comes back SLICED, with the exact total intact.
+
+    The cap exists because this payload ends up in an approval prompt, but the
+    count must stay exact: an approver deciding on a 10,000-move summary of a
+    100,000-move sweep would be deciding on the wrong scan. The worker keeps
+    walking past the cap and only stops collecting.
+
+    The cap is read off the previous answer rather than hardcoded -- the number
+    is the worker's to choose, and pinning a copy of it here would make a
+    deployment that raised it fail this test for doing so.
+    """
+    status, small = _request(
+        BRIDGE_URL,
+        "/plans/grid_scan/preview",
+        "POST",
+        _grid_args(stack, SHORT_POINTS),
+        timeout=120.0,
+    )
+    assert status == 200 and small["ok"] is True, f"the sizing pre-flight failed: {small}"
+    cap = small["move_cap"]
+
+    status, payload = _request(
+        BRIDGE_URL, "/plans/grid_scan/preview", "POST", _grid_args(stack, cap + 3), timeout=180.0
+    )
+
+    assert status == 200, f"the pre-flight must always answer 200: {status} {payload}"
+    assert payload["ok"] is True, f"the pre-flight could not walk a long plan: {payload}"
+    assert payload["total_moves"] == cap + 3, f"the exact total was lost to the cap: {payload}"
+    assert len(payload["moves"]) == cap, (
+        f"the move list is not capped at {cap}: {len(payload['moves'])}"
+    )
+    assert payload["truncated"] is True, f"a sliced trajectory must say so: {payload}"
+
+
+def test_2_preflight_reports_an_unknown_plan_as_a_reason_not_a_404(stack: QueueStack) -> None:
+    """An unavailable trajectory answers 200 in the same nine keys.
+
+    A 404 would give the approval gate a status branch beside the ``ok`` branch
+    it already has, for a case that is just one more reason there is nothing to
+    show.
+    """
+    status, payload = _request(
+        BRIDGE_URL, "/plans/no_such_plan_at_all/preview", "POST", {}, timeout=60.0
+    )
+
+    assert status == 200, f"an unknown plan must not 404 on the pre-flight: {status} {payload}"
+    assert set(payload) == _PREVIEW_KEYS, f"the pre-flight key set drifted: {sorted(payload)}"
+    assert payload["ok"] is False
+    assert payload["reason"] == PREVIEW_REASON_UNKNOWN_PLAN, f"wrong reason: {payload}"
+    assert isinstance(payload["detail"], str) and payload["detail"]
+    assert payload["moves"] == [] and payload["total_moves"] == 0
+    assert payload["channels"] == []
+
+
 # ===========================================================================
 # Stage 3 -- token-gated start, serial drain, live rows
 # ===========================================================================
@@ -924,6 +1132,18 @@ def test_3_armed_start_drains_serially_with_live_rows(stack: QueueStack) -> None
       surfaces that expose it: ``GET /runs/{id}``'s ``progress.rows_seen`` and
       ``GET /runs/{id}/data``'s live path (``run_uid: null``, ``partial: true``).
 
+    Two properties of the DECLARED contract are only observable in this same
+    window, so they are sampled here too:
+
+    * the start document carries the point count the plan declared, which is
+      what turns a live row count into progress. ``grid_scan`` wraps a stock
+      bluesky plan and does not stamp metadata itself -- it INHERITS the
+      wrapped plan's, ``num_points`` included -- so this is the assertion that
+      the inherited stamping is real and reaches ``progress.expected_points``.
+    * a still-running run's analysis block is absent WITH ITS REASON
+      (``run_in_progress``), never partial statistics over a half-finished
+      scan.
+
     ``progress`` is asserted only where it is PRESENT: an absent progress
     record is the honest answer for a denominator the estimator cannot know,
     and this test must never push the code toward fabricating one.
@@ -941,6 +1161,7 @@ def test_3_armed_start_drains_serially_with_live_rows(stack: QueueStack) -> None
     samples: dict[str, list[int]] = {}
     running_seen: set[str] = set()
     partial_live_read = False
+    declared_points: set[Any] = set()
     deadline = time.monotonic() + DRAIN_TIMEOUT_SEC
 
     while time.monotonic() < deadline:
@@ -960,13 +1181,33 @@ def test_3_armed_start_drains_serially_with_live_rows(stack: QueueStack) -> None
 
         data_status, data = _get(f"/runs/{_S.run_live}/data")
         if data_status == 200 and data.get("partial") is True:
-            partial_live_read = True
-            assert data["run_uid"] is None, (
-                f"the LIVE path must report run_uid null (Tiled populates it): {data}"
-            )
+            # `run_uid is None` IDENTIFIES the live path rather than being
+            # required of every in-flight read. The route serves Tiled whenever
+            # there is no live buffer yet, and an in-flight run legitimately
+            # hits that in the first second: the catalog's writer and the
+            # bridge's own recorder are two subscribers to the same document
+            # stream, so the very first poll after a start can find the run in
+            # Tiled (uid, no rows) before the buffer exists. Asserting
+            # live-only HERE fails the drain on that race; the claim this test
+            # actually carries -- rows reach the BRIDGE while the plan runs --
+            # is the `partial_live_read` gate below, which is now the stronger
+            # statement because only a genuinely live-sourced read sets it.
+            if data["run_uid"] is None:
+                partial_live_read = True
+            analysis = _analysis_of(data)
+            assert (
+                analysis["available"] is False and analysis["reason"] == REASON_RUN_IN_PROGRESS
+            ), f"a run still producing rows must not be analyzed as if it were done: {analysis}"
 
         records = _get("/runs")[1]
         running_records = [r for r in records if r.get("status") == "running"]
+
+        # The declared point count off the START document, read where it is
+        # published. Collected rather than asserted in place: the record has no
+        # progress block before the run starts, which is the honest answer.
+        live_record = next((r for r in records if r.get("id") == _S.run_live), None)
+        if isinstance(live_record, dict) and isinstance(live_record.get("progress"), dict):
+            declared_points.add(live_record["progress"].get("expected_points"))
         assert len(running_records) <= 1, (
             f"more than one run reported running -- the drain is not serial: {running_records}"
         )
@@ -993,8 +1234,9 @@ def test_3_armed_start_drains_serially_with_live_rows(stack: QueueStack) -> None
         "the queue reported no running plan while it was draining"
     )
     assert partial_live_read, (
-        "never observed a partial live-buffer read while a plan was running -- the "
-        "document plane delivered no rows to the bridge during the run"
+        "never observed a partial read served from the LIVE BUFFER while a plan was "
+        "running -- the document plane delivered nothing to the bridge during the run "
+        "(a run answered only from Tiled means the bridge's own recorder never saw it)"
     )
     advanced = [
         series for series in samples.values() if len(series) >= 2 and series[-1] > series[0]
@@ -1002,6 +1244,15 @@ def test_3_armed_start_drains_serially_with_live_rows(stack: QueueStack) -> None
     assert advanced, (
         "no run's live row count was ever seen to ADVANCE across ~1 s polls -- rows "
         f"are not reaching the bridge while a plan runs: {samples}"
+    )
+
+    # The declared point count, off the real start document. `grid_scan` stamps
+    # none of its own -- it inherits the stock plan's metadata, which is where
+    # `num_points` comes from -- so an empty or wrong value here means the
+    # inherited stamping did not survive the wrapping.
+    assert LIVE_SAMPLE_POINTS in declared_points, (
+        "the started run never published the point count its plan declared; "
+        f"expected {LIVE_SAMPLE_POINTS}, saw {declared_points or 'no progress record at all'}"
     )
 
 
@@ -1044,6 +1295,29 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
         _S.live_rows[str(run_id)] = data["rows"]
         _S.live_columns[str(run_id)] = data["columns"]
 
+        # The analysis block rides along on every data read, in one six-key
+        # shape. Its x axis is the channel the PLAN declared movable -- not a
+        # column guessed out of the table -- which is the whole reason the role
+        # declaration exists.
+        analysis = _analysis_of(data)
+        if analysis["available"]:
+            assert analysis["x_channel"] == next(iter(stack.correctors)), (
+                f"the analysis chose an x axis the plan never declared movable: {analysis}"
+            )
+            assert analysis["x_column"] in data["columns"], (
+                f"the analysis names an x column that is not in the table: {analysis}"
+            )
+            assert analysis["points"] == data["row_count"]
+            assert analysis["channels"], f"an available analysis with no channels: {analysis}"
+
+    # The long run is the positive control: 600 clean points, one declared
+    # movable and one declared readable is exactly the shape the analysis is
+    # for, so an absent one here is a real gap rather than an honest refusal.
+    live_analysis = _analysis_of(_get(f"/runs/{_S.run_live}/data?max_rows=1000")[1])
+    assert live_analysis["available"] is True, (
+        f"the analysis is absent for a completed single-axis scan: {live_analysis}"
+    )
+
     # The two runs asked for different point counts, so their row counts must
     # differ -- a guard against both reads accidentally serving one run.
     assert len(_S.live_rows[str(_S.run_live)]) != len(_S.live_rows[str(_S.run_short)]), (
@@ -1051,12 +1325,12 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
     )
 
 
-def test_4_unknown_run_data_is_404_not_an_empty_run(stack: QueueStack) -> None:
+def test_4_unknown_run_data_is_404_not_an_empty_scan(stack: QueueStack) -> None:
     """A run neither source knows 404s -- never a 200 with an empty table.
 
     A 200-empty answer would make a nonexistent run indistinguishable from a
-    valid run that recorded nothing, which is how "the data is gone" gets read
-    as "the run produced nothing".
+    valid scan that recorded nothing, which is how "the data is gone" gets read
+    as "the scan produced nothing".
     """
     status, body = _get("/runs/definitely-not-a-real-run-id/data")
     assert status == 404, f"expected 404 for an unknown run, got {status}: {body}"
@@ -1090,33 +1364,45 @@ from bluesky import plan_stubs as bps
 from bluesky import preprocessors as bpp
 from pydantic import BaseModel, Field, model_validator
 
+from osprey.services.bluesky_bridge.plan_fields import (
+    MovableChannels,
+    ReadableChannels,
+    scan_metadata,
+)
+
 logger = logging.getLogger(__name__)
 
 
 class PARAMS(BaseModel):
-    correctors: list[str] = Field(..., min_length=1)
-    readbacks: list[str] = Field(..., min_length=1)
+    correctors: MovableChannels = Field(..., min_length=1)
+    bpms: ReadableChannels = Field(..., min_length=1)
     span_a: float = Field(..., gt=0, le=10.0)
     num: int = Field(..., ge=3)
 
     @model_validator(mode="after")
     def _disjoint(self) -> "PARAMS":
-        overlap = set(self.correctors) & set(self.readbacks)
+        overlap = set(self.correctors) & set(self.bpms)
         if overlap:
-            raise ValueError(f"correctors and readbacks must be disjoint (overlap: {sorted(overlap)})")
+            raise ValueError(f"correctors and bpms must be disjoint (overlap: {sorted(overlap)})")
         return self
 
 
 def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
-    readback_devices = [devices[name] for name in params.readbacks]
+    bpm_devices = [devices[name] for name in params.bpms]
     step = (2 * params.span_a) / (params.num - 1)
     currents = [-params.span_a + i * step for i in range(params.num)]
-    all_devices = corrector_devices + readback_devices
+    all_devices = corrector_devices + bpm_devices
 
     @bpp.stage_decorator(all_devices)
-    @bpp.run_decorator()
+    @bpp.run_decorator(
+        md=scan_metadata(
+            movable=params.correctors,
+            readable=params.bpms,
+            points=params.num * len(params.correctors),
+        )
+    )
     def _sweep():
         for name, corrector in correctors:
             try:
@@ -1144,7 +1430,7 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
     """
     return {
         "correctors": [next(iter(stack.correctors))],
-        "readbacks": [next(iter(stack.bpms))],
+        "bpms": [next(iter(stack.bpms))],
         "span_a": 1.0,
         "num": 3,
     }
@@ -1156,8 +1442,6 @@ def _author_session_plan(name: str, body: str) -> str:
         {
             "name": name,
             "description": "queue e2e session-authored corrector sweep",
-            "category": "accelerator",
-            "required_devices": ["correctors", "readbacks"],
             "writes": True,
             "body": body,
         },
@@ -1202,6 +1486,20 @@ def test_5_session_plan_authored_validated_uploaded_and_executed(stack: QueueSta
         f"a validated session plan must appear in GET /plans: {[p['name'] for p in plans]}"
     )
 
+    # An agent-authored plan reaches the catalog under the same declared
+    # contract as a shipped one: three metadata fields, and channel roles the
+    # author wrote into the params model, served to every consumer.
+    entry = next(p for p in plans if p["name"] == _SESSION_PLAN_NAME)
+    assert set(entry["metadata"]) == {"name", "description", "writes"}, (
+        f"a session plan's published metadata is not the three declared fields: {entry}"
+    )
+    assert entry["metadata"]["writes"] is True
+    properties = entry["schema"]["properties"]
+    assert properties["correctors"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE, (
+        f"the session author's movable declaration did not reach the wire: {properties}"
+    )
+    assert properties["bpms"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+
     revision = _patch_draft(_SESSION_PLAN_NAME, _session_plan_args(stack))
     snapshot = _draft_snapshot()
     assert snapshot["draft"]["plan_name"] == _SESSION_PLAN_NAME, (
@@ -1218,6 +1516,20 @@ def test_5_session_plan_authored_validated_uploaded_and_executed(stack: QueueSta
     )
     assert record["status"] == "completed", f"session plan did not complete: {record}"
     assert record["plan_name"] == _SESSION_PLAN_NAME
+
+    # The point count the plan DECLARED, off its real start document. This plan
+    # opens its own run and stamps `scan_metadata(..., points=num * len(correctors))`
+    # -- the counterpart to grid_scan's inherited stamping in stage 3, and the
+    # reason a progress fraction is a fact rather than an estimate.
+    args = _session_plan_args(stack)
+    expected = args["num"] * len(args["correctors"])
+    progress = record.get("progress")
+    assert isinstance(progress, dict), (
+        f"a run that produced rows must publish a progress record: {record}"
+    )
+    assert progress["expected_points"] == expected, (
+        f"the start document did not carry the declared point count {expected}: {progress}"
+    )
 
     data_status, data = _get(f"/runs/{_S.run_session}/data")
     assert data_status == 200, f"session run produced no readable data: {data_status} {data}"
@@ -1262,6 +1574,42 @@ def test_5_session_plan_with_stale_validation_is_refused_at_enqueue(stack: Queue
     )
 
 
+def test_5_session_write_refuses_a_retired_metadata_key(stack: QueueStack) -> None:
+    """A deployed bridge rejects ``category``/``required_devices`` on a plan write.
+
+    The write payload is the same three fields the catalog publishes. A stale
+    client -- an older MCP tool, a hand-rolled request -- gets a 422 naming the
+    key it sent rather than having it silently dropped, which would leave an
+    author believing a declaration reached the plan file when nothing reads it.
+
+    The accepted shape needs no control of its own here: the test above authors
+    a three-field plan through this same route and runs it. Nothing is written
+    by a refusal, which is deliberate -- a probe that left a half-formed plan
+    file in the session directory would change what every later stage's
+    ``GET /plans`` returns.
+    """
+    for retired_key in ("category", "required_devices"):
+        status, body = _post(
+            "/plans/session",
+            {
+                "name": "retired_key_probe",
+                "description": "probe",
+                "writes": False,
+                "body": "def build_plan(devices, params):\n    yield ('noop', 'probe')\n",
+                retired_key: "scan",
+            },
+        )
+        assert status == 422, f"{retired_key}: expected a 422, got {status} {body}"
+        assert retired_key in json.dumps(body), (
+            f"the refusal does not name the rejected key {retired_key!r}: {body}"
+        )
+
+    plans = {p["name"] for p in _get("/plans")[1]}
+    assert "retired_key_probe" not in plans, (
+        f"a refused write still left a plan file behind: {sorted(plans)}"
+    )
+
+
 # ===========================================================================
 # Stage 6 -- emergency abort
 # ===========================================================================
@@ -1296,7 +1644,7 @@ def test_6_abort_halts_a_running_plan_without_a_token(stack: QueueStack) -> None
     _S.run_aborted = _enqueue_ok(revision)
 
     start_status, start_body = _post("/queue/start", token=stack.token)
-    assert start_status == 200, f"could not start the long run: {start_status} {start_body}"
+    assert start_status == 200, f"could not start the long scan: {start_status} {start_body}"
 
     _wait_for_run_status(str(_S.run_aborted), ("running",), 180.0, poll=0.5)
 
@@ -1458,8 +1806,70 @@ def test_7_completed_run_data_serves_from_tiled_after_the_restart(stack: QueueSt
     )
     assert data["rows"] == _S.live_rows[str(run_id)], (
         "row CONTENT diverged between the live buffer and Tiled -- the durable copy "
-        "is not the same run"
+        "is not the same scan"
     )
+
+
+def test_7_a_stored_run_exports_as_csv_and_parquet(stack: QueueStack) -> None:
+    """``GET /runs/{id}/export`` hands back the stored table as a real file.
+
+    Placed after the restart deliberately: the export reads the DURABLE copy, so
+    a run that is only in the live buffer has nothing to export. Both formats
+    are asserted by their own evidence rather than by the status code alone --
+    a CSV that parses to a header plus rows, and a parquet body carrying the
+    format's magic bytes -- because a route that returned an empty body, or the
+    wrong serializer's output under the right media type, would pass a
+    status-only check.
+    """
+    run_id = _S.run_live
+    if run_id is None:
+        pytest.skip("no completed run from the earlier stages to export")
+
+    status, headers, body = _raw_get(f"/runs/{run_id}/export?format=csv")
+    assert status == 200, f"CSV export failed: {status} {body[:500]!r}"
+    assert headers.get("content-type", "").startswith("text/csv"), headers
+    disposition = headers.get("content-disposition", "")
+    assert disposition.startswith("attachment;") and ".csv" in disposition, (
+        f"the export must arrive as a named download: {disposition!r}"
+    )
+    lines = [line for line in body.decode("utf-8").splitlines() if line.strip()]
+    assert len(lines) >= 2, f"the CSV carries no data rows: {lines[:3]}"
+    header_fields = lines[0].split(",")
+    assert len(header_fields) > 1, f"the CSV header has no columns: {lines[0]!r}"
+    assert all(len(line.split(",")) == len(header_fields) for line in lines[1:]), (
+        "the CSV rows do not all match its header width"
+    )
+
+    status, headers, body = _raw_get(f"/runs/{run_id}/export?format=parquet")
+    assert status == 200, f"parquet export failed: {status} {body[:500]!r}"
+    assert headers.get("content-type", "").startswith("application/x-parquet"), headers
+    assert body[:4] == b"PAR1", (
+        f"the parquet export is not a parquet file (magic bytes {body[:4]!r})"
+    )
+
+
+def test_7_export_refuses_in_the_uniform_shape(stack: QueueStack) -> None:
+    """The export's refusals carry ``detail.code`` like every other route here.
+
+    An unsupported format is the caller's mistake and names what IS supported;
+    an unknown run is a 404 rather than an empty file, so "this run has no
+    stored data" can never be mistaken for "this scan recorded nothing".
+    """
+    run_id = _S.run_live
+    if run_id is None:
+        pytest.skip("no completed run from the earlier stages to export")
+
+    status, body = _get(f"/runs/{run_id}/export?format=json")
+    assert status == 400, f"an unsupported format must be refused: {status} {body}"
+    assert _code_of(body) == "unsupported_format", f"wrong refusal code: {body}"
+    detail = _detail_of(body).get("detail", "")
+    assert "csv" in detail and "parquet" in detail, (
+        f"the refusal must name the formats that ARE supported: {detail!r}"
+    )
+
+    status, body = _get("/runs/definitely-not-a-real-run-id/export?format=csv")
+    assert status == 404, f"an unknown run must 404 rather than export nothing: {status} {body}"
+    assert _code_of(body) == "unknown_run", f"wrong refusal code: {body}"
 
 
 # ===========================================================================
@@ -1705,7 +2115,7 @@ def test_9_security_document_plane_rejects_an_uncertified_publisher(stack: Queue
     The bridge's 0MQ Proxy binds with ``ServerCurve`` and a PINNED directory of
     accepted client public keys -- never ``CURVE_ALLOW_ANY`` -- which is what
     stops a container on ``osprey-network`` from injecting forged run documents
-    that would show up as a run that never happened. Probed by publishing a
+    that would show up as a scan that never happened. Probed by publishing a
     start/stop pair carrying a fabricated ``osprey_run_id`` from an
     unencrypted publisher and asserting the bridge never buffers it.
 

@@ -54,6 +54,7 @@ import json
 import os
 import re
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
@@ -220,6 +221,30 @@ def _bridge_get_json(base_url: str, path: str, timeout: float = 3.0):
         return None
 
 
+def _bridge_post_json(base_url: str, path: str, body, timeout: float):
+    """POST *body* as JSON to ``path`` and return the parsed answer, or `None`.
+
+    The write-shaped sibling of `_bridge_get_json`, and fail-open in exactly
+    the same way: every failure — unreachable bridge, non-2xx, unparseable
+    answer, a body that will not serialize — is `None`, which every caller
+    renders as "unavailable" rather than raising.
+    """
+    try:
+        import urllib.request
+
+        data = json.dumps(body).encode()
+        req = urllib.request.Request(
+            f"{base_url}{path}",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.load(resp)
+    except Exception:
+        return None
+
+
 # Unicode code points that render as a line/paragraph break in some terminals
 # in addition to the C0 control range (< 0x20) and DEL (0x7f) escaped below.
 _UNICODE_LINE_BREAKS = ("\x85", "\u2028", "\u2029")
@@ -228,9 +253,10 @@ _UNICODE_LINE_BREAKS = ("\x85", "\u2028", "\u2029")
 def _sanitize_label(text) -> str:
     """Escape control characters in an agent-influenced single-line label.
 
-    `plan_name` (and the `category` / `required_devices` metadata beside it)
-    originate from a plan file's ``PLAN_METADATA`` — an unconstrained string for
-    a session-tier, agent-authored plan — and reach this prompt RAW: the
+    `plan_name` (and every channel name and setpoint the pre-flight relays
+    beside it) originate from a plan file's ``PLAN_METADATA`` and from the
+    parameters an agent staged — unconstrained strings for a session-tier,
+    agent-authored plan — and reach this prompt RAW: the
     bridge's `PATCH /draft` gates `plan_name` only by registry membership, never
     by character content, and `PlanMetadata.name` carries no character
     constraint. An embedded newline would otherwise forge a fake enrichment line
@@ -267,6 +293,178 @@ def _revision_match_line(pinned, current_revision) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Pre-flight: what a launch would actually move, before the human decides
+# ---------------------------------------------------------------------------
+# `POST /plans/{name}/preview` walks the plan without a RunEngine consuming it
+# and answers with the channels the plan declares plus the setpoints it would
+# drive them to. It is TOTAL — always HTTP 200, always the same keys — so this
+# hook branches on `ok` alone and renders either the trajectory or the reason
+# there is none. Nothing here may block, delay unboundedly, or fail an approval
+# prompt: an approver who cannot see the trajectory still has to be able to
+# decide.
+
+# How many moves from each end of the trajectory the prompt names individually.
+# The middle is elided with its own count, so the prompt states the exact total
+# regardless. Five and five keeps a grid scan's trajectory to eleven lines,
+# short enough that the warning lines above it stay on screen.
+_TRAJECTORY_EDGE_MOVES = 5
+
+# One pre-flight fetch's ceiling. Set just above the bridge's own budget for
+# the call (~10 s of polling plus at most one in-flight RPC) so a slow
+# pre-flight comes back as the bridge's own `preview_timed_out` — a reason word
+# the approver can read — rather than as this client giving up with none.
+_PREVIEW_TIMEOUT_S = 15.0
+
+# Every pre-flight fetch behind ONE prompt, together. `queue_start` previews
+# several items, so each fetch's timeout is clamped to what is left of this
+# budget: the approver waits at most this long for trajectories, whatever the
+# queue holds and however the bridge misbehaves.
+_PREVIEW_BUDGET_S = 20.0
+
+# How many of a start's pending items get a trajectory. A start drains the
+# whole queue, but previewing every item would cost one bridge round trip each;
+# the items that run first are the ones an approver can still act on.
+_MAX_PREVIEWED_QUEUE_ITEMS = 3
+
+# The roles the pre-flight labels channels with, in capability terms. An
+# unrecognised role is rendered with its own word rather than dropped — the
+# bridge's reading of the plan's declaration is what this prompt reports.
+_ROLE_HEADLINES = {
+    "movable": "Channels this launch would move",
+    "readable": "Channels this launch would read",
+}
+
+
+def _fetch_preview(base_url: str, plan_name, plan_args, timeout: float):
+    """The pre-flight summary for *plan_name* with *plan_args*, or `None`.
+
+    The parameters go on the wire exactly as the queue item carries them (one
+    JSON object), because that is what the route previews. The name is
+    percent-encoded: it can be an agent-authored string, and a space or a slash
+    in it must land as an unknown plan, never as a malformed request line.
+    """
+    import urllib.parse
+
+    quoted = urllib.parse.quote(str(plan_name), safe="", errors="replace")
+    # Relayed as-is, even if not a dict: a non-object body makes the route
+    # answer reason="plan_error" -> rendered "unavailable", which is the
+    # honest outcome. Coercing a non-dict to {} here would instead render a
+    # trajectory computed with NO parameters as though it were the staged one.
+    return _bridge_post_json(base_url, f"/plans/{quoted}/preview", plan_args, timeout)
+
+
+def _declared_channel_lines(preview) -> list[str]:
+    """The channels the launch declares, grouped by role, rendered verbatim.
+
+    The grouping is the bridge's own reading of the plan's role declaration
+    against these parameters — this hook does no schema walking and guesses
+    nothing from a name. Groups render in whichever order the bridge sent
+    them (the route contract puts movable first; this function preserves
+    that order rather than establishing it).
+    """
+    if not isinstance(preview, dict):
+        return []
+
+    entries = preview.get("channels")
+    entries = entries if isinstance(entries, list) else []
+
+    grouped: dict[str, list[str]] = {}
+    for entry in entries:
+        if isinstance(entry, dict):
+            grouped.setdefault(str(entry.get("role")), []).append(
+                _sanitize_label(entry.get("channel"))
+            )
+    if not grouped:
+        return ["Channels: none declared for these parameters."]
+
+    return [
+        f"{_ROLE_HEADLINES.get(role, f'Channels declared {_sanitize_label(role)}')}: "
+        f"{', '.join(names)}"
+        for role, names in grouped.items()
+    ]
+
+
+def _move_line(index: int, move) -> str:
+    """One ``N. channel → target`` line, every part escaped to stay on it."""
+    if not isinstance(move, dict):
+        return f"  {index}. {_sanitize_label(move)}"
+    return (
+        f"  {index}. {_sanitize_label(move.get('channel'))} → {_sanitize_label(move.get('target'))}"
+    )
+
+
+def _bounded_move_lines(moves: list) -> list[str]:
+    """The first and last `_TRAJECTORY_EDGE_MOVES` moves, with the middle counted.
+
+    Numbering is the move's real position in the list the pre-flight returned,
+    so the resumed numbering after the elision states how much was skipped a
+    second way.
+    """
+    edge = _TRAJECTORY_EDGE_MOVES
+    if len(moves) <= 2 * edge:
+        return [_move_line(index, move) for index, move in enumerate(moves, start=1)]
+
+    lines = [_move_line(index, move) for index, move in enumerate(moves[:edge], start=1)]
+    hidden = len(moves) - 2 * edge
+    noun = "move" if hidden == 1 else "moves"
+    lines.append(f"  … {hidden} {noun} not shown …")
+    first_tail = len(moves) - edge + 1
+    lines.extend(_move_line(first_tail + offset, move) for offset, move in enumerate(moves[-edge:]))
+    return lines
+
+
+def _trajectory_lines(preview) -> list[str]:
+    """The setpoint trajectory, or a plain statement that there is none to show.
+
+    Unavailable is a rendering, never a refusal: the prompt still asks, the
+    human still decides, and the reason word the pre-flight gave (if it gave
+    one) is named so an operator can tell a denied pre-flight from a plan that
+    does not build. What this line never does is imply anything about the
+    launch itself — an unavailable trajectory is a gap in the evidence, not a
+    verdict on the plan.
+    """
+    if not isinstance(preview, dict):
+        return [
+            "Setpoint trajectory: unavailable — the pre-flight could not be reached. "
+            "Approval is not blocked; this prompt simply cannot show what the launch "
+            "would move."
+        ]
+
+    if not preview.get("ok"):
+        reason = preview.get("reason")
+        named = f" (reason: {_sanitize_label(reason)})" if reason else ""
+        lines = [
+            f"Setpoint trajectory: unavailable{named} — approval is not blocked; this "
+            f"prompt cannot show what the launch would move."
+        ]
+        detail = preview.get("detail")
+        if detail:
+            lines.append(f"  Pre-flight reported: {_sanitize_label(detail)}")
+        return lines
+
+    moves = preview.get("moves")
+    moves = moves if isinstance(moves, list) else []
+    total = preview.get("total_moves")
+    if not total:
+        return ["Setpoint trajectory: no moves — this launch would read only."]
+
+    if preview.get("truncated"):
+        headline = (
+            f"Setpoint trajectory — {_sanitize_label(total)} moves in total, of which the "
+            f"pre-flight captured the first {len(moves)} (truncated): the last move below "
+            f"is NOT the last move of the launch."
+        )
+    else:
+        headline = f"Setpoint trajectory — {_sanitize_label(total)} moves in total:"
+    return [headline] + _bounded_move_lines(moves)
+
+
+def _preview_lines(preview) -> list[str]:
+    """The whole pre-flight block: declared channels, then the trajectory."""
+    return _declared_channel_lines(preview) + _trajectory_lines(preview)
+
+
 def _describe_plan_provenance(base_url: str, plan_name: str) -> list[str]:
     """Render a plan's authoring metadata, provenance/trust tier, validation, and source.
 
@@ -286,17 +484,18 @@ def _describe_plan_provenance(base_url: str, plan_name: str) -> list[str]:
     )
     metadata = (plan_entry or {}).get("metadata")
     if metadata:
-        lines.append(f"Category: {_sanitize_label(metadata.get('category', 'unknown'))}")
-        devices = metadata.get("required_devices") or []
-        rendered_devices = ", ".join(_sanitize_label(d) for d in devices) if devices else None
-        lines.append(f"Required devices: {rendered_devices or 'none declared'}")
+        # `writes` is the whole of the authoring declaration this prompt reads.
+        # Which channels a launch touches is NOT authored metadata — it is read
+        # off the plan's role-typed parameter fields, and reaches this prompt
+        # through the pre-flight (see `_declared_channel_lines`), for the exact
+        # parameters staged rather than as a plan-wide claim.
         lines.append(
             "Hazard: writes to hardware"
             if metadata.get("writes")
             else "Hazard: read-only (no hardware writes declared)"
         )
     else:
-        lines.append("Category/devices/hazard: unavailable (no authoring metadata — built-in plan)")
+        lines.append("Hazard: unavailable (no authoring metadata — built-in plan)")
 
     source_info = _bridge_get_json(base_url, f"/plans/{plan_name}/source")
     provenance = (source_info or {}).get("provenance") or (plan_entry or {}).get("provenance")
@@ -414,6 +613,26 @@ def _queue_activity_lines(snapshot) -> list[str]:
     return lines
 
 
+def _item_trajectory_lines(base_url: str, item: dict, deadline: float) -> list[str]:
+    """One pending item's pre-flight block, indented under its own line.
+
+    *deadline* is the whole prompt's pre-flight budget as a `time.monotonic`
+    instant, and each fetch is clamped to what is left of it — so a start's
+    several previews cost the approver one bounded wait between them all, not
+    one wait per item.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return [
+            "    Setpoint trajectory: unavailable — the pre-flight budget for this "
+            "prompt is spent. Approval is not blocked."
+        ]
+    preview = _fetch_preview(
+        base_url, item.get("name"), item.get("kwargs"), min(_PREVIEW_TIMEOUT_S, remaining)
+    )
+    return [f"    {line}" for line in _preview_lines(preview)]
+
+
 def _queue_item_lines(snapshot, base_url: str) -> list[str]:
     """Name what a start would actually run, and flag anything agent-authored in it.
 
@@ -421,6 +640,11 @@ def _queue_item_lines(snapshot, base_url: str) -> list[str]:
     so the approver has to see the whole list. Session/unreviewed plans are
     called out as a group from a single `GET /plans` — per-plan source fetches
     would multiply the prompt's bridge calls by the queue length.
+
+    The items that run first also carry their pre-flight trajectory, capped at
+    `_MAX_PREVIEWED_QUEUE_ITEMS` and sharing one time budget: the trajectories
+    an approver can still act on, without making the prompt's cost grow with
+    the queue.
     """
     items = snapshot.get("items") if snapshot else None
     items = [item for item in (items or []) if isinstance(item, dict)]
@@ -435,12 +659,20 @@ def _queue_item_lines(snapshot, base_url: str) -> list[str]:
         return lines
 
     lines.append(f"Pending items ({len(items)}), in execution order:")
+    deadline = time.monotonic() + _PREVIEW_BUDGET_S
     for index, item in enumerate(items[:_MAX_LISTED_QUEUE_ITEMS], start=1):
         rendered = f"  {index}. {_sanitize_label(item.get('name'))}"
         kwargs = item.get("kwargs")
         if kwargs:
             rendered += f" {json.dumps(kwargs)}"
         lines.append(rendered)
+        if index <= _MAX_PREVIEWED_QUEUE_ITEMS:
+            lines.extend(_item_trajectory_lines(base_url, item, deadline))
+    if len(items) > _MAX_PREVIEWED_QUEUE_ITEMS:
+        lines.append(
+            f"  Trajectories above cover the first {_MAX_PREVIEWED_QUEUE_ITEMS} items only; "
+            f"the rest run without one shown here."
+        )
     if len(items) > _MAX_LISTED_QUEUE_ITEMS:
         lines.append(f"  … and {len(items) - _MAX_LISTED_QUEUE_ITEMS} more.")
 
@@ -466,10 +698,11 @@ def _describe_queue_add(tool_input: dict, config: dict) -> list[str]:
     yet — the bridge mints the run *from* the draft at enqueue). So this
     fetches the shared plan draft (`GET /draft`) and renders exactly what would
     be queued: the plan name and args currently staged, whether the draft still
-    matches the pinned revision, the plan's provenance/validation/source (see
-    :func:`_describe_plan_provenance`), and whether the queue is already
-    draining — which is what decides whether approving this enqueue is
-    approving an execution.
+    matches the pinned revision, the channels and setpoint trajectory the
+    launch would actually drive (see :func:`_preview_lines`), the plan's
+    provenance/validation/source (see :func:`_describe_plan_provenance`), and
+    whether the queue is already draining — which is what decides whether
+    approving this enqueue is approving an execution.
 
     Fail-open is guaranteed three ways: every bridge call goes through
     `_bridge_get_json` (any fetch/parse failure → `None`), a valid-but-misshaped
@@ -506,6 +739,10 @@ def _describe_queue_add(tool_input: dict, config: dict) -> list[str]:
     if plan_args:
         lines.append(f"Plan args: {json.dumps(plan_args)}")
 
+    # Before the source block: the trajectory is the answer to "what would this
+    # move", and burying it under a plan body the approver has to scroll past
+    # is the same as not showing it.
+    lines.extend(_preview_lines(_fetch_preview(base_url, plan_name, plan_args, _PREVIEW_TIMEOUT_S)))
     lines.extend(_describe_plan_provenance(base_url, plan_name))
     return lines
 

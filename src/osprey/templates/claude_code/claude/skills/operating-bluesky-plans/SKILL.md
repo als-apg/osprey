@@ -14,7 +14,7 @@ summary: Stage, queue, start, and watch a registered plan through the shared dra
 
 Run an already-registered plan the way the panels do: stage the whole
 configuration into the one shared draft, let a human see it, add that exact
-draft to the queue, then start the queue. Every plan the agent runs is
+draft to the queue, then start the queue. Every scan the agent runs is
 narrated through the panels by default — the draft you stage is the same
 surface the human reviews and the same surface `queue_add` queues, so there is
 never a hidden, agent-only path to hardware.
@@ -32,7 +32,7 @@ this deployment run plans at all? It reaches no hardware.
 
 It returns `{status, capability}`. `status` is bridge liveness and is
 deliberately independent of capability — `"ok"` never implies a deployment can
-run a plan. `capability` is `{can_execute, reason, detail}`:
+run a scan. `capability` is `{can_execute, reason, detail}`:
 
 - `can_execute: true` (`reason: "executable"`) — plans can run here.
 - `can_execute: false` — they cannot. `reason` is the machine-readable code
@@ -47,7 +47,7 @@ validated and staged into the draft. What it cannot do is run them, and the
 queue refuses to hold items it could never run, so `queue_add` fails there
 rather than at start time. Knowing that up front is the difference between
 telling the human "this deployment is browse-only, here is the command that
-changes it" and discovering it after composing a whole plan.
+changes it" and discovering it after composing a whole scan.
 
 If the capability check itself fails (`bluesky_bridge_error` /
 `bluesky_bridge_unreachable`, or any non-200 health response), treat the
@@ -81,11 +81,19 @@ anything itself.
 ## Stage the COMPLETE configuration in one `set_draft`
 
 Pick the plan first with **`list_plans()`** — check its `provenance` (prefer a
-higher trust tier), its `required_devices`, and its `writes` flag before
-selecting it. **`list_devices()`** lists the device names this worker actually
+higher trust tier), its `writes` flag, and what the plan actually does to the
+machine before selecting it. That last one is in the plan's own parameter
+schema: every parameter carrying channel names declares its role there, so the
+schema tells you which channels the plan **moves** and which it only **reads**.
+Match those roles against what the operator asked for — a request to measure
+something should not land on a plan that drives channels.
+
+**`list_devices()`** lists the device names this worker actually
 built, which is where every device name in `plan_args` must come from — read it
-rather than guessing a name. Then stage the **entire** plan configuration in a
-**single** `set_draft` call and note the `revision` it returns:
+rather than guessing a name, and put a name in the parameter whose declared
+role matches how the operator wants it used. Then stage the **entire** scan
+configuration in a **single** `set_draft` call and note the `revision` it
+returns:
 
 ```
 set_draft(plan_name="grid_scan", plan_args_patch={<every parameter, complete>})
@@ -104,7 +112,7 @@ it.
 ## The human reviews in the plan panel
 
 Once staged, the draft is visible in the plan panel with every field
-populated. This is the review surface: a human sees the exact plan that is
+populated. This is the review surface: a human sees the exact scan that is
 about to be queued before any device moves. Nothing you have done so far has
 touched hardware.
 
@@ -126,9 +134,9 @@ it with `get_run` / `get_run_data` / `get_run_figure`), and `item.item_uid` is
 the queue handle.
 
 **A revision is consumable exactly once.** Queuing the same plan again — a
-repeat plan, a retry — needs a `set_draft` edit to mint a new revision first;
+repeat scan, a retry — needs a `set_draft` edit to mint a new revision first;
 re-adding a spent one is refused with `draft_revision_already_launched`, by
-design, so a duplicated call cannot silently double-queue a plan.
+design, so a duplicated call cannot silently double-queue a scan.
 
 **Step 2 — `queue_start()`.** This is the arming action, and the only way
 execution ever begins: the manager's own autostart stays disabled, so every
@@ -161,7 +169,7 @@ items in execution order with their `item_uid`, plan `name` and `kwargs`; and
 ## What is armed, and what is not
 
 Two layers gate the queue. They fail in visibly different ways, and telling
-them apart is what lets you explain a blocked plan instead of retrying it.
+them apart is what lets you explain a blocked scan instead of retrying it.
 
 ### Layer 1: this deployment's writes switch, applied before the tool runs
 
@@ -176,7 +184,7 @@ deployment has writes disabled, and turning them on is an operator action, not
 yours.
 
 Everything short of the queue still works: `list_plans`, `write_plan`,
-`validate_plan`, the three draft tools, and every read. So a plan can still be
+`validate_plan`, the three draft tools, and every read. So a scan can still be
 chosen, authored, validated and staged where a human can see it — it simply
 cannot be queued or started until writes are on. Offer that, rather than
 stopping at "I can't".
@@ -283,12 +291,18 @@ A running queue is live hardware — never fire-and-forget. Watch it:
 - **`get_run(run_id)`** — one run's lifecycle: `pending`, `running`,
   `completed`, `stopped`, or `error`. `run_uid` is absent while pending or
   running (it does not exist until the worker starts the plan — read that as
-  "not yet", never "unknown"), and `progress` is absent when nothing is known.
+  "not yet", never "unknown"), and `progress` is absent until the run starts.
   `"stopped"` means a human stopped it, by any route.
 - **`get_run_data(run_id, max_rows=..., tail=...)`** — a bounded window of the
   run's rows; `partial: true` means the run is still producing data. Never
   returns an unbounded table. A run rotated out of the manager's history still
   has its data, so a 404 from `get_run` is never a reason to skip reading here.
+  Its `analysis` block is where the run's peak numbers live — center, width and
+  center of mass per recorded channel, computed over the whole run once it
+  settles. Read `available` first: when it is `false`, `reason` says why in one
+  word and that is the honest answer, not a failure. Never estimate any of
+  those numbers off a figure's plotted points, and never state one that came
+  back `null`.
 - **`get_run_figure(run_id)`** — the run's figure: the plan's own view of what
   it measured, as data rather than pixels. It comes back as panels, each with a
   title, axis labels and units, `annotations` worth relaying, and exactly one
@@ -305,9 +319,11 @@ A running queue is live hardware — never fire-and-forget. Watch it:
   route has no OSPREY run id and is absent from it, so `queue_list` is the
   complete view of what the machine is about to do.
 
-**On progress:** `fraction` is `null` whenever the total point count cannot be
-derived, which is common for agent-authored plans. Report that as "N points so
-far" — never as 0%.
+**On progress:** the denominator comes from the point count the run declares in
+its own opening metadata, so `progress` is missing altogether before a run
+starts — read that as "not started yet", never as 0%. Once it is there,
+`fraction` is `null` for a run that declared no point count. Report that as
+"N points so far" — never as a percentage.
 
 Results land in the queue panel as the run produces them, so the human watches
 alongside the agent.
@@ -316,8 +332,11 @@ alongside the agent.
 
 **A `reason` is a default view, never an error.** `reason: null` means the plan
 drew the figure itself. Any other value means the bridge drew its **default
-view** instead — every numeric column the run recorded, against the run's own
-x axis. That is real data, honestly plotted, so say "the default view, because
+view** instead — every numeric column the run recorded, drawn against the one
+channel the plan declared it drives when there is exactly one, and against row
+order otherwise (a plan sweeping several channels, or stepping a grid, has no
+single x axis; the panel's `x_label` says which case it is). That is real data,
+honestly plotted, so say "the default view, because
 <the reason in plain words>" and never "the figure failed". `no_render` in
 particular means the plan declares no view of its own, so the default view **is**
 that plan's view — there is nothing wrong to report. The vocabulary is open:
@@ -378,7 +397,7 @@ bridge — and it is approval-gated, so a human sees it.
 
 Say what an abort costs, both when you propose one and when you report one:
 the running plan's remaining points are discarded, the data already collected
-is kept, and **the hardware is left wherever the plan had moved it** — an abort
+is kept, and **the hardware is left wherever the scan had moved it** — an abort
 returns nothing to a starting position.
 
 Its refusals each say precisely what did and did not happen:
@@ -418,7 +437,7 @@ know why it was requested.
 
 ## Anti-patterns
 
-- **Never** stage a plan across multiple `set_draft` calls that each leave an
+- **Never** stage a scan across multiple `set_draft` calls that each leave an
   incomplete draft in front of the human's Add-to-queue button — assemble the
   full `plan_args` and stage it in one call.
 - **Never** queue a revision you did not just read or stage — pin the exact
@@ -432,6 +451,10 @@ know why it was requested.
 - **Never** report a figure's `reason` as a failure — it says the bridge drew
   the default view, which is real data, and `no_render` means that view is the
   plan's own.
+- **Never** read a peak's center, width or center of mass off a figure's
+  plotted points — those numbers are computed over the whole run and live on
+  `get_run_data`'s `analysis` block, and an unavailable one comes with a reason
+  that is itself the answer.
 - **Never** call a `heatmap_summary`'s `largest_magnitude` cells anomalies —
   they are the strongest readings, and the `orm` plan ships real anomaly-score
   panels that would be contradicted by saying otherwise.
