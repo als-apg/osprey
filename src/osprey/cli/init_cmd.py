@@ -1130,18 +1130,17 @@ def init(
         if reset:
             # Imported here, not at module scope: this command is lazy-loaded,
             # and `reset` pulls in the whole deployment stack.
-            from osprey.deployment.reset import reset_deployment
+            from osprey.deployment.reset import ResetOutcome, reset_for_reinit
 
-            # `output.report`, and NOT a logger call: the destruction plan is
-            # this verb's own output, not a transcript line. Routed through the
-            # logger it is an INFO record, which the altitude gate drops on a
-            # normal run -- so `osprey init --reset` used to destroy a
-            # deployment without ever showing the operator the list of what it
-            # was about to take, while `osprey reset` printed the same plan in
-            # full. One printer for both call sites is what keeps the two paths
-            # line-identical rather than merely similar.
-            with reporter.phase(f"Discarding the previous {target.name}"):
-                reset_deployment(target, assume_yes=True, emit=output.report)
+            # The condensed form, not `reset_deployment`: the full destruction
+            # plan is the text a standalone `osprey reset` asks an operator to
+            # confirm against, and nothing is being confirmed here. The chained
+            # reset reports what it removed and what it kept as steps of this
+            # phase, and a reset with nothing to do closes the phase saying so
+            # instead of printing an empty plan.
+            with reporter.phase(f"Discarding the previous {target.name}") as phase:
+                if reset_for_reinit(target) is ResetOutcome.NOTHING_TO_DO:
+                    phase.done("nothing from a previous run to remove")
 
             # `reset` removes only what carries this checkout's repo-id label,
             # so a deployment predating that label survives it — correctly, since

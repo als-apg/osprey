@@ -1000,6 +1000,13 @@ def test_importing_the_module_stays_off_the_heavy_chain() -> None:
     assert completed.stdout.split() == ["False", "False"]
 
 
+def _completed_reset(repo_root, **kw):
+    """A reset that ran and removed what it planned, without a runtime."""
+    from osprey.deployment.reset import ResetOutcome
+
+    return ResetOutcome.COMPLETED
+
+
 class TestResetFlag:
     """``--reset`` — starting over on a name that has been used before.
 
@@ -1011,20 +1018,28 @@ class TestResetFlag:
     runtime state with it", in the one command that would otherwise walk
     straight into that.
 
-    Delegated to ``reset_deployment`` (imported at call time, so these patch
-    it on its own module) rather than reimplemented: it already owns
-    the label-scoped plan, the foreign-checkout refusal, and the
-    one-resource-at-a-time removals. By the time this runs the repo has been
-    materialized, so that machinery has the repo root it needs.
+    ``_completed_reset`` below is the shared stub: a reset that ran and
+    removed what it planned, without touching a runtime.
+
+    Delegated to ``reset_for_reinit`` (imported at call time, so these patch
+    it on its own module) rather than reimplemented: it runs the same
+    label-scoped plan, foreign-checkout refusal, and one-resource-at-a-time
+    removals as ``reset_deployment``, reported as phase steps instead of as
+    the standalone verb's confirmation document. By the time this runs the
+    repo has been written out, so that machinery has the repo root it needs.
     """
 
     def test_it_discards_the_previous_deployments_runtime_state(
         self, runner, tmp_path, monkeypatch
     ):
+        from osprey.deployment.reset import ResetOutcome
+
         calls: list[dict] = []
         monkeypatch.setattr(
-            "osprey.deployment.reset.reset_deployment",
-            lambda repo_root, **kw: calls.append({"repo_root": Path(repo_root), **kw}) or True,
+            "osprey.deployment.reset.reset_for_reinit",
+            lambda repo_root, **kw: (
+                calls.append({"repo_root": Path(repo_root), **kw}) or ResetOutcome.COMPLETED
+            ),
         )
 
         result = runner.invoke(
@@ -1035,21 +1050,20 @@ class TestResetFlag:
         assert result.exit_code == 0, result.output
         assert len(calls) == 1, "expected exactly one reset of the target repo"
         assert calls[0]["repo_root"] == tmp_path / "demo"
-        # No prompt: the operator already said so on the command line, and the
-        # point of the flag is a one-line re-create that runs unattended.
-        assert calls[0]["assume_yes"] is True
 
     def test_it_runs_after_the_repo_exists(self, runner, tmp_path, monkeypatch):
-        """``reset_deployment`` reads the repo it is pointed at, so order matters.
+        """``reset_for_reinit`` reads the repo it is pointed at, so order matters.
 
-        Called before materialization it would be handed a directory with no
+        Called before the repo is written it would be handed a directory with no
         profile.yml, and would resolve the project name from a repo not yet there.
         """
+        from osprey.deployment.reset import ResetOutcome
+
         seen: list[bool] = []
         monkeypatch.setattr(
-            "osprey.deployment.reset.reset_deployment",
+            "osprey.deployment.reset.reset_for_reinit",
             lambda repo_root, **kw: (
-                seen.append((Path(repo_root) / "profile.yml").is_file()) or True
+                seen.append((Path(repo_root) / "profile.yml").is_file()) or ResetOutcome.COMPLETED
             ),
         )
 
@@ -1073,9 +1087,7 @@ class TestResetFlag:
         remedy is `osprey reset`: the exact thing that just declined. Naming the
         real cause here is the difference between a dead end and a fix.
         """
-        monkeypatch.setattr(
-            "osprey.deployment.reset.reset_deployment", lambda repo_root, **kw: True
-        )
+        monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         monkeypatch.setattr(
             "osprey.cli.init_cmd._surviving_project_resources",
             lambda target: ["container old-thing", "volume old-thing_data"],
@@ -1091,9 +1103,7 @@ class TestResetFlag:
         assert "com.osprey.repo-id" in result.output
 
     def test_it_proceeds_when_the_sweep_was_complete(self, runner, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            "osprey.deployment.reset.reset_deployment", lambda repo_root, **kw: True
-        )
+        monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         monkeypatch.setattr("osprey.cli.init_cmd._surviving_project_resources", lambda target: [])
 
         result = runner.invoke(
@@ -1121,9 +1131,7 @@ class TestResetFlag:
         code. The provider keys in ``.env`` are the ones that matter here — the
         reason to converge a repo in place rather than delete and re-create it.
         """
-        monkeypatch.setattr(
-            "osprey.deployment.reset.reset_deployment", lambda repo_root, **kw: True
-        )
+        monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         stale_marker = "STALE-FROM-THE-LAST-DEPLOYMENT"
         (exemplar_repo / "profile.yml").write_text(f"name: {stale_marker}\n", encoding="utf-8")
         (exemplar_repo / "data" / "orphan.json").write_text("{}\n", encoding="utf-8")
@@ -1155,8 +1163,8 @@ class TestResetFlag:
         """The default must never destroy a volume — that is what the flag is for."""
         calls: list = []
         monkeypatch.setattr(
-            "osprey.deployment.reset.reset_deployment",
-            lambda repo_root, **kw: calls.append(repo_root) or True,
+            "osprey.deployment.reset.reset_for_reinit",
+            lambda repo_root, **kw: calls.append(repo_root) or _completed_reset(repo_root),
         )
 
         result = runner.invoke(

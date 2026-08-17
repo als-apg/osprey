@@ -22,7 +22,7 @@ from pathlib import Path
 
 import yaml
 
-from osprey.cli.output import report_fact
+from osprey.cli.output import report_fact, warn_fact
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
@@ -270,16 +270,15 @@ def _report_unshown_mints(credentials: AuthCredentialsResult) -> None:
     if not credentials.minted or _stdout_is_a_terminal():
         return
     users = ", ".join(sorted(credentials.minted))
-    logger.warning(
-        "Minted a login password for web-terminal user(s) %s and did NOT print it: stdout "
-        "is not a terminal here, and this output can be retained (a CI job log is readable "
-        "by everyone with access to the project). The plaintext is gone, and only the hash "
-        "is stored in %s. Set a password you choose with `osprey users passwd <user>`, or "
-        "put "
-        "OSPREY_AUTH_PW_<USER> in .env before the first deploy and it will be hashed in "
-        "instead of a random one being minted.",
-        users,
-        credentials.env_auth_path,
+    warn_fact(
+        logger,
+        f"Minted a login password for web-terminal user(s) {users} and did NOT print it",
+        "stdout is not a terminal here, and this output can be retained (a CI job log "
+        "is readable by everyone with access to the project); the plaintext is gone, "
+        f"and only the hash is stored in {credentials.env_auth_path}",
+        "set a password you choose with `osprey users passwd <user>`, or put "
+        "OSPREY_AUTH_PW_<USER> in .env before the first deploy and it will be hashed "
+        "in instead of a random one being minted",
     )
 
 

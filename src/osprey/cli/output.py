@@ -38,7 +38,9 @@ if TYPE_CHECKING:
     from osprey_connectors.logger import ComponentLogger
 
 __all__ = [
+    "clear_ledger",
     "fail",
+    "flush_ledger",
     "machine_mode",
     "machine_mode_active",
     "note",
@@ -47,6 +49,7 @@ __all__ = [
     "section",
     "table",
     "warn",
+    "warn_fact",
 ]
 
 #: The one indentation step. Everything subordinate -- a note, a section's rows
@@ -77,10 +80,26 @@ _WARN_GLYPH = "⚠"
 #: scrollback full of causes.
 _REMEDY_GLYPH = "→"
 
+#: What opens a fact line -- the same mark the phase record's ``  · name`` steps
+#: wear, so a fact reads as part of the run it happened in rather than as a
+#: paragraph interrupting it. A fact is not a step: it never touches the phase's
+#: lap clock and never carries a duration.
+_FACT_GLYPH = "·"
+
 #: True for as long as a :func:`machine_mode` block is open. Process-scoped
 #: rather than task- or thread-scoped: the CLI is single-threaded at these call
 #: sites, and a ``--json`` verb wraps its whole body in one block.
 _machine_mode = False
+
+#: The run ledger: the ``(label, value)`` rows :func:`report_fact` collected for
+#: the closing "what this run wrote" block. Process-scoped for the same reason
+#: the reporter is a module singleton -- the facts are minted by helpers deep in
+#: the call stack, and the verb that owns the run flushes them once at its end.
+_ledger: list[tuple[str, str]] = []
+
+#: The heading the flushed ledger prints under. One spelling, here, so the
+#: closing block reads identically whichever verb flushes it.
+_LEDGER_TITLE = "This deploy wrote"
 
 
 def _region_is_mounted() -> bool:
@@ -199,31 +218,109 @@ def report(text: str, /, *, style: str | None = None) -> None:
     _echo(Text(text, style=style or ""))
 
 
-def report_fact(logger: ComponentLogger, message: str) -> None:
-    """Print an operator-critical fact, and keep its record for the log sinks.
+def report_fact(
+    logger: ComponentLogger, message: str, /, *, wrote: tuple[str, object] | None = None
+) -> None:
+    """Print an operator-critical fact in the run's own step column, and keep it.
 
     The promotion contract, spelled once for every module that carries facts a
     person running the verb has to read: credentials a deploy minted, secret
-    files it wrote or renamed, host state it changed, a posture it chose. All of
-    them printed through ``logger.key_info`` alone, which the CLI's altitude
-    gate drops at the handler on a normal run, so the fact never reached the
-    terminal at all.
+    files it wrote or renamed, host state it changed, a posture it chose. The
+    fact prints as ONE short line in the same indented shape the phase record's
+    steps use, so a run reads as one column rather than as steps interrupted by
+    paragraphs. The line goes through ``logger.key_info`` too, so file and
+    aggregation sinks keep the transcript they always kept; under ``-v`` it
+    appears twice, once as the verb's own output and once in the transcript
+    that flag asked for.
 
-    :func:`report` puts the fact in the default view, where the person running
-    the verb reads it. The log record stays at the level it always had, so file
-    and aggregation sinks keep the transcript they always kept. On a normal run
-    the gate drops the record at the handler and the fact reaches the terminal
-    once; under ``-v`` the gate is lifted and it appears twice, once as the
-    verb's own output and once in the transcript that flag asked for.
+    ``wrote`` is the fact's second altitude: a ``(label, value)`` row for the
+    closing ledger the owning verb flushes after its summary card (see
+    :func:`flush_ledger`). The inline line says THAT it happened, in passing;
+    the ledger row says exactly what, with the variable names and caveats an
+    operator acts on later. Give a row to anything someone will need after the
+    run has scrolled by; skip it for postures the inline line already states in
+    full. Ledger rows travel in a keyword and a variable, so the copy-style
+    guard never reads them; their prose keeps the house rules by review.
 
     :param logger: The calling module's logger, passed in rather than made here,
         so the record still names the module that holds the fact.
-    :param message: The finished line. The caller builds it, because every one
-        of these facts names a value only the caller holds: a path, a variable
-        name, a count.
+    :param message: The finished inline line, short enough to sit in the step
+        column. Positional-ONLY, as for :func:`report`: the copy guard reads
+        prose out of positional arguments.
+    :param wrote: The ledger row, or ``None`` for an inline-only fact. The value
+        is rendered with :func:`str`, like a :func:`section` value.
     """
-    report(message)
+    _echo(Text(f"{_INDENT}{_FACT_GLYPH} {message}"))
     logger.key_info(message)
+    if wrote is not None:
+        label, value = wrote
+        _ledger.append((label, str(value)))
+        logger.key_info(f"{label}: {value}")
+
+
+def warn_fact(
+    logger: ComponentLogger, summary: str, detail: str | None = None, remedy: str | None = None, /
+) -> None:
+    """Print a warning in the run's own column, and keep its record for the sinks.
+
+    :func:`warn`'s counterpart to :func:`report_fact`, for the warnings an
+    operator must read while a lifecycle verb runs: the deploy posture that
+    changed, the configuration that disagrees with itself. The block is the
+    trouble shape -- marked summary, indented body, ``→ remedy`` -- indented one
+    step so it reads as part of the run it happened in, and the record goes to
+    ``logger.warning`` for the file and aggregation sinks.
+
+    While a lifecycle reporter is installed, the altitude gate keeps raw WARNING
+    records off the terminal (see :mod:`osprey.cli.altitude`), so this function
+    is how a warning reaches the operator at all; under ``-v`` the gate is
+    lifted and the warning appears in both shapes, exactly as a promoted fact
+    does.
+
+    :param logger: The calling module's logger, as for :func:`report_fact`.
+    :param summary: What went sideways, in one line and without the glyph.
+        Positional-ONLY, as for :func:`warn`: the copy guard reads prose out of
+        positional arguments.
+    :param detail: What an operator needs in order to judge it. Printed indented
+        under the summary, line by line. Positional-only for the same reason.
+    :param remedy: The one thing to do about it, printed as ``→ remedy`` under
+        the detail. Omit it when there is nothing honest to suggest.
+    """
+    _echo(Text(f"{_INDENT}{_WARN_GLYPH} {summary}", style=Styles.WARNING), err=True)
+    body = list(detail.splitlines()) if detail else []
+    if remedy:
+        body.append(f"{_REMEDY_GLYPH} {remedy}")
+    for line in body:
+        _echo(Text(f"{_INDENT}{_INDENT}{line}"), err=True)
+    logger.warning(" ".join(part for part in (summary, detail, remedy) if part))
+
+
+def flush_ledger() -> None:
+    """Print the collected ledger rows as one closing block, and empty the ledger.
+
+    Called by the verb that owns the run, after its summary card -- and, on the
+    attached ``up`` path, immediately before the reporter's hand-off, because a
+    process about to replace itself with compose has exactly one last chance to
+    say what it wrote. A run that collected nothing prints nothing.
+
+    Rows print in the order they were collected, which is the order the run did
+    the writing -- :func:`section` keeps sequence order for exactly this caller.
+    """
+    if not _ledger:
+        return
+    rows, _ledger[:] = list(_ledger), []
+    report("")
+    section(_LEDGER_TITLE, rows)
+
+
+def clear_ledger() -> None:
+    """Drop any rows a previous run left uncollected.
+
+    The verb that installs the lifecycle reporter calls this at entry: the
+    ledger is process-scoped, and a run that failed before its flush must not
+    donate its rows to the next run in the same process (the test suite runs
+    the CLI many times in one process).
+    """
+    _ledger.clear()
 
 
 def note(text: str, /) -> None:

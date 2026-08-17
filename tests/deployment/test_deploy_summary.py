@@ -207,7 +207,9 @@ def probe(restore_root_logging):
 def test_the_endpoint_summary_is_in_the_default_view(probe, compose_file):
     """The needle: printed on a normal run, no longer painted by the logger."""
     deploy_summary.log_endpoint_summary({"project_name": "demo"}, [compose_file])
-    logging.getLogger("deployment.summary").warning("armed witness")
+    # ERROR, not WARNING: the gate keeps WARNING off the terminal while a
+    # reporter is installed, and this fixture installs one.
+    logging.getLogger("deployment.summary").error("armed witness")
 
     # Echoed: what the operator ran the verb to find out.
     assert "Service endpoints (demo):" in probe.printed

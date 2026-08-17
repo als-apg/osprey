@@ -12,7 +12,10 @@ record is still emitted, still reaches ``caplog``, and still reaches any other
 handler or sink on the root logger. Nothing is lost — it is only not painted.
 
 ``-v``/``--verbose`` lifts the gate and restores the full transcript. Levels are
-never remapped; the gate reads a record's level and nothing else.
+never remapped; the gate reads a record's level, plus one bit of CLI state —
+whether a lifecycle reporter currently owns the terminal, which is what tells a
+WARNING record it must arrive promoted (:func:`osprey.cli.output.warn_fact`)
+rather than as a raw transcript block through a phase column.
 """
 
 import logging
@@ -23,18 +26,44 @@ __all__ = ["gate_installed", "install_gate", "lift_gate"]
 
 
 class _AltitudeGate(logging.Filter):
-    """Drop INFO-and-below records at the handler; pass WARNING and above.
+    """Drop INFO-and-below records at the handler; pass WARNING and above —
+    except while a lifecycle reporter owns the terminal, where WARNING is
+    dropped too and only ERROR and above still paint.
 
     The policy is deliberately level-based. Records emitted through
     :class:`~osprey.utils.logger.ComponentLogger` also carry an
     ``osprey_intent`` attribute naming the method that emitted them, but the
     shipped policy does not read it — INFO-family intents are separated by
     rewriting their call sites as report lines, not by filtering on intent.
+
+    The lifecycle exception is the renderer's single-voice rule. While a phase
+    record is being drawn, a raw WARNING painted by the handler arrives as a
+    timestamped, hard-wrapped transcript block in the middle of a column of
+    phase lines — the one shape the output hierarchy exists to prevent. So a
+    warning an operator must read during a lifecycle verb is *promoted* at its
+    call site (:func:`osprey.cli.output.warn_fact`), exactly as INFO-family
+    facts already are, and the un-promoted rest stays where it always was: in
+    the emitted record, for ``caplog``, file sinks, and ``-v``. ERROR keeps
+    painting unconditionally — a failure outranks the column's tidiness.
+
+    "A lifecycle reporter owns the terminal" is read off the installed reporter
+    per record, through the same predicate ``lifecycle_reporter`` uses to
+    decide ownership: the quiet ``NullReporter`` default means no lifecycle
+    verb is running, and every other reporter means one is.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
         """Return True when this record should be rendered."""
-        return record.levelno >= logging.WARNING
+        if record.levelno >= logging.ERROR:
+            return True
+        if record.levelno < logging.WARNING:
+            return False
+        from osprey.cli.phase_reporter import NullReporter, current_reporter
+
+        # Either NullReporter shape means no phase column is being drawn: the
+        # quiet default because no lifecycle verb is running, the verbose one
+        # because ``-v`` streams the transcript instead of drawing one.
+        return isinstance(current_reporter(), NullReporter)
 
 
 def _root_rich_handler() -> RichHandler | None:

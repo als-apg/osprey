@@ -1059,7 +1059,9 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, started, monkey
 
     assert result.exit_code == 0, result.output
     assert sinks and all(sink is not print for sink in sinks)
-    assert "Minted a login password" not in result.output
+    # The fact still reaches the operator — as the renderer's promoted block,
+    # not as a password printed through the unguarded sink.
+    assert "⚠ Minted a login password" in result.output
 
 
 # ---------------------------------------------------------------------------

@@ -277,6 +277,12 @@ def lifecycle_reporter() -> Iterator["PhaseReporter"]:
     ctx = click.get_current_context(silent=True)
     verbose = bool(ctx.find_root().params.get("verbose")) if ctx is not None else False
     reporter: PhaseReporter = NullReporter(verbose=True) if verbose else _tty_aware_reporter()
+    # The ledger is process-scoped and the outermost verb owns the flush, so
+    # the outermost install is where rows a failed earlier run never flushed
+    # get dropped -- otherwise they would print under this run's card.
+    from .output import clear_ledger
+
+    clear_ledger()
     previous = install_reporter(reporter)
     try:
         reporter.start_rendering()

@@ -738,7 +738,7 @@ def test_two_paints_of_the_region_differ_only_by_the_clock(
 def test_a_warning_lands_intact_above_a_mounted_region(
     startable_repo: Path, pty_env: dict[str, str], unhurried_runtime: None
 ) -> None:
-    """A real WARNING from the start path, on a real terminal, above the region.
+    """A real warning from the start path, on a real terminal, above the region.
 
     Provoked rather than injected: the start path compares the shell's exports
     against the deployment's env chain and warns when an exported value
@@ -748,9 +748,13 @@ def test_a_warning_lands_intact_above_a_mounted_region(
     it produces it in the middle of the start phase, with the region mounted
     and the monitor thread repainting.
 
-    Intact means: the record's own lines are consecutive on the final screen,
-    with the ``RichHandler`` level column at its usual width, and no region
-    frame anywhere between them.
+    The call site is promoted (:func:`osprey.cli.output.warn_fact`), so what
+    must land is the renderer's trouble shape — marked summary, indented body —
+    and NOT a ``RichHandler`` record: while the reporter owns the terminal the
+    altitude gate keeps raw WARNING records off it, and this scenario is where
+    that pair of facts is read off a real screen. Intact means: the block's
+    lines are consecutive on the final screen with no region frame anywhere
+    between them.
     """
     env_path = startable_repo / ".env"
     env_path.write_text(
@@ -765,26 +769,41 @@ def test_a_warning_lands_intact_above_a_mounted_region(
     assert_screen_is_intact(run)
 
     screen = run.screen
-    heads = [index for index, line in enumerate(screen) if re.search(r"\bWARNING {2}\S", line)]
-    assert len(heads) == 1, f"expected exactly one WARNING record\n{run.describe()}"
+    heads = [
+        index
+        for index, line in enumerate(screen)
+        if "shell export disagrees with this deployment's env chain" in line
+    ]
+    assert len(heads) == 1, f"expected exactly one promoted warning\n{run.describe()}"
     head = heads[0]
-    assert "Shell export disagrees with this deployment's env chain" in screen[head], run.describe()
-    assert_region_was_mounted_when(run, "Shell export disagrees")
+    assert screen[head].lstrip().startswith("⚠"), (
+        f"the warning did not render as the renderer's warn shape: {screen[head]!r}\n"
+        f"{run.describe()}"
+    )
+    # The summary names what diverged; the promotion must not have lost that.
+    assert "ZO_ROOT_USER_PASSWORD" in screen[head], run.describe()
+    assert_region_was_mounted_when(run, "shell export disagrees")
 
-    # The record wraps at the terminal's width, so "intact" is about the block:
-    # every line of it is consecutive, the variable it names is in there, and
-    # no region frame is drawn between any two of its lines.
+    # The gate's half of the contract: the record this warning also files must
+    # NOT have painted as a RichHandler block — the promoted shape is the one
+    # voice this warning gets on the terminal.
+    assert not any(re.search(r"\bWARNING {2}\S", line) for line in screen), (
+        f"a raw WARNING record reached the terminal past the altitude gate\n{run.describe()}"
+    )
+
+    # The block wraps at the terminal's width, so "intact" is about the block:
+    # every line of it is consecutive and no region frame is drawn between any
+    # two of its lines.
     body = screen[head : head + 6]
-    assert "ZO_ROOT_USER_PASSWORD" in "".join(body), run.describe()
     assert all(not any(glyph in line for glyph in SPINNER_FRAMES) for line in body), (
-        "a region frame is interleaved with the record:\n" + "\n".join(body)
+        "a region frame is interleaved with the warning block:\n" + "\n".join(body)
     )
 
     # And it is above the region, not inside it: the phase the region was
-    # drawing for closes after the record.
+    # drawing for closes after the block.
     closing = [index for index, line in enumerate(screen) if "✓ Starting" in line]
     assert closing and closing[0] > head, (
-        f"the record did not land above the open phase's region\n{run.describe()}"
+        f"the warning did not land above the open phase's region\n{run.describe()}"
     )
 
 
@@ -1054,12 +1073,18 @@ def test_a_warn_from_inside_a_mounted_phase_does_not_take_the_screen_with_it(
 #: measured. Riding the step call reaches it on purpose, so the scenario asserts
 #: a property of the code rather than of the scheduler.
 HAZARD_BOOTSTRAP = """
+import atexit
+import pathlib
 import sys
 
 from osprey.cli import output, phase_reporter
 
 _real_step = phase_reporter.Phase.step
 _issued = []
+
+atexit.register(
+    lambda: pathlib.Path("probe-step-receipt").write_text(str(len(_issued)), encoding="utf-8")
+)
 
 
 def _step(self, name):
@@ -1153,15 +1178,25 @@ def probe_warning_lines(run: PtyRun) -> list[str]:
     return [run.screen[row] for row in probe_warning_rows(run)]
 
 
-def sub_step_lines(run: PtyRun) -> list[str]:
-    """Every sub-step line the deploy printed under an open phase.
+def issued_step_count(repo: Path) -> int:
+    """How many ``Phase.step`` calls the hazard bootstrap rode, from its receipt.
 
-    The two bootstraps that ride ``Phase.step`` issue exactly one line per
-    sub-step, so this is what their count is checked against — a scenario that
-    hardcoded "two warnings" would go quietly vacuous the day the start path
-    gains or loses a step.
+    The bootstraps that ride ``Phase.step`` issue exactly one warning per
+    sub-step, so this is what their warning count is checked against — a
+    scenario that hardcoded "two warnings" would go quietly vacuous the day the
+    start path gains or loses a step. The count comes from the bootstrap's own
+    receipt file rather than from counting ``·`` lines on the screen: promoted
+    facts (:func:`osprey.cli.output.report_fact`) share that grammar on
+    purpose, so the screen cannot tell a sub-step from a fact — and a proxy
+    that miscounts would fail these scenarios for a reason that has nothing to
+    do with how trouble is routed.
     """
-    return [line for line in run.screen if re.match(r"\s*· \S", line)]
+    receipt = repo / "probe-step-receipt"
+    assert receipt.exists(), (
+        "the hazard bootstrap never wrote its step receipt, so the warning count "
+        "has nothing sound to be checked against"
+    )
+    return int(receipt.read_text(encoding="utf-8"))
 
 
 def test_a_warn_issued_from_inside_an_open_phase_lands_above_the_region(
@@ -1188,10 +1223,10 @@ def test_a_warn_issued_from_inside_an_open_phase_lands_above_the_region(
 
     assert run.exit_code == 0, run.describe()
     warnings = probe_warning_lines(run)
-    steps = sub_step_lines(run)
-    assert steps, f"the deploy printed no sub-step to ride\n{run.describe()}"
-    assert len(warnings) == len(steps), (
-        f"one warning per sub-step was issued but {len(warnings)} of {len(steps)} reached the "
+    issued = issued_step_count(startable_repo)
+    assert issued, f"the deploy ran no sub-step to ride\n{run.describe()}"
+    assert len(warnings) == issued, (
+        f"one warning per sub-step was issued but {len(warnings)} of {issued} reached the "
         f"screen\n{run.describe()}"
     )
     # The set asserted on below is pinned by an anchored pattern, so a warning
@@ -1249,11 +1284,11 @@ def test_control_the_same_line_through_the_reporter_console_never_welds(
 
     assert run.exit_code == 0, run.describe()
     lines = probe_warning_lines(run)
-    steps = sub_step_lines(run)
-    assert steps, f"the deploy printed no sub-step to ride\n{run.describe()}"
-    assert len(lines) == len(steps), (
+    issued = issued_step_count(startable_repo)
+    assert issued, f"the deploy ran no sub-step to ride\n{run.describe()}"
+    assert len(lines) == issued, (
         f"the control must issue the same number of lines as the finding does, or the two "
-        f"runs are not comparable: {len(lines)} of {len(steps)}\n{run.describe()}"
+        f"runs are not comparable: {len(lines)} of {issued}\n{run.describe()}"
     )
     for index, line in enumerate(lines):
         assert line.strip() == f"probe warning {index}", (
