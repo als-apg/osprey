@@ -166,18 +166,21 @@ Compatibility is documented in release notes, not encoded in the version string.
   `ariel.search_modules.hybrid` and `ariel.enhancement_modules.qmd_export`; the
   search knobs must sit under `settings:`, as keys written beside `enabled` are
   ignored. `rerank` is on here, where ranking quality is worth the latency.
+  Entries created through the ARIEL web interface or the agent's `entry_create`
+  tool are mirrored inline at creation time, so they become hybrid-searchable
+  without waiting for the next enhancement run.
 
   Filtering in this mode is best-effort: results are ranked first and the date,
   author and source filters applied afterwards, so a selective filter can
   return fewer entries than asked for even when more exist. Use `keyword_search`
   or `sql_query` when a filter has to be exhaustive.
 
-- `osprey ariel qmd-resync` re-exports logbook entries the markdown mirror never
-  saw — those written by paths that bypass the enhancement modules, such as
-  creating an entry in the ARIEL web interface. `ingest` and `watch` run this
-  pass themselves, so a routine deployment never needs it by hand. `--rebuild`
-  clears the mirror and re-exports everything, which is what to reach for after
-  `osprey ariel purge`.
+- `osprey ariel qmd-resync` re-exports logbook entries the markdown mirror
+  never saw — those written by paths that bypass the enhancement modules and
+  the inline mirror write. `ingest` and `watch` run this pass themselves, so a
+  routine deployment never needs it by hand. `--rebuild` clears the mirror and
+  re-exports everything, which is what to reach for after `osprey ariel
+  purge`.
 
 - `close_panel` takes a panel's tile off the operator's screen and leaves it on
   the rail, so it is one click from coming back. There was previously no way to

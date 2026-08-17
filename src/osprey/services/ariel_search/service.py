@@ -12,6 +12,7 @@ Higher-level reasoning is handled by the Osprey agent layer.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.exceptions import (
@@ -438,12 +439,22 @@ class ARIELSearchService:
                     if fetched_entry["entry_id"] == facility_entry_id:
                         await self.repository.upsert_entry(fetched_entry)
                         sync_status = SyncStatus.SYNCED
+                        entry = fetched_entry
                         break
             except Exception as e:
                 logger.warning(
                     f"Re-ingestion after write failed for {facility_entry_id}: {e}. "
                     f"Entry will sync on next poll."
                 )
+
+        # Best-effort inline mirror write, so the entry is hybrid-searchable
+        # within one sidecar poll instead of after the next batch enhancement
+        # run. Never fails the create: the entry is already durable above.
+        from osprey.services.ariel_search.enhancement.qmd_export import (
+            mirror_entry_best_effort,
+        )
+
+        await asyncio.to_thread(mirror_entry_best_effort, self.config, entry)
 
         return FacilityEntryCreateResult(
             entry_id=facility_entry_id,
