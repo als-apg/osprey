@@ -235,7 +235,7 @@ archiver-mongodb = [
 gchat = [
     "google-cloud-pubsub>=2.18",
     "google-api-python-client>=2.100",
-    "google-auth>=2.23",
+    "google-auth>=2.56.3",
     "google-cloud-storage>=2.10",
     # Some deployment hosts only permit egress through a Squid proxy. httplib2
     # (used by google-api-python-client) only honors HTTP(S)_PROXY env vars
