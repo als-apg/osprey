@@ -107,9 +107,9 @@ class TestSelectCorrectors:
 
 class TestSelectBpms:
     def test_full_set_default_returns_all_pyat_coupled_readbacks(self) -> None:
-        bpms = select_bpms(_LIMITS)
-        assert len(bpms) == 4
-        addresses = set(bpms.values())
+        readbacks = select_bpms(_LIMITS)
+        assert len(readbacks) == 4
+        addresses = set(readbacks.values())
         assert "SR:DIAG:BPM:01:POSITION:X" in addresses
         assert "SR:DIAG:BPM:01:POSITION:Y" in addresses
         assert "SR:DIAG:BPM:02:POSITION:X" in addresses
@@ -118,20 +118,20 @@ class TestSelectBpms:
     def test_device_name_is_the_read_address(self) -> None:
         """Same convention as the correctors: the detector's name is the
         address it reads, so a discovered BPM address is directly usable."""
-        bpms = select_bpms(_LIMITS)
-        assert all(name == address for name, address in bpms.items())
+        readbacks = select_bpms(_LIMITS)
+        assert all(name == address for name, address in readbacks.items())
 
     def test_excludes_non_position_field(self) -> None:
-        bpms = select_bpms(_LIMITS)
-        assert "SR:DIAG:BPM:03:STATUS:VALID" not in set(bpms.values())
+        readbacks = select_bpms(_LIMITS)
+        assert "SR:DIAG:BPM:03:STATUS:VALID" not in set(readbacks.values())
 
     def test_count_none_never_raises_regardless_of_availability(self) -> None:
         assert select_bpms({}, count=None) == {}
 
     def test_count_int_returns_exact_slice(self) -> None:
-        bpms = select_bpms(_LIMITS, count=2)
+        readbacks = select_bpms(_LIMITS, count=2)
         # Address-keyed on the sliced path too (see the corrector counterpart).
-        assert bpms == {
+        assert readbacks == {
             "SR:DIAG:BPM:01:POSITION:X": "SR:DIAG:BPM:01:POSITION:X",
             "SR:DIAG:BPM:01:POSITION:Y": "SR:DIAG:BPM:01:POSITION:Y",
         }
@@ -151,8 +151,10 @@ class TestFormatters:
         )
 
     def test_format_readbacks_env(self) -> None:
-        bpms = {"SR:DIAG:BPM:01:POSITION:X": "SR:DIAG:BPM:01:POSITION:X"}
-        assert format_readbacks_env(bpms) == "SR:DIAG:BPM:01:POSITION:X=SR:DIAG:BPM:01:POSITION:X"
+        readbacks = {"SR:DIAG:BPM:01:POSITION:X": "SR:DIAG:BPM:01:POSITION:X"}
+        assert (
+            format_readbacks_env(readbacks) == "SR:DIAG:BPM:01:POSITION:X=SR:DIAG:BPM:01:POSITION:X"
+        )
 
     def test_format_setpoints_env_joins_multiple_with_commas(self) -> None:
         correctors = {

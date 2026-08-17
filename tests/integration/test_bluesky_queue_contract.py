@@ -80,7 +80,7 @@ _SESSION_PLAN_NAME = "contract_sweep"
 def _grid_scan_args(num_points: int = 3) -> dict[str, Any]:
     """A valid draft for the always-registered shipped ``grid_scan`` plan."""
     return {
-        "readables": ["BPM1"],
+        "readbacks": ["BPM1"],
         "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": num_points}],
     }
 
@@ -526,14 +526,14 @@ def test_the_published_schema_carries_the_plans_own_channel_roles(client: TestCl
 
     orm = by_name["orm"]["schema"]["properties"]
     assert orm["correctors"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE
-    assert orm["bpms"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    assert orm["readbacks"][CHANNEL_ROLE_KEY] == READABLE_ROLE
     # The annotation sits beside `type`/`items`, never inside the item schema.
     assert CHANNEL_ROLE_KEY not in orm["correctors"]["items"], (
         f"the role moved into the item schema: {orm['correctors']}"
     )
 
     grid = by_name["grid_scan"]["schema"]
-    assert grid["properties"]["readables"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    assert grid["properties"]["readbacks"][CHANNEL_ROLE_KEY] == READABLE_ROLE
     assert grid["$defs"]["GridAxis"]["properties"]["setpoint"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE
     assert CHANNEL_ROLE_KEY not in grid["properties"]["axes"], (
         "the axis LIST is not itself a channel field; only GridAxis.setpoint is: "
@@ -834,7 +834,7 @@ def test_an_aborted_run_reads_as_stopped_and_cannot_silently_re_run(
 
     * ``GET /runs`` must report that run ``stopped`` — the word the record
       contract reserves for "a human stopped it" — and NOT ``pending``, which
-      would present a just-halted scan as work still to come.
+      would present a just-halted run as work still to come.
     * ``POST /queue/start`` must REFUSE while that item is queued, so the plan
       cannot go back on the hardware without a fresh, explicit decision.
 

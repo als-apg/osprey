@@ -638,11 +638,6 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
-- Scan plans naming their read-only devices `dets`, `readables`, or a singular
-  `detector` are now recognized as such everywhere. Those spellings were treated
-  as devices to drive, so a dry run handed them the wrong mock and the progress
-  bar multiplied a scan's point count by how many of them there were.
-
 - A web-terminal persona that drops a skill by name now really builds without
   it. Persona builds decided which skill files to write from the host
   deployment's artifact list rather than the persona's own, so a persona could

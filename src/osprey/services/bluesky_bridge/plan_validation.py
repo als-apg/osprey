@@ -406,8 +406,8 @@ _DRY_RUN_GRACE_SECONDS = 5.0
 # gets the dressed "available mock devices" failure naming exactly these two
 # rather than an unexplained empty mapping. Injected into the script through
 # the same render seam as every other computed value.
-_FALLBACK_MOVABLE_MOCKS: tuple[str, ...] = ("motor1",)
-_FALLBACK_READABLE_MOCKS: tuple[str, ...] = ("det1",)
+_FALLBACK_MOVABLE_MOCKS: tuple[str, ...] = ("sp1",)
+_FALLBACK_READABLE_MOCKS: tuple[str, ...] = ("rb1",)
 
 # The start-document key a run's declared point count arrives under, and this
 # module's only spelling of it — injected into the dry-run script through the
@@ -443,8 +443,8 @@ def _render_dry_run_script(
     Loads the plan body as a standalone module, validates ``sample_args``
     against its ``PARAMS`` schema, and drives the resulting generator through a
     bluesky ``RunEngine`` against mock devices built for the channels those
-    validated params supply — a `MockMotor` for every channel the plan declared
-    movable, a `MockDetector` for every one it declared readable, and nothing
+    validated params supply — a `MockSettable` for every channel the plan declared
+    movable, a `MockReadable` for every one it declared readable, and nothing
     at all for a string sitting under a field that declared no role (that is a
     plain parameter, not a device). Writes a JSON result to ``result_path`` in a
     ``finally`` so the parent always has something to read even if construction
@@ -546,7 +546,7 @@ try:
     # whichever loop connects them -- which must be `RE.loop`, the loop bluesky
     # drives all signal I/O on, not a throwaway one.
     devices = dict(asyncio.run_coroutine_threadsafe(
-        build_devices(motor_names=_movable_names, detector_names=_readable_names), RE.loop
+        build_devices(settable_names=_movable_names, readable_names=_readable_names), RE.loop
     ).result(timeout=30.0))
 
     try:
@@ -775,7 +775,7 @@ async def validate_plan(
         sample_args: Sample ``PARAMS`` field values used to build the stage-3
             dry-run's generator and mock devices. `None` (no sample args)
             still runs the dry-run against an empty-args `PARAMS()` and a
-            single default mock motor/detector — appropriate only for a body
+            single default mock setpoint/readback — appropriate only for a body
             whose `PARAMS` has no required fields.
         dry_run_timeout: Seconds the stage-3 subprocess is given to drive the
             plan to completion.

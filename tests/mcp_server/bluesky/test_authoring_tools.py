@@ -88,11 +88,11 @@ _BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "monitors": ["d1"], "num": 3}
 
 
 def test_both_tools_are_approval_ask_tier_never_writes_checked():
-    scan = FRAMEWORK_SERVERS["bluesky"]
-    assert "write_plan" in scan.permissions_ask
-    assert "validate_plan" in scan.permissions_ask
+    bluesky = FRAMEWORK_SERVERS["bluesky"]
+    assert "write_plan" in bluesky.permissions_ask
+    assert "validate_plan" in bluesky.permissions_ask
 
-    by_matcher = {rule.matcher: rule for rule in scan.hooks_pre}
+    by_matcher = {rule.matcher: rule for rule in bluesky.hooks_pre}
     for tool in ("write_plan", "validate_plan"):
         matcher = f"mcp__bluesky__{tool}"
         assert matcher in by_matcher, f"no hooks_pre rule for {matcher}"
@@ -106,12 +106,12 @@ def test_both_tools_are_approval_ask_tier_never_writes_checked():
 
 
 def test_both_tools_get_distinct_independently_allowlistable_short_names():
-    scan = FRAMEWORK_SERVERS["bluesky"]
+    bluesky = FRAMEWORK_SERVERS["bluesky"]
     # Distinct from the queue/stop tools' own tier, and from each other, so an
     # operator can permit authoring without also permitting execution.
     names = {"queue_add", "queue_start", "queue_stop", "stop_run", "write_plan", "validate_plan"}
     assert len(names) == 6
-    assert set(scan.permissions_ask) >= names
+    assert set(bluesky.permissions_ask) >= names
 
 
 # =========================================================================

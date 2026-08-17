@@ -228,7 +228,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
     # test_exemplar_plans.py's in-process 2-axis case; this e2e's job is the
     # real HTTP+container round trip, kept minimal to run fast.
     plan_args = {
-        "readables": [bpm_name],
+        "readbacks": [bpm_name],
         "axes": [
             {
                 "setpoint": corrector_name,

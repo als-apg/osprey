@@ -98,10 +98,10 @@ def test_patch_draft_forwards_body_verbatim() -> None:
         seen.append(request)
         assert request.method == "PATCH"
         assert request.url.path == "/draft"
-        return _json_response(200, {"revision": 4, "changed": ["bpms"], "plan_name": "orm"})
+        return _json_response(200, {"revision": 4, "changed": ["readbacks"], "plan_name": "orm"})
 
     payload = {
-        "plan_args_patch": {"bpms": ["bpm1"]},
+        "plan_args_patch": {"readbacks": ["bpm1"]},
         "client_id": "tab-1",
     }
     app = _build_app(handler)
@@ -109,7 +109,7 @@ def test_patch_draft_forwards_body_verbatim() -> None:
         response = client.patch("/draft", json=payload)
 
     assert response.status_code == 200
-    assert response.json() == {"revision": 4, "changed": ["bpms"], "plan_name": "orm"}
+    assert response.json() == {"revision": 4, "changed": ["readbacks"], "plan_name": "orm"}
     assert len(seen) == 1
     import json as _json
 
@@ -197,14 +197,14 @@ def test_patch_draft_expected_plan_name_mismatch_409_passes_through() -> None:
 def test_patch_draft_field_validation_422_passes_through() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return _json_response(
-            422, {"detail": [{"loc": ["bpms"], "msg": "min_length", "type": "value_error"}]}
+            422, {"detail": [{"loc": ["readbacks"], "msg": "min_length", "type": "value_error"}]}
         )
 
     app = _build_app(handler)
     with TestClient(app) as client:
         response = client.patch(
             "/draft",
-            json={"plan_args_patch": {"bpms": []}, "client_id": "tab-1"},
+            json={"plan_args_patch": {"readbacks": []}, "client_id": "tab-1"},
         )
 
     assert response.status_code == 422

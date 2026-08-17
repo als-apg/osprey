@@ -1,6 +1,6 @@
 """Peak statistics for a settled run: center, width, center of mass.
 
-A scan's most-asked question is not "what did every point read" but "where was
+A run's most-asked question is not "what did every point read" but "where was
 the peak, and how wide was it". The stock bluesky statistics callback answers
 exactly that, and this module is the bridge's adapter to it: it decides whether
 the run *has* a question that statistics can answer, hands the stock code the
@@ -13,7 +13,7 @@ channel to fit against it. Everything else is *absent with a reason*, never an
 error and never a fabricated number:
 
 - ``run_in_progress`` -- the run is still producing rows. Statistics are
-  computed once, when the run settles, because a peak fitted to half a scan
+  computed once, when the run settles, because a peak fitted to half a run
   moves as the rest of it arrives.
 - ``plan_identity_unavailable`` -- the run carries no usable plan stamp, or the
   stamped name has no current owner in the plan catalog, so nothing declares
@@ -106,7 +106,7 @@ def _as_finite(value: Any) -> float | None:
     """*value* as a finite float, or ``None`` if it is not a usable number.
 
     Rows carry whatever a device reported: a missing reading (``None``), a
-    string status, a NaN a detector wrote for a bad frame, or a numeric type
+    string status, a NaN a readback wrote for a bad frame, or a numeric type
     that is not a Python ``float`` (a numpy scalar off a Tiled read). Anything
     that does not convert to a finite float is dropped from the pair, which is
     the pre-filter the stock statistics code assumes has already happened --
@@ -159,7 +159,7 @@ def _cell(row: Any, index: int) -> Any:
 def _pairs(rows: Sequence[Any], x_index: int, y_index: int) -> tuple[list[float], list[float]]:
     """The (x, y) pairs both of whose readings are finite numbers, in row order.
 
-    Filtering by PAIR, not by column: a point whose detector reading is missing
+    Filtering by PAIR, not by column: a point whose readback reading is missing
     tells nothing about where the peak is, and keeping its x with a substituted
     y would move the center of mass toward a reading that never happened.
     """
@@ -224,7 +224,7 @@ def analyze(
     Args:
         columns: The run's data column names, in row order.
         rows: Every row the run recorded, each aligned to *columns*. The whole
-            run, never a window: statistics over a page of a scan describe the
+            run, never a window: statistics over a page of a run describe the
             page.
         movable: Channel names the plan's recorded parameters supplied for the
             movable role (``plan_fields.collect_channels``), in declaration

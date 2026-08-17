@@ -9,7 +9,7 @@ LLM, so this test needs no provider API key — ``hello-world``'s bundled
 
 **Scope, and how it differs from ``test_bluesky_queue_e2e.py``.** That module
 is the full-stack proof: Virtual Accelerator, Tiled, the panels sidecar, real
-scans driven to completion, aborts, restarts. THIS module deliberately deploys
+plan runs driven to completion, aborts, restarts. THIS module deliberately deploys
 the smallest thing the ``bluesky:`` profile block can produce — one bridge, one
 ``bluesky-queueserver`` RE Manager, one Redis — on the ``hello-world`` preset,
 whose ``control_system.type`` is ``mock``. What that buys, and what nothing
@@ -489,7 +489,7 @@ def test_plans_are_browsable_but_unqueueable(deployed_bridge: Path) -> None:
         {
             "plan_name": "grid_scan",
             "plan_args_patch": {
-                "readables": ["det1"],
+                "readbacks": ["det1"],
                 "axes": [{"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}],
             },
             "client_id": "bluesky-deploy-e2e",

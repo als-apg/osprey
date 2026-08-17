@@ -52,7 +52,7 @@ _TOKEN = "s3cr3t"
 # A valid draft for the always-registered shipped `grid_scan` plan
 # (mirrors `test_draft.py`).
 _GRID_SCAN_ARGS: dict[str, Any] = {
-    "readables": ["BPM1"],
+    "readbacks": ["BPM1"],
     "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
 }
 
@@ -647,7 +647,7 @@ class _SplitParams(BaseModel):
     """One field per role, so the two collections can be told apart."""
 
     correctors: MovableChannels
-    bpms: ReadableChannels
+    readbacks: ReadableChannels
 
 
 class _AbsentFieldParams(BaseModel):
@@ -666,7 +666,7 @@ _SHIPPED_PLAN_ARGS: dict[str, tuple[dict[str, Any], set[str], set[str]]] = {
     "orm": (
         {
             "correctors": ["COR1"],
-            "bpms": ["BPM1"],
+            "readbacks": ["BPM1"],
             "span_a": 1.0,
             "num": 3,
             "sweep": "bidirectional",
@@ -714,7 +714,7 @@ def test_the_walk_matches_a_field_name_exactly() -> None:
 def test_the_walk_keeps_the_two_roles_apart() -> None:
     """Movable and readable names come back separately, because they are not
     the same mistake: the refusal leads with a movable name when there is one."""
-    params = {"correctors": ["COR1", "COR2"], "bpms": ["BPM1"]}
+    params = {"correctors": ["COR1", "COR2"], "readbacks": ["BPM1"]}
 
     movable, readable = queue._referenced_channel_names(_probe_spec(_SplitParams), params)
 
@@ -1492,7 +1492,7 @@ def test_abort_with_nothing_running_is_a_409_nothing_running(client: TestClient)
 def test_abort_that_never_pauses_is_a_503_that_says_nothing_stopped(
     client: TestClient,
 ) -> None:
-    """The refusal an operator reads while a machine may still be scanning. It
+    """The refusal an operator reads while a machine may still be running. It
     must carry its own code and say plainly that nothing was aborted."""
     manager = FakeManager(status=status_doc(manager_state="executing_queue"))
     _install_abort(manager)

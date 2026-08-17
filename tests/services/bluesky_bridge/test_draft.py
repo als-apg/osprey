@@ -34,12 +34,12 @@ _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["COR1"],
-    "bpms": ["BPM1"],
+    "readbacks": ["BPM1"],
     "span_a": 1.0,
     "num": 3,
 }
 _GRID_SCAN_ARGS: dict[str, Any] = {
-    "readables": ["BPM1"],
+    "readbacks": ["BPM1"],
     "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
 }
 
@@ -214,14 +214,12 @@ def test_plan_name_change_replaces_plan_args(client: TestClient) -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["plan_name"] == "grid_scan"
-    # The two plans share no parameter name: orm's correctors/bpms/span_a/num
-    # are gone and grid_scan's readables/axes are new, so every key moved.
+    # The plans share only `readbacks`, and both fixtures give it the same
+    # value, so it is the one key a wholesale replacement leaves unchanged.
     assert set(body["changed"]) == {
         "correctors",
-        "bpms",
         "span_a",
         "num",
-        "readables",
         "axes",
     }
 
@@ -255,12 +253,12 @@ def test_patch_rejects_empty_readables_min_length(client: TestClient) -> None:
         "/draft",
         json={
             "plan_name": "grid_scan",
-            "plan_args_patch": {**_GRID_SCAN_ARGS, "readables": []},
+            "plan_args_patch": {**_GRID_SCAN_ARGS, "readbacks": []},
             "client_id": "agent-1",
         },
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"]["field"] == "readables"
+    assert resp.json()["detail"]["field"] == "readbacks"
 
 
 def test_patch_validates_constraint_free_fields_cleanly(client: TestClient) -> None:

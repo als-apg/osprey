@@ -995,12 +995,12 @@ def _orm_rows(correctors: list[str], detectors: list[str], num: int) -> list[dic
     return rows
 
 
-def _orm_stamp(correctors: list[str], bpms: list[str], num: int) -> dict[str, Any]:
+def _orm_stamp(correctors: list[str], readbacks: list[str], num: int) -> dict[str, Any]:
     return {
         "name": "orm",
         "kwargs": {
             "correctors": correctors,
-            "bpms": bpms,
+            "readbacks": readbacks,
             "span_a": 2.0,
             "num": num,
         },

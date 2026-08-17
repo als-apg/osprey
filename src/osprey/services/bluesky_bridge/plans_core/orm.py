@@ -6,7 +6,7 @@ each corrector channel, one at a time, either side of the working point it
 was already holding, reading every BPM channel at each point, then put it
 back.
 
-Device-agnostic: ``correctors``/``bpms`` are resolved by string name against
+Device-agnostic: ``correctors``/``readbacks`` are resolved by string name against
 whatever ``devices`` dict the bridge passes in; nothing here names a facility
 PV or a fixed device set. Both fields declare their channel role, so every
 consumer — the load gate, the enqueue pre-check, the dry run, the pre-flight
@@ -77,7 +77,7 @@ class PARAMS(BaseModel):
 
     Sweeps each corrector in ``correctors``, one at a time, over ``num``
     evenly-spaced kicks *away from that corrector's own pre-scan working
-    point*, reading every channel in ``bpms`` at each point. ``sweep``
+    point*, reading every channel in ``readbacks`` at each point. ``sweep``
     selects the kick range: ``bidirectional`` spans the symmetric
     ``[-span_a, +span_a]`` (kicks both ways, so a linear fit rejects a
     corrector's hysteresis/offset); ``monodirectional`` spans ``[0, span_a]``
@@ -104,7 +104,7 @@ class PARAMS(BaseModel):
         description="Corrector channel names to sweep, one at a time.",
         json_schema_extra={"x-widget": "channel-list"},
     )
-    bpms: ReadableChannels = Field(
+    readbacks: ReadableChannels = Field(
         ...,
         min_length=1,
         title="BPMs",
@@ -139,9 +139,11 @@ class PARAMS(BaseModel):
     @model_validator(mode="after")
     def _correctors_and_bpms_disjoint(self) -> PARAMS:
         """Reject a channel named as both a driven corrector and a read BPM."""
-        overlap = set(self.correctors) & set(self.bpms)
+        overlap = set(self.correctors) & set(self.readbacks)
         if overlap:
-            raise ValueError(f"correctors and bpms must be disjoint (overlap: {sorted(overlap)})")
+            raise ValueError(
+                f"correctors and readbacks must be disjoint (overlap: {sorted(overlap)})"
+            )
         return self
 
 
@@ -195,7 +197,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     """
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
-    bpm_devices = [devices[name] for name in params.bpms]
+    readback_devices = [devices[name] for name in params.readbacks]
     if params.sweep == "monodirectional":
         step = params.span_a / (params.num - 1)
         kicks = [i * step for i in range(params.num)]
@@ -203,13 +205,13 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
         step = (2 * params.span_a) / (params.num - 1)
         kicks = [-params.span_a + i * step for i in range(params.num)]
 
-    all_devices = corrector_devices + bpm_devices
+    all_devices = corrector_devices + readback_devices
 
     @bpp.stage_decorator(all_devices)
     @bpp.run_decorator(
         md=scan_metadata(
             movable=params.correctors,
-            readable=params.bpms,
+            readable=params.readbacks,
             points=params.num * len(params.correctors),
         )
     )
@@ -284,10 +286,10 @@ def _sweep_series(fit: SlicedResponseFit, index: int) -> tuple[list[Series], boo
     series: list[Series] = []
     decimated = False
     source_points = 0
-    for i, bpm in enumerate(fit.bpms[:_MAX_TRACE_SERIES]):
+    for i, readback in enumerate(fit.readbacks[:_MAX_TRACE_SERIES]):
         points = [Point(x=float(currents[k]), y=float(readings[k, i])) for k in kept]
         thinned = decimate(points)
-        series.append(Series(label=bpm, **thinned._asdict()))
+        series.append(Series(label=readback, **thinned._asdict()))
         decimated = decimated or thinned.decimated
         source_points += thinned.source_points
     return series, decimated, source_points, len(kept)
@@ -313,7 +315,7 @@ def _trace_panels(
     hidden = max(0, len(traced) - _MAX_TRACE_PANELS)
     if hidden:
         traced = traced[-_MAX_TRACE_PANELS:]
-    shown_bpms = min(len(fit.bpms), _MAX_TRACE_SERIES)
+    shown_readbacks = min(len(fit.readbacks), _MAX_TRACE_SERIES)
 
     panels: list[Panel] = []
     for j in traced:
@@ -329,8 +331,8 @@ def _trace_panels(
                     f"Showing the {len(traced)} most recently swept of "
                     f"{len(fit.correctors)} correctors."
                 )
-        if shown_bpms < len(fit.bpms):
-            annotations.append(f"Showing the first {shown_bpms} of {len(fit.bpms)} BPMs.")
+        if shown_readbacks < len(fit.readbacks):
+            annotations.append(f"Showing the first {shown_readbacks} of {len(fit.readbacks)} BPMs.")
         if not fit.complete[j]:
             recorded = int(fit.currents[j].shape[0])
             if recorded < num:
@@ -380,7 +382,7 @@ def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
                 )
                 for i, cell in enumerate(row[j] for row in fit.matrix)
             ],
-            source_points=len(fit.bpms),
+            source_points=len(fit.readbacks),
         )
         for j, corrector in enumerate(fit.fitted_correctors)
     ]
@@ -398,7 +400,7 @@ def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
             "order around the ring -- this plan carries no lattice positions.",
         ],
         series_picker=True,
-        mark=LinesMark(series=series, source_points=len(fit.bpms) * len(series)),
+        mark=LinesMark(series=series, source_points=len(fit.readbacks) * len(series)),
     )
 
 
@@ -487,7 +489,7 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             ],
             mark=HeatmapMark(
                 x_labels=list(fit.fitted_correctors),
-                y_labels=list(fit.bpms),
+                y_labels=list(fit.readbacks),
                 values=[[float(cell) for cell in row] for row in fit.matrix],
                 value_label="Response slope",
                 value_units="BPM units / A",
@@ -520,9 +522,9 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             ],
             mark=BarsMark(
                 label="BPM anomaly",
-                categories=list(fit.bpms),
+                categories=list(fit.readbacks),
                 values=[float(score) for score in row_anomaly(fit.matrix)],
-                source_points=len(fit.bpms),
+                source_points=len(fit.readbacks),
             ),
         ),
     ]
@@ -532,7 +534,7 @@ def _build(window: RowWindow, params: PARAMS, *, with_fit: bool) -> Figure:
     """Assemble the figure. Raises freely -- `render` is what must not."""
     truncated = not window.rows_complete
 
-    fit = sliced_response_matrix(window.rows, params.correctors, params.bpms, params.num)
+    fit = sliced_response_matrix(window.rows, params.correctors, params.readbacks, params.num)
 
     lead_annotations: list[str] = []
     if truncated:

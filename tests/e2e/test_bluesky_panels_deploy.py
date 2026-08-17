@@ -1,8 +1,8 @@
 """Full-stack Docker integration test for the Phase-6 "Operator Interfaces"
-scan panel (task 4.3, bluesky-panels-deploy-e2e) -- the gold-standard proof
+bluesky panel (task 4.3, bluesky-panels-deploy-e2e) -- the gold-standard proof
 that the turn-key tutorial stack (Virtual Accelerator + Bluesky bridge + the
 queueserver RE Manager + Redis + co-deployed Tiled + the bluesky-panels
-sidecar + its web panel) boots as real containers and drives a real scan end
+sidecar + its web panel) boots as real containers and drives a real plan end
 to end THROUGH THE SIDECAR, exactly as a browser would.
 
 That last clause is this module's subject and the thing no sibling e2e covers:
@@ -21,7 +21,7 @@ the real deployment repo and ``select_correctors``/``select_bpms``/
 containers read, never a hardcoded preset channel.
 ``override_yaml()`` still pins ``control_system.type: virtual_accelerator``
 explicitly even though the preset now defaults to it (a connector-mediated
-scan only runs against a setpoint-tracking control system; the shipped
+plan only runs against a setpoint-tracking control system; the shipped
 default is asserted, not assumed, in ``test_bluesky_queue_e2e.py``). The one
 thing ``_orm_stack.init_args``/``build_project_subprocess`` don't parameterize
 is the bluesky-panels sidecar's port, so this module calls ``override_yaml``/
@@ -37,8 +37,8 @@ shipped catalog currently has exactly two such plans (``orm``, ``grid_scan``
 -- see the project's "no bba/tune_scan" convention: only ``orm`` + n-d
 ``grid_scan`` ship), but NEITHER name is hardcoded here:
 ``_build_minimal_plan_args`` maps the winning candidate's JSON ``schema`` by
-FIELD SHAPE (``correctors``+``bpms``+``span_a``+``num`` vs.
-``axes``+``readables``) onto the derived corrector/BPM device names, so a
+FIELD SHAPE (``correctors``+``readbacks``+``span_a``+``num`` vs.
+``axes``+``readbacks``) onto the derived corrector/BPM device names, so a
 future third exemplar plan is picked up automatically as long as it matches
 one of those two shapes, and is otherwise skipped rather than crashing the
 discovery loop. This keeps the coupling to the shipped plan catalog minimal
@@ -292,19 +292,19 @@ def _build_minimal_plan_args(
     corrector_names = list(correctors.keys())
     bpm_names = list(bpms.keys())
 
-    if {"correctors", "bpms", "span_a", "num"} <= props.keys():
+    if {"correctors", "readbacks", "span_a", "num"} <= props.keys():
         # orm-shaped: sweep one corrector over a small bounded
         # current range, reading the BPMs.
         if not corrector_names or not bpm_names:
             return None
         return {
             "correctors": corrector_names[:1],
-            "bpms": bpm_names[: min(2, len(bpm_names))],
+            "readbacks": bpm_names[: min(2, len(bpm_names))],
             "span_a": 1.0,
             "num": 3,
         }
 
-    if {"axes", "readables"} <= props.keys():
+    if {"axes", "readbacks"} <= props.keys():
         # grid_scan-shaped: one axis (one corrector setpoint), one readable.
         if not corrector_names or not bpm_names:
             return None
@@ -314,7 +314,7 @@ def _build_minimal_plan_args(
         start = lo + 0.25 * (hi - lo)
         stop = lo + 0.75 * (hi - lo)
         return {
-            "readables": bpm_names[:1],
+            "readbacks": bpm_names[:1],
             "axes": [
                 {"setpoint": axis_name, "start": start, "stop": stop, "num_points": 2},
             ],
@@ -548,7 +548,7 @@ def test_panels_served_200(deployed_stack: DeployedStack) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. HEADLINE: a scan driven entirely through the sidecar's relays
+# 3. HEADLINE: a run driven entirely through the sidecar's relays
 # ---------------------------------------------------------------------------
 
 
@@ -615,7 +615,7 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
         time.sleep(1.0)
 
     assert last_status_body.get("status") == "completed", (
-        f"scan driven through the sidecar did not complete: {last_status_body}"
+        f"run driven through the sidecar did not complete: {last_status_body}"
     )
 
     ds, data = _sidecar_get(f"/runs/{run_id}/data")
@@ -672,7 +672,7 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
         time.sleep(1.0)
 
     assert last_status_body.get("status") == "completed", (
-        f"scan enqueued directly via the bridge did not complete: {last_status_body}"
+        f"run enqueued directly via the bridge did not complete: {last_status_body}"
     )
 
     status, data = _bridge_get(f"/runs/{run_id}/data")
@@ -684,7 +684,7 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
 # 5. NEGATIVE (strict, no flaky): the /runs surface is READ-ONLY on the sidecar
 # ---------------------------------------------------------------------------
 # Container-neutral: touches no container state, so it can run in whichever
-# order pytest schedules it without affecting the scan tests above.
+# order pytest schedules it without affecting the plan tests above.
 
 
 def test_sidecar_runs_surface_is_read_only(deployed_stack: DeployedStack) -> None:

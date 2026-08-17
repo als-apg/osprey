@@ -78,7 +78,7 @@ _SWEEP_SYMMETRY_TOL = 1e-6
 def build_response_matrix(
     rows: Sequence[Mapping[str, Any]],
     correctors: Sequence[str],
-    bpms: Sequence[str],
+    readbacks: Sequence[str],
 ) -> np.ndarray:
     """Fit the `[n_bpm, n_corr]` response-slope matrix from emitted ORM rows.
 
@@ -131,19 +131,19 @@ def build_response_matrix(
             symmetric about that corrector's own idle value within
             `_SWEEP_SYMMETRY_TOL` — see above.
     """
-    matrix = np.zeros((len(bpms), len(correctors)))
+    matrix = np.zeros((len(readbacks), len(correctors)))
 
     for j, corrector in enumerate(correctors):
         currents: list[float] = []
-        readings: list[list[float]] = [[] for _ in bpms]
+        readings: list[list[float]] = [[] for _ in readbacks]
         for row in rows:
             column = resolve_column(corrector, row)
             current = None if column is None else row[column]
             if current is None:
                 continue  # row built without this corrector's column (see docstring)
             currents.append(float(current))
-            for i, bpm in enumerate(bpms):
-                bpm_column = resolve_column(bpm, row)
+            for i, readback in enumerate(readbacks):
+                bpm_column = resolve_column(readback, row)
                 reading = None if bpm_column is None else row[bpm_column]
                 readings[i].append(np.nan if reading is None else float(reading))
 
@@ -165,7 +165,7 @@ def build_response_matrix(
                 f"silently bias every slope for this corrector"
             )
 
-        for i in range(len(bpms)):
+        for i in range(len(readbacks)):
             values = readings[i]
             if any(np.isnan(v) for v in values):
                 continue  # this BPM never reported during this corrector's sweep
@@ -186,14 +186,14 @@ class SlicedResponseFit:
     Attributes:
         correctors: The requested corrector names, in the order given —
             `complete`, `currents` and `readings` are all aligned to this.
-        bpms: The requested BPM names, in the order given — the row axis of
+        readbacks: The requested BPM names, in the order given — the row axis of
             `matrix` and the column axis of every `readings` block.
         complete: One flag per requested corrector: `True` when that
             corrector's slice was fitted into a `matrix` column. `False`
             for a slice that is short (the sweep is still in flight, or the
             row buffer ran out), that is missing a corrector current, or
             whose currents never move (nothing to fit a slope against).
-        matrix: `[n_bpms, n_complete]` response slopes. Only complete
+        matrix: `[n_readbacks, n_complete]` response slopes. Only complete
             correctors get a column — an in-flight sweep has no slope yet,
             and a zero column would read as a dead corrector. Use
             `fitted_correctors` for its column labels; both are ordered as
@@ -204,14 +204,14 @@ class SlicedResponseFit:
             currents over its slice, `[k]` with `k <= num` — the x-axis of a
             sweep trace. Present for incomplete correctors too.
         readings: Per requested corrector, the BPM block over its slice,
-            `[k, n_bpms]` — the y-axes of a sweep trace, one column per BPM.
+            `[k, n_readbacks]` — the y-axes of a sweep trace, one column per BPM.
             Present for incomplete correctors too. A BPM that did not report
             reads back as `nan` here (in `matrix` it lands on `0.0`; see
             `sliced_response_matrix`).
     """
 
     correctors: tuple[str, ...]
-    bpms: tuple[str, ...]
+    readbacks: tuple[str, ...]
     complete: tuple[bool, ...]
     matrix: np.ndarray
     fitted_correctors: tuple[str, ...]
@@ -222,7 +222,7 @@ class SlicedResponseFit:
 def sliced_response_matrix(
     rows: Sequence[Mapping[str, Any]],
     correctors: Sequence[str],
-    bpms: Sequence[str],
+    readbacks: Sequence[str],
     num: int,
 ) -> SlicedResponseFit:
     """Fit the response matrix by slicing *rows* into one sweep per corrector.
@@ -277,7 +277,7 @@ def sliced_response_matrix(
     Args:
         rows: The run's event `data` dicts in emission order.
         correctors: Corrector channel names, in the order the plan swept them.
-        bpms: BPM channel names; the matrix's row axis.
+        readbacks: BPM channel names; the matrix's row axis.
         num: Points per corrector sweep — the plan's `num` parameter.
 
     Raises:
@@ -289,9 +289,9 @@ def sliced_response_matrix(
         raise ValueError(f"num must be at least 2 to fit a slope per corrector, got {num}")
 
     correctors = tuple(correctors)
-    bpms = tuple(bpms)
+    readbacks = tuple(readbacks)
     n_corr = len(correctors)
-    n_bpm = len(bpms)
+    n_bpm = len(readbacks)
 
     # Only the rows the slicing can attribute to a corrector: a run carrying
     # more than the sweep accounts for has extra rows at the END (nothing
@@ -301,7 +301,7 @@ def sliced_response_matrix(
         empty = np.zeros((n_bpm, 0))
         return SlicedResponseFit(
             correctors=correctors,
-            bpms=bpms,
+            readbacks=readbacks,
             complete=(False,) * n_corr,
             matrix=empty,
             fitted_correctors=(),
@@ -314,7 +314,7 @@ def sliced_response_matrix(
     # loop only runs on to cover a caller's hand-built ragged rows.
     keys: list[str | None] = [None] * (n_corr + n_bpm)
     unresolved = set(range(n_corr + n_bpm))
-    names = correctors + bpms
+    names = correctors + readbacks
     for row in rows[:n_rows]:
         for position in tuple(unresolved):
             key = resolve_column(names[position], row)
@@ -372,7 +372,7 @@ def sliced_response_matrix(
 
     return SlicedResponseFit(
         correctors=correctors,
-        bpms=bpms,
+        readbacks=readbacks,
         complete=tuple(complete),
         matrix=matrix,
         fitted_correctors=tuple(fitted),

@@ -86,7 +86,7 @@ differing on exactly one config key (``control_system.writes_enabled``).
 
 It also ships a third persona that is not a tier of that agent at all.
 ``ariel`` is the standalone logbook research assistant: no control-system tool
-servers, no Python sandbox, no scan queue — a different product, reached from
+servers, no Python sandbox, no plan queue — a different product, reached from
 its own card. Nothing special makes that possible. A persona is already a
 whole project, so it can differ in what it *is* as easily as in what it may
 write. It shares this deployment's PostgreSQL and logbook, so the operators
@@ -256,7 +256,7 @@ then build and bring the stack up from inside it:
 That is the entire setup: the preset ships the ``modules.web_terminals`` block
 above, so no extra flags or configuration are needed. Alongside the web tier,
 ``osprey up`` brings up everything else the control-assistant tutorial deploys
-— the virtual accelerator, the scan services, and the supporting
+— the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL/OpenObserve containers — so the control-room terminals open onto a
 working machine, and the ARIEL terminal onto a live logbook, not an empty
 shell.

@@ -40,8 +40,8 @@ from pydantic import ValidationError  # noqa: E402
 
 from osprey.services.bluesky_bridge.devices._connect import connect_all  # noqa: E402
 from osprey.services.bluesky_bridge.devices.mock import (  # noqa: E402
-    MockDetector,
-    MockMotor,
+    MockReadable,
+    MockSettable,
     build_devices,
 )
 from osprey.services.bluesky_bridge.plan_fields import (  # noqa: E402
@@ -66,7 +66,7 @@ from osprey.services.bluesky_bridge.plans_core.orm import build_plan as orm_plan
 
 def test_grid_scan_params_accepts_a_well_formed_axis_set() -> None:
     params = GridScanParams(
-        readables=["det1"],
+        readbacks=["det1"],
         axes=[
             {"setpoint": "m1", "start": 0.0, "stop": 1.0, "num_points": 3},
             {"setpoint": "m2", "start": 0.0, "stop": 2.0, "num_points": 5},
@@ -81,7 +81,7 @@ def test_grid_scan_params_rejects_overlapping_setpoints_and_readables() -> None:
     mistake, caught at schema-validation time rather than mid-run."""
     with pytest.raises(ValidationError, match="disjoint"):
         GridScanParams(
-            readables=["shared"],
+            readbacks=["shared"],
             axes=[{"setpoint": "shared", "start": 0.0, "stop": 1.0, "num_points": 3}],
         )
 
@@ -90,16 +90,16 @@ def test_grid_scan_schema_validation_path_matches_reinitialize() -> None:
     """The bridge validates plan_args via `spec.schema.model_validate(...)` in
     `reinitialize()`; a malformed grid_scan payload must fail there too."""
     with pytest.raises(ValidationError):
-        GridScanParams.model_validate({"readables": ["det1"], "axes": []})
+        GridScanParams.model_validate({"readbacks": ["det1"], "axes": []})
 
 
 def test_grid_scan_declares_a_role_for_every_channel_field() -> None:
     """Every consumer (load gate, enqueue pre-check, dry-run mocks, default
     figure, pre-flight) reads the declared role rather than guessing from a
     field name, so the declaration is part of this plan's contract: the
-    readables list is readable, and each axis's setpoint — nested one level
+    readbacks list is readable, and each axis's setpoint — nested one level
     down in `GridAxis` — is movable."""
-    assert GridScanParams.model_fields["readables"].json_schema_extra == {
+    assert GridScanParams.model_fields["readbacks"].json_schema_extra == {
         CHANNEL_ROLE_KEY: READABLE_ROLE
     }
     assert GridAxis.model_fields["setpoint"].json_schema_extra == {CHANNEL_ROLE_KEY: MOVABLE_ROLE}
@@ -128,9 +128,9 @@ def test_grid_scan_run_metadata_comes_from_the_stock_plan() -> None:
     capability vocabulary (movable/readable) is this plan's author-facing
     surface, not the wire.
     """
-    devices = asyncio.run(build_devices(motor_names=["m1", "m2"], detector_names=["det1"]))
+    devices = asyncio.run(build_devices(settable_names=["m1", "m2"], readable_names=["det1"]))
     params = GridScanParams(
-        readables=["det1"],
+        readbacks=["det1"],
         axes=[
             {"setpoint": "m1", "start": 0.0, "stop": 1.0, "num_points": 3},
             {"setpoint": "m2", "start": 0.0, "stop": 2.0, "num_points": 5},
@@ -156,30 +156,30 @@ def test_grid_scan_run_metadata_comes_from_the_stock_plan() -> None:
 def test_orm_params_accepts_a_valid_set() -> None:
     params = ORMParams(
         correctors=["hcm1", "hcm2"],
-        bpms=["bpm1", "bpm2", "bpm3"],
+        readbacks=["bpm1", "bpm2", "bpm3"],
         span_a=2.0,
         num=5,
     )
     assert params.correctors == ["hcm1", "hcm2"]
-    assert params.bpms == ["bpm1", "bpm2", "bpm3"]
+    assert params.readbacks == ["bpm1", "bpm2", "bpm3"]
     assert params.span_a == 2.0
     assert params.num == 5
 
 
 def test_orm_params_rejects_an_empty_corrector_list() -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=[], bpms=["bpm1"], span_a=2.0, num=5)
+        ORMParams(correctors=[], readbacks=["bpm1"], span_a=2.0, num=5)
 
 
 def test_orm_params_rejects_an_empty_bpm_list() -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], bpms=[], span_a=2.0, num=5)
+        ORMParams(correctors=["hcm1"], readbacks=[], span_a=2.0, num=5)
 
 
 def test_orm_params_accepts_a_span_larger_than_any_one_facilitys_band() -> None:
     """`span_a` carries no schema-level magnitude cap.
 
-    It is an *excursion* about each corrector's own pre-scan working point,
+    It is an *excursion* about each corrector's own pre-plan working point,
     expressed in whatever unit that corrector's channel speaks — so any
     literal ceiling here would be one facility's number standing in for
     every facility's. The real bound is the deployment's own
@@ -187,7 +187,7 @@ def test_orm_params_accepts_a_span_larger_than_any_one_facilitys_band() -> None:
     when the plan actually writes: an out-of-band setpoint is refused
     there, aborting the run, rather than being guessed at here.
     """
-    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=120.0, num=5)
+    params = ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=120.0, num=5)
     assert params.span_a == 120.0
 
 
@@ -197,17 +197,17 @@ def test_orm_params_rejects_a_non_finite_span(value: float) -> None:
     and `inf > 0` is true, so infinity would sail through and generate a
     sweep of non-finite setpoints. Non-finite spans are rejected outright."""
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=value, num=5)
+        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=value, num=5)
 
 
 def test_orm_params_rejects_a_non_positive_span() -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=0.0, num=5)
+        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=0.0, num=5)
 
 
 def test_orm_params_rejects_too_few_points() -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=2)
+        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=2)
 
 
 def test_orm_params_rejects_overlapping_correctors_and_bpms() -> None:
@@ -215,7 +215,7 @@ def test_orm_params_rejects_overlapping_correctors_and_bpms() -> None:
     as both a driven corrector and a read BPM is a configuration mistake,
     caught uniformly at schema-validation time rather than mid-run."""
     with pytest.raises(ValidationError, match="disjoint"):
-        ORMParams(correctors=["shared"], bpms=["shared"], span_a=2.0, num=5)
+        ORMParams(correctors=["shared"], readbacks=["shared"], span_a=2.0, num=5)
 
 
 def test_orm_schema_validation_path_matches_reinitialize() -> None:
@@ -225,26 +225,26 @@ def test_orm_schema_validation_path_matches_reinitialize() -> None:
     lets `reinitialize()` return `False` + set `error_message` instead of
     raising."""
     with pytest.raises(ValidationError):
-        ORMParams.model_validate({"correctors": [], "bpms": ["bpm1"], "span_a": 2.0, "num": 5})
+        ORMParams.model_validate({"correctors": [], "readbacks": ["bpm1"], "span_a": 2.0, "num": 5})
 
 
 def test_orm_params_sweep_defaults_to_bidirectional() -> None:
     """`sweep` is optional: an omitting payload (every pre-existing caller)
     keeps the symmetric two-sided sweep."""
-    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=5)
+    params = ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=5)
     assert params.sweep == "bidirectional"
 
 
 def test_orm_params_accepts_monodirectional_sweep() -> None:
     params = ORMParams(
-        correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=5, sweep="monodirectional"
+        correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=5, sweep="monodirectional"
     )
     assert params.sweep == "monodirectional"
 
 
 def test_orm_params_rejects_an_unknown_sweep() -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=5, sweep="sideways")
+        ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=5, sweep="sideways")
 
 
 def test_orm_declares_a_role_for_every_channel_field() -> None:
@@ -256,7 +256,7 @@ def test_orm_declares_a_role_for_every_channel_field() -> None:
         CHANNEL_ROLE_KEY: MOVABLE_ROLE,
         "x-widget": "channel-list",
     }
-    assert ORMParams.model_fields["bpms"].json_schema_extra == {
+    assert ORMParams.model_fields["readbacks"].json_schema_extra == {
         CHANNEL_ROLE_KEY: READABLE_ROLE,
         "x-widget": "channel-list",
     }
@@ -274,9 +274,9 @@ def test_orm_stamps_its_own_run_metadata() -> None:
     what `scan_metadata()` translates the capability vocabulary into.
     """
     devices = asyncio.run(
-        build_devices(motor_names=["hcm1", "hcm2"], detector_names=["bpm1", "bpm2"])
+        build_devices(settable_names=["hcm1", "hcm2"], readable_names=["bpm1", "bpm2"])
     )
-    params = ORMParams(correctors=["hcm1", "hcm2"], bpms=["bpm1", "bpm2"], span_a=2.0, num=4)
+    params = ORMParams(correctors=["hcm1", "hcm2"], readbacks=["bpm1", "bpm2"], span_a=2.0, num=4)
 
     metadata = _open_run_metadata(orm_plan(devices, params))
 
@@ -290,8 +290,8 @@ def test_orm_declares_no_dimensionality_hint() -> None:
     each corrector to 0 A and starts the next from the far end, so a
     `num_intervals` or a dimensions hint would describe a trajectory this run
     never takes. `scan_metadata()` omits both, and the stamp inherits that."""
-    devices = asyncio.run(build_devices(motor_names=["hcm1"], detector_names=["bpm1"]))
-    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=3)
+    devices = asyncio.run(build_devices(settable_names=["hcm1"], readable_names=["bpm1"]))
+    params = ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=3)
 
     metadata = _open_run_metadata(orm_plan(devices, params))
 
@@ -305,7 +305,7 @@ def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) ->
     points followed by the restore in the `finally`.
 
     Driven by a real `RunEngine` with a `msg_hook`, NOT by iterating the
-    generator by hand. The plan reads each corrector's pre-scan working point
+    generator by hand. The plan reads each corrector's pre-plan working point
     with `bps.rd`, and `bps.rd` walked by hand runs in bluesky's "list-ify"
     mode: nothing answers its `read`, so it silently returns its
     `default_value` of 0 instead of the device's real value. A hand-walked
@@ -314,8 +314,8 @@ def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) ->
     nothing. The `msg_hook` gets the identical `Msg` stream with a live
     device on the other end of it.
     """
-    corrector = MockMotor("hcm1", initial_value=working_point)
-    devices = asyncio.run(connect_all({"hcm1": corrector, "bpm1": MockDetector("bpm1")}))
+    corrector = MockSettable("hcm1", initial_value=working_point)
+    devices = asyncio.run(connect_all({"hcm1": corrector, "bpm1": MockReadable("bpm1")}))
 
     setpoints: list[float] = []
 
@@ -341,7 +341,7 @@ def test_orm_bidirectional_sweep_is_symmetric_about_the_working_point(
     orbit-correction working point. Both are the same arithmetic, which is
     the point: the plan no longer has a privileged origin.
     """
-    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=3.0, num=4)
+    params = ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=3.0, num=4)
     setpoints = _corrector_sweep_setpoints(params, working_point)
     assert setpoints == [
         working_point - 3.0,
@@ -360,7 +360,7 @@ def test_orm_monodirectional_sweep_never_kicks_below_the_working_point(
     `[working_point, working_point + span_a]` and never drives the corrector
     below where it started, then restores it."""
     params = ORMParams(
-        correctors=["hcm1"], bpms=["bpm1"], span_a=3.0, num=4, sweep="monodirectional"
+        correctors=["hcm1"], readbacks=["bpm1"], span_a=3.0, num=4, sweep="monodirectional"
     )
     setpoints = _corrector_sweep_setpoints(params, working_point)
     assert setpoints == [
@@ -382,12 +382,12 @@ def test_orm_monodirectional_sweep_never_kicks_below_the_working_point(
 # =========================================================================
 
 
-class _FailOnValueMotor(MockMotor):
-    """A `MockMotor` whose `set()` raises a chosen error for chosen values.
+class _FailOnValueMotor(MockSettable):
+    """A `MockSettable` whose `set()` raises a chosen error for chosen values.
 
-    Mirrors `MockMotor.set`'s body exactly for every value not in
+    Mirrors `MockSettable.set`'s body exactly for every value not in
     `fail_values`, so passing an empty mapping makes this behave identically
-    to a plain `MockMotor` — only the configured values diverge, simulating
+    to a plain `MockSettable` — only the configured values diverge, simulating
     a `write_channel_checked`-raised refusal/failure on a real corrector
     device without needing a real connector.
     """
@@ -438,9 +438,9 @@ def test_orm_plan_restore_refusal_does_not_mask_the_original_sweep_error(
         },
         initial_value=2.5,
     )
-    devices = asyncio.run(connect_all({"hcm1": hcm1, "bpm1": MockDetector("bpm1")}))
+    devices = asyncio.run(connect_all({"hcm1": hcm1, "bpm1": MockReadable("bpm1")}))
 
-    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=3.0, num=4)
+    params = ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=3.0, num=4)
     plan = orm_plan(devices, params)
 
     RE = RunEngine(context_managers=[])
@@ -463,8 +463,8 @@ def test_orm_plan_restores_every_corrector_to_zero_when_no_refusal_occurs() -> N
     """The ordinary (non-error) path on a machine whose correctors idle at
     zero — the virtual accelerator: with no write refused, every corrector
     ends its own sweep back at 0 A."""
-    devices = asyncio.run(build_devices(motor_names=["hcm1", "hcm2"], detector_names=["bpm1"]))
-    params = ORMParams(correctors=["hcm1", "hcm2"], bpms=["bpm1"], span_a=2.0, num=3)
+    devices = asyncio.run(build_devices(settable_names=["hcm1", "hcm2"], readable_names=["bpm1"]))
+    params = ORMParams(correctors=["hcm1", "hcm2"], readbacks=["bpm1"], span_a=2.0, num=3)
     plan = orm_plan(devices, params)
 
     RE = RunEngine(context_managers=[])
@@ -486,9 +486,9 @@ def test_orm_plan_refuses_to_sweep_a_corrector_reading_back_non_finite() -> None
     surfaces as a readback-settle timeout — having already written. The plan
     refuses up front, and no `set` is ever issued.
     """
-    hcm1 = MockMotor("hcm1", initial_value=float("nan"))
-    devices = asyncio.run(connect_all({"hcm1": hcm1, "bpm1": MockDetector("bpm1")}))
-    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=3)
+    hcm1 = MockSettable("hcm1", initial_value=float("nan"))
+    devices = asyncio.run(connect_all({"hcm1": hcm1, "bpm1": MockReadable("bpm1")}))
+    params = ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span_a=2.0, num=3)
 
     writes: list[float] = []
 
@@ -519,14 +519,14 @@ def test_orm_plan_restores_every_corrector_to_its_own_pre_scan_working_point() -
         connect_all(
             {
                 **{
-                    name: MockMotor(name, initial_value=value)
+                    name: MockSettable(name, initial_value=value)
                     for name, value in working_points.items()
                 },
-                "bpm1": MockDetector("bpm1"),
+                "bpm1": MockReadable("bpm1"),
             }
         )
     )
-    params = ORMParams(correctors=["hcm1", "hcm2"], bpms=["bpm1"], span_a=2.0, num=3)
+    params = ORMParams(correctors=["hcm1", "hcm2"], readbacks=["bpm1"], span_a=2.0, num=3)
 
     RE = RunEngine(context_managers=[])
     RE(orm_plan(devices, params))

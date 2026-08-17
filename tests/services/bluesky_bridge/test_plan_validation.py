@@ -50,7 +50,7 @@ from osprey.services.bluesky_bridge.plan_validation import (  # noqa: E402
 # ---------------------------------------------------------------------------
 # A tiny, fully-contract-compliant benign plan body: one movable channel, one
 # readable channel, harmless (non-control-system) `.put`/`.get` usage that a
-# naive pattern scan could mistake for a CA write/read. Reused across the
+# pattern scan could mistake for a CA write/read. Reused across the
 # accept-path and dry-run tests below.
 #
 # Its `PARAMS` declares both channel roles, which is what the stage-3 dry-run
@@ -81,7 +81,7 @@ BENIGN_PLAN_BODY = textwrap.dedent(
 
     class PARAMS(BaseModel):
         correctors: MovableChannels = Field(..., min_length=1)
-        bpms: ReadableChannels = Field(..., min_length=1)
+        readbacks: ReadableChannels = Field(..., min_length=1)
         num: int = Field(..., ge=1)
 
 
@@ -93,12 +93,12 @@ BENIGN_PLAN_BODY = textwrap.dedent(
         np.put(arr, list(range(params.num)), 1.0)
 
         corrector = devices[params.correctors[0]]
-        bpm = devices[params.bpms[0]]
+        bpm = devices[params.readbacks[0]]
 
         @bpp.stage_decorator([corrector, bpm])
         @bpp.run_decorator(
             md=scan_metadata(
-                movable=params.correctors, readable=params.bpms, points=params.num
+                movable=params.correctors, readable=params.readbacks, points=params.num
             )
         )
         def _sweep():
@@ -110,7 +110,7 @@ BENIGN_PLAN_BODY = textwrap.dedent(
     """
 )
 
-BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "bpms": ["d1"], "num": 3}
+BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "readbacks": ["d1"], "num": 3}
 
 # ---------------------------------------------------------------------------
 # A raw "author-submitted body" shaped like an actual `PlanSessionWriteRequest
@@ -136,18 +136,18 @@ _SESSION_BODY = textwrap.dedent(
 
     class PARAMS(BaseModel):
         correctors: MovableChannels = Field(..., min_length=1)
-        bpms: ReadableChannels = Field(..., min_length=1)
+        readbacks: ReadableChannels = Field(..., min_length=1)
         num: int = Field(..., ge=1)
 
 
     def build_plan(devices, params):
         corrector = devices[params.correctors[0]]
-        bpm = devices[params.bpms[0]]
+        bpm = devices[params.readbacks[0]]
 
         @bpp.stage_decorator([corrector, bpm])
         @bpp.run_decorator(
             md=scan_metadata(
-                movable=params.correctors, readable=params.bpms, points=params.num
+                movable=params.correctors, readable=params.readbacks, points=params.num
             )
         )
         def _sweep():
@@ -583,11 +583,11 @@ def _role_mock_body(params_source: str, build_plan_source: str) -> str:
 # stamp — the gate's negative case, and nothing else's.
 _DRIVE_ONE_POINT = """\
     movable = devices[params.correctors[0]]
-    readable = devices[params.bpms[0]]
+    readable = devices[params.readbacks[0]]
 
     @bpp.stage_decorator([movable, readable])
     @bpp.run_decorator(
-        md=scan_metadata(movable=params.correctors, readable=params.bpms, points=1)
+        md=scan_metadata(movable=params.correctors, readable=params.readbacks, points=1)
     )
     def _sweep():
         yield from bps.mv(movable, 1.0)
@@ -598,7 +598,7 @@ _DRIVE_ONE_POINT = """\
 
 _DRIVE_ONE_POINT_UNDECLARED = """\
     movable = devices[params.correctors[0]]
-    readable = devices[params.bpms[0]]
+    readable = devices[params.readbacks[0]]
 
     @bpp.stage_decorator([movable, readable])
     @bpp.run_decorator()
@@ -619,7 +619,7 @@ class TestDryRunRoleMocks:
                 """\
                 class PARAMS(BaseModel):
                     correctors: MovableChannels = Field(..., min_length=1)
-                    bpms: ReadableChannels = Field(..., min_length=1)
+                    readbacks: ReadableChannels = Field(..., min_length=1)
                     label: str = Field(...)
                 """
             ),
@@ -627,7 +627,7 @@ class TestDryRunRoleMocks:
                 """\
                 def build_plan(devices, params):
                     _assert_mock_kinds(
-                        devices, {"c1": "MockMotor", "c2": "MockMotor", "b1": "MockDetector"}
+                        devices, {"c1": "MockSettable", "c2": "MockSettable", "b1": "MockReadable"}
                     )
                 """
             )
@@ -638,7 +638,7 @@ class TestDryRunRoleMocks:
             plan_name="role_mocks",
             sample_args={
                 "correctors": ["c1", "c2"],
-                "bpms": ["b1"],
+                "readbacks": ["b1"],
                 # A device-shaped string under a role-less field. Mocking it
                 # would be the old name-guessing behavior returning by another
                 # route, so its absence from the mapping above IS the assertion.
@@ -660,23 +660,23 @@ class TestDryRunRoleMocks:
 
                 class PARAMS(BaseModel):
                     axes: list[Axis] = Field(..., min_length=1)
-                    bpms: ReadableChannels = Field(..., min_length=1)
+                    readbacks: ReadableChannels = Field(..., min_length=1)
                 """
             ),
             textwrap.dedent(
                 """\
                 def build_plan(devices, params):
                     _assert_mock_kinds(
-                        devices, {"m1": "MockMotor", "m2": "MockMotor", "b1": "MockDetector"}
+                        devices, {"m1": "MockSettable", "m2": "MockSettable", "b1": "MockReadable"}
                     )
                     movable = devices[params.axes[0].setpoint]
-                    readable = devices[params.bpms[0]]
+                    readable = devices[params.readbacks[0]]
 
                     @bpp.stage_decorator([movable, readable])
                     @bpp.run_decorator(
                         md=scan_metadata(
                             movable=[axis.setpoint for axis in params.axes],
-                            readable=params.bpms,
+                            readable=params.readbacks,
                             points=1,
                         )
                     )
@@ -693,7 +693,7 @@ class TestDryRunRoleMocks:
             plan_name="role_mocks",
             sample_args={
                 "axes": [{"setpoint": "m1", "start": 0.0}, {"setpoint": "m2", "start": 1.0}],
-                "bpms": ["b1"],
+                "readbacks": ["b1"],
             },
         )
         assert result.passed is True, result.reasons
@@ -707,7 +707,7 @@ class TestDryRunRoleMocks:
                 """\
                 class PARAMS(BaseModel):
                     correctors: MovableChannels = Field(..., min_length=1)
-                    bpms: ReadableChannels = Field(..., min_length=1)
+                    readbacks: ReadableChannels = Field(..., min_length=1)
                     reference: str = Field(...)
                 """
             ),
@@ -722,7 +722,7 @@ class TestDryRunRoleMocks:
         result = await validate_plan(
             body,
             plan_name="role_mocks",
-            sample_args={"correctors": ["c1"], "bpms": ["b1"], "reference": "undeclared1"},
+            sample_args={"correctors": ["c1"], "readbacks": ["b1"], "reference": "undeclared1"},
         )
         assert result.passed is False
         assert len(result.reasons) == 1
@@ -775,7 +775,7 @@ class TestDryRunRoleMocks:
             sample_args={"correctors": ["c1"], "detectors": ["d1"]},
         )
         assert result.passed is False
-        assert "available mock devices: ['det1', 'motor1']" in result.reasons[0]
+        assert "available mock devices: ['rb1', 'sp1']" in result.reasons[0]
 
     def test_fallback_mock_names_are_the_mock_factory_defaults(self):
         """The fallback names the render seam injects are the ones
@@ -787,11 +787,11 @@ class TestDryRunRoleMocks:
 
         signature = inspect.signature(mock_devices.build_devices)
         assert (
-            tuple(signature.parameters["motor_names"].default)
+            tuple(signature.parameters["settable_names"].default)
             == plan_validation._FALLBACK_MOVABLE_MOCKS
         )
         assert (
-            tuple(signature.parameters["detector_names"].default)
+            tuple(signature.parameters["readable_names"].default)
             == plan_validation._FALLBACK_READABLE_MOCKS
         )
 
@@ -810,11 +810,11 @@ _GATE_PARAMS = textwrap.dedent(
     """\
     class PARAMS(BaseModel):
         correctors: MovableChannels = Field(..., min_length=1)
-        bpms: ReadableChannels = Field(..., min_length=1)
+        readbacks: ReadableChannels = Field(..., min_length=1)
     """
 )
 
-_GATE_SAMPLE_ARGS = {"correctors": ["c1"], "bpms": ["b1"]}
+_GATE_SAMPLE_ARGS = {"correctors": ["c1"], "readbacks": ["b1"]}
 
 _READ_ONLY_BODY = textwrap.dedent(
     """\
@@ -832,11 +832,11 @@ _READ_ONLY_BODY = textwrap.dedent(
 
 
     class PARAMS(BaseModel):
-        bpms: ReadableChannels = Field(..., min_length=1)
+        readbacks: ReadableChannels = Field(..., min_length=1)
 
 
     def build_plan(devices, params):
-        readable = devices[params.bpms[0]]
+        readable = devices[params.readbacks[0]]
 
         @bpp.stage_decorator([readable])
         @bpp.run_decorator()
@@ -883,7 +883,7 @@ class TestDeclaredPointCountGate:
         must be stamped".
         """
         result = await validate_plan(
-            _READ_ONLY_BODY, plan_name="read_only", sample_args={"bpms": ["b1"]}
+            _READ_ONLY_BODY, plan_name="read_only", sample_args={"readbacks": ["b1"]}
         )
         assert result.passed is True, result.reasons
 
