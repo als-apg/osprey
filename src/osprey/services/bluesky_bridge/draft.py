@@ -1,5 +1,5 @@
 """Server-held shared plan draft: the agent's and the human's collaborative
-scratch pad for composing one Bluesky scan plan before it is queued.
+scratch pad for composing one Bluesky plan before it is queued.
 
 One in-process singleton draft (`{plan_name, plan_args, updated_by,
 updated_at}`) plus a process-lifetime monotonic revision counter, guarded by

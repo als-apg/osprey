@@ -222,13 +222,13 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
     bpm_name = deployed_grid_scan_stack.bpm_name
 
     # Canonical grid_scan schema (plans_core/grid_scan.py's PARAMS): a
-    # `detectors` list, one `GridAxis` per swept dimension
+    # `readables` list, one `GridAxis` per swept dimension
     # (`setpoint`/`start`/`stop`/`num_points`), and `snake_axes`. A single
     # axis here -- the "n-dimensional" contract is exercised by
     # test_exemplar_plans.py's in-process 2-axis case; this e2e's job is the
     # real HTTP+container round trip, kept minimal to run fast.
     plan_args = {
-        "detectors": [bpm_name],
+        "readables": [bpm_name],
         "axes": [
             {
                 "setpoint": corrector_name,

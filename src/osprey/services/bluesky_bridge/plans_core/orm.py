@@ -2,12 +2,22 @@
 
 Discovered via the layered directory catalog's ``shipped`` tier (a folder
 scan of this package's ``plans_core/`` dir — see ``plan_loader.py``): kick
-each corrector, one at a time, either side of the working point it was
-already holding, reading every BPM detector at each point, then put it back.
+each corrector channel, one at a time, either side of the working point it
+was already holding, reading every BPM channel at each point, then put it
+back.
 
-Device-agnostic: ``correctors``/``detectors`` are resolved by string name
-against whatever ``devices`` dict the bridge passes in; nothing here names a
-facility PV or a fixed device set.
+Device-agnostic: ``correctors``/``bpms`` are resolved by string name against
+whatever ``devices`` dict the bridge passes in; nothing here names a facility
+PV or a fixed device set. Both fields declare their channel role, so every
+consumer — the load gate, the enqueue pre-check, the dry run, the pre-flight
+trajectory — reads what this plan drives and what it reads rather than
+guessing it from a field name.
+
+This plan opens its own run, so it stamps its own run metadata through
+``scan_metadata()``: the channels it moves and reads, and the total point
+count (one point per corrector per swept current). No dimensionality hint —
+the sweeps are serial and per-corrector, not one continuous traversal, so
+there is no truthful value for one.
 """
 
 from __future__ import annotations
@@ -32,6 +42,7 @@ from osprey.services.bluesky_bridge.figure import (
     LinesMark,
     Panel,
     Point,
+    RowWindow,
     Series,
     decimate,
 )
@@ -42,18 +53,21 @@ from osprey.services.bluesky_bridge.orm_analysis import (
     singular_values,
     sliced_response_matrix,
 )
+from osprey.services.bluesky_bridge.plan_fields import (
+    MovableChannels,
+    ReadableChannels,
+    scan_metadata,
+)
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.plans_core.orm")
 
 PLAN_METADATA = {
     "name": "orm",
     "description": (
-        "Kick each corrector either side of its own pre-scan working point, "
-        "reading all BPM detectors at every point, to measure an "
+        "Kick each corrector channel either side of its own pre-scan working "
+        "point, reading every BPM channel at every point, to measure an "
         "orbit-response matrix. Every corrector is put back where it was."
     ),
-    "category": "accelerator",
-    "required_devices": ["correctors", "detectors"],
     "writes": True,
 }
 
@@ -63,7 +77,7 @@ class PARAMS(BaseModel):
 
     Sweeps each corrector in ``correctors``, one at a time, over ``num``
     evenly-spaced kicks *away from that corrector's own pre-scan working
-    point*, reading every detector in ``detectors`` at each point. ``sweep``
+    point*, reading every channel in ``bpms`` at each point. ``sweep``
     selects the kick range: ``bidirectional`` spans the symmetric
     ``[-span_a, +span_a]`` (kicks both ways, so a linear fit rejects a
     corrector's hysteresis/offset); ``monodirectional`` spans ``[0, span_a]``
@@ -83,18 +97,18 @@ class PARAMS(BaseModel):
     segmented control — without changing what this model validates.
     """
 
-    correctors: list[str] = Field(
+    correctors: MovableChannels = Field(
         ...,
         min_length=1,
         title="Correctors",
-        description="Corrector device names to sweep, one at a time.",
+        description="Corrector channel names to sweep, one at a time.",
         json_schema_extra={"x-widget": "channel-list"},
     )
-    detectors: list[str] = Field(
+    bpms: ReadableChannels = Field(
         ...,
         min_length=1,
         title="BPMs",
-        description="BPM detector device names to read at every point.",
+        description="BPM channel names to read at every point.",
         json_schema_extra={"x-widget": "channel-list"},
     )
     span_a: float = Field(
@@ -123,13 +137,11 @@ class PARAMS(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _correctors_and_detectors_disjoint(self) -> PARAMS:
-        """Reject a device named as both a driven corrector and a read BPM."""
-        overlap = set(self.correctors) & set(self.detectors)
+    def _correctors_and_bpms_disjoint(self) -> PARAMS:
+        """Reject a channel named as both a driven corrector and a read BPM."""
+        overlap = set(self.correctors) & set(self.bpms)
         if overlap:
-            raise ValueError(
-                f"correctors and detectors must be disjoint (overlap: {sorted(overlap)})"
-            )
+            raise ValueError(f"correctors and bpms must be disjoint (overlap: {sorted(overlap)})")
         return self
 
 
@@ -141,7 +153,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     ``[-span_a, +span_a]`` (bidirectional) or ``[0, +span_a]``
     (monodirectional) — and put it back. Each kick is applied *relative to
     that corrector's own pre-scan working point*, and at each point the plan
-    ``trigger_and_read``-s every corrector together with every BPM detector
+    ``trigger_and_read``-s every corrector together with every BPM channel
     in one bundle, so each point emits exactly one event carrying the driven
     corrector's current alongside every BPM reading.
 
@@ -168,6 +180,11 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     ``GeneratorExit`` too) — a restore failure is caught and logged rather
     than allowed to replace an in-flight sweep exception.
 
+    The run this opens is stamped with ``scan_metadata()``: the correctors it
+    moves, the BPMs it reads, and ``num`` points per corrector across every
+    corrector. Sweeps are serial and per-corrector rather than one continuous
+    traversal, so no dimensionality hint is declared.
+
     Raises:
         ValueError: A corrector read back a non-finite working point. Every
             setpoint derived from it would be non-finite too, and a NaN
@@ -178,7 +195,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     """
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
-    detector_devices = [devices[name] for name in params.detectors]
+    bpm_devices = [devices[name] for name in params.bpms]
     if params.sweep == "monodirectional":
         step = params.span_a / (params.num - 1)
         kicks = [i * step for i in range(params.num)]
@@ -186,10 +203,16 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
         step = (2 * params.span_a) / (params.num - 1)
         kicks = [-params.span_a + i * step for i in range(params.num)]
 
-    all_devices = corrector_devices + detector_devices
+    all_devices = corrector_devices + bpm_devices
 
     @bpp.stage_decorator(all_devices)
-    @bpp.run_decorator()
+    @bpp.run_decorator(
+        md=scan_metadata(
+            movable=params.correctors,
+            readable=params.bpms,
+            points=params.num * len(params.correctors),
+        )
+    )
     def _sweep():
         for name, corrector in correctors:
             working_point = float((yield from bps.rd(corrector)))
@@ -226,20 +249,6 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # Python scan, and hard caps on how much of a facility-scale run reaches the
 # wire.
 
-_LIVE_BUFFER_ROW_CAP = 10_000
-"""Mirror of the bridge live buffer's per-run row cap.
-
-`render()` is handed rows with no word on where they came from or whether they
-are all of them, so it recognizes a capped buffer arithmetically: the buffer
-stores exactly this many rows and then stops (`live_rows._MAX_ROWS_PER_RUN`),
-so a row set of exactly this length for a sweep that should have produced more
-is a run whose stored rows are a strict subset of what it measured. This module
-cannot import that private constant -- a facility-authored plan could not
-either, and the loader execs plan files outside the package -- so the value is
-duplicated here and pinned equal by `test_orm_render.py`, which fails on drift
-rather than letting a stale copy silently mis-shape a figure.
-"""
-
 _MAX_TRACE_PANELS = 8
 """Most corrector sweeps drawn as trace panels. A 70-corrector run is 70 panels
 of 100 lines each -- neither the browser nor the agent's context can take it."""
@@ -275,10 +284,10 @@ def _sweep_series(fit: SlicedResponseFit, index: int) -> tuple[list[Series], boo
     series: list[Series] = []
     decimated = False
     source_points = 0
-    for i, detector in enumerate(fit.detectors[:_MAX_TRACE_SERIES]):
+    for i, bpm in enumerate(fit.bpms[:_MAX_TRACE_SERIES]):
         points = [Point(x=float(currents[k]), y=float(readings[k, i])) for k in kept]
         thinned = decimate(points)
-        series.append(Series(label=detector, **thinned._asdict()))
+        series.append(Series(label=bpm, **thinned._asdict()))
         decimated = decimated or thinned.decimated
         source_points += thinned.source_points
     return series, decimated, source_points, len(kept)
@@ -304,7 +313,7 @@ def _trace_panels(
     hidden = max(0, len(traced) - _MAX_TRACE_PANELS)
     if hidden:
         traced = traced[-_MAX_TRACE_PANELS:]
-    shown_detectors = min(len(fit.detectors), _MAX_TRACE_SERIES)
+    shown_bpms = min(len(fit.bpms), _MAX_TRACE_SERIES)
 
     panels: list[Panel] = []
     for j in traced:
@@ -320,8 +329,8 @@ def _trace_panels(
                     f"Showing the {len(traced)} most recently swept of "
                     f"{len(fit.correctors)} correctors."
                 )
-        if shown_detectors < len(fit.detectors):
-            annotations.append(f"Showing the first {shown_detectors} of {len(fit.detectors)} BPMs.")
+        if shown_bpms < len(fit.bpms):
+            annotations.append(f"Showing the first {shown_bpms} of {len(fit.bpms)} BPMs.")
         if not fit.complete[j]:
             recorded = int(fit.currents[j].shape[0])
             if recorded < num:
@@ -357,7 +366,7 @@ def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
     corrector ships as its own series and the reader picks which are drawn, so
     changing the comparison costs no fetch.
 
-    The BPM axis is the requested detector order, which is not `s` order: the
+    The BPM axis is the requested BPM order, which is not `s` order: the
     plan is device-agnostic and carries no lattice positions, so the panel says
     so rather than implying a geometry it cannot know.
     """
@@ -371,7 +380,7 @@ def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
                 )
                 for i, cell in enumerate(row[j] for row in fit.matrix)
             ],
-            source_points=len(fit.detectors),
+            source_points=len(fit.bpms),
         )
         for j, corrector in enumerate(fit.fitted_correctors)
     ]
@@ -389,7 +398,7 @@ def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
             "order around the ring -- this plan carries no lattice positions.",
         ],
         series_picker=True,
-        mark=LinesMark(series=series, source_points=len(fit.detectors) * len(series)),
+        mark=LinesMark(series=series, source_points=len(fit.bpms) * len(series)),
     )
 
 
@@ -478,7 +487,7 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             ],
             mark=HeatmapMark(
                 x_labels=list(fit.fitted_correctors),
-                y_labels=list(fit.detectors),
+                y_labels=list(fit.bpms),
                 values=[[float(cell) for cell in row] for row in fit.matrix],
                 value_label="Response slope",
                 value_units="BPM units / A",
@@ -511,29 +520,28 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             ],
             mark=BarsMark(
                 label="BPM anomaly",
-                categories=list(fit.detectors),
+                categories=list(fit.bpms),
                 values=[float(score) for score in row_anomaly(fit.matrix)],
-                source_points=len(fit.detectors),
+                source_points=len(fit.bpms),
             ),
         ),
     ]
 
 
-def _build(rows: list[dict[str, Any]], params: PARAMS, *, with_fit: bool) -> Figure:
+def _build(window: RowWindow, params: PARAMS, *, with_fit: bool) -> Figure:
     """Assemble the figure. Raises freely -- `render` is what must not."""
-    expected_rows = len(params.correctors) * params.num
-    capped = len(rows) == _LIVE_BUFFER_ROW_CAP and expected_rows > _LIVE_BUFFER_ROW_CAP
+    truncated = not window.rows_complete
 
-    fit = sliced_response_matrix(rows, params.correctors, params.detectors, params.num)
+    fit = sliced_response_matrix(window.rows, params.correctors, params.bpms, params.num)
 
     lead_annotations: list[str] = []
-    if capped:
+    if truncated:
         lead_annotations.append(
-            f"This run produced more rows than the bridge stores per run "
-            f"({_LIVE_BUFFER_ROW_CAP:,} of about {expected_rows:,} expected), so the "
-            "response matrix and anomaly scores are not shown -- they would be "
-            "computed over whichever correctors happened to fit under the cap, and "
-            "an anomaly score compares each corrector against its peers."
+            f"This run produced more rows than are being drawn "
+            f"({len(window.rows):,} of {window.total_seen:,}), so the response matrix "
+            "and anomaly scores are not shown -- they would be computed over "
+            "whichever correctors happened to fit, and an anomaly score compares "
+            "each corrector against its peers."
         )
 
     # The finding leads and the evidence follows, collapsed. But a section is a
@@ -542,11 +550,11 @@ def _build(rows: list[dict[str, Any]], params: PARAMS, *, with_fit: bool) -> Fig
     # which is also what keeps the capped-run warning above the fold, on the
     # first panel the reader actually sees.
     #
-    # `lead_annotations` is only ever non-empty when `capped`, and a capped run
-    # has no fitted panels -- so the cap warning always lands on an inline sweep
-    # panel, never inside a collapsed section.
+    # `lead_annotations` is only ever non-empty when `truncated`, and a
+    # truncated run has no fitted panels -- so the warning always lands on an
+    # inline sweep panel, never inside a collapsed section.
     fitted: list[Panel] = []
-    if with_fit and not capped and fit.fitted_correctors:
+    if with_fit and not truncated and fit.fitted_correctors:
         fitted.extend(_fit_panels(fit))
         spectrum = _spectrum_panel(fit)
         if spectrum is not None:
@@ -568,7 +576,7 @@ def _build(rows: list[dict[str, Any]], params: PARAMS, *, with_fit: bool) -> Fig
     return Figure(panels=panels, partial=True, source="live")
 
 
-def render(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
+def render(window: RowWindow, params: PARAMS) -> Figure:
     """The `orm` plan's own view of a run: sweep traces, then the fitted matrix.
 
     Panel order is stable, so a live figure grows rather than rearranging:
@@ -585,13 +593,15 @@ def render(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
     Rows are attributed to correctors by acquisition index -- corrector ``j``'s
     samples are ``rows[j * num : (j + 1) * num]``, which is what this plan's
     `build_plan` emits -- so the caller owes emission order with nothing dropped
-    from the front. The one incompleteness this function can see for itself is
-    a **capped row set**: exactly `_LIVE_BUFFER_ROW_CAP` rows for a sweep whose
-    parameters call for more. There the traces still stand (each is a claim
-    about individual rows) but the matrix and anomaly panels are suppressed,
-    because a peer-comparison score computed over whichever correctors fit
-    under the cap is a statement about the cap, not about the machine. An
-    annotation on the first panel says so.
+    from the front. ``window.rows_complete`` is what says whether that holds:
+    ``False`` means the rows are a prefix of the run (the bridge's live buffer
+    hit its per-run cap; no figure source ever hands this plan a middle or a
+    tail). There the traces still stand -- a prefix keeps each corrector's
+    slice where it belongs, and each trace is a claim about individual rows --
+    but the matrix and anomaly panels are suppressed, because a peer-comparison
+    score computed over whichever correctors fit is a statement about the cut,
+    not about the machine. An annotation on the first panel says so, quoting
+    ``window.total_seen`` for how much of the run went undrawn.
 
     **Never raises.** A figure is a view, not a result: any internal failure
     degrades to the traces alone, and a failure in those to a figure with no
@@ -604,25 +614,25 @@ def render(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
     forgotten overwrite costs a client extra polling, never a false "settled".
 
     Args:
-        rows: The run's event `data` dicts in emission order -- the run's whole
-            stored set, never a window of it.
+        window: The run's event `data` dicts in emission order, and whether
+            they are all of them (`RowWindow`).
         params: The parameters the run was launched with.
 
     Returns:
         A `Figure` whose panels are as complete as the rows allow.
     """
     try:
-        return _build(rows, params, with_fit=True)
+        return _build(window, params, with_fit=True)
     except Exception:
         logger.warning("orm render failed; falling back to sweep traces only", exc_info=True)
     try:
-        return _build(rows, params, with_fit=False)
+        return _build(window, params, with_fit=False)
     except Exception:
         logger.warning("orm render failed entirely; serving an empty figure", exc_info=True)
         return Figure(panels=[], partial=True, source="live")
 
 
-_RENDER_CONFORMANCE: Callable[[list[dict[str, Any]], PARAMS], Figure] = render
+_RENDER_CONFORMANCE: Callable[[RowWindow, PARAMS], Figure] = render
 """Static proof that `render` matches `PlanSpec.render`'s signature.
 
 The loader holds `PlanSpec[Any]`, so a module-level `render` is not type-checked

@@ -493,7 +493,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     bpms = deployed_orm_stack.bpms
     plan_args = {
         "correctors": list(correctors),
-        "detectors": list(bpms),
+        "bpms": list(bpms),
         "span_a": SPAN_A,
         "num": NUM_POINTS,
     }
@@ -689,7 +689,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
 
     columns = data["columns"]
     rows = rows_from_columnar(columns, data["rows"], data["row_count"]).rows
-    measured = build_response_matrix(rows, correctors=list(correctors), detectors=list(bpms))
+    measured = build_response_matrix(rows, correctors=list(correctors), bpms=list(bpms))
 
     # (a) matches the model oracle: the same symmetric-sweep currents the
     # deployed orm plan itself computes (plans_core/orm.py's build_plan), so

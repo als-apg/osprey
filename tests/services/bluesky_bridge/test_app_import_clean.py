@@ -1,6 +1,7 @@
 """Guards `app.py`'s `_BRIDGE_ONLY_MODULES` invariant (FR8): importing
-`osprey.services.bluesky_bridge.app` must never pull in `bluesky`, `ophyd`,
-`ophyd_async`, or `tiled`. The bluesky stack is a core dependency, so this is
+`osprey.services.bluesky_bridge.app` must never pull in `bluesky`,
+`bluesky_tiled_plugins`, `ophyd`, `ophyd_async`, or `tiled`. The bluesky stack
+is a core dependency, so this is
 an import-hygiene boundary, not an install-size one. The bridge runs no plans
 — the queueserver worker does — so nothing in this process has any business
 importing the RunEngine stack, and the Channel Access client libraries have no
@@ -36,7 +37,13 @@ def _run_import_check(module: str) -> subprocess.CompletedProcess[str]:
 def test_bridge_only_modules_is_nonempty() -> None:
     # Guards against a vacuously-passing suite if the constant is ever
     # emptied out from under this test.
-    assert _BRIDGE_ONLY_MODULES == {"bluesky", "ophyd", "ophyd_async", "tiled"}
+    assert _BRIDGE_ONLY_MODULES == {
+        "bluesky",
+        "bluesky_tiled_plugins",
+        "ophyd",
+        "ophyd_async",
+        "tiled",
+    }
 
 
 def test_importing_app_does_not_import_tiled() -> None:

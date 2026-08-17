@@ -110,7 +110,7 @@ stack than Demo Facility runs, so the first edit is subtraction. Delete:
 * the top-level ``bluesky:``, ``bluesky_panels:`` and ``dispatch:`` blocks. Each
   of these is a trigger: leaving one in place adds its service to the
   deployment, whatever else you write below.
-* from ``skills:`` — ``writing-bluesky-plans`` and ``operating-bluesky-scans``.
+* from ``skills:`` — ``writing-bluesky-plans`` and ``operating-bluesky-plans``.
 * from ``agents:`` — ``logbook-search`` and ``logbook-deep-research``. Both
   query a logbook database at runtime, and this facility does not deploy one.
 * from ``web_panels:`` — ``ariel``, ``events`` and ``bluesky``.

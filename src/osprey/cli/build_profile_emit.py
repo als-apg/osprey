@@ -299,7 +299,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 """,
     "bluesky": """
 # --- Bluesky scan bridge -----------------------------------------------------
-# Exposes Bluesky scan plans to the agent. tiled_enabled adds the data-access
+# Exposes Bluesky plans to the agent. tiled_enabled adds the data-access
 # service; excluded_plans removes shipped plans from the catalog.
 #
 # bluesky:

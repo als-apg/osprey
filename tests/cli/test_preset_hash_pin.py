@@ -34,12 +34,12 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # health check or a skill directory — and in either case the deploy-side
     # staleness advisory firing on already-deployed projects is the correct
     # signal, not noise.
-    "control-assistant": "sha256:6926cb0ac876d78035618a7fd2102b3bd7c32e409a4e89a1949ab84bc25ce172",
+    "control-assistant": "sha256:025fa1e628849cc7d162af29bb4f95eb41668f7e6eb9ab751b58238c00d8008e",
     "control-assistant-readonly": (
-        "sha256:d4f91684bc48b28f51997a32c997d08cb56a108b4acdd9a0a09863472660415a"
+        "sha256:7c687a478ab8ab5e928a21696244f21931c9699f7fc5fbf698b69a3ca8438c6d"
     ),
     "control-assistant-readwrite": (
-        "sha256:be5b976fef2e50caffbc3c34bb1c6123582b3960cdc85d6d657be48cb6ace2dc"
+        "sha256:612b576a25097949157b55e4b31122a30db16266d866e45e0f0379f3385ead3e"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

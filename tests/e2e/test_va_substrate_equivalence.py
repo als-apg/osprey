@@ -722,7 +722,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     run_id, status_body = await _run_scan(
         "grid_scan",
         {
-            "detectors": [P3_DETECTOR],
+            "readables": [P3_DETECTOR],
             "axes": [
                 {
                     "setpoint": SCAN_MOTOR,
@@ -777,7 +777,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
         BRIDGE_URL,
         "grid_scan",
         {
-            "detectors": [P4_DETECTOR],
+            "readables": [P4_DETECTOR],
             "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
         },
         client_id=_QUEUE_CLIENT_ID,
@@ -900,7 +900,7 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
     run_id, status_body = await _run_scan(
         "grid_scan",
         {
-            "detectors": [P5_DETECTOR],
+            "readables": [P5_DETECTOR],
             "axes": [
                 {
                     "setpoint": SCAN_MOTOR,

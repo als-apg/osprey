@@ -1,16 +1,16 @@
 ---
-name: operating-bluesky-scans
+name: operating-bluesky-plans
 description: >
-  Operate an already-registered Bluesky scan through the shared plan draft and
+  Operate an already-registered Bluesky plan through the shared plan draft and
   the plan/queue panels: stage the complete configuration in one set_draft,
   let the human review it live in the plan panel, add that pinned revision to
   the queue, start the queue, and watch the run. Use when asked to run, queue,
-  or start a scan that already exists. NOT for authoring a new plan file (use
+  or start a plan that already exists. NOT for authoring a new plan file (use
   writing-bluesky-plans first).
-summary: Stage, queue, start, and watch a registered scan through the shared draft
+summary: Stage, queue, start, and watch a registered plan through the shared draft
 ---
 
-# Operating Bluesky Scans
+# Operating Bluesky Plans
 
 Run an already-registered plan the way the panels do: stage the whole
 configuration into the one shared draft, let a human see it, add that exact
@@ -81,11 +81,19 @@ anything itself.
 ## Stage the COMPLETE configuration in one `set_draft`
 
 Pick the plan first with **`list_plans()`** — check its `provenance` (prefer a
-higher trust tier), its `required_devices`, and its `writes` flag before
-selecting it. **`list_devices()`** lists the device names this worker actually
+higher trust tier), its `writes` flag, and what the plan actually does to the
+machine before selecting it. That last one is in the plan's own parameter
+schema: every parameter carrying channel names declares its role there, so the
+schema tells you which channels the plan **moves** and which it only **reads**.
+Match those roles against what the operator asked for — a request to measure
+something should not land on a plan that drives channels.
+
+**`list_devices()`** lists the device names this worker actually
 built, which is where every device name in `plan_args` must come from — read it
-rather than guessing a name. Then stage the **entire** scan configuration in a
-**single** `set_draft` call and note the `revision` it returns:
+rather than guessing a name, and put a name in the parameter whose declared
+role matches how the operator wants it used. Then stage the **entire** scan
+configuration in a **single** `set_draft` call and note the `revision` it
+returns:
 
 ```
 set_draft(plan_name="grid_scan", plan_args_patch={<every parameter, complete>})
@@ -283,12 +291,18 @@ A running queue is live hardware — never fire-and-forget. Watch it:
 - **`get_run(run_id)`** — one run's lifecycle: `pending`, `running`,
   `completed`, `stopped`, or `error`. `run_uid` is absent while pending or
   running (it does not exist until the worker starts the plan — read that as
-  "not yet", never "unknown"), and `progress` is absent when nothing is known.
+  "not yet", never "unknown"), and `progress` is absent until the run starts.
   `"stopped"` means a human stopped it, by any route.
 - **`get_run_data(run_id, max_rows=..., tail=...)`** — a bounded window of the
   run's rows; `partial: true` means the run is still producing data. Never
   returns an unbounded table. A run rotated out of the manager's history still
   has its data, so a 404 from `get_run` is never a reason to skip reading here.
+  Its `analysis` block is where the run's peak numbers live — center, width and
+  center of mass per recorded channel, computed over the whole run once it
+  settles. Read `available` first: when it is `false`, `reason` says why in one
+  word and that is the honest answer, not a failure. Never estimate any of
+  those numbers off a figure's plotted points, and never state one that came
+  back `null`.
 - **`get_run_figure(run_id)`** — the run's figure: the plan's own view of what
   it measured, as data rather than pixels. It comes back as panels, each with a
   title, axis labels and units, `annotations` worth relaying, and exactly one
@@ -305,9 +319,11 @@ A running queue is live hardware — never fire-and-forget. Watch it:
   route has no OSPREY run id and is absent from it, so `queue_list` is the
   complete view of what the machine is about to do.
 
-**On progress:** `fraction` is `null` whenever the total point count cannot be
-derived, which is common for agent-authored plans. Report that as "N points so
-far" — never as 0%.
+**On progress:** the denominator comes from the point count the run declares in
+its own opening metadata, so `progress` is missing altogether before a run
+starts — read that as "not started yet", never as 0%. Once it is there,
+`fraction` is `null` for a run that declared no point count. Report that as
+"N points so far" — never as a percentage.
 
 Results land in the queue panel as the run produces them, so the human watches
 alongside the agent.
@@ -316,8 +332,11 @@ alongside the agent.
 
 **A `reason` is a default view, never an error.** `reason: null` means the plan
 drew the figure itself. Any other value means the bridge drew its **default
-view** instead — every numeric column the run recorded, against the scan's own
-x axis. That is real data, honestly plotted, so say "the default view, because
+view** instead — every numeric column the run recorded, drawn against the one
+channel the plan declared it drives when there is exactly one, and against row
+order otherwise (a plan sweeping several channels, or stepping a grid, has no
+single x axis; the panel's `x_label` says which case it is). That is real data,
+honestly plotted, so say "the default view, because
 <the reason in plain words>" and never "the figure failed". `no_render` in
 particular means the plan declares no view of its own, so the default view **is**
 that plan's view — there is nothing wrong to report. The vocabulary is open:
@@ -432,6 +451,10 @@ know why it was requested.
 - **Never** report a figure's `reason` as a failure — it says the bridge drew
   the default view, which is real data, and `no_render` means that view is the
   plan's own.
+- **Never** read a peak's center, width or center of mass off a figure's
+  plotted points — those numbers are computed over the whole run and live on
+  `get_run_data`'s `analysis` block, and an unavailable one comes with a reason
+  that is itself the answer.
 - **Never** call a `heatmap_summary`'s `largest_magnitude` cells anomalies —
   they are the strongest readings, and the `orm` plan ships real anomaly-score
   panels that would be contradicted by saying otherwise.

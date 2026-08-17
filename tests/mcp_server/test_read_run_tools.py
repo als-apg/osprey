@@ -75,8 +75,6 @@ async def test_list_plans_passes_through_metadata_and_provenance():
             "metadata": {
                 "name": "sniff",
                 "description": "A directory-layer test plan.",
-                "category": "accelerator",
-                "required_devices": ["sniffer"],
                 "writes": False,
             },
             "provenance": "facility",
