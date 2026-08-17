@@ -144,7 +144,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
       1. the ``services.qmd`` sidecar (see :ref:`qmd-search-sidecar`), and
       2. the ``qmd_export`` :ref:`enhancement module <Enhancement Pipeline>`, which writes the markdown mirror the sidecar indexes.
 
-      Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. Both are off by default.
+      Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``control-assistant`` and ``ariel-standalone`` templates enable both, together with the sidecar itself.
 
       ``hybrid`` also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as *search is down*, deliberately, so that the agent cannot read an outage as "nothing matched".
 

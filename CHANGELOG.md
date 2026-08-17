@@ -138,17 +138,17 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
-- An optional `qmd` search sidecar indexes the deployment's markdown corpora —
-  the facility-knowledge bundle, and a markdown mirror of the ARIEL logbook
-  where that is enabled — and answers hybrid keyword-plus-semantic queries. It
-  ships off: `services.qmd` is commented out in the `control-assistant` and
-  `ariel-standalone` templates, and its image is built locally rather than
-  pulled, so turning it on means uncommenting that block, adding `qmd` to
-  `deployed_services`, and building the image first. The endpoint carries no
-  authentication and publishes on the project-wide `deployment.bind_address`,
-  which defaults to loopback and should stay there. Budget about 1.25 GB of
-  disk per 135,000 logbook entries, and expect the first index build to take
-  around 40 minutes at that size.
+- A `qmd` search sidecar indexes the deployment's markdown corpora — the
+  facility-knowledge bundle, and a markdown mirror of the ARIEL logbook — and
+  answers hybrid keyword-plus-semantic queries. It is self-contained: its
+  language models are baked into the image (built locally on the first
+  `osprey up`, about 2.1 GB), so it needs no Ollama on the host. The
+  `control-assistant` and `ariel-standalone` templates deploy it by default;
+  comment out `services.qmd` and its `deployed_services` entry to opt out. The
+  endpoint carries no authentication and publishes on the project-wide
+  `deployment.bind_address`, which defaults to loopback and should stay there.
+  Budget about 1.25 GB of disk per 135,000 logbook entries, and expect the
+  first index build to take around 40 minutes at that size.
 
 - Facility-knowledge search is ranked when that sidecar is configured. The
   KNOWLEDGE panel and the facility-knowledge `search` tool return hits in
@@ -160,15 +160,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 - ARIEL gains a `hybrid` search mode and a matching `hybrid_search` tool for
   the OSPREY agent, answering over a markdown mirror of the logbook written by
-  the new `qmd_export` enhancement module. Both are off by default, and both
-  are needed — the mirror with no search mode is never queried, and the search
-  mode with no mirror has nothing to read. Configure them under
-  `ariel.search_modules.hybrid` and `ariel.enhancement_modules.qmd_export`; the
-  search knobs must sit under `settings:`, as keys written beside `enabled` are
-  ignored. `rerank` is on here, where ranking quality is worth the latency.
-  Entries created through the ARIEL web interface or the agent's `entry_create`
-  tool are mirrored inline at creation time, so they become hybrid-searchable
-  without waiting for the next enhancement run.
+  the new `qmd_export` enhancement module. The templates enable both by
+  default, and both are needed — the mirror with no search mode is never
+  queried, and the search mode with no mirror has nothing to read. Configure
+  them under `ariel.search_modules.hybrid` and
+  `ariel.enhancement_modules.qmd_export`; the search knobs must sit under
+  `settings:`, as keys written beside `enabled` are ignored. `rerank` is on
+  here, where ranking quality is worth the latency. Entries created through
+  the ARIEL web interface or the agent's `entry_create` tool are mirrored
+  inline at creation time, so they become hybrid-searchable without waiting
+  for the next enhancement run.
 
   Filtering in this mode is best-effort: results are ranked first and the date,
   author and source filters applied afterwards, so a selective filter can

@@ -203,40 +203,44 @@ services:
   # Semantic-search sidecar. It indexes the deployment's markdown corpora — the
   # facility-knowledge bundle at `facility_knowledge.bundle_path`, and the ARIEL
   # mirror that `ariel.enhancement_modules.qmd_export` writes — and answers
-  # hybrid keyword+semantic queries over HTTP.
+  # hybrid keyword+semantic queries over HTTP. It is what backs ranked KNOWLEDGE
+  # search and the `hybrid` ARIEL search mode, and it is self-contained: its
+  # language models are baked into the image, so unlike the `semantic` search
+  # mode it needs no Ollama on the host.
   #
-  # Commented out because deploying it takes three steps, not one: uncomment
-  # this block AND the `- qmd` line below, build the sidecar image (it is not
-  # pulled — `osprey build` renders ./services/qmd, whose image must exist
-  # before `osprey up`), and enable the consumers that feed and query it
-  # (`ariel.enhancement_modules.qmd_export`, then `ariel.search_modules.hybrid`).
-  # Any one of those alone gets you a container nobody queries, or a search mode
-  # with nothing to search.
-  # qmd:
-  #   path: ./services/qmd
-  #   port: 8180      # Host port clients talk to. Deliberately NOT qmd's own
-  #                   # 8181: the daemon binds IPv6 loopback only, hardcoded, so
-  #                   # the container runs it on an internal 8181 and fronts it
-  #                   # with a forwarder that owns this port.
-  #                   #
-  #                   # There is no per-service bind_address, on purpose. Like
-  #                   # every service here this one publishes on the
-  #                   # project-wide `deployment.bind_address` (default
-  #                   # 127.0.0.1), and that default is load-bearing: the
-  #                   # endpoint carries no token and no TLS, so an interface
-  #                   # other than loopback exposes the whole indexed corpus to
-  #                   # anything that can route to it.
-  #   interval: 30    # Fallback corpus-sweep period, in seconds. The bundle's
-  #                   # `.qmd-touch` marker is the primary re-index trigger, so
-  #                   # this is the ceiling on staleness, not the usual lag.
-  #                   # Raise it on a large corpus, where a no-op sweep is not
-  #                   # free.
+  # Deployed by default. The image is built locally on the first `osprey up`
+  # (never pulled; the ~2.1 GB of baked-in models make that first build long —
+  # later runs reuse the local tag), and this project's example corpus indexes
+  # in seconds. To run without the sidecar, comment out this block, the `- qmd`
+  # line below, and the two consumers that feed and query it
+  # (`ariel.enhancement_modules.qmd_export`, `ariel.search_modules.hybrid`):
+  # KNOWLEDGE search then degrades to substring matching and hybrid logbook
+  # search reports itself down.
+  qmd:
+    path: ./services/qmd
+    port: 8180      # Host port clients talk to. Deliberately NOT qmd's own
+                    # 8181: the daemon binds IPv6 loopback only, hardcoded, so
+                    # the container runs it on an internal 8181 and fronts it
+                    # with a forwarder that owns this port.
+                    #
+                    # There is no per-service bind_address, on purpose. Like
+                    # every service here this one publishes on the
+                    # project-wide `deployment.bind_address` (default
+                    # 127.0.0.1), and that default is load-bearing: the
+                    # endpoint carries no token and no TLS, so an interface
+                    # other than loopback exposes the whole indexed corpus to
+                    # anything that can route to it.
+    interval: 30    # Fallback corpus-sweep period, in seconds. The bundle's
+                    # `.qmd-touch` marker is the primary re-index trigger, so
+                    # this is the ceiling on staleness, not the usual lag.
+                    # Raise it on a large corpus, where a no-op sweep is not
+                    # free.
 
 # Services to deploy with `osprey up`
 deployed_services:
   - postgresql
   - openobserve
-  # - qmd           # Uncomment together with the `qmd:` block above.
+  - qmd             # Comment out together with the `qmd:` block above.
 {% else %}
 # Attached project (deploy_services: false): this project connects to a
 # services stack another OSPREY project deployed on the same host, so it
@@ -806,14 +810,17 @@ ariel:
       model: nomic-embed-text
 
     # Hybrid keyword+semantic search answered by the qmd sidecar instead of
-    # Postgres. Unlike semantic search above it does not degrade — a query
-    # against a sidecar that is not there is reported as "search is down", on
-    # purpose, so that the agent cannot mistake an outage for "nothing
-    # matched". That is why it is off by default: turning it on means running a
-    # `services.qmd` sidecar AND enabling the `qmd_export` enhancement below,
-    # which writes the markdown mirror the sidecar indexes.
+    # Postgres — the best-ranked retrieval this project ships, and the only
+    # semantic-quality mode that needs nothing on the host (the sidecar bakes
+    # its models into its image; `semantic` above needs Ollama). Unlike
+    # semantic search it does not degrade — a query against a sidecar that is
+    # not there is reported as "search is down", on purpose, so that the agent
+    # cannot mistake an outage for "nothing matched". It depends on the
+    # `services.qmd` sidecar AND the `qmd_export` enhancement below, which
+    # writes the markdown mirror the sidecar indexes — disable all three
+    # together or not at all.
     hybrid:
-      enabled: false
+      enabled: true
       # These knobs MUST stay under `settings:`. The search-config loader keeps
       # only `enabled`, `provider`, `model` and `settings` and drops every
       # other key without a word, so a knob written as a sibling of `enabled`
@@ -851,12 +858,12 @@ ariel:
 
     # qmd export: writes one markdown file per entry into a mirror tree that
     # the qmd sidecar indexes. It is what makes `search_modules.hybrid` above
-    # able to answer, and it is off for the same reason that one is. An enabled
+    # able to answer, and it is on for the same reason that one is. An enabled
     # export with no `mirror_path` is refused at startup rather than skipped —
     # a mirror nobody writes reads as "search returns nothing", which is far
     # harder to diagnose than a config error.
     qmd_export:
-      enabled: false
+      enabled: true
       settings:
         # Resolved against the directory holding this file, like every other
         # config-relative path here (`facility_knowledge.bundle_path` follows

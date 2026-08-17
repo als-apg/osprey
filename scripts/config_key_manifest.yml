@@ -105,26 +105,19 @@ keys:
   services.postgresql.database_name: {evidence: 'database_name'}
   services.postgresql.username: {covered-by: services.postgresql}
   services.postgresql.port_host: {evidence: 'port_host'}
-  # The qmd semantic-search sidecar. `rendered: false` on all four: the schema,
-  # its defaults and its readers exist (deployment/qmd_service.py), but no
-  # shipped template carries a `services.qmd` stanza yet — the block that
-  # documents it is a separate task's file. Dispositioned ahead of that stanza
-  # so the keys cannot land unmapped, and so the reader is pinned meanwhile:
-  # every regex below anchors on qmd_service.py and matches exactly one file,
-  # so deleting the resolver fails the guard rather than rotting quietly. When
-  # the template stanza lands COMMENTED (the facility.prefix precedent) these
-  # entries need no change; if it lands LIVE, drop `rendered: false`.
+  # The qmd semantic-search sidecar, shipped LIVE in the ariel-standalone and
+  # control-assistant templates (it backs the default-on `hybrid` search mode
+  # and ranked OKF search). Every regex below anchors on qmd_service.py and
+  # matches exactly one file, so deleting the resolver fails the guard rather
+  # than rotting quietly.
   services.qmd:
-    rendered: false
     evidence: 'services\.get\("qmd"\)'
   services.qmd.path:
-    rendered: false
     evidence: 'service_config\["path"\]'
     note: >-
       Same generic compose-generator read as the openobserve/postgresql `path`
       keys — it resolves any service's fragment directory, qmd included.
   services.qmd.port:
-    rendered: false
     evidence: '_positive_int\(block\.get\("port"\)'
     note: >-
       Defaults to 8180, deliberately NOT qmd's own 8181: the daemon hardcodes
@@ -132,7 +125,6 @@ keys:
       owns the routable port. `deployment/host_ports.py` cites this key from
       the same module, so the port-conflict remedy cannot drift from it.
   services.qmd.interval:
-    rendered: false
     evidence: 'block\.get\("interval"\)'
     note: >-
       Fallback corpus-sweep period, not the freshness lag — `.qmd-touch` is the
@@ -798,7 +790,7 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 269
+  expected_union_size: 273
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on
