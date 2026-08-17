@@ -105,7 +105,7 @@ dependencies = [
     # OIDC client + JOSE (token verification) for the multi-user web-terminal
     # auth sidecar. Declared explicitly rather than relied on as fastmcp's
     # transitive dependency — the sidecar imports it directly.
-    "authlib>=1.6.5",
+    "authlib>=1.7.2",
     # Signed session cookies for the auth sidecar (login session id + unlocked-user set).
     "itsdangerous>=2.2.0",
     # Form parsing for the auth sidecar's login POST. Starlette requires this for
