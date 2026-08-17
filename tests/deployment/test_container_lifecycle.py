@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment import container_lifecycle
+from osprey.deployment.errors import UnmetPreconditionsError
 from osprey.deployment.web_terminals import postup_hooks, provision
 
 
@@ -792,14 +793,18 @@ def test_local_mode_unresolvable_persona_raises_before_any_compose_call(
     """A user referencing a persona absent from the catalog must raise via
     resolve_personas(strict=True) before build_persona_images or any compose
     call -- surfacing actionably instead of an opaque unbuilt-tag failure at
-    `compose up` (the reviewer integration note from task 3.2)."""
+    `compose up` (the reviewer integration note from task 3.2).
+
+    The collect-all pass now asks this question one step ahead of the
+    preflight that used to raise it, so the refusal arrives in the aggregate
+    frame. The persona is still named, which is the property that matters."""
     (tmp_path / ".env").write_text("FOO=bar\n", encoding="utf-8")
     config = _web_terminals_config(
         "local", users=[{"name": "alice", "index": 0, "persona": "no-such-persona"}]
     )
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
-    with pytest.raises(ValueError, match="no-such-persona"):
+    with pytest.raises(UnmetPreconditionsError, match="no-such-persona"):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     assert _mode_wiring_collab == []  # no compose subprocess ever ran
@@ -815,7 +820,13 @@ def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_
     missing one has to be refused before that sweep runs (and long before any
     compose call). A spy on verify_persona_renders (overriding the fixture's
     inert stub) proves the wiring line actually runs it -- and runs it BEFORE
-    build_persona_images, which needs the rendered context to exist."""
+    build_persona_images, which needs the rendered context to exist.
+
+    The collect-all pass asks the same render question once more, ahead of the
+    preflight, which is why the spy sees a third call. It only reads, so the
+    extra call changes nothing about the deployment -- and the preflight below
+    it still runs unchanged, which is the property the rest of this order
+    pins."""
     order: list[str] = []
     config = _web_terminals_config("local")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
@@ -842,13 +853,16 @@ def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    # The fail-fast deploy_up preflight runs the persona check +
+    # The collect-all pass reads the renders first (and nothing else -- it
+    # probes .env.users generation rather than calling ensure_env_production).
+    # The fail-fast deploy_up preflight then runs the persona check +
     # ensure_env_production once BEFORE the image-build stage, and
     # deploy_up_web_terminals re-runs the same (idempotent) pair; then exactly
     # three compose calls (the stale-container `rm -f` preflight, the web
     # `up -d`, then the advisory nginx config reload; no deployed_services, no
     # pull in local mode).
     assert order == [
+        "verify_persona_renders",
         "verify_persona_renders",
         "ensure_env_production",
         "verify_persona_renders",
@@ -1877,6 +1891,14 @@ def test_deploy_up_runs_web_terminal_preflight_before_image_build(monkeypatch, t
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    # The collect-all pass sits ahead of the preflight and probes the same
+    # config; recorded rather than answered, so this test stays about ordering
+    # and is not also asserting on the (empty) roster it declares.
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_collect_unmet_preconditions",
+        lambda *a, **k: order.append("collect"),
+    )
     monkeypatch.setattr(
         container_lifecycle,
         "preflight_web_terminals",
@@ -1896,7 +1918,7 @@ def test_deploy_up_runs_web_terminal_preflight_before_image_build(monkeypatch, t
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    assert order == ["preflight", "build_image", "web_up"]
+    assert order == ["collect", "preflight", "build_image", "web_up"]
 
 
 def test_deploy_up_no_web_terminals_skips_preflight(monkeypatch, tmp_path):

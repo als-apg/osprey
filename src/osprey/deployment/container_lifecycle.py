@@ -1673,6 +1673,69 @@ def _worker_image_target(config: dict, env: dict) -> str:
     return f"{resolve_project_name(config)}:local"
 
 
+def _project_image_build_target(config: dict, env: dict) -> str | None:
+    """The image tag :func:`_build_project_image` will build, or ``None``.
+
+    The gate in front of that build, split out so a caller can ask whether the
+    build will happen at all without running it. Two ways it does not: this
+    deployment does not deploy the dispatch worker, or the worker's effective
+    image (:func:`_worker_image_target`) is a prebuilt one rather than this
+    project's own ``<project>:local`` tag.
+
+    That question is the difference between a definite refusal and a
+    hypothetical one for anything the build itself would raise. The
+    unreleased-pin refusal is the case in point: it is a fact about a build that
+    is going to happen, and reporting it for a deployment that builds nothing
+    would send the operator to fix something that was never going to run.
+
+    :param config: Raw deploy config.
+    :param env: Environment the build would run with, read for
+        ``OSPREY_WORKER_IMAGE``.
+    :return: The ``<project>:local`` tag, or ``None`` when nothing is built.
+    """
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    if "dispatch_worker" not in services:
+        return None
+    project_image = f"{resolve_project_name(config)}:local"
+    if _worker_image_target(config, env) != project_image:
+        return None
+    return project_image
+
+
+def _unreleased_pin_problem(config: dict, env: dict, dev_mode: bool) -> tuple[str, str] | None:
+    """Whether the project-image build would refuse over an unreleased pin.
+
+    :func:`_resolve_pip_spec` asked as a question, behind
+    :func:`_project_image_build_target` so it is only asked about a build this
+    deployment will actually make.
+
+    Only the DEFINITE case is reported. Under ``--dev`` the spec is inert when a
+    wheel is staged and live when the staging fails, and which of those happens
+    is not knowable from here — so a ``--dev`` start is left to the build's own
+    refusal rather than pre-judged, which would refuse the very workflow the
+    error recommends. An ``OSPREY_PIP_SPEC`` export answers the question outright
+    and is honoured here exactly as the build honours it.
+
+    Pure: it reads the process environment and this build's version metadata.
+
+    :param config: Raw deploy config.
+    :param env: Environment the build would run with.
+    :param dev_mode: Whether ``--dev`` was passed.
+    :return: The refusal as a ``(problem, remedy)`` pair — the one probed
+        refusal that already carries its two halves apart, so the collected
+        report can keep them apart too — or ``None``.
+    """
+    if dev_mode or _project_image_build_target(config, env) is None:
+        return None
+    from osprey.deployment.errors import UnreleasedVersionPinError
+
+    try:
+        _resolve_pip_spec(dev_mode=False)
+    except UnreleasedVersionPinError as exc:
+        return (f"{exc.summary}: {exc.reason}", exc.remedy)
+    return None
+
+
 def _project_image_build_cmd(
     config: dict, runtime: str, project_root: str, dev_mode: bool = False
 ) -> list[str]:
@@ -1757,17 +1820,19 @@ def _build_project_image(
         an image whose every recorded path — ``project_root``, and the
         ``OSPREY_CONFIG`` each MCP server is handed — names this machine.
     """
-    services = {str(s) for s in (config.get("deployed_services") or [])}
-    if "dispatch_worker" not in services:
-        return
-
-    target = _worker_image_target(config, env)
-    project_image = f"{resolve_project_name(config)}:local"
-    if target != project_image:
-        _report_fact(
-            f"Dispatch worker uses image {target!r} (OSPREY_WORKER_IMAGE / pinned "
-            f"services.dispatch_worker.image). Skipping the {project_image} build."
-        )
+    project_image = _project_image_build_target(config, env)
+    if project_image is None:
+        # Only ONE of the two no-op cases is worth a line. A deployment without
+        # the dispatch worker was never going to build this image and has
+        # nothing to explain; a deployment that has the worker but points it at
+        # another image took a decision the operator should see reflected back.
+        services = {str(s) for s in (config.get("deployed_services") or [])}
+        if "dispatch_worker" in services:
+            _report_fact(
+                f"Dispatch worker uses image {_worker_image_target(config, env)!r} "
+                f"(OSPREY_WORKER_IMAGE / pinned services.dispatch_worker.image). "
+                f"Skipping the {resolve_project_name(config)}:local build."
+            )
         return
 
     runtime = get_runtime_command(config)[0]
@@ -3479,6 +3544,57 @@ def single_image_build_reporter(image_tag: str) -> BuildProgressReporter:
     return BuildProgressReporter(image_tag, step_prefix=None)
 
 
+def _collect_unmet_preconditions(
+    config: dict,
+    repo_root: Path | str,
+    env: dict,
+    *,
+    dev_mode: bool,
+    web_terminals_enabled: bool,
+) -> None:
+    """Probe every cheaply checkable start precondition, and report them all.
+
+    A start has several preconditions that are answerable from this
+    deployment's own files, before anything is built or started. Raised one at a
+    time, they cost the operator a whole deploy attempt per finding: refuse on
+    the first, fix it, re-run, wait, meet the second. This asks all of them and
+    raises once, so a deployment with four problems is described in one refusal.
+
+    Every probe is pure — it reads files and this build's version metadata,
+    writes nothing, starts no process, and asks the container runtime nothing.
+    That is not a stylistic preference at this position in the sequence: the
+    steps around it provision credentials and are ordered against each other, so
+    a probe with a side effect would silently be a step in that order.
+
+    The refusals stay where they are. Each probe's raising counterpart runs
+    later, unchanged, and would refuse the same start on its own — this is a
+    reporting pass in front of them, not a replacement for them.
+
+    Args:
+        config: Raw deploy config.
+        repo_root: The deployment repo whose renders and secret files are read.
+        env: The environment the project-image build would run with.
+        dev_mode: Whether ``--dev`` was passed.
+        web_terminals_enabled: Whether the web tier is part of this deploy;
+            three of the probes are about artifacts only it has.
+
+    Raises:
+        UnmetPreconditionsError: One or more probes reported a problem. Nothing
+            has been built or started.
+    """
+    from osprey.deployment.errors import UnmetPreconditionsError
+    from osprey.deployment.web_terminals.provision import web_terminal_preflight_problems
+
+    findings: list[tuple[str, str]] = []
+    if web_terminals_enabled:
+        findings.extend(web_terminal_preflight_problems(config, repo_root=repo_root))
+    if (pin := _unreleased_pin_problem(config, env, dev_mode)) is not None:
+        findings.append(pin)
+
+    if findings:
+        raise UnmetPreconditionsError(findings)
+
+
 def _start_stack(
     config: dict,
     compose_files: list[str],
@@ -3663,6 +3779,42 @@ def _start_stack(
     if dev_mode:
         env["DEV_MODE"] = "true"
         _report_fact("dev mode: DEV_MODE set for the containers")
+
+    # Report every remaining precondition this deployment's own files can
+    # answer, in one refusal rather than one deploy attempt each. The position
+    # is pinned from both sides.
+    #
+    # Above: it must follow every provisioner that WRITES what the probes read,
+    # or it would refuse what the deploy is about to provide. Two of those are
+    # load-bearing here — `_ensure_service_tokens` and the bluesky key material
+    # mint `.env` on a fresh repo (a deploy that has no `.env` at all has one by
+    # now), and `migrate_users_env` carries a pre-rename `.env.production` onto
+    # `.env.users`, whose own comment names the web-terminal preflight as that
+    # file's first reader. This pass now reads it one step earlier, so it
+    # inherits the same constraint.
+    #
+    # Below: it must precede the first minutes-long step, which is the project
+    # image build. Reporting in seconds is the whole point.
+    #
+    # Deliberately OUTSIDE the pass, and left to raise on their own:
+    #  * everything `_ensure_service_tokens` refuses upstream — the
+    #    forbidden-published-default credential and the `expose_network`
+    #    empty-token raise — because that step MINTS. It cannot be probed
+    #    without either duplicating the mint's rules or moving the mint, and it
+    #    has already run by the time control reaches here.
+    #  * the `--dev` failed-staging case. Whether a wheel stages is not knowable
+    #    without staging it, and the staging is paired with its cleanup inside
+    #    `_build_project_image`'s try/finally — hoisting it out to get a definite
+    #    answer would leave a staged wheel behind on a refusal.
+    #  * `preflight_web_terminals`' minting half (`_provision_auth_secrets`) and
+    #    the auth-sidecar image check ordered against it, for the same reason.
+    _collect_unmet_preconditions(
+        config,
+        repo_root,
+        env,
+        dev_mode=dev_mode,
+        web_terminals_enabled=web_terminals_enabled,
+    )
 
     # Fail-fast web-terminal preflight (persona render + credential gate)
     # BEFORE the minutes-long image build below: a deploy that is doomed to
