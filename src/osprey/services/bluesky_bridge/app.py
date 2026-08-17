@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import io
 import json
 import logging
 import os
@@ -30,8 +31,9 @@ import re
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager, suppress
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from pydantic import ValidationError
 
 from . import analysis, document_plane, draft, figure_cache, live_rows, queue, runs
@@ -1635,6 +1637,291 @@ def get_run_data(
         return tiled_result
 
     raise HTTPException(status_code=404, detail=f"unknown run {run_id!r}")
+
+
+# ---------------------------------------------------------------------------
+# Run export
+# ---------------------------------------------------------------------------
+
+# The formats `GET /runs/{id}/export` offers, each mapped to the media type
+# Tiled's own format GET is asked for. Both were verified against the pinned
+# server image (`ghcr.io/bluesky/tiled:0.2.12`, the tag the compose template
+# pins) rather than read off Tiled's serializer registry: the registry lists
+# what the library *can* register, and the image's table family registers
+# several entries — `application/x-hdf5` among them — whose GET answers 500.
+# `application/json` and `application/json-seq` are registered and answer for a
+# scalar-only table but 500 for one carrying a list-valued column, which any
+# run with a waveform signal has. So this map holds only what the image serves
+# for every table a run can produce: one text format and one binary one.
+#
+# Keys are the short aliases a caller passes as `?format=`; a media type is
+# never accepted on the wire, so the set of answers this route can give is the
+# set of keys here and cannot drift with whatever the server happens to
+# register.
+_EXPORT_FORMATS = {
+    "csv": "text/csv",
+    "parquet": "application/x-parquet",
+}
+
+# Why an export could not be produced. Same `{"code", "detail"}` refusal body
+# every other refusal on this app uses (`queue.py`, `_use_the_queue`), so a
+# caller branches on `detail.code` here exactly as it does there.
+EXPORT_REASON_UNSUPPORTED_FORMAT = "unsupported_format"
+EXPORT_REASON_TILED_UNAVAILABLE = "tiled_unavailable"
+EXPORT_REASON_UNKNOWN_RUN = "unknown_run"
+EXPORT_REASON_NOTHING_STORED = "nothing_stored"
+EXPORT_REASON_AMBIGUOUS_TABLE = "ambiguous_table"
+EXPORT_REASON_EXPORT_FAILED = "export_failed"
+
+
+def _export_refused(status: int, code: str, detail: str) -> HTTPException:
+    """The refusal an export answers with — always a body, never a bare status.
+
+    A download route that fails has to say *why* in something a caller can
+    branch on: the response body is the only place left, because the bytes it
+    would otherwise be carrying are what is missing.
+    """
+    return HTTPException(status_code=status, detail={"code": code, "detail": detail})
+
+
+# Everything a run id may contribute to a download filename. Deliberately a
+# tiny allowlist rather than a blocklist of the characters that are known to
+# hurt: the quoted-string form of `Content-Disposition` gives a `"` the power to
+# close the parameter and start another, a bare CR or LF the power to end the
+# header, and any byte outside latin-1 the power to raise inside the ASGI
+# server's header encoder — and a blocklist is only ever as complete as the list
+# of tricks its author had heard of.
+_FILENAME_UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _content_disposition(run_id: str, extension: str) -> str:
+    """The download header for one run's export, built from a SANITIZED run id.
+
+    The filename is a derivative of the run id, never the run id: every
+    character outside ``[A-Za-z0-9._-]`` becomes an underscore before it reaches
+    the header. `extension` needs no such treatment — it is only ever a key of
+    `_EXPORT_FORMATS`, checked before this is called.
+
+    OSPREY mints run ids as ``uuid4().hex`` (`queue.py`), which the allowlist
+    passes through untouched, so this changes nothing for a run this deployment
+    enqueued. It is written anyway because the catalog is SHARED infrastructure:
+    anything else writing through `TiledWriter` — a facility script, a migration,
+    a second tool — can stamp an arbitrary string as ``osprey_run_id``, and the
+    moment one does, the id is untrusted input on its way into a response header.
+    Safety that depends on an invariant held in another module is safety that
+    lasts exactly until someone else writes to the same catalog, so the check
+    lives here, at the point of use, where the dependency is visible.
+
+    The RFC 5987 ``filename*`` form carries the id percent-encoded alongside the
+    sanitized one, so a client that understands it saves the true id and one that
+    does not still gets a valid, unambiguous name. Order matters: ``filename``
+    comes first, because RFC 6266 has clients prefer ``filename*`` when both are
+    present and the plain one is the fallback.
+    """
+    safe = _FILENAME_UNSAFE.sub("_", run_id)
+    encoded = quote(f"{run_id}.{extension}", safe="")
+    return f"attachment; filename=\"{safe}.{extension}\"; filename*=UTF-8''{encoded}"
+
+
+def _resolve_stored_tables(run_id: str) -> list[Any]:
+    """`_stored_table_node`'s catalog work: every read, none of the guarding.
+
+    Split out so the guard around it can be one ``try`` over the whole
+    resolution rather than a wrapper per call. Each step here reaches the
+    catalog — building the client performs a handshake GET, the search is a
+    query, and membership and part iteration both resolve against the server —
+    so any of them can raise for a reason that has nothing to do with this run.
+    Which of those raised is not a distinction a caller can act on; that
+    judgement belongs to the caller of this function, which is why it makes
+    none itself.
+
+    The two ``None``/``not in`` refusals raised here are the opposite case:
+    facts about the catalog's contents, learned by asking successfully.
+
+    What comes back is every table-family part of the stream, in container
+    order — not the one to export. `TiledWriter` writes exactly one of them
+    (``internal``); naming the family rather than that key keeps the export
+    reading whatever part actually holds the rows, exactly as
+    `_row_part_columns` does on the read path. Deciding what a list of zero,
+    one, or several means is `_stored_table_node`'s, not this function's.
+    """
+    client = _tiled_client()
+    if client is None:
+        raise _export_refused(
+            503,
+            EXPORT_REASON_TILED_UNAVAILABLE,
+            "No Tiled catalog is configured for this deployment, so no run has "
+            "stored data to export.",
+        )
+
+    run_node = _newest_run_node(client, run_id)
+    if run_node is None:
+        raise _export_refused(
+            404, EXPORT_REASON_UNKNOWN_RUN, f"No run in the catalog matches {run_id!r}."
+        )
+
+    if "primary" not in run_node:
+        raise _export_refused(
+            409,
+            EXPORT_REASON_NOTHING_STORED,
+            f"Run {run_id!r} recorded no data — it has no 'primary' stream to export.",
+        )
+
+    return [
+        part for _name, part in run_node["primary"].base.items() if part.structure_family == "table"
+    ]
+
+
+def _stored_table_node(run_id: str) -> Any:
+    """The catalog node holding *run_id*'s stored rows. Raises a refusal, never a 500.
+
+    Two kinds of failure, told apart because a caller acts on them differently:
+
+    **The catalog answered, and its answer was "no".** No catalog configured, no
+    run under that id, a run whose ``primary`` stream never landed, a stream with
+    no table part — each a named refusal raised here or by
+    `_resolve_stored_tables` and passed straight through.
+
+    **The catalog did not answer at all.** Every line of the resolution reaches
+    the Tiled server over the network — `from_uri` performs a handshake GET, the
+    search is a query, and membership and part iteration both resolve against
+    it — so a catalog that is configured but down, restarting, behind a rotated
+    key, or simply slow raises from any of them. That is an ordinary operational
+    state, not an exotic one, and it becomes 503 `tiled_unavailable` with the
+    cause logged. The alternative is what this guard replaced: an unbranchable
+    500 with a bare ``Internal Server Error`` body, on a route whose whole
+    contract is that a caller can branch on ``detail.code``.
+
+    503 rather than 502 for the outage, deliberately: 502 `export_failed` means
+    "the catalog was reached and could not serialize this run", and collapsing
+    the two would cost a caller the difference between "retry later" and "this
+    run will never export". The figure route draws the same line one route over,
+    wrapping `_tiled_run_snapshot` for exactly this reason.
+
+    Only a table part is ever exported, never the run or the stream container:
+    the pinned image's container family serves `application/json` alone, so a
+    container-level format GET for CSV or parquet answers 406.
+
+    Several table parts are refused rather than picked between, under their own
+    `ambiguous_table` code — a caller told `nothing_stored` would act on the
+    opposite of what happened, and this route's whole contract is that
+    ``detail.code`` is branchable. `TiledWriter` writes one, so this cannot
+    happen today — but the read path concatenates every table part's columns
+    (`_row_part_columns`) while an export can serialize only one node, so
+    silently taking the first would make the export a partial archive with
+    nothing to say so, on the one route whose entire promise is completeness. A
+    loud refusal on the day the assumption breaks is the point.
+    """
+    try:
+        tables = _resolve_stored_tables(run_id)
+    except HTTPException:
+        # A refusal `_resolve_stored_tables` already named — the catalog answered.
+        raise
+    except Exception as exc:
+        logger.warning(
+            "export: the Tiled catalog could not be read for run %r", run_id, exc_info=True
+        )
+        raise _export_refused(
+            503,
+            EXPORT_REASON_TILED_UNAVAILABLE,
+            f"The Tiled catalog could not be reached to look up this run: {exc}",
+        ) from exc
+
+    if not tables:
+        raise _export_refused(
+            409,
+            EXPORT_REASON_NOTHING_STORED,
+            f"Run {run_id!r} stored no row table, so there is nothing to serialize.",
+        )
+    if len(tables) > 1:
+        raise _export_refused(
+            409,
+            EXPORT_REASON_AMBIGUOUS_TABLE,
+            f"Run {run_id!r} stored {len(tables)} row tables; an export serializes one "
+            "node, and serving part of an archive without saying so is not an option.",
+        )
+    return tables[0]
+
+
+@app.get("/runs/{run_id}/export")
+def export_run_data(run_id: str, format: str = "csv") -> Response:
+    """Download one stored run's rows as a file. Serialized by Tiled, not here.
+
+    The bytes come from the catalog's own format GET — this route resolves which
+    node holds the run's rows, asks Tiled to serialize it, and relays the result.
+    Nothing about the file's contents is decided in this process: no reformatting,
+    no row limit, no column filter. A caller that wants the parsed, bounded,
+    live-comparable view of a run reads `GET /runs/{id}/data`; this route is for
+    getting the recorded run *out*, whole, into a tool that reads files.
+
+    Two consequences of that division are worth stating, because they are the
+    two ways this answer legitimately differs from the data route's:
+
+    - **Every stored column is present**, including `seq_num`, `time`, and the
+      per-signal `ts_*` timestamps that `_data_columns` projects away. Those
+      columns exist in the archive and an export is the archive.
+    - **Non-scalar signals survive.** A waveform is stored as a list-valued
+      column, and Tiled serializes it — as a bracketed cell in CSV, as a native
+      list column in parquet.
+
+    ``format`` is a short alias, ``csv`` or ``parquet`` — the two the pinned
+    server image serves for every table a run can produce (see
+    `_EXPORT_FORMATS`). Anything else is refused by name rather than passed
+    through, so an unsupported request is answered by this process with the list
+    of what works instead of by the catalog with a 406.
+
+    Total by construction, like the data and figure routes: every failure is a
+    ``{"code", "detail"}`` body under a status that says which kind it is —
+    400 `unsupported_format`, 404 `unknown_run`, 409 `nothing_stored`,
+    409 `ambiguous_table`, 503 `tiled_unavailable`, 502 `export_failed`. The two
+    409s are told apart because a caller acts on them differently — nothing to
+    serialize versus more than one thing. The two network ones split the
+    catalog's failures where a caller can act on the difference: 503 is "could
+    not be reached at all, retry later" (`_stored_table_node` owns it, for the
+    whole resolution), 502 is "was reached and could not serialize this run",
+    which retrying will not fix. Both are catch-alls over an exception the
+    catalog raised, because it is a separate process over a network and the ways
+    that call can fail are not this module's to enumerate.
+
+    Serving is unbounded by design and the payload is held in memory — more than
+    once at peak, not once: Tiled's client reads the whole response body into
+    `bytes` before writing it into this route's buffer, and the buffer is copied
+    again on the way into the response. Roughly three times the file, briefly.
+    That is affordable because a run is a scan, not a stream — the same bound the
+    rest of this module relies on — but the multiplier is what to size against,
+    not the file.
+
+    ``tiled`` and its Bluesky client plugin stay imported below the routes
+    (`_tiled_client`, `_newest_run_node`), so this route adds nothing to the
+    module's import closure (`_BRIDGE_ONLY_MODULES`).
+    """
+    media_type = _EXPORT_FORMATS.get(format)
+    if media_type is None:
+        raise _export_refused(
+            400,
+            EXPORT_REASON_UNSUPPORTED_FORMAT,
+            f"{format!r} is not an export format; this bridge serves "
+            f"{', '.join(sorted(_EXPORT_FORMATS))}.",
+        )
+
+    node = _stored_table_node(run_id)
+
+    buffer = io.BytesIO()
+    try:
+        node.export(buffer, format=media_type)
+    except Exception as exc:
+        logger.warning("export: serializing run %r as %s failed", run_id, format, exc_info=True)
+        raise _export_refused(
+            502,
+            EXPORT_REASON_EXPORT_FAILED,
+            f"The Tiled catalog could not serialize this run as {format}: {exc}",
+        ) from exc
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type=media_type,
+        headers={"Content-Disposition": _content_disposition(run_id, format)},
+    )
 
 
 # ---------------------------------------------------------------------------
