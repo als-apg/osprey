@@ -241,7 +241,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
     }
 
     token = _orm_stack.minted_launch_token(deployed_grid_scan_stack.repo)
-    run_id, status_body = _queue_drive.run_scan(
+    run_id, status_body = _queue_drive.run_plan(
         BRIDGE_URL,
         "grid_scan",
         plan_args,
