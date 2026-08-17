@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 16, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
   </head>
   
   
@@ -489,30 +489,35 @@
                   
   <section id="search-modes">
 <h1>Search Modes<a class="headerlink" href="#search-modes" title="Link to this heading">#</a></h1>
-<p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy against the logbook database. The framework ships two modules out of the box: keyword full-text search and embedding-based semantic similarity. At query time, the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> routes each request to the requested module. All modes share the same underlying <a class="reference internal" href="data-ingestion.html#database"><span class="std std-ref">database</span></a> and produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the Osprey agent layer, which calls these search modules through ARIEL’s MCP tools. A raw <code class="docutils literal notranslate"><span class="pre">sql_query</span></code> MCP tool is also available for direct database access by power users and the agent.</p>
-<p>Search modules are discovered through Osprey’s central registry, so you can register your own and have it surface in the web interface’s capabilities API without modifying any framework code. A custom search module only needs to export a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function. Once registered and enabled, it is discovered through the registry and surfaced in the web interface’s capabilities API. Exposing it as an MCP tool the Osprey agent can call additionally requires adding a matching ARIEL MCP tool and <code class="docutils literal notranslate"><span class="pre">SearchMode</span></code> routing (contributions welcome).</p>
+<p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and <code class="docutils literal notranslate"><span class="pre">qmd</span></code>, a hybrid of the two answered by a separate search sidecar container. All three produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the Osprey agent layer, which calls these search modules through ARIEL’s MCP tools.</p>
+<p><strong>Dispatch is registry-driven.</strong> A search request names a mode as a plain string — <code class="docutils literal notranslate"><span class="pre">&quot;keyword&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;semantic&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;qmd&quot;</span></code>. The <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> looks that name up in Osprey’s central registry and calls the module’s own <code class="docutils literal notranslate"><span class="pre">execute</span></code>; it carries no per-mode branch of its own. The registry is the only source of routable modes, so the service, the web interface’s capabilities API and the agent’s MCP tools cannot disagree about which modes exist, and adding a module needs no change to the service.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">sql_query</span></code> is a <strong>tool, not a search mode.</strong> It runs read-only SQL against the same database, which is precision filtering — exact matches, exhaustive date and author ranges, counts — not ranked retrieval. It has no relevance score to merge with the others, so it is exposed only as its own MCP tool and never appears as a <code class="docutils literal notranslate"><span class="pre">--mode</span></code> value.</p>
+</div>
 <section id="search-architecture">
 <h2>Search Architecture<a class="headerlink" href="#search-architecture" title="Link to this heading">#</a></h2>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>User Query
     ↓
-ARIELSearchService.search(mode=...)
-    ├── KEYWORD  (default) → keyword_search()  → ranked entries
-    └── SEMANTIC           → semantic_search() → ranked entries
+ARIELSearchService.search(mode=&quot;keyword&quot; | &quot;semantic&quot; | &quot;qmd&quot; | ...)
+    ↓
+registry lookup  →  that module&#39;s execute()
     ↓
 ARIELSearchResult (entries, search_modes_used)
 </pre></div>
 </div>
-<p>The service validates that the requested mode is enabled in configuration before routing. Both keyword and semantic are direct function calls and return an <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code> with entries and the search mode that was invoked. (A separate <code class="docutils literal notranslate"><span class="pre">sql_query</span></code> MCP tool exposes raw read-only SQL against the same database; it is not routed through <code class="docutils literal notranslate"><span class="pre">search(mode=...)</span></code>.)</p>
+<p>The service refuses a mode that is not registered, or is registered but disabled in configuration, rather than quietly falling back to another one.</p>
 <p><strong>CLI usage:</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w">                  </span><span class="c1"># default: keyword</span>
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>keyword
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>semantic
+osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>qmd
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> option accepts <code class="docutils literal notranslate"><span class="pre">keyword</span></code> (default) or <code class="docutils literal notranslate"><span class="pre">semantic</span></code>.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> choices are read from the registry when the command runs, so a facility that registers its own search module gets it as a choice — and in <code class="docutils literal notranslate"><span class="pre">--help</span></code> — without any code change.</p>
 <section id="search-modules">
 <h3>Search Modules<a class="headerlink" href="#search-modules" title="Link to this heading">#</a></h3>
-<p>Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL’s capabilities API; the built-in keyword and semantic modules are exposed to the Osprey agent through dedicated ARIEL MCP tools. The framework ships with the following built-in search modules:</p>
+<p>Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL’s capabilities API; each built-in module is exposed to the Osprey agent through its own ARIEL MCP tool (<code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code>, <code class="docutils literal notranslate"><span class="pre">qmd_search</span></code>). The framework ships with the following built-in search modules:</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
@@ -597,6 +602,70 @@ Semantic Search</label><div class="sd-tab-content docutils">
 </div>
 <p><strong>Requirements:</strong> Ollama (or another embedding provider) running with the configured model, embedding table populated via the <code class="docutils literal notranslate"><span class="pre">text_embedding</span></code> <a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a>, and the pgvector extension installed in PostgreSQL.</p>
 </div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+qmd (Hybrid)</label><div class="sd-tab-content docutils">
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">search/qmd.py</span></code></p>
+<p>Hybrid keyword-plus-semantic search, answered by the <strong>qmd search sidecar</strong> — a separate container that indexes a markdown mirror of the logbook and returns one merged ranking. Best when a question mixes specific terms with a described situation, or when keyword search returned too little.</p>
+<p>Unlike the other two modes, <code class="docutils literal notranslate"><span class="pre">qmd</span></code> does not search PostgreSQL. It needs two things running together:</p>
+<ol class="arabic simple">
+<li><p>the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar (see <a class="reference internal" href="../deploy-project.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>), and</p></li>
+<li><p>the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> <a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a>, which writes the markdown mirror the sidecar indexes.</p></li>
+</ol>
+<p>Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. Both are off by default.</p>
+<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as <em>search is down</em>, deliberately, so that the agent cannot read an outage as “nothing matched”.</p>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">search_modules</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">qmd</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">rerank</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># default</span>
+<span class="w">        </span><span class="nt">candidate_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">40</span><span class="w">   </span><span class="c1"># default</span>
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The knobs <strong>must</strong> stay under <code class="docutils literal notranslate"><span class="pre">settings:</span></code>. ARIEL’s search-config loader keeps only <code class="docutils literal notranslate"><span class="pre">enabled</span></code>, <code class="docutils literal notranslate"><span class="pre">provider</span></code>, <code class="docutils literal notranslate"><span class="pre">model</span></code> and <code class="docutils literal notranslate"><span class="pre">settings</span></code>, and drops every other key without a word. A knob written as a sibling of <code class="docutils literal notranslate"><span class="pre">enabled</span></code> is inert forever — no error, no warning, just the defaults.</p>
+</div>
+<p><strong>The rerank decision.</strong> <code class="docutils literal notranslate"><span class="pre">rerank</span></code> turns on qmd’s LLM reranker, which reorders candidates for quality. It is the single most important knob here, because it is the dominant latency term. Measured against a 134,996-entry logbook:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 40.0%" />
+<col style="width: 30.0%" />
+<col style="width: 30.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Corpus</p></th>
+<th class="head"><p>p95, <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">false</span></code></p></th>
+<th class="head"><p>p95, <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">true</span></code></p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>135,000 entries</p></td>
+<td><p>811 ms</p></td>
+<td><p>3927 ms</p></td>
+</tr>
+<tr class="row-odd"><td><p>2,000 entries</p></td>
+<td><p>–</p></td>
+<td><p>1587 ms</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Reranking costs roughly <strong>4x</strong> the query budget, and its cost barely grows with corpus size — so no logbook is small enough to outrun it. <code class="docutils literal notranslate"><span class="pre">qmd_search</span></code> is an agent tool with no interactive budget to protect, so it ships with the quality path on. Set <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">false</span></code> for the fast path. (The OKF bundle, which backs an interactive panel, defaults the other way; see <a class="reference internal" href="../okf-bundle.html"><span class="doc">The OKF Bundle</span></a>.)</p>
+<p><code class="docutils literal notranslate"><span class="pre">candidate_limit</span></code> is how many candidates the reranker considers. Lowering it trades recall for latency.</p>
+<p><strong>Filtering is best-effort.</strong> <code class="docutils literal notranslate"><span class="pre">qmd_search</span></code> ranks the corpus first and applies the date, author and source filters <em>afterwards</em>, to the top of that ranking — not inside the database. A selective filter can therefore return fewer entries than you asked for even when more matching entries exist. Read a short result set as “the ranked window ran out”, not as “there is nothing else”. When a filter has to be exhaustive, use <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> or <code class="docutils literal notranslate"><span class="pre">sql_query</span></code>, which filter in the database.</p>
+<div class="warning admonition">
+<p class="admonition-title">Known limitation — the first reranked query times out</p>
+<p>The first query with <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">true</span></code> loads a 610 MB model on CPU, and that load exceeds the client’s default timeout. A deployment that enables reranking gets a hard failure on its <strong>first</strong> query; subsequent queries are fine. Run one throwaway query after starting the sidecar, or start with <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">false</span></code>.</p>
+</div>
+<div class="note admonition">
+<p class="admonition-title">Known limitation — entry IDs that are not numeric</p>
+<p>qmd normalises the document paths it reports: <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">%</span></code> both become <code class="docutils literal notranslate"><span class="pre">-</span></code>, runs collapse, and a leading one is dropped. ARIEL rehydrates each hit from the document’s title rather than the reported path, so the entries you get back are correct. But two entry IDs that differ <em>only</em> in characters qmd collapses — <code class="docutils literal notranslate"><span class="pre">beam_current_setpoint</span></code> and <code class="docutils literal notranslate"><span class="pre">beam-current-setpoint</span></code>, say — index as one document, and one of them becomes unreachable through this mode.</p>
+<p>Over the real 134,996-entry ALS logbook the measured collision rate is <strong>0.0000%</strong>: every ALS entry ID is a 4-6 digit decimal string, so no real pair can collide. This matters only for a facility whose entry IDs are not numeric.</p>
+</div>
+</div>
 </div>
 <p><strong>Registering a custom search module:</strong></p>
 <p>To add your own search module, create a Python module that exports <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> (and optionally <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code>), then register it through your application’s registry configuration:</p>
@@ -614,13 +683,27 @@ Semantic Search</label><div class="sd-tab-content docutils">
 <span class="p">)</span>
 </pre></div>
 </div>
-<p>Once registered and enabled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">search_modules.my_search.enabled:</span> <span class="pre">true</span></code>), the module is automatically surfaced as a search option in the web interface’s capabilities API. Making it callable by the Osprey agent additionally requires a matching ARIEL MCP tool and <code class="docutils literal notranslate"><span class="pre">SearchMode</span></code> routing in <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> (contributions welcome). The <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function must return a <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code>:</p>
+<p>Once registered and enabled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">search_modules.my_search.enabled:</span> <span class="pre">true</span></code>), the module is routable by name — through <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">search</span> <span class="pre">--mode</span> <span class="pre">my_search</span></code> and through the web interface’s capabilities API — with no change to <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code>. Making it callable by the Osprey agent additionally requires a matching ARIEL MCP tool (contributions welcome). The <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function must return a <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code>, whose <code class="docutils literal notranslate"><span class="pre">search_mode</span></code> field is simply the registered module name:</p>
 <p><code class="xref py py-class docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code> — a frozen dataclass whose key fields are <code class="docutils literal notranslate"><span class="pre">execute</span></code> (the async search function), <code class="docutils literal notranslate"><span class="pre">format_result</span></code> (formats results for agent consumption), and <code class="docutils literal notranslate"><span class="pre">args_schema</span></code> (a Pydantic model for input validation). See the class definition in the source for the full field list.</p>
 <p>Modules may also export <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code> to declare tunable parameters for the frontend capabilities API. Each <code class="xref py py-class docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code> describes a single knob — its name, type, default, range, and UI grouping — so the web interface can render controls dynamically.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Collaboration Welcome</p>
 <p>If you implement a search module that could benefit other facilities — for example, a structured-metadata search, a time-series correlation search, or a cross-entry linking search — we encourage you to open a pull request so it becomes natively available in Osprey.</p>
 </div>
+</section>
+<section id="the-semantic-mode-s-planned-retirement">
+<span id="semantic-mode-retirement"></span><h3>The Semantic Mode’s Planned Retirement<a class="headerlink" href="#the-semantic-mode-s-planned-retirement" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> covers what <code class="docutils literal notranslate"><span class="pre">semantic</span></code> covers and more: it is hybrid rather than
+vector-only, it needs no embedding provider and no pgvector extension, and it
+keeps its index in its own container instead of in the logbook database. The
+plan is therefore to retire the semantic leg once <code class="docutils literal notranslate"><span class="pre">qmd</span></code> has been through a
+burn-in comparison against it in production.</p>
+<p>Nothing has been removed and no date has been set. <code class="docutils literal notranslate"><span class="pre">semantic</span></code> is fully
+supported in this release, and the burn-in is the gate — if it does not show
+<code class="docutils literal notranslate"><span class="pre">qmd</span></code> matching or beating <code class="docutils literal notranslate"><span class="pre">semantic</span></code> on real queries, the semantic leg
+stays. Treat this as a direction to plan for, not a deprecation to act on: keep
+<code class="docutils literal notranslate"><span class="pre">semantic</span></code> configured if you use it, and read the release notes before
+assuming otherwise.</p>
 <p>Need behavior beyond these search modules — multi-step reasoning, answer
 synthesis, custom prompting? That lives in the Osprey agent layer; see
 <a class="reference internal" href="osprey-integration.html"><span class="doc">Osprey Integration</span></a> under “Extending the integration.”</p>
@@ -688,6 +771,7 @@ synthesis, custom prompting? That lives in the Osprey agent layer; see
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#search-architecture">Search Architecture</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#search-modules">Search Modules</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-semantic-mode-s-planned-retirement">The Semantic Mode’s Planned Retirement</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
 </ul>
 </li>

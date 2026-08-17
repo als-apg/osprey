@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 16, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
   </head>
   
   
@@ -857,11 +857,190 @@ default:</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code></p></td>
 </tr>
+<tr class="row-even"><td><p>qmd</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_QMD_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.qmd.image</span></code></p></td>
+</tr>
 </tbody>
 </table>
 </div>
 <p>Point either layer at an internal registry mirror or a pinned digest when
 your deployment host cannot (or should not) pull public images.</p>
+</section>
+<section id="the-search-sidecar-qmd">
+<span id="qmd-search-sidecar"></span><h2>The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)<a class="headerlink" href="#the-search-sidecar-qmd" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">qmd</span></code> is an optional service that indexes the deployment’s <strong>markdown
+corpora</strong> and answers hybrid keyword-plus-semantic queries over HTTP. Two parts
+of OSPREY use it:</p>
+<ul class="simple">
+<li><p>the <a class="reference internal" href="okf-bundle.html"><span class="doc">facility-knowledge (OKF) bundle</span></a> — its panel and its
+MCP <code class="docutils literal notranslate"><span class="pre">search</span></code> tool;</p></li>
+<li><p>ARIEL’s logbook mirror — the <code class="docutils literal notranslate"><span class="pre">qmd</span></code> <a class="reference internal" href="ariel/search-modes.html"><span class="doc">search mode</span></a>
+and the <code class="docutils literal notranslate"><span class="pre">qmd_search</span></code> MCP tool.</p></li>
+</ul>
+<p>Neither needs it. Both fall back or report an outage without it, so a
+deployment that does not want a second index simply leaves it off, which is the
+default.</p>
+<section id="turning-it-on">
+<h3>Turning it on<a class="headerlink" href="#turning-it-on" title="Link to this heading">#</a></h3>
+<p>Three steps, not one. The templates ship the config block commented out for
+exactly this reason.</p>
+<ol class="arabic simple">
+<li><p><strong>Uncomment the block</strong> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — both the <code class="docutils literal notranslate"><span class="pre">qmd:</span></code> entry under
+<code class="docutils literal notranslate"><span class="pre">services:</span></code> and the <code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">qmd</span></code> line under <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code>. The
+<code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> and <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> templates ship both, commented.</p></li>
+<li><p><strong>Build the image.</strong> It is built locally, never pulled. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+renders <code class="docutils literal notranslate"><span class="pre">./services/qmd</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds the image on first run and
+tags it <code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-qmd:local</span></code>, project-prefixed so two OSPREY projects on
+one host cannot race for one tag. The image bakes in the qmd CLI and its
+language models (about 2.1 GB) so a cold container never reaches out to the
+internet.</p></li>
+<li><p><strong>Enable a consumer.</strong> For ARIEL that means the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> enhancement
+module <em>and</em> the <code class="docutils literal notranslate"><span class="pre">qmd</span></code> search mode; the OKF bundle needs only
+<code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code>, which it already has. A sidecar with no
+consumer is a container nobody queries.</p></li>
+</ol>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">qmd</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/qmd</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8180</span><span class="w">      </span><span class="c1"># host port clients talk to</span>
+<span class="w">    </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w">    </span><span class="c1"># fallback corpus-sweep period, seconds</span>
+
+<span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qmd</span>
+</pre></div>
+</div>
+<p>Those three keys are the whole schema. Notably <strong>there is no
+``bind_address`` here</strong> — see <a class="reference internal" href="#where-the-sidecar-listens">Where the sidecar listens</a> below.</p>
+<p><code class="docutils literal notranslate"><span class="pre">interval</span></code> is a ceiling on staleness, not the usual lag: a corpus writer
+touches a <code class="docutils literal notranslate"><span class="pre">.qmd-touch</span></code> marker file and the sidecar re-indexes within one poll.
+The interval only catches writers that forgot to touch it. Raise it on a large
+corpus — a sweep that finds nothing changed still costs about 12.5 seconds at
+135,000 documents, so the 30-second default leaves the loop busy roughly 42% of
+the time discovering nothing.</p>
+</section>
+<section id="what-gets-mounted">
+<h3>What gets mounted<a class="headerlink" href="#what-gets-mounted" title="Link to this heading">#</a></h3>
+<p>Each corpus is bind-mounted <strong>read-only</strong> into the sidecar at
+<code class="docutils literal notranslate"><span class="pre">/corpus/&lt;collection&gt;</span></code>, and the same list generates the sidecar’s collection
+config — so a corpus can never end up mounted without a collection, or
+declared without a mount. Read-only is deliberate: the sidecar indexes these
+trees, and everything that <em>writes</em> them lives outside the container.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 40.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Collection</p></th>
+<th class="head"><p>Source</p></th>
+<th class="head"><p>Present when</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">okf</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code></p></td>
+<td><p>the bundle path is set</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ariel</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ariel.enhancement_modules.qmd_export</span></code> → <code class="docutils literal notranslate"><span class="pre">mirror_path</span></code></p></td>
+<td><p>the export is enabled and names a path</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The index itself lives in a named volume rather than a bind mount. It is
+derived data the sidecar owns end to end, it is large, and rebuilding it costs
+about <strong>41 minutes</strong> at ALS scale — which is precisely why it must survive a
+container recreate. The service’s health check allows a one-hour start period
+for the same reason: the sidecar refuses to open its port until the index is
+built and provably non-empty, and a container that is working correctly should
+not be reported unhealthy for most of its first hour.</p>
+</section>
+<section id="sharing-the-knowledge-bundle">
+<h3>Sharing the knowledge bundle<a class="headerlink" href="#sharing-the-knowledge-bundle" title="Link to this heading">#</a></h3>
+<p>The OKF bundle is different from the other corpora: web terminals write to it.
+So the <em>deployment’s</em> bundle is bind-mounted <strong>read-write</strong> into every
+<code class="docutils literal notranslate"><span class="pre">web-&lt;user&gt;</span></code> service whose persona enables facility knowledge, at a target
+computed from that persona’s own project directory inside its container. There
+is one directory, not a copy per user — and it deliberately <strong>shadows the
+copy baked into each persona image</strong>, because the bundle is operational
+knowledge that changes far more often than images are rebuilt.</p>
+<p>Sharing it works through a Unix group, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> sets both halves up:</p>
+<ul class="simple">
+<li><p>The shared corpus directory is made <strong>setgid and group-writable</strong> (mode
+<code class="docutils literal notranslate"><span class="pre">2770</span></code> — note that the <code class="docutils literal notranslate"><span class="pre">other</span></code> triad is deliberately left unset). An
+operator’s pre-existing directory only ever <em>gains</em> bits here; it never
+loses any.</p></li>
+<li><p>Each entitled <code class="docutils literal notranslate"><span class="pre">web-&lt;user&gt;</span></code> service is rendered with
+<code class="docutils literal notranslate"><span class="pre">group_add:</span> <span class="pre">[&quot;&lt;gid&gt;&quot;]</span></code>.</p></li>
+</ul>
+<p>Both halves are needed, and this is the part that is easy to get wrong: setgid
+makes <strong>new files inherit the directory’s group</strong>. It does <em>not</em> make any
+container process a member of that group. Without <code class="docutils literal notranslate"><span class="pre">group_add</span></code> the container
+is not in the group at all, and the group-write bit grants it nothing.</p>
+<p>One limit follows from how Unix works rather than from OSPREY: setgid fixes who
+<em>owns</em> a new file, not its permission bits, which come from the writing
+process’s umask — normally <code class="docutils literal notranslate"><span class="pre">rw-r--r--</span></code>. So the supported cross-container
+operation is <strong>read and index</strong>, not overwrite. See
+<a class="reference internal" href="okf-bundle.html#shared-bundle-multi-user"><span class="std std-ref">One bundle, many terminals</span></a> for the operator’s
+view of the same mechanism.</p>
+</section>
+<section id="disk-footprint">
+<h3>Disk footprint<a class="headerlink" href="#disk-footprint" title="Link to this heading">#</a></h3>
+<p>Measured against a real 134,996-entry ALS logbook:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 60.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Component</p></th>
+<th class="head"><p>Size</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Markdown mirror (logical)</p></td>
+<td><p>41 MB</p></td>
+</tr>
+<tr class="row-odd"><td><p>Markdown mirror (allocated on disk)</p></td>
+<td><p>553 MB</p></td>
+</tr>
+<tr class="row-even"><td><p>qmd index</p></td>
+<td><p>695 MB</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Total per 135,000 entries</strong></p></td>
+<td><p><strong>1.25 GB</strong> (~925 MB per 100,000)</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The gap between logical and allocated size is the point to budget for: the
+mirror is one small file per entry, so it is dominated by filesystem block
+overhead rather than by content. Chunking is close to 1:1 for logbook
+micro-documents (2,000 documents produced 2,001 chunks), so the index grows with
+entry count rather than with entry length.</p>
+</section>
+<section id="where-the-sidecar-listens">
+<span id="qmd-where-the-sidecar-listens"></span><h3>Where the sidecar listens<a class="headerlink" href="#where-the-sidecar-listens" title="Link to this heading">#</a></h3>
+<p>The sidecar publishes port <strong>8180</strong>. qmd’s own daemon runs on <strong>8181</strong> on the
+container’s internal loopback and is fronted by a small forwarder. That split is
+not cosmetic: qmd hardcodes a loopback-only, IPv6-only bind with no option to
+change it, which makes it unreachable from any other container. Only the
+forwarder owns a routable port.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>The sidecar has no authentication.</strong> No token, no TLS, no per-caller
+identity — it answers any request that reaches it, over the whole indexed
+corpus. That is safe exactly as long as only this host can reach it.</p>
+<p>This is why <code class="docutils literal notranslate"><span class="pre">bind_address</span></code> is <strong>not</strong> a <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> key. Like every
+other service, the sidecar publishes on the project-wide
+<code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> (default <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>), so a deployment cannot
+put an unauthenticated search endpoint on an interface the rest of the stack
+is not already on. Moving that one key off loopback moves this service too.</p>
+</div>
+</section>
 </section>
 <section id="network-binding-and-security">
 <h2>Network Binding and Security<a class="headerlink" href="#network-binding-and-security" title="Link to this heading">#</a></h2>
@@ -1237,6 +1416,14 @@ containers this page covers.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-template-ownership">Service Template Ownership</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-search-sidecar-qmd">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#turning-it-on">Turning it on</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-gets-mounted">What gets mounted</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#sharing-the-knowledge-bundle">Sharing the knowledge bundle</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#disk-footprint">Disk footprint</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-sidecar-listens">Where the sidecar listens</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#network-binding-and-security">Network Binding and Security</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#network-attachment-bridge-or-host">Network attachment: <code class="docutils literal notranslate"><span class="pre">bridge</span></code> or <code class="docutils literal notranslate"><span class="pre">host</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#running-more-than-one-project-on-one-host">Running more than one project on one host</a></li>

@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 16, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
   </head>
   
   
@@ -615,6 +615,30 @@ to <code class="docutils literal notranslate"><span class="pre">config.yml</span
 <p>Relative paths are resolved against the directory containing <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
 (the project root).  For the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset the example
 bundle is scaffolded into <code class="docutils literal notranslate"><span class="pre">data/facility_knowledge/</span></code> automatically.</p>
+<p id="shared-bundle-multi-user"><strong>One bundle, many terminals.</strong> In a multi-user deployment every web
+terminal whose persona configures <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> gets
+the <em>deployment’s</em> bundle bind-mounted, read-write. There is one directory,
+not a copy per user: a concept drafted in one terminal is the same file the
+next terminal opens, and the same file the search sidecar indexes.</p>
+<p>Two consequences are worth knowing before you debug either of them.</p>
+<p><em>The mounted bundle hides the one baked into the image.</em> Each build copies
+the profile’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree into the persona image, so the image ships a
+bundle of its own — and the mount covers it. That is intended: the bundle is
+operational knowledge that changes between image builds. Edit the
+deployment’s bundle to change what a running terminal sees; edit the
+profile’s to change what a fresh deployment starts from.</p>
+<p><em>Sharing works through a group, and ``osprey up`` sets it up.</em> On each
+deploy the bundle directory is made <strong>setgid and group-writable</strong>, and each
+terminal is added to that directory’s group (compose <code class="docutils literal notranslate"><span class="pre">group_add</span></code>). Both
+halves are needed — the setgid bit decides which group <em>owns</em> a newly
+written file, while <code class="docutils literal notranslate"><span class="pre">group_add</span></code> is what makes a container a <em>member</em> of
+that group. The group itself is never invented: it is whichever group the
+directory already has, so you can retarget it with one <code class="docutils literal notranslate"><span class="pre">chgrp</span></code> and a
+re-deploy. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reports the group it used.</p>
+<p>One limit follows from how Unix works rather than from OSPREY: setgid fixes
+who <em>owns</em> a new file, not its permission bits, which come from the writing
+process’s umask (normally <code class="docutils literal notranslate"><span class="pre">rw-r--r--</span></code>). So one terminal can always read
+and index another’s drafts, but cannot overwrite another’s file in place.</p>
 </div>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">
@@ -625,7 +649,8 @@ startup and exposes it to the agent through five tools:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">list_concepts</span></code> — browse the index to discover what topics exist</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">read_concept</span></code> — retrieve a document by its concept ID (its bundle
 path minus the <code class="docutils literal notranslate"><span class="pre">.md</span></code> extension, e.g. <code class="docutils literal notranslate"><span class="pre">subsystems/timing-system</span></code>)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">search</span></code> — full-text search across all concept documents</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">search</span></code> — ranked search across all concept documents (see
+<a class="reference internal" href="#searching-the-bundle">Searching the Bundle</a>)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> — report the bundle’s path, size, concept types, and
 whether draft writes are enabled</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> — author a new concept document (requires human approval)</p></li>
@@ -723,6 +748,75 @@ documents.</p>
 </div>
 </div>
 </div>
+</section>
+<section id="searching-the-bundle">
+<h2>Searching the Bundle<a class="headerlink" href="#searching-the-bundle" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">OKFBundle.search</span></code> backs both the KNOWLEDGE panel and the MCP <code class="docutils literal notranslate"><span class="pre">search</span></code>
+tool. It has two backends and picks between them by itself:</p>
+<ul class="simple">
+<li><p><strong>Ranked search</strong>, when the <a class="reference internal" href="deploy-project.html#qmd-search-sidecar"><span class="std std-ref">qmd search sidecar</span></a> is
+deployed. Hybrid keyword-plus-semantic, so a question phrased in the
+operator’s own words can find a document that never uses those words.</p></li>
+<li><p><strong>Substring search</strong>, when it is not. No ranking, no scores, no excerpts —
+a document matches only if it literally contains the string.</p></li>
+</ul>
+<p>You do not choose; a deployment without the sidecar simply gets the fallback.</p>
+<section id="tuning-ranked-search">
+<h3>Tuning ranked search<a class="headerlink" href="#tuning-ranked-search" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">facility_knowledge</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">bundle_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/facility_knowledge</span>
+<span class="w">  </span><span class="nt">search</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">rerank</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">        </span><span class="c1"># default</span>
+<span class="w">    </span><span class="nt">candidate_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">40</span><span class="w">  </span><span class="c1"># omit to use qmd&#39;s own default</span>
+</pre></div>
+</div>
+<p>Both keys are optional and the whole <code class="docutils literal notranslate"><span class="pre">search:</span></code> block can be left out. A key
+that <em>is</em> present but has the wrong type is refused at startup rather than
+quietly defaulted — silently ignoring <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">&quot;false&quot;</span></code> would leave the
+deployment on the path it explicitly asked to leave.</p>
+<p><strong>``rerank`` defaults to ``false`` here, and to ``true`` on the ARIEL side.</strong>
+That split is deliberate. qmd’s reranker improves ranking quality but costs
+roughly <strong>4x</strong> the query budget — measured p95 3927 ms with it against 811 ms
+without, on a 135,000-document corpus — and its cost barely changes with corpus
+size, so no bundle is small enough to outrun it. The OKF surfaces are
+interactive and hold a sub-second budget that reranking does not fit in. The
+ARIEL <code class="docutils literal notranslate"><span class="pre">qmd_search</span></code> tool is an agent tool with no such budget, so it keeps the
+quality path. Set <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">true</span></code> if you would rather have the ranking than
+the latency.</p>
+<p><code class="docutils literal notranslate"><span class="pre">candidate_limit</span></code> is how many candidates the reranker considers. Lowering it
+trades recall for latency.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The score on a ranked hit <strong>orders</strong> the results; it is not a calibrated
+relevance probability. With <code class="docutils literal notranslate"><span class="pre">rerank:</span> <span class="pre">false</span></code> qmd derives it from rank alone
+(1.0, 0.5, 0.33 …). Render it or ignore it, but do not threshold it against
+a fixed number and do not compare scores across queries.</p>
+</div>
+</section>
+<section id="how-well-does-it-retrieve">
+<h3>How well does it retrieve?<a class="headerlink" href="#how-well-does-it-retrieve" title="Link to this heading">#</a></h3>
+<p>Honestly measured, on a small and deliberately hostile fixture bundle: over 19
+concept documents and 14 paraphrased queries — questions worded so that the
+answer document does <em>not</em> contain the query’s words — ranked search puts the
+expected document in the top 3 for <strong>10 of the 14</strong>. Substring search scores
+<strong>0 of 14</strong> on the same queries, which is the whole point of the exercise.</p>
+<p>Three of the four misses return instead a document written specifically to
+contain the query verbatim, which is a reasonable thing for a search engine to
+do. This is the only retrieval-quality measurement this feature has, on a
+fixture corpus rather than a facility one; treat it as evidence that ranked
+search beats substring search on paraphrases, not as a benchmark of your own
+bundle.</p>
+<div class="note admonition">
+<p class="admonition-title">Known limitation — concept IDs that normalise together</p>
+<p>qmd normalises the document paths it reports: <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">%</span></code> both become
+<code class="docutils literal notranslate"><span class="pre">-</span></code>, runs collapse, and a leading one is dropped. Two concept IDs that
+differ <em>only</em> in those characters therefore look identical to it. The bundle
+handles this by matching hits on a normalisation-invariant key rather than
+on the reported path — and when that is genuinely ambiguous it drops the hit
+and logs a warning rather than guessing at which document you meant. If a
+document you expect never appears in results, check the log for that
+warning, and prefer hyphens over underscores in file names.</p>
+</div>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -734,6 +828,7 @@ documents.</p>
 </dd>
 </dl>
 </div>
+</section>
 </section>
 </section>
 
@@ -787,6 +882,11 @@ documents.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-is-the-open-knowledge-format">What Is the Open Knowledge Format?</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-core-ideas">The Core Ideas</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#working-with-a-bundle">Working with a Bundle</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#searching-the-bundle">Searching the Bundle</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tuning-ranked-search">Tuning ranked search</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-well-does-it-retrieve">How well does it retrieve?</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 

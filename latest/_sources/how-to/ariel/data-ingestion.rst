@@ -158,6 +158,27 @@ The built-in enhancement modules:
                  model_id: anthropic/claude-haiku
                  max_tokens: 256
 
+   .. tab-item:: qmd Export
+
+      **Module:** ``enhancement/qmd_export/`` (entry point: ``exporter.py``)
+
+      Writes one markdown file per entry into a **mirror tree** --- the corpus the qmd search sidecar indexes. It is what makes the ``qmd`` :doc:`search mode <search-modes>` able to answer anything, and it is off by default for the same reason that mode is: both halves have to be turned on together.
+
+      **Configuration:**
+
+      .. code-block:: yaml
+
+         ariel:
+           enhancement_modules:
+             qmd_export:
+               enabled: true
+               settings:
+                 mirror_path: var/ariel_mirror
+
+      ``mirror_path`` is resolved against the directory holding ``config.yml``. Keep it under ``var/``: the mirror is machine-written from PostgreSQL, it is as large as the logbook, and ``var/`` is the directory git ignores --- a path under ``data/`` would commit a generated corpus. An enabled export with no ``mirror_path`` is refused at startup rather than skipped, because a mirror nobody writes looks exactly like "search returns nothing".
+
+      **Requirements:** the ``services.qmd`` sidecar, which bind-mounts this same directory read-only. See :ref:`qmd-search-sidecar`.
+
 **Registering a custom enhancement module:**
 
 To add your own module, subclass ``BaseEnhancementModule``, implement the ``name`` property and ``enhance()`` method, and register it through your application's registry configuration:
@@ -174,12 +195,12 @@ To add your own module, subclass ``BaseEnhancementModule``, implement the ``name
                module_path="my_app.enhancement.my_enhancer",
                class_name="MyEnhancerModule",
                description="Custom enhancement module",
-               execution_order=30,  # Runs after built-in modules (10, 20)
+               execution_order=40,  # Runs after built-in modules (10, 20, 30)
            ),
        ],
    )
 
-The ``execution_order`` field controls the order in which modules run during enhancement. Built-in modules use orders 10 (semantic processor) and 20 (text embedding). See :class:`~osprey.services.ariel_search.enhancement.base.BaseEnhancementModule` for the full interface, including ``configure()``, ``health_check()``, and the ``migration`` property.
+The ``execution_order`` field controls the order in which modules run during enhancement. Built-in modules use orders 10 (semantic processor), 20 (text embedding) and 30 (qmd export). See :class:`~osprey.services.ariel_search.enhancement.base.BaseEnhancementModule` for the full interface, including ``configure()``, ``health_check()``, and the ``migration`` property.
 
 .. admonition:: Collaboration Welcome
    :class: outreach

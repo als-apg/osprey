@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 16, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
   </head>
   
   
@@ -629,6 +629,23 @@ Semantic Processor</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 </div>
+<input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" for="sd-tab-item-2">
+qmd Export</label><div class="sd-tab-content docutils">
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">enhancement/qmd_export/</span></code> (entry point: <code class="docutils literal notranslate"><span class="pre">exporter.py</span></code>)</p>
+<p>Writes one markdown file per entry into a <strong>mirror tree</strong> — the corpus the qmd search sidecar indexes. It is what makes the <code class="docutils literal notranslate"><span class="pre">qmd</span></code> <a class="reference internal" href="search-modes.html"><span class="doc">search mode</span></a> able to answer anything, and it is off by default for the same reason that mode is: both halves have to be turned on together.</p>
+<p><strong>Configuration:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enhancement_modules</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">qmd_export</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">mirror_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">var/ariel_mirror</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">mirror_path</span></code> is resolved against the directory holding <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Keep it under <code class="docutils literal notranslate"><span class="pre">var/</span></code>: the mirror is machine-written from PostgreSQL, it is as large as the logbook, and <code class="docutils literal notranslate"><span class="pre">var/</span></code> is the directory git ignores — a path under <code class="docutils literal notranslate"><span class="pre">data/</span></code> would commit a generated corpus. An enabled export with no <code class="docutils literal notranslate"><span class="pre">mirror_path</span></code> is refused at startup rather than skipped, because a mirror nobody writes looks exactly like “search returns nothing”.</p>
+<p><strong>Requirements:</strong> the <code class="docutils literal notranslate"><span class="pre">services.qmd</span></code> sidecar, which bind-mounts this same directory read-only. See <a class="reference internal" href="../deploy-project.html#qmd-search-sidecar"><span class="std std-ref">The Search Sidecar (qmd)</span></a>.</p>
+</div>
 </div>
 <p><strong>Registering a custom enhancement module:</strong></p>
 <p>To add your own module, subclass <code class="docutils literal notranslate"><span class="pre">BaseEnhancementModule</span></code>, implement the <code class="docutils literal notranslate"><span class="pre">name</span></code> property and <code class="docutils literal notranslate"><span class="pre">enhance()</span></code> method, and register it through your application’s registry configuration:</p>
@@ -642,13 +659,13 @@ Semantic Processor</label><div class="sd-tab-content docutils">
             <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;my_app.enhancement.my_enhancer&quot;</span><span class="p">,</span>
             <span class="n">class_name</span><span class="o">=</span><span class="s2">&quot;MyEnhancerModule&quot;</span><span class="p">,</span>
             <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Custom enhancement module&quot;</span><span class="p">,</span>
-            <span class="n">execution_order</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>  <span class="c1"># Runs after built-in modules (10, 20)</span>
+            <span class="n">execution_order</span><span class="o">=</span><span class="mi">40</span><span class="p">,</span>  <span class="c1"># Runs after built-in modules (10, 20, 30)</span>
         <span class="p">),</span>
     <span class="p">],</span>
 <span class="p">)</span>
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">execution_order</span></code> field controls the order in which modules run during enhancement. Built-in modules use orders 10 (semantic processor) and 20 (text embedding). See <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEnhancementModule</span></code> for the full interface, including <code class="docutils literal notranslate"><span class="pre">configure()</span></code>, <code class="docutils literal notranslate"><span class="pre">health_check()</span></code>, and the <code class="docutils literal notranslate"><span class="pre">migration</span></code> property.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">execution_order</span></code> field controls the order in which modules run during enhancement. Built-in modules use orders 10 (semantic processor), 20 (text embedding) and 30 (qmd export). See <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEnhancementModule</span></code> for the full interface, including <code class="docutils literal notranslate"><span class="pre">configure()</span></code>, <code class="docutils literal notranslate"><span class="pre">health_check()</span></code>, and the <code class="docutils literal notranslate"><span class="pre">migration</span></code> property.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Collaboration Welcome</p>
 <p>The enhancement modules above are a starting point — there is plenty of room for new modules (e.g., named-entity extraction, automatic tagging, cross-entry linking). If you build a useful enhancement module, we encourage you to open a pull request so it becomes natively available to all Osprey users.</p>
