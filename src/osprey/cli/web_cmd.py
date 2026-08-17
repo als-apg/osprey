@@ -303,8 +303,17 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     malformed config.yml, or an unknown provider name, is left for Probe 3 (or
     the launch itself) to report — this probe just skips quietly rather than
     duplicating that diagnosis.
+
+    The one exception is
+    :class:`~osprey.build.claude_code_telemetry.ObservabilityCredentialError`:
+    nothing else in pre-flight resolves telemetry credentials, so a quiet skip
+    there leaves the operator with an empty report and no reason for it. That
+    case returns a warning naming what stopped the read, which keeps the launch
+    going (telemetry credentials are orthogonal to whether the terminal can
+    authenticate) while saying why the auth check never ran.
     """
     from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 
     try:
         # The provider is declared in the render and its ``${VAR}`` references
@@ -314,6 +323,18 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
         # lives in ``.env`` resolves to a literal placeholder and the probe
         # reports on a provider the launch will not use.
         spec = load_provider_spec(build_dir, env_dir=repo_root)
+    except ObservabilityCredentialError as exc:
+        # Must come BEFORE the ValueError arm: this type subclasses
+        # TelemetryConfigError, which subclasses ValueError, so the broad arm
+        # would swallow it and the operator would see an empty pre-flight with
+        # no reason for it. The provider was never read, so there is nothing to
+        # say about auth; report what stopped the read instead of nothing. Only
+        # names reach the message, never a credential's value.
+        return [], [
+            "provider auth check skipped: the telemetry credentials in this "
+            "deployment could not be resolved, so the provider was never read.\n"
+            f"  {exc}"
+        ]
     except (OSError, ValueError):
         return [], []
     if spec is None or not spec.auth_secret_env:

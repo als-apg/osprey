@@ -222,8 +222,10 @@ def _load_deploy_profile(profile_file: Path) -> tuple[dict[str, Any], Path, Depl
     if deploy is None:
         raise ConfigurationError(
             f"{profile_file} declares no 'deploy:' block, so there are no "
-            f"deployment coordinates to render a pipeline from. Add one naming "
-            f"the CI platform, the registry and the deploy host."
+            f"deployment coordinates to render a pipeline from. An emitted "
+            f"profile carries a commented 'deploy:' example among the commented "
+            f"blocks at the end of the file — uncomment it, fill in the CI "
+            f"platform, the registry and the deploy host, then re-run."
         )
     return document.raw, document.root_dir, deploy
 

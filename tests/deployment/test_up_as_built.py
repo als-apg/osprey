@@ -783,12 +783,14 @@ def test_a_wildcard_build_is_treated_as_exposed_without_the_flag(
     There is no start-time flag to arm or disarm the empty-token guard: a build
     that publishes on a wildcard address gets the fail-closed rules because of
     what it publishes.
+
+    The token is emptied by an export alone, with no line for it in the ``.env``
+    — the one empty spelling the mint leaves alone, and so the one that still
+    reaches the guard. A blank line in the file is minted over instead.
     """
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "")
     monkeypatch.delenv("DISPATCH_WORKER_TOKEN", raising=False)
-    (lifecycle_repo / ".env").write_text(
-        "ANTHROPIC_API_KEY=x\nEVENT_DISPATCHER_TOKEN=\n", encoding="utf-8"
-    )
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo, bind_address="0.0.0.0")
 
     result = run_up(lifecycle_repo, "-d")

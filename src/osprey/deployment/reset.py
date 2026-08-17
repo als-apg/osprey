@@ -110,7 +110,10 @@ from osprey.deployment.container_lifecycle import as_built_config_path, down_dep
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
-from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
+from osprey.deployment.web_terminals.env_production import (
+    SUPERSEDED_USERS_ENV_FILENAME,
+    USERS_ENV_FILENAME,
+)
 from osprey.deployment.web_terminals.lifecycle import confirm_destroy
 from osprey.utils.dotenv import parse_dotenv_text
 from osprey.utils.logger import get_logger
@@ -130,17 +133,18 @@ COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 #: is verified against before removal — exactly as ``nuke`` verifies it.
 OSPREY_PROJECT_LABEL = "com.osprey.project"
 
-#: The web tier's two credential files, as ``(filename, what it holds, how it is
-#: refreshed)``. Both are write-once — a deploy creates each when it is absent
-#: and never rewrites an existing one — and reset removes neither, which is why
-#: they are disclosed (:meth:`ResetPlan._kept_lines`) rather than left for an
+#: The web tier's credential files, as ``(filename, what it holds, how it is
+#: refreshed)``. Each is written once — a deploy creates it when it is absent
+#: and never rewrites an existing one — and reset removes none of them, which is
+#: why they are disclosed (:meth:`ResetPlan._kept_lines`) rather than left for an
 #: operator to discover after wiping the deployment they belong to.
 #:
-#: The refresh clauses are per-file because the two do NOT behave alike: the
-#: same removal that gets one re-derived costs every user their password in the
-#: other, and stops a registry-mode deploy outright. Both spellings come from
-#: the modules that write them, so neither disclosure can name a file this
-#: system stopped producing.
+#: The refresh clauses are per-file because these do NOT behave alike: the same
+#: removal that gets the first re-derived (and stops a registry-mode deploy
+#: outright) costs every user their password in the second, while the third is
+#: a superseded copy nothing refreshes at all and the operator is free to drop.
+#: Every spelling comes from the module that writes it, so no disclosure here
+#: can name a file this system stopped producing.
 WEB_CREDENTIAL_FILES: tuple[tuple[str, str, str], ...] = (
     (
         USERS_ENV_FILENAME,
@@ -153,6 +157,12 @@ WEB_CREDENTIAL_FILES: tuple[tuple[str, str, str], ...] = (
         "the web terminals' password hashes and cookie-signing secrets",
         "Remove it and the next deploy mints a NEW password for every user; "
         "`osprey users decommission` is what drops one departed user's entries.",
+    ),
+    (
+        SUPERSEDED_USERS_ENV_FILENAME,
+        "a pre-rename copy of the runtime secrets, set aside by a deploy",
+        f"Nothing reads it and no deploy refreshes it: {USERS_ENV_FILENAME} is the live "
+        f"file. Delete it yourself once you have confirmed {USERS_ENV_FILENAME} is good.",
     ),
 )
 
@@ -748,7 +758,7 @@ class ResetPlan:
         for filename, holds, refresh in WEB_CREDENTIAL_FILES:
             if (self.repo_root / filename).is_file():
                 kept.append(
-                    f"    {filename}  {holds} — operator-owned and written once, so a "
+                    f"    {filename}  {holds} — written once and never rewritten, so a "
                     "reset leaves it exactly as it is."
                 )
                 kept.append(f"      {refresh}")

@@ -133,15 +133,45 @@ def test_bluesky_process_env_token_not_written_to_dotenv(captured_argv, monkeypa
     assert "BLUESKY_LAUNCH_TOKEN" not in env
 
 
-def test_an_exposed_bluesky_deploy_refuses_an_empty_token(captured_argv, monkeypatch, tmp_path):
-    # A token explicitly set empty must not be auto-overwritten, and a deployment
-    # reachable off-host must refuse rather than bind a fail-open server to it.
+def test_an_empty_dotenv_token_is_minted_on_the_default_loopback_deploy(
+    captured_argv, _clean_token_env, monkeypatch, tmp_path
+):
+    """``BLUESKY_LAUNCH_TOKEN=`` in ``.env`` is a blank the mint fills in.
+
+    The off-host refusal below is the only guard that ever caught this, and a
+    default deploy publishes on loopback — so before the mint reached empty
+    values, a bare ``VAR=`` line brought the bridge up with no launch token and
+    nothing said so.
+    """
+    (tmp_path / ".env").write_text("BLUESKY_LAUNCH_TOKEN=\n", encoding="utf-8")
+    # The deploy loads that .env over the process environment before it mints,
+    # so this is the state the predicate sees. Set through monkeypatch so the
+    # minted value does not outlive the test.
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "")
 
-    with pytest.raises(RuntimeError, match="reachable off-host with an empty token"):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    env = _parse_env(tmp_path)
+    assert env["BLUESKY_LAUNCH_TOKEN"], "the empty launch token was left empty"
+    assert env["BLUESKY_TILED_API_KEY"].isalnum()
+
+
+def test_an_exposed_bluesky_deploy_refuses_an_empty_exported_token(
+    captured_argv, monkeypatch, tmp_path
+):
+    # An *exported* empty token is the one spelling a mint cannot repair: the
+    # export shadows the .env line minting would write, so nothing is generated
+    # and a deployment reachable off-host refuses rather than bind a fail-open
+    # server to it. The remedy names the environment, since editing .env would
+    # not change what compose resolves while the export stands.
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "")
+
+    with pytest.raises(RuntimeError, match="reachable off-host with an empty token") as exc_info:
         container_lifecycle.deploy_up(
             str(tmp_path / "config.yml"), detached=True, expose_network=True
         )
+
+    assert "Unset BLUESKY_LAUNCH_TOKEN in the environment" in str(exc_info.value)
 
 
 def test_bluesky_alongside_dispatch_mints_both_independently(

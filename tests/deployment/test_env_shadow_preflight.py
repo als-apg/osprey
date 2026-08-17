@@ -310,12 +310,14 @@ def test_an_export_the_store_does_not_pin_is_not_a_divergence(tmp_path, caplog):
     assert caplog.text == ""
 
 
-def test_an_export_over_a_deliberately_empty_pin_is_reported(tmp_path, caplog):
-    """``TOKEN=`` in the store means "no token" — a deliberate fail-closed setting.
+def test_an_export_over_an_empty_pin_is_reported(tmp_path, caplog):
+    """``TOKEN=`` in the store and a different value exported over it diverge.
 
-    The deploy layer treats an empty value as a setting rather than a blank (it
-    declines to mint over one), so an export that re-arms the service behind the
-    operator's back is exactly the divergence worth naming.
+    What this preflight reports is the divergence itself, whatever either side
+    holds — it reads the files as they are and does not model the mint (which
+    treats a blank service token as a blank and fills it in). An export that
+    silently decides what a service authenticates with is worth naming either
+    way.
     """
     repo = _repo(
         tmp_path,

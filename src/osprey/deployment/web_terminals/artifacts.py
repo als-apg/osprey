@@ -170,10 +170,37 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> s
             ``.claude/settings.json`` that does not deny ``Bash``.
     """
     launch_token_personas = personas_needing_launch_token(config, project_root)
-    offenders = launch_token_personas & personas_not_denying_bash(config, project_root)
-    if offenders:
+    if offenders := bash_launch_token_offenders(config, project_root):
         raise BashLaunchTokenConflictError(offenders)
     return launch_token_personas
+
+
+def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[str]:
+    """The personas in conflict, computed without refusing anything.
+
+    The same intersection :func:`check_bash_launch_token_conflict` refuses on,
+    split out so the collect-all preflight can ASK the question without raising
+    on the answer. The raising wrapper stays exactly as it was for its three
+    call sites — this is a second reader of one predicate, never a second
+    definition of what a conflict is.
+
+    Reads two rendered directories and nothing else: no file is written, no
+    process is started, and nothing about the deployment changes. That purity is
+    what licenses calling it from the middle of a start sequence, before any
+    provisioning step has been skipped or repeated.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+
+    Returns:
+        Every persona both entitled to ``BLUESKY_LAUNCH_TOKEN`` and shipping
+        settings that do not deny ``Bash``. Empty when there is no conflict.
+    """
+    return personas_needing_launch_token(config, project_root) & personas_not_denying_bash(
+        config, project_root
+    )
 
 
 def web_artifacts_dir(repo_root: Path | str) -> Path:

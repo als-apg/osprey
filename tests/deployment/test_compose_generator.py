@@ -219,7 +219,7 @@ def _dispatcher_context(**service_overrides: object) -> dict:
         "services": {"event_dispatcher": dict(service_overrides)},
         "deployment": {},
         "system": {"timezone": "UTC"},
-        "osprey_labels": {"project_name": "p", "project_root": "/r", "deployed_at": "now"},
+        "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_version": "",
     }
 
@@ -1033,6 +1033,39 @@ def test_worker_carries_the_env_digest_label(network: str | None) -> None:
     assert _worker_service(rendered)["labels"]["osprey.env.digest"] == "${OSPREY_ENV_DIGEST:-}"
 
 
+def test_render_carries_no_deploy_timestamp() -> None:
+    """No label records when the render happened, and none is offered to one.
+
+    The counterpart to the digest label above, and its opposite: a digest is a
+    function of the deployment's inputs, so it belongs in the document; a wall
+    clock is not, so it does not. A timestamp here would change every rendered
+    compose document on every build — and, because compose recreates a
+    container whose definition moved, would churn the whole stack for a value
+    nothing reads. Container creation time is already reported natively by the
+    runtime.
+
+    Both halves are asserted: the rendered document, and the injected context
+    behind it. Checking only the render would pass on a context that still
+    carried the value for the next template author to reach for.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    rendered = _render_worker_template(env_present=True)
+    assert "osprey.deployed.at" not in rendered
+    assert "deployed_at" not in rendered
+
+    injected = _inject_project_metadata(
+        {
+            "project_name": _WORKER_PROJECT_NAME,
+            "project_root": f"/r/{_WORKER_PROJECT_NAME}",
+            "services": {"dispatch_worker": {}},
+            "system": {"timezone": "UTC"},
+            "deployed_services": [],
+        }
+    )
+    assert "deployed_at" not in injected["osprey_labels"]
+
+
 def test_worker_env_file_lists_the_whole_chain_in_precedence_order() -> None:
     """Both chain files are delivered, lowest precedence first.
 
@@ -1116,7 +1149,7 @@ def _render_bluesky_template(
         "deployment": {},
         "system": {"timezone": "UTC"},
         "deployed_services": deployed,
-        "osprey_labels": {"project_name": "p", "project_root": "/r", "deployed_at": "now"},
+        "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_version": "",
     }
     # Task 3.2: control_system is omitted by default (matching every
@@ -1970,7 +2003,6 @@ def _render_postgres_template(project_name: str) -> str:
         osprey_labels={
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "deployed_at": "now",
         },
         osprey_version="",
     )
@@ -2030,7 +2062,7 @@ def test_postgres_image_follows_env_config_default_chain() -> None:
         services={"postgresql": {"port_host": 5432, "image": "registry.local/pg:custom"}},
         deployment={},
         system={"timezone": "UTC"},
-        osprey_labels={"project_name": "p", "project_root": "/r/p", "deployed_at": "now"},
+        osprey_labels={"project_name": "p", "project_root": "/r/p"},
         osprey_version="",
     )
     svc = yaml.safe_load(rendered)["services"]["postgresql"]
@@ -2071,7 +2103,6 @@ def _render_mongodb_template(project_name: str = "proj-a", **mongodb_config: obj
         osprey_labels={
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "deployed_at": "now",
         },
         osprey_version="",
     )
@@ -2435,7 +2466,6 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
         "osprey_labels": {
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "deployed_at": "now",
         },
         "osprey_version": "",
         "osprey_env_present": False,
@@ -3544,7 +3574,6 @@ def _render_nextcloud_bridge_template(
         osprey_labels={
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "deployed_at": "now",
         },
         osprey_version="",
         osprey_env_present=env_present,
@@ -4213,7 +4242,6 @@ def _render_gchat_bridge_template(
         osprey_labels={
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
-            "deployed_at": "now",
         },
         osprey_version="",
         osprey_env_present=env_present,
@@ -5354,6 +5382,35 @@ def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
 #: The label line the dispatcher gained, exactly as it must render.
 _DIGEST_LABEL_LINE = '      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"\n'
 
+#: The deploy-timestamp label the templates no longer carry, as the committed
+#: side still renders it while this removal is uncommitted. Normalized away on
+#: both sides for the same reason the digest label is: the comparison below is
+#: "these two renders differ only by the deltas named here", and a delta that
+#: is being REMOVED has to be nameable too or the check cannot survive its own
+#: commit. Once committed neither side emits it and both replacements are
+#: no-ops; that the label is gone for good is pinned directly by
+#: :func:`test_render_carries_no_deploy_timestamp`.
+_DEPLOYED_AT_LABEL_LINE = '      osprey.deployed.at: ""\n'
+
+#: The config-digest label and the comment that carries its reasoning, as the
+#: committed side does not render them yet while this addition is uncommitted.
+#: The mirror image of :data:`_DEPLOYED_AT_LABEL_LINE` — one delta is a removal
+#: and this one an addition, and both have to be nameable for the comparison
+#: below to survive its own commit. Includes the comment because the delta IS
+#: the whole block: stripping the label alone would leave the comment as an
+#: unexplained difference and fail for the wrong reason.
+_CONFIG_DIGEST_BLOCK = (
+    "      # Content fingerprint of the rendered config this deploy built\n"
+    "      # (runtime_helper's as_built_config_digest, carried in by\n"
+    "      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for\n"
+    "      # the other file a container reads its settings from: this service mounts\n"
+    "      # the rendered config.yml, so `osprey set` changes a file the compose\n"
+    "      # document never mentions and compose would leave the container running on\n"
+    "      # the settings it parsed at startup. Empty when the invocation did not set\n"
+    "      # the variable (a hand-run `docker compose up`).\n"
+    '      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"\n'
+)
+
 
 def _head_dispatcher_render() -> str:
     """Render the dispatcher template as of ``HEAD`` in the same Environment.
@@ -5396,21 +5453,28 @@ def _head_dispatcher_render() -> str:
 
 
 def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_label() -> None:
-    """One enumerated delta, byte for byte, and nothing else.
+    """The enumerated deltas, byte for byte, and nothing else.
 
     Asserted on raw text rather than parsed YAML: the macros' whole whitespace
     contract is that a default render moves no byte, and a parsed comparison
-    would pass on a render that gained or lost a blank line. The label is
-    removed from BOTH sides so the check keeps its meaning once the template is
-    committed — what it pins is "the digest label is the only difference",
-    which stays true either way.
+    would pass on a render that gained or lost a blank line. The enumerated
+    labels are removed from BOTH sides so the check keeps its meaning once the
+    templates are committed — what it pins is "these labels are the only
+    differences", which stays true either way.
     """
+
+    def _normalized(text: str) -> str:
+        return (
+            text.replace(_DIGEST_LABEL_LINE, "", 1)
+            .replace(_DEPLOYED_AT_LABEL_LINE, "", 1)
+            .replace(_CONFIG_DIGEST_BLOCK, "", 1)
+        )
+
     rendered = _render_dispatcher_template()
 
     assert rendered.count(_DIGEST_LABEL_LINE) == 1, "the digest label renders exactly once"
-    assert rendered.replace(_DIGEST_LABEL_LINE, "", 1) == _head_dispatcher_render().replace(
-        _DIGEST_LABEL_LINE, "", 1
-    )
+    assert rendered.count(_CONFIG_DIGEST_BLOCK) == 1, "the config digest renders exactly once"
+    assert _normalized(rendered) == _normalized(_head_dispatcher_render())
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
