@@ -9,8 +9,8 @@ single response this file receives (see `_get_figure`).
 
 Sources are faked at the same seams the sibling files use: the live buffer is
 fed real documents through `LiveRowRecorder` / `RunDocumentRouter`, and Tiled
-through a fake `tiled.client.from_uri` modeled on `test_tiled_read_source.py`'s
-(flattened-column composite, table under ``.base["internal"]``), extended with
+through a fake `tiled.client.from_uri` modeled on `test_data_route.py`'s
+(a stream client that reads its parts off ``.base["internal"]``), extended with
 plan stamps, stop-document presence, multi-node search results, and call
 counters — the counters are what make "a settled Tiled hit issues zero Tiled
 calls" an assertion rather than a hope.
@@ -31,6 +31,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+import xarray as xr
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
 
@@ -49,6 +50,7 @@ from osprey.services.bluesky_bridge.figure import (
     LinesMark,
     Panel,
     Point,
+    RowWindow,
     Series,
 )
 from osprey.services.bluesky_bridge.figure import (
@@ -140,7 +142,7 @@ def _install_catalog(monkeypatch: pytest.MonkeyPatch, *specs: PlanSpec[Any]) -> 
     )
 
 
-def _echo_render(rows: list[dict[str, Any]], params: Any) -> Figure:
+def _echo_render(window: RowWindow, params: Any) -> Figure:
     """A deterministic render built row-by-row from what it was handed.
 
     One series per detector-ish column, y taken verbatim (None survives as a
@@ -149,6 +151,7 @@ def _echo_render(rows: list[dict[str, Any]], params: Any) -> Figure:
     ``partial``/``source`` are the team's placeholder convention: the route
     must overwrite both.
     """
+    rows = window.rows
     columns = sorted({key for row in rows for key in row})
     panels = [
         Panel(
@@ -191,17 +194,29 @@ def _feed_live(
 
 
 # =========================================================================
-# Tiled fakes (modeled on test_tiled_read_source.py, plus what the figure
+# Tiled fakes (modeled on test_data_route.py, plus what the figure
 # route needs: stamps, stop presence, start.time, multi-match, call counters)
 # =========================================================================
 
 
 class _FakeInternalTable:
+    """A table-family part — a Tiled `DataFrameClient`.
+
+    `structure_family` and `columns` come off the stored structure, which is
+    how the read path names a part's columns without fetching any payload.
+    """
+
+    structure_family = "table"
+
     def __init__(self, df: pd.DataFrame) -> None:
         self._df = df
 
-    def read(self) -> pd.DataFrame:
-        return self._df
+    @property
+    def columns(self) -> list[str]:
+        return list(self._df.columns)
+
+    def read(self, columns: list[str] | None = None) -> pd.DataFrame:
+        return self._df if columns is None else self._df[list(columns)]
 
 
 class _FakeBaseContainer:
@@ -211,10 +226,15 @@ class _FakeBaseContainer:
     def __getitem__(self, key: str):
         return self._tables[key]
 
+    def items(self):
+        return list(self._tables.items())
+
 
 class _FakeCompositeClient:
-    """The run's `"primary"` child: keys are flattened column names, the table
-    hangs off `.base` — same fidelity rationale as `test_tiled_read_source.py`."""
+    """The run's `"primary"` stream client: it iterates its flattened part
+    names and `read()`s the named variables into a Dataset, resolving them off
+    `.base` exactly as the real one does — same fidelity rationale as
+    `test_data_route.py`, which models this boundary's variability in full."""
 
     def __init__(self, columns: list[str], base: _FakeBaseContainer) -> None:
         self._columns = list(columns)
@@ -224,6 +244,14 @@ class _FakeCompositeClient:
         if key in self._columns:
             return object()
         raise KeyError(f"Key '{key}' not found.")
+
+    def __iter__(self):
+        return iter(self._columns)
+
+    def read(self, variables=None) -> xr.Dataset:
+        df = self.base["internal"].read()
+        names = [c for c in df.columns if variables is None or c in variables]
+        return xr.Dataset({name: ("dim0", df[name].values) for name in names})
 
 
 class _FakeRunNode:
@@ -459,7 +487,7 @@ def test_schema_drift_is_params_mismatch(
 def test_raising_render_is_render_failed(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def exploding(rows: list[dict[str, Any]], params: Any) -> Figure:
+    def exploding(window: RowWindow, params: Any) -> Figure:
         raise RuntimeError("boom")
 
     _install_catalog(monkeypatch, _spec("bad", render=exploding))
@@ -471,7 +499,7 @@ def test_raising_render_is_render_failed(
 def test_render_returning_a_non_figure_is_render_failed(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _install_catalog(monkeypatch, _spec("liar", render=lambda rows, params: {"not": "a figure"}))
+    _install_catalog(monkeypatch, _spec("liar", render=lambda window, params: {"not": "a figure"}))
     _feed_live("run-1", [{"m": 1.0}], plan={"name": "liar", "kwargs": {}})
 
     assert _get_figure(client, "run-1")["reason"] == REASON_RENDER_FAILED
@@ -524,15 +552,59 @@ def test_plan_render_serves_reason_none_and_the_sources_truth(
     assert [panel["title"] for panel in body["panels"]] == ["d", "m"]
 
 
+@pytest.mark.parametrize(
+    ("total_seen", "expected_complete"),
+    [(2, True), (9, False)],
+    ids=["whole_run", "truncated_buffer"],
+)
+def test_render_is_handed_the_window_with_the_sources_completeness(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    total_seen: int,
+    expected_complete: bool,
+) -> None:
+    """The render's first argument is the `RowWindow`, and its
+    ``rows_complete`` is the source's answer — which is the whole reason a plan
+    can tell a finished run from a buffer that hit its cap without duplicating
+    the cap's value and watching that copy go stale."""
+    seen: list[RowWindow] = []
+
+    def capturing_render(window: RowWindow, params: Any) -> Figure:
+        seen.append(window)
+        return Figure(panels=[], partial=True, source="live")
+
+    _install_catalog(monkeypatch, _spec("watcher", render=capturing_render))
+    monkeypatch.setattr(
+        live_rows,
+        "get",
+        lambda run_id: {
+            "columns": ["m"],
+            "rows": [[1.0], [2.0]],
+            "partial": True,
+            "total_seen": total_seen,
+            "plan": {"name": "watcher", "kwargs": {}},
+        },
+    )
+
+    assert _get_figure(client, "run-1")["reason"] is None
+
+    (window,) = seen
+    assert isinstance(window, RowWindow)
+    assert window.rows == [{"m": 1.0}, {"m": 2.0}]
+    assert window.columns == ["m"]
+    assert window.total_seen == total_seen
+    assert window.rows_complete is expected_complete
+
+
 # =========================================================================
 # Live settled caching
 # =========================================================================
 
 
 def _counting_render(calls: list[list[dict[str, Any]]]):
-    def render(rows: list[dict[str, Any]], params: Any) -> Figure:
-        calls.append(rows)
-        return _echo_render(rows, params)
+    def render(window: RowWindow, params: Any) -> Figure:
+        calls.append(window.rows)
+        return _echo_render(window, params)
 
     return render
 
@@ -817,7 +889,9 @@ def test_plan_lines_series_are_decimated_to_the_budget(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     n = 5000
-    _install_catalog(monkeypatch, _spec("long", render=lambda rows, params: _long_lines_figure(n)))
+    _install_catalog(
+        monkeypatch, _spec("long", render=lambda window, params: _long_lines_figure(n))
+    )
     _feed_live("run-1", [{"m": 1.0}], plan={"name": "long", "kwargs": {}})
 
     series = _get_figure(client, "run-1")["panels"][0]["mark"]["series"][0]
@@ -835,7 +909,7 @@ def test_plan_bars_are_decimated_with_categories_kept_aligned(
 ) -> None:
     n = 3000
 
-    def bars_render(rows: list[dict[str, Any]], params: Any) -> Figure:
+    def bars_render(window: RowWindow, params: Any) -> Figure:
         return Figure(
             panels=[
                 Panel(
@@ -885,7 +959,7 @@ def test_inconsistent_plan_decimation_truth_is_render_failed(
     `decimate` report a series as larger after decimation than before — plan
     garbage, degraded like any other render failure."""
 
-    def lying_render(rows: list[dict[str, Any]], params: Any) -> Figure:
+    def lying_render(window: RowWindow, params: Any) -> Figure:
         figure = _long_lines_figure(2001)
         figure.panels[0].mark.series[0].source_points = 5  # type: ignore[union-attr]
         return figure
@@ -921,12 +995,12 @@ def _orm_rows(correctors: list[str], detectors: list[str], num: int) -> list[dic
     return rows
 
 
-def _orm_stamp(correctors: list[str], detectors: list[str], num: int) -> dict[str, Any]:
+def _orm_stamp(correctors: list[str], bpms: list[str], num: int) -> dict[str, Any]:
     return {
         "name": "orm",
         "kwargs": {
             "correctors": correctors,
-            "detectors": detectors,
+            "bpms": bpms,
             "span_a": 2.0,
             "num": num,
         },

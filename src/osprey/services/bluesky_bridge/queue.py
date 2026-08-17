@@ -54,9 +54,10 @@ failure releases the reservation so the revision stays enqueueable; success
 consumes it via `draft.record_and_broadcast_launch`. The OSPREY run id is
 threaded through the item's metadata (`queue_backend.RUN_ID_META_KEY`) so
 start documents, live rows, and Tiled results all key back to it. One check is
-new rather than inherited: a plan whose device parameters name something the
-worker's namespace lacks is refused at add time (`_check_devices_exist`),
-because that mistake would otherwise only surface as a failed run.
+new rather than inherited: a plan whose role-typed channel parameters name
+something the worker's namespace lacks is refused at add time
+(`_check_devices_exist`), because that mistake would otherwise only surface as
+a failed run.
 
 A deployment whose capability record says it cannot execute (mock connector,
 unreadable config, no manager) refuses enqueue outright — a browse-only
@@ -76,6 +77,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from . import document_plane, draft, runs
+from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
+from .plan_types import PlanSpec
 from .queue_backend import (
     PLAN_META_KEY,
     REASON_MANAGER_NOT_CONFIGURED,
@@ -399,65 +402,52 @@ def _session_refusal(exc: SessionPlanNotReadyError) -> HTTPException:
 
 
 # ---------------------------------------------------------------------------
-# Add-time device pre-check
+# Add-time channel pre-check
 # ---------------------------------------------------------------------------
-# A plan resolves its device parameters by string name against the worker's
+# A plan resolves its channel parameters by string name against the worker's
 # namespace, and it does so on the run's FIRST iteration — so a name the worker
 # has no device for is not caught by any schema, and surfaces only as a failed
 # run after an enqueue and a start. Checking the names against the worker's own
 # `devices_allowed` before the add turns that into one legible refusal at the
 # moment the name was chosen.
+#
+# WHICH strings in the params are channel names is the plan's own declaration,
+# never a guess this module makes: an author annotates each channel field with
+# the role the plan gives it (movable / readable), the loader records what the
+# schema declared on `PlanSpec.roles`, and `plan_fields.collect_channels` reads
+# the supplied names back out of one params dict for one role. Field names match
+# EXACTLY — a field named ``setpoint`` supplies channels only from ``setpoint``
+# — so nothing here has to know, or approximate, any plan's parameter shape.
 
 
-def _device_field(name: str) -> str:
-    """A device-field name reduced to what a plural/singular pair share.
+def _referenced_channel_names(spec: PlanSpec[Any], plan_args: Any) -> tuple[set[str], set[str]]:
+    """The movable and readable channel names ``plan_args`` supplies, as two sets.
 
-    ``PLAN_METADATA["required_devices"]`` names the PARAMS *fields* that carry
-    device names, but a plan is free to nest them: `orm` declares
-    ``"correctors"`` and has a ``correctors`` field, while `grid_scan` declares
-    ``"setpoints"`` and carries each one as ``axes[].setpoint``. Comparing on
-    the trailing-``s``-stripped form matches both without hard-coding either
-    plan's shape.
+    Both come from `plan_fields.collect_channels`, whose matching rule is the
+    NEAREST enclosing field name: the enclosing name is rebound at every mapping
+    level and carried unchanged across list levels, so a string is a channel
+    name only when the field *immediately* above it declared a role. Nesting is
+    found (`grid_scan` carries a movable channel as ``axes[].setpoint``) without
+    this module knowing that shape.
+
+    That "nearest" is a safety property, not a style choice. For a plan whose
+    role-typed field holds objects — ``{"axes": [{"setpoint": "COR1", "mode":
+    "fast"}]}`` — a sticky "anywhere under a role-typed field" rule would collect
+    ``"fast"`` too and refuse a perfectly good enqueue over a mode string: a
+    false refusal no agent can fix, since nothing it changes about the channel
+    name makes ``"fast"`` a device. The rebinding rule makes that shape a MISS
+    instead, and a miss leaves the worker as the enforcement point — which is
+    the direction this check must always be wrong in.
+
+    The two roles are kept apart rather than merged because they are not the
+    same mistake: a movable name the worker lacks is the one the refusal is
+    built around (it would have armed hardware against nothing), and it is the
+    name the sentence leads with when both roles carry an unknown one.
     """
-    return name.removesuffix("s")
-
-
-def _referenced_device_names(
-    value: Any, fields: frozenset[str], *, key: str | None = None
-) -> set[str]:
-    """Every string in ``value`` whose NEAREST enclosing field is a device field.
-
-    Walks the enqueued params rather than reading fixed keys, so a nested
-    device field (`grid_scan`'s ``axes[].setpoint``) is found without
-    hard-coding any plan's shape. The bucketing rule is
-    `plan_validation._collect_device_names`': the enclosing key is rebound at
-    every dict level and carried unchanged through list levels, so a string is
-    a device name only if the field *immediately* above it says so.
-
-    That "nearest" is the whole safety property, and it is why this is not a
-    sticky "anywhere under a device field" flag. Given a plan declaring
-    ``required_devices: ["targets"]`` whose params are
-    ``{"targets": [{"device": "COR1", "mode": "fast"}]}``, a sticky flag
-    collects ``"fast"`` too and refuses a perfectly good enqueue over a mode
-    string — a false refusal no agent can fix, since nothing it changes about
-    the device name makes ``"fast"`` a device. Rebinding at each dict level
-    turns that same shape into a MISS instead (neither string is collected,
-    and the worker stays the enforcement point) — which is the direction this
-    check must always fail.
-    """
-    if isinstance(value, str):
-        return {value} if key is not None and _device_field(key) in fields else set()
-    if isinstance(value, dict):
-        names: set[str] = set()
-        for sub_key, sub_value in value.items():
-            names |= _referenced_device_names(sub_value, fields, key=str(sub_key))
-        return names
-    if isinstance(value, (list, tuple, set)):
-        names = set()
-        for item in value:
-            names |= _referenced_device_names(item, fields, key=key)
-        return names
-    return set()
+    return (
+        set(collect_channels(spec.schema, plan_args, MOVABLE_ROLE)),
+        set(collect_channels(spec.schema, plan_args, READABLE_ROLE)),
+    )
 
 
 # How many device names the refusal SENTENCE lists before summarizing the
@@ -478,7 +468,12 @@ def _available_devices_phrase(available: set[str]) -> str:
 
 
 def _refuse_unknown_devices(
-    plan_name: str, unknown: set[str], available: set[str], *, session_tier: bool
+    plan_name: str,
+    unknown_movable: set[str],
+    unknown_readable: set[str],
+    available: set[str],
+    *,
+    session_tier: bool,
 ) -> NoReturn:
     """Raise the 400 for an enqueue naming a device this worker did not build.
 
@@ -489,15 +484,19 @@ def _refuse_unknown_devices(
     whichever one would have raised. Whichever layer catches the mistake, the
     operator and the agent read the same sentence about the same event.
 
-    Two deliberate differences from the run-time version, both additive:
-    ``devices`` carries EVERY unknown name (the run-time raise can only ever
-    report the first one it tripped over), and the in-sentence device list is
-    capped — `available_devices` carries it whole.
+    Three deliberate differences from the run-time version, all additive:
+    ``devices`` carries EVERY unknown name across both roles (the run-time raise
+    can only ever report the first one it tripped over), the in-sentence device
+    list is capped — `available_devices` carries it whole — and the one name the
+    sentence quotes is drawn from the movable names when there are any, because
+    that is the reading under which a start would have driven hardware toward a
+    channel the worker never built.
 
     400, not 409: the request itself names something that does not exist, and
     the fix is in the caller's hands — pick a name `GET /devices` lists.
     """
-    first = sorted(unknown)[0]
+    unknown = unknown_movable | unknown_readable
+    first = sorted(unknown_movable or unknown_readable)[0]
     label = "session plan" if session_tier else "plan"
     raise HTTPException(
         status_code=400,
@@ -518,12 +517,21 @@ async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args:
     """Refuse the enqueue if it names a device the worker's namespace lacks.
 
     Deliberately narrow, and fail-open at every step where the answer is not
-    certain: a plan that declares no ``required_devices`` metadata, params with
-    no device-field strings in them, a manager that will not answer, and a
-    manager reporting no devices at all all pass straight through. The worker
-    remains the enforcement point — this only moves the *legible* cases
+    certain: a plan whose schema declares no channel roles at all, params
+    carrying nothing under a role-typed field, a manager that will not answer,
+    and a manager reporting no devices at all all pass straight through. The
+    worker remains the enforcement point — this only moves the *legible* cases
     earlier, and an availability failure here must never cost an operator an
     enqueue that would have run.
+
+    **Both roles are checked.** A movable name the worker lacks is the refusal's
+    reason for existing (SC-7): the plan would have been armed to drive a
+    channel that does not exist. A readable name the worker lacks is refused on
+    exactly the same certainty — the run's very first read would raise on it —
+    and refusing it is what this check already did before roles were declared,
+    so nothing is loosened here and nothing is tightened. The two sets stay
+    apart because the refusal sentence leads with a movable name when there is
+    one; see `_refuse_unknown_devices`.
     """
     from .plan_loader import get_facility_plans
 
@@ -538,13 +546,15 @@ async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args:
         return
 
     spec = facility_plans.plans.get(plan_name)
-    metadata = spec.metadata if spec is not None else None
-    declared = metadata.required_devices if metadata is not None else None
-    if not declared:
+    if spec is None or not spec.roles:
+        # No declaration, nothing to say: which params are channel names is the
+        # plan's to state, and a plan that states nothing is one this check has
+        # no honest opinion about. (`roles` is what the loader recorded off the
+        # schema, so this costs no re-walk.)
         return
 
-    referenced = _referenced_device_names(plan_args, frozenset(_device_field(f) for f in declared))
-    if not referenced:
+    movable, readable = _referenced_channel_names(spec, plan_args)
+    if not movable and not readable:
         return
 
     try:
@@ -562,10 +572,14 @@ async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args:
         # not up yet, not a worker on which every name is wrong.
         return
 
-    unknown = referenced - set(allowed)
-    if unknown:
-        session_tier = spec is not None and spec.provenance in ("session", "unreviewed")
-        _refuse_unknown_devices(plan_name, unknown, set(allowed), session_tier=session_tier)
+    built = set(allowed)
+    unknown_movable = movable - built
+    unknown_readable = readable - built
+    if unknown_movable or unknown_readable:
+        session_tier = spec.provenance in ("session", "unreviewed")
+        _refuse_unknown_devices(
+            plan_name, unknown_movable, unknown_readable, built, session_tier=session_tier
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -822,10 +836,10 @@ async def add_queue_item(
     3. The validation gate runs unchanged (session plans need a current
        passing record; sync file I/O, so it runs in a thread) before anything
        reaches the manager.
-    4. `_check_devices_exist` refuses (400) a plan whose device parameters name
-       something the worker's namespace lacks — the one class of mistake the
-       schema cannot catch and the run would otherwise report on its first
-       iteration, after a start.
+    4. `_check_devices_exist` refuses (400) a plan whose role-typed channel
+       parameters name something the worker's namespace lacks — the one class
+       of mistake the schema cannot catch and the run would otherwise report on
+       its first iteration, after a start.
     5. Under ``_arming_lock``: status pre-check (active + unarmed → refuse
        before adding), the session-plan admissibility re-check
        (`session_upload.check_session_plan_ready` — 409 for a session plan
@@ -833,10 +847,14 @@ async def add_queue_item(
        then — for unarmed callers only — the post-add ``status(reload=True)``
        re-check that removes the item and refuses if the manager transitioned
        underneath the add.
-    6. Only then is the reservation consumed, the run's expected point count
-       recorded for progress (`document_plane.record_run_params`), and the
-       draft's ``launched`` frame broadcast; the SSE poller is nudged so
-       panels see the new item immediately.
+    6. Only then is the reservation consumed and the draft's ``launched`` frame
+       broadcast; the SSE poller is nudged so panels see the new item
+       immediately. Nothing here records a progress denominator: a run declares
+       its own point count in its start document, which `document_plane` reads
+       when the run begins. A queued item that has not started therefore has no
+       denominator — an accepted gap, and an honest one, since the number a plan
+       will actually produce is the plan's to state and not this route's to
+       infer from the enqueued parameters.
     """
     backend = _get_backend()
 
@@ -871,8 +889,9 @@ async def add_queue_item(
         # `_validate_launchable_request` reads.
         await asyncio.to_thread(_validate_launchable_request, checked)
 
-        # Device names resolve in the worker, on the run's first iteration, so
-        # an unresolvable one is checked here or not at all until a failed run.
+        # Channel names resolve to devices in the worker, on the run's first
+        # iteration, so an unresolvable one is checked here or not at all until
+        # a failed run.
         # Outside the arming lock: it is a manager read that starts nothing.
         await _check_devices_exist(backend, checked.plan_name, checked.plan_args)
 
@@ -926,9 +945,6 @@ async def add_queue_item(
     # failure in this block must not strand the revision in the in-flight
     # reservation set forever — release it, log loudly, and surface the error.
     try:
-        # Progress denominator: the enqueued params are the
-        # only place the expected point count can be known before the run starts.
-        document_plane.record_run_params(run_id, checked.plan_args)
         await draft.record_and_broadcast_launch(run_id=run_id, revision=checked.revision)
     except Exception:
         logger.exception("post-enqueue bookkeeping failed for run %s", run_id)

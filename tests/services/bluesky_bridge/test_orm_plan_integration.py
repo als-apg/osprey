@@ -47,7 +47,7 @@ def _isolated_state():
 
 @pytest.fixture
 def orm_devices() -> dict:
-    """Two mock correctors + three mock BPM detectors, fresh per test.
+    """Two mock correctors + three mock BPMs, fresh per test.
 
     Unlike `test_runengine_integration.py`'s module-scoped `mock_devices`,
     this is function-scoped: the `orm` plan kicks each corrector away from
@@ -70,7 +70,7 @@ def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
         "orm",
         {
             "correctors": ["hcm1", "hcm2"],
-            "detectors": ["bpm1", "bpm2", "bpm3"],
+            "bpms": ["bpm1", "bpm2", "bpm3"],
             "span_a": 2.0,
             "num": 5,
         },
@@ -92,7 +92,7 @@ def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
         assert any(bpm_name in col for col in buf["columns"])
     assert any("hcm1" in col or "hcm2" in col for col in buf["columns"])
 
-    # No row has a missing BPM reading — every point read all three detectors.
+    # No row has a missing BPM reading — every point read all three BPMs.
     for row in buf["rows"]:
         assert all(value is not None for value in row)
 
@@ -111,7 +111,7 @@ def test_orm_plan_restores_each_corrector_through_the_real_loader_path(
         "orm",
         {
             "correctors": ["hcm1", "hcm2"],
-            "detectors": ["bpm1"],
+            "bpms": ["bpm1"],
             "span_a": 3.0,
             "num": 3,
         },
@@ -151,12 +151,12 @@ def test_orm_plan_output_is_fittable_by_the_analysis_it_feeds() -> None:
             }
         )
     )
-    detectors = ["bpm1", "bpm2"]
+    bpms = ["bpm1", "bpm2"]
     run_uid = run_plan(
         "orm",
         {
             "correctors": list(correctors),
-            "detectors": detectors,
+            "bpms": bpms,
             "span_a": 2.0,
             "num": 5,
         },
@@ -168,9 +168,9 @@ def test_orm_plan_output_is_fittable_by_the_analysis_it_feeds() -> None:
     assert buf is not None
     rows = [dict(zip(buf["columns"], row, strict=True)) for row in buf["rows"]]
 
-    matrix = build_response_matrix(rows, list(correctors), detectors)
+    matrix = build_response_matrix(rows, list(correctors), bpms)
 
-    assert matrix.shape == (len(detectors), len(correctors))
+    assert matrix.shape == (len(bpms), len(correctors))
 
 
 def test_orm_plan_single_corrector_produces_exactly_num_rows(orm_devices: dict) -> None:
@@ -178,7 +178,7 @@ def test_orm_plan_single_corrector_produces_exactly_num_rows(orm_devices: dict) 
         "orm",
         {
             "correctors": ["hcm1"],
-            "detectors": ["bpm1", "bpm2"],
+            "bpms": ["bpm1", "bpm2"],
             "span_a": 1.0,
             "num": 4,
         },

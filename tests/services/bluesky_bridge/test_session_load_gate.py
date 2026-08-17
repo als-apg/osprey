@@ -63,8 +63,6 @@ def _sentinel_plan_source(name: str, sentinel_path: Path) -> str:
         "PLAN_METADATA = {\n"
         f'    "name": {name!r},\n'
         '    "description": "A session-tier test plan.",\n'
-        '    "category": "accelerator",\n'
-        '    "required_devices": [],\n'
         '    "writes": False,\n'
         "}\n\n\n"
         "def build_plan(devices, params):\n"
@@ -137,8 +135,6 @@ def test_startup_layers_stay_cached_across_session_rescans(
         "PLAN_METADATA = {\n"
         '    "name": "startup_plan",\n'
         '    "description": "A startup-tier plan.",\n'
-        '    "category": "accelerator",\n'
-        '    "required_devices": [],\n'
         '    "writes": False,\n'
         "}\n\n\n"
         "def build_plan(devices, params):\n"
@@ -184,8 +180,6 @@ def test_malformed_session_file_is_quarantined_and_siblings_still_register(
         "PLAN_METADATA = {\n"
         '    "name": "missing_build_plan",\n'
         '    "description": "d",\n'
-        '    "category": "accelerator",\n'
-        '    "required_devices": [],\n'
         '    "writes": False,\n'
         "}\n"
     )

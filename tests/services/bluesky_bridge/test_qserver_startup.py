@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -85,57 +86,98 @@ def _isolated_plan_loader(monkeypatch: pytest.MonkeyPatch):
 def _plan_source(name: str) -> str:
     """A catalog plan file that records what it was called with.
 
-    ``build_plan`` resolves two device names against the namespace and returns
-    a generator yielding one message carrying the resolved devices and the
-    validated ``PARAMS`` instance — enough to assert on kwargs reconstruction
-    and device resolution without a RunEngine.
+    Both of its channel fields declare a role — one movable, on a nested model
+    reached through a list, and one readable list at the top level — so this is
+    also the fixture that shows a fully declared plan resolving normally.
+
+    ``build_plan`` resolves those names against the mapping it is handed and
+    returns a generator yielding one message carrying the resolved devices, the
+    keys of the mapping it was offered, and the validated ``PARAMS`` instance —
+    enough to assert on kwargs reconstruction, on device resolution, and on
+    which devices the wrapper let through, without a RunEngine.
     """
     return (
-        "from pydantic import BaseModel, Field\n\n\n"
+        "from pydantic import BaseModel, Field\n\n"
+        "from osprey.services.bluesky_bridge.plan_fields import (\n"
+        "    MovableChannel,\n"
+        "    ReadableChannels,\n"
+        ")\n\n\n"
         "PLAN_METADATA = {\n"
         f'    "name": {name!r},\n'
         '    "description": "A sample catalog plan.",\n'
-        '    "category": "accelerator",\n'
-        '    "required_devices": ["setpoint", "detector"],\n'
         '    "writes": True,\n'
         "}\n\n\n"
         "class Axis(BaseModel):\n"
-        "    setpoint: str\n"
+        "    setpoint: MovableChannel\n"
         "    start: float\n"
         "    stop: float\n"
-        "    num_points: int = Field(..., ge=2)\n\n\n"
+        "    points: int = Field(..., ge=2)\n\n\n"
         "class PARAMS(BaseModel):\n"
-        "    detectors: list[str] = Field(..., min_length=1)\n"
+        "    monitors: ReadableChannels = Field(..., min_length=1)\n"
         "    axes: list[Axis] = Field(..., min_length=1)\n\n\n"
         "def build_plan(devices, params):\n"
         "    resolved = [devices[a.setpoint] for a in params.axes]\n"
-        "    resolved += [devices[d] for d in params.detectors]\n"
+        "    resolved += [devices[m] for m in params.monitors]\n"
         "    def _gen():\n"
-        "        yield {'devices': resolved, 'params': params}\n"
+        "        yield {'devices': resolved, 'offered': sorted(devices), 'params': params}\n"
         "    return _gen()\n"
     )
 
 
-def _write_plan_dir(tmp_path: Path, name: str = "sample_scan") -> Path:
+def _undeclared_field_plan_source(name: str) -> str:
+    """A catalog plan naming one channel through a field that declares no role.
+
+    ``corrector`` is declared movable; ``knob`` is a bare ``str`` that happens
+    to hold a channel name. Both are resolved by ``build_plan``, so one plan
+    file exercises both sides of the filter at once.
+    """
+    return (
+        "from pydantic import BaseModel\n\n"
+        "from osprey.services.bluesky_bridge.plan_fields import MovableChannel\n\n\n"
+        "PLAN_METADATA = {\n"
+        f'    "name": {name!r},\n'
+        '    "description": "A plan reaching for an undeclared channel.",\n'
+        '    "writes": True,\n'
+        "}\n\n\n"
+        "class PARAMS(BaseModel):\n"
+        "    corrector: MovableChannel\n"
+        "    knob: str\n\n\n"
+        "def build_plan(devices, params):\n"
+        "    resolved = [devices[params.corrector], devices[params.knob]]\n"
+        "    def _gen():\n"
+        "        yield {'devices': resolved}\n"
+        "    return _gen()\n"
+    )
+
+
+def _write_plan_dir(tmp_path: Path, name: str = "sample_scan", source: Any = None) -> Path:
     """A one-file facility-tier plan directory exposing ``name``."""
     directory = tmp_path / "plans"
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{name}.py").write_text(_plan_source(name))
+    build_source = _plan_source if source is None else source
+    (directory / f"{name}.py").write_text(build_source(name))
     return directory
 
 
-def _catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "sample_scan") -> dict:
+def _catalog(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str = "sample_scan",
+    source: Any = None,
+) -> dict:
     """Load a catalog containing exactly the one sample plan named ``name``."""
     monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", tmp_path / "no-shipped-dir")
-    monkeypatch.setenv(_PLAN_DIRS_ENV, str(_write_plan_dir(tmp_path, name)))
-    return dict(plan_loader.get_facility_plans().plans)
+    monkeypatch.setenv(_PLAN_DIRS_ENV, str(_write_plan_dir(tmp_path, name, source)))
+    plans = dict(plan_loader.get_facility_plans().plans)
+    assert name in plans, f"the sample plan did not load: {sorted(plans)}"
+    return plans
 
 
 def _sample_kwargs() -> dict[str, Any]:
     """JSON-shaped queue-item kwargs for the sample plan (nested models included)."""
     return {
-        "detectors": ["bpm_01"],
-        "axes": [{"setpoint": "corrector_01", "start": 0.0, "stop": 1.0, "num_points": 3}],
+        "monitors": ["bpm_01"],
+        "axes": [{"setpoint": "corrector_01", "start": 0.0, "stop": 1.0, "points": 3}],
     }
 
 
@@ -323,11 +365,11 @@ def test_plan_function_reconstructs_the_params_model_from_json_kwargs(
 
     params = message["params"]
     assert params.__class__ is plans["sample_scan"].schema
-    assert params.detectors == ["bpm_01"]
+    assert params.monitors == ["bpm_01"]
     # The nested JSON object came back as the plan's own nested model, with
     # its declared types — not as the raw dict the queue item carried.
     assert params.axes[0].setpoint == "corrector_01"
-    assert params.axes[0].num_points == 3
+    assert params.axes[0].points == 3
     assert isinstance(params.axes[0].start, float)
 
 
@@ -352,7 +394,7 @@ def test_plan_function_rejects_kwargs_that_fail_the_params_schema(
     plan_function = qserver_startup.build_plan_functions({}, plans)["sample_scan"]
 
     bad_kwargs = _sample_kwargs()
-    bad_kwargs["axes"][0]["num_points"] = 1  # schema requires >= 2
+    bad_kwargs["axes"][0]["points"] = 1  # schema requires >= 2
 
     with pytest.raises(ValidationError):
         next(plan_function(**bad_kwargs))
@@ -383,6 +425,104 @@ def test_plan_whose_name_is_not_an_identifier_is_skipped(
 
     assert sorted(functions) == ["sample_scan"]
     assert "not an identifier" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# The declared contract: what a plan is allowed to resolve
+# ---------------------------------------------------------------------------
+#
+# A plan's params declare, field by field, which channels it moves and which it
+# reads. That declaration is also its bound: the wrapper hands `build_plan`
+# only the declared channels, so nothing else the worker happens to hold is
+# reachable from inside a run.
+
+
+def test_a_plan_receives_only_the_channels_its_params_declare(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plans = _catalog(tmp_path, monkeypatch)
+    corrector = object()
+    monitor = object()
+    devices = {
+        "corrector_01": corrector,
+        "bpm_01": monitor,
+        # Built by this worker, named by nothing in these params.
+        "corrector_02": object(),
+        "bpm_02": object(),
+    }
+
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
+    message = next(plan_function(**_sample_kwargs()))
+
+    # Both roles come through — the movable one from a nested model reached
+    # through a list, the readable one from a top-level list.
+    assert message["offered"] == ["bpm_01", "corrector_01"]
+    assert message["devices"] == [corrector, monitor]
+
+
+def test_a_channel_named_by_an_undeclared_field_is_not_resolvable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A role-less field's channel is out of reach even when the worker has it.
+
+    This is the whole point of declaring: a plan reaches what its contract
+    names, and a device it never declared is absent from the mapping however
+    many devices the worker built. The failure says so — including that the
+    device does exist here — rather than reading as a missing device.
+    """
+    plans = _catalog(tmp_path, monkeypatch, "undeclared_scan", source=_undeclared_field_plan_source)
+    devices = {"corrector_01": object(), "bpm_01": object()}
+
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["undeclared_scan"]
+
+    with pytest.raises(KeyError) as excinfo:
+        next(plan_function(corrector="corrector_01", knob="bpm_01"))
+
+    message = str(excinfo.value)
+    assert "bpm_01" in message
+    assert "do not declare as a movable or readable channel" in message
+    # And it still names what this worker actually has, which is what tells an
+    # author the device is there and the declaration is what is missing.
+    assert "corrector_01" in message
+
+
+def test_filtering_leaves_the_wrapper_annotations_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Narrowing the device mapping must not disturb the manager's signature read.
+
+    The wrapper's rebound ``__annotations__`` are what let upstream build this
+    plan's validation model at all (see the PEP 563 pin below); they are a
+    property of the wrapper, not of the devices it closes over.
+    """
+    plans = _catalog(tmp_path, monkeypatch)
+
+    plan_function = qserver_startup.build_plan_functions({"bpm_01": object()}, plans)["sample_scan"]
+
+    assert plan_function.__annotations__ == {"kwargs": Any, "return": Iterator[Any]}
+    assert inspect.signature(plan_function).parameters["kwargs"].kind is (
+        inspect.Parameter.VAR_KEYWORD
+    )
+
+
+def test_the_wrapper_adds_nothing_to_the_plans_message_stream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wrapper narrows devices; it stamps no metadata of its own.
+
+    Run identity is stamped on the enqueue path, as the queue item's metadata.
+    A wrapper that also injected metadata here would be a second, competing
+    source of it, so what it yields is exactly what ``build_plan`` yielded —
+    nothing prepended, nothing appended.
+    """
+    plans = _catalog(tmp_path, monkeypatch)
+    devices = {"corrector_01": object(), "bpm_01": object()}
+
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
+    messages = list(plan_function(**_sample_kwargs()))
+
+    assert len(messages) == 1
+    assert sorted(messages[0]) == ["devices", "offered", "params"]
 
 
 # ---------------------------------------------------------------------------

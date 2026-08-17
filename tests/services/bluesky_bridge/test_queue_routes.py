@@ -27,11 +27,19 @@ import pytest
 from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeoutError
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import draft, plan_loader, queue
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
+from osprey.services.bluesky_bridge.plan_fields import (
+    MovableChannel,
+    MovableChannels,
+    ReadableChannels,
+    channel_roles,
+)
+from osprey.services.bluesky_bridge.plan_types import PlanSpec
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 from osprey.services.bluesky_bridge.session_upload import SessionPlanNotReadyError
 
@@ -44,7 +52,7 @@ _TOKEN = "s3cr3t"
 # A valid draft for the always-registered shipped `grid_scan` plan
 # (mirrors `test_draft.py`).
 _GRID_SCAN_ARGS: dict[str, Any] = {
-    "detectors": ["BPM1"],
+    "readables": ["BPM1"],
     "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
 }
 
@@ -447,10 +455,10 @@ def test_post_enqueue_bookkeeping_failure_releases_the_reservation(
     _install(manager)
     revision = _make_draft(client)
 
-    def _boom(run_id: str, params: Any) -> None:
+    async def _boom(*, run_id: str, revision: int) -> None:
         raise RuntimeError("bookkeeping exploded")
 
-    monkeypatch.setattr(queue.document_plane, "record_run_params", _boom)
+    monkeypatch.setattr(queue.draft, "record_and_broadcast_launch", _boom)
     with pytest.raises(RuntimeError, match="bookkeeping exploded"):
         client.post("/queue/items", json={"draft_revision": revision})
 
@@ -608,73 +616,125 @@ def _devices(*names: str) -> dict[str, Any]:
     return {"success": True, "devices_allowed": {name: {"is_movable": True} for name in names}}
 
 
-def _fields(*declared: str) -> frozenset[str]:
-    """``required_devices`` entries as the walk compares them."""
-    return frozenset(queue._device_field(name) for name in declared)
+def _probe_spec(schema: type[BaseModel]) -> PlanSpec[Any]:
+    """A `PlanSpec` around *schema*, with the roles the loader would record."""
+    return PlanSpec(
+        name="probe",
+        plan=lambda devices, params: None,
+        schema=schema,
+        roles=tuple(channel_roles(schema)),
+    )
+
+
+class _NestedTarget(BaseModel):
+    """One movable channel carried alongside a plain string parameter."""
+
+    device: MovableChannel
+    mode: str = "fast"
+
+
+class _NestedParams(BaseModel):
+    targets: list[_NestedTarget]
+
+
+class _SingularParams(BaseModel):
+    """A schema whose movable field is named in the SINGULAR."""
+
+    corrector: MovableChannel
+
+
+class _SplitParams(BaseModel):
+    """One field per role, so the two collections can be told apart."""
+
+    correctors: MovableChannels
+    bpms: ReadableChannels
+
+
+class _AbsentFieldParams(BaseModel):
+    """A declaration for a field no enqueued params in this file carry."""
+
+    telescopes: MovableChannels
 
 
 # Representative params for every shipped plan, keyed by plan name, with the
-# device names the pre-check must find in them. Asserted below to cover the
-# whole shipped catalog, so a newly shipped plan fails here until its shape is
-# stated — the walk's correctness is per-shape, and an unlisted shape is an
+# channel names the pre-check must find under each role. Asserted below to
+# cover the whole shipped catalog, so a newly shipped plan fails here until its
+# shape is stated — the collection is per-shape, and an unlisted shape is an
 # untested one.
-_SHIPPED_PLAN_ARGS: dict[str, tuple[dict[str, Any], set[str]]] = {
-    "grid_scan": (_GRID_SCAN_ARGS, {"COR1", "BPM1"}),
+_SHIPPED_PLAN_ARGS: dict[str, tuple[dict[str, Any], set[str], set[str]]] = {
+    "grid_scan": (_GRID_SCAN_ARGS, {"COR1"}, {"BPM1"}),
     "orm": (
         {
             "correctors": ["COR1"],
-            "detectors": ["BPM1"],
+            "bpms": ["BPM1"],
             "span_a": 1.0,
             "num": 3,
             "sweep": "bidirectional",
         },
-        {"COR1", "BPM1"},
+        {"COR1"},
+        {"BPM1"},
     ),
 }
 
 
-def test_the_walk_ignores_non_device_strings_beside_a_device_name() -> None:
+def test_the_walk_ignores_a_plain_string_beside_a_channel_name() -> None:
     """The nearest ENCLOSING field decides, never an ancestor.
 
-    A plan whose device field holds objects — ``{"targets": [{"device": ...,
-    "mode": "fast"}]}`` — must not have ``"fast"`` read as a device name. A
+    A role-typed field nested in an object — ``{"targets": [{"device": ...,
+    "mode": "fast"}]}`` — must not have ``"fast"`` read as a channel name. A
     walk that stays "inside" a matched field once it enters one collects it and
     refuses the enqueue over a mode string: a false refusal, and one no agent
-    can fix, because nothing it does to the device name makes ``"fast"`` a
-    device. Rebinding the key at each dict level makes that shape a MISS
-    instead, which is the direction this check is allowed to be wrong in.
+    can fix, because nothing it does to the channel name makes ``"fast"`` a
+    device. Rebinding the key at each dict level collects the declared field's
+    value alone, which is what this check has to do.
     """
     params = {"targets": [{"device": "COR1", "mode": "fast"}]}
 
-    assert queue._referenced_device_names(params, _fields("targets")) == set()
+    movable, readable = queue._referenced_channel_names(_probe_spec(_NestedParams), params)
+
+    assert movable == {"COR1"}
+    assert readable == set()
 
 
-def test_the_walk_finds_a_device_name_nested_under_its_own_field() -> None:
-    """The miss above is not the walk giving up on nesting: name the inner
-    field and the nested device name is still found, which is exactly how
-    `grid_scan` declares `setpoints` for its `axes[].setpoint` values."""
-    params = {"targets": [{"device": "COR1", "mode": "fast"}]}
+def test_the_walk_matches_a_field_name_exactly() -> None:
+    """No singular/plural fuzz: the declared name is the name that matches.
 
-    assert queue._referenced_device_names(params, _fields("devices")) == {"COR1"}
+    A schema declaring ``corrector`` collects from ``corrector`` and from
+    nothing else — params spelling the field ``correctors`` supply no channel
+    name at all, and the enqueue passes through to the worker. Matching a
+    near-spelling would mean this check refuses on a name the plan never asked
+    for, which is the one direction it must not be wrong in.
+    """
+    spec = _probe_spec(_SingularParams)
+
+    assert queue._referenced_channel_names(spec, {"corrector": "COR1"}) == ({"COR1"}, set())
+    assert queue._referenced_channel_names(spec, {"correctors": ["COR1"]}) == (set(), set())
+
+
+def test_the_walk_keeps_the_two_roles_apart() -> None:
+    """Movable and readable names come back separately, because they are not
+    the same mistake: the refusal leads with a movable name when there is one."""
+    params = {"correctors": ["COR1", "COR2"], "bpms": ["BPM1"]}
+
+    movable, readable = queue._referenced_channel_names(_probe_spec(_SplitParams), params)
+
+    assert movable == {"COR1", "COR2"}
+    assert readable == {"BPM1"}
 
 
 @pytest.mark.parametrize("plan_name", sorted(_SHIPPED_PLAN_ARGS))
-def test_the_walk_agrees_with_the_dry_runs_device_bucketing(plan_name: str) -> None:
-    """Cross-check against `plan_validation._collect_device_names`, the house
-    walk the validator mints mock devices from: every name this pre-check would
-    refuse on must be one that walk also reads as a device name. Anything this
-    walk saw and that one did not would be a name refused here that no dry run
-    could ever have exercised."""
-    from osprey.services.bluesky_bridge.plan_validation import _collect_device_names
+def test_the_walk_reads_every_shipped_plans_declaration(plan_name: str) -> None:
+    """Each shipped plan's own declaration, read through the loaded spec.
 
-    params, expected = _SHIPPED_PLAN_ARGS[plan_name]
-    declared = plan_loader.get_facility_plans().plans[plan_name].metadata.required_devices
+    This is the same `plan_fields.collect_channels` call the dry run makes when
+    it mints a mock per channel, so a name this pre-check would refuse on is by
+    construction a name a dry run would have exercised — one declaration, one
+    reader, no second walk to drift from it.
+    """
+    params, expected_movable, expected_readable = _SHIPPED_PLAN_ARGS[plan_name]
+    spec = plan_loader.get_facility_plans().plans[plan_name]
 
-    referenced = queue._referenced_device_names(params, _fields(*declared))
-    motors, detectors = _collect_device_names(params)
-
-    assert referenced == expected
-    assert referenced <= (motors | detectors)
+    assert queue._referenced_channel_names(spec, params) == (expected_movable, expected_readable)
 
 
 def test_every_shipped_plan_has_its_param_shape_covered() -> None:
@@ -687,7 +747,7 @@ def test_every_shipped_plan_has_its_param_shape_covered() -> None:
 
     assert shipped == set(_SHIPPED_PLAN_ARGS), (
         "a shipped plan's param shape is missing from _SHIPPED_PLAN_ARGS — the "
-        "device pre-check's walk is only tested against the shapes listed there"
+        "pre-check's channel collection is only tested against the shapes listed there"
     )
 
 
@@ -695,8 +755,8 @@ def test_enqueue_refuses_a_device_the_worker_did_not_build(client: TestClient, c
     """The one mistake no schema catches: a device name is just a string, and
     it is resolved in the worker on the run's FIRST iteration — so without this
     check the caller learns of it only after an enqueue, a start, and a failed
-    run. `COR1` here is nested under `axes[].setpoint`, which is where
-    `grid_scan` carries the field its metadata calls `setpoints`."""
+    run. `COR1` here sits under `grid_scan`'s nested `axes[].setpoint`, the
+    field the plan declares movable."""
     connector("virtual_accelerator")
     manager = FakeManager(status=status_doc(), devices_allowed=_devices("BPM1"))
     _install(manager)
@@ -765,10 +825,11 @@ def test_the_refusal_sentence_caps_a_long_device_list(client: TestClient, connec
 def test_a_declared_field_absent_from_the_params_is_not_checked(
     client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Metadata naming a field the params do not carry yields no device names
-    to check, and the manager is never asked. Fail-open: a mismatch between a
-    plan's declaration and its schema is an authoring problem to report, never
-    grounds to refuse an enqueue whose names may be perfectly good."""
+    """A declared field the params do not carry yields no channel names to
+    check, and the manager is never asked. Fail-open: params that supply
+    nothing under a role-typed field are params this check has nothing to say
+    about, never grounds to refuse an enqueue whose names may be perfectly
+    good."""
     connector("virtual_accelerator")
     manager = FakeManager(
         status=status_doc(),
@@ -778,7 +839,8 @@ def test_a_declared_field_absent_from_the_params_is_not_checked(
     _install(manager)
     revision = _make_draft(client)
     spec = plan_loader.get_facility_plans().plans["grid_scan"]
-    monkeypatch.setattr(spec.metadata, "required_devices", ["telescopes"])
+    monkeypatch.setattr(spec, "schema", _AbsentFieldParams)
+    monkeypatch.setattr(spec, "roles", tuple(channel_roles(_AbsentFieldParams)))
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
 
@@ -807,12 +869,10 @@ def test_enqueue_passes_when_the_worker_holds_every_named_device(
     assert len(manager.kwargs_for("item_add")) == 1
 
 
-def test_the_device_precheck_reads_only_the_declared_device_fields(
-    client: TestClient, connector
-) -> None:
-    """`orm` carries a plain string parameter (`sweep`) alongside its device
-    fields. Only the fields its metadata declares are device names; treating
-    every string as one would refuse a perfectly good enqueue."""
+def test_the_precheck_reads_only_the_role_typed_fields(client: TestClient, connector) -> None:
+    """`orm` carries a plain string parameter (`sweep`) alongside its channel
+    fields. Only the role-typed fields hold channel names; treating every
+    string as one would refuse a perfectly good enqueue over `bidirectional`."""
     connector("virtual_accelerator")
     manager = FakeManager(
         status=status_doc(),
@@ -820,19 +880,10 @@ def test_the_device_precheck_reads_only_the_declared_device_fields(
         item_add={"success": True, "item": {"item_uid": "u1"}},
     )
     _install(manager)
+    orm_args, _, _ = _SHIPPED_PLAN_ARGS["orm"]
     resp = client.patch(
         "/draft",
-        json={
-            "plan_name": "orm",
-            "plan_args_patch": {
-                "correctors": ["COR1"],
-                "detectors": ["BPM1"],
-                "span_a": 1.0,
-                "num": 3,
-                "sweep": "bidirectional",
-            },
-            "client_id": "test",
-        },
+        json={"plan_name": "orm", "plan_args_patch": orm_args, "client_id": "test"},
     )
     assert resp.status_code == 200
 
@@ -843,12 +894,13 @@ def test_the_device_precheck_reads_only_the_declared_device_fields(
     assert "devices_allowed" in manager.method_names()
 
 
-def test_a_plan_declaring_no_required_devices_is_never_pre_checked(
+def test_a_plan_declaring_no_channel_roles_is_never_pre_checked(
     client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Metadata is what says which params are device names; without it there is
-    nothing to check, and inventing a rule for those plans would refuse
-    enqueues on a guess. The manager is never even asked."""
+    """The plan's own declaration is what says which params are channel names;
+    a schema declaring no role leaves nothing to check, and inventing a rule
+    for those plans would refuse enqueues on a guess. The manager is never even
+    asked."""
     connector("virtual_accelerator")
     manager = FakeManager(
         status=status_doc(),
@@ -857,12 +909,49 @@ def test_a_plan_declaring_no_required_devices_is_never_pre_checked(
     )
     _install(manager)
     revision = _make_draft(client)
-    monkeypatch.setattr(plan_loader.get_facility_plans().plans["grid_scan"], "metadata", None)
+    monkeypatch.setattr(plan_loader.get_facility_plans().plans["grid_scan"], "roles", ())
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
 
     assert resp.status_code == 200
     assert "devices_allowed" not in manager.method_names()
+
+
+def test_a_readable_channel_the_worker_lacks_is_refused_too(client: TestClient, connector) -> None:
+    """The posture this check has always had for the channels a plan only
+    reads, now stated in role terms rather than inherited from a field-name
+    list: the worker would raise on the run's very first read, so the mistake
+    is just as certain as a movable one and earns the same 400. Nothing is
+    loosened and nothing is tightened by the move to declared roles."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices("COR1"))
+    _install(manager)
+    revision = _make_draft(client)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unknown_device"
+    assert detail["devices"] == ["BPM1"]
+    assert "referenced device 'BPM1'" in detail["detail"]
+    assert "item_add" not in manager.method_names()
+
+
+def test_the_refusal_sentence_leads_with_a_movable_channel(client: TestClient, connector) -> None:
+    """When both roles name something the worker lacks, the sentence quotes the
+    movable one: that is the reading under which a start would have driven
+    hardware toward a channel that does not exist. Every unknown name is on the
+    wire either way, under `devices`."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices("SOMETHING_ELSE"))
+    _install(manager)
+    revision = _make_draft(client)
+
+    detail = client.post("/queue/items", json={"draft_revision": revision}).json()["detail"]
+
+    assert "referenced device 'COR1'" in detail["detail"]
+    assert detail["devices"] == ["BPM1", "COR1"]
 
 
 async def test_an_unreadable_plan_registry_skips_the_precheck(
@@ -927,12 +1016,14 @@ def test_a_worker_reporting_no_devices_at_all_does_not_block_the_enqueue(
     assert client.post("/queue/items", json={"draft_revision": revision}).status_code == 200
 
 
-def test_enqueue_records_the_progress_denominator(
-    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The enqueued params reach `record_run_params` under
-    the run id the item carries, so progress has a denominator before the
-    run ever starts."""
+def test_enqueue_records_no_progress_denominator(client: TestClient, connector) -> None:
+    """A queued item carries no progress denominator, deliberately.
+
+    How many points a run will produce is the run's own declaration, read off
+    its start document when it begins — so an item that has not started has
+    nothing to report, and this route infers nothing from the enqueued
+    parameters. `GET /queue` reports that as a null fraction, never a guess.
+    """
     connector("virtual_accelerator")
     manager = FakeManager(
         status=status_doc(), item_add={"success": True, "item": {"item_uid": "u1"}}
@@ -940,15 +1031,9 @@ def test_enqueue_records_the_progress_denominator(
     _install(manager)
     revision = _make_draft(client)
 
-    recorded: dict[str, Any] = {}
-
-    def _spy(run_id: str, params: Any) -> None:
-        recorded[run_id] = params
-
-    monkeypatch.setattr(queue.document_plane, "record_run_params", _spy)
     body = client.post("/queue/items", json={"draft_revision": revision}).json()
 
-    assert recorded == {body["run_id"]: _GRID_SCAN_ARGS}
+    assert queue.document_plane.get_expected_points(body["run_id"]) is None
 
 
 def test_get_queue_attaches_progress_to_the_running_item(

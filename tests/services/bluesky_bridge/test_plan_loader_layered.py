@@ -39,18 +39,48 @@ def _isolated_plan_loader(monkeypatch: pytest.MonkeyPatch):
 
 
 def _valid_plan_source(name: str, *, with_params: bool = False) -> str:
-    """A minimal, well-formed directory-layer plan file defining ``name``."""
-    params_block = (
-        "class PARAMS(BaseModel):\n    amplitude: float = 2.0\n\n\n" if with_params else ""
-    )
+    """A minimal, well-formed directory-layer plan file defining ``name``.
+
+    Declares ``writes: False``, and with ``with_params`` a schema naming only
+    readable channels — the read-only shape the load gate accepts.
+    """
+    imports = "from pydantic import BaseModel\n"
+    params_block = ""
+    if with_params:
+        imports += "from osprey.services.bluesky_bridge.plan_fields import ReadableChannels\n"
+        params_block = "class PARAMS(BaseModel):\n    monitors: ReadableChannels = []\n\n\n"
     return (
-        "from pydantic import BaseModel\n\n\n"
+        f"{imports}\n\n"
         "PLAN_METADATA = {\n"
         f'    "name": {name!r},\n'
         '    "description": "A layered test plan.",\n'
-        '    "category": "accelerator",\n'
-        '    "required_devices": [],\n'
         '    "writes": False,\n'
+        "}\n\n\n"
+        f"{params_block}"
+        "def build_plan(devices, params):\n"
+        f'    return {{"plan": {name!r}}}\n'
+    )
+
+
+def _writing_plan_source(name: str, *, params_block: str) -> str:
+    """A plan file declaring ``writes: True`` over the given ``PARAMS`` source.
+
+    ``params_block`` is the whole ``class PARAMS`` block (or ``""`` for a plan
+    that ships no schema at all), so each caller decides whether the plan names
+    a movable channel field — which is exactly what the load gate reads.
+    """
+    return (
+        "from pydantic import BaseModel, Field\n"
+        "from osprey.services.bluesky_bridge.plan_fields import (\n"
+        "    MovableChannel,\n"
+        "    MovableChannels,\n"
+        "    ReadableChannels,\n"
+        ")\n\n\n"
+        "PLAN_METADATA = {\n"
+        f'    "name": {name!r},\n'
+        '    "description": "A layered test plan that moves something."'
+        ",\n"
+        '    "writes": True,\n'
         "}\n\n\n"
         f"{params_block}"
         "def build_plan(devices, params):\n"
@@ -132,8 +162,7 @@ def test_malformed_file_is_quarantined_and_other_plans_still_register(
     _write(
         layer_dir,
         "missing_build_plan.py",
-        "PLAN_METADATA = {'name': 'no_build', 'description': 'd', 'category': 'accelerator', "
-        "'required_devices': [], 'writes': False}\n",
+        "PLAN_METADATA = {'name': 'no_build', 'description': 'd', 'writes': False}\n",
     )
 
     monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
@@ -242,8 +271,6 @@ def test_params_not_a_type_is_quarantined_and_other_plans_still_register(
         "PLAN_METADATA = {\n"
         "    'name': 'bad_params',\n"
         "    'description': 'd',\n"
-        "    'category': 'accelerator',\n"
-        "    'required_devices': [],\n"
         "    'writes': False,\n"
         "}\n\n"
         "PARAMS = 123\n\n"
@@ -276,8 +303,6 @@ def test_params_instance_not_subclass_is_quarantined_and_other_plans_still_regis
         "PLAN_METADATA = {\n"
         "    'name': 'bad_params_instance',\n"
         "    'description': 'd',\n"
-        "    'category': 'accelerator',\n"
-        "    'required_devices': [],\n"
         "    'writes': False,\n"
         "}\n\n"
         "PARAMS = _P()\n\n"
@@ -559,3 +584,167 @@ def test_shipped_plans_register_through_the_real_shipped_dir() -> None:
     facility = plan_loader.get_facility_plans()
     assert set(facility.plans) == {"orm", "grid_scan"}
     assert all(spec.provenance == "shipped" for spec in facility.plans.values())
+
+
+# ---------------------------------------------------------------------------
+# The load gate: a declared write must name the channels it moves
+# ---------------------------------------------------------------------------
+
+_GAP_MARKER = "declares writes: true but no movable channel field in PARAMS"
+
+_MOVABLE_PARAMS = (
+    "class PARAMS(BaseModel):\n"
+    "    correctors: MovableChannels = Field(..., min_length=1)\n"
+    "    monitors: ReadableChannels = Field(..., min_length=1)\n\n\n"
+)
+
+_READABLE_ONLY_PARAMS = (
+    "class PARAMS(BaseModel):\n    monitors: ReadableChannels = Field(..., min_length=1)\n\n\n"
+)
+
+_NESTED_MOVABLE_PARAMS = (
+    "class Axis(BaseModel):\n"
+    "    setpoint: MovableChannel\n"
+    "    start: float = 0.0\n\n\n"
+    "class PARAMS(BaseModel):\n"
+    "    monitors: ReadableChannels = Field(..., min_length=1)\n"
+    "    axes: list[Axis] = Field(..., min_length=1)\n\n\n"
+)
+
+
+def _quarantine_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "quarantining" in r.getMessage()
+    ]
+
+
+def test_declared_write_without_a_movable_field_is_quarantined_naming_the_gap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A plan claiming to change machine state while naming only readable
+    channels is unenforceable downstream — quarantined at load time, with a
+    message saying which half of the contract is missing."""
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "good_plan.py", _valid_plan_source("good_plan"))
+    _write(
+        layer_dir,
+        "undeclared_write.py",
+        _writing_plan_source("undeclared_write", params_block=_READABLE_ONLY_PARAMS),
+    )
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "undeclared_write" not in facility.plans
+    assert "good_plan" in facility.plans
+    assert any(_GAP_MARKER in message for message in _quarantine_warnings(caplog))
+
+
+def test_declared_write_with_no_schema_at_all_is_quarantined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """No ``PARAMS`` means no declaration to check against, which for a
+    ``writes: true`` plan is the same gap as a schema that declares nothing."""
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "no_schema.py", _writing_plan_source("no_schema", params_block=""))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "no_schema" not in facility.plans
+    assert any(_GAP_MARKER in message for message in _quarantine_warnings(caplog))
+
+
+def test_declared_write_with_a_movable_field_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "sweeper.py", _writing_plan_source("sweeper", params_block=_MOVABLE_PARAMS))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    assert "sweeper" in plan_loader.get_facility_plans().plans
+
+
+def test_declared_write_satisfied_by_a_nested_movable_field_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gate reads the whole schema, not just its top level: a movable
+    channel declared on a nested per-axis model satisfies it."""
+    layer_dir = tmp_path / "layer"
+    _write(
+        layer_dir,
+        "grid.py",
+        _writing_plan_source("grid", params_block=_NESTED_MOVABLE_PARAMS),
+    )
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    spec = plan_loader.get_facility_plans().plans["grid"]
+    assert ("axes[].setpoint", "movable") in spec.roles
+
+
+def test_readable_only_plan_declaring_no_writes_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The gate is one-directional: a plan that only reads passes untouched."""
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "monitor.py", _valid_plan_source("monitor", with_params=True))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "monitor" in facility.plans
+    assert facility.plans["monitor"].roles == (("monitors", "readable"),)
+    assert _quarantine_warnings(caplog) == []
+
+
+def test_movable_fields_without_a_declared_write_are_not_gated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reverse mismatch fails safe and is deliberately not quarantined: a
+    plan may name a channel it only reads back, and refusing to load it would
+    cost the catalog a working plan over a conservative declaration."""
+    layer_dir = tmp_path / "layer"
+    source = _writing_plan_source("conservative", params_block=_MOVABLE_PARAMS).replace(
+        '"writes": True', '"writes": False'
+    )
+    assert '"writes": False' in source
+    _write(layer_dir, "conservative.py", source)
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    assert "conservative" in plan_loader.get_facility_plans().plans
+
+
+def test_roles_are_exposed_on_the_loaded_spec_in_declaration_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Request-time consumers read the declaration off the spec rather than
+    re-walking the schema, so the loader has to store it."""
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "sweeper.py", _writing_plan_source("sweeper", params_block=_MOVABLE_PARAMS))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    spec = plan_loader.get_facility_plans().plans["sweeper"]
+    assert spec.roles == (("correctors", "movable"), ("monitors", "readable"))
+
+
+def test_a_plan_declaring_no_roles_carries_empty_roles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "plain.py", _valid_plan_source("plain"))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    assert plan_loader.get_facility_plans().plans["plain"].roles == ()

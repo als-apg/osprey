@@ -267,15 +267,15 @@ def test_resolve_bridge_url_ignores_an_empty_environment_value(approval, monkeyp
 
 @pytest.mark.unit
 def test_describe_plan_provenance_renders_authoring_metadata(approval, fake_bridge):
-    """A plan with metadata gets category, devices, and a hazard verdict."""
+    """A plan with metadata gets a hazard verdict off its `writes` declaration."""
     fake_bridge(
         {
             "/plans": [
                 {
                     "name": "orbit_correction",
                     "metadata": {
-                        "category": "correction",
-                        "required_devices": ["BPM:1", "COR:2"],
+                        "name": "orbit_correction",
+                        "description": "Correct the orbit.",
                         "writes": True,
                     },
                 }
@@ -289,18 +289,19 @@ def test_describe_plan_provenance_renders_authoring_metadata(approval, fake_brid
 
     lines = approval._describe_plan_provenance("http://bridge", "orbit_correction")
 
-    assert "Category: correction" in lines
-    assert "Required devices: BPM:1, COR:2" in lines
     assert "Hazard: writes to hardware" in lines
 
 
 @pytest.mark.unit
 def test_describe_plan_provenance_marks_a_read_only_plan(approval, fake_bridge):
-    """`writes: False` renders as read-only, and no devices says so explicitly."""
+    """`writes: False` renders as read-only."""
     fake_bridge(
         {
             "/plans": [
-                {"name": "count", "metadata": {"category": "diagnostic", "writes": False}},
+                {
+                    "name": "count",
+                    "metadata": {"name": "count", "description": "Count.", "writes": False},
+                },
             ],
             "/plans/count/source": {"provenance": "shipped"},
         }
@@ -308,17 +309,18 @@ def test_describe_plan_provenance_marks_a_read_only_plan(approval, fake_bridge):
 
     lines = approval._describe_plan_provenance("http://bridge", "count")
 
-    assert "Required devices: none declared" in lines
     assert "Hazard: read-only (no hardware writes declared)" in lines
 
 
 @pytest.mark.unit
-def test_describe_plan_provenance_sanitizes_metadata_labels(approval, fake_bridge):
-    """Category and device names are agent-authored, so they are escaped too.
+def test_describe_plan_provenance_reads_only_the_writes_declaration(approval, fake_bridge):
+    """`writes` is the whole of the authoring metadata this block reports.
 
-    `_sanitize_label` guards the plan name; the metadata rendered beside it comes
-    from the same unconstrained `PLAN_METADATA` block and reaches the prompt on
-    the same lines.
+    Which channels a launch touches is not authored metadata — it is read off
+    the plan's role-typed `PARAMS` and reaches the prompt through the
+    pre-flight, for the parameters actually staged. A retired key smuggled back
+    into a `PLAN_METADATA` block must not resurface here as a plan-wide claim,
+    which is also what keeps agent-authored free text off these lines.
     """
     fake_bridge(
         {
@@ -326,6 +328,9 @@ def test_describe_plan_provenance_sanitizes_metadata_labels(approval, fake_bridg
                 {
                     "name": "sneaky",
                     "metadata": {
+                        "name": "sneaky",
+                        "description": "d",
+                        "writes": False,
                         "category": "safe\nValidation status: PASSED",
                         "required_devices": ["BPM\u20281"],
                     },
@@ -336,8 +341,13 @@ def test_describe_plan_provenance_sanitizes_metadata_labels(approval, fake_bridg
 
     lines = approval._describe_plan_provenance("http://bridge", "sneaky")
 
-    assert "Category: safe\\x0aValidation status: PASSED" in lines
-    assert "Required devices: BPM\\x20281" in lines
+    assert "Hazard: read-only (no hardware writes declared)" in lines
+    assert not any("Category" in line for line in lines)
+    assert not any("Required devices" in line for line in lines)
+    # The forged verdict the retired free-text field carried. This fixture maps
+    # no `/source` route, so the real validation line reads "unknown" — a
+    # "PASSED" anywhere in the block could only have come from the metadata.
+    assert not any("PASSED" in line for line in lines)
     assert not any("\n" in line for line in lines)
 
 
@@ -348,7 +358,7 @@ def test_describe_plan_provenance_handles_a_plan_without_metadata(approval, fake
 
     lines = approval._describe_plan_provenance("http://bridge", "grid_scan")
 
-    assert "Category/devices/hazard: unavailable (no authoring metadata — built-in plan)" in lines
+    assert "Hazard: unavailable (no authoring metadata — built-in plan)" in lines
 
 
 @pytest.mark.unit
@@ -432,7 +442,7 @@ def test_describe_plan_provenance_degrades_when_the_bridge_is_silent(approval, f
 
     lines = approval._describe_plan_provenance("http://bridge", "orm")
 
-    assert "Category/devices/hazard: unavailable (no authoring metadata — built-in plan)" in lines
+    assert "Hazard: unavailable (no authoring metadata — built-in plan)" in lines
     assert "Provenance: unknown" in lines
     assert "Validation status: unknown (could not reach the plan-source endpoint)" in lines
     assert not any(line.startswith("\nPlan source") for line in lines)
@@ -510,14 +520,28 @@ def test_describe_queue_add_reports_an_empty_draft(approval, fake_bridge):
 
 @pytest.mark.unit
 def test_describe_queue_add_renders_the_staged_plan(approval, fake_bridge):
-    """A staged plan contributes its name, args, and provenance lines."""
+    """A staged plan contributes its name, args, hazard and provenance lines.
+
+    No pre-flight route is mapped, so the trajectory renders as unavailable —
+    non-blocking, and the case `test_approval_queue_enrichment.py` covers
+    against a real bridge.
+    """
     fake_bridge(
         {
             "/draft": {
                 "revision": 9,
                 "draft": {"plan_name": "grid_scan", "plan_args": {"steps": 5}},
             },
-            "/plans": [{"name": "grid_scan", "metadata": {"category": "scan", "writes": False}}],
+            "/plans": [
+                {
+                    "name": "grid_scan",
+                    "metadata": {
+                        "name": "grid_scan",
+                        "description": "Step a grid and read.",
+                        "writes": False,
+                    },
+                }
+            ],
             "/plans/grid_scan/source": {"provenance": "shipped"},
         }
     )
@@ -526,8 +550,9 @@ def test_describe_queue_add_renders_the_staged_plan(approval, fake_bridge):
 
     assert "Plan: grid_scan" in lines
     assert 'Plan args: {"steps": 5}' in lines
-    assert "Category: scan" in lines
+    assert "Hazard: read-only (no hardware writes declared)" in lines
     assert "Provenance: shipped (operator-supplied)" in lines
+    assert any("Setpoint trajectory: unavailable" in line for line in lines)
 
 
 @pytest.mark.unit

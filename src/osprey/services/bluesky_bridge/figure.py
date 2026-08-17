@@ -1,6 +1,6 @@
 """The figure spec: one drawing vocabulary shared by the panel and the agent.
 
-A plan's ``render(rows, params)`` returns a `Figure`: a list of `Panel`s, each
+A plan's ``render(window, params)`` returns a `Figure`: a list of `Panel`s, each
 carrying exactly one mark (`LinesMark`, `HeatmapMark`, or `BarsMark`) alongside
 its title, axis labels/units, and annotations. The bridge serves that object as
 JSON from `GET /runs/{run_id}/figure`; the panel's ``figure-renderer.js`` draws
@@ -25,7 +25,8 @@ with no x has no place on an axis at all.
 
 Kept pydantic-only (no bluesky/ophyd/tiled imports), like `plan_metadata.py`, so
 plan modules and the bridge process can both import it without dragging the
-RunEngine stack into either one.
+RunEngine stack into either one. `plan_fields`, its one sibling import, holds
+the same line.
 """
 
 from __future__ import annotations
@@ -35,6 +36,8 @@ from collections.abc import Sequence
 from typing import Annotated, Any, Literal, NamedTuple
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+from .plan_fields import resolve_column
 
 # --- Reason vocabulary -------------------------------------------------------
 #
@@ -480,14 +483,56 @@ def _numeric_value(value: Any) -> float | None:
     return as_float if math.isfinite(as_float) else None
 
 
+def _role_columns(names: Sequence[str], columns: Sequence[str]) -> list[str]:
+    """The distinct data columns *names* resolve to, in the order they are named.
+
+    A channel that has no column in this window -- never read, or read after
+    the window was taken -- contributes nothing, so the result is shorter than
+    the input rather than carrying a hole.
+    """
+    ordered: dict[str, None] = {}
+    for name in names:
+        column = resolve_column(name, columns)
+        if column is not None:
+            ordered.setdefault(column, None)
+    return list(ordered)
+
+
+def _x_axis_column(window: RowWindow, movable: Sequence[str]) -> str | None:
+    """The column the run's own x axis lives in, or ``None`` for row index.
+
+    Only a run with exactly ONE movable column has an x axis the default figure
+    can name. A plan that moves several channels -- the orm's serial sweeps,
+    where every corrector in turn is driven through the same run -- has no
+    single independent variable, and plotting against one of them would draw
+    the other sweeps as vertical smears through it. Row index is the honest
+    answer there, and it is also the answer when the declaration resolves to
+    nothing: a run stamped before roles existed, a plan that declares none, a
+    channel whose column never appeared.
+
+    The one column must also hold at least one finite number somewhere in the
+    window. A movable that reads back as a string, or not at all, is a column
+    with no positions in it, and every point drawn against it would be dropped.
+    """
+    resolved = _role_columns(movable, window.columns)
+    if len(resolved) != 1:
+        return None
+    column = resolved[0]
+    if not any(_numeric_value(row.get(column)) is not None for row in window.rows):
+        return None
+    return column
+
+
 def default_figure(
     window: RowWindow,
     *,
     reason: str | None,
     partial: bool,
     source: Literal["live", "tiled"],
+    movable: Sequence[str] = (),
+    readable: Sequence[str] = (),
 ) -> Figure:
-    """Build the bridge's stand-in view: every numeric column against row index.
+    """Build the bridge's stand-in view: every numeric column against the run's x.
 
     This is what a run gets when no plan ``render()`` produced a figure for it
     -- the plan declares none, its render raised, its parameters did not
@@ -503,12 +548,30 @@ def default_figure(
     that hold a string, a boolean, or a non-finite float are gaps for the same
     reason: the renderer breaks the line rather than inventing a position.
 
-    x is the row's index in ``window.rows``, not a time or a setpoint. The
-    default figure has no way to know which column is the independent one, so it
-    plots against the only ordering it can trust -- the order the run emitted.
+    **x is the plan's own movable column when the plan declared exactly one**,
+    and the row's index in ``window.rows`` otherwise. The declaration is the
+    only thing that can say which column is the independent one -- there is no
+    reading a column's values can do it -- so ``movable``/``readable`` are the
+    channel names the run's parameters supplied for those roles
+    (`plan_fields.collect_channels`), matched to columns by
+    `plan_fields.resolve_column`. Pass nothing and the figure is exactly what it
+    was before roles existed: every numeric column against row index, in column
+    order. See `_x_axis_column` for when a declaration is *not* usable.
 
-    Series past `MAX_DEFAULT_SERIES` are dropped in column order and the count
-    of what was dropped is annotated on the first panel, so the figure never
+    Role context applies as a unit. With a usable x column the movable's own
+    column becomes the axis rather than a panel, the columns the plan declared
+    readable are drawn first (so they are the ones that survive the series cap),
+    and the rest of the numeric columns follow in column order behind them --
+    dropped from the figure never, reordered only. Rows holding no reading for
+    the x column have no position on that axis and are left out of every series,
+    which the first panel says in as many rows.
+
+    Points stay in acquisition order rather than being sorted by x: a plan that
+    sweeps its movable more than once in a run draws the retrace it actually
+    performed instead of a line stitched across passes.
+
+    Series past `MAX_DEFAULT_SERIES` are dropped in that order and the count of
+    what was dropped is annotated on the first panel, so the figure never
     implies it is showing every column. A window that is only part of its run
     (``rows_complete`` false) is annotated the same way.
 
@@ -530,17 +593,37 @@ def default_figure(
         source: Which store the rows came from. On a source-read failure, pass
             the store that was being read -- the empty figure still says where
             it was looking.
+        movable: Channel names the run's parameters supplied for the movable
+            role, in declaration order. Empty -- the default -- means no
+            declaration reached here and x is the row index.
+        readable: Channel names supplied for the readable role. Used only to
+            order the panels, and only when ``movable`` yielded an x column.
 
     Returns:
-        A `Figure` of one single-series lines `Panel` per drawn column, in
-        column order, each series decimated to `DEFAULT_MAX_POINTS`.
+        A `Figure` of one single-series lines `Panel` per drawn column, each
+        series decimated to `DEFAULT_MAX_POINTS`.
     """
+    x_column = _x_axis_column(window, movable)
+
     drawn = [
         name
         for name in window.columns
-        if any(_numeric_value(row.get(name)) is not None for row in window.rows)
+        if name != x_column
+        and any(_numeric_value(row.get(name)) is not None for row in window.rows)
     ]
+    if x_column is not None:
+        drawable = set(drawn)
+        leading = [name for name in _role_columns(readable, window.columns) if name in drawable]
+        led = set(leading)
+        drawn = leading + [name for name in drawn if name not in led]
     omitted = len(drawn) - MAX_DEFAULT_SERIES
+
+    positions = (
+        (row, float(index) if x_column is None else _numeric_value(row.get(x_column)))
+        for index, row in enumerate(window.rows)
+    )
+    placed = [(row, x) for row, x in positions if x is not None]
+    unplaced = len(window.rows) - len(placed)
 
     annotations: list[str] = []
     if omitted > 0:
@@ -552,18 +635,19 @@ def default_figure(
         annotations.append(
             f"Showing {len(window.rows)} of {window.total_seen} rows the run produced."
         )
+    if unplaced:
+        annotations.append(
+            f"Not drawing {unplaced} of {len(window.rows)} rows with no {x_column} reading."
+        )
 
     panels: list[Panel] = []
     for name in drawn[:MAX_DEFAULT_SERIES]:
-        points = [
-            Point(x=float(index), y=_numeric_value(row.get(name)))
-            for index, row in enumerate(window.rows)
-        ]
+        points = [Point(x=x, y=_numeric_value(row.get(name))) for row, x in placed]
         kept = decimate(points)
         panels.append(
             Panel(
                 title=name,
-                x_label="Row",
+                x_label="Row" if x_column is None else x_column,
                 y_label=name,
                 annotations=annotations if not panels else [],
                 mark=LinesMark(

@@ -232,6 +232,26 @@ async def build_devices(
     return devices
 
 
+def _declared_devices(schema: Any, params: Any, devices: Mapping[str, Any]) -> dict[str, Any]:
+    """The devices one plan may resolve: the channels its params *declare*.
+
+    A plan's ``PARAMS`` model declares, per field, whether the channels named
+    there are movable (the plan drives them) or readable (it records them).
+    That declaration is the plan's whole claim on this worker, so it is also
+    the bound: the mapping built here holds the declared channels and nothing
+    else, and a plan reaching for a device it never declared finds it absent
+    however many devices the worker actually built.
+
+    Names the worker did not build are simply left out rather than raising —
+    the wrapper's own handler is what turns that into a legible failure, and it
+    treats both misses the same way.
+    """
+    # Absolute, not relative — see the module docstring.
+    from osprey.services.bluesky_bridge.plan_fields import declared_channels
+
+    return {name: devices[name] for name in declared_channels(schema, params) if name in devices}
+
+
 def _make_plan_function(spec: Any, devices: Mapping[str, Any]) -> Callable[..., Iterator[Any]]:
     """Wrap one catalog ``PlanSpec`` as a qserver-executable plan function.
 
@@ -252,17 +272,26 @@ def _make_plan_function(spec: Any, devices: Mapping[str, Any]) -> Callable[..., 
     for queueserver to re-derive.
 
     Device names inside ``params`` are resolved against ``devices`` by
-    ``spec.plan`` itself. A name that isn't in the namespace surfaces as a
-    ``KeyError`` naming the missing device *and* listing what this worker
-    actually has, rather than a bare key.
+    ``spec.plan`` itself — but only against the channels the params *declare*
+    (see :func:`_declared_devices`), never the worker's whole device set. A
+    name the plan cannot resolve surfaces as a ``KeyError`` saying which of the
+    two reasons applies — the worker never built it, or the parameter naming it
+    declares no channel role — and listing what this worker actually has,
+    rather than a bare key.
     """
 
     def plan_function(**kwargs: Any) -> Iterator[Any]:
         params = spec.schema.model_validate(kwargs)
         try:
-            plan = spec.plan(dict(devices), params)
+            plan = spec.plan(_declared_devices(spec.schema, params, devices), params)
         except KeyError as exc:
             missing = exc.args[0] if exc.args else "<unknown>"
+            if missing in devices:
+                raise KeyError(
+                    f"plan {spec.name!r} referenced device {missing!r}, which its parameters "
+                    f"do not declare as a movable or readable channel — a plan resolves only "
+                    f"the channels it declares; available devices: {sorted(devices)}"
+                ) from exc
             raise KeyError(
                 f"plan {spec.name!r} referenced device {missing!r}, which this worker "
                 f"did not build; available devices: {sorted(devices)}"

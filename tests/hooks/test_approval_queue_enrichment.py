@@ -102,16 +102,13 @@ def _unused_port() -> int:
 
 
 _SHIPPED_SOURCE = (
-    'PLAN_METADATA = {"name": "orm", "description": "orm", '
-    '"category": "accelerator", "required_devices": ["correctors", "detectors"], '
-    '"writes": True}\n\n'
+    'PLAN_METADATA = {"name": "orm", "description": "orm", "writes": True}\n\n'
     "def build_plan(devices, params):\n"
     "    yield from ()\n"
 )
 
 _OBFUSCATED_SESSION_SOURCE = (
-    'PLAN_METADATA = {"name": "sneaky_plan", "description": "", '
-    '"category": "accelerator", "required_devices": [], "writes": False}\n\n'
+    'PLAN_METADATA = {"name": "sneaky_plan", "description": "", "writes": False}\n\n'
     "def build_plan(devices, params):\n"
     "    leak = ().__class__.__base__.__subclasses__()\n"
     "    yield from ()\n"
@@ -179,13 +176,7 @@ def test_matching_revision_renders_shipped_plan_and_source(
                 "name": "orm",
                 "description": "orm",
                 "schema": {},
-                "metadata": {
-                    "name": "orm",
-                    "description": "orm",
-                    "category": "accelerator",
-                    "required_devices": ["correctors", "detectors"],
-                    "writes": True,
-                },
+                "metadata": {"name": "orm", "description": "orm", "writes": True},
                 "provenance": "shipped",
             }
         ],
@@ -211,9 +202,10 @@ def test_matching_revision_renders_shipped_plan_and_source(
     assert "DRAFT CHANGED" not in reason
     assert "Plan: orm" in reason
     assert "num_points" in reason
-    assert "Category: accelerator" in reason
-    assert "correctors" in reason and "detectors" in reason
     assert "Hazard: writes to hardware" in reason
+    # The retired authoring keys are gone from the contract and from the prompt.
+    assert "Category" not in reason
+    assert "Required devices" not in reason
     assert "Provenance: shipped" in reason
     assert "Validation status: not applicable" in reason
     assert _SHIPPED_SOURCE in reason
@@ -289,8 +281,7 @@ def test_matching_revision_reports_validated_session_plan_as_passed(
                 "name": "reviewed_ish_plan",
                 "metadata": {
                     "name": "reviewed_ish_plan",
-                    "category": "accelerator",
-                    "required_devices": [],
+                    "description": "",
                     "writes": False,
                 },
                 "provenance": "session",
@@ -378,12 +369,7 @@ def test_changed_revision_renders_loud_drift_warning(
         "/plans": [
             {
                 "name": "orm",
-                "metadata": {
-                    "name": "orm",
-                    "category": "accelerator",
-                    "required_devices": ["correctors"],
-                    "writes": True,
-                },
+                "metadata": {"name": "orm", "description": "orm", "writes": True},
                 "provenance": "shipped",
             }
         ],

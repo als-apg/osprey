@@ -286,17 +286,18 @@ def _describe_plan_provenance(base_url: str, plan_name: str) -> list[str]:
     )
     metadata = (plan_entry or {}).get("metadata")
     if metadata:
-        lines.append(f"Category: {_sanitize_label(metadata.get('category', 'unknown'))}")
-        devices = metadata.get("required_devices") or []
-        rendered_devices = ", ".join(_sanitize_label(d) for d in devices) if devices else None
-        lines.append(f"Required devices: {rendered_devices or 'none declared'}")
+        # `writes` is the whole of the authoring declaration this prompt reads.
+        # Which channels a launch touches is NOT authored metadata — it is read
+        # off the plan's role-typed parameter fields, and reaches this prompt
+        # through the pre-flight (see `_declared_channel_lines`), for the exact
+        # parameters staged rather than as a plan-wide claim.
         lines.append(
             "Hazard: writes to hardware"
             if metadata.get("writes")
             else "Hazard: read-only (no hardware writes declared)"
         )
     else:
-        lines.append("Category/devices/hazard: unavailable (no authoring metadata — built-in plan)")
+        lines.append("Hazard: unavailable (no authoring metadata — built-in plan)")
 
     source_info = _bridge_get_json(base_url, f"/plans/{plan_name}/source")
     provenance = (source_info or {}).get("provenance") or (plan_entry or {}).get("provenance")

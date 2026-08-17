@@ -93,7 +93,7 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
         "orm",
         {
             "correctors": ["hcm1", "hcm2"],
-            "detectors": ["bpm1", "bpm2"],
+            "bpms": ["bpm1", "bpm2"],
             "span_a": 2.0,
             "num": 3,
         },
@@ -130,7 +130,7 @@ def test_grid_scan_plan_runs_to_completion_and_buffers_rows(gs_devices: dict) ->
     run_uid = run_plan(
         "grid_scan",
         {
-            "detectors": ["det1"],
+            "readables": ["det1"],
             "axes": [
                 {"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 2},
                 {"setpoint": "motor2", "start": 0.0, "stop": 1.0, "num_points": 3},

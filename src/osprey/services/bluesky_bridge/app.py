@@ -26,6 +26,7 @@ import asyncio
 import logging
 import os
 import re
+from collections.abc import Sequence
 from contextlib import asynccontextmanager, suppress
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
@@ -55,7 +56,8 @@ from .models import (
     PlanSessionWriteRequest,
     PlanValidateRequest,
 )
-from .plan_types import Provenance
+from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
+from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body, validate_plan
 from .queue_backend import PLAN_META_KEY, QueueBackendError
 from .session_dir import resolve_session_plan_dir
@@ -563,8 +565,9 @@ def write_session_plan(request: PlanSessionWriteRequest) -> dict:
     """Author a session-tier plan file. NEVER imports or execs it.
 
     Assembles the final file content as ONE string — a generated
-    `PLAN_METADATA = {...}` block followed by the author's own ``body`` — and
-    writes exactly that string to ``resolve_session_plan_dir()/<name>.py``,
+    `PLAN_METADATA = {...}` block carrying exactly the three declared fields
+    (``name``/``description``/``writes``), followed by the author's own
+    ``body`` — and writes exactly that string to ``resolve_session_plan_dir()/<name>.py``,
     overwriting any existing file of the same name (a name reused for
     different content is a re-authoring: its hash changes, so any prior
     validation record no longer matches — the file becomes unvalidated again
@@ -580,8 +583,6 @@ def write_session_plan(request: PlanSessionWriteRequest) -> dict:
     metadata = {
         "name": name,
         "description": request.description,
-        "category": request.category,
-        "required_devices": list(request.required_devices),
         "writes": request.writes,
     }
     final_content = f"PLAN_METADATA = {metadata!r}\n\n{request.body}"
@@ -1094,6 +1095,44 @@ def _stamp_name(plan_stamp: Any) -> str | None:
     return name if isinstance(name, str) else None
 
 
+def _role_channels(spec: PlanSpec[Any], params: Any) -> tuple[list[str], list[str]]:
+    """The movable and the readable channels *params* supplies, as two lists.
+
+    `_declared_channels`' counterpart for the read routes, which need the two
+    roles apart rather than interleaved and labelled: the movable channels pick
+    the default figure's x axis and the run's independent variable for
+    `analysis`, the readable ones order the figure's panels and are what the
+    statistics are computed for. Same single authority — `PlanSpec.roles` says
+    whether the plan declared anything at all, `plan_fields.collect_channels`
+    says which names the parameters put in the declared fields.
+
+    Best-effort and never raises. Role context only chooses an x axis, so a run
+    whose stamped parameters no longer validate — or a schema whose walk goes
+    wrong — must still get its row-index figure rather than turn a route's
+    promised 200 into a 500. Parameters are validated first when they still can
+    be, so a channel supplied by a field default rather than by the stamp is
+    seen; a stamp that no longer validates is walked exactly as it was stored.
+    """
+    if not spec.roles:
+        return [], []
+    try:
+        walked: Any = params
+        with suppress(ValidationError):
+            walked = spec.schema.model_validate({} if params is None else params)
+        return (
+            collect_channels(spec.schema, walked, MOVABLE_ROLE),
+            collect_channels(spec.schema, walked, READABLE_ROLE),
+        )
+    except Exception:
+        logger.warning(
+            "could not read plan %r's declared channels; the default figure falls back to "
+            "row index and the run's payload carries no statistics",
+            spec.name,
+            exc_info=True,
+        )
+        return [], []
+
+
 def _compose_figure(
     *,
     columns: list[str],
@@ -1113,9 +1152,18 @@ def _compose_figure(
 
     Every fallback is the default figure carrying its machine-readable
     ``reason``; ``partial`` and ``source`` are stamped from the SOURCE's truth
-    on every path, plan-rendered figures included — a `render` sees rows, not
-    their provenance, so both of its own values are placeholders by convention
-    (see `plans_core/orm.py`).
+    on every path, plan-rendered figures included — a `render` is handed the
+    `RowWindow`, which says how much of the run its rows are but not which
+    store they came from or whether it is still producing them, so both of a
+    rendered figure's own values are placeholders by convention (see
+    `plans_core/orm.py`).
+
+    Every default figure built once the run's plan is known is handed that
+    plan's declared channels (`_role_channels`), so the stand-in view plots
+    against the run's own movable rather than against row index. Reading the
+    declaration cannot change which reason is served: the ladder is walked in
+    the same order either way, and a declaration that cannot be read at all
+    degrades to no role context — the row-index figure — never to a failure.
 
     The reason ladder, in the order it is walked:
 
@@ -1152,9 +1200,17 @@ def _compose_figure(
         )
         return figure, True
 
-    def _default(reason: str) -> Figure:
+    def _default(reason: str, roles: tuple[Sequence[str], Sequence[str]] = ((), ())) -> Figure:
+        movable, readable = roles
         return _decimate_figure(
-            default_figure(window, reason=reason, partial=partial, source=source)
+            default_figure(
+                window,
+                reason=reason,
+                partial=partial,
+                source=source,
+                movable=movable,
+                readable=readable,
+            )
         )
 
     plan_name = _stamp_name(plan_stamp)
@@ -1175,19 +1231,26 @@ def _compose_figure(
         return _default(REASON_NO_RENDER), False
     if spec is None:
         return _default(REASON_NO_RENDER), True
-    if spec.provenance in ("session", "unreviewed"):
-        return _default(REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS), True
-    if spec.render is None:
-        return _default(REASON_NO_RENDER), True
 
+    # Every path below has a spec, so every default figure below is role-aware:
+    # a session plan's view and a mismatched-params view get the run's own x
+    # axis exactly as a shipped plan's does. The declaration is read off the
+    # stamped kwargs, which is all a run that never rendered ever supplies.
     kwargs = plan_stamp.get("kwargs")
+    roles = _role_channels(spec, kwargs)
+
+    if spec.provenance in ("session", "unreviewed"):
+        return _default(REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS, roles), True
+    if spec.render is None:
+        return _default(REASON_NO_RENDER, roles), True
+
     try:
         params = spec.schema.model_validate({} if kwargs is None else kwargs)
     except ValidationError:
-        return _default(REASON_PARAMS_MISMATCH), True
+        return _default(REASON_PARAMS_MISMATCH, roles), True
 
     try:
-        rendered = spec.render(window.rows, params)
+        rendered = spec.render(window, params)
         if not isinstance(rendered, Figure):
             raise TypeError(f"render returned {type(rendered).__name__}, not a Figure")
         figure = _decimate_figure(
@@ -1200,7 +1263,7 @@ def _compose_figure(
             plan_name,
             exc_info=True,
         )
-        return _default(REASON_RENDER_FAILED), True
+        return _default(REASON_RENDER_FAILED, roles), True
 
 
 @app.get("/runs/{run_id}/figure")
