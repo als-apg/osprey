@@ -767,7 +767,6 @@ engine-injected values:</p>
 <span class="w">    </span><span class="nt">labels</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">osprey.project.name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{osprey_labels.project_name}}&quot;</span>
 <span class="w">      </span><span class="nt">osprey.project.root</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{osprey_labels.project_root}}&quot;</span>
-<span class="w">      </span><span class="nt">osprey.deployed.at</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{osprey_labels.deployed_at}}&quot;</span>
 <span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;{{deployment.bind_address}}:{{services.postgresql.port_host}}:5432&quot;</span>
 <span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
@@ -779,7 +778,33 @@ engine-injected values:</p>
 <p>Common access patterns: <code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>,
 <code class="docutils literal notranslate"><span class="pre">{{file_paths.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{system.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{project_root}}</span></code>,
 <code class="docutils literal notranslate"><span class="pre">{{deployment.bind_address}}</span></code>, and <code class="docutils literal notranslate"><span class="pre">{{osprey_labels.project_name}}</span></code> /
-<code class="docutils literal notranslate"><span class="pre">project_root</span></code> / <code class="docutils literal notranslate"><span class="pre">deployed_at</span></code> (injected by the deploy engine).</p>
+<code class="docutils literal notranslate"><span class="pre">project_root</span></code> (injected by the deploy engine).</p>
+<p>The engine deliberately injects no deploy timestamp. Everything a template
+renders comes from the project’s configuration, so building the same project
+twice produces the same files — which is what lets you diff a rebuilt
+<code class="docutils literal notranslate"><span class="pre">build/</span></code> directory and see only your own changes. A timestamp would also
+make every container look changed to the container runtime on each <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">up</span></code>, restarting the whole stack for nothing. If you need to know when a
+container was started, ask the runtime: <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">inspect</span></code> reports it as
+<code class="docutils literal notranslate"><span class="pre">.Created</span></code>. Earlier versions of these templates carried an
+<code class="docutils literal notranslate"><span class="pre">osprey.deployed.at</span></code> label; a template you have customized that still sets it
+keeps building, and the label just renders empty, but you should drop the line.</p>
+<p>What that timestamp was doing by accident, two labels now do on purpose:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">osprey</span><span class="o">.</span><span class="n">env</span><span class="o">.</span><span class="n">digest</span><span class="p">:</span> <span class="s2">&quot;$</span><span class="si">{OSPREY_ENV_DIGEST:-}</span><span class="s2">&quot;</span>
+<span class="n">osprey</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">digest</span><span class="p">:</span> <span class="s2">&quot;$</span><span class="si">{OSPREY_CONFIG_DIGEST:-}</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>Your service reads its settings from files — the env chain, and the
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> mounted into the container — and the container runtime decides
+whether to restart a container by comparing the compose document, which names
+neither file’s <em>contents</em>. So editing <code class="docutils literal notranslate"><span class="pre">.env</span></code> or running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span></code> would
+leave the running container on the values it started with. Each label carries a
+hash of one of those files, which turns such an edit into a document change and
+restarts exactly the containers that read it. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> sets both variables
+for you; they interpolate to empty if you run <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span></code> by hand. <strong>A
+service template you wrote yourself should carry both lines</strong> — without them
+your service keeps serving its old settings after a change, with nothing to say
+so.</p>
 </section>
 <section id="service-template-ownership">
 <h2>Service Template Ownership<a class="headerlink" href="#service-template-ownership" title="Link to this heading">#</a></h2>

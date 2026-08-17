@@ -752,7 +752,11 @@ compose template per service directory, rendered by the build.</p>
 <span class="x">    labels:</span>
 <span class="x">      osprey.project.name: &quot;</span><span class="cp">{{</span> <span class="nv">osprey_labels.project_name</span> <span class="cp">}}</span><span class="x">&quot;</span>
 <span class="x">      osprey.project.root: &quot;</span><span class="cp">{{</span> <span class="nv">osprey_labels.project_root</span> <span class="cp">}}</span><span class="x">&quot;</span>
-<span class="x">      osprey.deployed.at: &quot;</span><span class="cp">{{</span> <span class="nv">osprey_labels.deployed_at</span> <span class="cp">}}</span><span class="x">&quot;</span>
+<span class="x">      # Content hashes of the env chain and the rendered config this service</span>
+<span class="x">      # reads. They are what makes an edit to either file restart this</span>
+<span class="x">      # container; see the service-template section of deploy-project.</span>
+<span class="x">      osprey.env.digest: &quot;${OSPREY_ENV_DIGEST:-}&quot;</span>
+<span class="x">      osprey.config.digest: &quot;${OSPREY_CONFIG_DIGEST:-}&quot;</span>
 <span class="x">    restart: unless-stopped</span>
 <span class="x">    ports:</span>
 <span class="x">      - &quot;</span><span class="cp">{{</span> <span class="nv">deployment.bind_address</span> <span class="o">|</span> <span class="nf">default</span><span class="o">(</span><span class="s1">&#39;127.0.0.1&#39;</span><span class="o">)</span> <span class="cp">}}</span><span class="x">:</span><span class="cp">{{</span> <span class="o">(</span><span class="nv">services</span><span class="o">[</span><span class="s1">&#39;facility-mcp&#39;</span><span class="o">]</span> <span class="o">|</span> <span class="nf">default</span><span class="o">({}))</span><span class="nv">.port</span> <span class="o">|</span> <span class="nf">default</span><span class="o">(</span><span class="m">8200</span><span class="o">)</span> <span class="cp">}}</span><span class="x">:8200/tcp&quot;</span>
