@@ -23,6 +23,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `osprey up` and `osprey restart` warn in Preflight when Docker Desktop's
+  "Enable host networking" is off and the deployment has web terminals. The
+  post-up probe already caught this, but only after every image was built and
+  every container was up, which on a first deploy is a quarter of an hour after
+  the operator could have fixed it. Read from Docker Desktop's own settings
+  (its backend API, falling back to the persisted settings store), so the
+  warning names the cause instead of listing suspects. A setting that cannot be
+  read stays silent and leaves the post-up probe to speak.
 - The post-up reachability warning now separates a forwarder that is switched
   off from a port registration the running forwarder missed. A definite "off"
   skips the self-heal restart, which cannot help, and states the cause; an
