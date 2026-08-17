@@ -69,7 +69,7 @@ Reads and rewrites the file seeded by ``osprey_panels_context.py``::
       "tiles":   ["lattice", "artifacts"] | null,  # on-screen, reading order;
                                                    # null = occupancy UNKNOWN
       "active":  "artifacts" | null,               # active tab id
-      "visible": ["lattice", "artifacts", "scan"]  # launcher-rail membership
+      "visible": ["lattice", "artifacts", "bluesky"]  # launcher-rail membership
     }
 
 The schema is documented in full in the sibling hook, which owns it.  Both hooks

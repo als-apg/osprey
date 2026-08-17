@@ -224,7 +224,7 @@ then build and bring the stack up from inside it:
 That is the entire setup: the preset ships the ``modules.web_terminals`` block
 above, so no extra flags or configuration are needed. Alongside the web tier,
 ``osprey up`` brings up everything else the control-assistant tutorial deploys
-— the virtual accelerator, the scan services, and the supporting
+— the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL/OpenObserve containers — so the two personas open onto a working
 control room, not an empty shell.
 

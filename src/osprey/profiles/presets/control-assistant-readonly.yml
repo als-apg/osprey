@@ -6,7 +6,7 @@
 # write surface: channel-write tools land in the rendered settings.json deny
 # list, the writes-check hook refuses with a clean "writes disabled" message,
 # and the connector's reference monitor blocks any write that somehow reaches
-# it. Reads, the channel finder, the archiver, logbook search, and the scan
+# it. Reads, the channel finder, the archiver, logbook search, and the bluesky
 # panels all work unchanged.
 #
 # The write-capable counterpart is `control-assistant-readwrite`.

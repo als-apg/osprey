@@ -42,7 +42,7 @@ from contextlib import contextmanager
 
 import pytest
 
-SCAN_HOOK_CONFIG = {
+BLUESKY_HOOK_CONFIG = {
     "server_prefixes": ["mcp__bluesky__"],
     "approval_prefixes": ["mcp__bluesky__"],
 }
@@ -134,7 +134,7 @@ def _run_queue_add(hook_runner, config, tmp_path, draft_revision):
         {"draft_revision": draft_revision},
         config_path=config,
         cwd=tmp_path,
-        hook_config=SCAN_HOOK_CONFIG,
+        hook_config=BLUESKY_HOOK_CONFIG,
     )
 
 
@@ -145,7 +145,7 @@ def _run_queue_tool(hook_runner, config, tmp_path, tool, tool_input=None):
         tool_input or {},
         config_path=config,
         cwd=tmp_path,
-        hook_config=SCAN_HOOK_CONFIG,
+        hook_config=BLUESKY_HOOK_CONFIG,
     )
 
 
@@ -672,7 +672,7 @@ def test_stop_run_renders_the_abort_prompt_end_to_end(
         reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "stop_run"))
 
     assert "ABORTS THE PLAN THAT IS RUNNING NOW" in reason
-    assert "left wherever the scan moved it" in reason
+    assert "left wherever the plan moved it" in reason
 
 
 @pytest.mark.unit

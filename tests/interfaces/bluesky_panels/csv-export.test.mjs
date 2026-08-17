@@ -41,7 +41,7 @@ describe('csvField', () => {
   });
 
   test('non-finite numbers are written as-is rather than blanked', () => {
-    // A NaN in a scan is a real reading that failed; erasing it to an empty
+    // A NaN in a run is a real reading that failed; erasing it to an empty
     // field would make it indistinguishable from a column that was never read.
     expect(csvField(NaN)).toBe('NaN');
     expect(csvField(Infinity)).toBe('Infinity');

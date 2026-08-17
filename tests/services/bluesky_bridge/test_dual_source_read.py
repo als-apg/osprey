@@ -25,7 +25,7 @@ Exercised here:
   all: both fall back to `_from_tiled(run_id, ...)`.
 - Neither source has the run: 404, not a 200-empty (the MCP tool maps 404 to
   `unknown_run`; a 200-empty would make a nonexistent run look like a valid
-  empty scan).
+  empty run).
 - Schema parity: a completed live-sourced response and a Tiled-sourced
   response carry the identical key set.
 """
@@ -138,7 +138,7 @@ def test_in_flight_empty_buffer_stays_on_live_path_not_tiled(
     """CRITICAL: a present-but-empty buffer (`partial: true`, zero rows) is an
     in-flight run, not a "nothing here" signal — the fallback trigger must be
     `buf is None`, never falsy rows. If this regresses to a falsy-rows check,
-    every in-flight scan with zero events so far gets incorrectly diverted to
+    every in-flight run with zero events so far gets incorrectly diverted to
     Tiled (which has nothing yet either, since TiledWriter only flushes at
     the stop doc) on every poll until its first event arrives.
     """

@@ -9,7 +9,7 @@ the rule:
   buckets sample-arg device names into settable and readable mocks for the
   dry run, and matched on the substring ``"detect"`` inline;
 - :func:`~osprey.services.bluesky_bridge.document_plane.expected_points_from_params`
-  decides whether a device list multiplies a scan's expected point count, and
+  decides whether a device list multiplies a plan's expected point count, and
   matched against a three-element frozenset of exact key names.
 
 Those two rules disagreed at the edges, and each failed *open* in its own
@@ -36,7 +36,7 @@ __all__ = ["is_read_only_device_field"]
 def is_read_only_device_field(key: str | None) -> bool:
     """Whether *key* names a plan parameter holding read-only devices.
 
-    Read-only devices are read once at every point of a scan; they are never
+    Read-only devices are read once at every point of a plan; they are never
     stepped through, so their count never multiplies a point total and they
     are backed by the read-only mock during a dry run.
 

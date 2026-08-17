@@ -313,13 +313,13 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="skills/writing-bluesky-plans",
             template_path="claude/skills/writing-bluesky-plans/SKILL.md",
             output_path=".claude/skills/writing-bluesky-plans/SKILL.md",
-            description="Author, validate, and launch a session-tier Bluesky scan plan",
+            description="Author, validate, and launch a session-tier Bluesky plan",
         ),
         BuildArtifact(
-            canonical_name="skills/operating-bluesky-scans",
-            template_path="claude/skills/operating-bluesky-scans/SKILL.md",
-            output_path=".claude/skills/operating-bluesky-scans/SKILL.md",
-            description="Stage, launch, and watch a registered Bluesky scan through the shared draft",
+            canonical_name="skills/operating-bluesky-plans",
+            template_path="claude/skills/operating-bluesky-plans/SKILL.md",
+            output_path=".claude/skills/operating-bluesky-plans/SKILL.md",
+            description="Stage, launch, and watch a registered Bluesky plan through the shared draft",
         ),
         # ── Output Styles ────────────────────────────────────────────
         BuildArtifact(
@@ -409,7 +409,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="services/bluesky",
             template_path="bluesky",
             output_path="services/bluesky",
-            description="Bluesky scan-bridge compose template + image context",
+            description="Bluesky bridge compose template + image context",
             template_root="services",
             is_directory=True,
         ),

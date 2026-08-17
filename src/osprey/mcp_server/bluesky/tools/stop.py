@@ -8,7 +8,7 @@ discarding the rest of its points and leaving the queue stopped.
 re-read, no launch token, at this tool and at the bridge — exactly the posture
 of a plain ``queue_stop``, and for the same reason: halting must never have a
 failure mode, so it must keep working when the kill switch has disabled writes,
-which is precisely when an operator is most likely to want a scan stopped. The
+which is precisely when an operator is most likely to want a plan stopped. The
 tool is approval-gated (registry ``permissions_ask``) so a human still sees
 every abort, and the approval hook's prompt states what an abort costs; the
 kill-switch hook must NEVER attach to it (pinned in
@@ -75,13 +75,13 @@ _ABORT_TIMEOUT = 120.0  # seconds
 async def stop_run() -> str:
     """Abort the plan running RIGHT NOW. Ungated — this is the emergency stop.
 
-    Use this when a scan already moving hardware has to stop immediately.
+    Use this when a plan already moving hardware has to stop immediately.
     ``queue_stop`` is the gentler sibling and does NOT do this: it halts the
     queue only after the running item finishes.
 
     What an abort costs, and what to tell the human: the running plan's
     remaining points are discarded, the data collected so far is kept, and the
-    hardware is left wherever the scan had moved it — an abort does not return
+    hardware is left wherever the plan had moved it — an abort does not return
     anything to a starting position. Say that when you report the abort, and
     say it when you propose one.
 

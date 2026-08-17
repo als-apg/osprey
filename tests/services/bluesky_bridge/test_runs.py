@@ -103,7 +103,7 @@ def test_a_failed_item_with_no_message_still_says_something() -> None:
 def test_an_unrecognized_exit_status_reads_as_error_not_completion(result: dict) -> None:
     """Fail-closed on the terminal state: an item that left the queue without
     the manager recording a clean finish must never be mistaken for a
-    successful scan."""
+    successful run."""
     [record] = _records(history=[_item(result=result)])
     assert record["status"] == "error"
 
@@ -273,7 +273,7 @@ def test_find_record_returns_none_for_a_run_the_manager_has_forgotten() -> None:
 # AND pushes a copy back to the FRONT of the queue under a NEW item_uid,
 # keeping the `result`. Since `_ordered_records` walks the queue before history
 # and emits each run id once, that copy would otherwise SHADOW the correct
-# history record and publish a just-aborted scan as `pending`.
+# history record and publish a just-aborted run as `pending`.
 #
 # Found against a real deployed manager by tests/e2e/test_bluesky_queue_e2e.py;
 # the mocked-client tests here were written to the assumption that an aborted

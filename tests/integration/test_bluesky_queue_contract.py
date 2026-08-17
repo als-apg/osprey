@@ -740,7 +740,7 @@ def test_an_aborted_run_reads_as_stopped_and_cannot_silently_re_run(
 
     * ``GET /runs`` must report that run ``stopped`` — the word the record
       contract reserves for "a human stopped it" — and NOT ``pending``, which
-      would present a just-halted scan as work still to come.
+      would present a just-halted run as work still to come.
     * ``POST /queue/start`` must REFUSE while that item is queued, so the plan
       cannot go back on the hardware without a fresh, explicit decision.
 

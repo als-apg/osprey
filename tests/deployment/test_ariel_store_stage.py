@@ -188,7 +188,7 @@ def test_an_unreachable_store_warns_and_leaves_the_deploy_standing(
 ):
     """The logbook is one panel of many. A database that will not answer must be
     said out loud, naming the command that finishes the job -- but a control-room
-    deploy whose scans and channels are fine is not aborted over its search tab."""
+    deploy whose plans and channels are fine is not aborted over its search tab."""
 
     # Arrange
     def _boom(ariel_config, deadline):

@@ -20,7 +20,7 @@ finishes. Three properties carry the weight here and are asserted directly:
    ``test_get_run_docstring_does_not_still_promise_retired_keys``): this tool
    spent a release documented as NOT FUNCTIONAL, and that wording next to a
    working abort is dangerous in the direction that costs the most — an agent
-   told not to reach for the only tool that stops a moving scan.
+   told not to reach for the only tool that stops a moving plan.
 
 The HTTP boundary (``_http_post_json``) is patched here so these run with no
 Bluesky bridge process and no network.
@@ -113,7 +113,7 @@ async def test_stop_run_takes_no_arguments():
 
 async def test_stop_run_is_ungated_with_writes_off_and_no_token(tmp_path, monkeypatch):
     """The core safety property. Writes disabled + no token is exactly when an
-    operator is most likely to want a scan stopped, and the request must still
+    operator is most likely to want a run stopped, and the request must still
     go out — bare, with no arming header for the bridge to reject."""
     _locked_down(tmp_path, monkeypatch)
 
@@ -165,8 +165,8 @@ async def test_stop_run_relays_nothing_running_verbatim():
 
 
 async def test_stop_run_relays_an_abort_timeout_still_saying_nothing_stopped():
-    """The refusal that must survive every hop unsoftened: the machine may
-    still be scanning, and the bridge's sentence is the only thing that says so."""
+    """The refusal that must survive every hop unsoftened: the plan may
+    still be running, and the bridge's sentence is the only thing that says so."""
     sentence = (
         "The Run Engine did not reach the paused state an abort requires within 10s, "
         "so NOTHING WAS ABORTED and the plan may still be running."
@@ -205,7 +205,7 @@ def test_stop_run_docstring_matches_its_actual_capability():
 
     Wording that documents this tool as NOT FUNCTIONAL, as it would be behind a
     410 route, tells an agent not to reach for the only tool that stops a moving
-    scan — worse than silence, at the moment delay is most expensive. Positive
+    plan — worse than silence, at the moment delay is most expensive. Positive
     halves pinned too, so a docstring merely emptied of those words fails as
     well.
     """

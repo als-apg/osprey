@@ -1453,7 +1453,7 @@ def test_abort_with_nothing_running_is_a_409_nothing_running(client: TestClient)
 def test_abort_that_never_pauses_is_a_503_that_says_nothing_stopped(
     client: TestClient,
 ) -> None:
-    """The refusal an operator reads while a machine may still be scanning. It
+    """The refusal an operator reads while a machine may still be running. It
     must carry its own code and say plainly that nothing was aborted."""
     manager = FakeManager(status=status_doc(manager_state="executing_queue"))
     _install_abort(manager)

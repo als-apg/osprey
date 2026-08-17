@@ -1,6 +1,6 @@
 """Real-container end-to-end proof of the whole Bluesky *queue* stack.
 
-This is the acceptance instrument for the queue-backed scan stack: a fresh
+This is the acceptance instrument for the queue-backed plan stack: a fresh
 ``osprey init`` + ``osprey build`` of the shipped ``control-assistant`` preset,
 deployed with ``osprey up --dev``, driven through the surface an operator (or
 the agent, or a panel) actually uses -- ``PATCH /draft`` -> ``POST /queue/items``
@@ -38,7 +38,7 @@ Stages, in order, each an independently-reportable test:
 5. ``test_5_session_plan_*``     -- author -> validate (PASS + uploaded) ->
    stage in the draft -> enqueue -> drain; and a session plan whose validated
    bytes no longer match disk is refused ``session_plan_unvalidated``.
-6. ``test_6_abort_*``            -- the emergency halt: a long scan is aborted
+6. ``test_6_abort_*``            -- the emergency halt: a long run is aborted
    with NO token, its record reaches ``stopped``, the manager returns to a
    startable state, and an abort with nothing running is ``nothing_running``.
 7. ``test_7_restart_*``          -- restarting ONLY the bridge preserves queue
@@ -181,7 +181,7 @@ DOC_PLANE_ARRIVAL_TIMEOUT_SEC = 45.0
 #                    fact of a completed run matters.
 #   LIVE_SAMPLE    — must stay under way for TENS of seconds so ~1 s polling
 #                    can actually observe rows accumulating. At 12 points the
-#                    whole scan finished between two polls and stage 3 failed
+#                    whole run finished between two polls and stage 3 failed
 #                    for a sampling artifact, not a product fault; 600 points
 #                    is ~34 s, i.e. ~30 samples.
 #   LONG           — must still be running when stage 6 aborts it, with room
@@ -729,7 +729,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # silently-diverging second copy of the same logic.
         correctors = _parse_setpoints(_env_value(repo, "BLUESKY_EPICS_SETPOINTS"))
         bpms = _parse_readbacks(_env_value(repo, "BLUESKY_EPICS_READBACKS"))
-        assert correctors, "osprey up wrote no BLUESKY_EPICS_SETPOINTS -- no device to scan"
+        assert correctors, "osprey up wrote no BLUESKY_EPICS_SETPOINTS -- no device to sweep"
         assert bpms, "osprey up wrote no BLUESKY_EPICS_READBACKS -- no device to read"
 
         # The render's copy, not the operator-owned source under <repo>/data/:
@@ -821,12 +821,12 @@ def test_1_capability_never_leaks_the_control_socket_credential(stack: QueueStac
 
 
 # ===========================================================================
-# Stage 2 -- enqueue two scans from two draft revisions
+# Stage 2 -- enqueue two plans from two draft revisions
 # ===========================================================================
 
 
 def test_2_enqueue_two_revisions_and_refuse_a_replay(stack: QueueStack) -> None:
-    """Two scans from two draft revisions; the SAME revision cannot enqueue twice.
+    """Two plans from two draft revisions; the SAME revision cannot enqueue twice.
 
     The draft revision is the unit of "this exact plan, as the operator saw
     it": ``POST /queue/items`` takes ``plan_name``/``plan_args`` from the
@@ -1051,12 +1051,12 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
     )
 
 
-def test_4_unknown_run_data_is_404_not_an_empty_scan(stack: QueueStack) -> None:
+def test_4_unknown_run_data_is_404_not_an_empty_run(stack: QueueStack) -> None:
     """A run neither source knows 404s -- never a 200 with an empty table.
 
     A 200-empty answer would make a nonexistent run indistinguishable from a
-    valid scan that recorded nothing, which is how "the data is gone" gets read
-    as "the scan produced nothing".
+    valid run that recorded nothing, which is how "the data is gone" gets read
+    as "the run produced nothing".
     """
     status, body = _get("/runs/definitely-not-a-real-run-id/data")
     assert status == 404, f"expected 404 for an unknown run, got {status}: {body}"
@@ -1296,7 +1296,7 @@ def test_6_abort_halts_a_running_plan_without_a_token(stack: QueueStack) -> None
     _S.run_aborted = _enqueue_ok(revision)
 
     start_status, start_body = _post("/queue/start", token=stack.token)
-    assert start_status == 200, f"could not start the long scan: {start_status} {start_body}"
+    assert start_status == 200, f"could not start the long run: {start_status} {start_body}"
 
     _wait_for_run_status(str(_S.run_aborted), ("running",), 180.0, poll=0.5)
 
@@ -1458,7 +1458,7 @@ def test_7_completed_run_data_serves_from_tiled_after_the_restart(stack: QueueSt
     )
     assert data["rows"] == _S.live_rows[str(run_id)], (
         "row CONTENT diverged between the live buffer and Tiled -- the durable copy "
-        "is not the same scan"
+        "is not the same run"
     )
 
 
@@ -1705,7 +1705,7 @@ def test_9_security_document_plane_rejects_an_uncertified_publisher(stack: Queue
     The bridge's 0MQ Proxy binds with ``ServerCurve`` and a PINNED directory of
     accepted client public keys -- never ``CURVE_ALLOW_ANY`` -- which is what
     stops a container on ``osprey-network`` from injecting forged run documents
-    that would show up as a scan that never happened. Probed by publishing a
+    that would show up as a run that never happened. Probed by publishing a
     start/stop pair carrying a fabricated ``osprey_run_id`` from an
     unencrypted publisher and asserting the bridge never buffers it.
 

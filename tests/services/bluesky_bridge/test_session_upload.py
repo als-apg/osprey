@@ -42,7 +42,7 @@ from osprey.services.bluesky_bridge.session_upload import (
 from osprey.services.bluesky_bridge.validation_record import ValidationRecordStore
 
 PLAN_SOURCE = """PLAN_METADATA = {
-    "name": "sample_scan",
+    "name": "sample_plan",
     "description": "Step a motor and read it back \\N{DEGREE SIGN} 'quoted' \\\\ backslash.",
     "category": "accelerator",
     "required_devices": ["motor"],
@@ -60,7 +60,7 @@ def build_plan(devices, params):
     yield ("move", devices["motor"], params.steps)
 """
 
-OTHER_PLAN_SOURCE = """PLAN_METADATA = {"name": "other_scan"}
+OTHER_PLAN_SOURCE = """PLAN_METADATA = {"name": "other_plan"}
 
 from pydantic import BaseModel
 
@@ -114,11 +114,11 @@ def test_upload_script_installs_a_generator_plan_under_its_own_name() -> None:
     import inspect
 
     namespace = worker_namespace(motor=FakeDevice("motor"))
-    run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
+    run_upload_script(namespace, "sample_plan", PLAN_SOURCE)
 
-    plan = namespace["sample_scan"]
+    plan = namespace["sample_plan"]
     assert inspect.isgeneratorfunction(plan), "queueserver only exposes generator functions"
-    assert plan.__name__ == "sample_scan"
+    assert plan.__name__ == "sample_plan"
     assert plan.__module__ == SESSION_PLAN_MODULE
     assert "quoted" in plan.__doc__
 
@@ -126,21 +126,21 @@ def test_upload_script_installs_a_generator_plan_under_its_own_name() -> None:
 def test_installed_plan_validates_kwargs_and_resolves_worker_devices() -> None:
     motor = FakeDevice("motor")
     namespace = worker_namespace(motor=motor)
-    run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
+    run_upload_script(namespace, "sample_plan", PLAN_SOURCE)
 
-    assert list(namespace["sample_scan"](steps=3)) == [("move", motor, 3)]
+    assert list(namespace["sample_plan"](steps=3)) == [("move", motor, 3)]
 
 
 def test_installed_plan_rejects_kwargs_its_schema_refuses() -> None:
     from pydantic import ValidationError
 
     namespace = worker_namespace(motor=FakeDevice("motor"))
-    run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
+    run_upload_script(namespace, "sample_plan", PLAN_SOURCE)
 
     # Queueserver surfaces this as a failed item: a **kwargs-only generator
     # validates on first iteration, not at call time.
     with pytest.raises(ValidationError):
-        list(namespace["sample_scan"](steps="not-a-number"))
+        list(namespace["sample_plan"](steps="not-a-number"))
 
 
 def test_missing_device_names_what_the_worker_actually_has() -> None:
@@ -151,21 +151,21 @@ def test_missing_device_names_what_the_worker_actually_has() -> None:
     # wrapper in `qserver_startup` does.
     source = "def build_plan(devices, params):\n    return iter([('move', devices['motor'])])\n"
     namespace = worker_namespace(other_motor=FakeDevice("other_motor"))
-    run_upload_script(namespace, "sample_scan", source)
+    run_upload_script(namespace, "sample_plan", source)
 
     with pytest.raises(KeyError, match="other_motor"):
-        list(namespace["sample_scan"]())
+        list(namespace["sample_plan"]())
 
 
 def test_two_session_plans_keep_their_own_schemas_and_bodies() -> None:
     namespace = worker_namespace(motor=FakeDevice("motor"))
-    run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
-    run_upload_script(namespace, "other_scan", OTHER_PLAN_SOURCE)
+    run_upload_script(namespace, "sample_plan", PLAN_SOURCE)
+    run_upload_script(namespace, "other_plan", OTHER_PLAN_SOURCE)
 
     # Both plan files define module-level `PARAMS`/`build_plan`; executing them
     # into the shared namespace would leave each wrapper on the other's schema.
-    assert list(namespace["sample_scan"](steps=2))[0][0] == "move"
-    assert list(namespace["other_scan"](label="x")) == [("label", "x")]
+    assert list(namespace["sample_plan"](steps=2))[0][0] == "move"
+    assert list(namespace["other_plan"](label="x")) == [("label", "x")]
     assert "PARAMS" not in namespace and "build_plan" not in namespace
 
 
@@ -324,12 +324,12 @@ async def test_upload_validated_pushes_the_current_bytes(
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    content_hash = validate_plan(records, tmp_path, "sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    content_hash = validate_plan(records, tmp_path, "sample_plan")
 
-    assert await uploader.upload_validated("sample_scan") == content_hash
-    assert "sample_scan" in backend.namespace
-    assert uploader.uploaded_hashes() == {"sample_scan": content_hash}
+    assert await uploader.upload_validated("sample_plan") == content_hash
+    assert "sample_plan" in backend.namespace
+    assert uploader.uploaded_hashes() == {"sample_plan": content_hash}
 
     # What was uploaded is what was on disk: run the captured script the way
     # the worker would and check the plan it defines still behaves — a
@@ -337,16 +337,16 @@ async def test_upload_validated_pushes_the_current_bytes(
     motor = FakeDevice("motor")
     namespace = worker_namespace(motor=motor)
     exec(backend.uploads[0], namespace, namespace)  # noqa: S102
-    assert list(namespace["sample_scan"](steps=4)) == [("move", motor, 4)]
+    assert list(namespace["sample_plan"](steps=4)) == [("move", motor, 4)]
 
 
 async def test_upload_refused_without_a_passing_record(
     tmp_path: Path, uploader: SessionPlanUploader, backend: FakeBackend
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
+    write_plan(tmp_path, "sample_plan")
 
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
-        await uploader.upload_validated("sample_scan")
+        await uploader.upload_validated("sample_plan")
 
     assert excinfo.value.reason == REASON_UNVALIDATED
     assert backend.uploads == []
@@ -363,12 +363,12 @@ async def test_worker_failure_leaves_the_plan_uninstalled(
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
     backend.task_outcome = {"success": False, "msg": "NameError: bp is not defined"}
 
     with pytest.raises(SessionPlanUploadError, match="NameError"):
-        await uploader.upload_validated("sample_scan")
+        await uploader.upload_validated("sample_plan")
 
     assert uploader.uploaded_hashes() == {}
 
@@ -379,12 +379,12 @@ async def test_upload_that_never_completes_fails_closed(
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
     backend.task_status = "running"
 
     with pytest.raises(SessionPlanUploadError, match="did not complete"):
-        await uploader.upload_validated("sample_scan")
+        await uploader.upload_validated("sample_plan")
 
     assert uploader.uploaded_hashes() == {}
 
@@ -395,12 +395,12 @@ async def test_expired_task_result_fails_closed(
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
     backend.task_status = "not_found"
 
     with pytest.raises(SessionPlanUploadError, match="lost the result"):
-        await uploader.upload_validated("sample_scan")
+        await uploader.upload_validated("sample_plan")
 
     assert uploader.uploaded_hashes() == {}
 
@@ -416,29 +416,29 @@ async def test_start_gate_refuses_a_queue_holding_one_stale_session_plan(
     uploader: SessionPlanUploader,
     backend: FakeBackend,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
-    write_plan(tmp_path, "stale_scan", OTHER_PLAN_SOURCE)
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
+    write_plan(tmp_path, "stale_plan", OTHER_PLAN_SOURCE)
 
     # One `plans_allowed` fetch covers the whole queue, and a repeated name
     # is not re-checked.
     backend.calls.clear()
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
-        await uploader.check_many_ready(["grid_scan", "sample_scan", "sample_scan", "stale_scan"])
+        await uploader.check_many_ready(["grid_scan", "sample_plan", "sample_plan", "stale_plan"])
 
-    assert excinfo.value.plan == "stale_scan"
+    assert excinfo.value.plan == "stale_plan"
     assert backend.calls.count("plans_allowed") == 1
 
 
 async def test_start_gate_admits_a_queue_of_ready_plans(
     tmp_path: Path, records: ValidationRecordStore, uploader: SessionPlanUploader
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
 
-    await uploader.check_many_ready(["grid_scan", "sample_scan"])
+    await uploader.check_many_ready(["grid_scan", "sample_plan"])
 
 
 async def test_catalog_plan_passes_the_gate_untouched(uploader: SessionPlanUploader) -> None:
@@ -449,11 +449,11 @@ async def test_catalog_plan_passes_the_gate_untouched(uploader: SessionPlanUploa
 async def test_validated_and_uploaded_plan_passes_the_gate(
     tmp_path: Path, records: ValidationRecordStore, uploader: SessionPlanUploader
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
 
-    await uploader.check_ready("sample_scan")
+    await uploader.check_ready("sample_plan")
 
 
 async def test_plan_edited_after_upload_is_refused(
@@ -462,26 +462,26 @@ async def test_plan_edited_after_upload_is_refused(
     uploader: SessionPlanUploader,
     backend: FakeBackend,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
 
     # Re-authored through `POST /plans/session` with no re-validation: the
     # namespace still holds the version that passed, but the file no longer
     # matches it.
-    write_plan(tmp_path, "sample_scan", PLAN_SOURCE.replace("params.steps", "params.steps * 10"))
+    write_plan(tmp_path, "sample_plan", PLAN_SOURCE.replace("params.steps", "params.steps * 10"))
 
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
-        await uploader.check_ready("sample_scan")
+        await uploader.check_ready("sample_plan")
 
     assert excinfo.value.reason == REASON_UNVALIDATED
     assert "Re-validate" in excinfo.value.detail
     assert excinfo.value.to_dict() == {
         "reason": REASON_UNVALIDATED,
         "detail": excinfo.value.detail,
-        "plan": "sample_scan",
+        "plan": "sample_plan",
     }
-    assert "sample_scan" in backend.namespace, "the gate refuses, it does not repair"
+    assert "sample_plan" in backend.namespace, "the gate refuses, it does not repair"
 
 
 async def test_re_validating_an_edit_re_uploads_it(
@@ -490,32 +490,32 @@ async def test_re_validating_an_edit_re_uploads_it(
     uploader: SessionPlanUploader,
     backend: FakeBackend,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
 
     edited = PLAN_SOURCE.replace("params.steps", "params.steps * 10")
-    write_plan(tmp_path, "sample_scan", edited)
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
+    write_plan(tmp_path, "sample_plan", edited)
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
 
-    await uploader.check_ready("sample_scan")
-    assert uploader.uploaded_hashes()["sample_scan"] == hash_plan_body(edited)
+    await uploader.check_ready("sample_plan")
+    assert uploader.uploaded_hashes()["sample_plan"] == hash_plan_body(edited)
     assert repr(edited) in backend.uploads[-1], "the re-upload carries the edited bytes"
 
 
 async def test_bridge_restart_refuses_a_redis_durable_item(
     tmp_path: Path, backend: FakeBackend, records: ValidationRecordStore
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
     before = SessionPlanUploader(
         backend_getter=lambda: backend,
         records=records,
         session_dir_resolver=lambda: tmp_path,
         poll_interval=0.0,
     )
-    await before.upload_validated("sample_scan")
+    await before.upload_validated("sample_plan")
 
     # Restart: the queue server (and its namespace) survives, the bridge's
     # in-memory validation records and upload bookkeeping do not.
@@ -527,7 +527,7 @@ async def test_bridge_restart_refuses_a_redis_durable_item(
     )
 
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
-        await after.check_ready("sample_scan")
+        await after.check_ready("sample_plan")
 
     assert excinfo.value.reason == REASON_UNVALIDATED
     assert "restarted" in excinfo.value.detail
@@ -536,19 +536,19 @@ async def test_bridge_restart_refuses_a_redis_durable_item(
 async def test_restart_that_also_lost_the_file_refuses_the_namespace_leftover(
     tmp_path: Path, backend: FakeBackend, records: ValidationRecordStore
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
     before = SessionPlanUploader(
         backend_getter=lambda: backend,
         records=records,
         session_dir_resolver=lambda: tmp_path,
         poll_interval=0.0,
     )
-    await before.upload_validated("sample_scan")
+    await before.upload_validated("sample_plan")
 
     # The session directory is ephemeral by default, so a restarted bridge can
     # find the plan still in the worker with no file behind it at all.
-    (tmp_path / "sample_scan.py").unlink()
+    (tmp_path / "sample_plan.py").unlink()
     after = SessionPlanUploader(
         backend_getter=lambda: backend,
         records=ValidationRecordStore(),
@@ -557,7 +557,7 @@ async def test_restart_that_also_lost_the_file_refuses_the_namespace_leftover(
     )
 
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
-        await after.check_ready("sample_scan")
+        await after.check_ready("sample_plan")
 
     assert excinfo.value.reason == REASON_NOT_IN_NAMESPACE
 
@@ -568,14 +568,14 @@ async def test_environment_cycle_refuses_until_the_plan_is_back(
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
 
     backend.cycle_environment()
 
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
-        await uploader.check_ready("sample_scan")
+        await uploader.check_ready("sample_plan")
 
     assert excinfo.value.reason == REASON_NOT_IN_NAMESPACE
 
@@ -591,20 +591,20 @@ async def test_sync_re_uploads_the_whole_validated_set_after_a_cycle(
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    write_plan(tmp_path, "other_scan", OTHER_PLAN_SOURCE)
-    validate_plan(records, tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "other_scan")
-    await uploader.upload_validated("sample_scan")
-    await uploader.upload_validated("other_scan")
+    write_plan(tmp_path, "sample_plan")
+    write_plan(tmp_path, "other_plan", OTHER_PLAN_SOURCE)
+    validate_plan(records, tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "other_plan")
+    await uploader.upload_validated("sample_plan")
+    await uploader.upload_validated("other_plan")
 
     backend.cycle_environment()
     assert backend.namespace == {}
 
-    assert sorted(await uploader.sync_namespace()) == ["other_scan", "sample_scan"]
-    assert sorted(backend.namespace) == ["other_scan", "sample_scan"]
-    await uploader.check_ready("sample_scan")
-    await uploader.check_ready("other_scan")
+    assert sorted(await uploader.sync_namespace()) == ["other_plan", "sample_plan"]
+    assert sorted(backend.namespace) == ["other_plan", "sample_plan"]
+    await uploader.check_ready("sample_plan")
+    await uploader.check_ready("other_plan")
 
 
 async def test_sync_skips_plans_the_namespace_already_holds(
@@ -613,9 +613,9 @@ async def test_sync_skips_plans_the_namespace_already_holds(
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
 
     assert await uploader.sync_namespace() == []
     assert len(backend.uploads) == 1
@@ -627,11 +627,11 @@ async def test_sync_leaves_out_plans_with_no_current_record(
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
     write_plan(tmp_path, "never_validated", OTHER_PLAN_SOURCE)
-    write_plan(tmp_path, "sample_scan", PLAN_SOURCE.replace("steps", "count"))
+    write_plan(tmp_path, "sample_plan", PLAN_SOURCE.replace("steps", "count"))
 
     backend.cycle_environment()
 
@@ -646,9 +646,9 @@ async def test_sync_on_a_closed_environment_uploads_nothing(
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
 
     backend.environment_open = False
     backend.cycle_environment()
@@ -664,14 +664,14 @@ async def test_reload_restores_the_validated_set(
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
+    await uploader.upload_validated("sample_plan")
 
-    assert await uploader.reload_environment() == ["sample_scan"]
+    assert await uploader.reload_environment() == ["sample_plan"]
     assert "close_environment" in backend.calls and "ensure_environment" in backend.calls
-    assert "sample_scan" in backend.namespace
-    await uploader.check_ready("sample_scan")
+    assert "sample_plan" in backend.namespace
+    await uploader.check_ready("sample_plan")
 
 
 async def test_reload_is_refused_while_a_run_is_active(
@@ -693,11 +693,11 @@ async def test_reload_is_refused_while_a_run_is_active(
 async def test_validate_hook_reports_a_successful_upload(
     tmp_path: Path, records: ValidationRecordStore, uploader: SessionPlanUploader
 ) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
     set_session_uploader(uploader)
     try:
-        assert await upload_after_validation("sample_scan") == {
+        assert await upload_after_validation("sample_plan") == {
             "uploaded": True,
             "reason": None,
             "detail": None,
@@ -714,8 +714,8 @@ async def test_validate_hook_never_raises_when_there_is_no_queue_server(
 ) -> None:
     from osprey.services.bluesky_bridge.queue_backend import QueueUnavailableError
 
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
+    write_plan(tmp_path, "sample_plan")
+    validate_plan(records, tmp_path, "sample_plan")
 
     async def refuse(*_: Any, **__: Any) -> dict[str, Any]:
         raise QueueUnavailableError("no queue server is configured")
@@ -723,7 +723,7 @@ async def test_validate_hook_never_raises_when_there_is_no_queue_server(
     backend.upload_script = refuse  # type: ignore[method-assign]
     set_session_uploader(uploader)
     try:
-        outcome = await upload_after_validation("sample_scan")
+        outcome = await upload_after_validation("sample_plan")
     finally:
         set_session_uploader(None)
 
@@ -744,10 +744,10 @@ def test_authoring_rejects_a_leading_underscore_plan_name() -> None:
 
     from osprey.services.bluesky_bridge.app import _sanitize_plan_name
 
-    assert _sanitize_plan_name("sample_scan") == "sample_scan"
+    assert _sanitize_plan_name("sample_plan") == "sample_plan"
 
     with pytest.raises(HTTPException) as excinfo:
-        _sanitize_plan_name("_hidden_scan")
+        _sanitize_plan_name("_hidden_plan")
 
     assert excinfo.value.status_code == 400
     assert "underscore" in excinfo.value.detail
@@ -794,8 +794,8 @@ def _catalog_plan_wrapper():
 def _session_plan_wrapper():
     """A wrapper as `session_upload` hands session plans to the manager."""
     namespace = worker_namespace(motor=FakeDevice("motor"))
-    run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
-    return namespace["sample_scan"]
+    run_upload_script(namespace, "sample_plan", PLAN_SOURCE)
+    return namespace["sample_plan"]
 
 
 _PLAN_WRAPPER_FACTORIES = {

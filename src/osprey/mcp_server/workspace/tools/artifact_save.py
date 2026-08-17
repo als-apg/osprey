@@ -224,7 +224,7 @@ async def artifact_delete_all(scope: str) -> str:
       ``artifact_list`` first to see which categories exist.
     - "uncategorized" — only artifacts saved without a category.
     - "everything" — EVERY artifact in the store, across all categories.
-      This includes archiver datasets, scan results and other stored data,
+      This includes archiver datasets, run results and other stored data,
       not just plots and documents. Only use it when the user asked to wipe
       the whole workspace.
 

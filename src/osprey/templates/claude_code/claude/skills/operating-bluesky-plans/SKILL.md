@@ -1,20 +1,20 @@
 ---
-name: operating-bluesky-scans
+name: operating-bluesky-plans
 description: >
-  Operate an already-registered Bluesky scan through the shared plan draft and
+  Operate an already-registered Bluesky plan through the shared plan draft and
   the plan/queue panels: stage the complete configuration in one set_draft,
   let the human review it live in the plan panel, add that pinned revision to
   the queue, start the queue, and watch the run. Use when asked to run, queue,
-  or start a scan that already exists. NOT for authoring a new plan file (use
+  or start a plan that already exists. NOT for authoring a new plan file (use
   writing-bluesky-plans first).
-summary: Stage, queue, start, and watch a registered scan through the shared draft
+summary: Stage, queue, start, and watch a registered plan through the shared draft
 ---
 
-# Operating Bluesky Scans
+# Operating Bluesky Plans
 
 Run an already-registered plan the way the panels do: stage the whole
 configuration into the one shared draft, let a human see it, add that exact
-draft to the queue, then start the queue. Every scan the agent runs is
+draft to the queue, then start the queue. Every plan the agent runs is
 narrated through the panels by default — the draft you stage is the same
 surface the human reviews and the same surface `queue_add` queues, so there is
 never a hidden, agent-only path to hardware.
@@ -32,7 +32,7 @@ this deployment run plans at all? It reaches no hardware.
 
 It returns `{status, capability}`. `status` is bridge liveness and is
 deliberately independent of capability — `"ok"` never implies a deployment can
-run a scan. `capability` is `{can_execute, reason, detail}`:
+run a plan. `capability` is `{can_execute, reason, detail}`:
 
 - `can_execute: true` (`reason: "executable"`) — plans can run here.
 - `can_execute: false` — they cannot. `reason` is the machine-readable code
@@ -47,7 +47,7 @@ validated and staged into the draft. What it cannot do is run them, and the
 queue refuses to hold items it could never run, so `queue_add` fails there
 rather than at start time. Knowing that up front is the difference between
 telling the human "this deployment is browse-only, here is the command that
-changes it" and discovering it after composing a whole scan.
+changes it" and discovering it after composing a whole plan.
 
 If the capability check itself fails (`bluesky_bridge_error` /
 `bluesky_bridge_unreachable`, or any non-200 health response), treat the
@@ -84,7 +84,7 @@ Pick the plan first with **`list_plans()`** — check its `provenance` (prefer a
 higher trust tier), its `required_devices`, and its `writes` flag before
 selecting it. **`list_devices()`** lists the device names this worker actually
 built, which is where every device name in `plan_args` must come from — read it
-rather than guessing a name. Then stage the **entire** scan configuration in a
+rather than guessing a name. Then stage the **entire** plan configuration in a
 **single** `set_draft` call and note the `revision` it returns:
 
 ```
@@ -104,7 +104,7 @@ it.
 ## The human reviews in the plan panel
 
 Once staged, the draft is visible in the plan panel with every field
-populated. This is the review surface: a human sees the exact scan that is
+populated. This is the review surface: a human sees the exact plan that is
 about to be queued before any device moves. Nothing you have done so far has
 touched hardware.
 
@@ -126,9 +126,9 @@ it with `get_run` / `get_run_data` / `get_run_figure`), and `item.item_uid` is
 the queue handle.
 
 **A revision is consumable exactly once.** Queuing the same plan again — a
-repeat scan, a retry — needs a `set_draft` edit to mint a new revision first;
+repeat plan, a retry — needs a `set_draft` edit to mint a new revision first;
 re-adding a spent one is refused with `draft_revision_already_launched`, by
-design, so a duplicated call cannot silently double-queue a scan.
+design, so a duplicated call cannot silently double-queue a plan.
 
 **Step 2 — `queue_start()`.** This is the arming action, and the only way
 execution ever begins: the manager's own autostart stays disabled, so every
@@ -161,7 +161,7 @@ items in execution order with their `item_uid`, plan `name` and `kwargs`; and
 ## What is armed, and what is not
 
 Two layers gate the queue. They fail in visibly different ways, and telling
-them apart is what lets you explain a blocked scan instead of retrying it.
+them apart is what lets you explain a blocked plan instead of retrying it.
 
 ### Layer 1: this deployment's writes switch, applied before the tool runs
 
@@ -176,7 +176,7 @@ deployment has writes disabled, and turning them on is an operator action, not
 yours.
 
 Everything short of the queue still works: `list_plans`, `write_plan`,
-`validate_plan`, the three draft tools, and every read. So a scan can still be
+`validate_plan`, the three draft tools, and every read. So a plan can still be
 chosen, authored, validated and staged where a human can see it — it simply
 cannot be queued or started until writes are on. Offer that, rather than
 stopping at "I can't".
@@ -316,7 +316,7 @@ alongside the agent.
 
 **A `reason` is a default view, never an error.** `reason: null` means the plan
 drew the figure itself. Any other value means the bridge drew its **default
-view** instead — every numeric column the run recorded, against the scan's own
+view** instead — every numeric column the run recorded, against the run's own
 x axis. That is real data, honestly plotted, so say "the default view, because
 <the reason in plain words>" and never "the figure failed". `no_render` in
 particular means the plan declares no view of its own, so the default view **is**
@@ -378,7 +378,7 @@ bridge — and it is approval-gated, so a human sees it.
 
 Say what an abort costs, both when you propose one and when you report one:
 the running plan's remaining points are discarded, the data already collected
-is kept, and **the hardware is left wherever the scan had moved it** — an abort
+is kept, and **the hardware is left wherever the plan had moved it** — an abort
 returns nothing to a starting position.
 
 Its refusals each say precisely what did and did not happen:
@@ -418,7 +418,7 @@ know why it was requested.
 
 ## Anti-patterns
 
-- **Never** stage a scan across multiple `set_draft` calls that each leave an
+- **Never** stage a plan across multiple `set_draft` calls that each leave an
   incomplete draft in front of the human's Add-to-queue button — assemble the
   full `plan_args` and stage it in one call.
 - **Never** queue a revision you did not just read or stage — pin the exact

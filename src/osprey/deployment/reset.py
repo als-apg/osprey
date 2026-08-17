@@ -187,7 +187,7 @@ PATH_EVIDENCE_LABELS: tuple[str, ...] = (
 #: written under a banner this tuple does not carry.
 MINTED_ENV_BANNERS: tuple[str, ...] = (
     "Auto-generated service auth tokens (osprey deploy up)",
-    "Auto-configured bluesky bridge scan devices (osprey deploy up)",
+    "Auto-configured bluesky bridge plan devices (osprey deploy up)",
     "Auto-generated bluesky RE manager control-socket keypair (osprey deploy up)",
     "Credentials adopted from pre-existing data volumes (osprey --reuse-stores)",
 )

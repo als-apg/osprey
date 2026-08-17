@@ -2,7 +2,7 @@
 Write Your Own Scan Plans
 =========================
 
-OSPREY ships two scan plans — an n-dimensional **grid scan** and an **orbit
+OSPREY ships two plans — an n-dimensional **grid scan** and an **orbit
 response matrix** sweep — and they are deliberately generic. Your machine has
 its own measurements, and there are two ways to add them: ask the agent to
 write one during a session, or install a plan library that belongs to your
@@ -31,7 +31,7 @@ Two ways to add a plan
 
       .. code-block:: text
 
-         Write me a scan plan that ramps one corrector while logging every
+         Write me a plan that ramps one corrector while logging every
          BPM, and holds each setpoint for a settling time I can choose.
 
       The agent writes the plan file, runs it through the validator, and
@@ -54,7 +54,7 @@ Two ways to add a plan
          bluesky:
            plan_dir: plans/
 
-      Every plan in it is installed read-only into the scan stack and
+      Every plan in it is installed read-only into the plan stack and
       trusted at **facility** tier — no per-session validation, available in
       every deployment built from the profile, listed in BLUESKY's Plans
       view and the agent's catalog like the shipped plans.
@@ -118,7 +118,7 @@ Give a plan its own view
 ========================
 
 Every run gets a figure in the BLUESKY panel, and by default it is drawn for
-you: every numeric column the run recorded, plotted against the scan's own
+you: every numeric column the run recorded, plotted against the run's own
 axis. That **default view** is honest and, for a straightforward measurement,
 enough.
 
@@ -149,7 +149,7 @@ and exactly one **mark**:
 
 Three rules keep a view honest, and the framework enforces all three:
 
-- **Drawing never disturbs a scan.** A view is computed from data already
+- **Drawing never disturbs a plan.** A view is computed from data already
   recorded, after the fact. If it fails, the run and its numbers are untouched
   and the panel simply shows the default view with a note saying why.
 - **Views name no facility.** Labels come from the plan's parameters and the

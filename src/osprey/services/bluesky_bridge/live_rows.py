@@ -9,7 +9,7 @@ deliberately import-clean of bluesky, so it can be unit-tested with synthetic
 documents and no worker at all. Generalizes the concept in BELLA's
 ``services/experiment_config/live_rows.py``: this version has no
 GEECS-specific legacy column mapping, and explicitly RETAINS completed runs
-rather than evicting at a small run count, so a read arriving after the scan
+rather than evicting at a small run count, so a read arriving after the plan
 finishes still succeeds without a Tiled server.
 
 Document handling (bluesky's plain-dict document protocol):
@@ -26,12 +26,12 @@ Document handling (bluesky's plain-dict document protocol):
   records ``None`` for it.
 - ``stop``: flips ``partial`` to ``False``. This is the ONLY thing that ends
   the "still filling in" state — a buffer that never gets a stop doc (e.g.
-  the process crashed mid-scan) stays partial forever, which is the honest
+  the process crashed mid-run) stays partial forever, which is the honest
   answer.
 
 Bounding uses two independent knobs:
 
-- ``_MAX_ROWS_PER_RUN``: a hard cap on stored rows per run, so a runaway scan
+- ``_MAX_ROWS_PER_RUN``: a hard cap on stored rows per run, so a runaway plan
   cannot grow the buffer without limit. ``total_seen`` keeps counting every
   event past this cap — the ``row_count`` on the run-data route reports this
   *true* total
@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 # completed run must stay readable well past its own completion.
 _MAX_RUNS = 50
 # Hard per-run row storage cap — a safety valve against a runaway/never-ending
-# scan, not a normal-case limit (see `total_seen` above).
+# plan, not a normal-case limit (see `total_seen` above).
 _MAX_ROWS_PER_RUN = 10_000
 
 _lock = Lock()
@@ -138,7 +138,7 @@ class LiveRowRecorder:
             elif name == "stop":
                 self._on_stop(doc)
         except Exception:
-            # RunEngine thread — a recorder bug must never touch the scan.
+            # RunEngine thread — a recorder bug must never touch the plan.
             logger.warning("live-row recorder failed on %r doc", name, exc_info=True)
 
     def _on_start(self, doc: dict[str, Any]) -> None:

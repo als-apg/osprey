@@ -447,7 +447,7 @@ services:
 {% if (control_system | default({})).writes_enabled | default(false) %}
       # The per-put reference monitor moved into this container with the
       # RunEngine, so the limits DB has to come with it: without the file the
-      # empty-DB failsafe blocks every write and no scan can move anything.
+      # empty-DB failsafe blocks every write and no plan can move anything.
       # Same /app/project root as config.yml so a relative
       # control_system.limits_checking.database_path resolves identically on
       # both sides.

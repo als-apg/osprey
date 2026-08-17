@@ -2,17 +2,17 @@
 
 Design reversal (R8): the sibling ``epics.py`` factory was built on an
 explicit design ruling that ophyd-async already speaks Channel Access
-directly, so no OSPREY connector was needed for the scan device layer.
+directly, so no OSPREY connector was needed for the plan device layer.
 Phase 4's complete-mediation mandate OVERRIDES that ruling: direct CA from
 ``epics.py`` is exactly the unmediated second read/write path that
 mediation is closing. This module is the replacement device layer — every
-scan read and every scan write, for every device built here, goes through
+plan read and every plan write, for every device built here, goes through
 the OSPREY connector
 (:class:`osprey.connectors.control_system.base.ControlSystemConnector`):
 reads via ``connector.read_channel``, writes via
 ``connector.write_channel_checked``, which raises on any refused, failed,
 or unverified write so a bad write aborts the RunEngine rather than
-silently continuing a scan. There is no raw Channel Access client library,
+silently continuing a plan. There is no raw Channel Access client library,
 no low-level EPICS signal backend, and no direct PV access anywhere in
 this module.
 
@@ -224,7 +224,7 @@ async def build_devices(
     Raises:
         ValueError: If ``connector`` is None — failing here, at the
             misconfiguration site, instead of as an ``AttributeError`` deep
-            inside a device's ``set()``/``read()`` at scan time.
+            inside a device's ``set()``/``read()`` while a plan runs.
     """
     if connector is None:
         raise ValueError(

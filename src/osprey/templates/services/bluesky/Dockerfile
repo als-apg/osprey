@@ -1,5 +1,5 @@
 # Image for the Bluesky bridge service (osprey.services.bluesky_bridge): a
-# FastAPI process owning the queue facade, reached by the `scan` MCP server
+# FastAPI process owning the queue facade, reached by the `bluesky` MCP server
 # over HTTP. The same image also runs the `queueserver` compose service
 # (`start-re-manager`), which spawns the RunEngine worker that owns the
 # ophyd-async devices — one image, two entrypoints, so the worker namespace

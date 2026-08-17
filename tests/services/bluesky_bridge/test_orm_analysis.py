@@ -164,7 +164,7 @@ def _relative_shape_rows(
 
 
 def test_guard_is_quiet_on_a_sweep_about_a_nonzero_working_point() -> None:
-    """The real plan sweeps each corrector about its own pre-scan working
+    """The real plan sweeps each corrector about its own pre-plan working
     point, so an idle corrector reads back that working point, not 0.0.
 
     The zero-leverage argument survives that intact — a sweep symmetric about

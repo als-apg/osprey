@@ -48,7 +48,7 @@ def _clear_fn():
 
 
 @pytest.fixture(autouse=True)
-def _reset_scan_context(tmp_path, monkeypatch):
+def _reset_server_context(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     initialize_server_context()
     yield

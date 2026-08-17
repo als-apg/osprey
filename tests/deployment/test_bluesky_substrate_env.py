@@ -1,4 +1,4 @@
-"""Deploy-time provisioning for the bluesky scan stack.
+"""Deploy-time provisioning for the bluesky plan stack.
 
 Covers the three things ``osprey up`` has to put in place before
 ``compose up`` mounts them, all in ``container_lifecycle``:

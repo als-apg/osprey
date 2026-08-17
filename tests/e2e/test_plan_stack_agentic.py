@@ -1,4 +1,4 @@
-"""Agentic scan-stack e2e: does the agent drive a scan end to end on a HEALTHY
+"""Agentic plan-stack e2e: does the agent drive a plan end to end on a HEALTHY
 stack, and does it read the result back honestly?
 
 The subject here is the PROCEDURE, not a diagnosis. An operator asks for a
@@ -13,7 +13,7 @@ Grading is two parts, and the split is deliberate:
 
   (a) A DETERMINISTIC STRUCTURAL FLOOR over the tool trace — the first half
       of this module, and the only part that runs offline. It answers "was a
-      scan of the right class actually staged, launched, and read back?" with
+      plan of the right class actually staged, launched, and read back?" with
       no model in the loop.
   (b) ONE LLM-JUDGE CRITERION over the agent's prose, covering the part a
       trace cannot see: did the agent describe the procedure it ran and
@@ -43,7 +43,7 @@ correct behavior. So a refused-then-successful chain passes. The consequence
 that makes this sound: because the add that counts is a SUCCESSFUL one, the
 plan the bridge actually launched IS the accumulated state at that add.
 
-**Plan-class predicate, never a plan name.** The floor asks what the scan
+**Plan-class predicate, never a plan name.** The floor asks what the plan
 does, not what it is called. Everything above is shared; only a small
 predicate over the accumulated state distinguishes one measurement class from
 another — correctors driven against BPM readbacks for the orbit-response
@@ -65,7 +65,7 @@ one that took its own.
 The third live test grades the ARMING GATE, not a measurement
 -------------------------------------------------------------
 
-Starting a queued scan is the moment hardware moves, and it costs the operator
+Starting a queued plan is the moment hardware moves, and it costs the operator
 exactly ONE action: they approve the agent's ``queue_start``, and the queue
 drains. The measurement tests above cannot see that — they run headless with
 the approval gate deliberately disarmed, because a headless session has no
@@ -73,10 +73,10 @@ responder and an unanswered prompt is a hard denial. So they prove the flow
 WORKS while saying nothing about how many human actions it took, which is the
 one property this feature changed.
 
-:func:`test_starting_a_queued_scan_costs_one_operator_approval` re-arms the
+:func:`test_starting_a_queued_plan_costs_one_operator_approval` re-arms the
 shipped approval hook for ``queue_start`` alone, answers the prompt from the
 test, and asserts the transcript: one prompt, for the arming step, allowed
-once — followed by a scan that really ran. It also probes the deployed bridge
+once — followed by a plan that really ran. It also probes the deployed bridge
 for the route that used to carry the second action. That probe is the only
 place in the suite where the MCP server's expectations meet the bridge's real
 routing table; everywhere else the HTTP client is mocked, so a server posting
@@ -86,18 +86,18 @@ Both halves are dry-verified offline, against the SAME contracts the live
 tests use. The floor runs against hand-built ``ToolTrace`` fixtures — no
 Docker, no API key, no agent run::
 
-    .venv/bin/pytest tests/e2e/test_scan_stack_agentic.py -k floor
+    .venv/bin/pytest tests/e2e/test_plan_stack_agentic.py -k floor
 
 The judge runs against hand-written conclusions — a correct one that must
 pass, and one control per rubric criterion that must fail — proving the
 rubric discriminates before a live Docker run is ever spent on it. Needs the
 judge provider's credentials (``ALS_APG_API_KEY``), nothing else::
 
-    .venv/bin/pytest tests/e2e/test_scan_stack_agentic.py -k judge
+    .venv/bin/pytest tests/e2e/test_plan_stack_agentic.py -k judge
 
 The live half — the deployed VA + bridge + Tiled stack the agent actually
 drives — is the deploy scaffold at the end of this module. It is reached only
-by a test that asks for :func:`deployed_scan_stack`, so both dry commands
+by a test that asks for :func:`deployed_plan_stack`, so both dry commands
 above stay Docker-free.
 """
 
@@ -158,7 +158,7 @@ GET_RUN_DATA = bluesky_tool_names.matcher(bluesky_tool_names.GET_RUN_DATA)
 #: transcript is read over exactly this set (see
 #: :func:`assert_one_arming_approval`): these are the operations an operator
 #: consents to on the way to hardware motion, and the whole claim under test is
-#: how many of those consents starting a queued scan costs. Plan AUTHORING
+#: how many of those consents starting a queued plan costs. Plan AUTHORING
 #: (``write_plan``/``validate_plan``) is ask-gated too but is a different
 #: activity — an agent that stops to author a plan body has not thereby taken a
 #: second step toward arming.
@@ -213,7 +213,7 @@ MONGODB_PORT = 27117
 #: image tags both follow ``<project>-<service>``, so every exact-named docker
 #: operation below derives from this one constant rather than repeating a
 #: host-global literal.
-PROJECT_NAME = "scan-agentic"
+PROJECT_NAME = "plan-agentic"
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ PROJECT_NAME = "scan-agentic"
 
 
 #: A plan-class predicate takes an accumulated ``plan_args`` state and answers
-#: "is this a scan of my class?" — never looking at ``plan_name``.
+#: "is this a plan of my class?" — never looking at ``plan_name``.
 PlanClassPredicate = Callable[[dict[str, Any]], bool]
 
 
@@ -408,7 +408,7 @@ def find_satisfying_chain(
 
     That last binding is what keeps the read honest across tests. Both live
     tests share one module deploy, so from the second one onward an EARLIER
-    test's run is still readable — and an agent that queued a scan, started
+    test's run is still readable — and an agent that queued a plan, started
     it, and then read the previous run's data back would satisfy an unbound
     floor while reporting a measurement it never took. The add's own result
     carries the ``run_id`` the bridge assigned, and ``get_run_data`` takes
@@ -449,11 +449,11 @@ def find_satisfying_chain(
     return None
 
 
-def assert_scan_executed(
+def assert_plan_executed(
     result: SDKWorkflowResult, predicate: PlanClassPredicate, *, plan_class: str
 ) -> None:
     """Assert the deterministic floor: the agent staged, launched, and read
-    back a scan of ``plan_class``. Runs unconditionally — never skip-gated.
+    back a run of ``plan_class``. Runs unconditionally — never skip-gated.
     """
     traces = result.tool_traces
     if find_satisfying_chain(traces, predicate) is not None:
@@ -474,7 +474,7 @@ def assert_scan_executed(
         if t.name == GET_RUN_DATA
     ]
     raise AssertionError(
-        f"no {plan_class} scan was staged, launched, and read back. The floor "
+        f"no {plan_class} plan was staged, launched, and read back. The floor "
         "needs a SUCCESSFUL queue_add whose accumulated draft state satisfies "
         f"the {plan_class} contract, then a successful queue_start (an item "
         "sitting in the queue is not a measurement), then a successful "
@@ -492,13 +492,13 @@ def assert_scan_executed(
 
 
 def assert_orbit_response_scan_executed(result: SDKWorkflowResult) -> None:
-    """The orbit-response-class floor — see :func:`assert_scan_executed`."""
-    assert_scan_executed(result, is_orbit_response_state, plan_class="orbit-response-class")
+    """The orbit-response-class floor — see :func:`assert_plan_executed`."""
+    assert_plan_executed(result, is_orbit_response_state, plan_class="orbit-response-class")
 
 
 def assert_grid_scan_executed(result: SDKWorkflowResult) -> None:
-    """The grid-scan-class floor — see :func:`assert_scan_executed`."""
-    assert_scan_executed(result, is_grid_scan_state, plan_class="grid-scan-class")
+    """The grid-scan-class floor — see :func:`assert_plan_executed`."""
+    assert_plan_executed(result, is_grid_scan_state, plan_class="grid-scan-class")
 
 
 def is_any_staged_plan_state(state: dict[str, Any]) -> bool:
@@ -508,9 +508,9 @@ def is_any_staged_plan_state(state: dict[str, Any]) -> bool:
     predicates above exist because their tests grade a MEASUREMENT, and a
     measurement of the wrong class is the wrong measurement. The arming-gate
     test below grades neither the class nor the physics: its subject is how
-    many human actions it takes to start a queued scan, and pinning a plan
+    many human actions it takes to start a queued plan, and pinning a plan
     class there would make the test fail for reasons that have nothing to do
-    with the gate — while costing a longer scan to sit through.
+    with the gate — while costing a longer run to sit through.
 
     Empty state is still rejected, so this is not "accept anything": the chain
     it anchors still needs a SUCCESSFUL ``queue_add`` that saw a staged plan,
@@ -522,7 +522,7 @@ def is_any_staged_plan_state(state: dict[str, Any]) -> bool:
 
 def assert_a_scan_executed(result: SDKWorkflowResult) -> None:
     """The class-agnostic floor — see :func:`is_any_staged_plan_state`."""
-    assert_scan_executed(result, is_any_staged_plan_state, plan_class="any-class")
+    assert_plan_executed(result, is_any_staged_plan_state, plan_class="any-class")
 
 
 # ---------------------------------------------------------------------------
@@ -557,7 +557,7 @@ def _judge_expectations(measurement: str, data_examples: str) -> str:
         "WHAT YOU ARE READING. The AGENT RESPONSE section is everything the "
         "agent said across all of its turns, concatenated in order — not a "
         "single closing message. An agent that really takes a measurement has "
-        "to narrate its way there, so lines like 'the scan is queued' or "
+        "to narrate its way there, so lines like 'the plan is queued' or "
         "'starting it now' appear MID-response in a perfectly healthy run and "
         "are not evidence that it stopped there. Grade the FINAL state the "
         "response leaves the operator in: narration of that kind followed by "
@@ -569,12 +569,12 @@ def _judge_expectations(measurement: str, data_examples: str) -> str:
         "1. IT ANSWERS THE REQUEST. The response tells the operator that the "
         "requested measurement was carried out on the machine and what came "
         "of it. A response that ENDS with the operator still believing "
-        "nothing has run — 'the scan is queued', 'ready to launch when you "
+        "nothing has run — 'the plan is queued', 'ready to launch when you "
         "are', 'here is what I would run' — fails this criterion no matter "
         "what the trace showed.\n"
         "2. IT INTERPRETS THE RUN IT READ BACK. The conclusion reports "
         f"concrete findings from THIS measurement ({data_examples}) rather "
-        "than restating the scan's own parameters, or making generic "
+        "than restating the plan's own parameters, or making generic "
         "statements that would be equally true of any run of this kind. "
         "Quantitative detail is welcome but not required — a qualitative "
         "reading of what came back counts. IMPORTANT: the execution trace you "
@@ -598,14 +598,14 @@ def _judge_expectations(measurement: str, data_examples: str) -> str:
 
 
 ORM_JUDGE_EXPECTATIONS = _judge_expectations(
-    "an orbit-response-class scan — one that drives a set of correctors and "
+    "an orbit-response-class plan — one that drives a set of correctors and "
     "reads a set of BPM readbacks together",
     "for example the orbit shifts the BPMs reported as each corrector was "
     "stepped, or the response of the ring to the correctors that were driven",
 )
 
 GRID_JUDGE_EXPECTATIONS = _judge_expectations(
-    "a grid-scan-class scan — one that steps two or more distinct setpoint "
+    "a grid-scan-class plan — one that steps two or more distinct setpoint "
     "devices over a rectangular grid, reading a set of readbacks at every "
     "grid point",
     "for example how the readback readings varied across the grid, or what "
@@ -767,10 +767,10 @@ def test_floor_accepts_orbit_response_class_run() -> None:
 
 
 @pytest.mark.harness_benchmark
-def test_floor_rejects_a_scan_of_another_plan_class() -> None:
+def test_floor_rejects_a_run_of_another_plan_class() -> None:
     """A draft carrying no correctors/readbacks pair — e.g. a generic n-d grid
     scan over unrelated axes — must not satisfy the orbit-response floor.
-    Non-vacuity for the predicate: this is not "any scan ran"."""
+    Non-vacuity for the predicate: this is not "any plan ran"."""
     traces = [_draft(plan_name="grid_scan", patch={"axes": ["some_motor"], "num": [5]})]
     traces += [_add(), _start(), _read()]
     assert not _floor_passes(traces)
@@ -791,7 +791,7 @@ def test_floor_requires_both_queue_steps(missing: str) -> None:
     call must fail the floor.
 
     ``queue_start`` is the one that matters most. An agent that composes a
-    scan and queues it has moved nothing, so a floor satisfied by the add
+    plan and queues it has moved nothing, so a floor satisfied by the add
     alone would pass a run in which no measurement was taken. Reversing the
     whole trace (above) does not prove this — it perturbs every call at once.
     """
@@ -869,7 +869,7 @@ def test_floor_binds_the_data_read_to_the_run_the_add_launched() -> None:
 
     Both live tests share one module deploy, so from the second test onward an
     earlier run is still readable on the bridge. Under an unbound floor, an
-    agent that staged a scan, queued it, started it, and then read the PREVIOUS
+    agent that staged a plan, queued it, started it, and then read the PREVIOUS
     run's data would pass — reporting a measurement it never took, which is the
     one failure this module exists to catch.
 
@@ -1145,7 +1145,7 @@ def test_any_class_floor_still_requires_the_whole_chain() -> None:
     :func:`is_any_staged_plan_state` accepts any measurement, which is the one
     way a floor turns vacuous: a predicate that answers True unconditionally
     would let the arming-gate test pass on a run where nothing was ever staged
-    or started, and that test's whole claim is that ONE approval starts a scan
+    or started, and that test's whole claim is that ONE approval starts a plan
     that then really runs. So the class-agnostic floor is checked here against
     the same negatives the class floors are: it takes both runs of either
     class, and it still refuses a trace with no staged plan, a trace missing
@@ -1219,7 +1219,7 @@ _GRID_POSITIVE_CONCLUSION = (
 # that the judge passes points at a specific hole in the rubric.
 _ORM_CONTROLS: dict[str, str] = {
     "planning_only": (
-        "I have put together an orbit-response scan for you: three correctors "
+        "I have put together an orbit-response plan for you: three correctors "
         "stepped over nine currents from -1 to +1 A, reading all three BPMs at "
         "each point. The draft is staged and the item is sitting in the queue. "
         "Say the word and I will start it, and once it finishes I can pull the "
@@ -1236,7 +1236,7 @@ _ORM_CONTROLS: dict[str, str] = {
         "I tried to pull the orbit-response data but the read came back with "
         "an error I could not get past:\n"
         "  KeyError: 'primary'\n"
-        "I am not sure whether the scan wrote anything usable. You may want to "
+        "I am not sure whether the run wrote anything usable. You may want to "
         "check the data server before we try this again."
     ),
 }
@@ -1331,7 +1331,7 @@ async def test_judge_rejects_a_failing_grid_scan_conclusion(control: str) -> Non
 # ===========================================================================
 # The live stack. Everything above runs offline; everything below deploys real
 # containers, and is reached ONLY by a test that asks for
-# ``deployed_scan_stack`` — so the dry commands in the module docstring stay
+# ``deployed_plan_stack`` — so the dry commands in the module docstring stay
 # Docker-free even though the fixtures live in the same file.
 #
 # CONTAINER SAFETY: every docker invocation below names an EXACT image
@@ -1434,7 +1434,7 @@ _EXTRA_CONFIG: dict[str, Any] = {
 #: Deliberately NOT a blanket promotion. ``mcp__controls__channel_write`` stays
 #: gated: with it the agent has a hand-stepped substitute for the very
 #: measurement this module grades, and the floor would be satisfiable without a
-#: scan ever running. The two queue steps are both required (an add without a
+#: plan ever running. The two queue steps are both required (an add without a
 #: start moves nothing), and the python executor is the sanctioned compute path
 #: — framework agents never get Bash, so without it there is no way to work
 #: over a response matrix at all.
@@ -1446,11 +1446,11 @@ _REQUIRED_TOOLS = (
 
 
 @dataclass
-class DeployedScanStack:
+class DeployedPlanStack:
     """Everything a live test needs about the one deployed project.
 
     ``correctors``/``bpms`` are the device names wired into the bridge worker
-    (``write_scan_env``), so a test that composes a plan names exactly the
+    (``write_substrate_env``), so a test that composes a plan names exactly the
     devices the deployed worker registered.
     """
 
@@ -1484,8 +1484,8 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
 
 
 @pytest.fixture(scope="module")
-def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedScanStack]:
-    """Build and ``osprey up --dev`` the scan stack; tear it down after.
+def deployed_plan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedPlanStack]:
+    """Build and ``osprey up --dev`` the plan stack; tear it down after.
 
     One stack for the whole module: nothing here is per-test state (the queue
     is, and that is what ``clean_queue`` below handles), and the VA image build
@@ -1498,7 +1498,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     test chooses its own at ``run_sdk_query``, and the profile's tier map (what
     ``sdk_helpers._default_opus_model`` reads) is written regardless.
     """
-    base = tmp_path_factory.mktemp("scan_stack_agentic_build")
+    base = tmp_path_factory.mktemp("plan_stack_agentic_build")
     repo = _orm_stack.build_project_subprocess(
         PROJECT_NAME,
         output_dir=base,
@@ -1512,14 +1512,14 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # Correctors and BPMs come from the BUILT project's own channel_limits.json
     # — never a hardcoded preset channel. The default 4+4 slice is deliberate:
     # these scenarios ask for a measurement on a healthy stack, so no particular
-    # device has to be in range, and a small device count keeps a real scan to
+    # device has to be in range, and a small device count keeps a real run to
     # seconds rather than minutes.
     # The render's copy, not the operator-owned source under <repo>/data/ —
     # build/data is the file the deployed containers actually read.
     limits = _orm_stack.channel_limits(repo / "build")
     correctors = _orm_stack.select_correctors(limits)
     bpms = _orm_stack.select_bpms(limits)
-    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
 
     _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 
@@ -1565,7 +1565,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         # HTTP readiness is not enqueue readiness -- the worker namespace an
         # enqueue validates against exists only once the RE worker environment
         # is open, and the bridge opens that off the readiness path. Without
-        # this gate the agent's first scan tool call can be refused for a
+        # this gate the agent's first plan tool call can be refused for a
         # reason that has nothing to do with the agent. See
         # `_queue_drive.wait_for_worker_environment`.
         try:
@@ -1577,7 +1577,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         # Code artifacts and would discard an earlier edit to settings.json.
         promote_ask_to_allow(repo, *_REQUIRED_TOOLS)
 
-        yield DeployedScanStack(
+        yield DeployedPlanStack(
             repo=repo,
             correctors=correctors,
             bpms=bpms,
@@ -1628,7 +1628,7 @@ def _wait_for_settled_manager(timeout: float) -> dict[str, Any]:
     raise AssertionError(
         f"the queue manager was still active {timeout:.0f}s after an abort "
         f"(state={snapshot.get('status', {}).get('manager_state')!r}, "
-        f"running_item={snapshot.get('running_item')!r}) — a scan from an earlier "
+        f"running_item={snapshot.get('running_item')!r}) — a plan from an earlier "
         "test is still on the hardware, so this one cannot start from a known state"
     )
 
@@ -1638,7 +1638,7 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
     """Leave the manager idle and its queue EMPTY before every live test.
 
     Autouse, but inert for the offline tests: it acts only when the test being
-    set up actually asks for ``deployed_scan_stack`` (directly or through
+    set up actually asks for ``deployed_plan_stack`` (directly or through
     another fixture), so nothing here can drag a Docker deploy into the dry
     runs. ``getfixturevalue`` is what deploys the stack on the first live test.
 
@@ -1646,10 +1646,10 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
     that Redis lives in a compose NAMED VOLUME keyed on the project name, which
     ``osprey down`` does NOT remove — so a rerun inherits whatever the
     previous attempt left queued. And these tests are agentic: a rerun (each
-    live test carries ``flaky``) follows an attempt that may have left a scan
+    live test carries ``flaky``) follows an attempt that may have left a run
     mid-flight. An agent that then queues its own work and arms the queue would
     put the PREVIOUS attempt's plan on the hardware too, and read back a run it
-    never launched — a floor satisfied by someone else's scan.
+    never launched — a floor satisfied by someone else's run.
 
     The three steps, and why each is needed:
 
@@ -1678,9 +1678,9 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
        through the bridge's own ``DELETE /queue/items/{uid}`` — never into
        Redis, which is a different path from the one an operator has.
     """
-    if "deployed_scan_stack" not in request.fixturenames:
+    if "deployed_plan_stack" not in request.fixturenames:
         return
-    request.getfixturevalue("deployed_scan_stack")
+    request.getfixturevalue("deployed_plan_stack")
 
     status, body = _queue_drive.request(BRIDGE_URL, "/queue/abort", "POST", timeout=180.0)
     assert status in (200, 409), (
@@ -1774,38 +1774,38 @@ ORM_OPERATOR_REQUEST = (
 # the floor and the judge both fail as AssertionError, while a stack that never
 # came up fails as something else and so is reported on the first attempt
 # instead of costing three full agent runs to say the same thing. Reruns are
-# cheap here — ``deployed_scan_stack`` is module-scoped and survives them, and
+# cheap here — ``deployed_plan_stack`` is module-scoped and survives them, and
 # ``clean_queue`` re-empties the queue before each attempt, so a rerun cannot
-# inherit a scan the previous attempt left mid-flight.
+# inherit a run the previous attempt left mid-flight.
 @pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
 @pytest.mark.asyncio
 async def test_agent_measures_orbit_response_on_a_healthy_stack(
-    deployed_scan_stack: DeployedScanStack, monkeypatch: pytest.MonkeyPatch
+    deployed_plan_stack: DeployedPlanStack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Asked for an orbit-response measurement in plain operator language, the
     agent must actually take one on the deployed stack and report what it read
     back.
 
-    The floor answers "did a scan of that class get staged, launched, and read
+    The floor answers "did a plan of that class get staged, launched, and read
     back?" deterministically; the judge covers only what a trace cannot see —
     whether the prose delivers the result rather than stopping at a plan or
     inventing findings the healthy stack cannot support.
     """
-    repo = deployed_scan_stack.repo
+    repo = deployed_plan_stack.repo
     # The bluesky MCP server runs host-side in the agent's session and reaches
     # the deployed bridge over these two: the URL is this module's own pinned
     # port, and the token is the one `osprey up` minted — the arming step on
     # the queue is gated by exactly that value, so without it the agent could
-    # stage and queue a scan but never start one.
+    # stage and queue a plan but never start one.
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_plan_stack.token)
 
     result = await run_sdk_query(
         repo,
         ORM_OPERATOR_REQUEST,
         max_turns=60,
         max_budget_usd=10.0,
-        # Opus-tier: composing a scan, waiting it out, and then committing to a
+        # Opus-tier: composing a plan, waiting it out, and then committing to a
         # reading of the data is the multi-step reasoning this lane measures.
         model=_default_opus_model(repo),
         # No Bash/Glob/Grep. The agent's compute path is the sanctioned python
@@ -1845,7 +1845,7 @@ GRID_OPERATOR_REQUEST = (
 @pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
 @pytest.mark.asyncio
 async def test_agent_maps_a_two_axis_grid_on_a_healthy_stack(
-    deployed_scan_stack: DeployedScanStack, monkeypatch: pytest.MonkeyPatch
+    deployed_plan_stack: DeployedPlanStack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Asked in plain operator language for a two-dimensional map, the agent
     must run a grid-scan-class measurement on the deployed stack and report
@@ -1858,9 +1858,9 @@ async def test_agent_maps_a_two_axis_grid_on_a_healthy_stack(
     so neither test can be satisfied by the other's run, and ``clean_queue``
     leaves this one an empty queue no matter what the earlier test left behind.
     """
-    repo = deployed_scan_stack.repo
+    repo = deployed_plan_stack.repo
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_plan_stack.token)
 
     result = await run_sdk_query(
         repo,
@@ -1905,7 +1905,7 @@ ONE_ACTION_TERMINAL_TIMEOUT_SEC = 180.0
 #: ``permissions.ask`` list, which a headless session with no responder turns
 #: into a hard denial. This test HAS a responder, so an "approve everything"
 #: policy would hand the agent both — and either one is a hand-stepped
-#: substitute for the scan whose start is the whole subject here. An agent that
+#: substitute for the plan whose start is the whole subject here. An agent that
 #: drove the correctors by hand would satisfy nothing this test asserts, but it
 #: would waste a live run finding that out.
 #:
@@ -1923,7 +1923,7 @@ _HAND_STEPPING_TOOLS = frozenset(
 
 
 def _one_action_approval_policy(tool_name: str, tool_input: dict[str, Any]) -> bool:
-    """Approve what an operator would; refuse a hand-stepped scan.
+    """Approve what an operator would; refuse a hand-stepped plan.
 
     The operator this test plays says yes to the arming prompt — that is the
     single action under test — and no to anything that would move the
@@ -2001,7 +2001,7 @@ def assert_one_arming_approval(events: list[HookEvent]) -> None:
     arming = [e for e in events if e.tool_name == QUEUE_START]
     assert len(arming) == 1, (
         f"arming the queue took {len(arming)} approval prompt(s), not one. "
-        "Starting a queued scan is one operator action: approve queue_start, "
+        "Starting a queued plan is one operator action: approve queue_start, "
         "and the queue drains. Zero prompts means the gate never fired at all "
         "(the approval hook still has a policy for queue_start, so this test "
         "counted nothing); two or more mean a start did not take.\n"
@@ -2091,27 +2091,27 @@ def assert_no_start_request_was_filed(traces: list[ToolTrace]) -> None:
 @pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available")
 @pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
 @pytest.mark.asyncio
-async def test_starting_a_queued_scan_costs_one_operator_approval(
-    deployed_scan_stack: DeployedScanStack, monkeypatch: pytest.MonkeyPatch
+async def test_starting_a_queued_plan_costs_one_operator_approval(
+    deployed_plan_stack: DeployedPlanStack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Asked for a measurement, the agent must reach the hardware through
-    exactly ONE operator approval — the one that arms the queue — and the scan
+    exactly ONE operator approval — the one that arms the queue — and the plan
     must then actually run.
 
     Both halves are load-bearing. A run that asked once and then quietly did
     nothing would satisfy a count on its own, so the count is paired with the
     structural floor AND with the bridge's own record of the run reaching
-    ``completed`` on an empty queue. And a scan that ran after two consents
+    ``completed`` on an empty queue. And a plan that ran after two consents
     would satisfy the floor on its own, which is why the two measurement tests
     above — which disarm the gate entirely — cannot stand in for this one.
 
     The plan class is deliberately unpinned (:func:`is_any_staged_plan_state`).
     Which measurement the agent picks says nothing about the arming gate, and
-    asking for the cheapest honest scan keeps this run short.
+    asking for the cheapest honest plan keeps this run short.
     """
-    repo = deployed_scan_stack.repo
+    repo = deployed_plan_stack.repo
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_plan_stack.token)
 
     # Before spending an agent run: the deployed bridge must not serve the
     # route that carried the second action. Checked against the running
@@ -2132,7 +2132,7 @@ async def test_starting_a_queued_scan_costs_one_operator_approval(
             disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
         )
 
-    # The scan itself first: a transcript assertion over a run that never
+    # The plan itself first: a transcript assertion over a run that never
     # staged anything would be counting prompts that were never going to fire.
     assert_a_scan_executed(result)
     assert_one_arming_approval(result.hook_events)

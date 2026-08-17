@@ -125,9 +125,9 @@ def prepare_contribution(name: str, catalog_dir: str | Path) -> ContributionRequ
         source_path=source_path,
         target_path=target_path,
         suggested_branch=f"feature/contribute-{name}-plan",
-        suggested_pr_title=f"Add {name} scan plan to the catalog",
+        suggested_pr_title=f"Add {name} plan to the catalog",
         suggested_pr_body=(
-            f"Contributes the session-authored `{name}` scan plan (validated "
+            f"Contributes the session-authored `{name}` plan (validated "
             f"content hash `{content_hash}`) to a permanent catalog plan.\n\n"
             "This file was authored and dry-run validated (mock devices only) "
             "in an OSPREY session; it has never run against real hardware. "

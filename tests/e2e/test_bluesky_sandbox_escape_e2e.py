@@ -3,7 +3,7 @@ the authoring-sandbox feature's central invariant: an agent-authored
 session-tier plan can never reach real hardware unless it is validated AND
 that exact validated content is what actually launches.
 
-Deploys the VA-backed turn-key scan-stack (``tests/e2e/_orm_stack.py`` -- the
+Deploys the VA-backed turn-key plan-stack (``tests/e2e/_orm_stack.py`` -- the
 same real Virtual Accelerator + bluesky-bridge container pair
 ``test_orm_roundtrip.py`` uses) and drives the session-authoring HTTP surface
 (``POST /plans/session``, ``POST /plans/validate``, then the queue path
@@ -120,7 +120,7 @@ SCAN_TIMEOUT_SEC = 120.0
 # probe TARGET (never launched in this test, by either the negative
 # or the obfuscation-residual case), two driven for real by the positive
 # author -> validate -> enqueue -> read round trip. Disjoint by
-# construction, so a run-order change can never let the positive scan's
+# construction, so a run-order change can never let the positive run's
 # legitimate write be mistaken for evidence the negative case's write landed.
 CORRECTOR_COUNT = 3
 BPM_COUNT = 2
@@ -477,7 +477,7 @@ def deployed_sandbox_stack(
     positive_correctors = {name: pair for name, pair in correctors.items() if name != escape_name}
     # Writes the repo root's `.env` — the deployment's whole secret store, and
     # the file `osprey up` refuses to start without.
-    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
@@ -701,7 +701,7 @@ def test_obfuscated_residual_is_a_documented_known_uncaught_case(
 
 # ---------------------------------------------------------------------------
 # Positive: author -> validate -> enqueue -> drain -> read, over the same
-# deployed stack. May flake on the drain->read leg (bounded scan timing);
+# deployed stack. May flake on the drain->read leg (bounded run timing);
 # the negative case above stays strict.
 # ---------------------------------------------------------------------------
 @pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
@@ -776,7 +776,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
             break
         time.sleep(0.5)
     assert status_body.get("status") == "completed", (
-        f"session_orbit_probe scan did not complete within {SCAN_TIMEOUT_SEC:.0f}s "
+        f"session_orbit_probe run did not complete within {SCAN_TIMEOUT_SEC:.0f}s "
         f"(status={status_body})"
     )
 

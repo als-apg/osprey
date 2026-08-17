@@ -91,7 +91,7 @@ async def get_run(run_id: str) -> str:
 
         "stopped" means a human stopped it, by any route. An item that left the
         queue without a cleanly recorded finish reads as "error" by design, so
-        an unrecognized ending is never mistaken for a successful scan.
+        an unrecognized ending is never mistaken for a successful run.
 
     Refusals:
         - unknown_run: this run id is not in the manager's queue or its
@@ -273,7 +273,7 @@ async def get_run_figure(run_id: str) -> str:
 
         ``reason`` is null when the plan drew this figure itself. Any other
         value means the bridge drew its DEFAULT VIEW instead — every numeric
-        column the run recorded, against the scan's own x axis. A default view
+        column the run recorded, against the run's own x axis. A default view
         is real data honestly plotted, NOT an error and not an empty result:
         narrate it as "the default view" and give the reason in plain terms.
 

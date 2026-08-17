@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Per-plan presentation for the shipped scan plans: how their parameter form is
+ * Per-plan presentation for the shipped plans: how their parameter form is
  * laid out, and what the live readout above the footer says.
  *
  * Both tables are keyed by plan name and both are OPTIONAL. A plan with no

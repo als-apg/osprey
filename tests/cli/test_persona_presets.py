@@ -2,7 +2,7 @@
 
 The ``control-assistant`` preset hosts its own multi-user web tier — nginx,
 the landing page, and one terminal container per roster user — alongside the
-full scan stack. Two persona presets extend it to carve out capability tiers
+full plan stack. Two persona presets extend it to carve out capability tiers
 that differ on exactly three axes — enforcement
 (``control_system.writes_enabled``), surface (``web.ui_mode``), and the
 write-oriented panel declarations (EVENTS + BLUESKY, readwrite-only):
@@ -403,7 +403,7 @@ class TestControlAssistantPersonas:
 
     def test_personas_are_attached(self) -> None:
         """Both personas set ``deploy_services: false`` — they build terminal
-        images only, and the scan/VA/dispatch injector blocks inherited from
+        images only, and the bluesky/VA/dispatch injector blocks inherited from
         the base are gated on this flag and skip cleanly. The hosting base
         keeps the default self-contained posture."""
         assert resolve_preset("control-assistant").deploy_services is True

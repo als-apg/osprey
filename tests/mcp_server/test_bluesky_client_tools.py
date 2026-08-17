@@ -1,4 +1,4 @@
-"""Unit tests for the scan MCP client tools' request/response mapping.
+"""Unit tests for the bluesky MCP client tools' request/response mapping.
 
 Complements ``test_read_run_tools.py`` (which covers per-tool bridge-status
 translation in depth) by focusing on two things across every read/allow-listed
@@ -925,7 +925,7 @@ def test_docstring_narrates_every_reason_the_bridge_can_send():
 
 
 async def test_all_client_tools_are_registered_fastmcp_function_tools():
-    """Every client tool is registered on the scan server as a FunctionTool."""
+    """Every client tool is registered on the bluesky server as a FunctionTool."""
     for name in (
         "get_run",
         "list_plans",

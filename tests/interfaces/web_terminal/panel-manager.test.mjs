@@ -1622,11 +1622,11 @@ describe('tile-body glow — fired only where a tile visibly changed', () => {
     const { emit } = await bootWorkspace();
 
     emit({
-      type: 'panel_register', id: 'scan', label: 'SCAN', url: '/panel/scan',
+      type: 'panel_register', id: 'bluesky', label: 'BLUESKY', url: '/panel/bluesky',
       healthEndpoint: null, path: '/', source: 'agent',
     });
 
-    expect(entry('scan')?.classList.contains('agent-flash')).toBe(true);
+    expect(entry('bluesky')?.classList.contains('agent-flash')).toBe(true);
     expect(glowPanelSpy).not.toHaveBeenCalled();
   });
 });
@@ -1753,7 +1753,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     const { open, settle } = await bootAck({
       events: [
         { type: 'agent_activity', tool: 'read_channel', target: { kind: 'channel', detail: 'SR01C:BPM1:X' }, ts: 2000 },
-        { type: 'agent_activity', tool: 'run_scan', target: { kind: 'run', detail: 'orm-3' }, ts: 1999 },
+        { type: 'agent_activity', tool: 'run_plan', target: { kind: 'run', detail: 'orm-3' }, ts: 1999 },
         // A panel-kind row with no rail entry has nothing to badge either.
         { type: 'agent_activity', tool: 'open_panel', target: { kind: 'panel', panel: 'no-such-panel' }, ts: 1998 },
       ],

@@ -328,7 +328,7 @@ class TestDegradationsAreReported:
 class TestAutonomousHostChangesAreReported:
     """What the deploy wrote, or decided, without being asked to."""
 
-    def test_derived_scan_devices_name_the_file_they_came_from(
+    def test_derived_plan_devices_name_the_file_they_came_from(
         self, default_altitude, printed, project, monkeypatch
     ):
         monkeypatch.setattr(
@@ -340,7 +340,7 @@ class TestAutonomousHostChangesAreReported:
             {**BLUESKY_VA, "control_system": {"type": "virtual_accelerator"}}, project
         )
 
-        assert_promoted(default_altitude, printed, "bluesky scan devices auto-configured")
+        assert_promoted(default_altitude, printed, "bluesky plan devices auto-configured")
         output.flush_ledger()
         assert "channel_limits.json" in printed.flowed
         assert "BLUESKY_EPICS_SETPOINTS" in printed.flowed

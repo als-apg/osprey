@@ -87,7 +87,7 @@ def test_read_data_with_no_buffer_and_no_tiled_returns_404(client: TestClient) -
     """A run with no live buffer falls back to `_from_tiled`, which returns
     `None` here (BLUESKY_TILED_URI unset in this test env) — so this is a 404,
     not a 200-empty. A 200-empty would make a run whose data genuinely can't
-    be found look like a valid empty scan; see `test_dual_source_read.py` for
+    be found look like a valid empty run; see `test_dual_source_read.py` for
     the full dual-source branching matrix.
     """
     resp = client.get("/runs/run-empty/data")
@@ -235,7 +235,7 @@ async def test_get_run_data_tool_end_to_end_over_real_http(
     `get_run_data` test patches `_http_get_json`, so a renamed/missing
     bridge route could pass every unit test while being unreachable in
     production. This test never touches `_http_get_json` — it runs the real
-    bridge, seeds its real live-row buffer, points the scan server context at
+    bridge, seeds its real live-row buffer, points the bluesky server context at
     the real port, and calls the real MCP tool.
     """
     from osprey.mcp_server.bluesky import server_context

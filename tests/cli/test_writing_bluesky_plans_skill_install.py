@@ -32,7 +32,7 @@ PRESETS_DIR = Path(__file__).parent.parent.parent / "src" / "osprey" / "profiles
 def _prose(text: str) -> str:
     """Lowercased skill text with markdown decoration and line wrapping removed.
 
-    Same helper as in ``test_operating_bluesky_scans_skill_install.py``: the
+    Same helper as in ``test_operating_bluesky_plans_skill_install.py``: the
     sentence-level pins assert what the prose SAYS, so a cosmetic re-wrap or an
     emphasis change must not fail them, while a weakened sentence still does.
     """
@@ -233,12 +233,12 @@ class TestWritingBlueskyPlansSkillStructure:
 
     def test_explicitly_rules_out_bba_and_tune_scan(self, skill_text):
         """BBA/tune-scan must appear only as a named anti-pattern, never as a
-        plan option to author (memory: shipped scan plans are `orm` (ORM) +
+        plan option to author (memory: shipped plans are `orm` (ORM) +
         n-d `grid_scan` ONLY; bba/tune_scan "always creeps in")."""
         assert "propose a bba or tune-scan plan" in _prose(skill_text)
         assert "tune-scan" in skill_text
         assert "out of scope" in skill_text.lower()
-        assert "only accelerator scan patterns" in _prose(skill_text)
+        assert "only accelerator plan patterns" in _prose(skill_text)
 
 
 class TestWritingBlueskyPlansInstall:

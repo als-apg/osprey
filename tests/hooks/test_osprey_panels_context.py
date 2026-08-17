@@ -66,14 +66,14 @@ def temp_snapshot_dir(tmp_path, monkeypatch):
 
 def test_inventory_lists_enabled_panels_with_visibility():
     data = {
-        "enabled": ["archiver", "scan"],
-        "labels": {"archiver": "Archiver", "scan": "Scan"},
+        "enabled": ["archiver", "bluesky"],
+        "labels": {"archiver": "Archiver", "bluesky": "Bluesky"},
         "visible": ["archiver"],
         "active": "archiver",
     }
     result = panels._build_inventory(data)
     assert "Archiver (id=archiver, on rail)" in result
-    assert "Scan (id=scan, off rail)" in result
+    assert "Bluesky (id=bluesky, off rail)" in result
     assert "Active tab: archiver." in result
 
 
@@ -102,7 +102,7 @@ def test_inventory_skips_custom_panel_without_id():
 
 
 def test_inventory_no_active_tab_phrase():
-    data = {"enabled": ["scan"], "labels": {"scan": "Scan"}, "visible": ["scan"]}
+    data = {"enabled": ["bluesky"], "labels": {"bluesky": "Bluesky"}, "visible": ["bluesky"]}
     result = panels._build_inventory(data)
     assert "No active tab." in result
 
@@ -113,7 +113,7 @@ def test_inventory_empty_returns_none():
 
 
 def test_inventory_mentions_control_tools():
-    data = {"enabled": ["scan"], "labels": {"scan": "Scan"}, "visible": ["scan"]}
+    data = {"enabled": ["bluesky"], "labels": {"bluesky": "Bluesky"}, "visible": ["bluesky"]}
     result = panels._build_inventory(data)
     assert "open_panel" in result and "close_panel" in result
     assert "add_panel_to_rail" in result and "remove_panel_from_rail" in result
@@ -168,18 +168,18 @@ def test_workspace_state_extracts_three_facets():
         "open_tiles": ["lattice", "artifacts"],
         "open_tiles_age_s": 1.5,
         "active": "artifacts",
-        "visible": ["lattice", "artifacts", "scan"],
+        "visible": ["lattice", "artifacts", "bluesky"],
     }
     assert panels._workspace_state(data) == {
         "tiles": ["lattice", "artifacts"],
         "active": "artifacts",
-        "visible": ["lattice", "artifacts", "scan"],
+        "visible": ["lattice", "artifacts", "bluesky"],
     }
 
 
 def test_workspace_state_null_age_means_never_reported():
     """A tile list nobody has reported is None, not an empty workspace."""
-    data = {"open_tiles": [], "open_tiles_age_s": None, "visible": ["scan"]}
+    data = {"open_tiles": [], "open_tiles_age_s": None, "visible": ["bluesky"]}
     assert panels._workspace_state(data)["tiles"] is None
 
 
@@ -188,7 +188,7 @@ def test_workspace_state_null_age_means_never_reported():
     [
         {"open_tiles": None, "open_tiles_age_s": 0.3, "open_tiles_dock": False},
         {"open_tiles": [], "open_tiles_age_s": 0.3, "open_tiles_dock": False},
-        {"open_tiles": ["scan"], "open_tiles_age_s": 0.3, "open_tiles_dock": False},
+        {"open_tiles": ["bluesky"], "open_tiles_age_s": 0.3, "open_tiles_dock": False},
     ],
     ids=["null-tiles", "legacy-empty-list", "stale-list-from-dockless-client"],
 )
@@ -199,26 +199,26 @@ def test_workspace_state_dock_false_means_occupancy_unknown(payload):
     trustworthy empty workspace. Both the post-fix shape (null tiles) and the
     legacy shape (empty list) must land on unknown.
     """
-    state = panels._workspace_state(dict(payload, visible=["scan"], active="scan"))
+    state = panels._workspace_state(dict(payload, visible=["bluesky"], active="bluesky"))
     assert state["tiles"] is None
-    assert state["visible"] == ["scan"]
+    assert state["visible"] == ["bluesky"]
 
 
 @pytest.mark.parametrize("dock", [True, None], ids=["dock-capable", "capability-unknown"])
 def test_workspace_state_trusts_tiles_unless_dock_is_explicitly_false(dock):
     data = {
-        "open_tiles": ["scan"],
+        "open_tiles": ["bluesky"],
         "open_tiles_age_s": 0.3,
         "open_tiles_dock": dock,
-        "visible": ["scan"],
+        "visible": ["bluesky"],
     }
-    assert panels._workspace_state(data)["tiles"] == ["scan"]
+    assert panels._workspace_state(data)["tiles"] == ["bluesky"]
 
 
 def test_workspace_state_older_terminal_without_tile_fields():
     """A web terminal that predates open_tiles reports them as never reported."""
-    state = panels._workspace_state({"visible": ["scan"], "active": "scan"})
-    assert state == {"tiles": None, "active": "scan", "visible": ["scan"]}
+    state = panels._workspace_state({"visible": ["bluesky"], "active": "bluesky"})
+    assert state == {"tiles": None, "active": "bluesky", "visible": ["bluesky"]}
 
 
 def test_workspace_state_ignores_wrong_types():
@@ -227,10 +227,10 @@ def test_workspace_state_ignores_wrong_types():
 
 
 def test_workspace_state_drops_non_string_ids():
-    data = {"open_tiles": ["scan", 3, None], "open_tiles_age_s": 0.2, "visible": ["scan", {}]}
+    data = {"open_tiles": ["bluesky", 3, None], "open_tiles_age_s": 0.2, "visible": ["bluesky", {}]}
     state = panels._workspace_state(data)
-    assert state["tiles"] == ["scan"]
-    assert state["visible"] == ["scan"]
+    assert state["tiles"] == ["bluesky"]
+    assert state["visible"] == ["bluesky"]
 
 
 def test_snapshot_path_is_session_scoped(temp_snapshot_dir):
@@ -240,7 +240,7 @@ def test_snapshot_path_is_session_scoped(temp_snapshot_dir):
 
 def test_write_snapshot_roundtrips_and_leaves_no_temp_file(temp_snapshot_dir):
     path = panels._snapshot_path("sess-1")
-    state = {"tiles": ["scan"], "active": "scan", "visible": ["scan"]}
+    state = {"tiles": ["bluesky"], "active": "bluesky", "visible": ["bluesky"]}
 
     assert panels._write_snapshot(path, state) is True
     assert json.loads(open(path).read()) == state
@@ -283,7 +283,10 @@ def test_tile_line_reported_empty_workspace():
 
 def test_tile_line_omitted_when_never_reported():
     """No client has reported — say nothing rather than claim an empty screen."""
-    assert panels._build_tile_line({"tiles": None, "active": "scan", "visible": ["scan"]}) is None
+    assert (
+        panels._build_tile_line({"tiles": None, "active": "bluesky", "visible": ["bluesky"]})
+        is None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -295,10 +298,10 @@ def test_main_emits_additional_context_envelope(monkeypatch, capsys):
     _stub_urlopen(
         monkeypatch,
         payload={
-            "enabled": ["scan"],
-            "labels": {"scan": "Scan"},
-            "visible": ["scan"],
-            "active": "scan",
+            "enabled": ["bluesky"],
+            "labels": {"bluesky": "Bluesky"},
+            "visible": ["bluesky"],
+            "active": "bluesky",
         },
     )
     rc = panels.main()
@@ -308,7 +311,7 @@ def test_main_emits_additional_context_envelope(monkeypatch, capsys):
     envelope = json.loads(out)
     hook_out = envelope["hookSpecificOutput"]
     assert hook_out["hookEventName"] == "SessionStart"
-    assert "Scan (id=scan, on rail)" in hook_out["additionalContext"]
+    assert "Bluesky (id=bluesky, on rail)" in hook_out["additionalContext"]
 
 
 def test_main_empty_inventory_writes_nothing(monkeypatch, capsys):

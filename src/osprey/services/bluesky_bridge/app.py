@@ -429,7 +429,7 @@ def stop_run(run_id: str) -> dict:
 
 @app.get("/plans")
 def list_plans() -> list:
-    """Registered scan plans: `plan_loader.get_facility_plans()`'s trust-resolved set.
+    """Registered plans: `plan_loader.get_facility_plans()`'s trust-resolved set.
 
     `plan_loader.py` is the sole plan registry — a layered directory scan
     (`shipped`/`preset`/`facility`/`session`) plus the legacy single-module
@@ -881,7 +881,7 @@ def _from_tiled(
     run_uid = dict(run_node.metadata).get("start", {}).get("uid")
 
     if "primary" not in run_node:
-        # Start doc landed but no Event ever arrived (e.g. a scan that
+        # Start doc landed but no Event ever arrived (e.g. a plan that
         # errored before its first point) — the run is real, so this is the
         # "nothing to read yet" shape, not a 404. Deliberately a membership
         # check on `"primary"` alone, never a `try`/`except KeyError` around
@@ -939,7 +939,7 @@ def get_run_data(
 
     Raises 404 when neither source has the run — the MCP `get_run_data` tool
     maps 404 to `unknown_run`, and a 200-empty response would make a
-    nonexistent run look like a valid empty scan.
+    nonexistent run look like a valid empty run.
 
     ``run_uid`` is the RunEngine's own uid. Present on the Tiled path (it is on
     the stored start document) and ``None`` on the live path, where the bridge

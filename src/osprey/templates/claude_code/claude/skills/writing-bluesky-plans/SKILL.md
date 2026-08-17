@@ -6,7 +6,7 @@ description: >
   enforces, and the author -> validate -> run -> contribute workflow. Use when
   asked to write, draft, or author a new Bluesky plan, or when an
   existing plan needs editing before re-validation. NOT for operating an
-  already-registered plan (use the operating-bluesky-scans skill).
+  already-registered plan (use the operating-bluesky-plans skill).
 summary: Author, validate, and queue a session-tier Bluesky plan
 ---
 
@@ -63,7 +63,7 @@ invent new accelerator physics:**
   — steps a set of setpoint devices over a rectangular grid, reading a set of
   readbacks at every grid point.
 
-These are the ONLY accelerator scan patterns this framework ships. Never
+These are the ONLY accelerator plan patterns this framework ships. Never
 propose or author a BBA (beam-based alignment) or tune-scan plan — they are
 explicitly out of scope.
 
@@ -203,7 +203,7 @@ from osprey.services.bluesky_bridge.figure import Figure, LinesMark, Panel, Poin
 
 **A plan with no `render` is complete and ordinary.** Watchers then see the
 bridge's **default view** — every numeric column the run recorded, plotted
-against the scan's own x axis — carrying the reason `no_render`. That is a real
+against the run's own x axis — carrying the reason `no_render`. That is a real
 view of real data, not a missing one, so `render()` is worth writing only when
 the plan can say something the columns cannot say for themselves.
 
@@ -278,7 +278,7 @@ failure downgrades the figure instead of losing it.
    plan and try again. Use `get_run(run_id)` / `get_run_data(run_id, ...)` to
    watch it, and `get_run_figure(run_id)` for the figure — the better watch for
    a plan that ships a `render()`, and still a real view of the data for one
-   that does not. The `operating-bluesky-scans` skill covers this run flow in full
+   that does not. The `operating-bluesky-plans` skill covers this run flow in full
    — staging the complete configuration, the two-step add/start, refusal
    handling, and stopping.
 5. **Contribute to the permanent catalog** — a session plan stays
@@ -296,7 +296,7 @@ failure downgrades the figure instead of losing it.
   I/O goes through the `devices` dict `build_plan` receives.
 - **Never** use `time.sleep(...)` inside a plan body — use `bps.sleep(...)`.
 - **Never** propose a BBA or tune-scan plan — `orm` and `grid_scan` are the
-  only scan patterns this framework ships.
+  only plan patterns this framework ships.
 - **Never** hard-code a facility device name inside `build_plan` — resolve
   every device by string name through the injected `devices` dict, exactly
   like both exemplars. The same holds for `render()`: label its panels from

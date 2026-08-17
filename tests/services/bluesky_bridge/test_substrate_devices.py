@@ -1,9 +1,9 @@
-"""Unit tests for the canonical EPICS-substrate scan-device derivation.
+"""Unit tests for the canonical EPICS-substrate plan-device derivation.
 
 Covers ``osprey.services.bluesky_bridge.substrate_devices`` -- the single
 source shared by ``osprey up`` (``container_lifecycle.
 _ensure_bluesky_substrate_env``) and ``tests/e2e/_orm_stack.py`` -- plus, in
-``TestEnsureScanSubstrateEnv`` below, the ``container_lifecycle`` deploy-path
+``TestEnsureBlueskySubstrateEnv`` below, the ``container_lifecycle`` deploy-path
 wiring itself, called directly (Docker-free).
 """
 
@@ -253,7 +253,7 @@ class TestDeriveSubstrateEnv:
         assert derive_substrate_env(tmp_path) == {}
 
 
-class TestEnsureScanSubstrateEnv:
+class TestEnsureBlueskySubstrateEnv:
     """Deploy-path wiring: ``container_lifecycle._ensure_bluesky_substrate_env``,
     called directly (Docker-free) rather than through the full ``deploy_up``.
     """
@@ -263,7 +263,7 @@ class TestEnsureScanSubstrateEnv:
         data_dir.mkdir()
         (data_dir / "channel_limits.json").write_text(json.dumps(_LIMITS), encoding="utf-8")
 
-    def test_writes_substrate_env_when_va_backed_scan_stack(self, tmp_path) -> None:
+    def test_writes_substrate_env_when_va_backed_plan_stack(self, tmp_path) -> None:
         from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
         self._write_channel_limits(tmp_path)

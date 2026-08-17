@@ -1,8 +1,8 @@
-"""Reusable turn-key scan-stack deploy configuration (task 4.3 / PROPOSAL FR11).
+"""Reusable turn-key plan-stack deploy configuration (task 4.3 / PROPOSAL FR11).
 
 Builds the shipped deploy config that brings up the Virtual Accelerator +
 Bluesky bridge + co-deployed Tiled catalog with
-``control_system.type=virtual_accelerator`` and the ``scan`` MCP server
+``control_system.type=virtual_accelerator`` and the ``bluesky`` MCP server
 enabled (``default_enabled=False`` in the framework registry; opted in here
 via ``claude_code.servers.bluesky.enabled``). ``BLUESKY_LAUNCH_TOKEN`` is
 minted unconditionally by ``osprey up``, so no execution-method
@@ -21,17 +21,17 @@ this config for:
   * the real-container round-trip e2e (task 5.2, ``test_orm_roundtrip.py``),
   * the agentic-discovery e2e (tasks 5.3/5.4),
 via ``build_project_subprocess`` + ``select_correctors``/``select_bpms``/
-``write_scan_env``.
+``write_substrate_env``.
 
 Building this config never touches Docker by itself -- only a subsequent
 ``osprey up`` does (left to each caller, since only the real e2e/agentic
 tests need a live stack).
 
-``select_correctors``/``select_bpms``/``write_scan_env`` delegate to the
+``select_correctors``/``select_bpms``/``write_substrate_env`` delegate to the
 canonical derivation in
 ``osprey.services.bluesky_bridge.substrate_devices`` (the single source of
 this logic, also used by ``osprey up`` to auto-configure a VA-backed
-scan stack's ``.env`` -- see ``container_lifecycle._ensure_bluesky_substrate_env``).
+plan stack's ``.env`` -- see ``container_lifecycle._ensure_bluesky_substrate_env``).
 This module keeps its own public API/signatures/defaults unchanged so every
 existing e2e importer is unaffected.
 """
@@ -178,17 +178,17 @@ VA_ARCHIVER_CI_KNOBS = "va_archiver:\n  retention_days: 2\n  hot_span_hours: 2\n
 
 
 def override_yaml() -> str:
-    """FR11's ``--override`` YAML content: VA control system + the scan MCP
+    """FR11's ``--override`` YAML content: VA control system + the bluesky MCP
     server.
 
     ``dispatch: null`` drops control-assistant's default event-dispatcher
-    stack (Node + Claude CLI image) -- irrelevant to the scan stack and far
+    stack (Node + Claude CLI image) -- irrelevant to the plan stack and far
     slower to build than the VA/bridge images already are (mirrors
     test_va_substrate_equivalence.py / test_tiled_roundtrip.py).
 
     ``modules.web_terminals.enabled: false`` drops the preset's per-persona
     web-terminal stack (two persona images + nginx, all built locally) for
-    the same reason: nothing in the scan stack touches persona routing, and
+    the same reason: nothing in the plan stack touches persona routing, and
     that coverage lives in the dedicated web-terminals lanes
     (control-assistant-demo-e2e, multi-user-deploy-lifecycle-e2e,
     tests/e2e/web_terminals/). One dotted LEAF key on purpose -- the preset
@@ -267,7 +267,7 @@ def init_args(
     extra_config: dict[str, Any] | None = None,
 ) -> list[str]:
     """``osprey init`` CLI args (sans the leading ``init`` token) for FR11's
-    turn-key scan-stack deployment.
+    turn-key plan-stack deployment.
 
     The stack is materialized in two steps, because the surface has two:
     ``osprey init`` writes the deployment repo's source zone from the preset
@@ -462,7 +462,7 @@ def build_project_subprocess(
 
 def channel_limits(project_dir: Path) -> dict[str, Any]:
     """The BUILT project's own ``data/channel_limits.json`` — the source of
-    every device name the scan e2es use, so no preset channel is ever
+    every device name the plan-stack e2es use, so no preset channel is ever
     hardcoded."""
     return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
@@ -571,7 +571,7 @@ def restart_bridge(
     force the read paths (``/runs/{id}/data``, ``/runs/{id}/figure``) onto their
     Tiled branch. Everything else keeps running: the queueserver, its Redis, the
     Tiled catalog and the Virtual Accelerator are untouched, so the completed
-    run's documents are still in the catalog and the scan stack is still
+    run's documents are still in the catalog and the plan stack is still
     deployed.
 
     Restarting the bridge cannot lose documents, because the bridge is not what
@@ -668,7 +668,7 @@ def select_correctors(
     that case, regardless of how many pairs are found.
 
     Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the setpoint's
-    device name is its own ``:SP`` address -- ready for ``write_scan_env``'s
+    device name is its own ``:SP`` address -- ready for ``write_substrate_env``'s
     ``BLUESKY_EPICS_SETPOINTS`` wiring.
 
     Thin wrapper: delegates to the canonical
@@ -693,7 +693,7 @@ def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -
     instead of a fixed-size slice -- no assertion is raised in that case.
 
     Returns a dict of ``read_address -> read_address`` -- the readback's
-    device name is its own read address -- ready for ``write_scan_env``'s
+    device name is its own read address -- ready for ``write_substrate_env``'s
     ``BLUESKY_EPICS_READBACKS`` wiring.
 
     Thin wrapper: delegates to the canonical
@@ -706,7 +706,7 @@ def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -
     return _select_bpms(limits, count)
 
 
-def write_scan_env(
+def write_substrate_env(
     repo: Path,
     *,
     correctors: dict[str, tuple[str, str]],

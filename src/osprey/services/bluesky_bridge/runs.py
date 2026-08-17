@@ -40,7 +40,7 @@ STATUS_ERROR = "error"
 
 # Queueserver's terminal `exit_status` values, mapped onto the record states
 # above. The three stop-shaped spellings collapse to one: an operator who
-# halted a scan does not care which of the manager's three abort verbs got
+# halted a plan does not care which of the manager's three abort verbs got
 # recorded, and splitting them would push that trivia onto every consumer.
 _EXIT_STATUS_TO_STATUS = {
     "completed": STATUS_COMPLETED,
@@ -53,7 +53,7 @@ _EXIT_STATUS_TO_STATUS = {
 # History entries whose `exit_status` is missing or unrecognized. Read as an
 # error rather than as completion: an item that left the queue without the
 # manager recording a clean finish is exactly the case an operator must not
-# mistake for a successful scan.
+# mistake for a successful run.
 _UNKNOWN_EXIT_STATUS = STATUS_ERROR
 
 _DEFAULT_LIMIT = 20
@@ -91,7 +91,7 @@ def _queue_status(item: dict[str, Any]) -> str:
 
     That matters here because `_ordered_records` walks the queue BEFORE history
     and emits each run id once: without this, the requeued copy SHADOWS the
-    correct history record, and a scan a human just emergency-aborted is
+    correct history record, and a plan a human just emergency-aborted is
     published as ``pending`` — as work that has not happened yet — while
     carrying the ``run_uid`` of the run that already did. So an item bearing a
     ``result`` is projected through the SAME mapping history uses (aborted →

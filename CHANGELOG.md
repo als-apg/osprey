@@ -13,15 +13,23 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
-- The bluesky bridge's scan-device env vars are now named for what a control
+- Osprey now calls a bluesky plan a plan, not a scan. A plan is any bluesky
+  generator — a scan is only one kind — so the word is gone from the operator
+  panels, the live activity labels, the agent's tool descriptions and the docs.
+  The `operating-bluesky-scans` skill is now `operating-bluesky-plans`: rebuild
+  your project to pick up the new name, or the old skill file lingers in
+  `.claude/skills/`. The "Run your first scan" how-to is now "Run your first
+  plan" at a new URL.
+
+- The bluesky bridge's plan-device env vars are now named for what a control
   room calls them: `BLUESKY_EPICS_MOTORS` is `BLUESKY_EPICS_SETPOINTS` and
   `BLUESKY_EPICS_DETECTORS` is `BLUESKY_EPICS_READBACKS`. Their values and format
   are unchanged. `osprey up` writes the new names; a project whose `.env` still
   holds the old ones will find them ignored, so remove those two lines (or run
-  `osprey reset` then `osprey up`, which rewrites the block) to get scan devices
+  `osprey reset` then `osprey up`, which rewrites the block) to get plan devices
   back.
 
-- The two shipped scan plans now name their read side `readbacks` instead of
+- The two shipped plans now name their read side `readbacks` instead of
   `detectors`, in the plan form, the queue summary, the approval prompt and the
   validation errors. A saved draft or a plan written against the old field name
   needs that one key renamed. Facility-authored plans are unaffected: a plan of

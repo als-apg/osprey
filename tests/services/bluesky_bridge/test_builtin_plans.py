@@ -114,7 +114,7 @@ def test_orm_params_rejects_an_empty_readback_list() -> None:
 def test_orm_params_accepts_a_span_larger_than_any_one_facilitys_band() -> None:
     """`span_a` carries no schema-level magnitude cap.
 
-    It is an *excursion* about each corrector's own pre-scan working point,
+    It is an *excursion* about each corrector's own pre-plan working point,
     expressed in whatever unit that corrector's channel speaks — so any
     literal ceiling here would be one facility's number standing in for
     every facility's. The real bound is the deployment's own
@@ -188,7 +188,7 @@ def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) ->
     points followed by the restore in the `finally`.
 
     Driven by a real `RunEngine` with a `msg_hook`, NOT by iterating the
-    generator by hand. The plan reads each corrector's pre-scan working point
+    generator by hand. The plan reads each corrector's pre-plan working point
     with `bps.rd`, and `bps.rd` walked by hand runs in bluesky's "list-ify"
     mode: nothing answers its `read`, so it silently returns its
     `default_value` of 0 instead of the device's real value. A hand-walked
@@ -387,7 +387,7 @@ def test_orm_plan_refuses_to_sweep_a_corrector_reading_back_non_finite() -> None
     assert writes == []
 
 
-def test_orm_plan_restores_every_corrector_to_its_own_pre_scan_working_point() -> None:
+def test_orm_plan_restores_every_corrector_to_its_own_pre_plan_working_point() -> None:
     """The same path on a real ring: correctors holding an orbit-correction
     working point are each put back where THEY were, not where the plan
     assumed they were.

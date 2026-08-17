@@ -1,4 +1,4 @@
-"""Loads scan plans from a layered directory catalog plus the legacy facility
+"""Loads plans from a layered directory catalog plus the legacy facility
 plan-injection contract, and merges both into one trust-resolved plan set.
 
 Two kinds of plan source, both scanned into the same fail-closed registry:

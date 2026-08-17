@@ -478,7 +478,7 @@ _RETIRED_SPELLING_ALLOWLIST: dict[tuple[str, str], str] = {
         )
         for line in (
             '"Auto-generated service auth tokens (osprey deploy up)",',
-            '"Auto-configured bluesky bridge scan devices (osprey deploy up)",',
+            '"Auto-configured bluesky bridge plan devices (osprey deploy up)",',
             '"Auto-generated bluesky RE manager control-socket keypair (osprey deploy up)",',
         )
     },

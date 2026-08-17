@@ -1,4 +1,4 @@
-"""Canonical derivation of the bluesky bridge's EPICS-substrate scan devices.
+"""Canonical derivation of the bluesky bridge's EPICS-substrate plan devices.
 
 Single source of truth for turning a *built project's own*
 ``data/channel_limits.json`` into the bridge's EPICS-substrate device set
@@ -54,7 +54,7 @@ Two consumers share this module (DRY, one derivation):
   so the bridge starts in substrate mode with real channel names,
   turn-key.
 - ``tests/e2e/_orm_stack.py``, whose ``select_correctors``/``select_bpms``/
-  ``write_scan_env`` delegate here instead of re-deriving the same logic.
+  ``write_substrate_env`` delegate here instead of re-deriving the same logic.
 
 Host/deploy-side only — NOT part of the bridge's own container import
 surface. This module imports ``osprey.services.virtual_accelerator.manifest``
@@ -152,10 +152,10 @@ def select_correctors(
     Restricted to the pyat-coupled corrector partition (a write actually
     steers the beam via the AT lattice model) rather than any writable
     ``:SP``: a generic sp-echo pair (physics-free) is the wrong device class
-    for a scan plan that sweeps correctors specifically.
+    for a plan that sweeps correctors specifically.
 
     ``count=None`` (the default) returns the FULL available pyat-coupled
-    corrector set -- the deploy wants every scannable device, not a fixed
+    corrector set -- the deploy wants every available device, not a fixed
     slice. When ``count`` is an int, raises ``AssertionError`` if fewer than
     ``count`` pairs are available; returns exactly ``count`` pairs otherwise.
 

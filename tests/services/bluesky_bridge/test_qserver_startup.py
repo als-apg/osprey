@@ -116,7 +116,7 @@ def _plan_source(name: str) -> str:
     )
 
 
-def _write_plan_dir(tmp_path: Path, name: str = "sample_scan") -> Path:
+def _write_plan_dir(tmp_path: Path, name: str = "sample_plan") -> Path:
     """A one-file facility-tier plan directory exposing ``name``."""
     directory = tmp_path / "plans"
     directory.mkdir(parents=True, exist_ok=True)
@@ -124,7 +124,7 @@ def _write_plan_dir(tmp_path: Path, name: str = "sample_scan") -> Path:
     return directory
 
 
-def _catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "sample_scan") -> dict:
+def _catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "sample_plan") -> dict:
     """Load a catalog containing exactly the one sample plan named ``name``."""
     monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", tmp_path / "no-shipped-dir")
     monkeypatch.setenv(_PLAN_DIRS_ENV, str(_write_plan_dir(tmp_path, name)))
@@ -292,12 +292,12 @@ def test_each_catalog_plan_becomes_a_named_generator_function(
 
     functions = qserver_startup.build_plan_functions({}, plans)
 
-    assert sorted(functions) == ["sample_scan"]
-    plan_function = functions["sample_scan"]
+    assert sorted(functions) == ["sample_plan"]
+    plan_function = functions["sample_plan"]
     # Queueserver's namespace scan only recognizes generator functions as
     # plans; anything else is silently invisible to the manager.
     assert inspect.isgeneratorfunction(plan_function)
-    assert plan_function.__name__ == "sample_scan"
+    assert plan_function.__name__ == "sample_plan"
     assert plan_function.__doc__ == "A sample catalog plan."
 
 
@@ -318,11 +318,11 @@ def test_plan_function_reconstructs_the_params_model_from_json_kwargs(
     plans = _catalog(tmp_path, monkeypatch)
     devices = {"corrector_01": object(), "bpm_01": object()}
 
-    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_plan"]
     message = next(plan_function(**_sample_kwargs()))
 
     params = message["params"]
-    assert params.__class__ is plans["sample_scan"].schema
+    assert params.__class__ is plans["sample_plan"].schema
     assert params.readbacks == ["bpm_01"]
     # The nested JSON object came back as the plan's own nested model, with
     # its declared types — not as the raw dict the queue item carried.
@@ -339,7 +339,7 @@ def test_plan_function_resolves_device_names_against_the_namespace(
     readback = object()
     devices = {"corrector_01": corrector, "bpm_01": readback}
 
-    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_plan"]
     message = next(plan_function(**_sample_kwargs()))
 
     assert message["devices"] == [corrector, readback]
@@ -349,7 +349,7 @@ def test_plan_function_rejects_kwargs_that_fail_the_params_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     plans = _catalog(tmp_path, monkeypatch)
-    plan_function = qserver_startup.build_plan_functions({}, plans)["sample_scan"]
+    plan_function = qserver_startup.build_plan_functions({}, plans)["sample_plan"]
 
     bad_kwargs = _sample_kwargs()
     bad_kwargs["axes"][0]["num_points"] = 1  # schema requires >= 2
@@ -362,7 +362,7 @@ def test_unknown_device_name_names_the_device_and_what_the_worker_has(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     plans = _catalog(tmp_path, monkeypatch)
-    plan_function = qserver_startup.build_plan_functions({"bpm_01": object()}, plans)["sample_scan"]
+    plan_function = qserver_startup.build_plan_functions({"bpm_01": object()}, plans)["sample_plan"]
 
     with pytest.raises(KeyError) as excinfo:
         next(plan_function(**_sample_kwargs()))
@@ -376,12 +376,12 @@ def test_plan_whose_name_is_not_an_identifier_is_skipped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     plans = _catalog(tmp_path, monkeypatch)
-    plans["not an identifier"] = plans["sample_scan"]
+    plans["not an identifier"] = plans["sample_plan"]
 
     with caplog.at_level("WARNING"):
         functions = qserver_startup.build_plan_functions({}, plans)
 
-    assert sorted(functions) == ["sample_scan"]
+    assert sorted(functions) == ["sample_plan"]
     assert "not an identifier" in caplog.text
 
 
@@ -403,7 +403,7 @@ def test_namespace_holds_the_run_engine_the_devices_and_the_plans(
 
     assert namespace["RE"] is run_engine
     assert namespace["corrector_01"] is devices["corrector_01"]
-    assert callable(namespace["sample_scan"])
+    assert callable(namespace["sample_plan"])
 
 
 def test_a_device_less_worker_registers_no_plans(
@@ -454,7 +454,7 @@ def test_namespace_builds_devices_on_the_run_engine_loop_when_none_are_supplied(
 
     assert isinstance(namespace["corrector_01"], ConnectorSettable)
     assert namespace["corrector_01"]._osprey_connector is connector
-    assert callable(namespace["sample_scan"])
+    assert callable(namespace["sample_plan"])
 
 
 def test_queueserver_recognizes_every_plan_and_device_in_the_namespace(
@@ -485,8 +485,8 @@ def test_queueserver_recognizes_every_plan_and_device_in_the_namespace(
         nspace=namespace
     )
 
-    assert "sample_scan" in existing_plans
-    assert existing_plans["sample_scan"]["properties"]["is_generator"] is True
+    assert "sample_plan" in existing_plans
+    assert existing_plans["sample_plan"]["properties"]["is_generator"] is True
     assert {"corrector_01", "bpm_01"} <= set(existing_devices)
 
 

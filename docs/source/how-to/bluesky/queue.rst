@@ -4,7 +4,7 @@ Scans and the Queue
 
 Three sentences carry everything on this page. Scans live in a **queue
 server** that survives restarts — not in the agent, not in the panels. Adding
-a scan to the queue and starting the queue are **two separate, deliberate
+a plan to the queue and starting the queue are **two separate, deliberate
 steps**, and only starting is guarded. **Stopping is never locked** — no
 token, no switch, no state can take the stop and abort buttons away.
 
@@ -12,7 +12,7 @@ token, no switch, no state can take the stop and abort buttons away.
 
    flowchart LR
        A["Shared draft<br/>compose & review"] -->|add| B["Queue<br/>durable, ordered"]
-       B -->|"start (armed)"| C["Machine<br/>one scan at a time"]
+       B -->|"start (armed)"| C["Machine<br/>one plan at a time"]
        C -.->|"stop / abort — always available"| B
 
 Everything below is the same queue seen from three sides — pick the one you
@@ -43,8 +43,8 @@ One queue, three ways to drive it
 
    .. tab-item:: Chat with the agent
 
-      Ask in plain language — "queue that scan and start it", "stop the
-      queue", "abort the scan" — and the agent drives the same queue with a
+      Ask in plain language — "queue that plan and start it", "stop the
+      queue", "abort the plan" — and the agent drives the same queue with a
       small set of tools:
 
       - ``get_draft`` / ``set_draft`` — compose the shared draft you see in
@@ -58,7 +58,7 @@ One queue, three ways to drive it
       - ``get_run_figure`` — read the same figure the BLUESKY panel is
         drawing, so you and the agent are discussing one picture.
 
-      A bundled skill (``operating-bluesky-scans``) teaches the agent this
+      A bundled skill (``operating-bluesky-plans``) teaches the agent this
       flow, so you rarely need to name a tool yourself.
 
    .. tab-item:: HTTP API
@@ -155,7 +155,7 @@ quirks worth knowing:
       no launch token is configured at all — hand the start to the operator.
 
    ``browse_only_connector``
-      This deployment cannot execute scans at all — it is pointed at the
+      This deployment cannot execute plans at all — it is pointed at the
       ``mock`` control system. Composing still works; the refusal names the
       command that switches to an executing connector.
 
@@ -164,7 +164,7 @@ quirks worth knowing:
       runs — see :doc:`write-plans`.
 
    ``interrupted_item_in_queue``
-      The queue still holds a scan someone stopped — see the next dropdown.
+      The queue still holds a plan someone stopped — see the next dropdown.
 
    ``manager_unreachable``
       The queue server is not answering — often it is simply still starting.
@@ -174,10 +174,10 @@ quirks worth knowing:
    :color: info
    :icon: stop
 
-   A stopped scan does not vanish. The queue server records the run in
+   A stopped plan does not vanish. The queue server records the run in
    history **and puts a copy of the item back at the front of the queue**, so
    a human can decide what happens next. Until that copy is removed, every
-   attempt to start the queue is refused — a scan someone emergency-stopped
+   attempt to start the queue is refused — a plan someone emergency-stopped
    can never sneak back onto the machine.
 
    Removing it is the deliberate step: the ✕ on its queue row. To actually
@@ -187,7 +187,7 @@ quirks worth knowing:
    :color: info
    :icon: database
 
-   - **While a scan runs**, the panels and the agent read live rows from the
+   - **While a plan runs**, the panels and the agent read live rows from the
      bridge's own buffer.
    - **After that**, the data is durable in **Tiled**, the deployment's data
      store (part of the tutorial preset; optional elsewhere) — it outlives
@@ -195,8 +195,8 @@ quirks worth knowing:
      whose entry has aged out of the list still answers with its data.
    - **The queue itself** lives in the queue server's own storage, so a
      bridge restart changes nothing about what is queued. The one gap: live
-     rows of a scan that is running *during* a bridge restart are missing
-     from the live view until the next scan starts — the scan itself keeps
+     rows of a run that is happening *during* a bridge restart are missing
+     from the live view until the next run starts — the run itself keeps
      going and its data still lands in Tiled.
 
 .. dropdown:: For deployers — what is running, and the config block
@@ -227,12 +227,12 @@ quirks worth knowing:
       * - ``tiled_port``
         - Tiled's port (default 8091).
       * - ``plan_dir``
-        - A directory of your facility's own scan plans — see
+        - A directory of your facility's own plans — see
           :doc:`write-plans`.
       * - ``excluded_plans``
         - Plans to remove from the catalog entirely, e.g. ``[orm]``.
 
-   Whether a deployment can execute scans at all is decided by its control
+   Whether a deployment can execute plans at all is decided by its control
    system: ``virtual_accelerator`` and ``epics`` can, ``mock`` is
    browse-only. The panels and the agent both surface this as a capability
    banner; on a browse-only deployment it names the flip:
@@ -250,7 +250,7 @@ quirks worth knowing:
 
 .. seealso::
 
-   :doc:`run-first-scan`
+   :doc:`run-first-plan`
       The worked example, from asking to watching points land.
 
    :doc:`write-plans`

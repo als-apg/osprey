@@ -4,14 +4,21 @@ Walks ``src/``, ``tests/``, and ``docs/`` (sources only) and asserts that none
 of the following substrings appear anywhere. Intentionally has no per-file
 exclusions — if a legitimate match shows up later, the rename surfaced it.
 
-Three rename generations are guarded: the ``prompts``-era rename; the
+Four rename generations are guarded: the ``prompts``-era rename; the
 ``scan`` -> ``bluesky`` rename that generalized the Bluesky plan/run subsystem
-(a plan is an arbitrary generator, not only a scan); and the
+(a plan is an arbitrary generator, not only a scan); the
 ``motor``/``detector`` -> ``setpoint``/``readback`` rename that put the bridge
-in the control room's vocabulary. The genuine tokens that legitimately survive
-— the ``scan``/``grid_scan`` *plan names*, their ``Scan*Params`` schemas,
-physics scan docs, and every upstream ``bluesky``/``ophyd`` name such as
-``SimMotor`` or ``EpicsMotor`` — are NOT listed here.
+in the control room's vocabulary; and that same generalization carried through
+the *prose*, which the second generation renamed the symbols for and then left
+behind. The genuine tokens that legitimately survive — the ``scan``/``grid_scan``
+*plan names*, their ``Scan*Params`` schemas, physics scan docs, the many
+unrelated senses of "scan" (a directory scan, a pattern scan, a CRT scanline),
+and every upstream ``bluesky``/``ophyd`` name such as ``SimMotor`` or
+``EpicsMotor`` — are NOT listed here.
+
+Deliberately absent: the ``scan-agentic-e2e`` CI job id. GitHub branch
+protection matches required checks on that exact name, so the job keeps it
+while the test file it runs is renamed.
 """
 
 from __future__ import annotations
@@ -66,6 +73,15 @@ LEGACY_SUBSTRINGS = (
     "format_detectors_env",
     "MockMotor",
     "MockDetector",
+    # scan -> plan in the prose: a plan is an arbitrary generator, and the
+    # earlier generation above renamed only the identifiers. Gated here are the
+    # names that generation left behind. The compound noun "scan plan" is NOT
+    # gated: `tune-scan plan` and `grid-scan plan` are genuine, so a substring
+    # gate on it would need the per-file exclusions this module refuses to have.
+    "operating-bluesky-scans",
+    "run-first-scan",
+    "test_scan_stack_agentic",
+    "scan-bridge",
 )
 
 ROOTS = ("src", "tests", "docs/source")

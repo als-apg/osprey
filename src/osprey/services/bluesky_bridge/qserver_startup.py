@@ -13,8 +13,8 @@ Three things are assembled, in this order:
 1. **Devices** — connector-mediated ``ConnectorSettable``/``ConnectorReadable``
    instances built from the substrate env (``BLUESKY_EPICS_SUBSTRATE`` +
    ``BLUESKY_EPICS_SETPOINTS``/``BLUESKY_EPICS_READBACKS``), exactly as the
-   bridge's in-process wiring built them: every scan read goes through
-   ``connector.read_channel`` and every scan write through
+   bridge's in-process wiring built them: every plan read goes through
+   ``connector.read_channel`` and every plan write through
    ``connector.write_channel_checked``. Moving execution out of the bridge
    moves the reference monitor here with it — there is no raw Channel Access
    in this process either.
@@ -30,7 +30,7 @@ Three things are assembled, in this order:
    ``zmq.Proxy`` the bridge runs, which is how the bridge's live-row buffer
    sees a run it is no longer executing itself. Both subscriptions are
    fault-isolated: a Tiled outage or a dead proxy degrades telemetry, it never
-   aborts a scan.
+   aborts a plan.
 
 **Browse-only is the failure mode.** With no substrate env — the mock
 connector case — no devices are built, no plans are registered, and the
@@ -338,7 +338,7 @@ class _FaultIsolatedCallback:
     ``__call__`` aborts the running plan. Both document-plane subscriptions
     (Tiled persistence and the 0MQ publisher) are telemetry: losing them
     degrades what an operator can see afterwards, which must never be worth
-    killing a scan that is currently moving magnets. This wrapper catches any
+    killing a plan that is currently moving magnets. This wrapper catches any
     exception, latches ``degraded``, logs once with a traceback, and
     short-circuits every later document.
     """

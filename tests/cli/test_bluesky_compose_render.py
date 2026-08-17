@@ -157,7 +157,7 @@ def test_manager_is_given_the_mandatory_existing_plans_devices_path(
     ``existing_plans_and_devices_path`` as fatal (``logger.error(...); return
     1``), so a command without this flag exits immediately and the container
     restart-loops forever, with the bridge reporting ``manager_unreachable``
-    and no scan ever running. That is exactly what shipped until the
+    and no plan ever running. That is exactly what shipped until the
     container e2e (``tests/e2e/test_bluesky_queue_e2e.py``) actually deployed
     the stack: this render suite asserted the argv we WROTE, which upstream is
     free to reject.
@@ -461,7 +461,7 @@ def test_queueserver_gets_the_config_mount_and_config_file(rendered: dict[str, A
 
 def test_limits_db_is_mounted_read_only_when_writes_are_enabled() -> None:
     """Without the DB the empty-DB failsafe blocks every write, so a
-    writes-enabled deploy that skipped this mount could not scan at all."""
+    writes-enabled deploy that skipped this mount could not run a plan at all."""
     rendered = _render(writes_enabled=True)
     assert (
         "./data/channel_limits.json:/app/project/data/channel_limits.json:ro"
