@@ -434,10 +434,10 @@ def ensure_auth_session_secrets(project_root: str | Path) -> AuthSecretsResult:
     invalidate every live session. The one exception is a present-but-empty (or
     whitespace-only) value, which is re-minted: the sidecar strips and rejects
     such a value as missing configuration and answers every request with 503,
-    so preserving it would keep the whole deployment locked out. This is the
-    deliberate opposite of ``_ensure_service_tokens``' "an explicitly empty
-    token is a decision, leave it" rule, which holds there because an empty
-    service token fails only its own service closed.
+    so preserving it would keep the whole deployment locked out. That is the
+    same judgement ``_ensure_service_tokens`` makes about the tokens it mints —
+    a machine-generated secret has no meaningful empty state, so a blank is a
+    blank rather than a decision to honour.
 
     A write failure is reported through ``missing`` rather than raised, matching
     :func:`ensure_auth_credentials` so the deploy gate owns the abort.

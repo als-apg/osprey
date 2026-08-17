@@ -768,6 +768,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     import os
 
     from osprey.build.claude_code_resolver import AGENT_DEFAULT_TIERS, load_provider_spec
+    from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 
     rows: list[tuple[str, object]] = []
     notes: list[str] = []
@@ -791,6 +792,28 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             # ``_auth_availability`` below, which already looks for the
             # credential in ``repo_root/.env``.
             spec = load_provider_spec(build_dir, env_dir=repo_root)
+        except ObservabilityCredentialError:
+            # Ahead of the broad handler on purpose, and load-bearing: resolving
+            # the provider also resolves the telemetry block, so a missing
+            # observability credential arrives here as a failure to read the
+            # provider. Reported as one, an operator goes and checks a provider
+            # that was never wrong. Behind the ``except Exception`` below this
+            # branch would never run while still reading as if it did.
+            #
+            # Names only — the exception text can carry the credential field's
+            # value, and a status report is printed to a shared terminal and
+            # pasted into tickets. The remedy is the name of the setting and
+            # the file it belongs in.
+            spec = None
+            troubles.append(
+                (
+                    "telemetry: the observability backend's credentials are missing or "
+                    "unresolved, so the provider could not be resolved",
+                    "Set claude_code.telemetry.openobserve.user and .password — or the "
+                    f"environment variables they reference — in {repo_root / '.env'}, "
+                    "then rerun. The provider configuration itself is not the problem.",
+                )
+            )
         except Exception as exc:
             spec = None
             troubles.append(

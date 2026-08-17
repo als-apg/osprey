@@ -387,6 +387,101 @@ def test_a_credential_that_is_nowhere_is_reported_missing(lifecycle_repo, runtim
     assert "not found in this shell" in text
 
 
+def _config_with_telemetry(block: str) -> str:
+    """The rendered config, plus a ``claude_code.telemetry`` block under it.
+
+    Resolving the provider also resolves telemetry, so what a broken telemetry
+    block does to the *provider* line is a property of the status report and
+    testable from the config alone — no stub in front of the resolver, which is
+    the piece whose behaviour is under test.
+    """
+    return _RENDERED_CONFIG + block
+
+
+def test_a_missing_observability_credential_is_not_blamed_on_the_provider(
+    lifecycle_repo, runtime, monkeypatch
+):
+    """The provider is fine; the observability backend has no password.
+
+    Telemetry resolves as part of the provider spec, so a missing observability
+    credential surfaces as a failure to read the provider. Reported that way, an
+    operator goes and audits a provider configuration that was never wrong.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    render_build(
+        lifecycle_repo,
+        config=_config_with_telemetry(
+            "  telemetry:\n"
+            "    enabled: true\n"
+            "    backend: openobserve\n"
+            "    openobserve:\n"
+            '      user: ""\n'
+            "      password: not-a-real-password\n"
+        ),
+    )
+
+    text = report(lifecycle_repo)
+
+    assert "telemetry" in text
+    assert "credentials are missing or unresolved" in text
+    assert "openobserve.user" in text
+    assert ".env" in text
+    # The old framing sent the operator to the wrong subsystem.
+    assert "could not be read from the build" not in text
+    # A status report is read on a shared terminal and pasted into tickets.
+    assert "not-a-real-password" not in text
+
+
+def test_an_unresolved_observability_credential_reports_names_not_the_raw_error(
+    lifecycle_repo, runtime, monkeypatch
+):
+    """The credential's own text never reaches the report.
+
+    The resolver phrases its refusal with the offending value in it, which is
+    exactly what must not be printed. The trouble line is written from the
+    setting names and the file that holds them instead.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    render_build(
+        lifecycle_repo,
+        config=_config_with_telemetry(
+            "  telemetry:\n"
+            "    enabled: true\n"
+            "    backend: openobserve\n"
+            "    openobserve:\n"
+            "      user: observability-user\n"
+            "      password: ${OSPREY_STATUS_TEST_UNSET_PASSWORD}\n"
+        ),
+    )
+
+    text = report(lifecycle_repo)
+
+    assert "credentials are missing or unresolved" in text
+    assert "OSPREY_STATUS_TEST_UNSET_PASSWORD" not in text
+    assert "refusing to encode" not in text
+
+
+def test_a_telemetry_endpoint_failure_still_reads_as_a_provider_problem(
+    lifecycle_repo, runtime, monkeypatch
+):
+    """Only the credential case is re-framed.
+
+    An enabled telemetry block with no reachable endpoint is not a secret-store
+    problem, and the credential remedy would be the wrong advice. It stays on
+    the general handler, which names the provider and quotes the resolver.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    render_build(
+        lifecycle_repo,
+        config=_config_with_telemetry("  telemetry:\n    enabled: true\n    backend: nowhere\n"),
+    )
+
+    text = report(lifecycle_repo)
+
+    assert "could not be read from the build" in text
+    assert "credentials are missing or unresolved" not in text
+
+
 def test_the_artifact_check_mirrors_the_arguments_the_build_renders_with(
     lifecycle_repo, runtime, monkeypatch
 ):

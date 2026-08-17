@@ -65,6 +65,8 @@ from osprey.deployment.service_tokens import (
     _effective_value,
     _generate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _generate_token,
+    _is_forbidden_value,
+    _raise_forbidden_var,
     _raise_invalid_var,
     _validate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _validate_var,
@@ -376,20 +378,64 @@ def _ensure_service_tokens(
     ``.env``" is about the file the caller named.
 
     For any token var (per ``_SERVICE_TOKEN_VARS``, keyed by the deployed
-    services present) unset in BOTH the process env and that ``.env``,
+    services present) unset — or present with an empty value — in BOTH the
+    process env and that ``.env``,
     generate a strong random value (``_generate_token``: ``token_urlsafe(32)``
     unless the var registers a different alphabet in ``_VAR_GENERATORS``) and
     append it to ``.env``
-    (``chmod 0o600``, matching the build-time convention). Existing values are
-    never overwritten, so re-running ``osprey up`` is idempotent. No-op unless
-    a token-requiring service is actually deployed.
+    (``chmod 0o600``, matching the build-time convention). Existing non-empty
+    values are never overwritten, so re-running ``osprey up`` is idempotent.
+    No-op unless a token-requiring service is actually deployed.
 
-    A token that is *present but explicitly empty* (e.g. ``TOKEN=`` exported in
-    the shell) is left untouched — generating would silently override a
-    deliberate value. For a loopback deploy the server simply fails closed; for
-    a deployment the build rendered as reachable off-host (a wildcard bind, or
-    the host-networked web-terminal stack) we refuse rather than bind a
-    fail-open-at-bind server to all interfaces.
+    **An empty value is not a decision here.** Osprey's general rule is that an
+    explicitly empty variable is the operator saying *leave this alone* — a
+    blank ``NO_PROXY=`` is a real setting, and a missing line is not the same
+    thing. These vars are the deliberate exception, because every name this loop
+    can reach is a machine-generated secret with no meaningful empty state. An
+    empty one does not switch a service's authentication off; it runs the
+    service with no authentication at all, and for the three store passwords it
+    hands the container back the published default its compose template
+    interpolates with ``:-``. Nothing is expressible as ``TOKEN=`` that leaving
+    the var unset does not express better, so the operator gives up nothing and
+    a deploy stops coming up unauthenticated with nobody told. The same
+    judgement is already made one function over, for the RE manager's
+    control-socket keys — see ``_is_set`` inside
+    :func:`_ensure_bluesky_qserver_zmq_keys`, which spells out that an empty
+    value is not honoured there either. This brings the token path into
+    agreement with it rather than adding a third convention.
+
+    The exception is bounded by ``required_vars``, and that bound is what makes
+    it safe: it is exactly ``_SERVICE_TOKEN_VARS`` filtered by
+    ``deployed_services`` membership (built below, from a module constant no
+    runtime path mutates), so the only names whose empty spelling is overridden
+    are the machine-minted secrets that map declares. Nothing else travelling in
+    this ``.env`` can reach the predicate — the proxy settings (``HTTP_PROXY``,
+    ``NO_PROXY``), where a blank value *is* the setting, belong to neither
+    ``_SERVICE_TOKEN_VARS`` nor ``_VALIDATE_ONLY_VARS``, and the validate-only
+    loop below never mints anything at all.
+
+    Whatever a value's origin, it is then checked at the boundary: one that
+    matches a compose template's published default is refused by name
+    (``_is_forbidden_value``), and one that fails a registered format constraint
+    is refused too. A minted value satisfies both by construction, so either
+    finding is always about a value an operator supplied.
+
+    Minting over a blank also rewrites this process's copy of it. The deploy
+    loads the project ``.env`` over its own environment before reaching here, so
+    a blank line in that file leaves a stale empty variable behind that would
+    outrank the newly appended line for compose's interpolation. The file is the
+    source of truth and the environment is its mirror, so both are updated
+    together; a name that was never in the environment stays out of it.
+
+    One empty spelling is still left alone, because minting cannot repair it: a
+    var the ``.env`` does not carry at all, exported empty in the deploying
+    shell. That export is the operator's own, it outranks any ``--env-file``
+    line a mint would write, and overwriting a shell the deploy does not own is
+    not this function's business — so writing one would report a mint that
+    changes nothing. It keeps the older treatment: on a loopback deploy the service
+    fails closed on its own; on a deployment the build rendered as reachable
+    off-host (a wildcard bind, or the host-networked web-terminal stack) we
+    refuse rather than bind a fail-open-at-bind server to all interfaces.
 
     Minting is unconditional for every var a deployed service declares: these
     tokens authenticate *network callers* to a service's own HTTP boundary and
@@ -491,9 +537,23 @@ def _ensure_service_tokens(
         generated: dict[str, str] = {}
         for name in required_vars:
             # Process env wins over .env (matches docker compose --env-file).
-            present = name in os.environ or name in existing
+            # "Present" means present with a NON-EMPTY value: for these vars an
+            # empty spelling is a blank, not a decision (see the docstring).
+            #
+            # The second clause is not the presence rule — it is the one empty
+            # spelling a mint cannot repair. A name absent from the `.env` but
+            # exported empty in the deploying shell came from the shell alone,
+            # and that export outranks the `--env-file` line this would append
+            # for compose's interpolation, so minting would report a token no
+            # container ever receives. Left alone, and caught below instead.
+            # (A name the `.env` *does* carry is a different case: the deploy
+            # has already loaded that file over this process's environment, so
+            # the empty copy sitting in `os.environ` is the file's own value
+            # mirrored, not a second opinion — see the write-back below.)
+            exported_only = name in os.environ and name not in existing
+            present = bool(_effective_value(name, existing).strip()) or exported_only
             if present:
-                continue  # keep the user's value (even an empty one — see docstring)
+                continue  # keep the operator's value
             generated[name] = _generate_token(name)
 
         if generated:
@@ -502,6 +562,18 @@ def _ensure_service_tokens(
                 "Auto-generated service auth tokens (osprey deploy up)",
                 generated,
             )
+            # Only the names minted OVER an empty `.env` entry are in the
+            # environment already: the deploy loads the project `.env` over this
+            # process before it gets here, so the blank line just replaced left a
+            # stale empty copy behind. That copy would outrank the file for
+            # compose's interpolation and for the validation below — a token
+            # minted, reported, and then not delivered. Replace it, so the file
+            # and its in-process mirror say the same thing. Names absent from
+            # the environment stay absent; they reach the containers through
+            # `--env-file` as they always have.
+            for name, value in generated.items():
+                if name in os.environ:
+                    os.environ[name] = value
             # Report the count inline and the key names in the ledger — NEVER
             # the values.
             _report_fact(
@@ -533,11 +605,29 @@ def _ensure_service_tokens(
     post = parse_dotenv_file(env_path) if env_path.is_file() else {}
     for name in required_vars:
         effective = _effective_value(name, post)
+        # Still reachable, and now for exactly one shape. A blank carried by the
+        # `.env` was minted over above, so an empty effective value at this
+        # point means the var is exported empty in a shell whose `.env` never
+        # mentions it — the one spelling the mint deliberately leaves alone. The
+        # remedy therefore names the environment, not `.env`: adding a line to
+        # the file would not change what compose resolves while that export
+        # stands.
         if expose_network and not effective.strip():
             raise RuntimeError(
                 f"{name} is empty; refusing to start a deployment that is reachable "
-                f"off-host with an empty token. Set {name} in .env to a strong secret."
+                f"off-host with an empty token. Unset {name} in the environment and let "
+                f"`osprey up` mint one, or export a strong secret."
             )
+        # Ahead of the format check so the more specific diagnosis wins. A
+        # registered forbidden value is well-formed by construction — that is
+        # exactly why no validator can catch it — but a var could later register
+        # one that is not, and "your password is public" is the finding an
+        # operator needs first either way. Narrow by construction: a var reaches
+        # here holding either a value minted moments ago or one an operator
+        # supplied, so a match means the operator pinned the template's published
+        # default as their real password.
+        if effective and _is_forbidden_value(name, effective):
+            _raise_forbidden_var(name)
         if effective and not _validate_var(name, effective):
             _raise_invalid_var(name, effective)
 
@@ -558,8 +648,9 @@ def _ensure_service_tokens(
 def _volume_initialized_vars_that_would_be_minted(config: dict, env_path: Path) -> set[str]:
     """Which store credentials a mint on this config *would* generate.
 
-    The same rule ``_ensure_service_tokens`` mints by — absent from both the
-    process env and the ``.env`` — evaluated without writing anything. It exists
+    The same rule ``_ensure_service_tokens`` mints by — no non-empty value in
+    either the process env or the ``.env``, and not left alone as an export the
+    mint cannot reach — evaluated without writing anything. It exists
     for ``restart``, which has to run the stale-volume check BEFORE its ``down``:
     the ``down`` removes the store containers, and with them the only host-side
     copy of the credential each surviving volume was initialized with. Asking
@@ -569,10 +660,19 @@ def _volume_initialized_vars_that_would_be_minted(config: dict, env_path: Path) 
 
     services = {str(s) for s in (config.get("deployed_services") or [])}
     on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}
+
+    def _would_mint(var: str) -> bool:
+        # Kept in step with the predicate in _ensure_service_tokens: a blank
+        # entry in the .env is minted over, so predicting "not minted" for one
+        # would let restart skip the very store whose credential is about to
+        # change. The export carve-out is mirrored for the same reason.
+        exported_only = var in os.environ and var not in on_disk
+        return not exported_only and not _effective_value(var, on_disk).strip()
+
     return {
         var
         for var, store in _VOLUME_INITIALIZED_VARS.items()
-        if store.service in services and var not in os.environ and var not in on_disk
+        if store.service in services and _would_mint(var)
     }
 
 

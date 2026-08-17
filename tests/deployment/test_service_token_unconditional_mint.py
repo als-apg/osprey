@@ -28,6 +28,7 @@ sections say — including when they are absent entirely.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 
 import pytest
@@ -356,17 +357,23 @@ def test_existing_env_value_is_never_overwritten(
     assert env.get("BLUESKY_TILED_API_KEY")
 
 
-def test_explicitly_empty_value_is_left_empty_not_minted(
+def test_an_explicitly_empty_dotenv_value_is_minted_over(
     captured_argv, _clean_token_env, monkeypatch, tmp_path
 ):
-    """``TOKEN=`` is a deliberate value: the operator is choosing a fail-closed bridge.
+    """``TOKEN=`` in ``.env`` is a blank, not a decision — the mint fills it.
 
-    Minting over it would override that choice. On a loopback deploy the
-    service simply fails closed on its own; only a deployment the build
-    rendered as reachable off-host refuses (covered in
-    ``test_bluesky_token_mint.py``).
+    This replaces the opposite expectation. A minted service token has no
+    meaningful empty state: an empty ``BLUESKY_LAUNCH_TOKEN`` does not choose a
+    fail-closed bridge, it starts one with no authentication and says nothing
+    about it, on the default loopback deploy where no other guard is watching.
+    The narrow carve-out — an empty value exported in a shell whose ``.env``
+    never mentions the var — is pinned separately below.
     """
     (tmp_path / ".env").write_text("BLUESKY_LAUNCH_TOKEN=\n", encoding="utf-8")
+    # The deploy loads that .env over the process environment before it mints,
+    # so this is the state the predicate actually sees. Set it through
+    # monkeypatch so the minted value does not outlive the test.
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "")
     config = _config(
         control_system={"writes_enabled": True},
         execution={"execution_method": "local"},
@@ -376,5 +383,40 @@ def test_explicitly_empty_value_is_left_empty_not_minted(
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
     env = _parse_env(tmp_path)
-    assert env["BLUESKY_LAUNCH_TOKEN"] == ""
+    minted = env["BLUESKY_LAUNCH_TOKEN"]
+    assert minted, "an empty launch token was left empty on a loopback deploy"
+    assert env.get("BLUESKY_TILED_API_KEY")
+    assert minted != env["BLUESKY_TILED_API_KEY"]
+    # The appended line is what the deploy resolves: parse order is last-wins,
+    # the same rule compose applies to a repeated key in an --env-file.
+    assert (tmp_path / ".env").read_text().index(f"BLUESKY_LAUNCH_TOKEN={minted}") > 0
+    # And the stale empty copy the .env load left in this process is replaced,
+    # so compose resolves the minted value rather than being shadowed by it.
+    assert os.environ["BLUESKY_LAUNCH_TOKEN"] == minted
+
+
+def test_an_exported_empty_value_is_left_alone_because_a_mint_cannot_reach_it(
+    captured_argv, _clean_token_env, monkeypatch, tmp_path
+):
+    """The bound on the exception above: an export the ``.env`` cannot outrank.
+
+    The ``.env`` here does not carry the var at all, so the empty value is the
+    shell's own rather than that file's mirrored back. An export wins over
+    ``--env-file`` for compose's interpolation, so a mint appended to ``.env``
+    would be a token reported and never delivered. Nothing is written, and a
+    deployment the build rendered as reachable off-host refuses instead (covered
+    in ``test_bluesky_token_mint.py``).
+    """
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "")
+    config = _config(
+        control_system={"writes_enabled": True},
+        execution={"execution_method": "local"},
+    )
+    _patch_prepare_compose_files(monkeypatch, config)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    env = _parse_env(tmp_path)
+    assert "BLUESKY_LAUNCH_TOKEN" not in env
+    # The var beside it still mints — the carve-out is per var, not per deploy.
     assert env.get("BLUESKY_TILED_API_KEY")
