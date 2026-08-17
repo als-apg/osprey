@@ -2695,3 +2695,220 @@ def test_the_auth_grace_sits_between_the_healthcheck_and_the_reachability_budget
         f"reachability budget ({container_lifecycle._ARCHIVER_HEALTH_TIMEOUT_S}s), or a stale "
         "volume burns the whole budget before saying so"
     )
+
+
+# ---------------------------------------------------------------------------
+# The shared half of the env chain, at the deploy path's other two read sites
+# ---------------------------------------------------------------------------
+# The deployment's environment is a two-file chain at the repo root —
+# ``.env.shared`` (committed defaults) below ``.env`` (host-local secrets).
+# Neither of the two provisioners below opens the first of those files: both
+# call ``parse_dotenv_file(env_path)``, which names the LOCAL one, and read
+# ``os.environ`` for everything else. So a value living only in the shared half
+# reaches them by one indirect route — the CLI entry point loads the whole chain
+# over ``os.environ`` before any deploy code runs.
+#
+# Each site gets both cells: the value in the shared file alone, and the same
+# value once that entry-point load has happened. The pair is the measurement.
+# What it records is pinned as observed, including where the observation is that
+# the shared half is not seen at all.
+
+#: Obviously-fake stand-ins throughout this section. None is a credential.
+SHARED_HALF_CREDENTIAL = "shared-half-fixture-credential"
+VOLUME_BORN_WITH = "the-credential-the-volume-was-born-with"
+CHAIN_PROJECT = "demo-deployment"
+
+
+def _write_shared_half(repo: Path, text: str) -> Path:
+    """Lay down the chain's committed-defaults file beside the local one."""
+    from osprey.utils.dotenv import ENV_SHARED_FILENAME
+
+    path = repo / ENV_SHARED_FILENAME
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _load_the_entry_point_chain(monkeypatch, repo: Path) -> None:
+    """Run the load ``osprey <verb>`` performs before it reaches any deploy code.
+
+    ``osprey.cli.main`` calls this first thing, cwd-rooted, with override
+    semantics, so by the time a provisioner runs ``os.environ`` carries the
+    merged chain. Reproduced verbatim rather than simulated with ``setenv``,
+    because what is being measured IS that this step is what makes the shared
+    half visible downstream.
+    """
+    import osprey.utils.config as config
+
+    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.chdir(repo)
+    config.load_project_dotenv()
+
+
+class _StoreRuntime:
+    """Answers the two argv shapes the stale-volume preflight builds.
+
+    Argv-shaped rather than a mock of the probe: the subject is which questions
+    the deploy asks the runtime, so a stand-in that accepted anything would pass
+    while the real command was wrong.
+    """
+
+    def __init__(self, volumes: list[str], container_env: dict[str, dict[str, str]]):
+        self.volumes = volumes
+        self.container_env = container_env
+
+    def __call__(self, cmd, **kwargs):
+        argv = list(cmd)[1:]  # drop the runtime binary
+        if argv[:2] == ["volume", "ls"]:
+            return subprocess.CompletedProcess(list(cmd), 0, stdout="\n".join(self.volumes))
+        if argv[:2] == ["container", "inspect"]:
+            env = self.container_env.get(argv[2])
+            if env is None:
+                return subprocess.CompletedProcess(list(cmd), 1, stdout="")
+            lines = "\n".join(f"{k}={v}" for k, v in env.items())
+            return subprocess.CompletedProcess(list(cmd), 0, stdout=lines)
+        return subprocess.CompletedProcess(list(cmd), 0, stdout="")
+
+
+@pytest.fixture
+def store_preflight(monkeypatch, tmp_path):
+    """One store, one surviving volume whose container holds a different value.
+
+    The mismatch is the setup, not the assertion: whether the preflight *sees*
+    it is what each test below records.
+    """
+    monkeypatch.delenv("MONGO_ROOT_PASSWORD", raising=False)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        _StoreRuntime(
+            volumes=[f"{CHAIN_PROJECT}_archiver_mongodb_data"],
+            container_env={
+                f"{CHAIN_PROJECT}-archiver-mongodb": {
+                    "MONGO_INITDB_ROOT_PASSWORD": VOLUME_BORN_WITH
+                }
+            },
+        ),
+    )
+
+    def _run(repo: Path):
+        config = {"deployed_services": ["mongodb"], "project_name": CHAIN_PROJECT}
+        container_lifecycle._preflight_stale_store_volumes(config, set(), repo / ".env")
+
+    return _run
+
+
+def test_a_shared_only_store_credential_that_the_volume_rejects_is_not_caught(
+    store_preflight, tmp_path
+):
+    """The preflight's disagreement rule cannot see a shared-half credential.
+
+    ``.env.shared`` names a credential the surviving volume was never
+    initialized with, which is exactly the state this check exists to refuse.
+    It does not refuse it: the effective value it computes is empty (it parsed
+    the local ``.env``, which does not exist), and an empty value never
+    disagrees with anything. The deploy proceeds and the store's own
+    authentication failure arrives minutes later instead.
+
+    Pinned as it behaves. A change that makes this raise is a change in which
+    file the preflight reads — the signal, not a break.
+    """
+    _write_shared_half(tmp_path, f"MONGO_ROOT_PASSWORD={SHARED_HALF_CREDENTIAL}\n")
+
+    store_preflight(tmp_path)  # no refusal
+
+
+def test_the_same_shared_only_credential_is_refused_after_the_entry_point_chain_load(
+    store_preflight, monkeypatch, tmp_path
+):
+    """The route by which the shared half reaches the preflight at all.
+
+    Same files, same runtime answers, with the one step a real ``osprey up``
+    takes first. The chain load puts the shared value in ``os.environ``, the
+    effective value stops being empty, and the disagreement with the container
+    is found before anything starts.
+    """
+    _write_shared_half(tmp_path, f"MONGO_ROOT_PASSWORD={SHARED_HALF_CREDENTIAL}\n")
+
+    _load_the_entry_point_chain(monkeypatch, tmp_path)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        store_preflight(tmp_path)
+    message = str(excinfo.value)
+    assert "archiver_mongodb_data" in message
+    # The report names the store and the file, never either credential.
+    assert SHARED_HALF_CREDENTIAL not in message
+    assert VOLUME_BORN_WITH not in message
+
+
+#: A minimal machine whose channel names yield one corrector pair and one BPM —
+#: the least the substrate derivation accepts.
+_SUBSTRATE_LIMITS = {
+    "SR:MAG:HCM:01:CURRENT:SP": {"min": -10, "max": 10},
+    "SR:MAG:HCM:01:CURRENT:RB": {"min": -10, "max": 10},
+    "SR:DIAG:BPM:01:POSITION:X": {"min": -5, "max": 5},
+    "SR:DIAG:BPM:01:POSITION:Y": {"min": -5, "max": 5},
+}
+
+_SUBSTRATE_CONFIG = {
+    "deployed_services": ["bluesky", "virtual_accelerator"],
+    "control_system": {"type": "virtual_accelerator"},
+}
+
+
+@pytest.fixture
+def substrate_project(monkeypatch, tmp_path):
+    """A built project the substrate derivation can read devices out of."""
+    for var in ("BLUESKY_EPICS_SUBSTRATE", "BLUESKY_EPICS_MOTORS", "BLUESKY_EPICS_DETECTORS"):
+        monkeypatch.delenv(var, raising=False)
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "channel_limits.json").write_text(
+        json.dumps(_SUBSTRATE_LIMITS), encoding="utf-8"
+    )
+    return tmp_path / ".env"
+
+
+def _dotenv(path: Path) -> dict:
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    return parse_dotenv_file(path) if path.is_file() else {}
+
+
+def test_a_substrate_var_only_the_shared_half_sets_is_derived_over(substrate_project, tmp_path):
+    """The "already set is left untouched" promise is scoped to the local file.
+
+    The docstring's promise is "in the process env or an existing ``.env``",
+    and that is literally what the code checks — so a device list an operator
+    committed to ``.env.shared`` is not seen, a derived one is appended to
+    ``.env``, and the appended line outranks the committed one in the chain.
+    The operator's setting is still in the file they put it in, and no longer
+    the value the bridge resolves.
+    """
+    _write_shared_half(tmp_path, "BLUESKY_EPICS_MOTORS=shared-half-device-list\n")
+
+    container_lifecycle._ensure_bluesky_substrate_env(_SUBSTRATE_CONFIG, env_path=substrate_project)
+
+    local = _dotenv(substrate_project)
+    assert local["BLUESKY_EPICS_MOTORS"], "the shared-only value did not reach the predicate"
+    assert local["BLUESKY_EPICS_MOTORS"] != "shared-half-device-list"
+
+
+def test_the_same_substrate_var_is_left_alone_after_the_entry_point_chain_load(
+    substrate_project, monkeypatch, tmp_path
+):
+    """The route again: the process-env mirror is what preserves the setting.
+
+    With the chain loaded, the committed device list is in ``os.environ``, the
+    ``k not in os.environ`` guard holds, and only the keys the operator did not
+    set are appended.
+    """
+    _write_shared_half(tmp_path, "BLUESKY_EPICS_MOTORS=shared-half-device-list\n")
+
+    _load_the_entry_point_chain(monkeypatch, tmp_path)
+    container_lifecycle._ensure_bluesky_substrate_env(_SUBSTRATE_CONFIG, env_path=substrate_project)
+
+    local = _dotenv(substrate_project)
+    assert "BLUESKY_EPICS_MOTORS" not in local
+    assert local.get("BLUESKY_EPICS_DETECTORS")
