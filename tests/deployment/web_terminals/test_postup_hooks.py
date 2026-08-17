@@ -216,8 +216,11 @@ def test_web_stack_unreachable_warns_with_docker_desktop_hint(monkeypatch, caplo
         raise OSError("connection refused")
 
     monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refuse)
-    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
-    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
+    # None is "the setting could not be read", which is what keeps the bounce and
+    # the hedged wording. Stubbed rather than left alone so these tests do not
+    # read the Docker Desktop settings of whatever machine runs them.
+    monkeypatch.setattr(postup_hooks, "host_networking_enabled", lambda: None)
 
     with caplog.at_level("WARNING"):
         postup_hooks.warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
@@ -231,8 +234,7 @@ def test_web_stack_unreachable_on_linux_warns_without_desktop_hint(monkeypatch, 
         raise OSError("connection refused")
 
     monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refuse)
-    monkeypatch.setattr(postup_hooks.sys, "platform", "linux")
-    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: False)
 
     with caplog.at_level("WARNING"):
         postup_hooks.warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
@@ -279,8 +281,11 @@ def test_docker_desktop_unreachable_self_heals_via_restart(monkeypatch, caplog):
     """A stale forwarder registration is repaired by a restart, with no warning."""
     probes: list[int] = []
     monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(2, probes))
-    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
-    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
+    # None is "the setting could not be read", which is what keeps the bounce and
+    # the hedged wording. Stubbed rather than left alone so these tests do not
+    # read the Docker Desktop settings of whatever machine runs them.
+    monkeypatch.setattr(postup_hooks, "host_networking_enabled", lambda: None)
 
     ran: list[list[str]] = []
     # The self-heal restart is a captured run: patching the helper (rather than
@@ -310,8 +315,11 @@ def test_docker_desktop_warns_only_after_restart_fails_to_help(monkeypatch, capl
     """When the bounce does not help, the setting really is the likely cause."""
     probes: list[int] = []
     monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(999, probes))
-    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
-    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
+    # None is "the setting could not be read", which is what keeps the bounce and
+    # the hedged wording. Stubbed rather than left alone so these tests do not
+    # read the Docker Desktop settings of whatever machine runs them.
+    monkeypatch.setattr(postup_hooks, "host_networking_enabled", lambda: None)
 
     ran: list[list[str]] = []
     # The self-heal restart is a captured run: patching the helper (rather than
@@ -336,8 +344,7 @@ def test_docker_desktop_warns_only_after_restart_fails_to_help(monkeypatch, capl
 def test_self_heal_never_fires_on_linux(monkeypatch, caplog):
     """Linux host networking is real -- an unreachable port means something else."""
     monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(999, []))
-    monkeypatch.setattr(postup_hooks.sys, "platform", "linux")
-    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: False)
 
     ran: list[list[str]] = []
     # The self-heal restart is a captured run: patching the helper (rather than
@@ -361,8 +368,11 @@ def test_self_heal_never_fires_on_linux(monkeypatch, caplog):
 def test_self_heal_skipped_when_caller_supplies_no_compose_cmd(monkeypatch, caplog):
     """Lifecycle callers that never had a web_cmd keep the old warn-only behaviour."""
     monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refusing_urlopen(999, []))
-    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
-    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
+    # None is "the setting could not be read", which is what keeps the bounce and
+    # the hedged wording. Stubbed rather than left alone so these tests do not
+    # read the Docker Desktop settings of whatever machine runs them.
+    monkeypatch.setattr(postup_hooks, "host_networking_enabled", lambda: None)
 
     ran: list[list[str]] = []
     # The self-heal restart is a captured run: patching the helper (rather than
