@@ -18,7 +18,9 @@ API, the service, and the agent's MCP tool:
   re-upsert that links uploaded attachments onto an existing row.
 * ``services/ariel_search/service.py`` ``create_entry`` — the optimistic local
   upsert after a facility write, and the re-ingestion upsert that follows it for
-  a non-local adapter.
+  a non-local adapter. This one no longer *needs* the resync: it mirrors its own
+  write inline, best-effort, and its tests prove that instead — the resync stays
+  its backstop for the failure paths.
 * ``mcp_server/ariel/tools/entry.py`` ``entry_create`` in direct mode — the
   agent's own write, plus its attachment re-upsert.
 
@@ -402,8 +404,13 @@ class TestMcpEntryCreatePath:
 class TestEntryCreateUpsertPaths:
     """``service.create_entry`` — the optimistic upsert and the re-ingest upsert."""
 
-    async def test_optimistic_local_upsert_is_re_exported(self, lane, monkeypatch):
-        """The upsert that follows a facility write bypasses the enhancers."""
+    async def test_optimistic_local_upsert_is_mirrored_inline(self, lane, monkeypatch):
+        """``create_entry`` mirrors its optimistic upsert at creation time.
+
+        The enhancement pipeline never sees this write, so the inline export is
+        what makes an operator- or agent-created entry hybrid-searchable within
+        one sidecar poll. A resync straight afterwards finds nothing left to do.
+        """
         service = _service_with_adapter(
             lane, _WriteAdapter("Generic JSON", refetch=None), monkeypatch
         )
@@ -412,18 +419,18 @@ class TestEntryCreateUpsertPaths:
             _facility_request("Beam dump", "Interlock chain opened at 03:12.")
         )
 
-        assert lane.mirrored_ids() == set()
+        assert lane.mirrored_ids() == {result.entry_id}
         resync = await lane.resync()
 
-        assert resync.written == 1
-        assert result.entry_id in lane.mirrored_ids()
+        assert resync.written == 0
 
-    async def test_reingestion_upsert_is_re_exported(self, lane, monkeypatch):
+    async def test_reingestion_upsert_is_what_gets_mirrored(self, lane, monkeypatch):
         """A non-local adapter re-ingests, overwriting the optimistic row.
 
-        The mirror must carry the *re-ingested* text, not the optimistic one —
-        this is the second upsert, and a resync that only saw the first would
-        publish text the facility logbook has already superseded.
+        The inline mirror write runs after the re-ingestion, so the mirror must
+        carry the *re-ingested* text, not the optimistic one — publishing the
+        optimistic text would put words in the mirror that the facility logbook
+        has already superseded.
         """
         refetched = "Canonical text as the facility logbook stored it."
         service = _service_with_adapter(
@@ -436,9 +443,6 @@ class TestEntryCreateUpsertPaths:
 
         stored = await lane.repository.get_entry(result.entry_id)
         assert stored["raw_text"] == refetched, "the re-ingestion upsert did not run"
-        assert lane.mirrored_ids() == set()
-
-        await lane.resync()
 
         row = await lane.repository.get_entry(result.entry_id)
         assert refetched in lane.mirror_file(row).read_text(encoding="utf-8")

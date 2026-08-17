@@ -218,3 +218,117 @@ async def test_create_entry_reingestion_failure_is_warned_not_raised(caplog):
 
     # Only the optimistic upsert landed; the sync upsert never ran.
     mock_repository.upsert_entry.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_create_entry_mirrors_inline_when_qmd_export_enabled(tmp_path):
+    """An enabled qmd_export mirrors the new entry at creation time.
+
+    The optimistic upsert alone would leave the entry invisible to hybrid
+    search until the next batch enhancement run; the inline mirror write is
+    what makes an agent-created entry searchable within one sidecar poll.
+    """
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.enhancement.qmd_export import TOUCH_MARKER_NAME
+    from osprey.services.ariel_search.service import ARIELSearchService
+
+    mirror = tmp_path / "mirror"
+    config = ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://test"},
+            "ingestion": {"adapter": "generic_json", "source_url": "/tmp/test.json"},
+            "enhancement_modules": {
+                "qmd_export": {"enabled": True, "settings": {"mirror_path": str(mirror)}},
+            },
+        }
+    )
+    service = ARIELSearchService(config=config, pool=MagicMock(), repository=AsyncMock())
+
+    mock_adapter = AsyncMock()
+    mock_adapter.supports_write = True
+    mock_adapter.source_system_name = "Generic JSON"
+    mock_adapter.create_entry = AsyncMock(return_value="inline-mirror-001")
+
+    request = FacilityEntryCreateRequest(subject="Inline mirror", details="Body", author="tester")
+
+    with patch(
+        "osprey.services.ariel_search.ingestion.get_adapter",
+        return_value=mock_adapter,
+    ):
+        result = await service.create_entry(request)
+
+    assert result.entry_id == "inline-mirror-001"
+    written = list(mirror.rglob("*.md"))
+    assert len(written) == 1
+    assert "inline-mirror-001" in written[0].read_text()
+    assert (mirror / TOUCH_MARKER_NAME).is_file()
+
+
+@pytest.mark.asyncio
+async def test_create_entry_mirror_failure_is_warned_not_raised(tmp_path, caplog):
+    """A broken mirror config logs a warning and never fails the create.
+
+    The entry is already durable in Postgres when the mirror write runs, so a
+    misconfigured exporter (enabled, but no mirror_path) must degrade to a
+    warning — the batch resync remains the backstop.
+    """
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.service import ARIELSearchService
+
+    config = ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://test"},
+            "ingestion": {"adapter": "generic_json", "source_url": "/tmp/test.json"},
+            "enhancement_modules": {"qmd_export": {"enabled": True}},
+        }
+    )
+    service = ARIELSearchService(config=config, pool=MagicMock(), repository=AsyncMock())
+
+    mock_adapter = AsyncMock()
+    mock_adapter.supports_write = True
+    mock_adapter.source_system_name = "Generic JSON"
+    mock_adapter.create_entry = AsyncMock(return_value="inline-mirror-002")
+
+    request = FacilityEntryCreateRequest(subject="Broken mirror", details="Body")
+
+    with caplog.at_level(logging.WARNING, logger="ariel"):
+        with patch(
+            "osprey.services.ariel_search.ingestion.get_adapter",
+            return_value=mock_adapter,
+        ):
+            result = await service.create_entry(request)
+
+    assert result.entry_id == "inline-mirror-002"
+    assert "could not mirror entry 'inline-mirror-002' inline" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_create_entry_skips_mirror_when_qmd_export_disabled(tmp_path):
+    """With qmd_export disabled the create writes no mirror files at all."""
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.service import ARIELSearchService
+
+    mirror = tmp_path / "mirror"
+    config = ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://test"},
+            "ingestion": {"adapter": "generic_json", "source_url": "/tmp/test.json"},
+            "enhancement_modules": {
+                "qmd_export": {"enabled": False, "settings": {"mirror_path": str(mirror)}},
+            },
+        }
+    )
+    service = ARIELSearchService(config=config, pool=MagicMock(), repository=AsyncMock())
+
+    mock_adapter = AsyncMock()
+    mock_adapter.supports_write = True
+    mock_adapter.source_system_name = "Generic JSON"
+    mock_adapter.create_entry = AsyncMock(return_value="inline-mirror-003")
+
+    with patch(
+        "osprey.services.ariel_search.ingestion.get_adapter",
+        return_value=mock_adapter,
+    ):
+        await service.create_entry(FacilityEntryCreateRequest(subject="No mirror", details="x"))
+
+    assert not mirror.exists()

@@ -122,7 +122,7 @@ def qmd_ariel_config_dict(database_url: str, mirror_root: Path | str) -> dict[st
             # costs ~4x per query (measured: 0.85 s -> 4.19 s on a two-document
             # corpus) and nothing asserted here is about rank quality. Passed
             # explicitly so the assertions document the mode they ran in.
-            "qmd": {"enabled": True, "settings": {"rerank": False, "candidate_limit": 40}},
+            "hybrid": {"enabled": True, "settings": {"rerank": False, "candidate_limit": 40}},
         },
         "enhancement_modules": {
             "text_embedding": {"enabled": False},

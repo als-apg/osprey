@@ -105,26 +105,19 @@ keys:
   services.postgresql.database_name: {evidence: 'database_name'}
   services.postgresql.username: {covered-by: services.postgresql}
   services.postgresql.port_host: {evidence: 'port_host'}
-  # The qmd semantic-search sidecar. `rendered: false` on all four: the schema,
-  # its defaults and its readers exist (deployment/qmd_service.py), but no
-  # shipped template carries a `services.qmd` stanza yet — the block that
-  # documents it is a separate task's file. Dispositioned ahead of that stanza
-  # so the keys cannot land unmapped, and so the reader is pinned meanwhile:
-  # every regex below anchors on qmd_service.py and matches exactly one file,
-  # so deleting the resolver fails the guard rather than rotting quietly. When
-  # the template stanza lands COMMENTED (the facility.prefix precedent) these
-  # entries need no change; if it lands LIVE, drop `rendered: false`.
+  # The qmd semantic-search sidecar, shipped LIVE in the ariel-standalone and
+  # control-assistant templates (it backs the default-on `hybrid` search mode
+  # and ranked OKF search). Every regex below anchors on qmd_service.py and
+  # matches exactly one file, so deleting the resolver fails the guard rather
+  # than rotting quietly.
   services.qmd:
-    rendered: false
     evidence: 'services\.get\("qmd"\)'
   services.qmd.path:
-    rendered: false
     evidence: 'service_config\["path"\]'
     note: >-
       Same generic compose-generator read as the openobserve/postgresql `path`
       keys — it resolves any service's fragment directory, qmd included.
   services.qmd.port:
-    rendered: false
     evidence: '_positive_int\(block\.get\("port"\)'
     note: >-
       Defaults to 8180, deliberately NOT qmd's own 8181: the daemon hardcodes
@@ -132,7 +125,6 @@ keys:
       owns the routable port. `deployment/host_ports.py` cites this key from
       the same module, so the port-conflict remedy cannot drift from it.
   services.qmd.interval:
-    rendered: false
     evidence: 'block\.get\("interval"\)'
     note: >-
       Fallback corpus-sweep period, not the freshness lag — `.qmd-touch` is the
@@ -409,7 +401,8 @@ keys:
   ariel.search_modules.semantic.enabled: {covered-by: ariel.search_modules.semantic}
   ariel.search_modules.semantic.provider: {covered-by: ariel.search_modules.semantic}
   ariel.search_modules.semantic.model: {covered-by: ariel.search_modules.semantic}
-  # The qmd sidecar search mode. Unlike its keyword/semantic siblings the knobs
+  # The hybrid search mode, answered by the qmd sidecar. Unlike its
+  # keyword/semantic siblings the knobs
   # get their OWN evidence rather than a covered-by chain, because the loader
   # they pass through is the one place this block can silently evaporate:
   # SearchModuleConfig.from_dict keeps `enabled`, `provider`, `model` and
@@ -418,12 +411,12 @@ keys:
   # sibling of `enabled` is therefore inert forever — no error, just defaults —
   # so each regex below anchors on the reader that proves the nested spelling
   # is the one being read.
-  ariel.search_modules.qmd:
-    evidence: 'config\.search_modules\.get\("qmd"\)'
-  ariel.search_modules.qmd.enabled: {covered-by: ariel.search_modules.qmd}
-  ariel.search_modules.qmd.settings:
-    evidence: '_SETTINGS_PREFIX = "search_modules\.qmd\.settings"'
-  ariel.search_modules.qmd.settings.rerank:
+  ariel.search_modules.hybrid:
+    evidence: 'config\.search_modules\.get\("hybrid"\)'
+  ariel.search_modules.hybrid.enabled: {covered-by: ariel.search_modules.hybrid}
+  ariel.search_modules.hybrid.settings:
+    evidence: '_SETTINGS_PREFIX = "search_modules\.hybrid\.settings"'
+  ariel.search_modules.hybrid.settings.rerank:
     evidence: '_SETTINGS_PREFIX\}\.rerank must be a boolean'
     note: >-
       Shipped as `true`, matching DEFAULT_RERANK and qmd's own default. The
@@ -433,7 +426,7 @@ keys:
       way. The evidence anchors on the type refusal rather than the read: a
       present-but-malformed knob is rejected, never defaulted, because
       defaulting it would strand a deployment on the path it asked to leave.
-  ariel.search_modules.qmd.settings.candidate_limit:
+  ariel.search_modules.hybrid.settings.candidate_limit:
     evidence: '_SETTINGS_PREFIX\}\.candidate_limit must be a positive integer'
     note: >-
       Shipped as `40`, matching DEFAULT_CANDIDATE_LIMIT and qmd's own
@@ -456,7 +449,7 @@ keys:
   ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding}
   ariel.enhancement_modules.text_embedding.models: {covered-by: ariel.enhancement_modules.text_embedding}
   # The markdown mirror the qmd sidecar indexes — one file per logbook entry,
-  # written during ingestion. Paired with `ariel.search_modules.qmd` above: the
+  # written during ingestion. Paired with `ariel.search_modules.hybrid` above: the
   # export without the search mode indexes a corpus nobody queries, and the
   # search mode without the export queries a corpus nobody wrote.
   ariel.enhancement_modules.qmd_export:
@@ -797,7 +790,7 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 269
+  expected_union_size: 273
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on

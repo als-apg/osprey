@@ -1,4 +1,4 @@
-"""MCP tool: qmd_search — hybrid ranked search of the ARIEL logbook.
+"""MCP tool: hybrid_search — hybrid ranked search of the ARIEL logbook.
 
 PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code.
   Facility-customizable: guidance on when to prefer this over keyword_search
@@ -18,14 +18,14 @@ from osprey.mcp_server.ariel.server import (
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.services.ariel_search.exceptions import ConfigurationError
 
-logger = logging.getLogger("osprey.mcp_server.ariel.tools.qmd_search")
+logger = logging.getLogger("osprey.mcp_server.ariel.tools.hybrid_search")
 
 # Diagnostic source the search service stamps on a failure of this mode.
-_QMD_DIAGNOSTIC_SOURCE = "service.qmd"
+_QMD_DIAGNOSTIC_SOURCE = "service.hybrid"
 
 
 @mcp.tool()
-async def qmd_search(
+async def hybrid_search(
     query: str,
     max_results: int = 10,
     start_date: str | None = None,
@@ -91,14 +91,14 @@ async def qmd_search(
             query,
             max_results=fetch_count,
             time_range=time_range,
-            mode="qmd",
+            mode="hybrid",
             advanced_params=adv,
         )
 
         fault = _sidecar_fault(result)
         if fault is not None:
             return make_error(
-                "service_unavailable", f"ARIEL qmd search is unavailable: {fault}", _hints()
+                "service_unavailable", f"ARIEL hybrid search is unavailable: {fault}", _hints()
             )
 
         entries = [e for e in result.entries if e["entry_id"] not in exclude_ids]
@@ -108,7 +108,7 @@ async def qmd_search(
 
         response = {
             "query": query,
-            "mode": "qmd",
+            "mode": "hybrid",
             "results_found": len(entries_out),
             "reasoning": result.reasoning,
             "sources": list(result.sources),
@@ -122,23 +122,23 @@ async def qmd_search(
     except ConfigurationError as exc:
         # Two different operator states reach this handler and they need
         # different advice. The service raises with config_key
-        # "search_modules.qmd.enabled" when the mode is registered but switched
+        # "search_modules.hybrid.enabled" when the mode is registered but switched
         # off, and with "modes" when the mode is not registered at all -- the
         # module never imported. Telling the second case to set the enable key
         # sends the operator to a key that is very likely already set.
         return make_error(
             "service_unavailable",
-            f"ARIEL qmd search is unavailable: {exc}",
+            f"ARIEL hybrid search is unavailable: {exc}",
             [
                 *_configuration_hints(getattr(exc, "config_key", "")),
                 "Use keyword_search or semantic_search meanwhile.",
             ],
         )
     except Exception as exc:
-        logger.exception("qmd_search failed")
+        logger.exception("hybrid_search failed")
         return make_error(
             "internal_error",
-            f"ARIEL qmd search failed: {exc}",
+            f"ARIEL hybrid search failed: {exc}",
             [
                 "Check ARIEL service configuration in config.yml.",
                 "Verify the ARIEL database is reachable.",
@@ -153,18 +153,18 @@ def _configuration_hints(config_key: str) -> list[str]:
         config_key: The ``config_key`` the service attached to the error.
 
     Returns:
-        The suggestion that fits. ``search_modules.qmd.enabled`` means the mode
+        The suggestion that fits. ``search_modules.hybrid.enabled`` means the mode
         exists and is switched off, so naming the key is actionable. ``modes``
         means the mode resolved against nothing — the search module is not in
         the registry, usually because it failed to import — and there the
         enable key is very likely already set, so the useful place to look is
         the server's startup log.
     """
-    if config_key == "search_modules.qmd.enabled":
-        return ["Enable it with ariel.search_modules.qmd.enabled: true in config.yml."]
+    if config_key == "search_modules.hybrid.enabled":
+        return ["Enable it with ariel.search_modules.hybrid.enabled: true in config.yml."]
     if config_key == "modes":
         return [
-            "The qmd search module is not registered — check the ARIEL server's "
+            "The hybrid search module is not registered — check the ARIEL server's "
             "startup log for an import error in osprey.services.ariel_search.search.qmd."
         ]
     return ["Check the ARIEL search module configuration in config.yml."]
@@ -216,7 +216,7 @@ def _hints() -> list[str]:
         qmd_config = resolve_qmd_service_config(load_osprey_config())
         base_url = qmd_config.base_url if qmd_config is not None else None
     except Exception:  # noqa: BLE001 — a config fault must not replace the real error.
-        logger.debug("could not resolve services.qmd while building qmd_search hints")
+        logger.debug("could not resolve services.qmd while building hybrid_search hints")
 
     if base_url is None:
         first = "No services.qmd block is configured in config.yml — add one to deploy the sidecar."
