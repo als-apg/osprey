@@ -478,12 +478,12 @@ def test_the_served_schemas_carry_the_declared_channel_roles(
     assert orm["correctors"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE, (
         f"orm no longer declares its correctors movable over the wire: {orm['correctors']}"
     )
-    assert orm["bpms"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    assert orm["readbacks"][CHANNEL_ROLE_KEY] == READABLE_ROLE
 
     # grid_scan's movable is a field of the nested GridAxis model, which
     # pydantic emits under $defs and references from `axes.items`.
     grid = by_name["grid_scan"]["schema"]
-    assert grid["properties"]["readables"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    assert grid["properties"]["readbacks"][CHANNEL_ROLE_KEY] == READABLE_ROLE
     assert grid["$defs"]["GridAxis"]["properties"]["setpoint"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE, (
         f"grid_scan's per-axis setpoint lost its movable role: {grid['$defs']['GridAxis']}"
     )
@@ -536,7 +536,7 @@ def test_preview_answers_in_one_shape_for_a_known_plan(deployed_catalog_stack: P
         "/plans/grid_scan/preview",
         "POST",
         {
-            "readables": ["BPM1"],
+            "readbacks": ["BPM1"],
             "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
         },
     )
