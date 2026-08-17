@@ -236,7 +236,7 @@ gchat = [
     "google-cloud-pubsub>=2.18",
     "google-api-python-client>=2.100",
     "google-auth>=2.23",
-    "google-cloud-storage>=2.10",
+    "google-cloud-storage>=3.13.1",
     # Some deployment hosts only permit egress through a Squid proxy. httplib2
     # (used by google-api-python-client) only honors HTTP(S)_PROXY env vars
     # when PySocks is installed, so this is required, not optional, on those hosts.
