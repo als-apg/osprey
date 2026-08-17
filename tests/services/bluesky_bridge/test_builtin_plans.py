@@ -7,8 +7,10 @@ plain `plans_core/` files, discovered through the layered directory loader.
 Their end-to-end registration + RunEngine round trip (through the real
 loader, against mock devices) is `test_exemplar_plans.py`'s job — this file
 covers what that one doesn't: each plan's own `PARAMS` schema in isolation,
-and (task 2.3, CC-1) the `orm` plan's restore-in-`finally` abort safety,
-which only its own generator body can exercise.
+the channel roles both plans declare, the run metadata each one carries
+(`grid_scan` inherits the stock plan's, `orm` stamps its own), and (task 2.3,
+CC-1) the `orm` plan's restore-in-`finally` abort safety, which only its own
+generator body can exercise.
 
 The bluesky stack is a core dependency, so these run in the normal unit lane;
 the `pytest.importorskip` guard only skips them in a slimmed install where
@@ -24,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 import pytest
 
@@ -41,8 +44,17 @@ from osprey.services.bluesky_bridge.devices.mock import (  # noqa: E402
     MockMotor,
     build_devices,
 )
-from osprey.services.bluesky_bridge.plans_core.grid_scan import (
-    PARAMS as GridScanParams,  # noqa: E402
+from osprey.services.bluesky_bridge.plan_fields import (  # noqa: E402
+    CHANNEL_ROLE_KEY,
+    MOVABLE_ROLE,
+    READABLE_ROLE,
+)
+from osprey.services.bluesky_bridge.plans_core.grid_scan import (  # noqa: E402
+    PARAMS as GridScanParams,
+)
+from osprey.services.bluesky_bridge.plans_core.grid_scan import GridAxis  # noqa: E402
+from osprey.services.bluesky_bridge.plans_core.grid_scan import (  # noqa: E402
+    build_plan as grid_scan_plan,
 )
 from osprey.services.bluesky_bridge.plans_core.orm import PARAMS as ORMParams  # noqa: E402
 from osprey.services.bluesky_bridge.plans_core.orm import build_plan as orm_plan  # noqa: E402
@@ -54,7 +66,7 @@ from osprey.services.bluesky_bridge.plans_core.orm import build_plan as orm_plan
 
 def test_grid_scan_params_accepts_a_well_formed_axis_set() -> None:
     params = GridScanParams(
-        detectors=["det1"],
+        readables=["det1"],
         axes=[
             {"setpoint": "m1", "start": 0.0, "stop": 1.0, "num_points": 3},
             {"setpoint": "m2", "start": 0.0, "stop": 2.0, "num_points": 5},
@@ -63,13 +75,13 @@ def test_grid_scan_params_accepts_a_well_formed_axis_set() -> None:
     assert len(params.axes) == 2
 
 
-def test_grid_scan_params_rejects_overlapping_setpoints_and_detectors() -> None:
-    """The `model_validator(mode="after")` cross-field check: a device named
-    as both a driven setpoint and a read detector is a configuration
+def test_grid_scan_params_rejects_overlapping_setpoints_and_readables() -> None:
+    """The `model_validator(mode="after")` cross-field check: a channel named
+    as both a moved setpoint and a read channel is a configuration
     mistake, caught at schema-validation time rather than mid-run."""
     with pytest.raises(ValidationError, match="disjoint"):
         GridScanParams(
-            detectors=["shared"],
+            readables=["shared"],
             axes=[{"setpoint": "shared", "start": 0.0, "stop": 1.0, "num_points": 3}],
         )
 
@@ -78,7 +90,60 @@ def test_grid_scan_schema_validation_path_matches_reinitialize() -> None:
     """The bridge validates plan_args via `spec.schema.model_validate(...)` in
     `reinitialize()`; a malformed grid_scan payload must fail there too."""
     with pytest.raises(ValidationError):
-        GridScanParams.model_validate({"detectors": ["det1"], "axes": []})
+        GridScanParams.model_validate({"readables": ["det1"], "axes": []})
+
+
+def test_grid_scan_declares_a_role_for_every_channel_field() -> None:
+    """Every consumer (load gate, enqueue pre-check, dry-run mocks, default
+    figure, pre-flight) reads the declared role rather than guessing from a
+    field name, so the declaration is part of this plan's contract: the
+    readables list is readable, and each axis's setpoint — nested one level
+    down in `GridAxis` — is movable."""
+    assert GridScanParams.model_fields["readables"].json_schema_extra == {
+        CHANNEL_ROLE_KEY: READABLE_ROLE
+    }
+    assert GridAxis.model_fields["setpoint"].json_schema_extra == {CHANNEL_ROLE_KEY: MOVABLE_ROLE}
+
+
+def _open_run_metadata(plan: Any) -> dict[str, Any]:
+    """The metadata carried by the first `open_run` message *plan* emits.
+
+    Iteration stops at that message, so nothing is ever sent back into the
+    generator — a hand-walked plan gets `None` for every read it asks for, and
+    this way it never asks.
+    """
+    for message in plan:
+        if message.command == "open_run":
+            return dict(message.kwargs)
+    raise AssertionError("the plan emitted no open_run message")
+
+
+def test_grid_scan_run_metadata_comes_from_the_stock_plan() -> None:
+    """`grid_scan` declares no run metadata of its own, and does not need to:
+    it wraps `bp.grid_scan`, whose own `open_run` already names the channels
+    the run moves and reads, the total point count, and the grid's shape.
+
+    The keys asserted here are bluesky's native start-document spelling
+    (``motors``/``detectors``), which is what the stock plan writes — the
+    capability vocabulary (movable/readable) is this plan's author-facing
+    surface, not the wire.
+    """
+    devices = asyncio.run(build_devices(motor_names=["m1", "m2"], detector_names=["det1"]))
+    params = GridScanParams(
+        readables=["det1"],
+        axes=[
+            {"setpoint": "m1", "start": 0.0, "stop": 1.0, "num_points": 3},
+            {"setpoint": "m2", "start": 0.0, "stop": 2.0, "num_points": 5},
+        ],
+    )
+
+    metadata = _open_run_metadata(grid_scan_plan(devices, params))
+
+    assert metadata["plan_name"] == "grid_scan"
+    assert list(metadata["motors"]) == ["m1", "m2"]
+    assert list(metadata["detectors"]) == ["det1"]
+    assert metadata["num_points"] == 15
+    assert tuple(metadata["shape"]) == (3, 5)
 
 
 # =========================================================================
@@ -91,24 +156,24 @@ def test_grid_scan_schema_validation_path_matches_reinitialize() -> None:
 def test_orm_params_accepts_a_valid_set() -> None:
     params = ORMParams(
         correctors=["hcm1", "hcm2"],
-        detectors=["bpm1", "bpm2", "bpm3"],
+        bpms=["bpm1", "bpm2", "bpm3"],
         span_a=2.0,
         num=5,
     )
     assert params.correctors == ["hcm1", "hcm2"]
-    assert params.detectors == ["bpm1", "bpm2", "bpm3"]
+    assert params.bpms == ["bpm1", "bpm2", "bpm3"]
     assert params.span_a == 2.0
     assert params.num == 5
 
 
 def test_orm_params_rejects_an_empty_corrector_list() -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=[], detectors=["bpm1"], span_a=2.0, num=5)
+        ORMParams(correctors=[], bpms=["bpm1"], span_a=2.0, num=5)
 
 
-def test_orm_params_rejects_an_empty_detector_list() -> None:
+def test_orm_params_rejects_an_empty_bpm_list() -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], detectors=[], span_a=2.0, num=5)
+        ORMParams(correctors=["hcm1"], bpms=[], span_a=2.0, num=5)
 
 
 def test_orm_params_accepts_a_span_larger_than_any_one_facilitys_band() -> None:
@@ -122,7 +187,7 @@ def test_orm_params_accepts_a_span_larger_than_any_one_facilitys_band() -> None:
     when the plan actually writes: an out-of-band setpoint is refused
     there, aborting the run, rather than being guessed at here.
     """
-    params = ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=120.0, num=5)
+    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=120.0, num=5)
     assert params.span_a == 120.0
 
 
@@ -132,25 +197,25 @@ def test_orm_params_rejects_a_non_finite_span(value: float) -> None:
     and `inf > 0` is true, so infinity would sail through and generate a
     sweep of non-finite setpoints. Non-finite spans are rejected outright."""
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=value, num=5)
+        ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=value, num=5)
 
 
 def test_orm_params_rejects_a_non_positive_span() -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=0.0, num=5)
+        ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=0.0, num=5)
 
 
 def test_orm_params_rejects_too_few_points() -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=2.0, num=2)
+        ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=2)
 
 
-def test_orm_params_rejects_overlapping_correctors_and_detectors() -> None:
-    """The `model_validator(mode="after")` cross-field check: a device named
+def test_orm_params_rejects_overlapping_correctors_and_bpms() -> None:
+    """The `model_validator(mode="after")` cross-field check: a channel named
     as both a driven corrector and a read BPM is a configuration mistake,
     caught uniformly at schema-validation time rather than mid-run."""
     with pytest.raises(ValidationError, match="disjoint"):
-        ORMParams(correctors=["shared"], detectors=["shared"], span_a=2.0, num=5)
+        ORMParams(correctors=["shared"], bpms=["shared"], span_a=2.0, num=5)
 
 
 def test_orm_schema_validation_path_matches_reinitialize() -> None:
@@ -160,26 +225,78 @@ def test_orm_schema_validation_path_matches_reinitialize() -> None:
     lets `reinitialize()` return `False` + set `error_message` instead of
     raising."""
     with pytest.raises(ValidationError):
-        ORMParams.model_validate({"correctors": [], "detectors": ["bpm1"], "span_a": 2.0, "num": 5})
+        ORMParams.model_validate({"correctors": [], "bpms": ["bpm1"], "span_a": 2.0, "num": 5})
 
 
 def test_orm_params_sweep_defaults_to_bidirectional() -> None:
     """`sweep` is optional: an omitting payload (every pre-existing caller)
     keeps the symmetric two-sided sweep."""
-    params = ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=2.0, num=5)
+    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=5)
     assert params.sweep == "bidirectional"
 
 
 def test_orm_params_accepts_monodirectional_sweep() -> None:
     params = ORMParams(
-        correctors=["hcm1"], detectors=["bpm1"], span_a=2.0, num=5, sweep="monodirectional"
+        correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=5, sweep="monodirectional"
     )
     assert params.sweep == "monodirectional"
 
 
 def test_orm_params_rejects_an_unknown_sweep() -> None:
     with pytest.raises(ValidationError):
-        ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=2.0, num=5, sweep="sideways")
+        ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=5, sweep="sideways")
+
+
+def test_orm_declares_a_role_for_every_channel_field() -> None:
+    """`orm` drives hardware, so what it moves and what it merely reads is a
+    safety-relevant claim — declared, not inferred from the field names. The
+    role key sits alongside the field's own schema extras rather than
+    replacing them, so the parameter GUI still gets its widget hint."""
+    assert ORMParams.model_fields["correctors"].json_schema_extra == {
+        CHANNEL_ROLE_KEY: MOVABLE_ROLE,
+        "x-widget": "channel-list",
+    }
+    assert ORMParams.model_fields["bpms"].json_schema_extra == {
+        CHANNEL_ROLE_KEY: READABLE_ROLE,
+        "x-widget": "channel-list",
+    }
+
+
+def test_orm_stamps_its_own_run_metadata() -> None:
+    """`orm` opens its own run, so — unlike `grid_scan`, which inherits the
+    stock plan's stamp — it declares the run's channels and point count
+    itself, through `scan_metadata()`.
+
+    The point count is every corrector's sweep summed: this plan visits `num`
+    currents per corrector, serially, so a consumer reading the stamp as a
+    progress denominator counts the whole run and not one sweep of it. The
+    keys asserted here are bluesky's native start-document spelling, which is
+    what `scan_metadata()` translates the capability vocabulary into.
+    """
+    devices = asyncio.run(
+        build_devices(motor_names=["hcm1", "hcm2"], detector_names=["bpm1", "bpm2"])
+    )
+    params = ORMParams(correctors=["hcm1", "hcm2"], bpms=["bpm1", "bpm2"], span_a=2.0, num=4)
+
+    metadata = _open_run_metadata(orm_plan(devices, params))
+
+    assert list(metadata["motors"]) == ["hcm1", "hcm2"]
+    assert list(metadata["detectors"]) == ["bpm1", "bpm2"]
+    assert metadata["num_points"] == 8
+
+
+def test_orm_declares_no_dimensionality_hint() -> None:
+    """A corrector sweep is not one continuous traversal: the plan returns
+    each corrector to 0 A and starts the next from the far end, so a
+    `num_intervals` or a dimensions hint would describe a trajectory this run
+    never takes. `scan_metadata()` omits both, and the stamp inherits that."""
+    devices = asyncio.run(build_devices(motor_names=["hcm1"], detector_names=["bpm1"]))
+    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=3)
+
+    metadata = _open_run_metadata(orm_plan(devices, params))
+
+    assert "num_intervals" not in metadata
+    assert "hints" not in metadata
 
 
 def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) -> list[float]:
@@ -224,7 +341,7 @@ def test_orm_bidirectional_sweep_is_symmetric_about_the_working_point(
     orbit-correction working point. Both are the same arithmetic, which is
     the point: the plan no longer has a privileged origin.
     """
-    params = ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=3.0, num=4)
+    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=3.0, num=4)
     setpoints = _corrector_sweep_setpoints(params, working_point)
     assert setpoints == [
         working_point - 3.0,
@@ -243,7 +360,7 @@ def test_orm_monodirectional_sweep_never_kicks_below_the_working_point(
     `[working_point, working_point + span_a]` and never drives the corrector
     below where it started, then restores it."""
     params = ORMParams(
-        correctors=["hcm1"], detectors=["bpm1"], span_a=3.0, num=4, sweep="monodirectional"
+        correctors=["hcm1"], bpms=["bpm1"], span_a=3.0, num=4, sweep="monodirectional"
     )
     setpoints = _corrector_sweep_setpoints(params, working_point)
     assert setpoints == [
@@ -323,7 +440,7 @@ def test_orm_plan_restore_refusal_does_not_mask_the_original_sweep_error(
     )
     devices = asyncio.run(connect_all({"hcm1": hcm1, "bpm1": MockDetector("bpm1")}))
 
-    params = ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=3.0, num=4)
+    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=3.0, num=4)
     plan = orm_plan(devices, params)
 
     RE = RunEngine(context_managers=[])
@@ -347,7 +464,7 @@ def test_orm_plan_restores_every_corrector_to_zero_when_no_refusal_occurs() -> N
     zero — the virtual accelerator: with no write refused, every corrector
     ends its own sweep back at 0 A."""
     devices = asyncio.run(build_devices(motor_names=["hcm1", "hcm2"], detector_names=["bpm1"]))
-    params = ORMParams(correctors=["hcm1", "hcm2"], detectors=["bpm1"], span_a=2.0, num=3)
+    params = ORMParams(correctors=["hcm1", "hcm2"], bpms=["bpm1"], span_a=2.0, num=3)
     plan = orm_plan(devices, params)
 
     RE = RunEngine(context_managers=[])
@@ -371,7 +488,7 @@ def test_orm_plan_refuses_to_sweep_a_corrector_reading_back_non_finite() -> None
     """
     hcm1 = MockMotor("hcm1", initial_value=float("nan"))
     devices = asyncio.run(connect_all({"hcm1": hcm1, "bpm1": MockDetector("bpm1")}))
-    params = ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=2.0, num=3)
+    params = ORMParams(correctors=["hcm1"], bpms=["bpm1"], span_a=2.0, num=3)
 
     writes: list[float] = []
 
@@ -409,7 +526,7 @@ def test_orm_plan_restores_every_corrector_to_its_own_pre_scan_working_point() -
             }
         )
     )
-    params = ORMParams(correctors=["hcm1", "hcm2"], detectors=["bpm1"], span_a=2.0, num=3)
+    params = ORMParams(correctors=["hcm1", "hcm2"], bpms=["bpm1"], span_a=2.0, num=3)
 
     RE = RunEngine(context_managers=[])
     RE(orm_plan(devices, params))

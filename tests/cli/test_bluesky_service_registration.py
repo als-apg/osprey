@@ -139,7 +139,6 @@ def _render_copied_compose(project_path: Path, config: dict) -> dict:
         "osprey_labels": {
             "project_name": "p",
             "project_root": str(project_path),
-            "deployed_at": "x",
         },
         "osprey_version": "",
         "system": {"timezone": "UTC"},

@@ -52,8 +52,14 @@ class RecordingReporter(PhaseReporter):
 
     @property
     def steps(self) -> list[str]:
-        """Just the sub-step lines, stripped of their `  · ` prefix and lap."""
-        return [line[4:].split(" (")[0] for line in self.lines if line.startswith("  · ")]
+        """Just the sub-step lines, stripped of their `· ` prefix, indent and lap.
+
+        Matched on the bullet after the indent, not on a fixed column: a step
+        under a group header sits one step deeper than an ungrouped one.
+        """
+        return [
+            line.strip()[2:].split(" (")[0] for line in self.lines if line.lstrip().startswith("· ")
+        ]
 
 
 @pytest.fixture

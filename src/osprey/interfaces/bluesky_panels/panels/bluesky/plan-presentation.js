@@ -27,11 +27,11 @@
  */
 const PLAN_LAYOUTS = {
   orm: [
-    ['correctors', 'detectors'],
+    ['correctors', 'bpms'],
     ['span_a', 'num'],
     ['sweep'],
   ],
-  grid_scan: [['axes'], ['detectors', 'snake_axes']],
+  grid_scan: [['axes'], ['readables', 'snake_axes']],
 };
 
 /**
@@ -43,7 +43,7 @@ const PLAN_LAYOUTS = {
 const PLAN_SUMMARIES = {
   orm(args) {
     const c = Array.isArray(args.correctors) ? args.correctors.length : 0;
-    const d = Array.isArray(args.detectors) ? args.detectors.length : 0;
+    const d = Array.isArray(args.bpms) ? args.bpms.length : 0;
     const n = typeof args.num === 'number' ? args.num : 0;
     const span = typeof args.span_a === 'number' ? args.span_a : null;
     /** @type {string[]} */
@@ -61,7 +61,7 @@ const PLAN_SUMMARIES = {
   },
   grid_scan(args) {
     const axes = Array.isArray(args.axes) ? args.axes : [];
-    const d = Array.isArray(args.detectors) ? args.detectors.length : 0;
+    const d = Array.isArray(args.readables) ? args.readables.length : 0;
     /** @type {string[]} */
     const parts = [];
     if (axes.length) {
@@ -74,7 +74,7 @@ const PLAN_SUMMARIES = {
         parts.push(`${nums.join(' × ')} = ${total} grid points`);
       }
     }
-    if (d) parts.push(`${d} detector${d === 1 ? '' : 's'}`);
+    if (d) parts.push(`${d} readable${d === 1 ? '' : 's'}`);
     return parts.join(' · ');
   },
 };

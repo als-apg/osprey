@@ -749,6 +749,56 @@ def _artifact_drift(repo_root, build_dir, config):
             logger.debug("Artifact dry run said: %s", chatter.getvalue().strip())
 
 
+# Environment variable names whose VALUE is a credential rather than configuration.
+#
+# The agent section prints the settings.json env block key AND value, because
+# that is what it is for: the OTLP endpoint, the exporters, the model IDs and
+# the content-capture gates are exactly the facts an operator opens ``osprey
+# status`` to read, and a blanket mask over the block would leave the section
+# with nothing to say. One entry is different — the OTLP headers block carries
+# the observability store's authorization header, a directly decodable
+# credential — and a status report is read on a shared terminal and pasted into
+# tickets.
+#
+# Two rules rather than one literal comparison, so the next secret-bearing
+# variable is covered by the policy instead of by someone remembering to add a
+# second special case: any name carrying a conventional secret word is masked,
+# and this set holds the ones whose name does not advertise what they hold.
+_SECRET_ENV_VARS: frozenset[str] = frozenset({"OTEL_EXPORTER_OTLP_HEADERS"})
+
+_SECRET_ENV_NAME_MARKERS: tuple[str, ...] = (
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "API_KEY",
+    "CREDENTIAL",
+)
+
+#: What a masked value is printed as. Deliberately not a partial reveal: a
+#: trailing "last four characters" of a base64 credential is a leak with an
+#: extra step, and of a short one it is most of the secret.
+_MASKED_ENV_VALUE = "*** (value not shown)"
+
+
+def _display_env_value(name: str, value: object) -> object:
+    """The value to print for environment variable *name*, masked if it is a secret.
+
+    Masks the whole value, and makes no assumption about its shape. The OTLP
+    headers value happens to be a comma-joined ``name=value`` map whose names
+    (``Authorization``) are not themselves secret, so its header names could in
+    principle be shown with only the values masked. That is not worth what it
+    costs: the split would have to run over any value this rule ever masks, and
+    a value that is *not* a ``name=value`` map — a bare token under some future
+    ``..._TOKEN`` variable — would be parsed into a "name" and printed verbatim.
+    The variable's own name already says which credential is configured, which
+    is the fact the row exists to carry.
+    """
+    upper = str(name).upper()
+    if upper in _SECRET_ENV_VARS or any(marker in upper for marker in _SECRET_ENV_NAME_MARKERS):
+        return _MASKED_ENV_VALUE
+    return value
+
+
 def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     """Print how the agent in this deployment is configured, and whether it is in sync.
 
@@ -768,6 +818,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     import os
 
     from osprey.build.claude_code_resolver import AGENT_DEFAULT_TIERS, load_provider_spec
+    from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 
     rows: list[tuple[str, object]] = []
     notes: list[str] = []
@@ -791,6 +842,28 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             # ``_auth_availability`` below, which already looks for the
             # credential in ``repo_root/.env``.
             spec = load_provider_spec(build_dir, env_dir=repo_root)
+        except ObservabilityCredentialError:
+            # Ahead of the broad handler on purpose, and load-bearing: resolving
+            # the provider also resolves the telemetry block, so a missing
+            # observability credential arrives here as a failure to read the
+            # provider. Reported as one, an operator goes and checks a provider
+            # that was never wrong. Behind the ``except Exception`` below this
+            # branch would never run while still reading as if it did.
+            #
+            # Names only — the exception text can carry the credential field's
+            # value, and a status report is printed to a shared terminal and
+            # pasted into tickets. The remedy is the name of the setting and
+            # the file it belongs in.
+            spec = None
+            troubles.append(
+                (
+                    "telemetry: the observability backend's credentials are missing or "
+                    "unresolved, so the provider could not be resolved",
+                    "Set claude_code.telemetry.openobserve.user and .password — or the "
+                    f"environment variables they reference — in {repo_root / '.env'}, "
+                    "then rerun. The provider configuration itself is not the problem.",
+                )
+            )
         except Exception as exc:
             spec = None
             troubles.append(
@@ -826,7 +899,9 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
 
             if spec.env_block:
                 rows.append(("environment", "rendered into settings.json"))
-                rows.extend((key, value) for key, value in spec.env_block.items())
+                rows.extend(
+                    (key, _display_env_value(key, value)) for key, value in spec.env_block.items()
+                )
 
             rows.append(("model tiers", ""))
             model_overrides = claude_code.get("models") or {}
@@ -846,8 +921,12 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
 
             conflicts = spec.detect_env_conflicts(dict(os.environ))
             if conflicts:
+                # Masked on the same rule as the block above: this is the second
+                # printer of the same values, and a secret that the env row
+                # withholds must not come back out of the conflict line beside it.
                 detail = [
-                    f"{var}: shell {shell_val} / build {settings_val}"
+                    f"{var}: shell {_display_env_value(var, shell_val)} "
+                    f"/ build {_display_env_value(var, settings_val)}"
                     for var, (shell_val, settings_val) in sorted(conflicts.items())
                 ]
                 detail.append("`osprey chat` resolves these in favour of the build.")

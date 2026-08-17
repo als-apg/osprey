@@ -78,7 +78,7 @@ _BRIDGE_URL = "http://bridge.test"
 # throwaway fixture plan).
 _PLAN_NAME = "grid_scan"
 _PLAN_ARGS: dict[str, Any] = {
-    "detectors": ["BPM1"],
+    "readables": ["BPM1"],
     "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
 }
 

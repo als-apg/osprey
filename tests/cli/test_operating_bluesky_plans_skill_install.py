@@ -1,4 +1,4 @@
-"""Tests for the operating-bluesky-scans skill and its 4-point framework wiring.
+"""Tests for the operating-bluesky-plans skill and its 4-point framework wiring.
 
 Mirrors ``test_writing_bluesky_plans_skill_install.py``'s registry/template/
 preset/manifest wiring pattern, plus a real ``TemplateManager.create_project``
@@ -39,8 +39,8 @@ from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 TEMPLATE_ROOT = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
 PRESETS_DIR = Path(__file__).parent.parent.parent / "src" / "osprey" / "profiles" / "presets"
 
-SKILL_REL = "claude/skills/operating-bluesky-scans/SKILL.md"
-OUTPUT_REL = ".claude/skills/operating-bluesky-scans/SKILL.md"
+SKILL_REL = "claude/skills/operating-bluesky-plans/SKILL.md"
+OUTPUT_REL = ".claude/skills/operating-bluesky-plans/SKILL.md"
 
 
 def _prose(text: str) -> str:
@@ -63,7 +63,7 @@ class TestOperatingBlueskyScansRegistry:
         return BuildArtifactCatalog.default()
 
     def test_registered(self, registry):
-        art = registry.get("skills/operating-bluesky-scans")
+        art = registry.get("skills/operating-bluesky-plans")
         assert art is not None
         assert art.output_path == OUTPUT_REL
         assert art.template_path == SKILL_REL
@@ -73,7 +73,7 @@ class TestOperatingBlueskyScansTemplateExists:
     """Wiring point 2: the skill bundle template file itself."""
 
     def test_skill_file_exists(self):
-        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         assert path.exists(), f"SKILL.md not found at {path}"
 
 
@@ -83,7 +83,7 @@ class TestOperatingBlueskyScansPresetWiring:
     def test_control_assistant_lists_the_skill(self):
         profile_text = (PRESETS_DIR / "control-assistant.yml").read_text(encoding="utf-8")
         profile = yaml.safe_load(profile_text)
-        assert "operating-bluesky-scans" in profile["skills"]
+        assert "operating-bluesky-plans" in profile["skills"]
 
 
 class TestOperatingBlueskyScansManifestWiring:
@@ -98,12 +98,12 @@ class TestOperatingBlueskyScansSkillStructure:
 
     @pytest.fixture()
     def skill_text(self):
-        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         return path.read_text(encoding="utf-8")
 
     def test_has_frontmatter(self, skill_text):
         assert skill_text.startswith("---")
-        assert "name: operating-bluesky-scans" in skill_text
+        assert "name: operating-bluesky-plans" in skill_text
 
     # --- the shared-draft tool surface ---
 
@@ -225,7 +225,7 @@ class TestOperatingBlueskyScansStopHonesty:
 
     @pytest.fixture()
     def skill_text(self):
-        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         return path.read_text(encoding="utf-8")
 
     def test_stop_is_after_the_running_item(self, skill_text):
@@ -308,7 +308,7 @@ class TestOperatingBlueskyScansFigureNarration:
 
     @pytest.fixture()
     def skill_text(self):
-        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        path = TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         return path.read_text(encoding="utf-8")
 
     def test_documents_the_figure_read(self, skill_text):
@@ -367,21 +367,21 @@ class TestOperatingBlueskyScansInstall:
     def test_control_assistant_build_installs_the_skill(self, tmp_path):
         manager = TemplateManager()
         project_dir = manager.create_project(
-            project_name="operating-bluesky-scans-install-test",
+            project_name="operating-bluesky-plans-install-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
         )
 
-        installed = project_dir / ".claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+        installed = project_dir / ".claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         assert installed.exists(), f"Skill not installed at {installed}"
 
         template_text = (
-            TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-scans" / "SKILL.md"
+            TEMPLATE_ROOT / "claude" / "skills" / "operating-bluesky-plans" / "SKILL.md"
         ).read_text(encoding="utf-8")
         assert installed.read_text(encoding="utf-8") == template_text
 
     def test_resolve_manifest_outputs_includes_the_skill(self):
-        mf = {"artifacts": {"skills": ["operating-bluesky-scans"]}}
+        mf = {"artifacts": {"skills": ["operating-bluesky-plans"]}}
         outputs = manifest.resolve_manifest_outputs(mf)
         assert OUTPUT_REL in outputs

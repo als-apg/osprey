@@ -201,11 +201,14 @@ def test_no_emitted_artifact_names_a_retired_verb(exemplar_repo: Path) -> None:
 
 
 #: Every file init RENDERS rather than authors or copies verbatim — the whole
-#: set the prose rewrite has to reach. All five are listed because this tuple is
+#: set the prose rewrite has to reach. All six are listed because this tuple is
 #: the only thing that gates them: a file left out here is a file whose emitter
-#: could drift from the exemplar forever without anything going red.
+#: could drift from the exemplar forever without anything going red. One entry
+#: per persona delta, so a newly shipped tier is byte-checked from its first
+#: release rather than whenever someone remembers to add it.
 RENDERED_FILES = (
     "profile.yml",
+    "personas/ariel.yml",
     "personas/readonly.yml",
     "personas/readwrite.yml",
     ".env.example",
@@ -279,7 +282,7 @@ def test_persona_renders_land_in_the_build_zone(exemplar_repo: Path) -> None:
     profile = yaml.safe_load((exemplar_repo / "profile.yml").read_text(encoding="utf-8"))
     catalog = profile["config"]["modules.web_terminals"]["personas"]
 
-    assert sorted(catalog) == ["readonly", "readwrite"]
+    assert sorted(catalog) == ["ariel", "readonly", "readwrite"]
     for persona_name, entry in catalog.items():
         assert entry["project"] == f"{EXEMPLAR_DIRNAME}-{persona_name}"
         assert entry["project_path"] == f"build/{EXEMPLAR_DIRNAME}-{persona_name}"
@@ -728,7 +731,7 @@ EXEMPLAR_REPORT = f"""\
 
   profile.yml   your assistant's settings; edit this
   data/         channel lists and facility docs; edit these
-  personas/     one per web login: readonly, readwrite
+  personas/     one per web login: ariel, readonly, readwrite
   .env          empty; copy .env.example and add your API key
   .env.shared   settings shared by every host; your .env wins
   README.md     what everything here does

@@ -64,9 +64,15 @@ class RecordingReporter(PhaseReporter):
 
     @property
     def steps(self) -> list[str]:
-        """Just the sub-step names, with the bullet and any duration stripped."""
+        """Just the sub-step names, with the bullet and any duration stripped.
+
+        Matched on the bullet after the indent, not on a fixed column: a step
+        under a group header sits one step deeper than an ungrouped one.
+        """
         return [
-            _DURATION.sub("", line.strip()[2:]) for line in self.lines if line.startswith("  ·")
+            _DURATION.sub("", line.strip()[2:])
+            for line in self.lines
+            if line.lstrip().startswith("·")
         ]
 
 
@@ -213,9 +219,9 @@ def test_the_image_step_is_reported_after_the_build(reporter, image_build_stubs,
 
     container_lifecycle._build_project_image(_image_config(), False, {}, None)
 
-    marks = [line for line in reporter.lines if line == "<<ran>>" or line.startswith("  ·")]
+    marks = [line for line in reporter.lines if line == "<<ran>>" or line.lstrip().startswith("·")]
     assert marks[0] == "<<ran>>", "the step line was reported before the build it times"
-    assert marks[1].startswith("  · project image proj:local")
+    assert marks[1].lstrip().startswith("· project image proj:local")
 
 
 def test_the_image_build_is_skipped_without_a_dispatch_worker(captured, reporter):

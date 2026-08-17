@@ -20,6 +20,7 @@ from osprey.build.claude_code_resolver import (
 )
 from osprey.build.claude_code_telemetry import (
     TELEMETRY_ENV_VARS,
+    ObservabilityCredentialError,
     TelemetryConfigError,
     _build_telemetry_env,
     _gate_is_on,
@@ -658,3 +659,129 @@ def test_telemetry_misconfig_raises_telemetry_config_error():
         )
     with pytest.raises(TelemetryConfigError):
         _build_telemetry_env({"enabled": True})
+
+
+# ── observability-credential error type ──────────────────────────
+
+
+def test_credential_error_subclass_chain():
+    """The credential type nests inside the general one, which nests inside ValueError.
+
+    Every existing handler catches one of the two outer types, so the narrower
+    type must stay a subclass of both or those handlers stop seeing the failure
+    they already handle today.
+    """
+    assert issubclass(ObservabilityCredentialError, TelemetryConfigError)
+    assert issubclass(ObservabilityCredentialError, ValueError)
+
+
+@pytest.mark.parametrize(
+    "openobserve",
+    [
+        {"user": "u"},
+        {"password": "p"},
+        {},
+        {"user": "", "password": ""},
+    ],
+    ids=["password-absent", "user-absent", "block-empty", "both-blank"],
+)
+def test_missing_or_blank_credential_raises_the_credential_type(openobserve):
+    """A credential the operator has to supply reports itself as a credential fault."""
+    with pytest.raises(ObservabilityCredentialError):
+        _build_telemetry_env(
+            {"enabled": True, "backend": "openobserve", "openobserve": openobserve}
+        )
+
+
+@pytest.mark.parametrize(
+    "openobserve",
+    [
+        {"user": "${STORE_USER}", "password": "p"},
+        {"user": "u", "password": "${STORE_PASSWORD}"},
+    ],
+    ids=["user-unresolved", "password-unresolved"],
+)
+def test_unresolved_credential_var_raises_the_credential_type(openobserve):
+    """An unresolved ${VAR} credential is the same kind of fault as a blank one.
+
+    Both are fixed by putting a value in the deployment's secret store, so both
+    carry the type whose remedy says so.
+    """
+    with pytest.raises(ObservabilityCredentialError):
+        _build_telemetry_env(
+            {"enabled": True, "backend": "openobserve", "openobserve": openobserve}
+        )
+
+
+def test_deferred_credential_still_raises_the_credential_type_when_absent():
+    """Deferral covers an unresolved ${VAR}; an absent credential keeps its type."""
+    with pytest.raises(ObservabilityCredentialError):
+        _build_telemetry_env(
+            {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u"}},
+            defer_unresolved_creds=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "telemetry",
+    [
+        {"enabled": True, "backend": "jaeger"},
+        {"enabled": True},
+        {"enabled": True, "endpoint": "http://${COLLECTOR_HOST}:4318"},
+        {
+            "enabled": True,
+            "backend": "openobserve",
+            "protocol": "grpc",
+            "openobserve": {"user": "u", "password": "p"},
+        },
+    ],
+    ids=["no-endpoint-other-backend", "no-endpoint-no-backend", "unresolved-var", "grpc-derived"],
+)
+def test_endpoint_faults_keep_the_general_telemetry_type(telemetry):
+    """An endpoint fault is not a credential fault, and must not borrow its type.
+
+    A handler that offers a credential remedy would send the operator to the
+    secret store for a problem that lives in the endpoint config.
+    """
+    with pytest.raises(TelemetryConfigError) as caught:
+        _build_telemetry_env(telemetry)
+    assert not isinstance(caught.value, ObservabilityCredentialError)
+
+
+def test_existing_broad_handlers_still_catch_a_credential_fault():
+    """The callers that catch TelemetryConfigError or ValueError keep working."""
+    cfg = {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u"}}
+    with pytest.raises(TelemetryConfigError):
+        _build_telemetry_env(cfg)
+    with pytest.raises(ValueError):
+        _build_telemetry_env(cfg)
+
+
+def test_deferred_var_credential_warns_not_raises_through_resolve(monkeypatch, recwarn):
+    """Pins the build-time catch site's reachability contract through resolve().
+
+    ``build_cmd.py``'s render call sets ``defer_unresolved_telemetry_creds=True``
+    around ``load_provider_spec()`` and catches ``ValueError``. An unresolved
+    ``${VAR}`` credential must warn rather than raise all the way through
+    ``resolve()`` — not just at the ``_build_telemetry_env``/
+    ``_openobserve_auth_header`` leaf — or the comment at that catch site goes
+    stale silently. A missing/blank credential is a separate arm (see
+    ``test_deferred_credential_still_raises_the_credential_type_when_absent``)
+    and keeps raising even when deferred.
+    """
+    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
+    spec = ClaudeCodeModelResolver.resolve(
+        {
+            "provider": "anthropic",
+            "telemetry": {
+                "enabled": True,
+                "backend": "openobserve",
+                "openobserve": {"user": "${STORE_USER}", "password": "p"},
+            },
+        },
+        defer_unresolved_telemetry_creds=True,
+    )
+    assert spec is not None
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in spec.env_block
+    assert spec.env_block["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+    assert any("unresolved" in str(w.message) for w in recwarn)

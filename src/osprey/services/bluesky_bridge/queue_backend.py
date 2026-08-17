@@ -43,6 +43,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -99,6 +100,20 @@ IDLE_MANAGER_STATE = "idle"
 # emergency abort wants. "immediate" rolls back to the previous checkpoint and
 # pauses now.
 ABORT_PAUSE_OPTION = "immediate"
+
+# The polling budget for one worker-namespace function call. It is checked
+# between result polls, so the call answers within this budget plus at most one
+# in-flight round trip — the client bounds that one itself (`timeout_recv`), and
+# a deployment that raises the client's timeout raises this ceiling with it.
+# Short by design — the only caller is the read-only pre-flight, whose answer a
+# human is waiting on before approving a run, and an answer that never comes is
+# worse for them than "no summary available".
+FUNCTION_TIMEOUT_S = 10.0
+
+# How often the result of a submitted function is polled for. Well below the
+# budget above, so a fast function (the common case: a plan walked in
+# milliseconds) is reported back promptly rather than at a coarse tick.
+FUNCTION_POLL_INTERVAL_S = 0.1
 
 # Capability reason codes. `can_execute: True` carries `executable`; every other
 # code is a distinct, machine-readable "no" that panels and MCP tools branch on
@@ -197,6 +212,30 @@ class AbortPauseTimeoutError(QueueBackendError):
     """
 
     reason = "abort_pause_timeout"
+
+
+class FunctionTimeoutError(QueueBackendError):
+    """A worker-namespace function did not finish inside its budget.
+
+    The manager accepted the call and may well still be running it; what timed
+    out is this process's willingness to wait. Distinct from
+    :class:`QueueUnavailableError` because the manager is answering perfectly
+    well — the caller learns "no result yet", not "no queue server".
+    """
+
+    reason = "function_timeout"
+
+
+class FunctionFailedError(QueueBackendError):
+    """The manager ran a worker-namespace function and the task itself failed.
+
+    The manager was reached, accepted the call, ran it, and reported back that
+    it did not succeed — a function that raised, one whose return value could
+    not be serialized, or a result the manager no longer holds. The message
+    carries whatever the manager said about it.
+    """
+
+    reason = "function_failed"
 
 
 class ExecutionUnavailableError(QueueBackendError):
@@ -306,6 +345,12 @@ class QueueBackend:
             regardless — an operator waiting on a halt must get an answer, one
             way or the other, in seconds.
         abort_poll_interval: Seconds between those polls.
+        function_timeout: Polling budget for :meth:`function_execute`, in
+            seconds. Unlike the abort budget above it counts the whole call
+            rather than only the sleeps — but it is checked between polls, so
+            the ceiling is this budget plus one in-flight round trip, which the
+            client bounds on its own (``timeout_recv``).
+        function_poll_interval: Seconds between those result polls.
     """
 
     def __init__(
@@ -317,6 +362,8 @@ class QueueBackend:
         env_poll_interval: float = 1.0,
         abort_pause_polls: int = 20,
         abort_poll_interval: float = 0.5,
+        function_timeout: float = FUNCTION_TIMEOUT_S,
+        function_poll_interval: float = FUNCTION_POLL_INTERVAL_S,
     ) -> None:
         self._manager = manager
         self._env_open_attempts = env_open_attempts
@@ -324,6 +371,8 @@ class QueueBackend:
         self._env_poll_interval = env_poll_interval
         self._abort_pause_polls = abort_pause_polls
         self._abort_poll_interval = abort_poll_interval
+        self._function_timeout = function_timeout
+        self._function_poll_interval = function_poll_interval
 
     @classmethod
     def from_env(cls, **kwargs: Any) -> QueueBackend:
@@ -640,6 +689,93 @@ class QueueBackend:
     async def task_result(self, task_uid: str) -> dict[str, Any]:
         """The status and result of a background manager task, e.g. a script upload."""
         return await self._call("task_result", task_uid=task_uid)
+
+    async def function_execute(self, name: str, *args: Any) -> Any:
+        """Run one function that already exists in the worker namespace, and
+        return what it returned.
+
+        The manager only *starts* a function: it answers with a task id and the
+        return value is collected afterwards. This method hides that two-step
+        behind one await, polling until ``function_timeout`` closes, so no
+        caller can be left waiting on a worker that never finishes. The budget
+        is checked between polls, which puts the real ceiling at the budget plus
+        one in-flight round trip; the client bounds that one itself.
+
+        Submitted with ``run_in_background=True``, which is what makes the call
+        possible at all while a plan is running: a foreground task is accepted
+        only by an idle manager, and a read-only summary an operator asks for
+        mid-queue is exactly the case that would otherwise be refused. The
+        function itself must therefore be one that is safe to run beside a plan;
+        upstream runs background tasks on their own thread and guarantees
+        nothing about them.
+
+        Which functions may be called at all is the manager's permissions to
+        decide, not this module's — an unpermitted name is refused by the
+        manager and arrives here as a rejection like any other.
+
+        Args:
+            name: The function's name in the worker namespace.
+            *args: Positional arguments for it. Must be JSON-serializable, as
+                must its return value; the manager fails the task otherwise.
+
+        Returns:
+            The function's own return value, as the manager deserialized it.
+
+        Raises:
+            FunctionTimeoutError: The budget closed with the task unfinished.
+            FunctionFailedError: The manager ran it and reported a failure, no
+                longer holds its result, or accepted it without naming a task —
+                all three are the call going wrong after it was taken, not a
+                refusal to take it.
+            QueueUnavailableError: The manager stopped answering.
+            QueueRequestRejectedError: The manager refused the call — an
+                unpermitted function name, or a worker that cannot take it
+                right now.
+        """
+        deadline = time.monotonic() + self._function_timeout
+        item = {"item_type": "function", "name": name, "args": list(args), "kwargs": {}}
+        reply = await self._call("function_execute", item=item, run_in_background=True)
+
+        task_uid = reply.get("task_uid")
+        if not isinstance(task_uid, str) or not task_uid:
+            # An acceptance with nowhere to read the result from is a protocol
+            # anomaly, not a refusal: the manager said yes. Classified as a
+            # failure so nobody reading the reason goes looking for a
+            # permission that was never denied.
+            raise FunctionFailedError(
+                f"The queue server accepted {name!r} without naming a task to read its "
+                "result from, so there is no result to wait for."
+            )
+
+        while True:
+            reply = await self.task_result(task_uid)
+            state = reply.get("status")
+            result = reply.get("result")
+            result = result if isinstance(result, dict) else {}
+
+            if state == "completed":
+                if result.get("success"):
+                    return result.get("return_value")
+                raise FunctionFailedError(
+                    f"The worker ran {name!r} and it failed: "
+                    f"{result.get('msg') or result.get('return_value') or 'no detail reported'}"
+                )
+            if state == "not_found":
+                # Results expire after a retention window far longer than this
+                # method's budget, so reaching this is a manager that never held
+                # the task — not a result this call waited too long for.
+                raise FunctionFailedError(
+                    f"The queue server holds no task {task_uid!r} for {name!r}, so its "
+                    "result cannot be read."
+                )
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise FunctionTimeoutError(
+                    f"{name!r} had not finished after {self._function_timeout:g}s, so no "
+                    "result was read; the worker may still be running it."
+                )
+            await asyncio.sleep(min(self._function_poll_interval, remaining))
 
     async def plans_allowed(self) -> dict[str, Any]:
         """The plans the worker namespace currently exposes.

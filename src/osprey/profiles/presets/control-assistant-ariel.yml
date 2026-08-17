@@ -1,0 +1,112 @@
+# control-assistant-ariel.yml
+# ARIEL logbook terminal — the standalone-service tier of the control-assistant
+# multi-user stack.
+#
+# The other two tiers are people: a read-only analyst and a write-armed
+# operator, differing on whether they can move hardware. This one is not a
+# person at all. It is a whole second product running beside them — the ARIEL
+# logbook research assistant — reached from its own card on the landing page,
+# with no control system behind it.
+#
+# It is the same agent the bundled `ariel-standalone` preset builds, with one
+# difference that matters: it does not deploy a stack of its own. It shares the
+# hosting deployment's Postgres, its logbook mirror, and its data tree, so there
+# is one logbook and the operators and the research terminal are looking at it
+# together.
+#
+# The control-system tiers are `control-assistant-readonly` and
+# `control-assistant-readwrite`.
+
+name: Control Assistant (ARIEL Logbook)
+
+extends: control-assistant
+
+# Attached render: this persona builds a per-user terminal image only and
+# connects to the shared web tier the hosting deployment runs on the same host.
+# No services are scaffolded — the ARIEL Postgres it reads is the hosting
+# deployment's, already declared there.
+deploy_services: false
+
+# The logbook-research persona instead of the control-room operator one. This is
+# the single biggest reason this tier feels like a different product: the agent's
+# whole brief is written for logbook work.
+claude_md_template: CLAUDE.ariel.md.j2
+
+# Open on the ARIEL tab rather than the always-on Workspace tab. The workspace
+# tab stays present — the deep-research skill hands artifacts off through it —
+# it is just not the one you land on.
+default_panel: ariel
+
+# ── What this tier drops ─────────────────────────────────────────────────────
+# A persona can only add to an inherited list, never subtract from it, so
+# everything the control-room agent carries and a logbook agent has no use for
+# is removed here by name. What is left is the `ariel-standalone` selection.
+exclude:
+  hooks:
+    - writes-check        # No hardware writes to pre-check
+    - limits              # No per-channel limits to enforce
+    - cf-feedback-capture  # No channel finder to tune
+  rules:
+    - python-execution    # The Python sandbox is off (see config: below)
+    - data-visualization  # Plotting needs the sandbox this tier does not run
+    - control-system-safety  # EPICS PV rules, with no EPICS behind them
+    - test-ioc-safety     # Test-IOC port isolation, likewise
+  skills:
+    - diagnose            # Fault diagnosis is control-room work
+    - demo-gallery
+    - demo-ui
+    - writing-bluesky-plans    # Plan authoring needs the Bluesky server
+    - operating-bluesky-plans  # and so does running one
+  agents:
+    - channel-finder
+    - data-visualizer
+    - facility-knowledge
+    - pyat-specialist
+    # Logbook search and deep research are re-added below as SKILLS, which is
+    # how the standalone ARIEL agent invokes them: from the main agent, with the
+    # whole session's context, rather than through a subagent boundary that a
+    # single-purpose agent gains nothing from crossing.
+    - logbook-search
+    - logbook-deep-research
+  web_panels:
+    - channel-finder
+    - okf
+    - system-health
+# The `safety` rule is deliberately NOT excluded, and this is the one place this
+# tier differs from the standalone preset. Its tools are gone, so the rule
+# governs nothing today and costs a few lines of prompt. It stays because this
+# agent runs inside a deployment that does move hardware: if anyone ever turns a
+# control server back on here, the rule should already be in place rather than
+# be the thing someone remembered to add.
+
+skills:
+  - logbook-deep-research   # Multi-phase logbook investigation
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY — see the base profile's block.
+config:
+  # The axis this tier is defined by: no control-system surface at all. Each
+  # line switches off a tool server the base turns on. Together they are what
+  # makes this a logbook terminal rather than a control-room one with the
+  # panels hidden — the tools are absent, not merely unused.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.channel-finder.enabled: false
+  claude_code.servers.bluesky.enabled: false
+  claude_code.servers.health.enabled: false
+  claude_code.servers.osprey_facility_knowledge.enabled: false
+  # Pinned even though the server that would honour it is gone, for the same
+  # reason the other two tiers pin it: this key is the write boundary, and it
+  # must not drift if the base's default ever changes.
+  control_system.writes_enabled: false
+  # Creating a logbook entry is this agent's only write of any kind, and it is
+  # approval-gated like every other write in OSPREY.
+  approval.tools.entry_create: always
+  # Full split-pane layout: the ARIEL search panel is the point of this tier, so
+  # it needs the panel area. Pinned rather than left to the server default for
+  # the same reason the other two tiers pin theirs.
+  web.ui_mode: expert
+  # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
+  # containers). Without this override the inherited roster would make this
+  # render try to host a second web tier on the same host ports.
+  modules.web_terminals.enabled: false

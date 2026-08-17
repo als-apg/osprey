@@ -23,6 +23,7 @@ from pathlib import Path
 import yaml
 
 from osprey.cli.output import report_fact, warn_fact
+from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
@@ -44,6 +45,8 @@ from osprey.deployment.runtime_helper import (
 )
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.artifacts import (
+    BashLaunchTokenConflictError,
+    bash_launch_token_offenders,
     check_bash_launch_token_conflict,
     web_compose_file,
     write_web_terminal_artifacts,
@@ -56,7 +59,10 @@ from osprey.deployment.web_terminals.auth_credentials import (
     ensure_auth_session_secrets,
     raise_if_env_auth_would_be_interpolated,
 )
-from osprey.deployment.web_terminals.env_production import ensure_env_production
+from osprey.deployment.web_terminals.env_production import (
+    ensure_env_production,
+    users_env_generation_problem,
+)
 from osprey.deployment.web_terminals.persona_images import (
     build_persona_images,
     verify_persona_renders,
@@ -143,6 +149,86 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     # below _provision_auth_secrets silently loses that property.
     _require_auth_sidecar_image(web_terminals)
     _provision_auth_secrets(web_terminals, str(root))
+
+
+def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
+    """Whether any referenced persona's rendered project would refuse this start.
+
+    :func:`verify_persona_renders` asked as a question. It walks the same set
+    :func:`preflight_web_terminals` walks, in the same mode gate, and reports
+    what that call would have raised — a persona with no render, a partial one,
+    a model its provider cannot serve, or a telemetry block naming an
+    observability credential this deployment cannot resolve.
+
+    Pure: every step reads. ``resolve_personas`` parses the catalog,
+    ``verify_persona_renders`` stats rendered directories and parses their
+    ``config.yml`` (expanding ``${VAR}`` against the repo root's ``.env``), and
+    neither writes a file, starts a process, or touches the container runtime.
+
+    Registry-mode deploys answer ``None`` unconditionally: nothing on this host
+    renders their persona projects, so there is no render to have a problem
+    with — the same gate :func:`preflight_web_terminals` applies.
+
+    :param config: Raw deploy config.
+    :param repo_root: The deployment repo whose ``build/`` holds the renders.
+    :return: The refusal sentence, or ``None`` when every persona is usable.
+    """
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    if effective_image_source(web_terminals) != "local":
+        return None
+    facility_prefix = (config.get("facility") or {}).get("prefix") or ""
+    registry_cfg = config.get("registry") or {}
+    try:
+        resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
+        verify_persona_renders(config, resolved_users, repo_root=Path(repo_root))
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def web_terminal_preflight_problems(
+    config: dict, *, repo_root: Path | str | None = None
+) -> list[tuple[str, str]]:
+    """Every :func:`preflight_web_terminals` refusal that can be probed instead.
+
+    The collectable subset of the fail-fast gate, in the gate's own order, so an
+    operator reading the collected report meets the findings where the deploy
+    would have hit them. Each entry is a ``(problem, remedy)`` pair; these three
+    refusals all carry their fix inside their own prose, so the remedy half is
+    empty and the enumeration prints one block per finding.
+
+    Deliberately NOT the whole of :func:`preflight_web_terminals`:
+
+    * The registry-mode and absent-chain arms of :func:`ensure_env_production`
+      stay behind. Both are refusals about a file that does not exist rather
+      than about its contents, and the gate reports them unchanged.
+    * :func:`_require_auth_sidecar_image` and :func:`_provision_auth_secrets`
+      stay behind because the second of them MINTS — it establishes credentials
+      and prints them once. A probe that could write is not a probe, and the
+      pair are ordered against each other for exactly that reason.
+
+    Nothing here writes, so calling it costs the deploy only the file reads and
+    leaves the gate itself to run afterwards, unchanged and idempotent.
+
+    :param config: Raw deploy config.
+    :param repo_root: The deployment repo the renders and secret files are read
+        from. Defaults to the one resolved from ``config``, as the gate does.
+    :return: The findings, empty when nothing is wrong.
+    """
+    root = _resolved_repo_root(config, repo_root)
+    findings: list[tuple[str, str]] = []
+
+    if (problem := persona_render_problem(config, root)) is not None:
+        findings.append((problem, ""))
+    # Same position as in the gate: ahead of the .env.users question, because a
+    # persona that may arm hardware from a shell is the more serious of the two
+    # and an operator reading top-down should meet it first.
+    if offenders := bash_launch_token_offenders(config, root):
+        findings.append((str(BashLaunchTokenConflictError(offenders)), ""))
+    if (problem := users_env_generation_problem(config, root)) is not None:
+        findings.append((problem, ""))
+
+    return findings
 
 
 def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
@@ -1105,6 +1191,7 @@ def deploy_up_web_terminals(
         # anywhere on this path: both invocations share one
         # COMPOSE_PROJECT_NAME, so orphan-removal in either would destroy the
         # OTHER stack's containers as "orphans" of the shared project.
+        _report_group("services")
         services_rm = services_base + ["rm", "-f"]
         logger.debug(f"Running command:\n    {' '.join(services_rm)}")
         run_captured(
@@ -1158,6 +1245,7 @@ def deploy_up_web_terminals(
 
     # Same stale-container preflight as the services stack above (and same
     # no-`--remove-orphans` constraint — see that comment).
+    _report_group("web terminals")
     web_rm = web_cmd + ["rm", "-f"]
     logger.debug(f"Running command:\n    {' '.join(web_rm)}")
     run_captured(web_rm, env=run_env, spool_name="compose-web-rm", repo_root=repo_root, check=False)

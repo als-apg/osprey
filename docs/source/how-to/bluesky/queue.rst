@@ -58,7 +58,7 @@ One queue, three ways to drive it
       - ``get_run_figure`` — read the same figure the BLUESKY panel is
         drawing, so you and the agent are discussing one picture.
 
-      A bundled skill (``operating-bluesky-scans``) teaches the agent this
+      A bundled skill (``operating-bluesky-plans``) teaches the agent this
       flow, so you rarely need to name a tool yourself.
 
    .. tab-item:: HTTP API

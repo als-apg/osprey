@@ -489,7 +489,7 @@ def test_plans_are_browsable_but_unqueueable(deployed_bridge: Path) -> None:
         {
             "plan_name": "grid_scan",
             "plan_args_patch": {
-                "detectors": ["det1"],
+                "readables": ["det1"],
                 "axes": [{"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}],
             },
             "client_id": "bluesky-deploy-e2e",

@@ -92,7 +92,7 @@ Step 1 — Create the facility repository
 
 The command writes the whole repository, runs ``git init`` at its root, and
 commits nothing. It prints the handful of entries you edit: the profile, the
-data directory, the two personas it rendered, the two env files, and the
+data directory, the three personas it rendered, the two env files, and the
 README.
 
 It says nothing about CI, which is expected: the profile ships with its
@@ -110,9 +110,14 @@ stack than Demo Facility runs, so the first edit is subtraction. Delete:
 * the top-level ``bluesky:``, ``bluesky_panels:`` and ``dispatch:`` blocks. Each
   of these is a trigger: leaving one in place adds its service to the
   deployment, whatever else you write below.
-* from ``skills:`` — ``writing-bluesky-plans`` and ``operating-bluesky-scans``.
+* from ``skills:`` — ``writing-bluesky-plans`` and ``operating-bluesky-plans``.
 * from ``agents:`` — ``logbook-search`` and ``logbook-deep-research``. Both
   query a logbook database at runtime, and this facility does not deploy one.
+* for the same reason, the ``ariel`` entries under ``modules.web_terminals``
+  in ``config:`` — the roster entry (``- name: ariel``) and the ``ariel:``
+  persona — plus the ``personas/ariel.yml`` delta they point at. That login is
+  the standalone ARIEL logbook terminal, and it needs the logbook database
+  this facility does not run.
 * from ``web_panels:`` — ``ariel``, ``events`` and ``bluesky``.
 * from ``config:`` — the ``claude_code.servers.bluesky.enabled`` line and every
   ``web.panels.events.*`` and ``web.panels.bluesky.*`` override. The panels they
@@ -154,8 +159,9 @@ and this list is what ``osprey up`` reads.
 (``demo-nginx``, ``demo-web-alice``), so keep it short and distinct from the
 project name.
 
-Then rename the two personas, further down the same ``config:`` block under
-``modules.web_terminals:``:
+Then confirm the persona catalog, further down the same ``config:`` block
+under ``modules.web_terminals:``. ``osprey init`` derived these names from the
+repository name, so after Step 2's trim the block already reads:
 
 .. code-block:: yaml
 
@@ -168,6 +174,9 @@ Then rename the two personas, further down the same ``config:`` block under
          project: demo-facility-readwrite
          project_path: build/demo-facility-readwrite
          build_profile: personas/readwrite.yml
+
+Nothing to edit — the block is shown so you know what you are looking at, and
+because its shape matters if you ever rename a persona or the repository:
 
 .. important::
 
@@ -290,7 +299,11 @@ compose template per service directory, rendered by the build.
        labels:
          osprey.project.name: "{{ osprey_labels.project_name }}"
          osprey.project.root: "{{ osprey_labels.project_root }}"
-         osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+         # Content hashes of the env chain and the rendered config this service
+         # reads. They are what makes an edit to either file restart this
+         # container; see the service-template section of deploy-project.
+         osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+         osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
        restart: unless-stopped
        ports:
          - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services['facility-mcp'] | default({})).port | default(8200) }}:8200/tcp"

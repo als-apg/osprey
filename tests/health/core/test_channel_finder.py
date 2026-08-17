@@ -145,6 +145,39 @@ async def test_no_database_path_configured_warns() -> None:
     assert by_name["channel_finder_database"].status is Status.WARNING
 
 
+async def test_every_database_row_names_the_one_file_it_stats(tmp_path) -> None:
+    """The row stats ``database.path`` and nothing else, so it must say so.
+
+    A middle-layer deployment holds a second channel database — the DuckDB
+    ``channel_finder_channels`` reports on — and a row saying "channel database
+    present" while stat-ing only the pipeline's own file reads as a verdict on
+    both. It would be vouching for an artifact it never opened, next to a row
+    correctly reporting that artifact absent.
+    """
+    present = tmp_path / "hierarchical.json"
+    _write_json_db(present, '{"SR": {}}')
+    empty = tmp_path / "empty.json"
+    empty.write_bytes(b"")
+    missing = tmp_path / "nope.json"
+
+    ok = (await _run(_cf(path=str(present))))["channel_finder_database"]
+    assert ok.message == "Active pipeline's channel database file present"
+
+    fresh = (await _run(_cf(path=str(present))))["channel_finder_freshness"]
+    assert fresh.message == "Active pipeline's channel database file build age"
+
+    assert (await _run(_cf(path=str(empty))))[
+        "channel_finder_database"
+    ].message == f"Active pipeline's channel database file is empty ({empty})"
+
+    assert (await _run(_cf(path=str(missing))))[
+        "channel_finder_database"
+    ].message == f"Active pipeline's channel database file missing at {missing}"
+
+    unset = (await _run(_cf(path=None)))["channel_finder_database"]
+    assert unset.message == "No database.path configured for the active pipeline"
+
+
 async def test_relative_database_path_resolved_against_cwd(tmp_path) -> None:
     rel = "data/channel_databases/hierarchical.json"
     _write_json_db(tmp_path / rel, '{"SR": {}}')

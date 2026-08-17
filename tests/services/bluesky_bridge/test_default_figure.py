@@ -72,7 +72,7 @@ def test_each_panel_carries_exactly_one_series():
         assert len(panel.mark.series) == 1
 
 
-def test_x_is_the_row_index():
+def test_x_is_the_row_index_when_no_roles_are_declared():
     figure = default_figure(
         _window(["bpm1"], [[1.0], [2.0], [3.0]]),
         reason=REASON_NO_RENDER,
@@ -81,6 +81,7 @@ def test_x_is_the_row_index():
     )
 
     assert [point.x for point in _series(figure, 0).points] == [0.0, 1.0, 2.0]
+    assert figure.panels[0].x_label == "Row"
 
 
 def test_a_column_numeric_in_one_row_only_is_still_drawn():
@@ -200,6 +201,200 @@ def test_keys_outside_the_declared_columns_are_not_drawn():
     figure = default_figure(window, reason=REASON_NO_RENDER, partial=False, source="live")
 
     assert [panel.title for panel in figure.panels] == ["bpm1"]
+
+
+# --- The declared x axis ------------------------------------------------------
+#
+# The two branches SC-5 pins: a run whose plan declared exactly one movable
+# channel is drawn against that channel's column, and everything else -- a
+# serial sweep over several movables, a channel with no column, a run that
+# declared nothing -- keeps the row-index figure this module served before roles
+# existed.
+
+
+def test_a_single_movable_channel_becomes_the_x_axis():
+    figure = default_figure(
+        _window(["motor1", "bpm1"], [[10.0, 1.0], [20.0, 2.0], [30.0, 3.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+        readable=["bpm1"],
+    )
+
+    assert [panel.title for panel in figure.panels] == ["bpm1"]
+    assert figure.panels[0].x_label == "motor1"
+    assert [point.x for point in _series(figure, 0).points] == [10.0, 20.0, 30.0]
+    assert _ys(figure, 0) == [1.0, 2.0, 3.0]
+
+
+def test_the_movable_column_is_the_axis_not_a_panel_of_its_own():
+    figure = default_figure(
+        _window(["motor1", "bpm1"], [[10.0, 1.0], [20.0, 2.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+    )
+
+    assert [panel.title for panel in figure.panels] == ["bpm1"]
+
+
+def test_undeclared_numeric_columns_are_still_drawn_against_the_declared_x():
+    # The default figure never drops a column: a reading the plan did not
+    # declare readable is still a reading the run recorded.
+    figure = default_figure(
+        _window(["motor1", "bpm1", "temperature"], [[10.0, 1.0, 300.0], [20.0, 2.0, 301.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+        readable=["bpm1"],
+    )
+
+    assert [panel.title for panel in figure.panels] == ["bpm1", "temperature"]
+    assert all(panel.x_label == "motor1" for panel in figure.panels)
+
+
+def test_declared_readable_columns_are_drawn_before_the_rest():
+    # Column order puts the undeclared column first; the declaration reorders,
+    # which is what decides who survives the series cap.
+    figure = default_figure(
+        _window(["motor1", "temperature", "bpm1"], [[10.0, 300.0, 1.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+        readable=["bpm1"],
+    )
+
+    assert [panel.title for panel in figure.panels] == ["bpm1", "temperature"]
+
+
+def test_a_channel_read_through_a_child_signal_resolves_to_its_column():
+    # A mock device reads back under "<channel>-<signal>"; the connector reads
+    # back under the bare channel name. Both must find their column.
+    figure = default_figure(
+        _window(["motor1-readback", "bpm1-readback"], [[10.0, 1.0], [20.0, 2.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+        readable=["bpm1"],
+    )
+
+    assert figure.panels[0].x_label == "motor1-readback"
+    assert [point.x for point in _series(figure, 0).points] == [10.0, 20.0]
+
+
+def test_one_channel_named_twice_is_still_one_movable():
+    figure = default_figure(
+        _window(["motor1", "bpm1"], [[10.0, 1.0], [20.0, 2.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1", "motor1"],
+    )
+
+    assert figure.panels[0].x_label == "motor1"
+
+
+def test_a_serial_sweep_over_several_movables_keeps_the_row_index():
+    # The orm's shape: one run drives every corrector in turn, so no single
+    # column is the independent variable.
+    figure = default_figure(
+        _window(["cor1", "cor2", "bpm1"], [[1.0, 0.0, 5.0], [2.0, 0.0, 6.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["cor1", "cor2"],
+        readable=["bpm1"],
+    )
+
+    assert [panel.title for panel in figure.panels] == ["cor1", "cor2", "bpm1"]
+    assert figure.panels[0].x_label == "Row"
+    assert [point.x for point in _series(figure, 2).points] == [0.0, 1.0]
+
+
+def test_a_movable_with_no_column_in_this_window_keeps_the_row_index():
+    figure = default_figure(
+        _window(["bpm1"], [[1.0], [2.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+        readable=["bpm1"],
+    )
+
+    assert [panel.title for panel in figure.panels] == ["bpm1"]
+    assert figure.panels[0].x_label == "Row"
+
+
+def test_a_movable_column_holding_no_number_keeps_the_row_index():
+    figure = default_figure(
+        _window(["motor1", "bpm1"], [["parked", 1.0], ["parked", 2.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+        readable=["bpm1"],
+    )
+
+    assert [panel.title for panel in figure.panels] == ["bpm1"]
+    assert figure.panels[0].x_label == "Row"
+
+
+def test_readable_order_is_not_applied_without_a_declared_x_axis():
+    # Roles apply as a unit: with no usable movable the figure is exactly the
+    # pre-roles one, column order included.
+    figure = default_figure(
+        _window(["temperature", "bpm1"], [[300.0, 1.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        readable=["bpm1"],
+    )
+
+    assert [panel.title for panel in figure.panels] == ["temperature", "bpm1"]
+
+
+def test_rows_with_no_x_reading_are_left_out_and_said_so():
+    figure = default_figure(
+        _window(["motor1", "bpm1"], [[10.0, 1.0], [None, 2.0], [30.0, 3.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+    )
+
+    assert [point.x for point in _series(figure, 0).points] == [10.0, 30.0]
+    assert _ys(figure, 0) == [1.0, 3.0]
+    assert figure.panels[0].annotations == ["Not drawing 1 of 3 rows with no motor1 reading."]
+
+
+def test_points_stay_in_acquisition_order_over_a_retraced_sweep():
+    figure = default_figure(
+        _window(["motor1", "bpm1"], [[10.0, 1.0], [20.0, 2.0], [10.0, 3.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+    )
+
+    assert [point.x for point in _series(figure, 0).points] == [10.0, 20.0, 10.0]
+
+
+def test_declared_roles_over_a_degenerate_window_do_not_raise():
+    figure = default_figure(
+        RowWindow([], ["motor1"], False, 400),
+        reason=REASON_SOURCE_UNAVAILABLE,
+        partial=True,
+        source="tiled",
+        movable=["motor1"],
+        readable=["bpm1"],
+    )
+
+    assert figure.panels == []
 
 
 # --- The series cap ----------------------------------------------------------

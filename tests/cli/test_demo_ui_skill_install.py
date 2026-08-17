@@ -1,6 +1,6 @@
 """Tests for the demo-ui skill and its 4-point framework wiring.
 
-Mirrors ``test_operating_bluesky_scans_skill_install.py``'s registry/template/
+Mirrors ``test_operating_bluesky_plans_skill_install.py``'s registry/template/
 preset/manifest pattern, plus a real ``TemplateManager.create_project`` build so
 a missed registration cannot leave the SKILL.md in the template tree but absent
 from a built project.

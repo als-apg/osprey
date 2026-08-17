@@ -12,10 +12,13 @@ registry-mode deploys never enter this module.
 
 import os
 import posixpath
+import re
 from pathlib import Path
 from typing import cast
 
 from osprey.build.claude_code_resolver import load_provider_spec
+from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.build_progress import with_plain_build_progress
 from osprey.deployment.compose_generator import (
@@ -28,11 +31,18 @@ from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.personas import effective_image_source
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.utils.config import ConfigBuilder
+from osprey.utils.dotenv import ENV_LOCAL_FILENAME
 from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 
 logger = get_logger("deployment.lifecycle")
+
+#: Environment-variable names quoted inside an unresolved-placeholder message,
+#: with any ``:-default`` suffix dropped. The credential check reports the
+#: literal ``${VAR}`` it refused to encode, which is the only place the name of
+#: the variable an operator has to set is available to this module.
+_PLACEHOLDER_NAME_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}")
 
 
 def _persona_image_context(project_path: str | Path) -> Path:
@@ -492,6 +502,14 @@ def _check_existing_render(persona_name: str, project_path: Path, repo_root: Pat
     ``default_model: ${OPS_MODEL}`` as a literal placeholder and refuse a
     persona the deployment can in fact serve.
 
+    That same resolve also reads the persona's telemetry block, so a missing or
+    unresolved observability credential surfaces here too — and it is reported
+    as the credential problem it is. The remedy for a model the provider cannot
+    serve is an edit to the profile; the remedy for an unset observability
+    credential is a variable in the deployment's own ``.env``, and an operator
+    handed the wrong one of those goes and changes something that was never
+    wrong.
+
     Args:
         persona_name: The persona whose render is being checked.
         project_path: Its rendered project directory under ``build/``.
@@ -523,6 +541,34 @@ def _check_existing_render(persona_name: str, project_path: Path, repo_root: Pat
 
     try:
         load_provider_spec(project_path, env_dir=repo_root)
+    except ObservabilityCredentialError as e:
+        # Ahead of the ValueError arm below on purpose: this IS a ValueError,
+        # so the broad handler would otherwise claim a credential the profile
+        # never names is a bad model, and send the operator to edit profile.yml
+        # over a variable that belongs in the deployment's secret store. Only
+        # the credential failures land here — an unusable endpoint stays a
+        # general telemetry misconfiguration and keeps the broad frame.
+        env_path = repo_root / ENV_LOCAL_FILENAME
+        names = sorted(set(_PLACEHOLDER_NAME_RE.findall(str(e))))
+        if names:
+            # Names only, never values: a placeholder is unresolved precisely
+            # because nothing on this host holds the value to print.
+            fix = " && ".join(f'echo "{var}=<value>" >> {env_path}' for var in names)
+            remedy = f"Set {', '.join(names)} in {env_path} — {fix} — "
+        else:
+            remedy = (
+                "Give the telemetry block's openobserve.user and "
+                f"openobserve.password real values, via {env_path} — "
+            )
+        raise ValueError(
+            f"Persona {persona_name!r} render at {project_path} names "
+            f"observability credentials this deployment cannot resolve:\n  {e}\n"
+            f"{remedy}then re-render with `osprey build`. The model "
+            "configuration is not what is wrong here. Note that `osprey up` "
+            "mints the observability store's own ZO_ROOT_USER_PASSWORD into "
+            "that file when it starts the store, so a deployment that has "
+            "never been started will not have one there yet."
+        ) from e
     except ValueError as e:
         raise ValueError(
             f"Persona {persona_name!r} render at {project_path} has a "
@@ -739,7 +785,9 @@ def build_persona_images(
             from osprey.deployment.container_lifecycle import single_image_build_reporter
 
             # Watched for the duration of the build and no longer; the step line
-            # below is what reports the finished image.
+            # below is what reports the finished image. The group declaration is
+            # idempotent, so the per-persona loop declares it each pass.
+            _report_group("personas")
             with (report := single_image_build_reporter(image_tag)):
                 run_captured(
                     cmd,

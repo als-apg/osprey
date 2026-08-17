@@ -227,7 +227,12 @@ def test_persona_profiles_are_deltas_and_keep_their_posture(
 
     There is no ``extends:``: living in ``personas/`` beside the host profile is
     what makes the file a delta, and a written ``extends:`` there is rejected at
-    build time."""
+    build time.
+
+    Every persona pins the posture, including the standalone ``ariel`` tier,
+    whose control-system servers are switched off entirely — the key is the
+    write boundary, so it is stated rather than left to follow whatever the host
+    happens to default to."""
     target = tmp_path / "my-facility"
 
     assert _new(runner, target, preset).exit_code == 0
@@ -240,7 +245,7 @@ def test_persona_profiles_are_deltas_and_keep_their_posture(
         for inherited_key in ("app_template", "provider", "model", "requires_osprey_version"):
             assert inherited_key not in parsed, (persona_file.name, inherited_key)
         postures[persona_file.stem] = parsed["config"]["control_system.writes_enabled"]
-    assert postures == {"readonly": False, "readwrite": True}
+    assert postures == {"ariel": False, "readonly": False, "readwrite": True}
 
 
 @pytest.mark.parametrize("preset", TRIGGER_PRESETS)

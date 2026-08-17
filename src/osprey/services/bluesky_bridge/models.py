@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict
 
 
 class PlanSessionWriteRequest(BaseModel):
@@ -22,15 +22,22 @@ class PlanSessionWriteRequest(BaseModel):
 
     ``body`` is the author's own source (``PARAMS`` + ``build_plan``, per the
     layered directory catalog's file contract) — it is never exec'd by this
-    route. The remaining fields become the generated `PLAN_METADATA` block
-    prepended to it; together they must satisfy `plan_metadata.PlanMetadata`'s
-    contract once the session-tier load gate parses the file.
+    route. The remaining three fields become the generated `PLAN_METADATA`
+    block prepended to it, and are exactly `plan_metadata.PlanMetadata`'s
+    fields: which channels the plan touches is not declared here at all, it is
+    read off the role-typed fields of the ``body``'s own `PARAMS` model, so
+    there is nothing here for an author to keep in sync with the code.
+
+    Unknown keys are rejected too (``extra="forbid"``), uniform with
+    `plan_metadata.PlanMetadata` — a stale client still POSTing a retired key
+    like ``category`` or ``required_devices`` fails loudly naming that key
+    rather than getting a silent 200 with the surplus dropped.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     description: str = ""
-    category: str
-    required_devices: list[str] = Field(default_factory=list)
     writes: bool
     body: str
 
@@ -43,7 +50,12 @@ class PlanValidateRequest(BaseModel):
     calls out — deriving minimal samples from the `PARAMS` schema would need
     per-type generation logic this bridge does not otherwise have); omit it
     for a `PARAMS` with no required fields.
+
+    Unknown keys are rejected too (``extra="forbid"``), uniform with
+    `PlanSessionWriteRequest` and `plan_metadata.PlanMetadata`.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     sample_args: dict[str, Any] | None = None

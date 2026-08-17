@@ -24,6 +24,7 @@ import yaml
 
 from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
+from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
@@ -64,6 +65,8 @@ from osprey.deployment.service_tokens import (
     _effective_value,
     _generate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _generate_token,
+    _is_forbidden_value,
+    _raise_forbidden_var,
     _raise_invalid_var,
     _validate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _validate_var,
@@ -375,20 +378,64 @@ def _ensure_service_tokens(
     ``.env``" is about the file the caller named.
 
     For any token var (per ``_SERVICE_TOKEN_VARS``, keyed by the deployed
-    services present) unset in BOTH the process env and that ``.env``,
+    services present) unset — or present with an empty value — in BOTH the
+    process env and that ``.env``,
     generate a strong random value (``_generate_token``: ``token_urlsafe(32)``
     unless the var registers a different alphabet in ``_VAR_GENERATORS``) and
     append it to ``.env``
-    (``chmod 0o600``, matching the build-time convention). Existing values are
-    never overwritten, so re-running ``osprey up`` is idempotent. No-op unless
-    a token-requiring service is actually deployed.
+    (``chmod 0o600``, matching the build-time convention). Existing non-empty
+    values are never overwritten, so re-running ``osprey up`` is idempotent.
+    No-op unless a token-requiring service is actually deployed.
 
-    A token that is *present but explicitly empty* (e.g. ``TOKEN=`` exported in
-    the shell) is left untouched — generating would silently override a
-    deliberate value. For a loopback deploy the server simply fails closed; for
-    a deployment the build rendered as reachable off-host (a wildcard bind, or
-    the host-networked web-terminal stack) we refuse rather than bind a
-    fail-open-at-bind server to all interfaces.
+    **An empty value is not a decision here.** Osprey's general rule is that an
+    explicitly empty variable is the operator saying *leave this alone* — a
+    blank ``NO_PROXY=`` is a real setting, and a missing line is not the same
+    thing. These vars are the deliberate exception, because every name this loop
+    can reach is a machine-generated secret with no meaningful empty state. An
+    empty one does not switch a service's authentication off; it runs the
+    service with no authentication at all, and for the three store passwords it
+    hands the container back the published default its compose template
+    interpolates with ``:-``. Nothing is expressible as ``TOKEN=`` that leaving
+    the var unset does not express better, so the operator gives up nothing and
+    a deploy stops coming up unauthenticated with nobody told. The same
+    judgement is already made one function over, for the RE manager's
+    control-socket keys — see ``_is_set`` inside
+    :func:`_ensure_bluesky_qserver_zmq_keys`, which spells out that an empty
+    value is not honoured there either. This brings the token path into
+    agreement with it rather than adding a third convention.
+
+    The exception is bounded by ``required_vars``, and that bound is what makes
+    it safe: it is exactly ``_SERVICE_TOKEN_VARS`` filtered by
+    ``deployed_services`` membership (built below, from a module constant no
+    runtime path mutates), so the only names whose empty spelling is overridden
+    are the machine-minted secrets that map declares. Nothing else travelling in
+    this ``.env`` can reach the predicate — the proxy settings (``HTTP_PROXY``,
+    ``NO_PROXY``), where a blank value *is* the setting, belong to neither
+    ``_SERVICE_TOKEN_VARS`` nor ``_VALIDATE_ONLY_VARS``, and the validate-only
+    loop below never mints anything at all.
+
+    Whatever a value's origin, it is then checked at the boundary: one that
+    matches a compose template's published default is refused by name
+    (``_is_forbidden_value``), and one that fails a registered format constraint
+    is refused too. A minted value satisfies both by construction, so either
+    finding is always about a value an operator supplied.
+
+    Minting over a blank also rewrites this process's copy of it. The deploy
+    loads the project ``.env`` over its own environment before reaching here, so
+    a blank line in that file leaves a stale empty variable behind that would
+    outrank the newly appended line for compose's interpolation. The file is the
+    source of truth and the environment is its mirror, so both are updated
+    together; a name that was never in the environment stays out of it.
+
+    One empty spelling is still left alone, because minting cannot repair it: a
+    var the ``.env`` does not carry at all, exported empty in the deploying
+    shell. That export is the operator's own, it outranks any ``--env-file``
+    line a mint would write, and overwriting a shell the deploy does not own is
+    not this function's business — so writing one would report a mint that
+    changes nothing. It keeps the older treatment: on a loopback deploy the service
+    fails closed on its own; on a deployment the build rendered as reachable
+    off-host (a wildcard bind, or the host-networked web-terminal stack) we
+    refuse rather than bind a fail-open-at-bind server to all interfaces.
 
     Minting is unconditional for every var a deployed service declares: these
     tokens authenticate *network callers* to a service's own HTTP boundary and
@@ -490,9 +537,23 @@ def _ensure_service_tokens(
         generated: dict[str, str] = {}
         for name in required_vars:
             # Process env wins over .env (matches docker compose --env-file).
-            present = name in os.environ or name in existing
+            # "Present" means present with a NON-EMPTY value: for these vars an
+            # empty spelling is a blank, not a decision (see the docstring).
+            #
+            # The second clause is not the presence rule — it is the one empty
+            # spelling a mint cannot repair. A name absent from the `.env` but
+            # exported empty in the deploying shell came from the shell alone,
+            # and that export outranks the `--env-file` line this would append
+            # for compose's interpolation, so minting would report a token no
+            # container ever receives. Left alone, and caught below instead.
+            # (A name the `.env` *does* carry is a different case: the deploy
+            # has already loaded that file over this process's environment, so
+            # the empty copy sitting in `os.environ` is the file's own value
+            # mirrored, not a second opinion — see the write-back below.)
+            exported_only = name in os.environ and name not in existing
+            present = bool(_effective_value(name, existing).strip()) or exported_only
             if present:
-                continue  # keep the user's value (even an empty one — see docstring)
+                continue  # keep the operator's value
             generated[name] = _generate_token(name)
 
         if generated:
@@ -501,6 +562,18 @@ def _ensure_service_tokens(
                 "Auto-generated service auth tokens (osprey deploy up)",
                 generated,
             )
+            # Only the names minted OVER an empty `.env` entry are in the
+            # environment already: the deploy loads the project `.env` over this
+            # process before it gets here, so the blank line just replaced left a
+            # stale empty copy behind. That copy would outrank the file for
+            # compose's interpolation and for the validation below — a token
+            # minted, reported, and then not delivered. Replace it, so the file
+            # and its in-process mirror say the same thing. Names absent from
+            # the environment stay absent; they reach the containers through
+            # `--env-file` as they always have.
+            for name, value in generated.items():
+                if name in os.environ:
+                    os.environ[name] = value
             # Report the count inline and the key names in the ledger — NEVER
             # the values.
             _report_fact(
@@ -532,11 +605,29 @@ def _ensure_service_tokens(
     post = parse_dotenv_file(env_path) if env_path.is_file() else {}
     for name in required_vars:
         effective = _effective_value(name, post)
+        # Still reachable, and now for exactly one shape. A blank carried by the
+        # `.env` was minted over above, so an empty effective value at this
+        # point means the var is exported empty in a shell whose `.env` never
+        # mentions it — the one spelling the mint deliberately leaves alone. The
+        # remedy therefore names the environment, not `.env`: adding a line to
+        # the file would not change what compose resolves while that export
+        # stands.
         if expose_network and not effective.strip():
             raise RuntimeError(
                 f"{name} is empty; refusing to start a deployment that is reachable "
-                f"off-host with an empty token. Set {name} in .env to a strong secret."
+                f"off-host with an empty token. Unset {name} in the environment and let "
+                f"`osprey up` mint one, or export a strong secret."
             )
+        # Ahead of the format check so the more specific diagnosis wins. A
+        # registered forbidden value is well-formed by construction — that is
+        # exactly why no validator can catch it — but a var could later register
+        # one that is not, and "your password is public" is the finding an
+        # operator needs first either way. Narrow by construction: a var reaches
+        # here holding either a value minted moments ago or one an operator
+        # supplied, so a match means the operator pinned the template's published
+        # default as their real password.
+        if effective and _is_forbidden_value(name, effective):
+            _raise_forbidden_var(name)
         if effective and not _validate_var(name, effective):
             _raise_invalid_var(name, effective)
 
@@ -557,8 +648,9 @@ def _ensure_service_tokens(
 def _volume_initialized_vars_that_would_be_minted(config: dict, env_path: Path) -> set[str]:
     """Which store credentials a mint on this config *would* generate.
 
-    The same rule ``_ensure_service_tokens`` mints by — absent from both the
-    process env and the ``.env`` — evaluated without writing anything. It exists
+    The same rule ``_ensure_service_tokens`` mints by — no non-empty value in
+    either the process env or the ``.env``, and not left alone as an export the
+    mint cannot reach — evaluated without writing anything. It exists
     for ``restart``, which has to run the stale-volume check BEFORE its ``down``:
     the ``down`` removes the store containers, and with them the only host-side
     copy of the credential each surviving volume was initialized with. Asking
@@ -568,10 +660,19 @@ def _volume_initialized_vars_that_would_be_minted(config: dict, env_path: Path) 
 
     services = {str(s) for s in (config.get("deployed_services") or [])}
     on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}
+
+    def _would_mint(var: str) -> bool:
+        # Kept in step with the predicate in _ensure_service_tokens: a blank
+        # entry in the .env is minted over, so predicting "not minted" for one
+        # would let restart skip the very store whose credential is about to
+        # change. The export carve-out is mirrored for the same reason.
+        exported_only = var in os.environ and var not in on_disk
+        return not exported_only and not _effective_value(var, on_disk).strip()
+
     return {
         var
         for var, store in _VOLUME_INITIALIZED_VARS.items()
-        if store.service in services and var not in os.environ and var not in on_disk
+        if store.service in services and _would_mint(var)
     }
 
 
@@ -1572,6 +1673,69 @@ def _worker_image_target(config: dict, env: dict) -> str:
     return f"{resolve_project_name(config)}:local"
 
 
+def _project_image_build_target(config: dict, env: dict) -> str | None:
+    """The image tag :func:`_build_project_image` will build, or ``None``.
+
+    The gate in front of that build, split out so a caller can ask whether the
+    build will happen at all without running it. Two ways it does not: this
+    deployment does not deploy the dispatch worker, or the worker's effective
+    image (:func:`_worker_image_target`) is a prebuilt one rather than this
+    project's own ``<project>:local`` tag.
+
+    That question is the difference between a definite refusal and a
+    hypothetical one for anything the build itself would raise. The
+    unreleased-pin refusal is the case in point: it is a fact about a build that
+    is going to happen, and reporting it for a deployment that builds nothing
+    would send the operator to fix something that was never going to run.
+
+    :param config: Raw deploy config.
+    :param env: Environment the build would run with, read for
+        ``OSPREY_WORKER_IMAGE``.
+    :return: The ``<project>:local`` tag, or ``None`` when nothing is built.
+    """
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    if "dispatch_worker" not in services:
+        return None
+    project_image = f"{resolve_project_name(config)}:local"
+    if _worker_image_target(config, env) != project_image:
+        return None
+    return project_image
+
+
+def _unreleased_pin_problem(config: dict, env: dict, dev_mode: bool) -> tuple[str, str] | None:
+    """Whether the project-image build would refuse over an unreleased pin.
+
+    :func:`_resolve_pip_spec` asked as a question, behind
+    :func:`_project_image_build_target` so it is only asked about a build this
+    deployment will actually make.
+
+    Only the DEFINITE case is reported. Under ``--dev`` the spec is inert when a
+    wheel is staged and live when the staging fails, and which of those happens
+    is not knowable from here — so a ``--dev`` start is left to the build's own
+    refusal rather than pre-judged, which would refuse the very workflow the
+    error recommends. An ``OSPREY_PIP_SPEC`` export answers the question outright
+    and is honoured here exactly as the build honours it.
+
+    Pure: it reads the process environment and this build's version metadata.
+
+    :param config: Raw deploy config.
+    :param env: Environment the build would run with.
+    :param dev_mode: Whether ``--dev`` was passed.
+    :return: The refusal as a ``(problem, remedy)`` pair — the one probed
+        refusal that already carries its two halves apart, so the collected
+        report can keep them apart too — or ``None``.
+    """
+    if dev_mode or _project_image_build_target(config, env) is None:
+        return None
+    from osprey.deployment.errors import UnreleasedVersionPinError
+
+    try:
+        _resolve_pip_spec(dev_mode=False)
+    except UnreleasedVersionPinError as exc:
+        return (f"{exc.summary}: {exc.reason}", exc.remedy)
+    return None
+
+
 def _project_image_build_cmd(
     config: dict, runtime: str, project_root: str, dev_mode: bool = False
 ) -> list[str]:
@@ -1656,17 +1820,19 @@ def _build_project_image(
         an image whose every recorded path — ``project_root``, and the
         ``OSPREY_CONFIG`` each MCP server is handed — names this machine.
     """
-    services = {str(s) for s in (config.get("deployed_services") or [])}
-    if "dispatch_worker" not in services:
-        return
-
-    target = _worker_image_target(config, env)
-    project_image = f"{resolve_project_name(config)}:local"
-    if target != project_image:
-        _report_fact(
-            f"Dispatch worker uses image {target!r} (OSPREY_WORKER_IMAGE / pinned "
-            f"services.dispatch_worker.image). Skipping the {project_image} build."
-        )
+    project_image = _project_image_build_target(config, env)
+    if project_image is None:
+        # Only ONE of the two no-op cases is worth a line. A deployment without
+        # the dispatch worker was never going to build this image and has
+        # nothing to explain; a deployment that has the worker but points it at
+        # another image took a decision the operator should see reflected back.
+        services = {str(s) for s in (config.get("deployed_services") or [])}
+        if "dispatch_worker" in services:
+            _report_fact(
+                f"Dispatch worker uses image {_worker_image_target(config, env)!r} "
+                f"(OSPREY_WORKER_IMAGE / pinned services.dispatch_worker.image). "
+                f"Skipping the {resolve_project_name(config)}:local build."
+            )
         return
 
     runtime = get_runtime_command(config)[0]
@@ -1701,6 +1867,7 @@ def _build_project_image(
         logger.debug("Running command:\n    %s", " ".join(cmd))
         # Watched for the duration of the build and no longer; the step line
         # below is what reports the finished image.
+        _report_group("images")
         with (report := single_image_build_reporter(project_image)):
             run_captured(
                 cmd,
@@ -2919,6 +3086,7 @@ def _stage_archiver_store(
         provider,
     )
 
+    _report_group("archiver")
     up_cmd = base_cmd + ["up", "-d", _ARCHIVER_STORE_SERVICE]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
     run_captured(up_cmd, env=run_env, spool_name="archiver-store-up", repo_root=project_dir)
@@ -3161,6 +3329,7 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
         provider,
     )
 
+    _report_group("ariel")
     up_cmd = base_cmd + ["up", "-d", _ARIEL_STORE_SERVICE]
     logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
     run_captured(up_cmd, env=run_env, spool_name="ariel-store-up", repo_root=project_dir)
@@ -3375,6 +3544,57 @@ def single_image_build_reporter(image_tag: str) -> BuildProgressReporter:
     return BuildProgressReporter(image_tag, step_prefix=None)
 
 
+def _collect_unmet_preconditions(
+    config: dict,
+    repo_root: Path | str,
+    env: dict,
+    *,
+    dev_mode: bool,
+    web_terminals_enabled: bool,
+) -> None:
+    """Probe every cheaply checkable start precondition, and report them all.
+
+    A start has several preconditions that are answerable from this
+    deployment's own files, before anything is built or started. Raised one at a
+    time, they cost the operator a whole deploy attempt per finding: refuse on
+    the first, fix it, re-run, wait, meet the second. This asks all of them and
+    raises once, so a deployment with four problems is described in one refusal.
+
+    Every probe is pure — it reads files and this build's version metadata,
+    writes nothing, starts no process, and asks the container runtime nothing.
+    That is not a stylistic preference at this position in the sequence: the
+    steps around it provision credentials and are ordered against each other, so
+    a probe with a side effect would silently be a step in that order.
+
+    The refusals stay where they are. Each probe's raising counterpart runs
+    later, unchanged, and would refuse the same start on its own — this is a
+    reporting pass in front of them, not a replacement for them.
+
+    Args:
+        config: Raw deploy config.
+        repo_root: The deployment repo whose renders and secret files are read.
+        env: The environment the project-image build would run with.
+        dev_mode: Whether ``--dev`` was passed.
+        web_terminals_enabled: Whether the web tier is part of this deploy;
+            three of the probes are about artifacts only it has.
+
+    Raises:
+        UnmetPreconditionsError: One or more probes reported a problem. Nothing
+            has been built or started.
+    """
+    from osprey.deployment.errors import UnmetPreconditionsError
+    from osprey.deployment.web_terminals.provision import web_terminal_preflight_problems
+
+    findings: list[tuple[str, str]] = []
+    if web_terminals_enabled:
+        findings.extend(web_terminal_preflight_problems(config, repo_root=repo_root))
+    if (pin := _unreleased_pin_problem(config, env, dev_mode)) is not None:
+        findings.append(pin)
+
+    if findings:
+        raise UnmetPreconditionsError(findings)
+
+
 def _start_stack(
     config: dict,
     compose_files: list[str],
@@ -3560,6 +3780,42 @@ def _start_stack(
         env["DEV_MODE"] = "true"
         _report_fact("dev mode: DEV_MODE set for the containers")
 
+    # Report every remaining precondition this deployment's own files can
+    # answer, in one refusal rather than one deploy attempt each. The position
+    # is pinned from both sides.
+    #
+    # Above: it must follow every provisioner that WRITES what the probes read,
+    # or it would refuse what the deploy is about to provide. Two of those are
+    # load-bearing here — `_ensure_service_tokens` and the bluesky key material
+    # mint `.env` on a fresh repo (a deploy that has no `.env` at all has one by
+    # now), and `migrate_users_env` carries a pre-rename deployment's secrets
+    # onto `.env.users`, whose own comment names the web-terminal preflight as
+    # that file's first reader. This pass now reads it one step earlier, so it
+    # inherits the same constraint.
+    #
+    # Below: it must precede the first minutes-long step, which is the project
+    # image build. Reporting in seconds is the whole point.
+    #
+    # Deliberately OUTSIDE the pass, and left to raise on their own:
+    #  * everything `_ensure_service_tokens` refuses upstream — the
+    #    forbidden-published-default credential and the `expose_network`
+    #    empty-token raise — because that step MINTS. It cannot be probed
+    #    without either duplicating the mint's rules or moving the mint, and it
+    #    has already run by the time control reaches here.
+    #  * the `--dev` failed-staging case. Whether a wheel stages is not knowable
+    #    without staging it, and the staging is paired with its cleanup inside
+    #    `_build_project_image`'s try/finally — hoisting it out to get a definite
+    #    answer would leave a staged wheel behind on a refusal.
+    #  * `preflight_web_terminals`' minting half (`_provision_auth_secrets`) and
+    #    the auth-sidecar image check ordered against it, for the same reason.
+    _collect_unmet_preconditions(
+        config,
+        repo_root,
+        env,
+        dev_mode=dev_mode,
+        web_terminals_enabled=web_terminals_enabled,
+    )
+
     # Fail-fast web-terminal preflight (persona render + credential gate)
     # BEFORE the minutes-long image build below: a deploy that is doomed to
     # abort on a missing provider secret must say so in seconds, not after
@@ -3649,6 +3905,7 @@ def _start_stack(
     # there is nothing stopped), so a healthy stack's reconcile stays
     # zero-churn. Volumes are never touched — destroying state stays the job
     # of clean/rebuild. Best-effort: if it fails, `up` surfaces the real error.
+    _report_group("services")
     rm_cmd = base_cmd + ["rm", "-f"]
     logger.debug(f"Running command:\n    {' '.join(rm_cmd)}")
     run_captured(rm_cmd, env=run_env, spool_name="compose-rm", repo_root=repo_root, check=False)

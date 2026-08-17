@@ -474,12 +474,15 @@ def test_fail_only_prints(capsys):
     assert visible(captured.out) == ["and the verb decided what to do about it"]
 
 
-def test_fail_is_colored_on_a_terminal_and_only_on_its_summary(recording_err):
+def test_fail_is_colored_on_a_terminal_summary_and_remedy_arrow_only(recording_err):
     fail("could not start the web service", "port 8080 is already bound", "free the port")
     lines = recording_err.getvalue().splitlines()
     assert "\x1b[" in lines[0]
     assert "\x1b[" not in lines[1]
-    assert "\x1b[" not in lines[2]
+    # The remedy line's ARROW carries the accent; its prose stays uncolored.
+    arrow, _, prose = lines[2].partition("→ ")
+    assert "\x1b[" in arrow
+    assert "\x1b[" not in prose.replace("\x1b[0m", "")
     assert _ANSI.sub("", recording_err.getvalue()).splitlines() == [
         "✗ could not start the web service",
         "  port 8080 is already bound",

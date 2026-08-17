@@ -71,7 +71,15 @@ services:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
-      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.port | default(8090) }}:{{ services.bluesky.port | default(8090) }}"
@@ -342,7 +350,15 @@ services:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
-      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     # No `ports:` — deliberately. Publishing the control socket would put a
     # second route to plan execution next to the bridge's launch-token gate,

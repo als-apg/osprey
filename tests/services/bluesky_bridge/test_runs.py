@@ -36,7 +36,7 @@ def _item(
     item: dict = {
         "item_type": "plan",
         "name": name,
-        "kwargs": kwargs if kwargs is not None else {"detectors": ["BPM1"]},
+        "kwargs": kwargs if kwargs is not None else {"readables": ["BPM1"]},
         "item_uid": item_uid,
     }
     if run_id is not None:
@@ -114,7 +114,7 @@ def test_an_unrecognized_exit_status_reads_as_error_not_completion(result: dict)
 
 
 def test_record_carries_the_plan_name_and_its_unwrapped_kwargs() -> None:
-    args = {"detectors": ["BPM1"], "axes": [{"setpoint": "COR1"}]}
+    args = {"readables": ["BPM1"], "axes": [{"setpoint": "COR1"}]}
     [record] = _records(pending=[_item(name="grid_scan", kwargs=args)])
     assert record["plan_name"] == "grid_scan"
     assert record["plan_args"] == args
@@ -125,7 +125,7 @@ def test_plan_args_is_a_copy_not_the_managers_own_dict() -> None:
     serialized to JSON on the way out, so nothing downstream mutates it — this
     only stops the projection from handing out an alias of the manager
     document it was handed."""
-    args = {"detectors": ["BPM1"]}
+    args = {"readables": ["BPM1"]}
     item = _item(kwargs=args)
     [record] = _records(pending=[item])
     assert record["plan_args"] is not args
@@ -172,9 +172,7 @@ def test_progress_is_absent_when_the_document_plane_knows_nothing() -> None:
 
 
 def test_progress_is_attached_when_the_document_plane_has_rows() -> None:
-    document_plane.record_run_params(
-        "run-1", {"axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 4}]}
-    )
+    document_plane.record_expected_points("run-1", 4)
     recorder = live_rows.LiveRowRecorder(key="run-1")
     recorder("start", {"uid": "re-uid"})
     recorder("event", {"data": {"BPM1": 1.0}})

@@ -13,6 +13,14 @@ not run an OSPREY control-assistant — for example, when hardware control
 is handled by a different system, or when a team wants to evaluate ARIEL
 on their corpus before committing to the full deployment.
 
+.. seealso::
+
+   Already running the ``control-assistant`` multi-user stack? The same
+   research terminal ships there as its ``ariel`` persona — a card on the
+   landing page beside the operator logins, sharing that deployment's
+   PostgreSQL and logbook. This page is the route when ARIEL should stand
+   alone; :ref:`how-to-multi-user` covers the persona.
+
 .. image:: /_static/resources/ariel_standalone.png
    :alt: ARIEL-standalone bundle: PostgreSQL+pgvector, the ARIEL service, and a sandboxed Osprey agent reaching ARIEL only through the MCP boundary
    :align: center

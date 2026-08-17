@@ -58,41 +58,47 @@ def _notify_authoring_activity(tool: str, detail: str | None) -> None:
 @mcp.tool()
 async def write_plan(
     name: str,
-    category: str,
-    required_devices: list[str],
     writes: bool,
     body: str,
     description: str = "",
 ) -> str:
     """Author a session-tier plan file on the bridge. Reaches NO hardware.
 
-    The bridge assembles a `PLAN_METADATA = {...}` block from
-    ``name``/``description``/``category``/``required_devices``/``writes`` and
-    prepends it to ``body`` (your own ``PARAMS`` + ``build_plan`` source, per
-    the layered directory catalog's file contract), writing the combined text
-    as one file. The bridge NEVER imports or execs this file — it is inert
-    until validate_plan passes it and, later, a human approves
-    launching it. Re-authoring an existing ``name`` overwrites the file and
-    invalidates any prior passing validation (its content hash changes).
+    The bridge assembles a `PLAN_METADATA = {...}` block from exactly
+    ``name``/``description``/``writes`` and prepends it to ``body`` (your own
+    ``PARAMS`` + ``build_plan`` source, per the layered directory catalog's
+    file contract), writing the combined text as one file. The bridge NEVER
+    imports or execs this file — it is inert until validate_plan passes it
+    and, later, a human approves launching it. Re-authoring an existing
+    ``name`` overwrites the file and invalidates any prior passing validation
+    (its content hash changes).
+
+    Which channels the plan touches is NOT declared here. Declare it in the
+    ``body``'s `PARAMS` model with the role-typed field helpers from
+    ``osprey.services.bluesky_bridge.plan_fields`` — ``MovableChannels`` /
+    ``ReadableChannels`` for a list field, ``MovableChannel`` /
+    ``ReadableChannel`` for one channel inside a nested model. Every consumer
+    (dry-run mocks, the pre-queue channel check, the devices your
+    ``build_plan`` is handed, the default figure) reads those fields, so an
+    undeclared channel is simply not available to the plan.
 
     Args:
         name: Plan name — must be a valid Python identifier; doubles as the
             on-disk file stem and the generated metadata's ``name`` field.
-        category: Free-text grouping shown to operators (e.g. "accelerator").
-        required_devices: Names of the `PARAMS` fields naming devices the
-            plan drives/reads (e.g. ``["correctors", "detectors"]``). Name the
-            field immediately around the device-name strings — for a nested
-            shape that is the inner key, as `grid_scan` declares
-            ``"setpoints"`` for its ``axes[].setpoint`` values. The bridge
-            checks device names against the worker's device list before
-            queuing, and a field it cannot match is left unchecked.
-        writes: Whether this plan moves a device (vs. read-only). Authoring
-            metadata only — has no effect on whether writes actually happen;
-            that is governed entirely by ``control_system.writes_enabled``.
+        writes: Whether this plan moves a channel (vs. reading only). Passing
+            true obliges the ``body`` to declare at least one movable channel
+            field; the load gate quarantines a plan that declares none. It has
+            no effect on whether writes actually happen; that is governed
+            entirely by ``control_system.writes_enabled``.
         body: Your plan's own source: a `PARAMS` pydantic model (optional)
             and a `build_plan(devices, params)` callable, exactly as a
-            directory-layer plan file needs — see the orm
-            exemplar plan for the expected shape.
+            directory-layer plan file needs — see the orm exemplar plan for
+            the expected shape. A ``writes: true`` plan that opens its own run
+            must declare its point count on that run:
+            ``md=scan_metadata(movable=..., readable=..., points=...)``
+            (also from ``plan_fields``) on the run decorator, so operators can
+            watch its progress. A plan delegating to a stock bluesky plan
+            inherits that stamp and needs nothing.
         description: Human-readable summary of what the plan does.
 
     Returns:
@@ -103,8 +109,6 @@ async def write_plan(
     payload = {
         "name": name,
         "description": description,
-        "category": category,
-        "required_devices": required_devices,
         "writes": writes,
         "body": body,
     }
@@ -115,7 +119,10 @@ async def write_plan(
             bridge_error_message(resp_body, status),
             [
                 "Check name is a valid Python identifier (used as the file stem).",
-                "Check category/required_devices/writes are present and well-typed.",
+                "Check writes is present and a bool — it and name/description are "
+                "the whole metadata contract.",
+                "Declare the channels in the body's PARAMS with the role-typed "
+                "field helpers (MovableChannels/ReadableChannels), not in this call.",
             ],
         )
 

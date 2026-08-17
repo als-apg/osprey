@@ -274,6 +274,28 @@ def test_a_profile_without_coordinates_is_refused_cleanly(
     assert not (bare / CI_PATH).exists()
 
 
+def test_the_refusal_points_at_the_commented_block_the_profile_already_carries(
+    tmp_path: Path,
+) -> None:
+    """ "Add one naming the CI platform" reads as authoring a block from scratch.
+
+    Every emitted profile already ends with a commented ``deploy:`` example, so
+    the operator's work is uncommenting and filling in — a smaller, different
+    task than the one the old wording described, and one they can only find if
+    the refusal says where to look.
+    """
+    bare = build_exemplar_repo(tmp_path / "no-coordinates", with_ci=False)
+
+    with pytest.raises(ConfigurationError) as caught:
+        scaffold_deploy_files(bare)
+
+    message = " ".join(str(caught.value).split())
+    assert "commented 'deploy:' example" in message
+    assert "at the end of the file" in message
+    assert "uncomment it" in message
+    assert "the CI platform, the registry and the deploy host" in message
+
+
 def test_the_engines_missing_profile_message_names_this_verb(tmp_path: Path) -> None:
     """The one refusal the resolver cannot pre-empt still points somewhere.
 

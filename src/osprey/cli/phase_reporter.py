@@ -3,8 +3,18 @@
 Lifecycle verbs (``init``, ``build``, ``up``, ``restart``, ``down``, ``reset``)
 report progress as a short sequence of phases rendered as plain sequential
 lines on stdout: ``→ title`` when a phase starts, ``  ✓ title (elapsed)`` when
-it ends, ``  · name`` for sub-steps. Those lines are the permanent record on
-every path, terminal or not, and nothing rewrites them once printed.
+it ends, ``  · name`` for sub-steps, with an optional ``  group`` header line
+opening a named run of steps (which then sit one step deeper). Those lines are
+the permanent record on every path, terminal or not, and nothing rewrites them
+once printed.
+
+On a terminal the lines carry the CLI's theme, assigned by role rather than
+per line: the phase arrow anchors in the theme's primary, group headers in its
+subheader, and everything that is *over* — durations, closed ``✓`` lines —
+drops to dim, so the open phase and any warning are the brightest things on
+screen. The words never change: styles ride on text segments
+(:meth:`PhaseReporter.emit_segments`), and off a terminal the segments print
+unstyled, byte-identical to what these lines have always been.
 
 On a terminal :class:`LiveReporter` adds a live region *underneath* that record:
 the open phase repainted with a spinner and a ticking elapsed, and a row per
@@ -42,7 +52,7 @@ from .live_render import render_live_region
 from .styles import Styles, console
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
     from rich.console import Console
 
@@ -96,6 +106,7 @@ class Phase:
         self._start = time.monotonic()
         self._lap = self._start
         self._closed = False
+        self._group: str | None = None
 
     @property
     def elapsed(self) -> float:
@@ -116,6 +127,22 @@ class Phase:
         """Record the spool file the phase is currently writing to."""
         self.spool = path
 
+    def group(self, name: str | None) -> None:
+        """Open a named group of steps, printing its header line once.
+
+        A long phase's steps arrive in contiguous runs — one service brought
+        up, then the next — and the header is what lets a reader hold those
+        runs apart in the scrollback. Steps reported while a group is open sit
+        one step deeper than the header. Re-declaring the open group is a
+        no-op (a loop may declare per iteration); ``None`` closes the group
+        without printing anything.
+        """
+        if name == self._group:
+            return
+        self._group = name
+        if name is not None:
+            self._reporter.emit_segments((("  ", None), (name, Styles.SUBHEADER)))
+
     def step(self, name: str) -> None:
         """Print a sub-line under this phase.
 
@@ -125,17 +152,28 @@ class Phase:
         """
         now = time.monotonic()
         lap, self._lap = now - self._lap, now
-        suffix = f" ({format_elapsed(lap)})" if lap >= 0.05 else ""
-        self._reporter.emit(f"  · {name}{suffix}")
+        indent = "    " if self._group is not None else "  "
+        segments: list[tuple[str, str | None]] = [(f"{indent}· ", Styles.DIM), (name, None)]
+        if lap >= 0.05:
+            segments.append((f" ({format_elapsed(lap)})", Styles.DIM))
+        self._reporter.emit_segments(segments)
 
     def done(self, note: str = "") -> None:
-        """Print the success line for this phase."""
+        """Print the success line for this phase.
+
+        The ``✓`` keeps the success color; the rest of the line is dim. A
+        closed phase is over, and the record of it must recede so the open
+        one stays the brightest thing on screen.
+        """
         if self._closed:
             return
         self._closed = True
         suffix = f" — {note}" if note else ""
-        self._reporter.emit(
-            f"  ✓ {self.title} ({format_elapsed(self.elapsed)}){suffix}", style=Styles.SUCCESS
+        self._reporter.emit_segments(
+            (
+                ("  ✓ ", Styles.SUCCESS),
+                (f"{self.title} ({format_elapsed(self.elapsed)}){suffix}", Styles.DIM),
+            )
         )
 
     def fail(self, replay: Path | None = None) -> None:
@@ -253,6 +291,26 @@ class PhaseReporter:
             soft_wrap=True,
         )
 
+    def emit_segments(self, segments: Sequence[tuple[str, str | None]]) -> None:
+        """Print one line assembled from ``(text, style)`` segments.
+
+        How a phase line carries more than one style — a dim glyph in front of
+        default text, a dim duration behind it. With color off the segments ARE
+        their joined text, so the line goes through :meth:`emit` — which keeps
+        every subclass that intercepts ``emit`` (the ``--verbose`` swallower,
+        the tests' recorders) seeing one seam, and keeps the bytes a pipe reads
+        exactly what they always were. With color on, the styles ride on the
+        Text's own spans — never on a ``style=`` argument, which Rich would
+        apply to a mounted live region repainted in the same call.
+        """
+        if not self.color:
+            self.emit("".join(part for part, _ in segments))
+            return
+        text = Text()
+        for part, style in segments:
+            text.append(part, style=style or "")
+        self.out().print(text, soft_wrap=True)
+
     def echo(self, text: str) -> None:
         """Print one line of a verb's OWN output, rather than of the phase record.
 
@@ -272,8 +330,16 @@ class PhaseReporter:
         self.out().print(text, markup=False, highlight=False, soft_wrap=True)
 
     def phase(self, title: str) -> Phase:
-        """Start a phase, printing its opening line."""
-        self.emit(f"→ {title}", style=Styles.BOLD)
+        """Start a phase, printing a blank line and its opening line.
+
+        The blank line is the record's vertical rhythm: phases are the units
+        an operator scans for, and the gap is what makes the boundary findable
+        in a wall of steps. Structure rather than color, so it survives a pipe.
+        The arrow anchors in the theme's primary — the one saturated mark on a
+        healthy run, which is what makes it the eye's landing point.
+        """
+        self.emit("")
+        self.emit_segments((("→ ", Styles.HEADER), (title, Styles.BOLD)))
         self._phase = Phase(self, title)
         return self._phase
 
@@ -620,6 +686,9 @@ def _heartbeat_line(row: BuildRow, now: float) -> str:
     surface already speaks -- ``  · step (lap)``, ``  ✓ title (elapsed)``. A
     reader who has seen one line of this output has already learned where to
     look for a time, and this line says only that the time is still running.
+
+    A plain string, not styled segments: heartbeats print where no live region
+    does — off a terminal, where the color gate strips styles anyway.
     """
     parts = (row.service, row.step, _clip(row.caption))
     head = " ".join(part for part in parts if part)
@@ -771,7 +840,13 @@ class LiveReporter(PhaseReporter):
         phase = self._phase
         if phase is None:
             return
-        self.emit(f"  · {phase.title} (running {format_elapsed(phase.elapsed)})")
+        self.emit_segments(
+            (
+                ("  · ", Styles.DIM),
+                (phase.title, None),
+                (f" (running {format_elapsed(phase.elapsed)})", Styles.DIM),
+            )
+        )
 
     def refresh_live(self) -> bool:
         """Repaint the region from one clock reading; True while it is mounted.
@@ -941,3 +1016,17 @@ def report_step(name: str) -> None:
     phase = current_reporter().current_phase
     if phase is not None:
         phase.step(name)
+
+
+def report_group(name: str | None) -> None:
+    """Open a named group of steps under the open phase, if there is one.
+
+    :func:`report_step`'s counterpart for the header line: a deploy site that
+    is about to report a contiguous run of steps for one service declares the
+    group once, and the steps that follow nest under it. Conditional on an
+    open phase for the same reason :func:`report_step` is, and idempotent per
+    group so a loop may declare each iteration. ``None`` closes the group.
+    """
+    phase = current_reporter().current_phase
+    if phase is not None:
+        phase.group(name)

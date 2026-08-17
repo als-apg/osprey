@@ -60,6 +60,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from .plan_fields import declared_channels
 from .plan_validation import hash_plan_body
 from .session_dir import resolve_session_plan_dir
 from .validation_record import ValidationRecordStore, validation_records
@@ -189,7 +190,12 @@ def install_session_plan(
 
     Devices are resolved from ``namespace`` with queueserver's own
     ``is_device`` predicate, so the wrapper closes over exactly the device set
-    the manager itself considers available in this worker.
+    the manager itself considers available in this worker. What one run may
+    reach is narrower still: ``build_plan`` receives only the channels the
+    validated params declare movable or readable (:func:`_declared_devices`),
+    and a device referenced through a parameter carrying no role declaration is
+    absent from that mapping — a legible ``KeyError`` naming both the reason and
+    the worker's devices, not a silent resolution.
 
     Args:
         namespace: The worker namespace (``globals()`` inside the script).
@@ -207,7 +213,16 @@ def install_session_plan(
     from pydantic import BaseModel
 
     module_namespace: dict[str, Any] = {"__name__": f"{SESSION_PLAN_MODULE}.{name}"}
-    exec(compile(source, f"<session plan {name}>", "exec"), module_namespace)  # noqa: S102
+    # `dont_inherit=True` matters: `compile` otherwise applies THIS module's
+    # `from __future__ import annotations` to the plan file, turning every
+    # annotation in it into a string. A plan's `PARAMS` model is then left
+    # incomplete for any annotation pydantic cannot resolve from builtins — the
+    # role-typed channel fields among them, since the exec'd module is not in
+    # `sys.modules` for pydantic to look their names up in — and the plan fails
+    # at its first enqueue with "`PARAMS` is not fully defined". The plan file's
+    # own `__future__` imports still apply; only this module's leak is cut.
+    code = compile(source, f"<session plan {name}>", "exec", dont_inherit=True)
+    exec(code, module_namespace)  # noqa: S102
 
     build_plan = module_namespace.get("build_plan")
     if not callable(build_plan):
@@ -231,9 +246,15 @@ def install_session_plan(
     def plan_function(**kwargs: Any) -> Iterator[Any]:
         params = params_model.model_validate(kwargs)
         try:
-            plan = build_plan(dict(devices), params)
+            plan = build_plan(_declared_devices(params_model, params, devices), params)
         except KeyError as exc:
             missing = exc.args[0] if exc.args else "<unknown>"
+            if missing in devices:
+                raise KeyError(
+                    f"session plan {name!r} referenced device {missing!r}, which its parameters "
+                    f"do not declare as a movable or readable channel — a plan resolves only "
+                    f"the channels it declares; available devices: {sorted(devices)}"
+                ) from exc
             raise KeyError(
                 f"session plan {name!r} referenced device {missing!r}, which this worker "
                 f"did not build; available devices: {sorted(devices)}"
@@ -276,6 +297,22 @@ def collect_devices(namespace: MutableMapping[str, Any]) -> dict[str, Any]:
     from bluesky_queueserver.manager.profile_ops import is_device
 
     return {key: value for key, value in namespace.items() if is_device(value)}
+
+
+def _declared_devices(schema: Any, params: Any, devices: dict[str, Any]) -> dict[str, Any]:
+    """The devices one session plan may resolve: the channels its params declare.
+
+    Same bound `qserver_startup` puts on a catalog plan, for the same reason: a
+    plan's ``PARAMS`` model declares which channels it moves and which it reads,
+    and that declaration is its whole claim on this worker. The mapping handed
+    to ``build_plan`` holds those channels and nothing else, so a session plan
+    cannot reach a device it never declared — and a plan file with no ``PARAMS``
+    at all declares nothing and so resolves nothing.
+
+    Names the worker did not build are left out rather than raising; the
+    wrapper's own handler is what turns either miss into a legible failure.
+    """
+    return {name: devices[name] for name in declared_channels(schema, params) if name in devices}
 
 
 def _plan_docstring(name: str, module_namespace: dict[str, Any]) -> str:

@@ -1,5 +1,5 @@
 =============
-Bluesky Scans
+Bluesky Plans
 =============
 
 The Osprey agent can run real measurement scans — sweep magnets, read beam

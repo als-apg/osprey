@@ -52,7 +52,6 @@ def _render(
         "osprey_labels": {
             "project_name": "proj",
             "project_root": "/tmp/proj",
-            "deployed_at": "2026-08-07T00:00:00Z",
         },
         "osprey_version": "2026.8.1",
         "system": {"timezone": "UTC"},
@@ -431,16 +430,34 @@ def test_shipped_permissions_pass_upstream_and_admit_catalog_plans() -> None:
     assert sorted(allowed_devices["primary"]) == ["bpm1", "corr1"]
 
 
-def test_shipped_permissions_deny_function_execution_globally() -> None:
+def test_shipped_permissions_allow_only_preview_plan() -> None:
     """`function_execute` runs arbitrary callables in the worker namespace,
-    outside the plan path and outside the connector's reference monitor. An
-    empty `allowed_functions` selects nothing, and `root` filters every group,
-    so this denies it everywhere. The bridge never calls it."""
-    permissions = yaml.safe_load(
-        (TEMPLATE_DIR / "bluesky" / "user_group_permissions.yaml").read_text(encoding="utf-8")
+    outside the plan path and outside the connector's reference monitor, so
+    this must stay closed except for one deliberate, read-only exception.
+
+    Proved with queueserver's own `check_if_function_allowed` rather than by
+    reading the YAML shape, so the assertion tracks upstream's actual
+    resolution (root-as-preliminary-filter, allow/forbid pattern matching)
+    instead of our assumptions about it. `preview_plan_in_namespace` and
+    `collect_channel_moves` are sibling worker-namespace callables that share
+    `preview_plan`'s prefix; both must stay denied, which also pins that the
+    entry is an exact-match literal, not an unanchored substring or regex."""
+    from bluesky_queueserver.manager.profile_ops import (
+        check_if_function_allowed,
+        load_user_group_permissions,
     )
-    for group in permissions["user_groups"].values():
-        assert group["allowed_functions"] == []
+
+    permissions = load_user_group_permissions(
+        str(TEMPLATE_DIR / "bluesky" / "user_group_permissions.yaml")
+    )
+    for group in ("root", "primary"):
+        assert check_if_function_allowed(
+            "preview_plan", group_name=group, user_group_permissions=permissions
+        )
+        for other in ("preview_plan_in_namespace", "collect_channel_moves"):
+            assert not check_if_function_allowed(
+                other, group_name=group, user_group_permissions=permissions
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -585,7 +602,6 @@ def test_redis_image_honours_a_config_override() -> None:
                 "osprey_labels": {
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
-                    "deployed_at": "x",
                 },
                 "system": {"timezone": "UTC"},
                 "deployment": {},
@@ -731,7 +747,6 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                 "osprey_labels": {
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
-                    "deployed_at": "x",
                 },
                 "system": {"timezone": "UTC"},
                 "deployment": {},
@@ -755,7 +770,6 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                 "osprey_labels": {
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
-                    "deployed_at": "x",
                 },
                 "system": {"timezone": "UTC"},
                 "deployment": {},

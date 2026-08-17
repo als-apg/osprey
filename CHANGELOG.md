@@ -13,6 +13,15 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Lifecycle output now carries the CLI's theme. Phase openers anchor in the
+  theme's primary color with a blank line before each phase, finished phases
+  and durations dim so the open phase stays prominent, promoted facts and
+  remedy arrows use the accent, and the closing "This deploy wrote" block
+  styles its heading and file paths like the rest of the CLI. Long phases
+  group their steps under quiet per-service headers (`archiver`, `ariel`,
+  `personas`, `services`, …) so a busy `osprey up` reads as sections instead
+  of one flat column. Piped output is unchanged apart from the new blank
+  lines and group headers — color never reaches a pipe.
 - Deploy output keeps one shape from start to finish. Facts a deploy used to
   print as paragraphs between phases (minted tokens, generated certificates, a
   renamed secrets file) are now one short line each in the step column, with
@@ -137,6 +146,20 @@ Compatibility is documented in release notes, not encoded in the version string.
   and each browser tab is titled after its role.
 
 ### Added
+
+- The `control-assistant` preset now stands up a third web terminal beside
+  Alice and Bob: a standalone ARIEL logbook assistant, on its own card at
+  `/u/ariel/`. It shares the deployment's Postgres and logbook, and runs no
+  control-system tools at all — no channel access, no Python sandbox, no scan
+  queue. Existing deployments are unaffected until they adopt the new preset.
+
+- A persona can name the landing-page section its terminals appear under, with
+  `landing_group` in the `modules.web_terminals.personas` catalog. The roster
+  then splits: people stay in the default section, and each declared group gets
+  its own below, drawn as a panel — which is how the landing page shows a
+  standalone service as something other than another login. The `users` landing
+  group also takes a `label` now, so both halves can be named. Nothing else
+  about a terminal changes; a deployment that sets neither renders as before.
 
 - A `qmd` search sidecar indexes the deployment's markdown corpora — the
   facility-knowledge bundle, and a markdown mirror of the ARIEL logbook — and
@@ -596,6 +619,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   list of valid `bluesky:` keys, rather than dropping the key silently.
 
 ### Fixed
+
+- A web-terminal persona that drops a skill by name now really builds without
+  it. Persona builds decided which skill files to write from the host
+  deployment's artifact list rather than the persona's own, so a persona could
+  add a skill but never remove one, and the terminal shipped skills whose tool
+  servers it does not run. Hooks, rules and subagents were already correct.
 
 - The `orm` scan plan now kicks each corrector either side of where it found it
   and puts it back there. It previously drove absolute currents either side of

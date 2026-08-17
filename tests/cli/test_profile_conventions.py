@@ -22,6 +22,7 @@ from osprey.cli.profile_conventions import (
     CONVENTION_DIRS,
     CONVENTION_SOURCES,
     KNOWN_ROOT_ENTRIES,
+    PER_USER_CONTEXT_DIRNAME,
     PROJECT_MIRROR_DIR,
     RESERVED_PROJECT_PATHS,
     STATE_DIR,
@@ -385,6 +386,65 @@ def test_loose_file_in_a_directory_shaped_convention_is_rejected(profile_dir: Pa
     message = str(excinfo.value)
     assert "skills/orbit-check.md" in message
     assert "one directory per skill" in message
+
+
+def test_loose_file_in_the_per_user_convention_states_the_roster_rule(profile_dir: Path):
+    """The generic "move it into ``<stem>/``" advice manufactures a phantom user.
+
+    Directory names under the per-user convention are matched against the
+    resolved roster, so a directory invented to hold a loose file names nobody:
+    the build skips it as departed, and the operator's file stops being read
+    while they believe they followed the instructions. The message has to name
+    the rule, and must not offer the move that breaks it.
+    """
+    _write(profile_dir / PER_USER_CONTEXT_DIRNAME / "shift-notes.md")
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        validate_convention_sources(profile_dir)
+
+    message = str(excinfo.value)
+    assert f"{PER_USER_CONTEXT_DIRNAME}/shift-notes.md is a file" in message
+    assert "named for a user on the resolved roster" in message
+    assert "skipped as a user who has left" in message
+    assert f"{PER_USER_CONTEXT_DIRNAME}/<user>/shift-notes.md" in message
+    # The advice that would quietly stop the file being read.
+    assert f"Move it into {PER_USER_CONTEXT_DIRNAME}/shift-notes/" not in message
+
+
+def test_base_md_in_the_per_user_convention_is_sent_through_the_mirror(profile_dir: Path):
+    """``base.md`` is nobody's context, so no per-user directory can hold it.
+
+    It is the baseline every seeded user starts from, installed by the build at
+    one path. The only route a profile has to that path today is the
+    ``project/`` mirror, so the refusal names it rather than leaving the
+    operator to guess at a user directory that would never be read.
+    """
+    _write(profile_dir / PER_USER_CONTEXT_DIRNAME / "base.md")
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        validate_convention_sources(profile_dir)
+
+    message = str(excinfo.value)
+    assert f"{PROJECT_MIRROR_DIR}/docker/web-terminal-context/base.md" in message
+    assert "the baseline every seeded user starts from" in message
+    assert f"Move it into {PER_USER_CONTEXT_DIRNAME}/base/" not in message
+
+
+def test_the_other_directory_conventions_keep_their_move_advice(profile_dir: Path):
+    """Only the per-user convention constrains its directory names.
+
+    A skill directory is free-form, so ``skills/<stem>/`` is exactly the right
+    move there — the per-user wording must not have spread to the conventions
+    it does not describe.
+    """
+    _write(profile_dir / "skills" / "orbit-check.md")
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        validate_convention_sources(profile_dir)
+
+    message = str(excinfo.value)
+    assert "Move it into skills/orbit-check/" in message
+    assert "roster" not in message
 
 
 def test_hidden_entries_do_not_trip_source_validation(profile_dir: Path):

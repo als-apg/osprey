@@ -581,12 +581,50 @@ def _validate_directory_dir(convention: ConventionDir, root: Path) -> list[str]:
             continue
         if not entry.is_dir():
             errors.append(
-                f"{convention.source}/{entry.name} is a file: {convention.source}/ "
-                f"holds one directory per {convention.entry_noun}.\n"
-                f"  Move it into {convention.source}/{entry.stem}/ "
-                f"(the whole directory is copied as a unit)."
+                _per_user_file_error(convention, entry)
+                if convention.per_user
+                else (
+                    f"{convention.source}/{entry.name} is a file: {convention.source}/ "
+                    f"holds one directory per {convention.entry_noun}.\n"
+                    f"  Move it into {convention.source}/{entry.stem}/ "
+                    f"(the whole directory is copied as a unit)."
+                )
             )
     return errors
+
+
+def _per_user_file_error(convention: ConventionDir, entry: Path) -> str:
+    """Report a loose file in a per-user convention directory.
+
+    A per-user directory's names are not free-form: the build matches every one
+    of them against the resolved roster, and a directory naming nobody on it is
+    skipped (:func:`partition_context_users`). "Move it into ``<stem>/``" — the
+    advice every other directory-shaped convention gets — would therefore tell
+    an operator to invent a user, and their file would quietly stop being read
+    on the next build. So the rule is stated instead, and the file is pointed at
+    a route that carries it: a named user's directory, or, for the shared
+    baseline, the ``project/`` mirror.
+    """
+    header = (
+        f"{convention.source}/{entry.name} is a file: {convention.source}/ holds one "
+        f"directory per {convention.entry_noun}, and each one is named for a user on "
+        f"the resolved roster. A directory named anything else is skipped as a user "
+        f"who has left, so a directory invented to hold this file would not be read."
+    )
+    if entry.name == "base.md":
+        return (
+            f"{header}\n"
+            f"  base.md is the baseline every seeded user starts from, not one user's "
+            f"context, so it has no directory here. Carry it through the "
+            f"{PROJECT_MIRROR_DIR}/ mirror instead: put it at "
+            f"{PROJECT_MIRROR_DIR}/{convention.destination}/base.md, which lands on "
+            f"the same file the build installs."
+        )
+    return (
+        f"{header}\n"
+        f"  Move it into the directory of the user it belongs to "
+        f"({convention.source}/<user>/{entry.name}), naming a user the build resolves."
+    )
 
 
 def validate_convention_sources(profile_dir: Path) -> None:
