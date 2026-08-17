@@ -157,7 +157,7 @@ def deployed_grid_scan_stack(
     bpms = _orm_stack.select_bpms(limits, count=1)
     # Writes the repo root's `.env` — the deployment's whole secret store, and
     # the file `osprey up` refuses to start without.
-    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 

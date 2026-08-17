@@ -33,7 +33,7 @@ queue API (``PATCH /draft`` -> ``POST /queue/items`` -> armed
       and the figure it draws from there matches the one it drew live.
 
 No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/
-``VA_CORR_GAIN`` in the written ``.env`` -- see ``_orm_stack.write_scan_env``),
+``VA_CORR_GAIN`` in the written ``.env`` -- see ``_orm_stack.write_substrate_env``),
 so every BPM/corrector carries the identity error state
 (``PhysicsBridge.__init__``'s default). The measured/model
 agreement is therefore bounded only by AT numerical-solve reproducibility and
@@ -209,7 +209,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
     bpms = _orm_stack.select_bpms(limits)
     # Writes the repo root's `.env` — the deployment's whole secret store, and
     # the file `osprey up` refuses to start without.
-    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 

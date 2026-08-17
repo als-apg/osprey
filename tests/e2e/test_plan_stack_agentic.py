@@ -1965,7 +1965,7 @@ class DeployedScanStack:
     """Everything a live test needs about the one deployed project.
 
     ``correctors``/``readbacks`` are the device names wired into the bridge worker
-    (``write_scan_env``), so a test that composes a plan names exactly the
+    (``write_substrate_env``), so a test that composes a plan names exactly the
     devices the deployed worker registered.
     """
 
@@ -2034,7 +2034,7 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     limits = _orm_stack.channel_limits(repo / "build")
     correctors = _orm_stack.select_correctors(limits)
     bpms = _orm_stack.select_bpms(limits)
-    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
 
     _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 

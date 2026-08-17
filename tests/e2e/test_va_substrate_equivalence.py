@@ -107,7 +107,7 @@ BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 
 # Device names wired into the bridge via BLUESKY_EPICS_SETPOINTS/_DETECTORS —
-# arbitrary, resolved against explicit PV addresses (see _write_scan_env
+# arbitrary, resolved against explicit PV addresses (see _write_substrate_env
 # below), never a preset naming convention.
 SCAN_MOTOR = "scan_motor"
 P3_DETECTOR = "p3_det"
@@ -243,7 +243,7 @@ def _select_sp_echo_pairs(channel_limits: dict[str, Any], count: int) -> list[tu
     return pairs[:count]
 
 
-def _write_scan_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
+def _write_substrate_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
     """Append task 4.2's contract env vars to the repo's ``.env`` -- BEFORE
     ``osprey up`` (the bridge/VA compose templates pass these through from the
     repo root's ``.env``, same mechanism as ``BLUESKY_LAUNCH_TOKEN``).
@@ -366,7 +366,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     limits = _channel_limits(repo)
     sp3, sp4, sp5 = _select_sp_echo_pairs(limits, count=3)
     pairs = {"p3": sp3, "p4": sp4, "p5": sp5}
-    _write_scan_env(repo, pairs)
+    _write_substrate_env(repo, pairs)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise reuse a

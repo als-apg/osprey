@@ -489,7 +489,7 @@ def deployed_sandbox_stack(
     positive_correctors = {name: pair for name, pair in correctors.items() if name != escape_name}
     # Writes the repo root's `.env` — the deployment's whole secret store, and
     # the file `osprey up` refuses to start without.
-    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 

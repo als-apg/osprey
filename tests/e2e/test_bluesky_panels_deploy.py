@@ -16,7 +16,7 @@ itself against the bridge; this proves the hop in front of it.
 Reuses ``tests/e2e/_orm_stack.py`` (the single source for FR11's VA-backed
 turn-key deploy config): ``init_args``/``find_osprey_console_script`` materialize
 the real deployment repo and ``select_correctors``/``select_bpms``/
-``write_scan_env`` wire the substrate device env from the render's own
+``write_substrate_env`` wire the substrate device env from the render's own
 ``build/data/channel_limits.json`` -- the limits database the deployed
 containers read, never a hardcoded preset channel.
 ``override_yaml()`` still pins ``control_system.type: virtual_accelerator``
@@ -457,7 +457,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # ourselves here. This call also creates the repo root's `.env` — the
     # deployment's whole secret store, and the file `osprey up` refuses to
     # start without.
-    _orm_stack.write_scan_env(repo, correctors=correctors, bpms=bpms)
+    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise
