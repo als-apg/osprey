@@ -13,6 +13,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `osprey init --reset` no longer crashes with a Python traceback when the
+  containers it would remove belong to another copy of this repo. `osprey
+  reset` has always caught that refusal and rendered it; this path never did,
+  so the same deliberate guard looked like a bug in OSPREY depending on which
+  verb you typed. It is a refusal now, and it says what is on disk afterwards.
 - The same-name-different-checkout refusal leads with its conclusion. It used
   to open with the count and the identity hashes, print one line per resource,
   and only then explain that a worktree or a second clone shares its parent
@@ -21,7 +26,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   finding, the other copy's path and the remedy come first, each path is listed
   once instead of once per resource, and the per-resource evidence prints under
   `--verbose`. No claim changed: it still says only what the labels prove.
-
+- `osprey init --reset` also offers the way out that destroys nothing. `reset`
+  can only suggest going and wiping the other deployment; whoever ran `init`
+  asked to create something, so deploying this copy under its own name is
+  named too.
 - A deploy whose web terminals are unreachable now says so on the terminal. The
   warning naming the Docker Desktop remedy was emitted with `logger.warning`,
   which the altitude gate drops while a lifecycle verb owns the terminal, and
