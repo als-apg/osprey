@@ -67,6 +67,8 @@ _PRINTERS = frozenset(
         "_abort",
         "_report_fact",
         "report_fact",
+        "_warn_fact",
+        "warn_fact",
     }
 )
 

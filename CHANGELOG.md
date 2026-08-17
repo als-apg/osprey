@@ -13,6 +13,17 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Deploy output keeps one shape from start to finish. Facts a deploy used to
+  print as paragraphs between phases (minted tokens, generated certificates, a
+  renamed secrets file) are now one short line each in the step column, with
+  the details collected into a "This deploy wrote" block after the closing
+  summary. Warnings an operator must see print in the same indented `⚠` shape
+  instead of as timestamped log blocks, and raw log warnings stay in the
+  transcript (`-v`, file sinks) while a lifecycle command is drawing its
+  progress. `osprey init --reset` now reports what the reset removed and kept
+  as steps of its own phase; the full destruction plan remains what standalone
+  `osprey reset` shows before asking for confirmation.
+
 - What the CLI prints is now a progress report rather than a log. A verb prints
   the phase it is in, the steps under it, and a summary at the end; the
   timestamped `INFO` records that used to scroll past no longer reach the

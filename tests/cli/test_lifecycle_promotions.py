@@ -18,10 +18,11 @@ Every absence assertion here carries an armed witness (see
 Tasks 3.3, 3.4 and 3.7 append their own sections below; the fixtures and
 helpers above the first section marker are shared.
 
-A WARNING is a third case, and it belongs to neither half: the altitude gate
-passes it, so it stays on the *painted* side. The needle for one of those
-(Task 3.3's unshown-mint warning) asserts presence in ``rendered_text``, which
-is the opposite of what ``assert_promoted`` asks.
+A WARNING is a third case with two states. With no reporter installed the
+altitude gate passes it and it stays on the *painted* side; while a reporter
+owns the terminal the gate drops it there too, and anything an operator must
+read arrives promoted through ``warn_fact`` instead — the unshown-mint warning
+below is pinned in both states.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
-from osprey.cli import build_cmd, build_persistence, deploy_cmd
+from osprey.cli import build_cmd, build_persistence, deploy_cmd, output
 from osprey.cli.build_persistence import _apply_conventions
 from osprey.cli.main import cli
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
@@ -57,9 +58,11 @@ from osprey.deployment.web_terminals import (
 from osprey.simulation import apply
 from tests.cli.conftest import TerminalProbe
 
-# The witness logger and its marker. A WARNING is above the altitude gate, so
-# it MUST reach the probe console; if it does not, the console is not armed and
-# nothing else this module asserts about absence means anything.
+# The witness logger and its marker. An ERROR is above the altitude gate on
+# every path -- WARNING no longer is while a reporter is installed, which these
+# tests' capture reporter counts as -- so it MUST reach the probe console; if
+# it does not, the console is not armed and nothing else this module asserts
+# about absence means anything.
 _WITNESS_LOGGER = "osprey.lifecycle_promotion_witness"
 _WITNESS = "PROMOTIONWITNESSMARKER"
 
@@ -170,10 +173,10 @@ def assert_promoted(probe: TerminalProbe, printed: Printed, fragment: str) -> No
         f"no record kept for: {fragment!r}"
     )
 
-    # Armed witness, in the same test: a WARNING is above the gate, so its
-    # absence would mean the probe console was never reachable and the
-    # absence assertion above proved nothing.
-    logging.getLogger(_WITNESS_LOGGER).warning(_WITNESS)
+    # Armed witness, in the same test: an ERROR is above the gate on every
+    # path, so its absence would mean the probe console was never reachable
+    # and the absence assertion above proved nothing.
+    logging.getLogger(_WITNESS_LOGGER).error(_WITNESS)
     assert _WITNESS in probe.rendered_text, "the probe console is not armed"
 
 
@@ -217,9 +220,10 @@ class TestMintedSecretsAreReported:
             {"deployed_services": ["event_dispatcher"]}, False, project
         )
 
-        assert_promoted(default_altitude, printed, "Generated auth token(s)")
+        assert_promoted(default_altitude, printed, "minted 2 service auth token(s)")
+        output.flush_ledger()
         assert "EVENT_DISPATCHER_TOKEN" in printed.flowed
-        assert "Keep them secret." in printed.flowed
+        assert "keep them secret" in printed.flowed
 
     def test_an_adopted_volume_credential_names_the_variables_never_the_values(
         self, default_altitude, printed, project
@@ -247,10 +251,9 @@ class TestMintedSecretsAreReported:
             {"deployed_services": ["bluesky"]}, project
         )
 
-        assert_promoted(
-            default_altitude, printed, "Generated bluesky RE manager control-socket keypair"
-        )
-        assert "Treat both values as secrets." in printed.flowed
+        assert_promoted(default_altitude, printed, "bluesky control-socket keypair minted")
+        output.flush_ledger()
+        assert "treat both halves as secrets" in printed.flowed
 
     def test_a_derived_public_half_says_it_was_not_written_to_disk(
         self, default_altitude, printed, project, monkeypatch
@@ -280,10 +283,9 @@ class TestMintedSecretsAreReported:
             {"deployed_services": ["bluesky"]}, project
         )
 
-        assert_promoted(
-            default_altitude, printed, "Generated bluesky document-plane CURVE certificates"
-        )
-        assert "containers are recreated" in printed.flowed
+        assert_promoted(default_altitude, printed, "bluesky CURVE certificates")
+        output.flush_ledger()
+        assert "bridge and queueserver recreated" in printed.flowed
 
 
 class TestDegradationsAreReported:
@@ -338,8 +340,10 @@ class TestAutonomousHostChangesAreReported:
             {**BLUESKY_VA, "control_system": {"type": "virtual_accelerator"}}, project
         )
 
-        assert_promoted(default_altitude, printed, "Auto-configured bluesky bridge scan devices")
+        assert_promoted(default_altitude, printed, "bluesky scan devices auto-configured")
+        output.flush_ledger()
         assert "channel_limits.json" in printed.flowed
+        assert "BLUESKY_EPICS_MOTORS" in printed.flowed
 
     def test_a_local_env_override_is_reported_by_name(self, default_altitude, printed, tmp_path):
         from osprey.utils.dotenv import ENV_SHARED_FILENAME
@@ -363,7 +367,7 @@ class TestAutonomousHostChangesAreReported:
                 {"deployed_services": ["event_dispatcher"]}, [], tmp_path, dev_mode=True
             )
 
-        assert_promoted(default_altitude, printed, "Development mode: DEV_MODE")
+        assert_promoted(default_altitude, printed, "dev mode: DEV_MODE")
 
 
 class TestDestructiveActionsAreReported:
@@ -388,8 +392,8 @@ class TestDestructiveActionsAreReported:
 
         container_lifecycle._down_by_label({}, tmp_path)
 
-        assert_promoted(default_altitude, printed, "Stopping the 2 container(s) labelled")
-        assert "Volumes are kept" in printed.flowed
+        assert_promoted(default_altitude, printed, "stopping the 2 container(s) labelled")
+        assert "volumes and the compose network are kept" in printed.flowed
 
     def test_finding_nothing_to_stop_states_the_limit_of_the_sweep(
         self, default_altitude, printed, tmp_path, monkeypatch
@@ -398,8 +402,13 @@ class TestDestructiveActionsAreReported:
 
         container_lifecycle._down_by_label({}, tmp_path)
 
-        assert_promoted(default_altitude, printed, "Nothing to stop.")
-        assert "may still be running" in printed.flowed
+        assert_promoted(default_altitude, printed, "nothing to stop")
+        # The sweep's limit is a caveat for the transcript, not the phase
+        # column: the record is kept, the default view stays one line.
+        assert any("may still be running" in message for message in default_altitude.messages), (
+            "the log sinks lost the sweep's limit"
+        )
+        assert "may still be running" not in printed.flowed
 
 
 class TestSubStepRows:
@@ -915,7 +924,7 @@ class TestSubStepRowsOnTheMiscDeployPath:
 
         assert wheel_build._build_dev_wheel_cached(tmp_path) is not None
 
-        assert_sub_step(printed, "built osprey wheel from the local checkout")
+        assert_sub_step(printed, "built the osprey wheel from the local checkout")
 
     def test_seeding_a_profile_context_dir_is_a_step(self, printed, tmp_path):
         """Row 36: the build wrote into the operator's profile, outside build/."""
@@ -969,8 +978,8 @@ class TestTheBuildsIdentityLine:
         A security posture the build chose on the operator's behalf, so it is
         printed rather than logged. The record is kept for the sinks.
         """
-        assert "bind to localhost only" in built_exemplar.flowed
-        assert any("bind to localhost only" in m for m in built_exemplar.records(logging.INFO))
+        assert "bound to localhost only" in built_exemplar.flowed
+        assert any("bound to localhost only" in m for m in built_exemplar.records(logging.INFO))
 
 
 class TestAbsorbedRowsSayNothingOfTheirOwn:
@@ -1411,7 +1420,7 @@ class TestWebTerminalSecretsAreReported:
 
         assert env_production.migrate_users_env(tmp_path) == tmp_path / ".env.users"
 
-        assert_promoted(default_altitude, printed, "now live under the current name")
+        assert_promoted(default_altitude, printed, ".env.production renamed")
         assert env_production.LEGACY_USERS_ENV_FILENAME in printed.flowed
         assert ".env.users" in printed.flowed
 
@@ -1424,7 +1433,7 @@ class TestWebTerminalSecretsAreReported:
 
         assert env_production.migrate_users_env(tmp_path) == tmp_path / ".env.users"
 
-        assert_promoted(default_altitude, printed, "the older file was a leftover")
+        assert_promoted(default_altitude, printed, "removed leftover .env.production")
         assert not (tmp_path / env_production.LEGACY_USERS_ENV_FILENAME).exists()
 
 
@@ -1470,12 +1479,13 @@ class TestWebTerminalHostChangesAreReported:
 
 
 class TestTheUnshownMintWarningStillReachesTheTerminal:
-    """The pinned minted-password warning, re-pinned to its reworded copy.
+    """The pinned minted-password warning, re-pinned to its promoted form.
 
-    It is a WARNING, so the altitude gate passes it: this one is painted by the
-    log handler rather than printed by the renderer, and that is the whole
-    claim. The fragments are the ones ``tests/deployment/test_up_as_built.py``
-    pins, asserted here against what a default-altitude terminal shows.
+    It is promoted through ``warn_fact``: the renderer prints the ``⚠`` block
+    (the altitude gate keeps the raw WARNING record off the terminal while a
+    reporter is installed), and the record stays for the sinks. The fragments
+    are the ones ``tests/deployment/test_up_as_built.py`` pins, asserted here
+    against what a default-altitude run keeps in its records.
     """
 
     def test_the_pinned_fragments_survive_at_the_default_altitude(self, default_altitude, tmp_path):
@@ -1491,8 +1501,11 @@ class TestTheUnshownMintWarningStillReachesTheTerminal:
             "OSPREY_AUTH_PW_<USER>",
         ):
             assert fragment in painted, fragment
+            assert any(fragment in message for message in default_altitude.messages), fragment
 
-    def test_the_password_itself_is_in_neither_stream(self, default_altitude, printed, tmp_path):
+    def test_the_password_itself_is_in_neither_stream(
+        self, default_altitude, printed, tmp_path, capsys
+    ):
         """The point of the warning: the plaintext went nowhere, and is gone."""
         shown: list[str] = []
         result = auth_credentials.ensure_auth_credentials(["alice"], tmp_path, echo=shown.append)
@@ -1500,8 +1513,13 @@ class TestTheUnshownMintWarningStillReachesTheTerminal:
         provision._report_unshown_mints(result)
 
         assert result.minted == ("alice",)
-        assert "alice" in " ".join(default_altitude.rendered_text.split())
+        # With a reporter installed the promoted block is the warning's only
+        # terminal form, on the trouble stream; the record is for the sinks.
+        promoted = " ".join(capsys.readouterr().err.split())
+        assert "alice" in promoted
+        assert any("alice" in message for message in default_altitude.messages)
         for line in shown:
+            assert line not in promoted
             assert line not in printed.text
             assert line not in default_altitude.rendered_text
 
@@ -1891,7 +1909,7 @@ class TestTheArchiveKnobDiff:
         assert any("retention_days: 5 -> 7" in message for message in default_altitude.messages), (
             "the log sinks lost the diff"
         )
-        logging.getLogger(_WITNESS_LOGGER).warning(_WITNESS)
+        logging.getLogger(_WITNESS_LOGGER).error(_WITNESS)
         assert _WITNESS in default_altitude.rendered_text, "the probe console is not armed"
 
     def test_a_matching_fingerprint_prints_no_diff(

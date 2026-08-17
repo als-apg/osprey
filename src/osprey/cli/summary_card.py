@@ -138,6 +138,12 @@ def print_summary_card(repo_root: Path | str, state: str) -> None:
         title, rows = _card_parts(repo_root, state)
     except Exception as exc:
         logger.debug("Summary card skipped: %s", exc)
+        # The ledger still flushes: what the run wrote is a fact about the
+        # operator's disk whether or not the card could be derived.
+        output.flush_ledger()
         return
     output.report("")
     output.section(title, rows)
+    # After the card, so the endpoints an operator acts on stay the first thing
+    # under the ✓ line, and the written-files block reads as the appendix it is.
+    output.flush_ledger()

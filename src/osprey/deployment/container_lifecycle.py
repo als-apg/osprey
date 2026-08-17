@@ -260,16 +260,32 @@ _QSERVER_ZMQ_PRIVATE_KEY_VAR = "BLUESKY_QSERVER_ZMQ_PRIVATE_KEY"
 _QSERVER_ZMQ_PUBLIC_KEY_VAR = "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY"
 
 
-def _report_fact(message: str) -> None:
+def _report_fact(message: str, /, *, wrote: tuple[str, object] | None = None) -> None:
     """Report ``message`` under this module's logger.
 
     The promotion contract lives in :func:`osprey.cli.output.report_fact`; this
     binds it to the lifecycle logger so call sites pass the line alone.
 
     Args:
-        message: The finished line, built by the caller.
+        message: The finished inline line, built by the caller.
+        wrote: The closing-ledger row, passed through as
+            :func:`osprey.cli.output.report_fact` documents it.
     """
-    output.report_fact(logger, message)
+    output.report_fact(logger, message, wrote=wrote)
+
+
+def _warn_fact(summary: str, detail: str | None = None, remedy: str | None = None, /) -> None:
+    """Warn under this module's logger, in the run's own column.
+
+    The promotion contract lives in :func:`osprey.cli.output.warn_fact`; this
+    binds it to the lifecycle logger so call sites pass the words alone.
+
+    Args:
+        summary: What went sideways, in one line.
+        detail: What an operator needs in order to judge it.
+        remedy: The one thing to do about it, if there is an honest one.
+    """
+    output.warn_fact(logger, summary, detail, remedy)
 
 
 #: What the knob diff below is a diff of. Named once because both halves of the
@@ -485,10 +501,14 @@ def _ensure_service_tokens(
                 "Auto-generated service auth tokens (osprey deploy up)",
                 generated,
             )
-            # Report the path and which keys — NEVER the values.
+            # Report the count inline and the key names in the ledger — NEVER
+            # the values.
             _report_fact(
-                f"Generated auth token(s) {', '.join(generated)} in "
-                f"{env_path.resolve()} (gitignored). Keep them secret."
+                f"minted {len(generated)} service auth token(s) → .env",
+                wrote=(
+                    ".env",
+                    f"{', '.join(generated)} (gitignored; keep them secret)",
+                ),
             )
 
             # A mint is the moment the volume-initialized vars become a hazard:
@@ -952,8 +972,11 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
         generated,
     )
     _report_fact(
-        f"Auto-configured bluesky bridge scan devices {', '.join(generated)} in "
-        f"{env_path.resolve()} from the project's own channel_limits.json"
+        "bluesky scan devices auto-configured → .env",
+        wrote=(
+            ".env",
+            f"{', '.join(generated)} from the project's channel_limits.json",
+        ),
     )
 
 
@@ -1068,11 +1091,17 @@ def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = N
         return
 
     _report_fact(
-        f"Generated bluesky document-plane CURVE certificates under "
-        f"{paths['bridge'].parent} (gitignored, like the project .env). Both containers "
-        "read them at startup, so certificates written or replaced while the stack is "
-        "running take effect only after the bridge and queueserver containers are "
-        "recreated."
+        f"bluesky CURVE certificates → {_BLUESKY_CURVE_DIR}/",
+        wrote=(
+            f"{_BLUESKY_CURVE_DIR}/",
+            "document-plane certificates (gitignored); containers read them at "
+            "startup, so replacements need the bridge and queueserver recreated",
+        ),
+    )
+    # The transcript keeps the resolved location: a log read away from the
+    # project needs the absolute path the relative line cannot carry.
+    logger.key_info(
+        f"Bluesky document-plane CURVE certificates live under {paths['bridge'].parent}"
     )
 
 
@@ -1269,10 +1298,8 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
         # comes from the same source, and nothing on disk can go stale.
         os.environ.update(generated)
         _report_fact(
-            f"Derived {', '.join(generated)} from the {_QSERVER_ZMQ_PRIVATE_KEY_VAR} in "
-            f"this environment for this deploy only; not written to {env_path.resolve()}, "
-            "since the private half is not there either and a lone public key on disk "
-            "would fail the next deploy from a clean shell."
+            f"derived {', '.join(generated)} from this shell's "
+            f"{_QSERVER_ZMQ_PRIVATE_KEY_VAR} for this deploy only (not written to .env)"
         )
         return
 
@@ -1286,9 +1313,12 @@ def _ensure_bluesky_control_plane_keys(config: dict, env_path: Path | None = Non
     # material here). Matches _ensure_service_tokens' "log which keys, never
     # what they are" convention.
     _report_fact(
-        f"Generated bluesky RE manager control-socket keypair {', '.join(generated)} in "
-        f"{env_path.resolve()} (gitignored). Treat both values as secrets. The public "
-        "half alone is enough to reach the manager's control socket."
+        "bluesky control-socket keypair minted → .env",
+        wrote=(
+            ".env",
+            f"{', '.join(generated)} (gitignored); treat both halves as secrets, since "
+            "the public half alone reaches the manager's control socket",
+        ),
     )
 
 
@@ -2338,19 +2368,19 @@ def _preflight_env_shadowing(
             "reaches nothing."
         )
         remedy = (
-            f"To change what starts: edit the chain — an export cannot reach this stack. "
+            f"To change what starts: edit the chain; an export cannot reach this stack. "
             f"To stop the disagreement: unset {' '.join(shadowed)}."
         )
     elif provider is ComposeProvider.DOCKER_V2:
         mechanics = (
-            "Docker Compose substitutes the EXPORTED value into the compose files — "
-            "--env-file is its lower-precedence source — so the stack starts on the "
+            "Docker Compose substitutes the EXPORTED value into the compose files "
+            "(--env-file is its lower-precedence source), so the stack starts on the "
             "shell's value while the chain keeps the one its volumes were initialized "
             "with."
         )
         remedy = (
             f"To start on the chain's value: unset {' '.join(shadowed)}. To adopt the "
-            f"exported one: edit the chain to match — but a volume that already exists "
+            f"exported one: edit the chain to match; a volume that already exists "
             f"keeps the credential it was created with, whichever value the container is "
             f"handed."
         )
@@ -2363,14 +2393,10 @@ def _preflight_env_shadowing(
         )
         remedy = f"Either way, to leave the chain as the only source: unset {' '.join(shadowed)}."
 
-    logger.warning(
-        "Shell export disagrees with this deployment's env chain: %s\n"
-        "  Exported here with a value that differs from the one the chain resolves to "
-        "(%s). %s Values are never printed.\n"
-        "  %s",
-        ", ".join(shadowed),
-        " + ".join(str(path) for path in chain),
-        mechanics,
+    _warn_fact(
+        f"shell export disagrees with this deployment's env chain: {', '.join(shadowed)}",
+        f"exported here with a value that differs from the one the chain resolves to "
+        f"({' + '.join(str(path) for path in chain)}). {mechanics} Values are never printed.",
         remedy,
     )
     return shadowed
@@ -3532,7 +3558,7 @@ def _start_stack(
     env = {**os.environ, **dotenv_shell_overrides()}
     if dev_mode:
         env["DEV_MODE"] = "true"
-        _report_fact("Development mode: DEV_MODE environment variable set for containers")
+        _report_fact("dev mode: DEV_MODE set for the containers")
 
     # Fail-fast web-terminal preflight (persona render + credential gate)
     # BEFORE the minutes-long image build below: a deploy that is doomed to
@@ -3679,7 +3705,11 @@ def _start_stack(
         # this path — has to be committed as a permanent line while there is
         # still a process to write it. Unconditional: a no-op on a reporter
         # with nothing to hand over, and inside the phase because a hand-off
-        # after it would find nothing left to commit.
+        # after it would find nothing left to commit. The ledger flushes first
+        # for the same reason: no summary card ever prints on this path, and
+        # what this run wrote to disk has to be said by the process that wrote
+        # it.
+        output.flush_ledger()
         current_reporter().hand_off()
         os.execvpe(cmd[0], cmd, run_env)
 
@@ -3896,10 +3926,10 @@ def _reconcile_exposure(config: dict, compose_files: list[str]) -> bool:
         reasons.append(f"{service} runs on the host network and {where}")
 
     if reasons:
-        logger.warning(
-            "This deployment is reachable from the network (%s). Starting it under "
-            "the fail-closed service-token rules that reachability calls for.",
-            "; ".join(reasons),
+        _warn_fact(
+            "this deployment is reachable from the network",
+            f"{'; '.join(reasons)}; starting under the fail-closed service-token rules "
+            "that reachability calls for",
         )
 
     return bool(reasons)
@@ -4153,6 +4183,7 @@ def _start_as_built(
     :func:`~osprey.utils.config.config_anchored_at`.
     """
     with config_anchored_at(as_built_config_path(repo_root)):
+        _warn_on_timezone_drift(config)
         _start_stack(
             config,
             compose_files,
@@ -4170,6 +4201,32 @@ def _start_as_built(
             keep_archiver_base=keep_archiver_base,
             reuse_stores=reuse_stores,
         )
+
+
+def _warn_on_timezone_drift(config: dict) -> None:
+    """Promote a host-vs-facility timezone divergence at the start of an up.
+
+    The same divergence :func:`osprey_connectors.config._warn_on_tz_drift`
+    records when a timestamp is first stamped — but that record is a library
+    warning the altitude gate keeps off the terminal while a lifecycle verb
+    runs, and it fires minutes into the start, wherever the first timestamp
+    happens to be minted. The operator-facing copy of it belongs to the verb:
+    stated once, up front, from the same two values.
+
+    Only an explicit ``system.timezone`` counts, for the connectors check's
+    reason: the implicit UTC default would make every host with ``$TZ`` set
+    look divergent.
+    """
+    configured = (config.get("system") or {}).get("timezone")
+    host_tz = os.environ.get("TZ")
+    if not configured or not host_tz or host_tz == configured:
+        return
+    _warn_fact(
+        "host timezone differs from the facility setting",
+        f"$TZ={host_tz} but system.timezone={configured}; OS-level log timestamps "
+        "will differ from the times the agent reports",
+        "set both to the same zone (system.timezone is what the agent reports)",
+    )
 
 
 def _repo_label_filter(repo_root: Path) -> str:
@@ -4236,20 +4293,26 @@ def _down_by_label(config: dict | None, repo_root: Path) -> None:
     container_ids = listing.stdout.split()
     if not container_ids:
         _report_fact(
-            f"Nothing to stop. There are no compose files in {repo_root / BUILD_DIRNAME} "
-            f"to run a `down` from, and no container is labelled "
-            f"{label_filter.removeprefix('label=')} for this repo. Containers get that "
-            "label when they are CREATED, so a stack started before this repo's "
-            "containers were labelled is not visible here and may still be running. "
-            "`osprey build` restores build/, after which `osprey down` works normally."
+            f"nothing to stop: no compose files in {BUILD_DIRNAME}/ and no containers "
+            "labelled for this repo"
+        )
+        # The caveat stays in the transcript at the level it always had: the
+        # label is applied at CREATE time, so a stack started before this
+        # repo's containers were labelled is invisible to the sweep above.
+        logger.key_info(
+            f"There are no compose files in {repo_root / BUILD_DIRNAME} to run a "
+            f"`down` from, and no container carries "
+            f"{label_filter.removeprefix('label=')}. Containers get that label when "
+            "they are created, so a stack started before this repo's containers were "
+            "labelled is not visible here and may still be running. `osprey build` "
+            "restores build/, after which `osprey down` works normally."
         )
         return
 
     _report_fact(
-        f"No compose files in {repo_root / BUILD_DIRNAME}. Stopping the "
-        f"{len(container_ids)} container(s) labelled "
-        f"{label_filter.removeprefix('label=')} instead. Volumes are kept, as they are "
-        "by a compose `down`; the compose network is not labelled and stays."
+        f"no compose files in {BUILD_DIRNAME}/; stopping the {len(container_ids)} "
+        "container(s) labelled for this repo instead (volumes and the compose "
+        "network are kept)"
     )
 
     # stop, then rm: the same two steps, in the same order, that `compose down`

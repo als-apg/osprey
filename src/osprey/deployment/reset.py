@@ -1518,6 +1518,97 @@ def reset_deployment(
     return ResetOutcome.COMPLETED
 
 
+def reset_for_reinit(repo_root: Path | str, *, probe: RuntimeProbe | None = None) -> ResetOutcome:
+    """The condensed reset ``osprey init --reset`` chains, reported as phase steps.
+
+    The same plan and the same execution as :func:`reset_deployment` with
+    ``assume_yes`` — the removal set comes from :func:`plan_reset` and runs
+    through :func:`execute_reset`, so nothing here can remove anything the
+    standalone verb would not. What differs is the reporting contract: the
+    caller has this reset inside an open phase of a larger run, so the outcome
+    is a handful of ``report_step`` lines in that phase's own column, not the
+    full destruction plan. The full plan stays what it is — the text an
+    operator confirms a standalone ``osprey reset`` against — and is not
+    printed here, where nothing is being confirmed.
+
+    A plan that removes nothing does nothing and says nothing: the caller reads
+    ``NOTHING_TO_DO`` and closes its phase with that as the note.
+
+    Args:
+        repo_root: The deployment repo.
+        probe: The runtime seam, as for :func:`reset_deployment`.
+
+    Returns:
+        ``NOTHING_TO_DO``, ``COMPLETED``, or ``COMPLETED_WITH_FAILURES``.
+
+    Raises:
+        ForeignCheckoutError: Same-name resources belong to another checkout.
+        RuntimeError: The container runtime is unreachable, or the ``down``
+            failed. Nothing is removed on either path.
+    """
+    # Imported here rather than at module scope, mirroring the CLI's own lazy
+    # imports: this module is loaded by library callers that never print.
+    from osprey.cli.output import warn
+    from osprey.cli.phase_reporter import report_step
+
+    repo_root = Path(repo_root)
+    if probe is None:
+        probe = _default_probe(repo_root)
+
+    plan = plan_reset(repo_root, probe=probe)
+    if not plan.removes_anything:
+        return ResetOutcome.NOTHING_TO_DO
+
+    execute_reset(plan, probe=probe)
+    for line in _condensed_outcome_lines(plan):
+        report_step(line)
+
+    if probe.failures:
+        warn(
+            f"{len(probe.failures)} resource(s) on the reset plan could not be removed",
+            "\n".join(f"{subject}: {reason}" for subject, reason in probe.failures)
+            + "\nre-run `osprey reset` after clearing whatever is holding them",
+        )
+        return ResetOutcome.COMPLETED_WITH_FAILURES
+    return ResetOutcome.COMPLETED
+
+
+def _condensed_outcome_lines(plan: ResetPlan) -> list[str]:
+    """The executed plan as step lines: what went, then what stayed.
+
+    Counts and names only — the chained reset runs unconfirmed inside ``init
+    --reset``, so these lines report what WAS removed, in the same column as
+    the steps around them. Skips every category the plan held nothing of.
+    """
+    lines: list[str] = []
+    counted = ", ".join(
+        f"{count} {noun}{'' if count == 1 else 's'}"
+        for count, noun in (
+            (len(plan.containers), "container"),
+            (len(plan.volumes), "volume"),
+            (len(plan.images), "image"),
+        )
+        if count
+    )
+    if counted:
+        lines.append(f"removed {counted}")
+    if plan.paths:
+        cleared = ", ".join(_relative_to(path, plan.repo_root) for path in plan.paths)
+        lines.append(f"cleared {cleared}")
+    if plan.env_blocks:
+        minted = sum(len(block.keys) for block in plan.env_blocks)
+        lines.append(
+            f"stripped {minted} minted value{'' if minted == 1 else 's'} "
+            f"from {COMPOSE_ENV_FILENAME}"
+        )
+    lines.append(
+        f"kept the audit log, {COMPOSE_ENV_FILENAME} provider keys "
+        f"({len(plan.env_kept_keys)} entr{'y' if len(plan.env_kept_keys) == 1 else 'ies'}) "
+        "and the files you edit"
+    )
+    return lines
+
+
 def _default_probe(repo_root: Path) -> RuntimeProbe:
     """The real runtime seam, refusing early when the daemon is unreachable.
 

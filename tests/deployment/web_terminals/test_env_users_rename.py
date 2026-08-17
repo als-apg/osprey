@@ -60,11 +60,13 @@ def test_migration_moves_the_old_file_onto_the_new_name(tmp_path, caplog):
     # no downstream check catches.
     assert stat.S_IMODE(users_path.stat().st_mode) == 0o600
 
-    # One line, naming both paths, so an operator reading the deploy output can
-    # see where their secrets went without diffing the directory.
+    # The record names both filenames, so an operator reading the deploy
+    # output can see where their secrets went without diffing the directory.
     migration_lines = [rec.message for rec in caplog.records if USERS_ENV_FILENAME in rec.message]
-    assert len(migration_lines) == 1
-    assert str(legacy) in migration_lines[0] and str(users_path) in migration_lines[0]
+    assert migration_lines, "the migration left no record"
+    assert any(
+        LEGACY_USERS_ENV_FILENAME in line and USERS_ENV_FILENAME in line for line in migration_lines
+    )
 
 
 def test_both_files_present_keeps_the_new_one_and_deletes_the_leftover(tmp_path, caplog):
@@ -89,7 +91,7 @@ def test_both_files_present_keeps_the_new_one_and_deletes_the_leftover(tmp_path,
 
     removal_lines = [rec.message for rec in caplog.records if USERS_ENV_FILENAME in rec.message]
     assert len(removal_lines) == 1
-    assert str(legacy) in removal_lines[0] and str(users_path) in removal_lines[0]
+    assert LEGACY_USERS_ENV_FILENAME in removal_lines[0]
 
 
 def test_no_old_file_is_a_silent_no_op(tmp_path, caplog):

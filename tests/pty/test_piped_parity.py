@@ -40,11 +40,12 @@ normalised, each for a measured reason:
 
 * **The width.** Rich takes a pipe's width from ``COLUMNS`` and falls back to 80;
   a terminal's comes from the pty, which this harness fixes at
-  :data:`~tests.pty.test_live_region_real_terminal.TERMINAL_COLUMNS`. Measured
-  without the pin: the wrapped WARNING record comes out 18 lines on the pipe
-  against 15 on the terminal, and the subtraction fails on wrapping alone. So the
-  piped run is told the terminal's width, and the two runs wrap alike.
-* **The clock.** A ``RichHandler`` record is stamped with the wall clock and a
+  :data:`~tests.pty.test_live_region_real_terminal.TERMINAL_COLUMNS`. The echo
+  path itself never wraps, but anything rendered through a width-aware rich
+  surface (a table, a record under ``-v``) would wrap differently without the
+  pin — so the piped run is told the terminal's width, and the two runs wrap
+  alike.
+* **The clock.** A rendered log record is stamped with the wall clock and a
   phase line carries its own elapsed. Both are normalised to placeholders.
 * **Sub-second laps.** A lap under 50 ms prints with no duration at all
   (``phase_reporter.Phase.step``), so against the instant stub the *presence* of a
@@ -58,10 +59,12 @@ normalised, each for a measured reason:
 **The stderr side is armed on purpose.** The scripted deploy is quiet on stderr,
 and a subtraction with nothing to subtract would pass for no reason. So the run
 provokes the env-chain disagreement warning the way scenario 3 does — a real
-WARNING from the start path, not an injected line — and it is a 15-line wrapped
-record, which is the strongest shape available: every one of those lines has to
-appear on the terminal and be struck off, and any drift in how a redirect wraps
-or splits the record shows up as a leftover.
+warning from the start path, not an injected line. Its call site is promoted
+(:func:`osprey.cli.output.warn_fact`), so what lands on stderr is the renderer's
+trouble block: a summary line, a wrapped multi-line detail and a remedy, which is
+the strongest shape available — every one of those lines has to appear on the
+terminal and be struck off, and any drift in how a redirect wraps or splits the
+block shows up as a leftover.
 
 POSIX only, like the rest of this directory.
 """
@@ -108,18 +111,22 @@ pytestmark = [
 #: move where the record wraps.
 TIMESTAMP = re.compile(r"\[\d{2}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\]")
 
-#: What that column reads as once normalised. Spelled once and used both by
-#: :func:`normalised` and by :data:`RECORD_HEAD`, so the pattern that finds a
-#: record's first line cannot drift from the placeholder that produces it.
+#: What that column reads as once normalised. A rendered log record can still
+#: reach stderr outside a reporter's tenure (and always under ``-v``), so the
+#: normalisation keeps handling the stamp even though the armed warning no
+#: longer carries one.
 TIME_PLACEHOLDER = "[<time>]"
 
-#: The first line of a rendered log record, after normalisation: the timestamp
-#: column and the level. Wrap-immune by construction — the column is fixed width
-#: and the level is one word — which is what makes it a safe anchor for finding
-#: where a record starts. The record's head *phrase* is not safe for that: it is
-#: long enough to wrap, and matching it line by line reports a wrapping
+#: The first line of the armed warning's block. The call site is promoted
+#: (:func:`osprey.cli.output.warn_fact`), so the shape on stderr is the
+#: renderer's trouble block — ``⚠ summary`` over an indented body — rather than
+#: a ``RichHandler`` record: while the reporter owns the run the altitude gate
+#: keeps raw WARNING records off the terminal, and the promoted block is the
+#: warning's one rendered voice. The anchor is the glyph and the phrase's first
+#: words only — short enough that no width this suite runs at can wrap it —
+#: because matching the whole head phrase line by line would report a wrapping
 #: difference as a missing warning.
-RECORD_HEAD = re.compile(rf"^{re.escape(TIME_PLACEHOLDER)}\s+WARNING\b")
+RECORD_HEAD = re.compile(r"^\s*⚠ shell export disagrees\b")
 
 #: A phase line's or a sub-step's trailing duration, in both shapes
 #: :func:`osprey.cli.phase_reporter.format_elapsed` produces.
@@ -143,7 +150,7 @@ EXPORTED_VALUE = "Exp0rted!Value"
 #: phrase is long enough to wrap, and a width the run did not expect would then
 #: fail the arming check and report a lost warning instead of the wrapping
 #: difference that is the actual finding.
-ARMED_WARNING_HEAD = "Shell export disagrees with this deployment's env chain"
+ARMED_WARNING_HEAD = "shell export disagrees with this deployment's env chain"
 
 #: How many lines that record is expected to occupy, as a floor — and it is the
 #: **record's** size, not the capture's. A floor over the whole of stderr would
@@ -153,10 +160,13 @@ ARMED_WARNING_HEAD = "Shell export disagrees with this deployment's env chain"
 #: have to be one set.
 #:
 #: Pinned as a floor rather than exactly, because what matters is that the
-#: subtraction has a substantial, wrapped, multi-line record to work on and the
-#: copy is free to grow. One line would satisfy "non-empty" while testing almost
-#: nothing.
-ARMED_WARNING_MINIMUM_LINES = 10
+#: subtraction has the whole block to work on and the copy is free to grow. One
+#: line would satisfy "non-empty" while testing almost nothing. The echo path
+#: never wraps — a pipe carries each of the block's lines whole, and the
+#: harness's scrollback reassembles a terminal's wrapped rows back into them —
+#: so the floor is the promoted block's three logical lines: the summary, the
+#: detail and the remedy.
+ARMED_WARNING_MINIMUM_LINES = 3
 
 
 @dataclass

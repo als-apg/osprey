@@ -81,8 +81,8 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
         legacy_path.unlink()
         report_fact(
             logger,
-            f"Removed {legacy_path}: {users_path} is the current name for the web "
-            "terminals' runtime secrets and already exists, so the older file was a leftover.",
+            f"removed leftover {LEGACY_USERS_ENV_FILENAME} ({USERS_ENV_FILENAME} is the "
+            "current name and already exists)",
         )
         return users_path
 
@@ -96,8 +96,12 @@ def migrate_users_env(project_root: str | Path) -> Path | None:
     os.chmod(users_path, 0o600)
     report_fact(
         logger,
-        f"Renamed {legacy_path} to {users_path}: the web terminals' runtime secrets "
-        "now live under the current name.",
+        f"{LEGACY_USERS_ENV_FILENAME} renamed → {USERS_ENV_FILENAME}",
+        wrote=(
+            USERS_ENV_FILENAME,
+            f"renamed from {LEGACY_USERS_ENV_FILENAME}; the web terminals' runtime "
+            "secrets live under this name now",
+        ),
     )
     return users_path
 

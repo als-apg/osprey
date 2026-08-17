@@ -364,7 +364,7 @@ def test_finding_no_labelled_container_does_not_claim_the_stack_is_down(
     text = caplog.text
     assert str(lifecycle_repo / "build") in text
     assert REPO_ID_LABEL in text
-    assert "CREATED" in text
+    assert "label when they are created" in text
     assert "may still be running" in text
     assert "osprey build" in text
 

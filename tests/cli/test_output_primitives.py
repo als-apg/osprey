@@ -895,3 +895,184 @@ def test_machine_mode_output_is_plain_off_a_terminal(capsys):
         note("resolved from OSPREY_PROFILE")
         section("endpoints", {"web": "http://localhost:8080"})
     assert "\x1b" not in capsys.readouterr().err
+
+
+# -- report_fact and the run ledger ------------------------------------------
+
+
+class _RecordingLogger:
+    """The two methods the fact primitives call, recording what they were told."""
+
+    def __init__(self) -> None:
+        self.key_info_messages: list[str] = []
+        self.warnings: list[str] = []
+
+    def key_info(self, message: str) -> None:
+        self.key_info_messages.append(message)
+
+    def warning(self, message: str) -> None:
+        self.warnings.append(message)
+
+
+@pytest.fixture(autouse=True)
+def empty_ledger():
+    """Start and leave every test with no collected rows."""
+    output.clear_ledger()
+    yield
+    output.clear_ledger()
+
+
+def test_report_fact_prints_one_line_in_the_step_column(capsys):
+    """A fact wears the phase record's own ``  · `` shape, not a paragraph's."""
+    install_reporter(PhaseReporter(color=False))
+    logger = _RecordingLogger()
+    output.report_fact(logger, "minted 2 service auth token(s) → .env")
+    assert visible(capsys.readouterr().out) == ["  · minted 2 service auth token(s) → .env"]
+    assert logger.key_info_messages == ["minted 2 service auth token(s) → .env"]
+
+
+def test_report_fact_prints_under_null_reporter(capsys):
+    """Echo class: ``-v`` keeps the facts with the rest of the verb's output."""
+    install_reporter(NullReporter(verbose=True))
+    output.report_fact(_RecordingLogger(), "dev mode: DEV_MODE set for the containers")
+    assert visible(capsys.readouterr().out) == ["  · dev mode: DEV_MODE set for the containers"]
+
+
+def test_report_fact_takes_its_prose_positionally():
+    with pytest.raises(TypeError):
+        output.report_fact(_RecordingLogger(), message="minted a token")  # type: ignore[call-arg]
+
+
+def test_a_wrote_row_waits_for_the_flush(capsys):
+    """The inline line prints now; the row prints once, at the flush, aligned."""
+    install_reporter(PhaseReporter(color=False))
+    logger = _RecordingLogger()
+    output.report_fact(
+        logger,
+        "minted 2 service auth token(s) → .env",
+        wrote=(".env", "TOKEN_A, TOKEN_B (gitignored; keep them secret)"),
+    )
+    before_flush = capsys.readouterr().out
+    assert "TOKEN_A" not in before_flush
+
+    output.flush_ledger()
+    assert visible(capsys.readouterr().out) == [
+        "This deploy wrote",
+        "  .env   TOKEN_A, TOKEN_B (gitignored; keep them secret)",
+    ]
+    # The row reached the log sinks at collection time, not at the flush.
+    assert any("TOKEN_A" in message for message in logger.key_info_messages)
+
+
+def test_the_flush_empties_the_ledger(capsys):
+    install_reporter(PhaseReporter(color=False))
+    output.report_fact(_RecordingLogger(), "wrote a file", wrote=("file", "what it holds"))
+    output.flush_ledger()
+    capsys.readouterr()
+    output.flush_ledger()
+    assert capsys.readouterr().out == ""
+
+
+def test_a_flush_with_nothing_collected_prints_nothing(capsys):
+    install_reporter(PhaseReporter(color=False))
+    output.flush_ledger()
+    assert capsys.readouterr().out == ""
+
+
+def test_clear_ledger_drops_rows_without_printing_them(capsys):
+    """The next run must not inherit rows a failed run never flushed."""
+    install_reporter(PhaseReporter(color=False))
+    output.report_fact(_RecordingLogger(), "wrote a file", wrote=("file", "what it holds"))
+    capsys.readouterr()
+    output.clear_ledger()
+    output.flush_ledger()
+    assert capsys.readouterr().out == ""
+
+
+def test_ledger_rows_keep_their_collection_order(capsys):
+    install_reporter(PhaseReporter(color=False))
+    logger = _RecordingLogger()
+    output.report_fact(logger, "first", wrote=("b-label", "second row"))
+    output.report_fact(logger, "second", wrote=("a-label", "first row"))
+    capsys.readouterr()
+    output.flush_ledger()
+    lines = visible(capsys.readouterr().out)
+    assert lines[1].startswith("  b-label")
+    assert lines[2].startswith("  a-label")
+
+
+def test_report_fact_honors_machine_mode(capsys):
+    install_reporter(PhaseReporter(color=False))
+    with machine_mode():
+        output.report_fact(_RecordingLogger(), "minted a token", wrote=(".env", "TOKEN"))
+        output.flush_ledger()
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "minted a token" in captured.err
+    assert "TOKEN" in captured.err
+
+
+# -- warn_fact ----------------------------------------------------------------
+
+
+def test_warn_fact_prints_the_indented_trouble_shape(capsys):
+    """Summary one step in, body one step under it, remedy marked ``→``."""
+    install_reporter(PhaseReporter(color=False))
+    logger = _RecordingLogger()
+    output.warn_fact(
+        logger,
+        "host timezone differs from the facility setting",
+        "$TZ=US/Pacific but system.timezone=UTC",
+        "set both to the same zone",
+    )
+    captured = capsys.readouterr()
+    assert visible(captured.err) == [
+        "  ⚠ host timezone differs from the facility setting",
+        "    $TZ=US/Pacific but system.timezone=UTC",
+        "    → set both to the same zone",
+    ]
+    assert captured.out == ""
+    # One record for the sinks, carrying all three parts.
+    assert logger.warnings == [
+        "host timezone differs from the facility setting "
+        "$TZ=US/Pacific but system.timezone=UTC set both to the same zone"
+    ]
+
+
+def test_warn_fact_without_detail_or_remedy_is_the_summary_alone(capsys):
+    install_reporter(PhaseReporter(color=False))
+    output.warn_fact(_RecordingLogger(), "this deployment is reachable from the network")
+    assert visible(capsys.readouterr().err) == ["  ⚠ this deployment is reachable from the network"]
+
+
+def test_warn_fact_prints_under_null_reporter(capsys):
+    """Echo class, like every promoted fact: ``-v`` never swallows it."""
+    install_reporter(NullReporter(verbose=True))
+    output.warn_fact(_RecordingLogger(), "this deployment is reachable from the network")
+    assert visible(capsys.readouterr().err) == ["  ⚠ this deployment is reachable from the network"]
+
+
+def test_warn_fact_takes_its_prose_positionally():
+    with pytest.raises(TypeError):
+        output.warn_fact(_RecordingLogger(), summary="reachable")  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        output.warn_fact(_RecordingLogger(), "reachable", detail="why")  # type: ignore[call-arg]
+
+
+def test_warn_fact_honors_machine_mode(capsys):
+    install_reporter(PhaseReporter(color=False))
+    with machine_mode():
+        output.warn_fact(_RecordingLogger(), "this deployment is reachable from the network")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "reachable from the network" in captured.err
+
+
+def test_warn_fact_lands_above_a_mounted_region(live, err_buffer, capsys):
+    """Promoted trouble takes the same region-aware seam as ``warn``."""
+    reporter, buffer = live
+    output.warn_fact(_RecordingLogger(), "this deployment is reachable from the network")
+    assert "⚠ this deployment is reachable from the network" in _ANSI.sub("", buffer.getvalue())
+    assert err_buffer.getvalue() == ""
+    assert capsys.readouterr().err == ""
+    assert reporter.is_rendering() is True

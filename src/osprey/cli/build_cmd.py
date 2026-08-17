@@ -2119,10 +2119,12 @@ def _build_repo(
         # Outside every phase, on purpose. The next thing this build opens is
         # `Preparing the project environment`, the long pole: hung under a
         # phase this identity would arrive minutes after the wait it labels,
-        # and as a step it would vanish entirely (no phase is open here).
+        # and as a step it would vanish entirely (no phase is open here). A
+        # note rather than a report line: it is context for the phases that
+        # follow, not something the operator ran the verb to find out.
         from . import output
 
-        output.report(
+        output.note(
             f"profile {build_profile.name} (bundle {build_profile.data_bundle}, "
             f"tier {build_profile.resolved_tier()})"
         )

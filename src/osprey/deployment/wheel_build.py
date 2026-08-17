@@ -295,7 +295,11 @@ def _build_dev_wheel_cached(osprey_source_root):
                         _wheel_cache_cleanup_registered = True
                 cached_wheel = Path(_wheel_cache_dir) / wheel_files[0].name
                 shutil.copy2(wheel_files[0], cached_wheel)
-                report_step("built osprey wheel from the local checkout")
+                # Named per distribution: this builds both the framework wheel
+                # and the connectors wheel in one deploy, and two steps wearing
+                # one label read as a stutter.
+                distribution = cached_wheel.name.split("-", 1)[0].replace("_", "-")
+                report_step(f"built the {distribution} wheel from the local checkout")
 
     _wheel_build_cache[key] = cached_wheel
     return cached_wheel

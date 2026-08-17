@@ -1944,7 +1944,7 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False, out
         )
     elif "bind_address" not in config.get("deployment", {}):
         config["deployment"]["bind_address"] = "127.0.0.1"
-        _report_fact("Services will bind to localhost only (127.0.0.1) for security")
+        _report_fact("services bound to localhost only (127.0.0.1)")
 
     # Get deployed services list
     deployed_services = config.get("deployed_services", [])

@@ -64,7 +64,12 @@ def _capture_renders(buffer: StringIO) -> RichHandler:
 
 
 class TestGateFilter:
-    """The filter itself: level-based, nothing else."""
+    """The filter itself: the record's level, plus one bit of reporter state.
+
+    These direct tests run under the quiet ``NullReporter`` default, which is
+    the no-lifecycle-verb state: WARNING and above pass. The lifecycle state is
+    ``TestSingleVoiceDuringLifecycleVerbs``' subject.
+    """
 
     @pytest.mark.parametrize(
         ("level", "passes"),
@@ -91,6 +96,53 @@ class TestGateFilter:
         gated = logging.LogRecord("osprey.test", logging.INFO, __file__, 1, "msg", None, None)
         gated.osprey_intent = "key_info"  # type: ignore[attr-defined]
         assert _AltitudeGate().filter(gated) is False
+
+
+class TestSingleVoiceDuringLifecycleVerbs:
+    """While a reporter owns the terminal, a WARNING arrives promoted or not at all.
+
+    A raw WARNING painted through a phase column is the timestamped transcript
+    block the output hierarchy exists to prevent, so the gate drops it there —
+    the operator-facing copy comes from ``osprey.cli.output.warn_fact`` at the
+    call sites that owe one. ERROR outranks the column and always paints.
+    """
+
+    @pytest.fixture
+    def lifecycle_reporter_installed(self):
+        from osprey.cli.phase_reporter import PhaseReporter, current_reporter, install_reporter
+
+        previous = current_reporter()
+        install_reporter(PhaseReporter(color=False))
+        yield
+        install_reporter(previous)
+
+    def _record(self, level: int) -> logging.LogRecord:
+        return logging.LogRecord("osprey.test", level, __file__, 1, "msg", None, None)
+
+    def test_warning_is_dropped_while_a_reporter_is_installed(self, lifecycle_reporter_installed):
+        assert _AltitudeGate().filter(self._record(logging.WARNING)) is False
+
+    def test_error_still_paints_while_a_reporter_is_installed(self, lifecycle_reporter_installed):
+        assert _AltitudeGate().filter(self._record(logging.ERROR)) is True
+
+    def test_warning_paints_again_once_the_reporter_is_gone(self):
+        """The uninstall on the verb's way out is what restores the old policy."""
+        assert _AltitudeGate().filter(self._record(logging.WARNING)) is True
+
+    def test_the_verbose_null_reporter_counts_as_no_lifecycle_rendering(self):
+        """Under ``-v`` nothing draws a phase column, so nothing needs protecting.
+
+        The gate is normally not even installed under ``-v``; this pins the
+        harmless answer for the state where one is.
+        """
+        from osprey.cli.phase_reporter import NullReporter, current_reporter, install_reporter
+
+        previous = current_reporter()
+        install_reporter(NullReporter(verbose=True))
+        try:
+            assert _AltitudeGate().filter(self._record(logging.WARNING)) is True
+        finally:
+            install_reporter(previous)
 
 
 class TestNormalRun:
