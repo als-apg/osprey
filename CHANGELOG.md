@@ -11,6 +11,24 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Fixed
+
+- A deploy whose web terminals are unreachable now says so on the terminal. The
+  warning naming the Docker Desktop remedy was emitted with `logger.warning`,
+  which the altitude gate drops while a lifecycle verb owns the terminal, and
+  the root logger carries no other handler. So on the one path that mattered,
+  a self-heal bounce that did not help, the run printed "bounced the web
+  stack ..." and then went straight to the endpoint table, which reads as
+  success. It is promoted through `warn_fact` now.
+
+### Added
+
+- The post-up reachability warning now separates a forwarder that is switched
+  off from a port registration the running forwarder missed. A definite "off"
+  skips the self-heal restart, which cannot help, and states the cause; an
+  unreadable setting keeps bouncing first and then names the setting as
+  something to check.
+
 ### Changed
 
 - Lifecycle output now carries the CLI's theme. Phase openers anchor in the
