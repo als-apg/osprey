@@ -57,11 +57,52 @@ from typing import Any
 
 import pytest
 
+from osprey.services.bluesky_bridge.app import (
+    PREVIEW_REASON_CATALOG_UNAVAILABLE,
+    PREVIEW_REASON_FAILED,
+    PREVIEW_REASON_PLAN_ERROR,
+    PREVIEW_REASON_QUEUE_UNREACHABLE,
+    PREVIEW_REASON_REFUSED,
+    PREVIEW_REASON_TIMED_OUT,
+    PREVIEW_REASON_UNKNOWN_PLAN,
+)
+from osprey.services.bluesky_bridge.plan_fields import (
+    CHANNEL_ROLE_KEY,
+    MOVABLE_ROLE,
+    READABLE_ROLE,
+)
 from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
 )
 from tests.e2e import _orm_stack
+
+# Every word the pre-flight is allowed to answer with. Imported rather than
+# spelled, because the approval prompt branches on these exact literals.
+_PREVIEW_REASONS = frozenset(
+    {
+        PREVIEW_REASON_UNKNOWN_PLAN,
+        PREVIEW_REASON_CATALOG_UNAVAILABLE,
+        PREVIEW_REASON_QUEUE_UNREACHABLE,
+        PREVIEW_REASON_REFUSED,
+        PREVIEW_REASON_TIMED_OUT,
+        PREVIEW_REASON_FAILED,
+        PREVIEW_REASON_PLAN_ERROR,
+    }
+)
+
+# The nine keys every pre-flight answer carries, success or not.
+_PREVIEW_KEYS = {
+    "ok",
+    "plan",
+    "channels",
+    "moves",
+    "total_moves",
+    "truncated",
+    "move_cap",
+    "reason",
+    "detail",
+}
 
 pytestmark = [
     pytest.mark.e2e,
@@ -75,6 +116,14 @@ pytestmark = [
 # shared dev machine without a port collision.
 BRIDGE_PORT = 18103
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
+
+# OpenObserve ships with every preset and has no profile knob, so the deploy
+# would otherwise publish 5080 -- which a locally running tutorial stack holds.
+# `osprey up`'s host port preflight aborts the WHOLE deploy on one such clash,
+# so leaving it on the default takes every test in this module down at fixture
+# setup. Moved to default + 20000, and one past the queue e2e's 25080 so the
+# two modules can deploy side by side.
+OPENOBSERVE_PORT = 25081
 
 # The repo directory name IS the deployment name, and the bridge compose
 # template renders its locally-built image as ``<project>-bluesky-bridge:local``
@@ -110,11 +159,11 @@ from typing import Any
 from bluesky import plans as bp
 from pydantic import BaseModel, Field, model_validator
 
+from osprey.services.bluesky_bridge.plan_fields import MovableChannel, ReadableChannel
+
 PLAN_METADATA = {
     "name": "facility_probe",
     "description": "Probe scan: sweep one setpoint device, reading one detector at each point.",
-    "category": "diagnostic",
-    "required_devices": ["motor", "detector"],
     "writes": True,
 }
 
@@ -122,8 +171,8 @@ PLAN_METADATA = {
 class PARAMS(BaseModel):
     """Parameters for `facility_probe`: one setpoint swept over [start, stop]."""
 
-    motor: str = Field(..., description="Setpoint device name to sweep.")
-    detector: str = Field(..., description="Detector device name to read at each point.")
+    motor: MovableChannel = Field(..., description="Setpoint device name to sweep.")
+    detector: ReadableChannel = Field(..., description="Detector device name to read at each point.")
     start: float
     stop: float
     num: int = Field(..., ge=2, description="Number of evenly-spaced points.")
@@ -188,6 +237,51 @@ def _request(path: str, method: str, body: dict | None = None) -> tuple[int, Any
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
+def _post_raw(path: str, data: bytes, content_type: str) -> tuple[int, Any]:
+    """POST a body the JSON helpers cannot express (malformed, or not JSON at all).
+
+    The pre-flight route promises one answer shape for EVERY request, including
+    ones no well-behaved client would send, so a test of that promise has to be
+    able to send them.
+    """
+    req = urllib.request.Request(  # noqa: S310
+        f"{BRIDGE_URL}{path}", data=data, method="POST", headers={"Content-Type": content_type}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20.0) as resp:  # noqa: S310
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
+def _assert_preview_shape(payload: Any, *, plan: str) -> None:
+    """Every pre-flight answer, whatever happened, in one shape.
+
+    The launch-approval gate reads ``ok`` and never a status code, so the keys
+    have to be there on the failure paths too -- that is the property this
+    helper exists to assert once and reuse.
+    """
+    assert isinstance(payload, dict), f"pre-flight answered with a non-object: {payload!r}"
+    assert set(payload) == _PREVIEW_KEYS, f"pre-flight key set drifted: {sorted(payload)}"
+    assert payload["plan"] == plan, f"pre-flight named a different plan: {payload}"
+    assert isinstance(payload["ok"], bool)
+    assert isinstance(payload["channels"], list)
+    if payload["ok"]:
+        assert payload["reason"] is None and payload["detail"] is None, (
+            f"a successful pre-flight carries no failure words: {payload}"
+        )
+    else:
+        assert payload["reason"] in _PREVIEW_REASONS, f"unknown pre-flight reason: {payload}"
+        assert isinstance(payload["detail"], str) and payload["detail"], (
+            f"a failed pre-flight must say why in a sentence: {payload}"
+        )
+        assert len(payload["detail"]) <= 2000, (
+            "the detail lands verbatim in a human's approval prompt and must stay bounded"
+        )
+        assert payload["moves"] == [] and payload["total_moves"] == 0
+        assert payload["truncated"] is False and payload["move_cap"] is None
+
+
 def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
     return subprocess.run(
         cmd,
@@ -220,6 +314,15 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     # image tag derived below (``proj-bluesky-bridge:local``) still holds.
     repo = base / PROJECT_NAME
 
+    # Host hygiene only. Written as a flat dotted-string key under `config:`
+    # (the preset's own convention) and passed as an override file rather than
+    # a `--set`: a `--set` would build a NESTED dict for every dotted segment
+    # and replace the whole `services:` block.
+    override_path = base / "override.yml"
+    override_path.write_text(
+        f"config:\n  services.openobserve.port: {OPENOBSERVE_PORT}\n", encoding="utf-8"
+    )
+
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset plus these overrides, `build` renders build/ from it.
     init = _run(
@@ -230,6 +333,8 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
             "--preset",
             "hello-world",
             "--no-git",
+            "--override",
+            str(override_path),
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",
@@ -311,6 +416,12 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
     - the externally-injected ``facility_probe`` plan with
       ``provenance == "facility"`` and its authored metadata round-tripped
       byte-for-byte through the loader's ``PLAN_METADATA`` parser.
+
+    Every entry's metadata is asserted to be EXACTLY the three declared fields.
+    That is the contract a consumer reads: ``category`` and ``required_devices``
+    are retired, and a deployed container still publishing either would have a
+    panel or an approval prompt telling an operator about a declaration nothing
+    behind it honours any more.
     """
     status, plans = _get("/plans")
     assert status == 200, f"GET /plans failed: {status} {plans}"
@@ -325,6 +436,10 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
             f"{shipped_name!r}: expected provenance 'shipped', got {entry['provenance']!r}"
         )
         assert entry["metadata"] is not None, f"{shipped_name!r}: metadata is None"
+        assert set(entry["metadata"]) == {"name", "description", "writes"}, (
+            f"{shipped_name!r}: a deployed container is still publishing retired metadata "
+            f"fields: {entry['metadata']}"
+        )
 
     assert "facility_probe" in by_name, f"facility_probe missing from GET /plans: {sorted(by_name)}"
     facility_entry = by_name["facility_probe"]
@@ -335,9 +450,140 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
     metadata = facility_entry["metadata"]
     assert metadata is not None, "facility_probe: metadata is None"
     assert metadata["name"] == "facility_probe"
-    assert metadata["category"] == "diagnostic"
-    assert metadata["required_devices"] == ["motor", "detector"]
     assert metadata["writes"] is True
+    assert set(metadata) == {"name", "description", "writes"}
+
+
+def test_the_served_schemas_carry_the_declared_channel_roles(
+    deployed_catalog_stack: Path,
+) -> None:
+    """A deployed container publishes each plan's channel ROLES in its schema.
+
+    The role declaration is what replaced guessing a channel's purpose from its
+    parameter name, so it has to survive the trip a consumer actually makes:
+    plan file -> loader -> ``PARAMS.model_json_schema()`` -> HTTP. Asserted on
+    the exact JSON path, because a role that drifted into ``items`` would be
+    invisible to every consumer while a presence-only check still passed.
+
+    All three tiers are covered in one response, which is the point: the shipped
+    plans, and the facility-injected file this module wrote itself -- whose
+    single-channel fields (``MovableChannel``, not ``...Channels``) are the
+    other annotation shape.
+    """
+    status, plans = _get("/plans")
+    assert status == 200, f"GET /plans failed: {status} {plans}"
+    by_name = {p["name"]: p for p in plans}
+
+    orm = by_name["orm"]["schema"]["properties"]
+    assert orm["correctors"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE, (
+        f"orm no longer declares its correctors movable over the wire: {orm['correctors']}"
+    )
+    assert orm["bpms"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+
+    # grid_scan's movable is a field of the nested GridAxis model, which
+    # pydantic emits under $defs and references from `axes.items`.
+    grid = by_name["grid_scan"]["schema"]
+    assert grid["properties"]["readables"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    assert grid["$defs"]["GridAxis"]["properties"]["setpoint"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE, (
+        f"grid_scan's per-axis setpoint lost its movable role: {grid['$defs']['GridAxis']}"
+    )
+
+    facility = by_name["facility_probe"]["schema"]["properties"]
+    assert facility["motor"][CHANNEL_ROLE_KEY] == MOVABLE_ROLE
+    assert facility["detector"][CHANNEL_ROLE_KEY] == READABLE_ROLE
+    # Negative control: an ordinary scalar parameter is not a channel.
+    assert CHANNEL_ROLE_KEY not in facility["num"], (
+        f"a plain number was annotated as a channel: {facility['num']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The pre-flight, on a deployment that cannot execute.
+#
+# The launch-approval gate reads this route before a human decides, so its
+# ONLY promise is that it always answers in one shape. That promise is most
+# load-bearing exactly here -- where no trajectory can be produced -- which is
+# why a browse-only deployment is the honest place to prove it.
+# ---------------------------------------------------------------------------
+
+
+def test_preview_answers_in_one_shape_for_a_known_plan(deployed_catalog_stack: Path) -> None:
+    """A known plan's pre-flight always answers 200 and always names its channels.
+
+    Whether a trajectory comes back depends on a worker this deployment may not
+    have; what does NOT depend on that is the shape, and the channel list -- the
+    bridge's own reading of what the launch DECLARES it would move, which stays
+    true and worth showing to an approver even when the moves behind it are
+    unavailable.
+
+    Both nesting shapes are covered: ``facility_probe``'s single-channel fields
+    and ``grid_scan``'s movable buried in a list of ``GridAxis`` objects, which
+    only a walk of the declared roles finds.
+    """
+    status, payload = _request(
+        "/plans/facility_probe/preview",
+        "POST",
+        {"motor": "motor1", "detector": "det1", "start": 0.0, "stop": 2.0, "num": 3},
+    )
+    assert status == 200, f"the pre-flight must always answer 200: {status} {payload}"
+    _assert_preview_shape(payload, plan="facility_probe")
+    assert payload["channels"] == [
+        {"channel": "motor1", "role": MOVABLE_ROLE},
+        {"channel": "det1", "role": READABLE_ROLE},
+    ], f"the declared channels are wrong or out of movable-first order: {payload['channels']}"
+
+    status, payload = _request(
+        "/plans/grid_scan/preview",
+        "POST",
+        {
+            "readables": ["BPM1"],
+            "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
+        },
+    )
+    assert status == 200, f"the pre-flight must always answer 200: {status} {payload}"
+    _assert_preview_shape(payload, plan="grid_scan")
+    assert payload["channels"] == [
+        {"channel": "COR1", "role": MOVABLE_ROLE},
+        {"channel": "BPM1", "role": READABLE_ROLE},
+    ], f"the nested per-axis setpoint was not read as a declared movable: {payload['channels']}"
+
+
+def test_preview_reports_an_unknown_plan_as_a_reason_not_a_404(
+    deployed_catalog_stack: Path,
+) -> None:
+    """An unknown name is one more reason to have no trajectory, in the same shape.
+
+    A 404 here would give the approval gate a second branch -- a status branch
+    beside the ``ok`` branch -- for a case it must already handle.
+    """
+    status, payload = _request("/plans/no_such_plan_at_all/preview", "POST", {})
+
+    assert status == 200, f"an unknown plan must not 404 on the pre-flight: {status} {payload}"
+    _assert_preview_shape(payload, plan="no_such_plan_at_all")
+    assert payload["ok"] is False
+    assert payload["reason"] == PREVIEW_REASON_UNKNOWN_PLAN, f"wrong reason: {payload}"
+    assert payload["channels"] == [], "there is no plan to declare channels for"
+
+
+def test_preview_reports_a_body_that_is_not_parameters_as_a_plan_error(
+    deployed_catalog_stack: Path,
+) -> None:
+    """Malformed and non-object bodies answer 200 too -- never FastAPI's own 422.
+
+    The parameters are read raw for exactly this reason: a typed argument would
+    have answered a bad body with a shape carrying no ``ok`` at all, which is
+    the one answer this route promises never to give.
+    """
+    for label, data, content_type in (
+        ("malformed JSON", b"{not json", "application/json"),
+        ("a JSON array", b"[1, 2]", "application/json"),
+        ("form-encoded", b"motor=motor1", "application/x-www-form-urlencoded"),
+    ):
+        status, payload = _post_raw("/plans/grid_scan/preview", data, content_type)
+        assert status == 200, f"{label}: expected 200, got {status} {payload}"
+        _assert_preview_shape(payload, plan="grid_scan")
+        assert payload["reason"] == PREVIEW_REASON_PLAN_ERROR, f"{label}: {payload}"
+        assert "JSON object" in payload["detail"], f"{label}: {payload}"
 
 
 # ---------------------------------------------------------------------------

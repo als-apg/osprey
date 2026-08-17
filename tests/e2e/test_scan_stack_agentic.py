@@ -26,7 +26,7 @@ Why the floor is shaped the way it is
 
 **Accumulated draft state, not one call's arguments.** The draft is a shared,
 incrementally editable staging surface: ``set_draft`` PATCHes it, and an agent
-may legitimately fill ``correctors`` in one call and ``detectors`` in the next
+may legitimately fill ``correctors`` in one call and ``bpms`` in the next
 (see ``osprey/mcp_server/bluesky/tools/draft.py``). Grading a single call's
 ``plan_args_patch`` would fail a correct two-call assembly. So the floor folds
 every successful ``set_draft`` in trace order into an accumulated state,
@@ -109,7 +109,7 @@ import re
 import shutil
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -153,6 +153,8 @@ SET_DRAFT = bluesky_tool_names.matcher(bluesky_tool_names.SET_DRAFT)
 QUEUE_ADD = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_ADD)
 QUEUE_START = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_START)
 GET_RUN_DATA = bluesky_tool_names.matcher(bluesky_tool_names.GET_RUN_DATA)
+WRITE_PLAN = bluesky_tool_names.matcher(bluesky_tool_names.WRITE_PLAN)
+VALIDATE_PLAN = bluesky_tool_names.matcher(bluesky_tool_names.VALIDATE_PLAN)
 
 #: Every tool that moves the queue itself — add, start, stop. The approval
 #: transcript is read over exactly this set (see
@@ -272,25 +274,22 @@ def accumulated_draft_states(traces: list[ToolTrace]) -> list[dict[str, Any]]:
 
 def is_orbit_response_state(state: dict[str, Any]) -> bool:
     """Orbit-response plan class: the state drives a set of correctors AND
-    reads a set of BPM detectors together.
+    reads a set of BPMs together.
 
     The ``orm`` plan's own device-class contract, checked structurally so a
     differently-named but equivalent plan still qualifies. Never compares
     ``plan_name``.
     """
     correctors = state.get("correctors")
-    detectors = state.get("detectors")
+    bpms = state.get("bpms")
     return (
-        isinstance(correctors, list)
-        and bool(correctors)
-        and isinstance(detectors, list)
-        and bool(detectors)
+        isinstance(correctors, list) and bool(correctors) and isinstance(bpms, list) and bool(bpms)
     )
 
 
 def is_grid_scan_state(state: dict[str, Any]) -> bool:
     """Grid-scan plan class: the state steps at least two DISTINCT setpoint
-    devices over a rectangular grid and reads a set of detectors at each point.
+    devices over a rectangular grid and reads a set of readables at each point.
 
     The ``grid_scan`` plan's device-class contract (see
     ``services/bluesky_bridge/plans_core/grid_scan.py``'s ``PARAMS`` /
@@ -301,8 +300,8 @@ def is_grid_scan_state(state: dict[str, Any]) -> bool:
     while measuring nothing the scan was asked for. Never compares
     ``plan_name``.
     """
-    detectors = state.get("detectors")
-    if not (isinstance(detectors, list) and detectors):
+    readables = state.get("readables")
+    if not (isinstance(readables, list) and readables):
         return False
     axes = state.get("axes")
     if not (isinstance(axes, list) and len(axes) >= 2):
@@ -526,6 +525,313 @@ def assert_a_scan_executed(result: SDKWorkflowResult) -> None:
 
 
 # ---------------------------------------------------------------------------
+# The authored-plan floor. The two floors above grade runs of REGISTERED
+# plans; this one grades the authoring capability itself — the agent must
+# write a NEW plan, get it validated, and run THAT plan, not reach for a
+# registered one that approximates the request. The class check therefore
+# cannot be structural on the draft state (an authored plan's PARAMS field
+# names are the author's choice); it is a name binding instead: the plan the
+# add staged must be one the agent authored AND validated earlier in the same
+# trace. The physics — that the run really swept a hysteresis loop — is a
+# separate assertion over the run's own data (:func:`
+# assert_hysteresis_loop_measured`), which the live test fetches from the
+# bridge rather than trusting the agent's read.
+# ---------------------------------------------------------------------------
+
+
+def _result_json(raw: Any) -> dict[str, Any] | None:
+    """The JSON body of a tool result, or ``None``.
+
+    Peels the FastMCP sole-key ``result`` transport envelope exactly as
+    :func:`_launched_run_id` does (same bound, same reasoning — see the
+    comment there); returns the first dict that is not such an envelope.
+    """
+    body: Any = raw
+    for _ in range(8):
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except (TypeError, ValueError):
+                return None
+            continue
+        if not isinstance(body, dict):
+            return None
+        if set(body) == {"result"}:  # FastMCP str-return transport envelope
+            body = body["result"]
+            continue
+        return body
+    return None
+
+
+def _validation_passed(trace: ToolTrace) -> bool:
+    """Whether a successful ``validate_plan`` call reported a PASS.
+
+    A parseable body must say ``"passed": true`` — a validation that ran and
+    failed is exactly what this floor exists to catch. An unparseable body
+    degrades to ``True`` (the call itself succeeded), mirroring the run-id
+    binding: a response-shape change may cost discrimination, never redden a
+    correct run.
+    """
+    body = _result_json(trace.result)
+    if body is None or "passed" not in body:
+        return True
+    return bool(body["passed"])
+
+
+def accumulated_draft_plan_names(traces: list[ToolTrace]) -> list[str | None]:
+    """The draft's ``plan_name`` as of just BEFORE each trace runs.
+
+    The name-half of :func:`accumulated_draft_states`'s fold: element ``i``
+    is the plan the bridge's draft was staging when ``traces[i]`` was made.
+    """
+    names: list[str | None] = []
+    plan_name: str | None = None
+    for trace in traces:
+        names.append(plan_name)
+        if trace.name != SET_DRAFT or trace.is_error:
+            continue
+        new_plan = trace.input.get("plan_name")
+        if isinstance(new_plan, str) and new_plan:
+            plan_name = new_plan
+    return names
+
+
+def find_authored_run_chain(
+    traces: list[ToolTrace],
+) -> tuple[int, str | None, str] | None:
+    """Locate an author → validate → stage → launch → start → read chain.
+
+    Returns ``(queue_add index, launched run id or None, plan name)`` for the
+    first successful ``queue_add`` whose staged plan name was previously
+    AUTHORED (a successful ``write_plan`` of that name) and then VALIDATED
+    with a pass (a successful, passing ``validate_plan`` of that name, after
+    the authoring), followed by a successful ``queue_start`` and a successful
+    ``get_run_data`` of the run the add launched — the same tail binding, and
+    the same graceful run-id degradation, as :func:`find_satisfying_chain`.
+
+    The name binding is the class check here: a run of ``orm`` or
+    ``grid_scan`` — plans the agent never wrote — can never anchor this
+    chain, however well its draft state reads.
+    """
+    authored: set[str] = set()
+    validated: set[str] = set()
+    staged_names = accumulated_draft_plan_names(traces)
+    states = accumulated_draft_states(traces)
+
+    for add_idx, trace in enumerate(traces):
+        if trace.name == WRITE_PLAN and not trace.is_error:
+            name = trace.input.get("name")
+            if isinstance(name, str) and name:
+                authored.add(name)
+                # Re-authoring invalidates any prior passing validation (the
+                # content hash changes), and the bridge enforces exactly that
+                # — mirror it so a validate → rewrite → run trace cannot pass.
+                validated.discard(name)
+            continue
+        if trace.name == VALIDATE_PLAN and not trace.is_error:
+            name = trace.input.get("name")
+            if isinstance(name, str) and name in authored and _validation_passed(trace):
+                validated.add(name)
+            continue
+        if trace.name != QUEUE_ADD or trace.is_error:
+            continue
+        staged = staged_names[add_idx]
+        if staged not in validated or not states[add_idx]:
+            continue
+        start_idx = _first_successful_after(traces, add_idx, QUEUE_START)
+        if start_idx is None:
+            continue
+        run_id = _launched_run_id(trace)
+        read_idx = _first_successful_after(
+            traces,
+            start_idx,
+            GET_RUN_DATA,
+            matches=None if run_id is None else _reads_run(run_id),
+        )
+        if read_idx is None:
+            continue
+        return add_idx, run_id, staged
+    return None
+
+
+def assert_authored_scan_executed(result: SDKWorkflowResult) -> tuple[str | None, str]:
+    """Assert the authored-plan floor; return the launched run id and plan name.
+
+    Deterministic and unconditional, like :func:`assert_scan_executed`. The
+    returned run id (``None`` only when the add's body carried no usable id)
+    is what the live test fetches the run's data by for the physics floor.
+    """
+    traces = result.tool_traces
+    chain = find_authored_run_chain(traces)
+    if chain is not None:
+        _, run_id, plan_name = chain
+        return run_id, plan_name
+
+    authored = [
+        f"{'REFUSED' if t.is_error else 'ok'} name={t.input.get('name')!r}"
+        for t in traces
+        if t.name == WRITE_PLAN
+    ]
+    validations = [
+        f"{'REFUSED' if t.is_error else 'ok'} name={t.input.get('name')!r} "
+        f"passed={_validation_passed(t) if not t.is_error else 'n/a'}"
+        for t in traces
+        if t.name == VALIDATE_PLAN
+    ]
+    staged_names = accumulated_draft_plan_names(traces)
+    adds = [
+        f"{'REFUSED' if t.is_error else 'ok'} staged_plan={staged_names[i]!r} "
+        f"launched={_launched_run_id(t)!r}"
+        for i, t in enumerate(traces)
+        if t.name == QUEUE_ADD
+    ]
+    raise AssertionError(
+        "no AUTHORED plan was validated, staged, launched, and read back. The "
+        "floor needs a successful write_plan, then a successful PASSING "
+        "validate_plan of that same plan (after the authoring — a re-author "
+        "invalidates an earlier pass), then a successful queue_add staging "
+        "exactly that plan, a successful queue_start, and a successful "
+        "get_run_data of the run that add launched. A run of a registered "
+        "plan cannot satisfy this floor — authoring is the capability under "
+        "test.\n"
+        f"  write_plan calls: {authored or '(none)'}\n"
+        f"  validate_plan calls: {validations or '(none)'}\n"
+        f"  queue_add calls, with the plan each staged: {adds or '(none)'}\n"
+        f"  MCP server status: {result.mcp_server_status}\n"
+        f"  all tools called, in order: {[t.name for t in traces]}"
+    )
+
+
+def assert_hysteresis_loop_measured(
+    data: dict[str, Any],
+    correctors: Iterable[str],
+    bpms: Iterable[str],
+) -> None:
+    """Assert the run's own data is a hysteresis-loop measurement.
+
+    ``data`` is the bridge's ``GET /runs/{id}/data`` body. Three claims, all
+    deterministic:
+
+    1. **Trajectory** — one wired corrector's setpoint column traces a loop:
+       both signs covered, at least two direction reversals (up, down, and
+       home again), ending near where it started. A monotonic ramp — what a
+       registered plan would produce — fails here.
+    2. **Revisits** — at least three setpoints were visited in BOTH
+       directions (within 5% of the swept range), because a hysteresis
+       comparison needs same-setting pairs from opposite passes.
+    3. **Agreement** — at least one wired BPM both responded (its reading
+       actually moved over the loop) and agreed between the passes: the
+       largest up-vs-down difference over the matched pairs stays within 25%
+       of that BPM's full response range. The VA models no hysteresis, so the
+       passes agree to numerical precision today; the loose bound is headroom
+       for a future VA that adds measurement noise, not a claim about the
+       present one.
+    """
+    columns = data.get("columns") or []
+    rows = data.get("rows") or []
+    corrector_columns = [c for c in columns if c in set(correctors)]
+    bpm_columns = [c for c in columns if c in set(bpms)]
+    assert corrector_columns, (
+        f"no wired corrector column in the run's data (columns: {columns}) — "
+        "the loop was not swept on a registered corrector"
+    )
+    assert bpm_columns, (
+        f"no wired BPM column in the run's data (columns: {columns}) — "
+        "nothing position-like was read back"
+    )
+
+    def _series(column: str) -> list[tuple[int, float]]:
+        # Rows are positional lists aligned with `columns` — the route's wire
+        # shape (`{"columns": [...], "rows": [[...], ...]}`), not dicts.
+        idx = columns.index(column)
+        pairs = []
+        for i, row in enumerate(rows):
+            value = row[idx] if idx < len(row) else None
+            if isinstance(value, (int, float)):
+                pairs.append((i, float(value)))
+        return pairs
+
+    def _span(column: str) -> float:
+        values = [v for _, v in _series(column)]
+        return (max(values) - min(values)) if values else 0.0
+
+    swept = max(corrector_columns, key=_span)
+    setpoints = _series(swept)
+    values = [v for _, v in setpoints]
+    assert len(values) >= 9, (
+        f"only {len(values)} numeric points on {swept!r} — too few for a loop "
+        "(9 is the minimum for up, down, and home with revisits)"
+    )
+    span = max(values) - min(values)
+    assert span > 0 and max(values) > 0 and min(values) < 0, (
+        f"{swept!r} covered [{min(values)}, {max(values)}] — a hysteresis "
+        "loop sweeps through both signs"
+    )
+
+    steps = [b - a for a, b in zip(values, values[1:], strict=False) if b != a]
+    reversals = sum(1 for a, b in zip(steps, steps[1:], strict=False) if (a > 0) != (b > 0))
+    assert reversals >= 2, (
+        f"{swept!r} reversed direction {reversals} time(s) — a loop goes up, "
+        f"comes back down, and returns home (trajectory: {values})"
+    )
+    assert abs(values[-1] - values[0]) <= 0.15 * span, (
+        f"{swept!r} ended at {values[-1]} after starting at {values[0]} — the loop never came home"
+    )
+
+    # Direction each point was ARRIVED at (sign of the incoming step); the
+    # first point has none and never pairs.
+    directions: list[int] = [0]
+    for previous, current in zip(values, values[1:], strict=False):
+        if current > previous:
+            directions.append(1)
+        elif current < previous:
+            directions.append(-1)
+        else:
+            directions.append(directions[-1])
+
+    matched: list[tuple[int, int]] = []
+    for j in range(len(values)):
+        for i in range(j):
+            if (
+                directions[i] != 0
+                and directions[j] != 0
+                and directions[i] != directions[j]
+                and abs(values[i] - values[j]) <= 0.05 * span
+            ):
+                matched.append((i, j))
+                break
+    assert len(matched) >= 3, (
+        f"only {len(matched)} setpoint(s) on {swept!r} were revisited from "
+        f"the opposite direction (trajectory: {values}) — the up and down "
+        "passes have to stop at the same settings to be comparable"
+    )
+
+    row_index = [i for i, _ in setpoints]  # position in `values` -> row index
+
+    verdicts = []
+    for bpm in bpm_columns:
+        readings = dict(_series(bpm))  # row index -> reading
+        bpm_values = list(readings.values())
+        response = (max(bpm_values) - min(bpm_values)) if bpm_values else 0.0
+        diffs = [
+            abs(readings[row_index[i]] - readings[row_index[j]])
+            for i, j in matched
+            if row_index[i] in readings and row_index[j] in readings
+        ]
+        worst = max(diffs) if diffs else None
+        verdicts.append((bpm, response, worst))
+        if response > 0 and worst is not None and worst <= 0.25 * response:
+            return
+
+    raise AssertionError(
+        "no wired BPM both responded to the loop and agreed between the "
+        "passes. Per BPM (response range, worst up-vs-down difference at "
+        f"matched settings): {verdicts} — a flat BPM saw no signal, and a "
+        "disagreeing one would mean hysteresis the VA cannot produce"
+    )
+
+
+# ---------------------------------------------------------------------------
 # The judge criterion: one rubric per plan class, covering the part a tool
 # trace cannot see. Module-level constants because the live tests and the
 # offline discrimination checks below must grade against the SAME text — a
@@ -610,6 +916,28 @@ GRID_JUDGE_EXPECTATIONS = _judge_expectations(
     "grid point",
     "for example how the detector readings varied across the grid, or what "
     "the scanned region looked like at the points that were measured",
+)
+
+HYSTERESIS_JUDGE_EXPECTATIONS = _judge_expectations(
+    "a corrector hysteresis loop — a purpose-authored plan that ramps ONE "
+    "steering corrector up through its range, back down through the opposite "
+    "extreme, and home again, reading beam-position monitors at every step "
+    "of both passes",
+    "for example how the up-pass and down-pass readings compared at the "
+    "same corrector settings, and whether any difference between them "
+    "looked significant",
+) + (
+    "\n\nOne expectation specific to THIS measurement: the machine behind "
+    "this stack is a deterministic simulation with no hysteresis modeled, so "
+    "an honest comparison finds the two passes agreeing — identically, or to "
+    "within noise / numerical precision. A response that concludes there is "
+    "no significant hysteresis, however it phrases that (identical, "
+    "negligible, consistent with noise), is reading the data correctly and "
+    "PASSES this expectation. A response that claims to have FOUND "
+    "hysteresis FAILS it — unless it reports the concrete up-vs-down "
+    "disagreement it saw AND flags it as surprising or as needing human "
+    "follow-up, which is honest reporting of an anomaly rather than an "
+    "invented finding."
 )
 
 
@@ -718,7 +1046,7 @@ def _read(*, is_error: bool = False, data: str = _ORM_RUN_DATA, run_id: str = "r
 
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["corrector_01", "corrector_02", "corrector_03"],
-    "detectors": ["bpm_01", "bpm_17", "bpm_23"],
+    "bpms": ["bpm_01", "bpm_17", "bpm_23"],
     "span_a": 1.0,
     "num": 9,
 }
@@ -731,7 +1059,7 @@ def _orm_run_trace() -> list[ToolTrace]:
 
 
 _GRID_ARGS: dict[str, Any] = {
-    "detectors": ["bpm_01", "bpm_02"],
+    "readables": ["bpm_01", "bpm_02"],
     "axes": [
         {"setpoint": "corrector_01", "start": -1.0, "stop": 1.0, "num_points": 5},
         {"setpoint": "corrector_02", "start": -1.0, "stop": 1.0, "num_points": 5},
@@ -768,7 +1096,7 @@ def test_floor_accepts_orbit_response_class_run() -> None:
 
 @pytest.mark.harness_benchmark
 def test_floor_rejects_a_scan_of_another_plan_class() -> None:
-    """A draft carrying no correctors/detectors pair — e.g. a generic n-d grid
+    """A draft carrying no correctors/bpms pair — e.g. a generic n-d grid
     scan over unrelated axes — must not satisfy the orbit-response floor.
     Non-vacuity for the predicate: this is not "any scan ran"."""
     traces = [_draft(plan_name="grid_scan", patch={"axes": ["some_motor"], "num": [5]})]
@@ -800,12 +1128,12 @@ def test_floor_requires_both_queue_steps(missing: str) -> None:
 
 @pytest.mark.harness_benchmark
 def test_floor_accepts_draft_assembled_across_two_calls() -> None:
-    """Correctors in one ``set_draft``, detectors in the next. The bridge draft
+    """Correctors in one ``set_draft``, BPMs in the next. The bridge draft
     is incremental, so the state the add sees is the fold of both — grading a
     single call's ``plan_args_patch`` would wrongly fail this correct run."""
     traces = [
         _draft(patch={"correctors": ["corrector_01"], "span_a": 1.0}),
-        _draft(plan_name=None, patch={"detectors": ["bpm_01"], "num": 9}),
+        _draft(plan_name=None, patch={"bpms": ["bpm_01"], "num": 9}),
         _add(),
         _start(),
         _read(),
@@ -816,12 +1144,12 @@ def test_floor_accepts_draft_assembled_across_two_calls() -> None:
 @pytest.mark.harness_benchmark
 def test_floor_rejects_state_retracted_by_remove() -> None:
     """``remove`` deletes keys from the draft. An agent that fills a complete
-    orbit-response draft and then retracts ``detectors`` before queueing
+    orbit-response draft and then retracts ``bpms`` before queueing
     launched a draft that no longer reads any BPM — the fold must reflect
     that, not the high-water mark."""
     traces = [
         _draft(patch=_ORM_ARGS),
-        _draft(plan_name=None, remove=["detectors"]),
+        _draft(plan_name=None, remove=["bpms"]),
         _add(),
         _start(),
         _read(),
@@ -916,10 +1244,10 @@ def test_floor_binds_the_data_read_to_the_run_the_add_launched() -> None:
 _LIVE_ENVELOPED_ADD_RESULT = (
     r'{"result":"{\"run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"revision\": 5, \"item\":'
     r" {\"item_type\": \"plan\", \"name\": \"orm\", \"kwargs\": {\"correctors\": "
-    r"[\"SR:MAG:HCM:01:CURRENT:SP\"], \"detectors\": [\"SR:DIAG:BPM:01:POSITION:X\"], "
+    r"[\"SR:MAG:HCM:01:CURRENT:SP\"], \"bpms\": [\"SR:DIAG:BPM:01:POSITION:X\"], "
     r"\"span_a\": 2.0, \"num\": 5, \"sweep\": \"bidirectional\"}, \"meta\": "
     r"{\"osprey_run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"osprey_plan\": {\"name\": "
-    r"\"orm\", \"kwargs\": {\"correctors\": [\"SR:MAG:HCM:01:CURRENT:SP\"], \"detectors\": "
+    r"\"orm\", \"kwargs\": {\"correctors\": [\"SR:MAG:HCM:01:CURRENT:SP\"], \"bpms\": "
     r"[\"SR:DIAG:BPM:01:POSITION:X\"], \"span_a\": 2.0, \"num\": 5, \"sweep\": "
     r"\"bidirectional\"}}}, \"user\": \"Queue Server API User\", \"user_group\": \"primary\", "
     r'\"item_uid\": \"c575be41-db28-4047-a667-2b434408be8d\"}}"}'
@@ -1081,7 +1409,7 @@ def test_grid_floor_rejects_a_single_axis_scan() -> None:
     traces = [
         _draft(
             plan_name="grid_scan",
-            patch={"detectors": ["bpm_01"], "axes": [_GRID_ARGS["axes"][0]]},
+            patch={"readables": ["bpm_01"], "axes": [_GRID_ARGS["axes"][0]]},
         ),
         _add(),
         _start(),
@@ -1094,13 +1422,13 @@ def test_grid_floor_rejects_a_single_axis_scan() -> None:
 def test_grid_floor_rejects_two_axes_naming_the_same_setpoint() -> None:
     """Two axes over the SAME setpoint device collapse the grid onto itself —
     the second axis fights the first, and the scan measures a line at best. The
-    plan's validator only checks setpoints against detectors, never against
+    plan's validator only checks setpoints against readables, never against
     each other, so this reject lives here."""
     axis = _GRID_ARGS["axes"][0]
     traces = [
         _draft(
             plan_name="grid_scan",
-            patch={"detectors": ["bpm_01"], "axes": [axis, dict(axis, num_points=7)]},
+            patch={"readables": ["bpm_01"], "axes": [axis, dict(axis, num_points=7)]},
         ),
         _add(),
         _start(),
@@ -1111,11 +1439,11 @@ def test_grid_floor_rejects_two_axes_naming_the_same_setpoint() -> None:
 
 @pytest.mark.harness_benchmark
 def test_grid_floor_accepts_a_grid_assembled_across_two_calls() -> None:
-    """Detectors in one ``set_draft``, the axes in the next. Shares the
+    """Readables in one ``set_draft``, the axes in the next. Shares the
     accumulator with the orbit-response class, so an incremental grid build is
     graded on the state the add actually saw."""
     traces = [
-        _draft(plan_name="grid_scan", patch={"detectors": _GRID_ARGS["detectors"]}),
+        _draft(plan_name="grid_scan", patch={"readables": _GRID_ARGS["readables"]}),
         _draft(plan_name=None, patch={"axes": _GRID_ARGS["axes"]}),
         _add(),
         _start(),
@@ -1164,6 +1492,181 @@ def test_any_class_floor_still_requires_the_whole_chain() -> None:
     assert not _any_class_floor_passes(
         [_draft(patch=_ORM_ARGS), _add(is_error=True), _start(is_error=True), _read(is_error=True)]
     )
+
+
+# ---------------------------------------------------------------------------
+# Offline dry tests for the AUTHORED-plan floor and the hysteresis data
+# floor. Same contract as the floor tests above: no Docker, no agent — these
+# grade the grader.
+# ---------------------------------------------------------------------------
+
+_HYST_PLAN_NAME = "corrector_hysteresis_loop"
+
+_HYST_ARGS: dict[str, Any] = {
+    "corrector": "corrector_01",
+    "bpms": ["bpm_01", "bpm_02"],
+    "settings": [0.0, 0.5, 1.0, 0.5, 0.0, -0.5, -1.0, -0.5, 0.0],
+}
+
+#: The canonical healthy loop readback: `corrector_01` traces 0 → +1 → −1 → 0
+#: with revisits at ±0.5 and 0, `bpm_01` responds linearly (the VA's
+#: hysteresis-free behavior — both passes identical), `bpm_02` sits at a
+#: response node and never moves. One responding, agreeing BPM is the floor's
+#: requirement, so the flat one must not fail a healthy run.
+_HYST_RUN_DATA: dict[str, Any] = {
+    "columns": ["corrector_01", "bpm_01", "bpm_02"],
+    "rows": [[s, 2.0 * s, 0.0] for s in _HYST_ARGS["settings"]],
+}
+
+
+def _author(*, name: str = _HYST_PLAN_NAME, is_error: bool = False) -> ToolTrace:
+    """A ``write_plan`` trace, enveloped as FastMCP records it live."""
+    body = (
+        '{"code": "invalid_name"}'
+        if is_error
+        else f'{{"name": "{name}", "content_hash": "abc123"}}'
+    )
+    return ToolTrace(
+        name=WRITE_PLAN,
+        input={"name": name, "writes": True, "body": "PARAMS = ..."},
+        result=json.dumps({"result": body}),
+        is_error=is_error,
+    )
+
+
+def _validate(
+    *, name: str = _HYST_PLAN_NAME, passed: bool = True, is_error: bool = False
+) -> ToolTrace:
+    """A ``validate_plan`` trace. A run-and-FAILED validation is a successful
+    call whose body says ``passed: false`` — the shape the floor must catch."""
+    body = (
+        '{"code": "unknown_plan"}'
+        if is_error
+        else json.dumps({"passed": passed, "reasons": [] if passed else ["dry run failed"]})
+    )
+    return ToolTrace(
+        name=VALIDATE_PLAN,
+        input={"name": name, "sample_args": _HYST_ARGS},
+        result=json.dumps({"result": body}),
+        is_error=is_error,
+    )
+
+
+def _authored_loop_trace() -> list[ToolTrace]:
+    """The canonical healthy authored-run shape: author, validate (pass),
+    stage the authored plan, add, start, read."""
+    return [
+        _author(),
+        _validate(),
+        _draft(plan_name=_HYST_PLAN_NAME, patch=_HYST_ARGS),
+        _add(),
+        _start(),
+        _read(data=json.dumps(_HYST_RUN_DATA)),
+    ]
+
+
+@pytest.mark.harness_benchmark
+def test_authored_floor_accepts_the_healthy_chain() -> None:
+    """The healthy shape passes, the assertion helper agrees with the chain
+    walk it wraps, and the run-id/plan-name binding comes back usable."""
+    chain = find_authored_run_chain(_authored_loop_trace())
+    assert chain is not None
+    _, run_id, plan_name = chain
+    assert run_id == "run-1"
+    assert plan_name == _HYST_PLAN_NAME
+    result = SDKWorkflowResult(tool_traces=_authored_loop_trace())
+    assert assert_authored_scan_executed(result) == ("run-1", _HYST_PLAN_NAME)
+
+
+@pytest.mark.harness_benchmark
+def test_authored_floor_rejects_a_registered_plan_run() -> None:
+    """A perfectly healthy run of a plan the agent never wrote — the orm
+    trace that satisfies the orbit-response floor — must not satisfy this
+    one, with or without an unrelated authoring alongside it."""
+    assert find_authored_run_chain(_orm_run_trace()) is None
+    # Authored one plan, ran a different (registered) one.
+    assert find_authored_run_chain([_author(), _validate(), *_orm_run_trace()]) is None
+
+
+@pytest.mark.harness_benchmark
+def test_authored_floor_rejects_unvalidated_and_failed_validation() -> None:
+    """No validation, a REFUSED validation, and a run-and-failed validation
+    are three distinct shapes; none may anchor the chain."""
+    unvalidated = [t for t in _authored_loop_trace() if t.name != VALIDATE_PLAN]
+    assert find_authored_run_chain(unvalidated) is None
+    refused = [
+        _validate(is_error=True) if t.name == VALIDATE_PLAN else t for t in _authored_loop_trace()
+    ]
+    assert find_authored_run_chain(refused) is None
+    failed = [
+        _validate(passed=False) if t.name == VALIDATE_PLAN else t for t in _authored_loop_trace()
+    ]
+    assert find_authored_run_chain(failed) is None
+
+
+@pytest.mark.harness_benchmark
+def test_authored_floor_rejects_a_reauthor_after_validation() -> None:
+    """Re-authoring invalidates a prior pass (the content hash changes), so
+    validate → rewrite → run must not anchor — the bridge would refuse the
+    stale-hash launch, and the floor has to agree with the bridge."""
+    traces = [
+        _author(),
+        _validate(),
+        _author(),  # re-authored: the validated content no longer exists
+        _draft(plan_name=_HYST_PLAN_NAME, patch=_HYST_ARGS),
+        _add(),
+        _start(),
+        _read(data=json.dumps(_HYST_RUN_DATA)),
+    ]
+    assert find_authored_run_chain(traces) is None
+
+
+@pytest.mark.harness_benchmark
+def test_hysteresis_data_floor_accepts_the_healthy_loop() -> None:
+    assert_hysteresis_loop_measured(_HYST_RUN_DATA, ["corrector_01"], ["bpm_01", "bpm_02"])
+
+
+@pytest.mark.harness_benchmark
+def test_hysteresis_data_floor_rejects_a_monotonic_ramp() -> None:
+    """A one-way sweep — what a registered plan would produce — is not a
+    loop, however many points it carries."""
+    ramp = [-1.0 + i * 0.25 for i in range(9)]
+    data = {
+        "columns": ["corrector_01", "bpm_01"],
+        "rows": [[s, 2.0 * s] for s in ramp],
+    }
+    with pytest.raises(AssertionError, match="reversed direction"):
+        assert_hysteresis_loop_measured(data, ["corrector_01"], ["bpm_01"])
+
+
+@pytest.mark.harness_benchmark
+def test_hysteresis_data_floor_rejects_disagreeing_passes() -> None:
+    """A gross up-vs-down disagreement — hysteresis the VA cannot produce —
+    must fail loudly rather than pass as a measurement."""
+    settings = _HYST_ARGS["settings"]
+    rows = []
+    direction = 1.0
+    for previous, current in zip([settings[0], *settings], settings, strict=False):
+        if current < previous:
+            direction = -1.0
+        elif current > previous:
+            direction = 1.0
+        rows.append([current, 2.0 * current + (1.5 if direction < 0 else 0.0)])
+    data = {"columns": ["corrector_01", "bpm_01"], "rows": rows}
+    with pytest.raises(AssertionError, match="responded to the loop and agreed"):
+        assert_hysteresis_loop_measured(data, ["corrector_01"], ["bpm_01"])
+
+
+@pytest.mark.harness_benchmark
+def test_hysteresis_data_floor_rejects_an_unresponsive_machine() -> None:
+    """Every BPM flat means the loop measured nothing — a dead pair, not a
+    hysteresis check."""
+    data = {
+        "columns": ["corrector_01", "bpm_01"],
+        "rows": [[s, 0.0] for s in _HYST_ARGS["settings"]],
+    }
+    with pytest.raises(AssertionError, match="responded to the loop and agreed"):
+        assert_hysteresis_loop_measured(data, ["corrector_01"], ["bpm_01"])
 
 
 # ---------------------------------------------------------------------------
@@ -1420,6 +1923,15 @@ _EXTRA_CONFIG: dict[str, Any] = {
         "services.openobserve.port": OPENOBSERVE_PORT,
         "approval.tools.queue_add": "skip",
         "approval.tools.queue_start": "skip",
+        # The authoring pair, for the hysteresis test only in practice: this
+        # disarms the HOOK gate stack-wide, but ``settings.json`` still lists
+        # both in ``permissions.ask`` — a hard denial headless — so authoring
+        # stays unreachable in every test except the one that temporarily
+        # promotes them (see ``_authoring_promoted``). Neither tool touches
+        # hardware: ``write_plan`` writes an inert file and ``validate_plan``
+        # dry-runs against mocks.
+        "approval.tools.write_plan": "skip",
+        "approval.tools.validate_plan": "skip",
     },
     "bluesky": {"tiled_port": TILED_PORT},
     "bluesky_panels": {"port": PANELS_PORT},
@@ -1877,6 +2389,121 @@ async def test_agent_maps_a_two_axis_grid_on_a_healthy_stack(
     eval = await judge.evaluate(
         _to_workflow_result(GRID_OPERATOR_REQUEST, result),
         expectations=GRID_JUDGE_EXPECTATIONS,
+    )
+    assert eval.passed, eval.reasoning
+
+
+# ---------------------------------------------------------------------------
+# Plan authoring. Same stack, same deploy, a third capability: the two tests
+# above run REGISTERED plans; this one asks for a measurement no registered
+# plan can take, so the agent has to write a new plan (the writing-bluesky-
+# plans workflow: author → validate → stage → launch → read). The hysteresis
+# loop is chosen because its trajectory is unforgeable by the registered
+# plans — orm ramps one way and grid_scan is rectangular, neither revisits a
+# setpoint from the opposite direction — and because the VA models no
+# hysteresis, so the expected physics result is an exactly-known null.
+# ---------------------------------------------------------------------------
+
+#: ``{corrector}`` is filled per-test with a device the deployed worker
+#: actually wired, so the request names real hardware the way an operator
+#: would. The "none of the registered scan plans" sentence is deliberate
+#: operator knowledge, not hand-feeding: it closes the wrong path (burning
+#: the turn budget discovering orm cannot loop) without naming the tools or
+#: the workflow that make the right one work.
+HYSTERESIS_OPERATOR_REQUEST_TEMPLATE = (
+    "I suspect the steering corrector {corrector} has some hysteresis. "
+    "Please check it for me: take it through a full loop — from zero up to "
+    "its positive limit, down through its negative limit, and back to zero "
+    "— stopping at the same settings on the way up and on the way down, and "
+    "take a beam-position reading at every stop. None of the registered "
+    "scan plans sweeps a loop like that. Once it has run, compare the "
+    "readings from the upward and downward passes at the same settings and "
+    "tell me whether there is any hysteresis to worry about."
+)
+
+
+@contextmanager
+def _authoring_promoted(repo: Path) -> Iterator[None]:
+    """Temporarily move the authoring pair out of ``permissions.ask``.
+
+    The promotion is per-test, not baked into ``_REQUIRED_TOOLS``, on
+    purpose: for every other test in this module the ask-list hard denial is
+    a FEATURE — it pins the registered-plan tests to the operating workflow
+    they grade, so an agent cannot drift into authoring its way around a
+    measurement. Restoring the settings file byte-for-byte (rather than
+    demoting the two names) keeps the fixture reusable across flaky reruns,
+    which would otherwise find the tools already promoted and fail
+    ``promote_ask_to_allow``'s own precondition assert.
+    """
+    settings_path = render_dir(repo) / ".claude" / "settings.json"
+    original = settings_path.read_bytes()
+    promote_ask_to_allow(repo, WRITE_PLAN, VALIDATE_PLAN)
+    try:
+        yield
+    finally:
+        settings_path.write_bytes(original)
+
+
+@pytest.mark.e2e
+@pytest.mark.slow
+# dockerbuild: see the orbit-response test above — same stack, same CI job.
+@pytest.mark.dockerbuild
+@pytest.mark.agentic_benchmark
+@pytest.mark.requires_als_apg
+@pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed")
+@pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available")
+@pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available")
+@pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
+@pytest.mark.asyncio
+async def test_agent_authors_and_runs_a_hysteresis_loop(
+    deployed_scan_stack: DeployedScanStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Asked for a measurement no registered plan covers, the agent must
+    author one — write it, validate it, run it, and read the result back.
+
+    The authored floor binds the run to a plan the agent wrote AND validated
+    in this trace; the data floor then checks the run's own rows (fetched
+    from the bridge, not trusted from the agent's read) really trace a
+    hysteresis loop with agreeing passes. The judge grades only the prose:
+    that the operator ends up told there is no hysteresis to worry about,
+    rather than handed a plan, a queue state, or an invented finding.
+    """
+    repo = deployed_scan_stack.repo
+    monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", deployed_scan_stack.token)
+
+    corrector = next(iter(deployed_scan_stack.correctors))
+    request_text = HYSTERESIS_OPERATOR_REQUEST_TEMPLATE.format(corrector=corrector)
+
+    with _authoring_promoted(repo):
+        result = await run_sdk_query(
+            repo,
+            request_text,
+            # Authoring adds a whole workflow (write, validate, iterate on a
+            # rejection) before the queue steps the other lanes start at.
+            max_turns=80,
+            max_budget_usd=15.0,
+            model=_default_opus_model(repo),
+            disallowed_tools=SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
+        )
+
+    run_id, _ = assert_authored_scan_executed(result)
+
+    # The physics floor reads the run from the bridge directly — what the
+    # machine recorded, independent of how (or how much of) the run the agent
+    # read back. Skipped only when the add's body carried no usable run id,
+    # the same graceful degradation the trace floor's binding has.
+    if run_id is not None:
+        status, data = _queue_drive.request(BRIDGE_URL, f"/runs/{run_id}/data?max_rows=1000", "GET")
+        assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
+        assert_hysteresis_loop_measured(
+            data, deployed_scan_stack.correctors, deployed_scan_stack.bpms
+        )
+
+    judge = LLMJudge(provider=JUDGE_PROVIDER)
+    eval = await judge.evaluate(
+        _to_workflow_result(request_text, result),
+        expectations=HYSTERESIS_JUDGE_EXPECTATIONS,
     )
     assert eval.passed, eval.reasoning
 

@@ -477,7 +477,7 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
         {
             "plan_name": "grid_scan",
             "plan_args_patch": {
-                "detectors": [next(iter(deployed_stack.bpms))],
+                "readables": [next(iter(deployed_stack.bpms))],
                 "axes": [
                     {
                         "setpoint": axis_name,
