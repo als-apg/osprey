@@ -152,6 +152,7 @@ docs/build/
 _issues
 /CLAUDE.md
 .mcp.json
+/.lavish
 
 # Git worktrees
 .worktrees/
