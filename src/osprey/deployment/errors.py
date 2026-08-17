@@ -147,6 +147,58 @@ class NoRenderedBuildError(DeploymentPreconditionError):
     summary = "No rendered build to start from"
 
 
+class UnmetPreconditionsError(DeploymentPreconditionError):
+    """Every cheaply checkable precondition a start failed, reported at once.
+
+    The other subclasses each describe ONE thing that is not true, because each
+    is raised the moment its own check fails. That is the right shape for a
+    check that can only be made once the step before it has run — but most of a
+    start's preconditions are answerable from this deployment's own files,
+    before anything is built or started, and reporting those one at a time costs
+    the operator a full deploy attempt per finding: fix, re-run, wait, discover
+    the next one.
+
+    So the collectable ones are probed together and land here. ``summary`` is
+    the count, and ``reason`` is the findings enumerated in the order the deploy
+    would have hit them, each followed by its own remedy line. There is no
+    top-level ``remedy``: with more than one thing to fix there is no single
+    ``→`` line that is honest, and naming one of several would read as *the* way
+    through. This is the convention ``gate_start_from_build`` already follows
+    for its two-exits refusal — the alternatives go in the cause as an aligned
+    block, and the operator picks. It holds at a count of one too, where the
+    finding's own remedy line is the whole answer and a duplicate of it at the
+    bottom would be noise.
+
+    Raised for **one** finding as well as for many, deliberately. A start that
+    refuses over a single precondition then reads the same as one that refuses
+    over four: the same frame, the same enumeration, the same place to look for
+    the remedy. The alternative — a bare message below some threshold and a
+    structured one above it — would make the common case the unfamiliar one.
+
+    Args:
+        findings: ``(problem, remedy)`` pairs, in the order the deploy would
+            have reached them. ``remedy`` may be empty for a problem whose own
+            text already says what to do about it, which is the shape of the
+            refusals that carry their fix in prose.
+    """
+
+    def __init__(self, findings: Sequence[tuple[str, str]]) -> None:
+        self.findings = [(str(problem), str(remedy)) for problem, remedy in findings]
+        count = len(self.findings)
+        noun = "precondition" if count == 1 else "preconditions"
+        # Instance attribute shadowing the class one: the lead-in is a fact
+        # about THIS refusal (how many things are wrong), not about the type.
+        self.summary = f"{count} unmet {noun} on this deployment"
+        blocks = []
+        for index, (problem, remedy) in enumerate(self.findings, start=1):
+            text = f"{problem}\n{remedy}" if remedy else problem
+            head, *rest = text.splitlines() or [""]
+            # Continuation lines are indented under the number so a multi-line
+            # finding reads as one item rather than as several.
+            blocks.append("\n".join([f"{index}. {head}", *(f"   {line}" for line in rest)]))
+        super().__init__("\n\n".join(blocks), "")
+
+
 class NoComposeFilesError(DeploymentPreconditionError):
     """A read verb needs the compose files a build rendered, and there are none.
 

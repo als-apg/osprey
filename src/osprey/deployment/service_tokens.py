@@ -247,6 +247,50 @@ _VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
 }
 
 
+# Values a var must never hold, whatever its format says. Keyed and opted into
+# exactly like ``_VAR_VALIDATORS``: a var absent here has no forbidden value and
+# ``_is_forbidden_value`` returns False for it.
+#
+# A separate map rather than another validator, because it answers a different
+# question. The openobserve compose template's fallback satisfies
+# ``_validate_openobserve_password`` completely — it carries all four required
+# character classes — so no *format* rule can ever catch it. What disqualifies
+# it is that it is published: it ships in the template every rendered project
+# carries, which makes it a shared password rather than a secret, guarding a
+# store that holds full agent conversation transcripts.
+#
+# Deliberately narrow, and there is no build-time twin of this check. On a fresh
+# repo the template default is what the ``${VAR:-default}`` form resolves to
+# transiently, and the very next step mints a real value — refusing there would
+# fire on the ordinary first deploy. By the time this map is consulted (the
+# post-mint validation loop in ``_ensure_service_tokens``) the effective value is
+# either something just minted or something an operator supplied, so a match
+# means the operator pinned the published default as their actual password.
+_VAR_FORBIDDEN_VALUES: dict[str, frozenset[str]] = {
+    # The ``${ZO_ROOT_USER_PASSWORD:-…}`` fallback in
+    # ``osprey/templates/services/openobserve/docker-compose.yml.j2``.
+    "ZO_ROOT_USER_PASSWORD": frozenset({"Complexpass#123"}),
+}
+
+# The ``_VAR_VALIDATOR_DESCRIPTIONS`` twin for _VAR_FORBIDDEN_VALUES: the
+# operator-facing constraint text shown in the RuntimeError
+# ``_ensure_service_tokens`` raises on a forbidden value — never the value
+# itself. Two maps rather than one because a var can fail either way and the two
+# failures have different fixes; sharing one entry would send an operator
+# reading about character classes when the problem is that their password is
+# public. A var with a forbidden value but no entry here falls back to a generic
+# description.
+_VAR_FORBIDDEN_DESCRIPTIONS: dict[str, str] = {
+    "ZO_ROOT_USER_PASSWORD": (
+        "must not be the default published in the openobserve compose template — "
+        "that value ships in every rendered project, so it is a shared password "
+        "rather than a secret, and this store holds full agent conversation "
+        "transcripts; remove the line from .env (and unset any shell export of the "
+        "same name) so the next run mints a per-deploy value"
+    ),
+}
+
+
 def _effective_value(var: str, dotenv: dict[str, str]) -> str:
     """The value ``_ensure_service_tokens`` treats as authoritative for ``var``.
 
@@ -284,6 +328,31 @@ def _validate_var(var: str, value: str) -> bool:
     if validator is None:
         return True
     return validator(value)
+
+
+def _is_forbidden_value(var: str, value: str) -> bool:
+    """True if ``value`` is one of ``var``'s registered forbidden values.
+
+    Kept out of :func:`_validate_var` on purpose. That function answers "is this
+    value *well-formed* for its consumer?", and every value registered in
+    ``_VAR_FORBIDDEN_VALUES`` is — the published openobserve default would start
+    the container quite happily. This asks a second question, "is this value
+    *anyone's* secret?", which only the deploy boundary is in a position to ask.
+    """
+    return value in _VAR_FORBIDDEN_VALUES.get(var, frozenset())
+
+
+def _raise_forbidden_var(var: str) -> None:
+    """Raise the standard "forbidden value" RuntimeError, never the value.
+
+    The twin of :func:`_raise_invalid_var` for the other refusal, in the same
+    shape and with the same rule: the message names the VARIABLE and how to fix
+    it, and never echoes the offending value back — a published default is still
+    the password some deployment is currently running on, and error text travels
+    into terminals, transcripts and CI logs.
+    """
+    constraint = _VAR_FORBIDDEN_DESCRIPTIONS.get(var, "must not be its published template default")
+    raise RuntimeError(f"{var} is invalid: {constraint}. Refusing to deploy. (Value not shown.)")
 
 
 def _raise_invalid_var(var: str, value: str = "") -> None:

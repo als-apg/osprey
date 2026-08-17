@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 from osprey.deployment.errors import CapturedProcessError
 from osprey.deployment.web_terminals import persona_images
 
@@ -680,6 +681,106 @@ def test_a_persona_placeholder_resolves_from_the_repo_env(tmp_path, calls, monke
 
     persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
 
+    assert calls == []
+
+
+def _telemetry_render(repo: Path, password_line: str) -> Path:
+    """A complete render whose model is fine and whose telemetry block varies.
+
+    The model is deliberately servable in every one of these: the point is what
+    the refusal says when the ONLY thing wrong is an observability credential.
+    """
+    project_path = _render(repo)
+    (project_path / "config.yml").write_text(
+        "project_name: ops-app\n"
+        "claude_code:\n"
+        "  provider: anthropic\n"
+        "  default_model: sonnet\n"
+        "  telemetry:\n"
+        "    enabled: true\n"
+        "    backend: openobserve\n" + password_line,
+        encoding="utf-8",
+    )
+    return project_path
+
+
+def test_unresolved_observability_credential_is_not_a_model_problem(tmp_path, calls, monkeypatch):
+    """An observability credential nothing on the host resolves is reported as
+    a credential, with the file it belongs in.
+
+    Both failures come out of the same resolve and the credential one is a
+    ValueError too, so the general frame would otherwise tell an operator whose
+    store password is unset to go and fix their model — an edit to a profile
+    that was never wrong, leaving the actual gap in place.
+    """
+    monkeypatch.delenv("OBSERVABILITY_PASSWORD", raising=False)
+    repo = _repo(tmp_path, "ops")
+    project_path = _telemetry_render(
+        repo,
+        "    openobserve:\n"
+        "      user: operator@example.com\n"
+        "      password: ${OBSERVABILITY_PASSWORD}\n",
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
+
+    message = str(excinfo.value)
+    assert "observability credentials this deployment cannot resolve" in message
+    assert str(project_path) in message
+    # The variable to set, and the one file that will be read for it -- a name,
+    # never a value, since an unresolved placeholder has none to print.
+    assert "OBSERVABILITY_PASSWORD" in message
+    assert f'echo "OBSERVABILITY_PASSWORD=<value>" >> {repo / ".env"}' in message
+    assert "`osprey up` mints" in message
+    # And emphatically not the other remedy.
+    assert "Fix the model in this deployment's profile" not in message
+    assert isinstance(excinfo.value.__cause__, ObservabilityCredentialError)
+    assert calls == []
+
+
+def test_a_blank_observability_credential_names_the_config_keys(tmp_path, calls):
+    """Nothing declared at all: there is no variable name to hand back, so the
+    remedy names the config keys instead of inventing one."""
+    repo = _repo(tmp_path, "ops")
+    _telemetry_render(repo, "    openobserve:\n      org: default\n")
+
+    with pytest.raises(ValueError) as excinfo:
+        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
+
+    message = str(excinfo.value)
+    assert "openobserve.user" in message and "openobserve.password" in message
+    assert str(repo / ".env") in message
+    assert "Fix the model in this deployment's profile" not in message
+    assert calls == []
+
+
+def test_an_unservable_model_still_gets_the_model_remedy(tmp_path, calls):
+    """The converse, and the reason arm order matters: the credential arm sits
+    ahead of the general one and must not swallow a genuine model failure."""
+    repo = _repo(tmp_path, "ops")
+    project_path = _render(repo)
+    (project_path / "config.yml").write_text(
+        "project_name: ops-app\n"
+        "claude_code:\n"
+        "  provider: anthropic\n"
+        "  default_model: anthropic/claude-opus\n"
+        "  telemetry:\n"
+        "    enabled: true\n"
+        "    backend: openobserve\n"
+        "    openobserve:\n"
+        "      user: operator@example.com\n"
+        "      password: not-a-placeholder\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        persona_images.verify_persona_renders(_persona_config(repo), _PERSONA_USERS, repo_root=repo)
+
+    message = str(excinfo.value)
+    assert "model configuration its provider cannot serve" in message
+    assert "Fix the model in this deployment's profile" in message
+    assert "observability" not in message
     assert calls == []
 
 

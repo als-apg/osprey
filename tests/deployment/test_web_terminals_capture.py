@@ -624,8 +624,10 @@ def test_host_port_self_heal_restart_is_captured(monkeypatch, tmp_path, reporter
     under, so it spools; advisory as before (check=False), and it reports the
     bounce as a step."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
-    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker"])
+    monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
+    # None is "could not read the setting", which is the state that keeps the
+    # self-heal bounce these tests are about. A definite False would skip it.
+    monkeypatch.setattr(postup_hooks, "host_networking_enabled", lambda: None)
     monkeypatch.setattr(postup_hooks, "_host_port_answers", lambda url, attempts, delay: False)
     recorder = RunRecorder()
     monkeypatch.setattr(postup_hooks, "run_captured", recorder)
@@ -654,8 +656,10 @@ def test_a_bounce_that_worked_reports_the_endpoint_as_reachable(monkeypatch, tmp
     stale port registration.
     """
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
-    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker"])
+    monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
+    # None is "could not read the setting", which is the state that keeps the
+    # self-heal bounce these tests are about. A definite False would skip it.
+    monkeypatch.setattr(postup_hooks, "host_networking_enabled", lambda: None)
     answers = iter([False, True])
     monkeypatch.setattr(
         postup_hooks, "_host_port_answers", lambda url, attempts, delay: next(answers)

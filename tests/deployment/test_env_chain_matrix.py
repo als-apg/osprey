@@ -406,6 +406,37 @@ def resolve_via_health_loader(repo: Path, monkeypatch: pytest.MonkeyPatch) -> di
     return chain_keys_of(os.environ)
 
 
+def resolve_via_service_token_read_path(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, str]:
+    """The deploy's token mint — ``_effective_value``, asked the way it is asked.
+
+    The only row whose answer depends on a step another component took.
+    ``_ensure_service_tokens`` parses the LOCAL file alone
+    (``parse_dotenv_file(env_path)``) and hands that mapping to
+    ``_effective_value``, which reads ``os.environ`` ahead of it — so the shared
+    half reaches the mint by exactly one route: the CLI entry point loads the
+    whole chain over ``os.environ`` before any deploy code runs. Both reads are
+    reproduced here, in that order, because either one alone would answer a
+    question the deploy never asks.
+
+    A future delivery that stops mirroring the chain into ``os.environ`` fails
+    this row on the shared-only cell while every other row stays green, which is
+    the finding: the mint would resolve a credential from a different file than
+    it does today, and would mint over the shared half rather than honour it.
+    """
+    import osprey.utils.config as config
+    from osprey.deployment.service_tokens import _effective_value
+
+    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.chdir(repo)
+    config.load_project_dotenv()
+
+    env_path = repo / ENV_LOCAL_FILENAME
+    on_disk = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    return {key: value for key in CHAIN_KEYS if (value := _effective_value(key, on_disk))}
+
+
 LOADERS = [
     pytest.param(resolve_via_load_project_dotenv, id="load_project_dotenv"),
     pytest.param(resolve_via_chat_overlay, id="chat-overlay"),
@@ -418,6 +449,7 @@ LOADERS = [
     pytest.param(resolve_via_users_cli, id="users-env-cli"),
     pytest.param(resolve_via_health_cli, id="health-cli-cross-cwd"),
     pytest.param(resolve_via_health_loader, id="health-loader"),
+    pytest.param(resolve_via_service_token_read_path, id="service-token-mint-read-path"),
 ]
 
 

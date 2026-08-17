@@ -780,8 +780,13 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     if base_python is not None:
         logger.debug("  Base interpreter: %s", base_python)
     if uv_path:
+        # `--clear` because a rebuild is the ordinary case, not the exception:
+        # without it uv refuses a directory that already holds a venv, so the
+        # second build of an unchanged tree would fail where the first
+        # succeeded. The stdlib branch below already replaces what it finds, so
+        # this is also what keeps the two branches behaving alike.
         result = subprocess.run(
-            [uv_path, "venv", str(venv_path), "--python", base_python_arg, "--quiet"],
+            [uv_path, "venv", str(venv_path), "--python", base_python_arg, "--quiet", "--clear"],
             capture_output=True,
             text=True,
             timeout=60,

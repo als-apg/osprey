@@ -94,6 +94,7 @@ import json
 import os
 import shutil
 import subprocess
+import textwrap
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
@@ -110,7 +111,10 @@ from osprey.deployment.container_lifecycle import as_built_config_path, down_dep
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
-from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
+from osprey.deployment.web_terminals.env_production import (
+    SUPERSEDED_USERS_ENV_FILENAME,
+    USERS_ENV_FILENAME,
+)
 from osprey.deployment.web_terminals.lifecycle import confirm_destroy
 from osprey.utils.dotenv import parse_dotenv_text
 from osprey.utils.logger import get_logger
@@ -130,17 +134,18 @@ COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 #: is verified against before removal — exactly as ``nuke`` verifies it.
 OSPREY_PROJECT_LABEL = "com.osprey.project"
 
-#: The web tier's two credential files, as ``(filename, what it holds, how it is
-#: refreshed)``. Both are write-once — a deploy creates each when it is absent
-#: and never rewrites an existing one — and reset removes neither, which is why
-#: they are disclosed (:meth:`ResetPlan._kept_lines`) rather than left for an
+#: The web tier's credential files, as ``(filename, what it holds, how it is
+#: refreshed)``. Each is written once — a deploy creates it when it is absent
+#: and never rewrites an existing one — and reset removes none of them, which is
+#: why they are disclosed (:meth:`ResetPlan._kept_lines`) rather than left for an
 #: operator to discover after wiping the deployment they belong to.
 #:
-#: The refresh clauses are per-file because the two do NOT behave alike: the
-#: same removal that gets one re-derived costs every user their password in the
-#: other, and stops a registry-mode deploy outright. Both spellings come from
-#: the modules that write them, so neither disclosure can name a file this
-#: system stopped producing.
+#: The refresh clauses are per-file because these do NOT behave alike: the same
+#: removal that gets the first re-derived (and stops a registry-mode deploy
+#: outright) costs every user their password in the second, while the third is
+#: a superseded copy nothing refreshes at all and the operator is free to drop.
+#: Every spelling comes from the module that writes it, so no disclosure here
+#: can name a file this system stopped producing.
 WEB_CREDENTIAL_FILES: tuple[tuple[str, str, str], ...] = (
     (
         USERS_ENV_FILENAME,
@@ -153,6 +158,12 @@ WEB_CREDENTIAL_FILES: tuple[tuple[str, str, str], ...] = (
         "the web terminals' password hashes and cookie-signing secrets",
         "Remove it and the next deploy mints a NEW password for every user; "
         "`osprey users decommission` is what drops one departed user's entries.",
+    ),
+    (
+        SUPERSEDED_USERS_ENV_FILENAME,
+        "a pre-rename copy of the runtime secrets, set aside by a deploy",
+        f"Nothing reads it and no deploy refreshes it: {USERS_ENV_FILENAME} is the live "
+        f"file. Delete it yourself once you have confirmed {USERS_ENV_FILENAME} is good.",
     ),
 )
 
@@ -271,17 +282,71 @@ PARTIAL_RESET_EXIT_CODE = EXIT_CODES[ResetOutcome.COMPLETED_WITH_FAILURES]
 class ForeignCheckoutError(RuntimeError):
     """Same-named resources were created from a different repo path — nothing was touched.
 
-    Carries the offending resources so a caller can render them its own way. The
-    string form is already operator-facing and names each resource, the identity
-    it carries, and the path that identity was recorded against *when one of the
-    path-evidence labels supplies it* — a volume with no such label leaves the
-    path genuinely unknown, and the message says that rather than filling it in.
+    Carried in parts rather than as one block of text, because the two verbs
+    that meet this refusal have different room for it and different advice to
+    give. A verb renders :attr:`summary`, :attr:`cause` and :attr:`remedy`
+    through :func:`osprey.cli.output.fail` and shows :attr:`inventory` only
+    under ``--verbose``: the inventory is the evidence, and on a real deployment
+    it runs to dozens of lines that repeat one path between them, which is how
+    an operator ends up reading past the sentence that would have explained it.
+
+    The parts claim exactly as much as the labels support, which is the property
+    the split has to preserve. :attr:`cause` names a path only when a
+    path-evidence label supplies one, and says the path is unknown when none
+    does, because a foreign checkout's path is not derivable from its identity
+    hash and inventing one would be worse than admitting it is unknown.
+
+    ``str(e)`` remains the whole refusal, evidence included. That is what a log
+    record and a ``--verbose`` run keep, and what a caller that has no renderer
+    still gets by printing the exception.
     """
 
-    def __init__(self, message: str, *, resources: Sequence[Resource]) -> None:
-        super().__init__(message)
+    #: The refusal's opening line, minus the verb that provoked it. Held apart
+    #: so ``reset`` and ``init --reset`` name themselves in their own summary
+    #: rather than one of them reporting the other's verb.
+    SUMMARY_TAIL = "will not remove containers and volumes from another copy of this repo"
+
+    def __init__(
+        self,
+        *,
+        project: str,
+        identity: str,
+        resources: Sequence[Resource],
+        cause: str,
+        remedy: str | None,
+        inventory: Sequence[str],
+    ) -> None:
+        #: The compose project name both copies claim.
+        self.project = project
+        #: This repo's identity, the one the foreign resources do not carry.
+        self.identity = identity
         #: The foreign resources, in discovery order.
         self.resources = list(resources)
+        #: Why, in full sentences: what was found, where it came from, and why
+        #: refusing is the right answer. Multi-line.
+        self.cause = cause
+        #: The one thing to do about it, or ``None`` where nothing honest fits.
+        self.remedy = remedy
+        #: One line per foreign resource, read off its own labels.
+        self.inventory = list(inventory)
+        super().__init__(self.full_text())
+
+    def summary(self, actor: str = "reset") -> str:
+        """The opening line, named for the verb the operator actually typed."""
+        return f"{actor} {self.SUMMARY_TAIL}"
+
+    def full_text(self, actor: str = "reset") -> str:
+        """Every part, evidence included: the record, and the ``--verbose`` view."""
+        parts = [self.summary(actor), "", self.cause]
+        if self.inventory:
+            parts += [
+                "",
+                "Read off the resources' own labels, none of it inferred:",
+                *self.inventory,
+            ]
+        if self.remedy:
+            parts += ["", f"-> {self.remedy}"]
+        return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -748,7 +813,7 @@ class ResetPlan:
         for filename, holds, refresh in WEB_CREDENTIAL_FILES:
             if (self.repo_root / filename).is_file():
                 kept.append(
-                    f"    {filename}  {holds} — operator-owned and written once, so a "
+                    f"    {filename}  {holds} — written once and never rewritten, so a "
                     "reset leaves it exactly as it is."
                 )
                 kept.append(f"      {refresh}")
@@ -1173,9 +1238,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
 
     foreign = [*containers.foreign, *volumes.foreign]
     if foreign:
-        raise ForeignCheckoutError(
-            _foreign_refusal(repo_root, project, identity, foreign), resources=foreign
-        )
+        raise _foreign_refusal(repo_root, project, identity, foreign)
 
     images = [
         image
@@ -1219,55 +1282,153 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
 
 def _foreign_refusal(
     repo_root: Path, project: str, identity: str, foreign: Sequence[Resource]
-) -> str:
-    """The refusal text, claiming exactly as much as the labels support.
+) -> ForeignCheckoutError:
+    """Build the refusal, claiming exactly as much as the labels support.
 
-    An operator who sees this is in one of three situations, and the message has
+    An operator who sees this is in one of three situations, and the parts have
     to serve all of them without deciding between them: they are standing in the
     wrong directory, two checkouts of one deployment are genuinely sharing a
     host, or they renamed or moved *this* directory and are meeting their own
-    resources under the old path. The recorded path is what tells them which —
-    so it is quoted from the resource rather than reconstructed, and when no
+    resources under the old path. The recorded path is what tells them which, so
+    it is quoted from the resource rather than reconstructed, and when no
     resource carries one, the message says so instead of guessing.
+
+    Neutral about WHICH of the three it is; not neutral about ORDER. The
+    conclusion, the path and the way out come first, and the per-resource
+    evidence goes to :attr:`ForeignCheckoutError.inventory` for a verb to show
+    under ``--verbose``. That ordering claims nothing extra: a refusal whose
+    explanation sits below thirty lines of hashes is one an operator stops
+    reading before they reach it, which is how a careful guard comes across as a
+    crash.
 
     What is a *label* fact and what is a *filesystem* fact are kept apart on
     purpose: the path is reported as recorded, and whether it still exists is
     added separately by :func:`_path_liveness_note`. The remedy then branches on
     that (:func:`_foreign_remedies`), because "go and reset it over there" is
     wrong advice for a directory that is no longer on the host.
-    """
-    lines = [
-        f"Refusing to reset {repo_root}: {len(foreign)} container(s)/volume(s) carrying this "
-        f"deployment's project name ({project!r})",
-        "were created from a DIFFERENT repo path.",
-        "",
-        f"This repo is {REPO_ID_LABEL}={identity}. These are not. Every line below is read off "
-        "the resource's own",
-        "labels — none of it is inferred:",
-    ]
-    for resource in foreign:
-        note = _path_liveness_note(resource.recorded_path)
-        lines.append(f"  {resource.kind} {resource.name}  — {resource.describe_origin()}{note}")
 
-    lines.extend(
-        [
-            "",
-            "A compose project name is the repo's DIRECTORY name, so two clones or worktrees "
-            "of one deployment share",
-            "it — and would share a volume namespace. The identity is a hash of that path, so "
-            "a directory you RENAMED",
-            "or MOVED also reads as a different repo from here: if that is what happened, "
-            "these are your own resources",
-            "under their old path, and reset still will not remove them, because from here it "
-            "cannot tell them apart",
-            "from a colleague's.",
-            "",
-            "Nothing has been stopped, removed, or written.",
-            "",
-        ]
+    :param repo_root: The repo that refused. Not quoted into the text: the verb
+        that raises this already names it, and repeating it beside the foreign
+        paths invites reading it as one of them.
+    """
+    inventory = [
+        f"  {resource.kind} {resource.name}  — {resource.describe_origin()}"
+        f"{_path_liveness_note(resource.recorded_path)}"
+        for resource in foreign
+    ]
+    return ForeignCheckoutError(
+        project=project,
+        identity=identity,
+        resources=foreign,
+        cause=_foreign_cause(project, identity, foreign),
+        remedy=_foreign_remedy(foreign),
+        inventory=inventory,
     )
-    lines.extend(_foreign_remedies(foreign))
+
+
+def _distinct(values: Iterable[str]) -> list[str]:
+    """``values`` without repeats, in first-seen order."""
+    seen: dict[str, None] = {}
+    for value in values:
+        seen.setdefault(value, None)
+    return list(seen)
+
+
+def _foreign_cause(project: str, identity: str, foreign: Sequence[Resource]) -> str:
+    """Why this refused, in the order the reader needs it.
+
+    Every path is listed once rather than once per resource. Fifteen containers
+    of one deployment record one directory between them, and printing it fifteen
+    times says nothing the first line did not while burying what follows.
+
+    Wrapped here rather than left to the renderer:
+    :func:`osprey.cli.output.fail` prints each cause line as given, on the rule
+    that a caller passes lines already the shape it wants them. So this is where
+    the shape is decided.
+    """
+    recorded = _distinct(path for resource in foreign if (path := resource.recorded_path))
+    theirs = _distinct(repo_id for resource in foreign if (repo_id := resource.repo_id))
+    ids = f"{identity} here" + (f", {', '.join(theirs)} on those" if theirs else "")
+
+    lines = _wrap(
+        f"{len(foreign)} container(s) and volume(s) are named {project!r}, but they were "
+        "created from a different copy of this repo:"
+    )
+    lines.append("")
+    if recorded:
+        lines += [f"    {path}  ({_path_state(path)})" for path in recorded]
+    else:
+        lines += _wrap(
+            "the path is unknown: none of them carries a label recording it, and a repo path "
+            "cannot be derived back out of the identity hash",
+            indent="    ",
+        )
+    lines.append("")
+    lines += _wrap(
+        "Compose names a project after its directory, so a second clone, a worktree, or a "
+        "directory you renamed or moved claims the same name as the first, and would share "
+        f"its volumes. The repo ids say they are not the same repo ({ids}). Removing them "
+        "from here would mean taking resources this repo cannot prove are its own, which is "
+        "what keeps one checkout from destroying another's, so it stopped."
+    )
+    lines.append("")
+    lines += _wrap(
+        "If you renamed or moved this directory, these are your own resources under its old "
+        "path. Reset still will not take them: from here they cannot be told apart from a "
+        "colleague's."
+    )
+    lines += ["", "Nothing has been stopped, removed, or written."]
     return "\n".join(lines)
+
+
+#: Where the refusal's prose wraps. Narrow enough that the renderer's indent
+#: still leaves it inside a default terminal, since nothing downstream will
+#: re-wrap it.
+_WRAP_WIDTH = 88
+
+
+def _wrap(paragraph: str, *, indent: str = "") -> list[str]:
+    """``paragraph`` as terminal-width lines, each carrying ``indent``."""
+    return textwrap.wrap(
+        paragraph,
+        width=_WRAP_WIDTH,
+        initial_indent=indent,
+        subsequent_indent=indent,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+
+
+def _path_state(path: str) -> str:
+    """Whether ``path`` is on this host now, as the filesystem answers it."""
+    return "still on disk" if Path(path).is_dir() else "no such directory on this host now"
+
+
+def _foreign_remedy(foreign: Sequence[Resource]) -> str:
+    """The way out, branched on what the refusal actually knows.
+
+    Three states, because the honest advice differs and one line covering all of
+    them would be wrong in two: a recorded path that still exists can be reset
+    from; one that no longer exists cannot, and naming it as a remedy would send
+    the operator to a directory that is not there; and with no path recorded at
+    all there is nowhere to send them, which has to be said rather than papered
+    over with generic advice.
+    """
+    recorded = [path for resource in foreign if (path := resource.recorded_path)]
+    live = [path for path in recorded if Path(path).is_dir()]
+
+    if live:
+        return f"reset that deployment where it lives: `osprey reset --repo {live[0]}`"
+    if recorded:
+        return (
+            "these are leftovers from a deployment whose repo is gone, and the identity they "
+            "carry is tied to that path rather than to this one, so check them and remove "
+            "them by hand"
+        )
+    return (
+        "this refusal cannot point you at the repo they came from; run `osprey reset` there "
+        "if you know which one it is, and otherwise inspect them and remove them by hand"
+    )
 
 
 def _path_liveness_note(path: str | None) -> str:
@@ -1281,41 +1442,6 @@ def _path_liveness_note(path: str | None) -> str:
     if path is None:
         return ""
     return "" if Path(path).is_dir() else "  (no such directory on this host now)"
-
-
-def _foreign_remedies(foreign: Sequence[Resource]) -> list[str]:
-    """The way out, branched on what the refusal actually knows.
-
-    Three states, because the honest advice differs and a single paragraph
-    covering all of them would be wrong in two: a recorded path that still
-    exists can be reset from; one that no longer exists cannot, and naming it as
-    a remedy would send the operator to a directory that is not there; and with
-    no path recorded at all there is nowhere to send them, which has to be said
-    rather than papered over with generic advice.
-    """
-    recorded = [path for resource in foreign if (path := resource.recorded_path)]
-    live = [path for path in recorded if Path(path).is_dir()]
-
-    if live:
-        return [
-            f"That repo is still here. Run `osprey reset` from {live[0]} (or "
-            "`osprey reset --repo <path>`) if that",
-            "is the deployment you meant to wipe.",
-        ]
-    if recorded:
-        return [
-            "None of the paths above exist on this host any more, so these are leftovers from "
-            "a deployment whose repo",
-            "is gone. Reset will not remove them from here: the identity they carry is tied to "
-            "that path, not to this",
-            "one. Check them yourself and remove them by hand.",
-        ]
-    return [
-        "No path is recorded on any of them, so this refusal cannot point you at the repo they "
-        "came from. If you",
-        "know which one it is, run `osprey reset` from there. Otherwise inspect them and remove "
-        "them by hand.",
-    ]
 
 
 # ---------------------------------------------------------------------------

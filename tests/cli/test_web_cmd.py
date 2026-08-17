@@ -968,6 +968,64 @@ class TestPreflightAuthSecret:
 
         assert result.exit_code == 0
 
+    def test_credential_error_reported_not_hidden(self, runner, monkeypatch, deployment):
+        """A telemetry-credential failure explains itself instead of vanishing.
+
+        `ObservabilityCredentialError` subclasses `ValueError`, so the broad
+        skip below would swallow it and leave pre-flight silent about a read
+        that never happened. The launch still proceeds: telemetry credentials
+        say nothing about whether the terminal can authenticate.
+        """
+        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+
+        def _raise(*_a, **_kw):
+            raise ObservabilityCredentialError(
+                "openobserve.user / openobserve.password are missing or blank"
+            )
+
+        monkeypatch.setattr("osprey.build.claude_code_resolver.load_provider_spec", _raise)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "⚠" in result.stderr
+        assert "provider auth check skipped" in result.stderr
+        assert "openobserve.password" in result.stderr
+
+    def test_unrelated_value_error_still_skips_quietly(self, runner, monkeypatch, deployment):
+        """The narrow arm must not widen the catch it sits in front of.
+
+        An unknown provider name (or any other plain `ValueError`) is Probe 3's
+        diagnosis to make, so Probe 2 keeps saying nothing about it.
+        """
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+
+        def _raise(*_a, **_kw):
+            raise ValueError("unknown provider 'nowhere'")
+
+        monkeypatch.setattr("osprey.build.claude_code_resolver.load_provider_spec", _raise)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "provider auth check skipped" not in result.output
+        assert "provider auth check skipped" not in result.stderr
+        assert "nowhere" not in result.output
+
 
 class TestPreflightConfigValidity:
     """Probe 3: config.yml and .claude/settings.json must at least parse."""

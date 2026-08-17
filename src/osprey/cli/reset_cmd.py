@@ -100,6 +100,7 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
         reset_deployment,
     )
 
+    from .foreign_refusal import render_foreign_refusal
     from .main import lifecycle_reporter
 
     repo_root = find_repo_root(repo)
@@ -139,11 +140,16 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
                     emit=output.report,
                 )
         except ForeignCheckoutError as e:
-            # Shown verbatim rather than summarized: the message is already the
-            # whole explanation, and it is carefully scoped to what the labels
-            # actually prove. Rewording it here would be how a claim it does not
-            # make gets reintroduced.
-            raise click.ClickException(str(e)) from None
+            # Rendered through the shared refusal shape, not reworded: the parts
+            # are carefully scoped to what the labels actually prove, and
+            # rewriting them here would be how a claim they do not make gets
+            # reintroduced. What this decides is only how much to show, and it
+            # shows the evidence to whoever asked for it.
+            render_foreign_refusal(e, "reset")
+            # Exit rather than ClickException: the block above is already the
+            # whole explanation, and ClickException would restate a summary of
+            # it under an "Error:" prefix. Same exit code either way.
+            raise click.exceptions.Exit(1) from None
         except KeyboardInterrupt:
             # An interrupt AT THE PROMPT is handled inside reset_deployment, which
             # can prove nothing ran and says so. Reaching here means the interrupt

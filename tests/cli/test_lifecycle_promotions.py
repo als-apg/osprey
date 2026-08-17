@@ -180,6 +180,33 @@ def assert_promoted(probe: TerminalProbe, printed: Printed, fragment: str) -> No
     assert _WITNESS in probe.rendered_text, "the probe console is not armed"
 
 
+def assert_warned(probe: TerminalProbe, promoted: str, fragment: str) -> None:
+    """The warning needle: the ``warn_fact`` counterpart to :func:`assert_promoted`.
+
+    A promoted FACT goes through the reporter, so its needle is the reporter's
+    buffer. A promoted WARNING goes to the trouble stream instead, so reading
+    ``printed`` for one would pass vacuously against an empty buffer. Everything
+    else is the same three halves plus the witness.
+
+    Args:
+        probe: The terminal probe, armed by ``default_altitude``.
+        promoted: The run's stderr, from ``capsys``.
+        fragment: A distinctive piece of the warning, short enough to survive
+            the console's wrapping once whitespace is collapsed.
+    """
+    flowed = " ".join(promoted.split())
+    assert fragment in flowed, f"not in the promoted block: {fragment!r}\n{flowed}"
+    assert fragment not in probe.rendered_text, f"still painted by the log handler: {fragment!r}"
+    assert any(fragment in message for message in probe.messages), (
+        f"no record kept for: {fragment!r}"
+    )
+
+    # Armed witness, as in assert_promoted: without it the absence assertion
+    # above would also pass on a probe console nothing could ever reach.
+    logging.getLogger(_WITNESS_LOGGER).error(_WITNESS)
+    assert _WITNESS in probe.rendered_text, "the probe console is not armed"
+
+
 def assert_sub_step(printed: Printed, name: str) -> None:
     """A ``sub-step`` row's needle: the phase record carries ``· name``."""
     assert re.search(rf"·\s+{re.escape(name)}", printed.flowed), (
@@ -1424,17 +1451,24 @@ class TestWebTerminalSecretsAreReported:
         assert env_production.LEGACY_USERS_ENV_FILENAME in printed.flowed
         assert ".env.users" in printed.flowed
 
-    def test_a_deleted_leftover_secrets_file_says_which_one_it_removed(
+    def test_a_superseded_leftover_secrets_file_says_where_it_went(
         self, default_altitude, printed, tmp_path
     ):
-        """The other half of the migration: a delete, of a file holding secrets."""
+        """The other half of the migration: a leftover secrets file set aside.
+
+        Set aside rather than deleted, so the line names the path the operator
+        can go and read -- and the promotion is what tells them a second
+        secret-bearing file is now sitting in the repo root.
+        """
         (tmp_path / env_production.LEGACY_USERS_ENV_FILENAME).write_text("A=1\n", encoding="utf-8")
         (tmp_path / ".env.users").write_text("B=2\n", encoding="utf-8")
 
         assert env_production.migrate_users_env(tmp_path) == tmp_path / ".env.users"
 
-        assert_promoted(default_altitude, printed, "removed leftover .env.production")
+        assert_promoted(default_altitude, printed, ".env.production set aside as")
+        assert env_production.SUPERSEDED_USERS_ENV_FILENAME in printed.flowed
         assert not (tmp_path / env_production.LEGACY_USERS_ENV_FILENAME).exists()
+        assert (tmp_path / env_production.SUPERSEDED_USERS_ENV_FILENAME).is_file()
 
 
 class TestWebTerminalHostChangesAreReported:
@@ -1465,6 +1499,65 @@ class TestWebTerminalHostChangesAreReported:
 
         assert_promoted(default_altitude, printed, "is not reachable from this host yet")
         assert "docker compose -f web.yml restart" in printed.flowed
+
+    def test_a_bounce_that_did_not_help_still_reaches_the_operator(
+        self, default_altitude, printed, monkeypatch, tmp_path, capsys
+    ):
+        """The regression this class exists for, on the one path that had no test.
+
+        A deploy whose bounce fixed nothing used to end its run with
+        ``logger.warning``. The altitude gate drops WARNING while a lifecycle
+        reporter owns the terminal, and the root logger carries no other handler,
+        so the only text that named the remedy was emitted and then discarded.
+        The operator saw ``bounced the web stack ...`` and then the endpoint
+        table, which reads as success. Both stubbed probes fail, which is the
+        shape of a bounce that changed nothing.
+        """
+        _stub_the_host_port_bounce(monkeypatch, tmp_path, answers=[False, False])
+
+        postup_hooks.warn_if_web_stack_unreachable(
+            {"modules": {"web_terminals": {"nginx_port": 8080}}},
+            attempts=1,
+            delay=0,
+            web_cmd=["docker", "compose", "-f", "web.yml"],
+            run_env={},
+        )
+
+        promoted = capsys.readouterr().err
+        assert_warned(default_altitude, promoted, "not reachable from this host")
+        assert "Enable host networking" in " ".join(promoted.split())
+        # The bounce's success step is the only other thing that could have
+        # spoken, and it must not have: the endpoint is still dark.
+        assert "web endpoint reachable" not in printed.flowed
+
+    def test_a_disabled_forwarder_is_named_as_the_cause_and_skips_the_bounce(
+        self, default_altitude, monkeypatch, tmp_path, capsys
+    ):
+        """Docker Desktop was asked and said no, so nothing here is a guess.
+
+        The bounce is skipped because no restart can re-register a port through
+        a forwarder that is switched off, and the copy states the cause rather
+        than asking the operator to go and check it.
+        """
+        _stub_the_host_port_bounce(monkeypatch, tmp_path, answers=[False])
+        monkeypatch.setattr(postup_hooks, "host_networking_enabled", lambda: False)
+        restarts: list[list[str]] = []
+        monkeypatch.setattr(
+            postup_hooks, "run_captured", lambda cmd, **kwargs: restarts.append(cmd)
+        )
+
+        postup_hooks.warn_if_web_stack_unreachable(
+            {"modules": {"web_terminals": {"nginx_port": 8080}}},
+            attempts=1,
+            delay=0,
+            web_cmd=["docker", "compose", "-f", "web.yml"],
+            run_env={},
+        )
+
+        assert restarts == [], f"a bounce that cannot help was attempted anyway: {restarts}"
+        promoted = capsys.readouterr().err
+        assert_warned(default_altitude, promoted, "Host networking is turned off")
+        assert "Enable host networking" in " ".join(promoted.split())
 
     def test_a_pinned_sidecar_image_reports_the_build_it_skipped(
         self, default_altitude, printed, tmp_path, monkeypatch
@@ -1783,8 +1876,10 @@ def _stub_the_host_port_bounce(
 ) -> None:
     """A Docker Desktop host whose port answers only after the bounce."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(postup_hooks.sys, "platform", "darwin")
-    monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker"])
+    monkeypatch.setattr(postup_hooks, "on_docker_desktop", lambda config: True)
+    # None is "could not read the setting", which is the state that keeps the
+    # self-heal bounce these tests are about. A definite False would skip it.
+    monkeypatch.setattr(postup_hooks, "host_networking_enabled", lambda: None)
     replies = iter(answers)
     monkeypatch.setattr(
         postup_hooks, "_host_port_answers", lambda url, attempts, delay: next(replies)

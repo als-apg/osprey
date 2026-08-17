@@ -6,7 +6,11 @@ refusals name that name, and ``osprey reset`` discloses that name. Second, a
 deployment carrying the pre-rename ``.env.production`` is carried onto the new
 name by ``osprey up`` rather than being told its secrets are missing: the file
 is gitignored and never regenerated once present, so on a host that deployed
-successfully yesterday it is the operator's only copy.
+successfully yesterday it is the operator's only copy. That second half is
+pinned as a NON-destructive migration throughout — a leftover the current file
+already stands in for is set aside under a name of its own, never deleted,
+because ``up`` recognizes it by filename alone and a file at that name need
+never have been this system's to remove.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from osprey.deployment import container_lifecycle
 from osprey.deployment.reset import WEB_CREDENTIAL_FILES
 from osprey.deployment.web_terminals.env_production import (
     LEGACY_USERS_ENV_FILENAME,
+    SUPERSEDED_USERS_ENV_FILENAME,
     USERS_ENV_FILENAME,
     ensure_env_production,
     migrate_users_env,
@@ -36,7 +41,7 @@ _LOCAL_CONFIG = {
 
 
 # ---------------------------------------------------------------------------
-# migrate_users_env -- the three states a project root can be in.
+# migrate_users_env -- the states a project root can be in.
 # ---------------------------------------------------------------------------
 
 
@@ -69,16 +74,24 @@ def test_migration_moves_the_old_file_onto_the_new_name(tmp_path, caplog):
     )
 
 
-def test_both_files_present_keeps_the_new_one_and_deletes_the_leftover(tmp_path, caplog):
+def test_both_files_present_keeps_the_new_one_and_sets_the_leftover_aside(tmp_path, caplog):
     """Registry-mode CI's fresh render wins over a survivor of an earlier pipeline.
 
     CI writes ``.env.users`` on the host just before ``osprey up``, while the
     gitignored old file survives the ``git reset --hard`` that precedes the
-    checkout. The fresh file is authoritative; the leftover is deleted rather
-    than left looking like a second source of truth.
+    checkout. The fresh file is authoritative and the leftover stops sitting
+    under a name a later reader could mistake for the live file.
+
+    It gets there by a rename and NOT by a delete, which is what this pins:
+    ``osprey up`` identifies the leftover by filename alone, so a file that was
+    never OSPREY's — another tool's secrets under the same spelling — reaches
+    this branch too, and a delete would destroy the operator's only copy of it
+    without asking. The superseded copy is still secret-bearing, so it lands at
+    0600 like every other write of this artifact.
     """
     legacy = tmp_path / LEGACY_USERS_ENV_FILENAME
     legacy.write_text("CBORG_API_KEY=stale\n", encoding="utf-8")
+    os.chmod(legacy, 0o644)
     users_path = tmp_path / USERS_ENV_FILENAME
     users_path.write_text("CBORG_API_KEY=fresh\n", encoding="utf-8")
 
@@ -89,9 +102,53 @@ def test_both_files_present_keeps_the_new_one_and_deletes_the_leftover(tmp_path,
     assert not legacy.exists()
     assert users_path.read_text(encoding="utf-8") == "CBORG_API_KEY=fresh\n"
 
-    removal_lines = [rec.message for rec in caplog.records if USERS_ENV_FILENAME in rec.message]
-    assert len(removal_lines) == 1
-    assert LEGACY_USERS_ENV_FILENAME in removal_lines[0]
+    # The leftover was moved, not destroyed: same bytes, under the set-aside
+    # name, at the mode a secrets file is entitled to rather than the one it
+    # happened to carry.
+    superseded = tmp_path / SUPERSEDED_USERS_ENV_FILENAME
+    assert superseded.read_text(encoding="utf-8") == "CBORG_API_KEY=stale\n"
+    assert stat.S_IMODE(superseded.stat().st_mode) == 0o600
+
+    supersede_lines = [rec.message for rec in caplog.records if USERS_ENV_FILENAME in rec.message]
+    assert supersede_lines, "the supersede left no record"
+    # Both paths in one line, so the operator can find the copy without diffing
+    # the directory -- and nothing anywhere claiming a removal that no longer
+    # happens.
+    assert any(
+        LEGACY_USERS_ENV_FILENAME in line and SUPERSEDED_USERS_ENV_FILENAME in line
+        for line in supersede_lines
+    )
+    assert not any("removed" in line for line in supersede_lines)
+
+
+def test_a_second_supersede_keeps_the_earlier_copy_and_skips_the_rename(tmp_path, caplog):
+    """The set-aside name is fixed, so a repeated ``up`` must not overwrite it.
+
+    A timestamped name would pile up copies of a secrets file, so there is one;
+    the price is that a second deploy in this state finds it taken. The earlier
+    copy is the one closer to the deployment that last worked, so it wins, the
+    leftover stays where it is, and nothing is destroyed on either side.
+    """
+    legacy = tmp_path / LEGACY_USERS_ENV_FILENAME
+    legacy.write_text("CBORG_API_KEY=second\n", encoding="utf-8")
+    superseded = tmp_path / SUPERSEDED_USERS_ENV_FILENAME
+    superseded.write_text("CBORG_API_KEY=first\n", encoding="utf-8")
+    users_path = tmp_path / USERS_ENV_FILENAME
+    users_path.write_text("CBORG_API_KEY=fresh\n", encoding="utf-8")
+
+    with caplog.at_level("INFO"):
+        result = migrate_users_env(tmp_path)
+
+    assert result == users_path
+    assert superseded.read_text(encoding="utf-8") == "CBORG_API_KEY=first\n"
+    assert legacy.read_text(encoding="utf-8") == "CBORG_API_KEY=second\n"
+    assert users_path.read_text(encoding="utf-8") == "CBORG_API_KEY=fresh\n"
+
+    # One line, naming both paths: which file was left alone and which copy it
+    # was left alone for.
+    skip_lines = [rec.message for rec in caplog.records if LEGACY_USERS_ENV_FILENAME in rec.message]
+    assert len(skip_lines) == 1
+    assert SUPERSEDED_USERS_ENV_FILENAME in skip_lines[0]
 
 
 def test_no_old_file_is_a_silent_no_op(tmp_path, caplog):
@@ -121,12 +178,13 @@ def test_a_directory_named_like_the_old_file_is_not_migrated(tmp_path):
     assert not (tmp_path / USERS_ENV_FILENAME).exists()
 
 
-def test_a_directory_at_the_new_name_never_deletes_the_old_file(tmp_path):
-    """The delete branch needs a real file standing in, not merely something.
+def test_a_directory_at_the_new_name_never_moves_the_old_file(tmp_path):
+    """The supersede branch needs a real file standing in, not merely something.
 
     A directory at the new name is not a copy of anything, so treating it as
-    one would delete the operator's only copy of the web tier's secrets. The
-    migration fails loudly instead, with the old file where it was.
+    one would move the operator's only copy of the web tier's secrets out from
+    under the deploy that is about to read it. The migration fails loudly
+    instead, with the old file where it was and nothing set aside.
     """
     legacy = tmp_path / LEGACY_USERS_ENV_FILENAME
     legacy.write_text("CBORG_API_KEY=carried\n", encoding="utf-8")
@@ -136,6 +194,7 @@ def test_a_directory_at_the_new_name_never_deletes_the_old_file(tmp_path):
         migrate_users_env(tmp_path)
 
     assert legacy.read_text(encoding="utf-8") == "CBORG_API_KEY=carried\n"
+    assert not (tmp_path / SUPERSEDED_USERS_ENV_FILENAME).exists()
 
 
 def test_a_world_readable_old_file_is_migrated_to_0600(tmp_path):
@@ -199,6 +258,10 @@ def test_reset_discloses_the_kept_file_under_the_new_name():
     disclosed = [entry[0] for entry in WEB_CREDENTIAL_FILES]
     assert USERS_ENV_FILENAME in disclosed
     assert LEGACY_USERS_ENV_FILENAME not in disclosed
+    # The set-aside copy is disclosed too, for the reason every entry in that
+    # list is: it survives a reset, it holds live secrets, and an operator who
+    # is not told it is there has no way to know they can drop it.
+    assert SUPERSEDED_USERS_ENV_FILENAME in disclosed
 
 
 # ---------------------------------------------------------------------------

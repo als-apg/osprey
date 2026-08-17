@@ -1054,6 +1054,132 @@ class TestResetFlag:
         assert len(calls) == 1, "expected exactly one reset of the target repo"
         assert calls[0]["repo_root"] == tmp_path / "demo"
 
+    def _refuse(self, monkeypatch, tmp_path, resources=2):
+        """Make the chained reset meet another checkout's resources.
+
+        The other checkout is a directory that really exists, because that is
+        the branch an operator in a worktree hits and the only one whose remedy
+        can name a repo to go and reset.
+        """
+        from osprey.deployment.compose_generator import REPO_ID_LABEL
+        from osprey.deployment.reset import Resource, _foreign_refusal
+
+        other = tmp_path / "other-checkout" / "demo"
+        other.mkdir(parents=True)
+        foreign = [
+            Resource(
+                "container",
+                f"demo-svc-{index}",
+                {
+                    REPO_ID_LABEL: "cafebabe1234",
+                    "com.docker.compose.project.working_dir": str(other),
+                },
+            )
+            for index in range(resources)
+        ]
+        error = _foreign_refusal(tmp_path / "demo", "demo", "0123456789ab", foreign)
+
+        def _raise(repo_root, **kw):
+            raise error
+
+        monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _raise)
+        return other
+
+    def test_another_checkouts_resources_are_refused_not_crashed_into(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """The regression: `osprey reset` has always caught this and rendered it,
+        and this path never did, so the same deliberate guard came out of `init`
+        as a Python traceback. A traceback is how the CLI says "this is a bug in
+        OSPREY", and nothing here is a bug: nothing was touched, on purpose."""
+        self._refuse(monkeypatch, tmp_path)
+
+        result = runner.invoke(
+            cli,
+            ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"],
+        )
+
+        assert result.exit_code != 0
+        assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"the refusal escaped as an exception: {result.exception!r}"
+        )
+        assert "Traceback" not in result.output
+
+    def test_the_refusal_leads_with_what_happened_and_where(self, runner, tmp_path, monkeypatch):
+        """Conclusion, path, way out. All of it above the evidence, because an
+        operator who has to read thirty lines of hashes to reach the sentence
+        that explains the refusal does not reach it."""
+        other = self._refuse(monkeypatch, tmp_path)
+
+        result = runner.invoke(
+            cli,
+            ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"],
+        )
+
+        flowed = " ".join(result.output.split())
+        assert "--reset will not remove containers and volumes" in flowed
+        assert str(other) in flowed
+        assert f"osprey reset --repo {other}" in flowed
+
+    def test_the_refusal_offers_the_way_out_that_destroys_nothing(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """`osprey reset` knows one way out: go and wipe the other deployment.
+        Whoever typed `init` asked to CREATE something, and giving this copy its
+        own name leaves the other one alone. `reset` cannot offer that, so it is
+        this verb's to add."""
+        self._refuse(monkeypatch, tmp_path)
+
+        result = runner.invoke(
+            cli,
+            ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"],
+        )
+
+        flowed = " ".join(result.output.split())
+        assert "deploy this copy under a name of its own" in flowed
+        assert "osprey init demo-2" in flowed
+
+    def test_the_evidence_waits_for_verbose(self, runner, tmp_path, monkeypatch):
+        """Every resource, one line each, is what buried the explanation. It is
+        still there for whoever wants it, and the refusal says so."""
+        self._refuse(monkeypatch, tmp_path, resources=2)
+
+        quiet = runner.invoke(
+            cli,
+            ["init", str(tmp_path / "a"), "--preset", "hello-world", "--no-git", "--reset"],
+        )
+        loud = runner.invoke(
+            cli,
+            [
+                "--verbose",
+                "init",
+                str(tmp_path / "b"),
+                "--preset",
+                "hello-world",
+                "--no-git",
+                "--reset",
+            ],
+        )
+
+        assert "container demo-svc-0" not in quiet.output
+        assert "--verbose to list all 2 of them" in " ".join(quiet.output.split())
+        assert "container demo-svc-0" in loud.output
+
+    def test_it_says_what_is_on_disk_afterwards(self, runner, tmp_path, monkeypatch):
+        """The scaffold was written before the reset ran, so "nothing happened"
+        would be false. What did not happen is the build and the start."""
+        self._refuse(monkeypatch, tmp_path)
+
+        result = runner.invoke(
+            cli,
+            ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"],
+        )
+
+        flowed = " ".join(result.output.split())
+        assert "demo/ was created" in flowed
+        assert "Nothing was built and nothing was started" in flowed
+        assert (tmp_path / "demo" / "profile.yml").is_file()
+
     def test_it_runs_after_the_repo_exists(self, runner, tmp_path, monkeypatch):
         """``reset_for_reinit`` reads the repo it is pointed at, so order matters.
 

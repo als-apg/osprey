@@ -739,8 +739,6 @@ def _inject_project_metadata(config):
     :return: Configuration with added osprey_labels section
     :rtype: dict
     """
-    import datetime
-
     project_name = resolve_project_name(config)
 
     # Resolve the running framework version so service Dockerfiles can pin the
@@ -767,7 +765,18 @@ def _inject_project_metadata(config):
     config_with_labels["osprey_labels"] = {
         "project_name": project_name,
         "project_root": config.get("project_root", os.getcwd()),
-        "deployed_at": datetime.datetime.now().isoformat(),
+        # Deliberately NO deploy timestamp. A wall-clock value here made the
+        # rendered compose documents differ on every build for no reader:
+        # nothing in the framework ever read the label back, and a container's
+        # creation time is already reported natively by the runtime
+        # (`docker inspect` exposes it as `.Created`). Keeping it would have
+        # meant a build/ tree whose bytes are not a function of its inputs.
+        #
+        # A deploy-time `${VAR}` was considered and rejected for the same
+        # reason in a different place: a wall-clock value in the interpolation
+        # seam changes the compose document on every `osprey up` and so
+        # recreates every container for a label nobody reads.
+        #
         # Which CHECKOUT this is (:func:`repo_identity`). Baked in as a literal
         # at render time rather than left as a `${VAR}` for compose to
         # interpolate: the label has to be trustworthy for a verb that reads it

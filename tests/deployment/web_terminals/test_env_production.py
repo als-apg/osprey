@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 import pytest
+import yaml
 
 from osprey.deployment.web_terminals import env_production
 
@@ -640,3 +641,272 @@ def test_env_production_quotes_a_value_that_would_not_survive_a_re_read(tmp_path
 
     assert 'CBORG_API_KEY="  padded-secret  "' in result.read_text(encoding="utf-8")
     assert env_production.parse_dotenv_file(result)["CBORG_API_KEY"] == "  padded-secret  "
+
+
+# ---------------------------------------------------------------------------
+# Observability-store credentials. The store's account NAME crosses into
+# .env.users; its admin PASSWORD never does, because one file is handed to
+# every persona alike and admin access reads every transcript in the store.
+# ---------------------------------------------------------------------------
+
+
+#: How the shipped telemetry block spells its two credentials: reference
+#: literals carrying their own fallbacks, not env-var NAMES the way
+#: ``llm.api_key_env_var`` does.
+_SHIPPED_STORE_USER = "${ZO_ROOT_USER_EMAIL:-root@example.com}"
+_SHIPPED_STORE_PASSWORD = "${ZO_ROOT_USER_PASSWORD:-Complexpass#123}"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("${ZO_ROOT_USER_PASSWORD}", ("ZO_ROOT_USER_PASSWORD", False)),
+        (_SHIPPED_STORE_PASSWORD, ("ZO_ROOT_USER_PASSWORD", True)),
+        (_SHIPPED_STORE_USER, ("ZO_ROOT_USER_EMAIL", True)),
+        ("root@example.com", None),  # a plain literal references nothing
+        ("$ZO_ROOT_USER_PASSWORD", None),  # unbraced: outside the dialect
+        ("", None),
+        (None, None),
+        (5080, None),
+    ],
+)
+def test_env_reference_tells_the_two_reference_forms_from_a_literal(value, expected):
+    """The whole point of the matcher: a bare reference and a defaulted one
+    fail differently in a container, and neither looks like a plain value."""
+    assert env_production._env_reference(value) == expected
+
+
+def _write_telemetry_persona(
+    tmp_path, name="operator-proj", *, provider="anthropic", **credentials
+):
+    """Write a rendered persona project carrying a telemetry block.
+
+    ``credentials`` are placed under ``claude_code.telemetry.openobserve``
+    verbatim, so a test can spell each one the way a real config would.
+    """
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump(
+            {
+                "project_name": name,
+                "claude_code": {
+                    "provider": provider,
+                    "telemetry": {
+                        "enabled": True,
+                        "backend": "openobserve",
+                        "openobserve": {"org": "default", **credentials},
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return name  # catalog project_path, relative to the deploy project root
+
+
+def _catalog_config(project_path, persona="operator"):
+    """A local-mode deploy config whose roster runs one catalogued persona."""
+    return {
+        "facility": {"timezone": "UTC"},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "image_source": "local",
+                "default_persona": persona,
+                "personas": {persona: {"project": project_path, "project_path": project_path}},
+                "users": [{"name": "alice", "index": 0, "persona": persona}],
+            },
+        },
+    }
+
+
+def test_env_production_never_carries_the_store_admin_password(tmp_path):
+    """The security decision this category exists to make.
+
+    ZO_ROOT_USER_PASSWORD is the observability store's single admin credential,
+    and .env.users is handed to every persona alike -- a copy here would grant
+    every read-only terminal admin read of every transcript in the store. The
+    account NAME is not a secret and does cross, which is what makes the
+    omission of the password a decision rather than an oversight.
+    """
+    _write_dotenv(
+        tmp_path / ".env",
+        {
+            "ANTHROPIC_API_KEY": "cc-secret",
+            "ZO_ROOT_USER_EMAIL": "store-account@example.org",
+            "ZO_ROOT_USER_PASSWORD": "store-admin-secret",
+        },
+    )
+    config = _catalog_config(
+        _write_telemetry_persona(
+            tmp_path, user=_SHIPPED_STORE_USER, password=_SHIPPED_STORE_PASSWORD
+        )
+    )
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    generated = env_production.parse_dotenv_file(result)
+    raw_text = result.read_text(encoding="utf-8")
+    assert generated["ZO_ROOT_USER_EMAIL"] == "store-account@example.org"
+    assert "ZO_ROOT_USER_PASSWORD" not in generated
+    assert "ZO_ROOT_USER_PASSWORD" not in raw_text
+    assert "store-admin-secret" not in raw_text
+
+
+def test_env_production_omits_the_store_password_a_config_declares_it_needs(tmp_path):
+    """Even a config asserting the variable is set -- a bare reference, with no
+    fallback of its own -- and a chain that sets it: the requirement is
+    REPORTED, never satisfied by copying the credential into this file."""
+    _write_dotenv(
+        tmp_path / ".env",
+        {
+            "ANTHROPIC_API_KEY": "cc-secret",
+            "ZO_ROOT_USER_PASSWORD": "store-admin-secret",
+        },
+    )
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, password="${ZO_ROOT_USER_PASSWORD}")
+    )
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    raw_text = result.read_text(encoding="utf-8")
+    assert "ZO_ROOT_USER_PASSWORD" not in raw_text
+    assert "store-admin-secret" not in raw_text
+
+
+def test_env_production_copies_the_store_account_name_when_the_chain_sets_it(tmp_path):
+    """A fixed-key enumerated category, like TZ and ARIEL_DSN: present in the
+    chain, copied; absent, silently skipped."""
+    _write_dotenv(
+        tmp_path / ".env",
+        {**_INCLUDED_ENV, "ZO_ROOT_USER_EMAIL": "store-account@example.org"},
+    )
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
+    )
+
+    assert generated["ZO_ROOT_USER_EMAIL"] == "store-account@example.org"
+
+
+def test_env_production_omits_the_store_account_name_when_the_chain_lacks_it(tmp_path):
+    _write_dotenv(tmp_path / ".env", _INCLUDED_ENV)
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(_FULL_CONFIG, tmp_path)
+    )
+
+    assert "ZO_ROOT_USER_EMAIL" not in generated
+
+
+def test_env_production_bare_telemetry_password_absent_from_the_chain_refuses(tmp_path):
+    """A bare reference resolves to nothing at all inside the container -- the
+    placeholder reaches the store verbatim -- so the deploy is refused rather
+    than generated, naming the variable, where it is asked for, and why this
+    file will not be carrying it either way."""
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(
+        _write_telemetry_persona(tmp_path, password="${ZO_ROOT_USER_PASSWORD}")
+    )
+
+    with pytest.raises(RuntimeError, match="ZO_ROOT_USER_PASSWORD") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    message = str(excinfo.value)
+    assert "claude_code.telemetry.openobserve.password" in message
+    assert "operator" in message
+    assert "single admin credential" in message
+    assert not (tmp_path / ".env.users").exists()
+
+
+def test_env_production_bare_telemetry_password_in_the_deploy_config_refuses_too(tmp_path):
+    """The deploy config is read the same way a persona project is: on the
+    zero-migration path it IS the project the web image runs."""
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = {
+        "facility": {},
+        "claude_code": {
+            "provider": "anthropic",
+            "telemetry": {"openobserve": {"password": "${ZO_ROOT_USER_PASSWORD}"}},
+        },
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    with pytest.raises(RuntimeError, match="ZO_ROOT_USER_PASSWORD") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "deploy config" in str(excinfo.value)
+
+
+def test_env_production_defaulted_telemetry_password_is_not_required(tmp_path):
+    """The shipped spelling carries its own fallback, so it asks nothing of the
+    env chain and must not turn a working deploy into a refusal."""
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(_write_telemetry_persona(tmp_path, password=_SHIPPED_STORE_PASSWORD))
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    assert result.is_file()
+
+
+def test_env_production_a_literal_telemetry_password_asks_nothing_of_the_chain(tmp_path):
+    """A hand-written password is a value, not a reference: nothing to require,
+    and nothing this file copies either."""
+    _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
+    config = _catalog_config(_write_telemetry_persona(tmp_path, password="hand-written"))
+
+    result = env_production.ensure_env_production(config, tmp_path)
+
+    assert "hand-written" not in result.read_text(encoding="utf-8")
+
+
+def test_env_production_existing_file_without_the_store_account_name_warns(tmp_path, caplog):
+    """The advisory arm for the never-clobbered file: it names the variable the
+    config's telemetry references and nothing about any value."""
+    (tmp_path / ".env.users").write_text("ANTHROPIC_API_KEY=ok\nTZ=UTC\n", encoding="utf-8")
+    config = _catalog_config(_write_telemetry_persona(tmp_path, user=_SHIPPED_STORE_USER))
+
+    with caplog.at_level("WARNING"):
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "ZO_ROOT_USER_EMAIL" in caplog.text
+    assert "claude_code.telemetry.openobserve.user" in caplog.text
+
+
+def test_env_production_the_two_advisory_arms_are_evaluated_independently(tmp_path, caplog):
+    """A file carrying the LLM credential satisfies the all-or-nothing arm and
+    still gets the telemetry advisory; the LLM arm stays silent."""
+    (tmp_path / ".env.users").write_text("ANTHROPIC_API_KEY=ok\n", encoding="utf-8")
+    config = _catalog_config(_write_telemetry_persona(tmp_path, user=_SHIPPED_STORE_USER))
+
+    with caplog.at_level("WARNING"):
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "none of the LLM credential" not in caplog.text
+    assert "ZO_ROOT_USER_EMAIL" in caplog.text
+
+
+def test_env_production_existing_file_with_the_store_account_name_does_not_warn(tmp_path, caplog):
+    (tmp_path / ".env.users").write_text(
+        "ANTHROPIC_API_KEY=ok\nZO_ROOT_USER_EMAIL=store-account@example.org\n",
+        encoding="utf-8",
+    )
+    config = _catalog_config(_write_telemetry_persona(tmp_path, user=_SHIPPED_STORE_USER))
+
+    with caplog.at_level("WARNING"):
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "ZO_ROOT_USER_EMAIL" not in caplog.text
+
+
+def test_env_production_no_telemetry_block_means_no_telemetry_advisory(tmp_path, caplog):
+    """A config that references no store account gets no advisory about one."""
+    (tmp_path / ".env.users").write_text("ANTHROPIC_API_KEY=ok\n", encoding="utf-8")
+    config = _catalog_config(_write_telemetry_persona(tmp_path))
+
+    with caplog.at_level("WARNING"):
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "observability account" not in caplog.text

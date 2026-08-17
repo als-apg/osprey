@@ -11,6 +11,49 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Fixed
+
+- `osprey init --reset` no longer crashes with a Python traceback when the
+  containers it would remove belong to another copy of this repo. `osprey
+  reset` has always caught that refusal and rendered it; this path never did,
+  so the same deliberate guard looked like a bug in OSPREY depending on which
+  verb you typed. It is a refusal now, and it says what is on disk afterwards.
+- The same-name-different-checkout refusal leads with its conclusion. It used
+  to open with the count and the identity hashes, print one line per resource,
+  and only then explain that a worktree or a second clone shares its parent
+  directory's name. On a real deployment that put the explanation and the way
+  out about thirty lines below the top, where nobody reads them. Now the
+  finding, the other copy's path and the remedy come first, each path is listed
+  once instead of once per resource, and the per-resource evidence prints under
+  `--verbose`. No claim changed: it still says only what the labels prove.
+- `osprey init --reset` also offers the way out that destroys nothing. `reset`
+  can only suggest going and wiping the other deployment; whoever ran `init`
+  asked to create something, so deploying this copy under its own name is
+  named too.
+- A deploy whose web terminals are unreachable now says so on the terminal. The
+  warning naming the Docker Desktop remedy was emitted with `logger.warning`,
+  which the altitude gate drops while a lifecycle verb owns the terminal, and
+  the root logger carries no other handler. So on the one path that mattered,
+  a self-heal bounce that did not help, the run printed "bounced the web
+  stack ..." and then went straight to the endpoint table, which reads as
+  success. It is promoted through `warn_fact` now.
+
+### Added
+
+- `osprey up` and `osprey restart` warn in Preflight when Docker Desktop's
+  "Enable host networking" is off and the deployment has web terminals. The
+  post-up probe already caught this, but only after every image was built and
+  every container was up, which on a first deploy is a quarter of an hour after
+  the operator could have fixed it. Read from Docker Desktop's own settings
+  (its backend API, falling back to the persisted settings store), so the
+  warning names the cause instead of listing suspects. A setting that cannot be
+  read stays silent and leaves the post-up probe to speak.
+- The post-up reachability warning now separates a forwarder that is switched
+  off from a port registration the running forwarder missed. A definite "off"
+  skips the self-heal restart, which cannot help, and states the cause; an
+  unreadable setting keeps bouncing first and then names the setting as
+  something to check.
+
 ### Changed
 
 - Osprey now calls a bluesky plan a plan, not a scan. A plan is any bluesky

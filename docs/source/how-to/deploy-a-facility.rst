@@ -299,7 +299,11 @@ compose template per service directory, rendered by the build.
        labels:
          osprey.project.name: "{{ osprey_labels.project_name }}"
          osprey.project.root: "{{ osprey_labels.project_root }}"
-         osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+         # Content hashes of the env chain and the rendered config this service
+         # reads. They are what makes an edit to either file restart this
+         # container; see the service-template section of deploy-project.
+         osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+         osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
        restart: unless-stopped
        ports:
          - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services['facility-mcp'] | default({})).port | default(8200) }}:8200/tcp"
