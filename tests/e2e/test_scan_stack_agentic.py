@@ -26,7 +26,7 @@ Why the floor is shaped the way it is
 
 **Accumulated draft state, not one call's arguments.** The draft is a shared,
 incrementally editable staging surface: ``set_draft`` PATCHes it, and an agent
-may legitimately fill ``correctors`` in one call and ``detectors`` in the next
+may legitimately fill ``correctors`` in one call and ``readbacks`` in the next
 (see ``osprey/mcp_server/bluesky/tools/draft.py``). Grading a single call's
 ``plan_args_patch`` would fail a correct two-call assembly. So the floor folds
 every successful ``set_draft`` in trace order into an accumulated state,
@@ -46,8 +46,8 @@ plan the bridge actually launched IS the accumulated state at that add.
 **Plan-class predicate, never a plan name.** The floor asks what the scan
 does, not what it is called. Everything above is shared; only a small
 predicate over the accumulated state distinguishes one measurement class from
-another — correctors driven against BPM detectors for the orbit-response
-class, two or more distinct setpoint axes against detectors for the grid-scan
+another — correctors driven against BPM readbacks for the orbit-response
+class, two or more distinct setpoint axes against readbacks for the grid-scan
 class. An agent that picks a differently-named but structurally equivalent
 plan still passes, and the two predicates are mutually exclusive, so neither
 live test can be satisfied by the other's run.
@@ -272,25 +272,25 @@ def accumulated_draft_states(traces: list[ToolTrace]) -> list[dict[str, Any]]:
 
 def is_orbit_response_state(state: dict[str, Any]) -> bool:
     """Orbit-response plan class: the state drives a set of correctors AND
-    reads a set of BPM detectors together.
+    reads a set of BPM readbacks together.
 
     The ``orm`` plan's own device-class contract, checked structurally so a
     differently-named but equivalent plan still qualifies. Never compares
     ``plan_name``.
     """
     correctors = state.get("correctors")
-    detectors = state.get("detectors")
+    readbacks = state.get("readbacks")
     return (
         isinstance(correctors, list)
         and bool(correctors)
-        and isinstance(detectors, list)
-        and bool(detectors)
+        and isinstance(readbacks, list)
+        and bool(readbacks)
     )
 
 
 def is_grid_scan_state(state: dict[str, Any]) -> bool:
     """Grid-scan plan class: the state steps at least two DISTINCT setpoint
-    devices over a rectangular grid and reads a set of detectors at each point.
+    devices over a rectangular grid and reads a set of readbacks at each point.
 
     The ``grid_scan`` plan's device-class contract (see
     ``services/bluesky_bridge/plans_core/grid_scan.py``'s ``PARAMS`` /
@@ -301,8 +301,8 @@ def is_grid_scan_state(state: dict[str, Any]) -> bool:
     while measuring nothing the scan was asked for. Never compares
     ``plan_name``.
     """
-    detectors = state.get("detectors")
-    if not (isinstance(detectors, list) and detectors):
+    readbacks = state.get("readbacks")
+    if not (isinstance(readbacks, list) and readbacks):
         return False
     axes = state.get("axes")
     if not (isinstance(axes, list) and len(axes) >= 2):
@@ -599,16 +599,16 @@ def _judge_expectations(measurement: str, data_examples: str) -> str:
 
 ORM_JUDGE_EXPECTATIONS = _judge_expectations(
     "an orbit-response-class scan — one that drives a set of correctors and "
-    "reads a set of BPM detectors together",
+    "reads a set of BPM readbacks together",
     "for example the orbit shifts the BPMs reported as each corrector was "
     "stepped, or the response of the ring to the correctors that were driven",
 )
 
 GRID_JUDGE_EXPECTATIONS = _judge_expectations(
     "a grid-scan-class scan — one that steps two or more distinct setpoint "
-    "devices over a rectangular grid, reading a set of detectors at every "
+    "devices over a rectangular grid, reading a set of readbacks at every "
     "grid point",
-    "for example how the detector readings varied across the grid, or what "
+    "for example how the readback readings varied across the grid, or what "
     "the scanned region looked like at the points that were measured",
 )
 
@@ -692,7 +692,7 @@ _ORM_RUN_DATA = (
     '"corrector_03":{"bpm_01":0.54,"bpm_17":0.60,"bpm_23":1.79}}}'
 )
 
-# A healthy grid readback: both detectors vary smoothly and monotonically
+# A healthy grid readback: both readbacks vary smoothly and monotonically
 # along both axes over the 5x5 grid.
 _GRID_RUN_DATA = (
     '{"run_id":"run-1","shape":[5,5],'
@@ -718,7 +718,7 @@ def _read(*, is_error: bool = False, data: str = _ORM_RUN_DATA, run_id: str = "r
 
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["corrector_01", "corrector_02", "corrector_03"],
-    "detectors": ["bpm_01", "bpm_17", "bpm_23"],
+    "readbacks": ["bpm_01", "bpm_17", "bpm_23"],
     "span_a": 1.0,
     "num": 9,
 }
@@ -731,7 +731,7 @@ def _orm_run_trace() -> list[ToolTrace]:
 
 
 _GRID_ARGS: dict[str, Any] = {
-    "detectors": ["bpm_01", "bpm_02"],
+    "readbacks": ["bpm_01", "bpm_02"],
     "axes": [
         {"setpoint": "corrector_01", "start": -1.0, "stop": 1.0, "num_points": 5},
         {"setpoint": "corrector_02", "start": -1.0, "stop": 1.0, "num_points": 5},
@@ -768,7 +768,7 @@ def test_floor_accepts_orbit_response_class_run() -> None:
 
 @pytest.mark.harness_benchmark
 def test_floor_rejects_a_scan_of_another_plan_class() -> None:
-    """A draft carrying no correctors/detectors pair — e.g. a generic n-d grid
+    """A draft carrying no correctors/readbacks pair — e.g. a generic n-d grid
     scan over unrelated axes — must not satisfy the orbit-response floor.
     Non-vacuity for the predicate: this is not "any scan ran"."""
     traces = [_draft(plan_name="grid_scan", patch={"axes": ["some_motor"], "num": [5]})]
@@ -800,12 +800,12 @@ def test_floor_requires_both_queue_steps(missing: str) -> None:
 
 @pytest.mark.harness_benchmark
 def test_floor_accepts_draft_assembled_across_two_calls() -> None:
-    """Correctors in one ``set_draft``, detectors in the next. The bridge draft
+    """Correctors in one ``set_draft``, readbacks in the next. The bridge draft
     is incremental, so the state the add sees is the fold of both — grading a
     single call's ``plan_args_patch`` would wrongly fail this correct run."""
     traces = [
         _draft(patch={"correctors": ["corrector_01"], "span_a": 1.0}),
-        _draft(plan_name=None, patch={"detectors": ["bpm_01"], "num": 9}),
+        _draft(plan_name=None, patch={"readbacks": ["bpm_01"], "num": 9}),
         _add(),
         _start(),
         _read(),
@@ -816,12 +816,12 @@ def test_floor_accepts_draft_assembled_across_two_calls() -> None:
 @pytest.mark.harness_benchmark
 def test_floor_rejects_state_retracted_by_remove() -> None:
     """``remove`` deletes keys from the draft. An agent that fills a complete
-    orbit-response draft and then retracts ``detectors`` before queueing
+    orbit-response draft and then retracts ``readbacks`` before queueing
     launched a draft that no longer reads any BPM — the fold must reflect
     that, not the high-water mark."""
     traces = [
         _draft(patch=_ORM_ARGS),
-        _draft(plan_name=None, remove=["detectors"]),
+        _draft(plan_name=None, remove=["readbacks"]),
         _add(),
         _start(),
         _read(),
@@ -916,10 +916,10 @@ def test_floor_binds_the_data_read_to_the_run_the_add_launched() -> None:
 _LIVE_ENVELOPED_ADD_RESULT = (
     r'{"result":"{\"run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"revision\": 5, \"item\":'
     r" {\"item_type\": \"plan\", \"name\": \"orm\", \"kwargs\": {\"correctors\": "
-    r"[\"SR:MAG:HCM:01:CURRENT:SP\"], \"detectors\": [\"SR:DIAG:BPM:01:POSITION:X\"], "
+    r"[\"SR:MAG:HCM:01:CURRENT:SP\"], \"readbacks\": [\"SR:DIAG:BPM:01:POSITION:X\"], "
     r"\"span_a\": 2.0, \"num\": 5, \"sweep\": \"bidirectional\"}, \"meta\": "
     r"{\"osprey_run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"osprey_plan\": {\"name\": "
-    r"\"orm\", \"kwargs\": {\"correctors\": [\"SR:MAG:HCM:01:CURRENT:SP\"], \"detectors\": "
+    r"\"orm\", \"kwargs\": {\"correctors\": [\"SR:MAG:HCM:01:CURRENT:SP\"], \"readbacks\": "
     r"[\"SR:DIAG:BPM:01:POSITION:X\"], \"span_a\": 2.0, \"num\": 5, \"sweep\": "
     r"\"bidirectional\"}}}, \"user\": \"Queue Server API User\", \"user_group\": \"primary\", "
     r'\"item_uid\": \"c575be41-db28-4047-a667-2b434408be8d\"}}"}'
@@ -1081,7 +1081,7 @@ def test_grid_floor_rejects_a_single_axis_scan() -> None:
     traces = [
         _draft(
             plan_name="grid_scan",
-            patch={"detectors": ["bpm_01"], "axes": [_GRID_ARGS["axes"][0]]},
+            patch={"readbacks": ["bpm_01"], "axes": [_GRID_ARGS["axes"][0]]},
         ),
         _add(),
         _start(),
@@ -1094,13 +1094,13 @@ def test_grid_floor_rejects_a_single_axis_scan() -> None:
 def test_grid_floor_rejects_two_axes_naming_the_same_setpoint() -> None:
     """Two axes over the SAME setpoint device collapse the grid onto itself —
     the second axis fights the first, and the scan measures a line at best. The
-    plan's validator only checks setpoints against detectors, never against
+    plan's validator only checks setpoints against readbacks, never against
     each other, so this reject lives here."""
     axis = _GRID_ARGS["axes"][0]
     traces = [
         _draft(
             plan_name="grid_scan",
-            patch={"detectors": ["bpm_01"], "axes": [axis, dict(axis, num_points=7)]},
+            patch={"readbacks": ["bpm_01"], "axes": [axis, dict(axis, num_points=7)]},
         ),
         _add(),
         _start(),
@@ -1111,11 +1111,11 @@ def test_grid_floor_rejects_two_axes_naming_the_same_setpoint() -> None:
 
 @pytest.mark.harness_benchmark
 def test_grid_floor_accepts_a_grid_assembled_across_two_calls() -> None:
-    """Detectors in one ``set_draft``, the axes in the next. Shares the
+    """Readbacks in one ``set_draft``, the axes in the next. Shares the
     accumulator with the orbit-response class, so an incremental grid build is
     graded on the state the add actually saw."""
     traces = [
-        _draft(plan_name="grid_scan", patch={"detectors": _GRID_ARGS["detectors"]}),
+        _draft(plan_name="grid_scan", patch={"readbacks": _GRID_ARGS["readbacks"]}),
         _draft(plan_name=None, patch={"axes": _GRID_ARGS["axes"]}),
         _add(),
         _start(),

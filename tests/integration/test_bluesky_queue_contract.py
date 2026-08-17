@@ -75,7 +75,7 @@ _SESSION_PLAN_NAME = "contract_sweep"
 def _grid_scan_args(num_points: int = 3) -> dict[str, Any]:
     """A valid draft for the always-registered shipped ``grid_scan`` plan."""
     return {
-        "detectors": ["BPM1"],
+        "readbacks": ["BPM1"],
         "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": num_points}],
     }
 

@@ -43,7 +43,7 @@ from osprey.services.bluesky_bridge.plan_validation import (  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # A tiny, fully-contract-compliant benign plan body: one corrector, one
-# detector, harmless (non-control-system) `.put`/`.get` usage that a naive
+# readback, harmless (non-control-system) `.put`/`.get` usage that a naive
 # pattern scan could mistake for a CA write/read. Reused across the
 # accept-path and dry-run tests below.
 # ---------------------------------------------------------------------------
@@ -56,16 +56,16 @@ BENIGN_PLAN_BODY = textwrap.dedent(
 
     PLAN_METADATA = {
         "name": "tiny_sweep",
-        "description": "Sweep one corrector, reading one detector at each point.",
+        "description": "Sweep one corrector, reading one readback at each point.",
         "category": "accelerator",
-        "required_devices": ["correctors", "detectors"],
+        "required_devices": ["correctors", "readbacks"],
         "writes": True,
     }
 
 
     class PARAMS(BaseModel):
         correctors: list[str] = Field(..., min_length=1)
-        detectors: list[str] = Field(..., min_length=1)
+        readbacks: list[str] = Field(..., min_length=1)
         num: int = Field(..., ge=1)
 
 
@@ -77,20 +77,20 @@ BENIGN_PLAN_BODY = textwrap.dedent(
         np.put(arr, list(range(params.num)), 1.0)
 
         corrector = devices[params.correctors[0]]
-        detector = devices[params.detectors[0]]
+        readback = devices[params.readbacks[0]]
 
-        @bpp.stage_decorator([corrector, detector])
+        @bpp.stage_decorator([corrector, readback])
         @bpp.run_decorator()
         def _sweep():
             for i in range(params.num):
                 yield from bps.mv(corrector, float(i))
-                yield from bps.trigger_and_read([corrector, detector])
+                yield from bps.trigger_and_read([corrector, readback])
 
         return _sweep()
     """
 )
 
-BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "detectors": ["d1"], "num": 3}
+BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "readbacks": ["d1"], "num": 3}
 
 # ---------------------------------------------------------------------------
 # A raw "author-submitted body" shaped like an actual `PlanSessionWriteRequest
@@ -110,20 +110,20 @@ _SESSION_BODY = textwrap.dedent(
 
     class PARAMS(BaseModel):
         correctors: list[str] = Field(..., min_length=1)
-        detectors: list[str] = Field(..., min_length=1)
+        readbacks: list[str] = Field(..., min_length=1)
         num: int = Field(..., ge=1)
 
 
     def build_plan(devices, params):
         corrector = devices[params.correctors[0]]
-        detector = devices[params.detectors[0]]
+        readback = devices[params.readbacks[0]]
 
-        @bpp.stage_decorator([corrector, detector])
+        @bpp.stage_decorator([corrector, readback])
         @bpp.run_decorator()
         def _sweep():
             for i in range(params.num):
                 yield from bps.mv(corrector, float(i))
-                yield from bps.trigger_and_read([corrector, detector])
+                yield from bps.trigger_and_read([corrector, readback])
 
         return _sweep()
     """
@@ -140,7 +140,7 @@ def _assembled_session_content(body: str) -> str:
         "name": "tiny_sweep",
         "description": "",
         "category": "accelerator",
-        "required_devices": ["correctors", "detectors"],
+        "required_devices": ["correctors", "readbacks"],
         "writes": True,
     }
     return f"PLAN_METADATA = {metadata!r}\n\n{body}"
@@ -485,11 +485,11 @@ class TestHashPlanBody:
 
 class TestCollectDeviceNames:
     def test_flat_correctors_and_detectors_fields(self):
-        motors, detectors = _collect_device_names(
+        setpoints, readbacks = _collect_device_names(
             {"correctors": ["c1", "c2"], "detectors": ["d1"], "span_a": 1.0, "num": 3}
         )
-        assert motors == {"c1", "c2"}
-        assert detectors == {"d1"}
+        assert setpoints == {"c1", "c2"}
+        assert readbacks == {"d1"}
 
     def test_singular_field_names_bucket_like_their_plurals(self):
         """A plan naming one device per field, not a list, buckets the same way.
@@ -498,38 +498,38 @@ class TestCollectDeviceNames:
         ``detector`` was already read-only under the old inline substring
         rule, and stays read-only now.
         """
-        motors, detectors = _collect_device_names({"motor": "m1", "detector": "d1"})
-        assert motors == {"m1"}
-        assert detectors == {"d1"}
+        setpoints, readbacks = _collect_device_names({"motor": "m1", "detector": "d1"})
+        assert setpoints == {"m1"}
+        assert readbacks == {"d1"}
 
     def test_bluesky_conventional_read_side_names_are_read_only(self):
         """``dets`` and ``readables`` bucket as read-only, not as driven devices.
 
         Both names are bluesky-conventional spellings an open-catalog plan may
-        use, and both bucketed as *motors* under the old inline ``"detect" in
+        use, and both bucketed as *settables* under the old inline ``"detect" in
         key`` rule — a fail-open miss, since a read-only device handed the
         settable mock silently claims it can be driven. The shared predicate
         closes it; this is the declared behavior change of commit 0.
         """
         for read_side in ("dets", "readables"):
-            motors, detectors = _collect_device_names({read_side: ["d1"], "motor": "m1"})
-            assert motors == {"m1"}, read_side
-            assert detectors == {"d1"}, read_side
+            setpoints, readbacks = _collect_device_names({read_side: ["d1"], "motor": "m1"})
+            assert setpoints == {"m1"}, read_side
+            assert readbacks == {"d1"}, read_side
 
     def test_nested_axes_setpoint_field(self):
         """Mirrors `grid_scan`'s PARAMS shape: setpoints nested under
         `axes[].setpoint`, not a flat field named "setpoints"."""
-        motors, detectors = _collect_device_names(
+        setpoints, readbacks = _collect_device_names(
             {
-                "detectors": ["d1"],
+                "readbacks": ["d1"],
                 "axes": [
                     {"setpoint": "m1", "start": 0.0, "stop": 1.0, "num_points": 2},
                     {"setpoint": "m2", "start": 0.0, "stop": 1.0, "num_points": 3},
                 ],
             }
         )
-        assert motors == {"m1", "m2"}
-        assert detectors == {"d1"}
+        assert setpoints == {"m1", "m2"}
+        assert readbacks == {"d1"}
 
     def test_empty_sample_args(self):
         assert _collect_device_names({}) == (set(), set())
@@ -714,7 +714,7 @@ class TestShippedExemplarsPassValidation:
             plan_name="orm",
             sample_args={
                 "correctors": ["hcm1", "hcm2"],
-                "detectors": ["bpm1", "bpm2"],
+                "readbacks": ["bpm1", "bpm2"],
                 "span_a": 2.0,
                 "num": 3,
             },
@@ -727,7 +727,7 @@ class TestShippedExemplarsPassValidation:
             source,
             plan_name="grid_scan",
             sample_args={
-                "detectors": ["det1"],
+                "readbacks": ["det1"],
                 "axes": [
                     {"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 2},
                     {"setpoint": "motor2", "start": 0.0, "stop": 1.0, "num_points": 3},

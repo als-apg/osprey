@@ -871,7 +871,7 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     "existing value wins, append what's missing" convention: when the
     deployed project is a VA-backed Bluesky stack (BOTH ``"bluesky"`` and
     ``"virtual_accelerator"`` present in ``deployed_services``), derive
-    ``BLUESKY_EPICS_SUBSTRATE``/``BLUESKY_EPICS_MOTORS``/``_DETECTORS`` from
+    ``BLUESKY_EPICS_SUBSTRATE``/``BLUESKY_EPICS_SETPOINTS``/``_READBACKS`` from
     the built project's own ``data/channel_limits.json`` (the canonical
     derivation lives in
     ``osprey.services.bluesky_bridge.substrate_devices.derive_substrate_env``,
@@ -945,7 +945,7 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
         logger.warning(
             "Could not auto-configure bluesky bridge scan devices from %s "
             "(derivation raised unexpectedly). Skipping BLUESKY_EPICS_SUBSTRATE "
-            "auto-configuration -- set BLUESKY_EPICS_MOTORS/_DETECTORS manually "
+            "auto-configuration -- set BLUESKY_EPICS_SETPOINTS/_READBACKS manually "
             "if you want the bridge to run in EPICS-substrate mode.",
             project_dir / "data" / "channel_limits.json",
             exc_info=True,
@@ -956,7 +956,7 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
             "Could not auto-configure bluesky bridge scan devices from %s "
             "(missing, unreadable, or yields no SR correctors/BPMs). Skipping "
             "BLUESKY_EPICS_SUBSTRATE auto-configuration -- set "
-            "BLUESKY_EPICS_MOTORS/_DETECTORS manually if you want the bridge "
+            "BLUESKY_EPICS_SETPOINTS/_READBACKS manually if you want the bridge "
             "to run in EPICS-substrate mode.",
             project_dir / "data" / "channel_limits.json",
         )

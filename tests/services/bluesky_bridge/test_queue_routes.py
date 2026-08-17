@@ -44,7 +44,7 @@ _TOKEN = "s3cr3t"
 # A valid draft for the always-registered shipped `grid_scan` plan
 # (mirrors `test_draft.py`).
 _GRID_SCAN_ARGS: dict[str, Any] = {
-    "detectors": ["BPM1"],
+    "readbacks": ["BPM1"],
     "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
 }
 
@@ -623,7 +623,7 @@ _SHIPPED_PLAN_ARGS: dict[str, tuple[dict[str, Any], set[str]]] = {
     "orm": (
         {
             "correctors": ["COR1"],
-            "detectors": ["BPM1"],
+            "readbacks": ["BPM1"],
             "span_a": 1.0,
             "num": 3,
             "sweep": "bidirectional",
@@ -671,10 +671,10 @@ def test_the_walk_agrees_with_the_dry_runs_device_bucketing(plan_name: str) -> N
     declared = plan_loader.get_facility_plans().plans[plan_name].metadata.required_devices
 
     referenced = queue._referenced_device_names(params, _fields(*declared))
-    motors, detectors = _collect_device_names(params)
+    setpoints, readbacks = _collect_device_names(params)
 
     assert referenced == expected
-    assert referenced <= (motors | detectors)
+    assert referenced <= (setpoints | readbacks)
 
 
 def test_every_shipped_plan_has_its_param_shape_covered() -> None:
@@ -826,7 +826,7 @@ def test_the_device_precheck_reads_only_the_declared_device_fields(
             "plan_name": "orm",
             "plan_args_patch": {
                 "correctors": ["COR1"],
-                "detectors": ["BPM1"],
+                "readbacks": ["BPM1"],
                 "span_a": 1.0,
                 "num": 3,
                 "sweep": "bidirectional",
@@ -886,6 +886,52 @@ async def test_an_unreadable_plan_registry_skips_the_precheck(
     await queue._check_devices_exist(QueueBackend(manager), "grid_scan", _GRID_SCAN_ARGS)
 
     assert manager.method_names() == []
+
+
+async def test_the_readbacks_field_joins_through_the_singularized_device_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `readbacks` declaration and a `readbacks` param must still meet.
+
+    `required_devices` names PARAMS *fields*, and `_device_field` compares them
+    on the trailing-`s`-stripped form so a flat `readbacks` field and
+    `grid_scan`'s nested `axes[].setpoint` can both be found without hard-coding
+    either shape. That makes the join silent when it breaks: if `readbacks` ever
+    stopped matching, `_referenced_device_names` would collect nothing, the
+    pre-check would return early, and an enqueue naming a device the worker does
+    not have would sail through — fail-OPEN, with no error anywhere.
+
+    Driven directly rather than through the route so the assertion is about this
+    function rather than about draft validation.
+    """
+    assert queue._device_field("readbacks") == "readback"
+
+    spec = plan_loader.get_facility_plans().plans["orm"]
+    monkeypatch.setattr(spec.metadata, "required_devices", ["readbacks"])
+    manager = FakeManager(devices_allowed=_devices("BPM1"))
+
+    with pytest.raises(HTTPException) as excinfo:
+        await queue._check_devices_exist(
+            QueueBackend(manager), "orm", {"readbacks": ["BPM1", "BPM9"]}
+        )
+
+    assert excinfo.value.status_code == 400
+    assert "BPM9" in str(excinfo.value.detail)
+    # Non-vacuous: the refusal came from a manager that really was consulted.
+    assert "devices_allowed" in manager.method_names()
+
+
+async def test_the_readbacks_join_passes_a_device_the_worker_holds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of the join: a name the worker has is never refused."""
+    spec = plan_loader.get_facility_plans().plans["orm"]
+    monkeypatch.setattr(spec.metadata, "required_devices", ["readbacks"])
+    manager = FakeManager(devices_allowed=_devices("BPM1", "BPM2"))
+
+    await queue._check_devices_exist(QueueBackend(manager), "orm", {"readbacks": ["BPM1"]})
+
+    assert "devices_allowed" in manager.method_names()
 
 
 def test_an_unreadable_device_list_does_not_block_the_enqueue(

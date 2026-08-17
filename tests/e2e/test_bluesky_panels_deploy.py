@@ -37,8 +37,8 @@ shipped catalog currently has exactly two such plans (``orm``, ``grid_scan``
 -- see the project's "no bba/tune_scan" convention: only ``orm`` + n-d
 ``grid_scan`` ship), but NEITHER name is hardcoded here:
 ``_build_minimal_plan_args`` maps the winning candidate's JSON ``schema`` by
-FIELD SHAPE (``correctors``+``detectors``+``span_a``+``num`` vs.
-``axes``+``detectors``) onto the derived corrector/BPM device names, so a
+FIELD SHAPE (``correctors``+``readbacks``+``span_a``+``num`` vs.
+``axes``+``readbacks``) onto the derived corrector/BPM device names, so a
 future third exemplar plan is picked up automatically as long as it matches
 one of those two shapes, and is otherwise skipped rather than crashing the
 discovery loop. This keeps the coupling to the shipped plan catalog minimal
@@ -292,20 +292,20 @@ def _build_minimal_plan_args(
     corrector_names = list(correctors.keys())
     bpm_names = list(bpms.keys())
 
-    if {"correctors", "detectors", "span_a", "num"} <= props.keys():
+    if {"correctors", "readbacks", "span_a", "num"} <= props.keys():
         # orm-shaped: sweep one corrector over a small bounded
         # current range, reading the BPMs.
         if not corrector_names or not bpm_names:
             return None
         return {
             "correctors": corrector_names[:1],
-            "detectors": bpm_names[: min(2, len(bpm_names))],
+            "readbacks": bpm_names[: min(2, len(bpm_names))],
             "span_a": 1.0,
             "num": 3,
         }
 
-    if {"axes", "detectors"} <= props.keys():
-        # grid_scan-shaped: one axis (one corrector setpoint), one detector.
+    if {"axes", "readbacks"} <= props.keys():
+        # grid_scan-shaped: one axis (one corrector setpoint), one readback.
         if not corrector_names or not bpm_names:
             return None
         axis_name = corrector_names[0]
@@ -314,7 +314,7 @@ def _build_minimal_plan_args(
         start = lo + 0.25 * (hi - lo)
         stop = lo + 0.75 * (hi - lo)
         return {
-            "detectors": bpm_names[:1],
+            "readbacks": bpm_names[:1],
             "axes": [
                 {"setpoint": axis_name, "start": start, "stop": stop, "num_points": 2},
             ],

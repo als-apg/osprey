@@ -106,13 +106,13 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 
-# Device names wired into the bridge via BLUESKY_EPICS_MOTORS/_DETECTORS —
+# Device names wired into the bridge via BLUESKY_EPICS_SETPOINTS/_READBACKS —
 # arbitrary, resolved against explicit PV addresses (see _write_scan_env
 # below), never a preset naming convention.
-SCAN_MOTOR = "scan_motor"
-P3_DETECTOR = "p3_det"
-P4_DETECTOR = "p4_det"
-P5_DETECTOR = "p5_det"
+SCAN_SETPOINT = "scan_motor"
+P3_READBACK = "p3_det"
+P4_READBACK = "p4_det"
+P5_READBACK = "p5_det"
 
 # The bridge's arming route (POST /queue/start) fails closed on an unset
 # BLUESKY_LAUNCH_TOKEN. `osprey up` mints one for the deployed bluesky
@@ -261,9 +261,9 @@ def _write_scan_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
         # config gates auto-minting off (see LAUNCH_TOKEN above).
         "BLUESKY_LAUNCH_TOKEN": LAUNCH_TOKEN,
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": f"{SCAN_MOTOR}={p4_sp}|{p4_rb}",
-        "BLUESKY_EPICS_DETECTORS": (
-            f"{P3_DETECTOR}={p3_rb},{P4_DETECTOR}={p4_rb},{P5_DETECTOR}={p5_rb}"
+        "BLUESKY_EPICS_SETPOINTS": f"{SCAN_SETPOINT}={p4_sp}|{p4_rb}",
+        "BLUESKY_EPICS_READBACKS": (
+            f"{P3_READBACK}={p3_rb},{P4_READBACK}={p4_rb},{P5_READBACK}={p5_rb}"
         ),
         "VA_STUCK_SETPOINTS": p5_sp,
     }
@@ -714,18 +714,18 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     host_read = host["read_value"]
 
     # grid_scan is the catalog's minimal acquisition plan (`count` was dropped
-    # with the trust-tiered registry): step the p4 scan motor through a 2-point
-    # sweep and read the p3 detector at each point — the p3 pair itself is
+    # with the trust-tiered registry): step the p4 scan setpoint through a 2-point
+    # sweep and read the p3 readback at each point — the p3 pair itself is
     # never driven, so both rows sample the settled sp-echo value.
     m_sp, _ = deployed_stack.pairs["p4"]
     m_lo, m_hi = deployed_stack.bounds(m_sp)
     run_id, status_body = await _run_scan(
         "grid_scan",
         {
-            "detectors": [P3_DETECTOR],
+            "readbacks": [P3_READBACK],
             "axes": [
                 {
-                    "setpoint": SCAN_MOTOR,
+                    "setpoint": SCAN_SETPOINT,
                     "start": m_lo + 0.25 * (m_hi - m_lo),
                     "stop": m_lo + 0.75 * (m_hi - m_lo),
                     "num_points": 2,
@@ -741,9 +741,9 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-    col = _find_column(data["columns"], P3_DETECTOR)
+    col = _find_column(data["columns"], P3_READBACK)
     bridge_value = data["rows"][0][col]
-    assert bridge_value is not None, f"no value recorded for {P3_DETECTOR}: {data}"
+    assert bridge_value is not None, f"no value recorded for {P3_READBACK}: {data}"
 
     # sp-echo is a plain software copy — the host write should be exactly
     # reflected in both readers.
@@ -777,8 +777,8 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
         BRIDGE_URL,
         "grid_scan",
         {
-            "detectors": [P4_DETECTOR],
-            "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
+            "readbacks": [P4_READBACK],
+            "axes": [{"setpoint": SCAN_SETPOINT, "start": start, "stop": stop, "num_points": num}],
         },
         client_id=_QUEUE_CLIENT_ID,
     )
@@ -837,10 +837,10 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == num, f"expected {num} rows: {data}"
-    col = _find_column(data["columns"], P4_DETECTOR)
+    col = _find_column(data["columns"], P4_READBACK)
     row_values = [row[col] for row in data["rows"]]
     assert len(row_values) == num and all(v is not None for v in row_values), (
-        f"incomplete {P4_DETECTOR} column: {row_values}"
+        f"incomplete {P4_READBACK} column: {row_values}"
     )
 
     # The concurrent host read landed either before the first point settled
@@ -893,17 +893,17 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
     )
 
     # grid_scan replaces the dropped `count` builtin (see P3): drive the p4
-    # scan motor, never the stuck p5 pair, and read the frozen p5 readback at
+    # scan setpoint, never the stuck p5 pair, and read the frozen p5 readback at
     # each of the 2 grid points.
     m_sp, _ = deployed_stack.pairs["p4"]
     m_lo, m_hi = deployed_stack.bounds(m_sp)
     run_id, status_body = await _run_scan(
         "grid_scan",
         {
-            "detectors": [P5_DETECTOR],
+            "readbacks": [P5_READBACK],
             "axes": [
                 {
-                    "setpoint": SCAN_MOTOR,
+                    "setpoint": SCAN_SETPOINT,
                     "start": m_lo + 0.25 * (m_hi - m_lo),
                     "stop": m_lo + 0.75 * (m_hi - m_lo),
                     "num_points": 2,
@@ -919,9 +919,9 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["row_count"] == 2, f"expected one row per grid point: {data}"
-    col = _find_column(data["columns"], P5_DETECTOR)
+    col = _find_column(data["columns"], P5_READBACK)
     bridge_rb = data["rows"][0][col]
-    assert bridge_rb is not None, f"no value recorded for {P5_DETECTOR}: {data}"
+    assert bridge_rb is not None, f"no value recorded for {P5_READBACK}: {data}"
 
     # Both independent CA clients (host pyepics, bridge ophyd-async) must
     # agree on the frozen value -- honest divergence, not a per-client one.

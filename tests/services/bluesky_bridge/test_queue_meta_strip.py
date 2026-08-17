@@ -37,7 +37,7 @@ _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 _TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"
 
 _GRID_SCAN_ARGS: dict[str, Any] = {
-    "detectors": ["BPM1"],
+    "readbacks": ["BPM1"],
     "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
 }
 _RUN_ID = "run-abc"

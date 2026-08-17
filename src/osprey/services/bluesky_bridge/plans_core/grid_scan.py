@@ -2,10 +2,10 @@
 
 Discovered via the layered directory catalog's ``shipped`` tier (a folder
 scan of this package's ``plans_core/`` dir — see ``plan_loader.py``): step a
-set of setpoint devices over a rectangular grid, reading a set of detectors
+set of setpoint devices over a rectangular grid, reading a set of readbacks
 at every grid point, wrapping ``bluesky.plans.grid_scan``.
 
-Device-agnostic: ``setpoints``/``detectors`` are resolved by string name
+Device-agnostic: ``setpoints``/``readbacks`` are resolved by string name
 against whatever ``devices`` dict the bridge passes in; nothing here names a
 facility PV or a fixed device set.
 
@@ -39,11 +39,11 @@ logger = logging.getLogger("osprey.services.bluesky_bridge.plans_core.grid_scan"
 PLAN_METADATA = {
     "name": "grid_scan",
     "description": (
-        "Scan a rectangular grid of setpoint devices, reading all detectors at "
+        "Scan a rectangular grid of setpoint devices, reading all readbacks at "
         "every grid point (bluesky bp.grid_scan)."
     ),
     "category": "accelerator",
-    "required_devices": ["setpoints", "detectors"],
+    "required_devices": ["setpoints", "readbacks"],
     "writes": True,
 }
 
@@ -61,12 +61,12 @@ class PARAMS(BaseModel):
     """Parameters for ``grid_scan``: one `GridAxis` per grid dimension.
 
     Steps each axis's setpoint device over its own ``[start, stop]`` range in
-    ``num_points`` evenly-spaced steps, reading every device in ``detectors``
+    ``num_points`` evenly-spaced steps, reading every device in ``readbacks``
     at each combination of axis positions (a rectangular grid of
     ``prod(num_points)`` total points).
     """
 
-    detectors: list[str] = Field(
+    readbacks: list[str] = Field(
         ..., min_length=1, description="Device names to read at each grid point."
     )
     axes: list[GridAxis] = Field(..., min_length=1, description="One entry per grid dimension.")
@@ -75,13 +75,13 @@ class PARAMS(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _setpoints_and_detectors_disjoint(self) -> PARAMS:
-        """Reject a device named as both a driven setpoint and a read detector."""
+    def _setpoints_and_readbacks_disjoint(self) -> PARAMS:
+        """Reject a device named as both a driven setpoint and a read readback."""
         setpoints = {axis.setpoint for axis in self.axes}
-        overlap = setpoints & set(self.detectors)
+        overlap = setpoints & set(self.readbacks)
         if overlap:
             raise ValueError(
-                f"setpoints and detectors must be disjoint (overlap: {sorted(overlap)})"
+                f"setpoints and readbacks must be disjoint (overlap: {sorted(overlap)})"
             )
         return self
 
@@ -90,15 +90,15 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     """Build the n-dimensional grid-scan generator.
 
     Mirrors the built-in ``grid_scan`` plan's (``plans.py``) idiom: resolves
-    each axis's setpoint/detector by string name against ``devices`` and
+    each axis's setpoint/readback by string name against ``devices`` and
     hands the flattened ``(device, start, stop, num_points)`` triples straight
     to ``bp.grid_scan``.
     """
-    detectors = [devices[name] for name in params.detectors]
+    readback_devices = [devices[name] for name in params.readbacks]
     args: list[Any] = []
     for axis in params.axes:
         args.extend([devices[axis.setpoint], axis.start, axis.stop, axis.num_points])
-    return bp.grid_scan(detectors, *args, snake_axes=params.snake_axes)
+    return bp.grid_scan(readback_devices, *args, snake_axes=params.snake_axes)
 
 
 # --- Rendering ---------------------------------------------------------------
@@ -231,7 +231,7 @@ def _lines_mark(series: list[Series]) -> LinesMark:
 
 
 def _one_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
-    """One detector-versus-setpoint line panel per detector.
+    """One readback-versus-setpoint line panel per readback.
 
     ``snake_axes`` is a no-op with a single axis (there is no outer axis to
     snake against), so the sweep is one monotone pass and the panel is one line.
@@ -245,9 +245,9 @@ def _one_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
         return []
 
     panels: list[Panel] = []
-    for detector in params.detectors:
-        detector_column = _resolve_column(rows, detector)
-        if detector_column is None:
+    for readback in params.readbacks:
+        readback_column = _resolve_column(rows, readback)
+        if readback_column is None:
             continue
 
         points: list[Point] = []
@@ -257,7 +257,7 @@ def _one_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
             if x is None:
                 dropped += 1
                 continue
-            points.append(Point(x=x, y=_numeric(row.get(detector_column))))
+            points.append(Point(x=x, y=_numeric(row.get(readback_column))))
         points.sort(key=lambda point: point.x)
 
         kept = decimate(points)
@@ -269,18 +269,18 @@ def _one_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
 
         panels.append(
             Panel(
-                title=f"{detector} vs {axis.setpoint}",
+                title=f"{readback} vs {axis.setpoint}",
                 x_label=axis.setpoint,
-                y_label=detector,
+                y_label=readback,
                 annotations=annotations,
-                mark=_lines_mark([Series(label=detector, **kept._asdict())]),
+                mark=_lines_mark([Series(label=readback, **kept._asdict())]),
             )
         )
     return panels
 
 
 def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
-    """One heatmap panel per detector over the two-axis grid.
+    """One heatmap panel per readback over the two-axis grid.
 
     The inner (fast) axis runs along x and the outer (slow) axis along y, the
     orientation bluesky's own ``LiveGrid`` uses, so a snaked scan fills the
@@ -301,9 +301,9 @@ def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
     x_labels = [_format_number(inner.start + i * inner_step) for i in range(inner.num_points)]
 
     panels: list[Panel] = []
-    for detector in params.detectors:
-        detector_column = _resolve_column(rows, detector)
-        if detector_column is None:
+    for readback in params.readbacks:
+        readback_column = _resolve_column(rows, readback)
+        if readback_column is None:
             continue
 
         cells: dict[tuple[int, int], float | None] = {}
@@ -316,7 +316,7 @@ def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
             if j is None or i is None:
                 dropped += 1
                 continue
-            cells[(j, i)] = _numeric(row.get(detector_column))
+            cells[(j, i)] = _numeric(row.get(readback_column))
 
         values: list[list[float | None]] = [
             [cells.get((j, i)) for i in range(inner.num_points)] for j in range(outer.num_points)
@@ -325,7 +325,7 @@ def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
 
         panels.append(
             Panel(
-                title=f"{detector} over the {outer.setpoint} × {inner.setpoint} grid",
+                title=f"{readback} over the {outer.setpoint} × {inner.setpoint} grid",
                 x_label=inner.setpoint,
                 y_label=outer.setpoint,
                 annotations=annotations,
@@ -333,7 +333,7 @@ def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
                     x_labels=x_labels,
                     y_labels=y_labels,
                     values=values,
-                    value_label=detector,
+                    value_label=readback,
                     source_points=len(cells),
                 ),
             )
@@ -354,7 +354,7 @@ def _combination_label(axes: list[GridAxis], indices: tuple[int, ...]) -> str:
 
 
 def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
-    """One panel per detector: lines along the innermost axis.
+    """One panel per readback: lines along the innermost axis.
 
     A 3-D grid has no honest single picture, so this draws the scan the way it
     was run -- one line per pass along the fast axis -- and names each line by
@@ -372,9 +372,9 @@ def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel
     outer_columns = [column for column in resolved if column is not None]
 
     panels: list[Panel] = []
-    for detector in params.detectors:
-        detector_column = _resolve_column(rows, detector)
-        if detector_column is None:
+    for readback in params.readbacks:
+        readback_column = _resolve_column(rows, readback)
+        if readback_column is None:
             continue
 
         groups: dict[tuple[int, ...], list[Point]] = {}
@@ -392,7 +392,7 @@ def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel
                 dropped += 1
                 continue
             groups.setdefault(tuple(indices), []).append(
-                Point(x=x, y=_numeric(row.get(detector_column)))
+                Point(x=x, y=_numeric(row.get(readback_column)))
             )
 
         ordered = sorted(groups.items())
@@ -417,9 +417,9 @@ def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel
 
         panels.append(
             Panel(
-                title=f"{detector} vs {inner.setpoint}",
+                title=f"{readback} vs {inner.setpoint}",
                 x_label=inner.setpoint,
-                y_label=detector,
+                y_label=readback,
                 annotations=annotations,
                 mark=_lines_mark(series),
             )
@@ -439,7 +439,7 @@ def render(rows: list[dict[str, Any]], params: PARAMS) -> Figure:
             comes from.
 
     Returns:
-        A `Figure` with one panel per detector, or no panels at all when the
+        A `Figure` with one panel per readback, or no panels at all when the
         rows carry nothing this plan can place on a grid. ``partial`` and
         ``source`` are placeholders: the figure route knows which store the
         rows came from and whether the run is still producing them, and stamps

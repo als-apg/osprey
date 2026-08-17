@@ -481,7 +481,7 @@ def test_substrate_env_is_not_gated_on_the_va_being_co_deployed(
     """A facility on real EPICS has no VA container but still has a substrate;
     gating these on the VA would leave its worker with no devices."""
     manager_env = rendered["services"]["queueserver"]["environment"]
-    for var in ("BLUESKY_EPICS_SUBSTRATE", "BLUESKY_EPICS_MOTORS", "BLUESKY_EPICS_DETECTORS"):
+    for var in ("BLUESKY_EPICS_SUBSTRATE", "BLUESKY_EPICS_SETPOINTS", "BLUESKY_EPICS_READBACKS"):
         assert manager_env[var] == f"${{{var}:-}}"
 
 

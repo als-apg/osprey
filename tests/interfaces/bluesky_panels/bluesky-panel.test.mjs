@@ -467,8 +467,8 @@ describe('itemRunId', () => {
 
 describe('itemParamSummary', () => {
   test('kwargs ARE the plan params — no params envelope is opened', () => {
-    expect(itemParamSummary(item({ kwargs: { detectors: ['a', 'b'], num: 5 } }))).toBe(
-      'detectors=[2], num=5'
+    expect(itemParamSummary(item({ kwargs: { readbacks: ['a', 'b'], num: 5 } }))).toBe(
+      'readbacks=[2], num=5'
     );
     expect(itemParamSummary(item({ kwargs: { params: { num: 5 } } }))).toBe('params={…}');
   });

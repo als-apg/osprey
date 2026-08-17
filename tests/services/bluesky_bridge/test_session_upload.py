@@ -197,13 +197,13 @@ def test_real_bridge_devices_are_collected_like_the_stand_ins() -> None:
     changed, every namespace test above would still pass while the real worker
     resolved no devices at all.
     """
-    from osprey.services.bluesky_bridge.devices.mock import MockMotor
+    from osprey.services.bluesky_bridge.devices.mock import MockSettable
     from osprey.services.bluesky_bridge.session_upload import collect_devices
 
-    motor = MockMotor("m1")
-    namespace = worker_namespace(m1=motor, stub=FakeDevice("stub"))
+    device = MockSettable("m1")
+    namespace = worker_namespace(m1=device, stub=FakeDevice("stub"))
 
-    assert collect_devices(namespace) == {"m1": motor, "stub": namespace["stub"]}
+    assert collect_devices(namespace) == {"m1": device, "stub": namespace["stub"]}
 
 
 # ---------------------------------------------------------------------------

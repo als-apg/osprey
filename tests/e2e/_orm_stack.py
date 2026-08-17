@@ -7,8 +7,8 @@ enabled (``default_enabled=False`` in the framework registry; opted in here
 via ``claude_code.servers.bluesky.enabled``). ``BLUESKY_LAUNCH_TOKEN`` is
 minted unconditionally by ``osprey up``, so no execution-method
 override is needed to get the agent armed. Corrector
-setpoints and BPM readbacks are wired into ``BLUESKY_EPICS_MOTORS``/
-``_DETECTORS`` from the *built* project's own ``channel_limits.json`` --
+setpoints and BPM readbacks are wired into ``BLUESKY_EPICS_SETPOINTS``/
+``_READBACKS`` from the *built* project's own ``channel_limits.json`` --
 never a hardcoded preset channel (mirrors
 ``tests/e2e/test_va_substrate_equivalence.py``'s ``_select_sp_echo_pairs``,
 restricted here to correctors/BPMs specifically since the ORM plan sweeps
@@ -667,9 +667,9 @@ def select_correctors(
     corrector set instead of a fixed-size slice -- no assertion is raised in
     that case, regardless of how many pairs are found.
 
-    Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the motor's
+    Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the setpoint's
     device name is its own ``:SP`` address -- ready for ``write_scan_env``'s
-    ``BLUESKY_EPICS_MOTORS`` wiring.
+    ``BLUESKY_EPICS_SETPOINTS`` wiring.
 
     Thin wrapper: delegates to the canonical
     ``osprey.services.bluesky_bridge.substrate_devices.select_correctors``
@@ -692,9 +692,9 @@ def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -
     If ``count`` is ``None``, returns the FULL available pyat-coupled BPM set
     instead of a fixed-size slice -- no assertion is raised in that case.
 
-    Returns a dict of ``read_address -> read_address`` -- the detector's
+    Returns a dict of ``read_address -> read_address`` -- the readback's
     device name is its own read address -- ready for ``write_scan_env``'s
-    ``BLUESKY_EPICS_DETECTORS`` wiring.
+    ``BLUESKY_EPICS_READBACKS`` wiring.
 
     Thin wrapper: delegates to the canonical
     ``osprey.services.bluesky_bridge.substrate_devices.select_bpms`` (same
@@ -713,7 +713,7 @@ def write_scan_env(
     bpms: dict[str, str],
     launch_token: str | None = None,
 ) -> None:
-    """Wire correctors + BPMs into ``BLUESKY_EPICS_MOTORS``/``_DETECTORS``
+    """Wire correctors + BPMs into ``BLUESKY_EPICS_SETPOINTS``/``_READBACKS``
     and set ``BLUESKY_EPICS_SUBSTRATE=1``, appended to the deployment repo's
     ``.env`` BEFORE ``osprey up`` (the bridge compose template passes these
     through from that file, same mechanism as ``BLUESKY_LAUNCH_TOKEN``).
@@ -733,14 +733,14 @@ def write_scan_env(
     uses -- one source of the wire format).
     """
     from osprey.services.bluesky_bridge.substrate_devices import (
-        format_detectors_env,
-        format_motors_env,
+        format_readbacks_env,
+        format_setpoints_env,
     )
 
     values = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": format_motors_env(correctors),
-        "BLUESKY_EPICS_DETECTORS": format_detectors_env(bpms),
+        "BLUESKY_EPICS_SETPOINTS": format_setpoints_env(correctors),
+        "BLUESKY_EPICS_READBACKS": format_readbacks_env(bpms),
     }
     if launch_token:
         values["BLUESKY_LAUNCH_TOKEN"] = launch_token

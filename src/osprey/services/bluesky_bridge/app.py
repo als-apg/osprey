@@ -452,7 +452,7 @@ def list_plans() -> list:
 # component tree) is worker-internal detail nothing can be done with from
 # outside the worker; these three protocol flags are the part that answers the
 # question a caller actually has — whether a device can be driven as a
-# setpoint or only read as a detector. Absent keys stay absent rather than
+# setpoint or only read as a readback. Absent keys stay absent rather than
 # defaulting to False: "the manager did not say" is not "no".
 _DEVICE_FLAG_KEYS = ("is_movable", "is_readable", "is_flyable")
 
@@ -479,7 +479,7 @@ async def list_devices() -> list[dict]:
 
     Each entry is `{"name", ...}` plus whatever of `is_movable`/`is_readable`/
     `is_flyable` the manager reported for it, which is how a caller tells a
-    drivable setpoint from a read-only detector.
+    drivable setpoint from a read-only readback.
     """
     try:
         reply = await get_queue_backend().devices_allowed()

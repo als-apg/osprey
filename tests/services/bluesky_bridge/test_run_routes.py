@@ -67,7 +67,7 @@ def _item(run_id: str, *, name: str = "grid_scan", result: dict | None = None) -
     item: dict[str, Any] = {
         "item_type": "plan",
         "name": name,
-        "kwargs": {"detectors": ["BPM1"]},
+        "kwargs": {"readbacks": ["BPM1"]},
         "item_uid": f"uid-{run_id}",
         "meta": {"osprey_run_id": run_id},
     }
@@ -171,7 +171,7 @@ def test_get_run_returns_the_record_for_a_known_run(bridge) -> None:
     assert body["id"] == "done"
     assert body["status"] == "completed"
     assert body["plan_name"] == "grid_scan"
-    assert body["plan_args"] == {"detectors": ["BPM1"]}
+    assert body["plan_args"] == {"readbacks": ["BPM1"]}
     assert body["run_uid"] == "re-1"
 
 

@@ -96,7 +96,7 @@ def _plan_source(name: str) -> str:
         f'    "name": {name!r},\n'
         '    "description": "A sample catalog plan.",\n'
         '    "category": "accelerator",\n'
-        '    "required_devices": ["setpoint", "detector"],\n'
+        '    "required_devices": ["setpoint", "readback"],\n'
         '    "writes": True,\n'
         "}\n\n\n"
         "class Axis(BaseModel):\n"
@@ -105,11 +105,11 @@ def _plan_source(name: str) -> str:
         "    stop: float\n"
         "    num_points: int = Field(..., ge=2)\n\n\n"
         "class PARAMS(BaseModel):\n"
-        "    detectors: list[str] = Field(..., min_length=1)\n"
+        "    readbacks: list[str] = Field(..., min_length=1)\n"
         "    axes: list[Axis] = Field(..., min_length=1)\n\n\n"
         "def build_plan(devices, params):\n"
         "    resolved = [devices[a.setpoint] for a in params.axes]\n"
-        "    resolved += [devices[d] for d in params.detectors]\n"
+        "    resolved += [devices[d] for d in params.readbacks]\n"
         "    def _gen():\n"
         "        yield {'devices': resolved, 'params': params}\n"
         "    return _gen()\n"
@@ -134,7 +134,7 @@ def _catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "sampl
 def _sample_kwargs() -> dict[str, Any]:
     """JSON-shaped queue-item kwargs for the sample plan (nested models included)."""
     return {
-        "detectors": ["bpm_01"],
+        "readbacks": ["bpm_01"],
         "axes": [{"setpoint": "corrector_01", "start": 0.0, "stop": 1.0, "num_points": 3}],
     }
 
@@ -150,8 +150,8 @@ def test_no_substrate_env_builds_no_devices_and_does_not_raise() -> None:
 
 def test_substrate_off_ignores_a_populated_pv_list() -> None:
     env = {
-        "BLUESKY_EPICS_MOTORS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
-        "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
+        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
     }
     assert asyncio.run(qserver_startup.build_devices(env=env)) == {}
 
@@ -163,15 +163,15 @@ def test_substrate_on_with_empty_pv_lists_warns_and_builds_no_devices(
         devices = asyncio.run(qserver_startup.build_devices(env={"BLUESKY_EPICS_SUBSTRATE": "1"}))
 
     assert devices == {}
-    assert "name no devices" in caplog.text
+    assert "BLUESKY_EPICS_SETPOINTS / BLUESKY_EPICS_READBACKS name no devices" in caplog.text
 
 
 def test_build_devices_builds_connector_mediated_devices_from_the_pv_lists() -> None:
     connector = FakeConnector()
     env = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
-        "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
+        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
     }
 
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
@@ -203,8 +203,8 @@ def test_address_named_devices_build_and_stay_visible_to_queueserver() -> None:
     bpm = "SR:DIAG:BPM:01:POSITION:X"
     env = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": f"{setpoint}={setpoint}|{readback}",
-        "BLUESKY_EPICS_DETECTORS": f"{bpm}={bpm}",
+        "BLUESKY_EPICS_SETPOINTS": f"{setpoint}={setpoint}|{readback}",
+        "BLUESKY_EPICS_READBACKS": f"{bpm}={bpm}",
     }
 
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
@@ -227,7 +227,7 @@ def test_built_devices_read_through_the_connector() -> None:
     connector = FakeConnector()
     env = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
     }
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
 
@@ -323,7 +323,7 @@ def test_plan_function_reconstructs_the_params_model_from_json_kwargs(
 
     params = message["params"]
     assert params.__class__ is plans["sample_scan"].schema
-    assert params.detectors == ["bpm_01"]
+    assert params.readbacks == ["bpm_01"]
     # The nested JSON object came back as the plan's own nested model, with
     # its declared types — not as the raw dict the queue item carried.
     assert params.axes[0].setpoint == "corrector_01"
@@ -336,13 +336,13 @@ def test_plan_function_resolves_device_names_against_the_namespace(
 ) -> None:
     plans = _catalog(tmp_path, monkeypatch)
     corrector = object()
-    detector = object()
-    devices = {"corrector_01": corrector, "bpm_01": detector}
+    readback = object()
+    devices = {"corrector_01": corrector, "bpm_01": readback}
 
     plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
     message = next(plan_function(**_sample_kwargs()))
 
-    assert message["devices"] == [corrector, detector]
+    assert message["devices"] == [corrector, readback]
 
 
 def test_plan_function_rejects_kwargs_that_fail_the_params_schema(
@@ -440,8 +440,8 @@ def test_namespace_builds_devices_on_the_run_engine_loop_when_none_are_supplied(
     connector = FakeConnector()
     env = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": "corrector_01=SR:MAG:HCM:01:CUR:SP",
-        "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP",
+        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
     }
     monkeypatch.setattr(
         qserver_startup,
@@ -473,8 +473,8 @@ def test_queueserver_recognizes_every_plan_and_device_in_the_namespace(
     connector = FakeConnector()
     env = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": "corrector_01=SR:MAG:HCM:01:CUR:SP",
-        "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+        "BLUESKY_EPICS_SETPOINTS": "corrector_01=SR:MAG:HCM:01:CUR:SP",
+        "BLUESKY_EPICS_READBACKS": "bpm_01=SR:DIAG:BPM:01:X:RB",
     }
     devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
     namespace = qserver_startup.build_namespace(

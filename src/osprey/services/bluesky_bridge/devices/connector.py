@@ -64,8 +64,9 @@ _READBACK_POLL_INTERVAL_S = 0.05
 class ConnectorSettable(StandardReadable):
     """A settable/readable PV pair mediated entirely by the OSPREY connector.
 
-    Replaces ``epics.EpicsMotor``'s direct Channel Access signals: there are
-    no ophyd-async EPICS signals declared here at all. ``set()`` writes the
+    Declares no ophyd-async EPICS signals at all — this package ships no
+    direct Channel Access device class, deliberately, so that no read or
+    write can bypass the connector's reference monitor. ``set()`` writes the
     setpoint through ``connector.write_channel_checked`` — which raises on
     any refusal, failure, or unverified write, aborting the RunEngine — then
     polls the (possibly separate) readback channel through
@@ -163,8 +164,8 @@ class ConnectorSettable(StandardReadable):
 class ConnectorReadable(StandardReadable):
     """A single read-only channel mediated entirely by the OSPREY connector.
 
-    Replaces ``epics.EpicsDetector``: trigger-less (no ``trigger()``
-    method), and every ``read()`` performs a fresh ``connector.read_channel``
+    Trigger-less (no ``trigger()`` method), and every ``read()`` performs a
+    fresh ``connector.read_channel``
     call rather than returning a cached/soft value — a soft signal would
     return a stale value, defeating the point of live mediation.
 
@@ -204,7 +205,7 @@ async def build_devices(
     Matches the ``get_devices() -> dict[str, Any]`` shape ``plans.py``'s
     built-in plans (and any facility-injected plan, per ``plan_loader.py``)
     resolve device names against — the same factory contract
-    ``epics.build_devices``/``mock.build_devices`` provide. Connection (and
+    ``mock.build_devices`` provides. Connection (and
     why it's an explicit ``connect()`` rather than ``init_devices()``) is
     handled by :func:`._connect.connect_all`; a ``ConnectorSettable``/
     ``ConnectorReadable`` declares no ophyd-async signals, so this connects

@@ -36,7 +36,7 @@ which on a ring running corrected orbit is nonzero, and restores it there.
 Column-key matching (`_match_value`) is deliberately name-fuzzy: ophyd-async's
 `StandardReadable` keys a hinted signal's document entry as either the bare
 device name or `f"{device_name}-{signal}"` depending on how many readable
-children the device exposes (see `devices/mock.py`/`devices/epics.py`,
+children the device exposes (see `devices/mock.py`/`devices/connector.py`,
 neither of which this module imports), so device names are matched by exact
 key first, then by `f"{name}-"` prefix.
 """
@@ -84,14 +84,14 @@ _SWEEP_SYMMETRY_TOL = 1e-6
 def build_response_matrix(
     rows: Sequence[Mapping[str, Any]],
     correctors: Sequence[str],
-    detectors: Sequence[str],
+    readbacks: Sequence[str],
 ) -> np.ndarray:
     """Fit the `[n_bpm, n_corr]` response-slope matrix from emitted ORM rows.
 
     A real `orm` plan run emits one row per (corrector, current) point, and
     every row carries a value for EVERY corrector in `correctors` — not just
     the one currently being swept (see `plans_core/orm.py`'s `build_plan` docstring) —
-    plus a reading for every detector. For each corrector, every row where
+    plus a reading for every readback. For each corrector, every row where
     that corrector's key is present (in practice: every row) forms one
     (current, BPM reading) sample; `numpy.polyfit` (degree 1) over those
     samples gives the response slope for each (BPM, corrector) pair.
@@ -137,18 +137,18 @@ def build_response_matrix(
             symmetric about that corrector's own idle value within
             `_SWEEP_SYMMETRY_TOL` — see above.
     """
-    matrix = np.zeros((len(detectors), len(correctors)))
+    matrix = np.zeros((len(readbacks), len(correctors)))
 
     for j, corrector in enumerate(correctors):
         currents: list[float] = []
-        readings: list[list[float]] = [[] for _ in detectors]
+        readings: list[list[float]] = [[] for _ in readbacks]
         for row in rows:
             current = _match_value(row, corrector)
             if current is None:
                 continue  # row built without this corrector's key (see docstring)
             currents.append(float(current))
-            for i, detector in enumerate(detectors):
-                reading = _match_value(row, detector)
+            for i, readback in enumerate(readbacks):
+                reading = _match_value(row, readback)
                 readings[i].append(np.nan if reading is None else float(reading))
 
         if len(currents) < 2:
@@ -169,7 +169,7 @@ def build_response_matrix(
                 f"silently bias every slope for this corrector"
             )
 
-        for i in range(len(detectors)):
+        for i in range(len(readbacks)):
             values = readings[i]
             if any(np.isnan(v) for v in values):
                 continue  # this BPM never reported during this corrector's sweep
@@ -190,7 +190,7 @@ class SlicedResponseFit:
     Attributes:
         correctors: The requested corrector names, in the order given —
             `complete`, `currents` and `readings` are all aligned to this.
-        detectors: The requested detector names, in the order given — the
+        readbacks: The requested readback names, in the order given — the
             row axis of `matrix` and the column axis of every `readings`
             block.
         complete: One flag per requested corrector: `True` when that
@@ -198,7 +198,7 @@ class SlicedResponseFit:
             for a slice that is short (the sweep is still in flight, or the
             row buffer ran out), that is missing a corrector current, or
             whose currents never move (nothing to fit a slope against).
-        matrix: `[n_detectors, n_complete]` response slopes. Only complete
+        matrix: `[n_readbacks, n_complete]` response slopes. Only complete
             correctors get a column — an in-flight sweep has no slope yet,
             and a zero column would read as a dead corrector. Use
             `fitted_correctors` for its column labels; both are ordered as
@@ -208,15 +208,15 @@ class SlicedResponseFit:
         currents: Per requested corrector, that corrector's own recorded
             currents over its slice, `[k]` with `k <= num` — the x-axis of a
             sweep trace. Present for incomplete correctors too.
-        readings: Per requested corrector, the detector block over its
-            slice, `[k, n_detectors]` — the y-axes of a sweep trace, one
-            column per detector. Present for incomplete correctors too.
-            A detector that did not report reads back as `nan` here (in
+        readings: Per requested corrector, the readback block over its
+            slice, `[k, n_readbacks]` — the y-axes of a sweep trace, one
+            column per readback. Present for incomplete correctors too.
+            A readback that did not report reads back as `nan` here (in
             `matrix` it lands on `0.0`; see `sliced_response_matrix`).
     """
 
     correctors: tuple[str, ...]
-    detectors: tuple[str, ...]
+    readbacks: tuple[str, ...]
     complete: tuple[bool, ...]
     matrix: np.ndarray
     fitted_correctors: tuple[str, ...]
@@ -243,7 +243,7 @@ def _resolve_key(row: Mapping[str, Any], device_name: str) -> str | None:
 def sliced_response_matrix(
     rows: Sequence[Mapping[str, Any]],
     correctors: Sequence[str],
-    detectors: Sequence[str],
+    readbacks: Sequence[str],
     num: int,
 ) -> SlicedResponseFit:
     """Fit the response matrix by slicing *rows* into one sweep per corrector.
@@ -278,18 +278,18 @@ def sliced_response_matrix(
     Speed comes from doing the two costly things once instead of per pair:
     device names are resolved to event keys once for the whole run (rather
     than `_match_value`-scanning every row for every device), and each
-    corrector's slopes are computed for the whole detector block at once
+    corrector's slopes are computed for the whole readback block at once
     with the closed-form least-squares slope
 
         slope = (dx @ (Y - Y_mean)) / (dx @ dx),    dx = x - x_mean
 
     which is what a degree-1 `numpy.polyfit` solves, without building a
-    Vandermonde system per (detector, corrector) pair.
+    Vandermonde system per (readback, corrector) pair.
 
     A slice that is short (the run is still going, or ended early), that is
     missing its corrector's current, or whose currents never move produces
     no matrix column and is flagged `complete=False`; its raw samples are
-    still returned for tracing. Inside a complete slice, a detector that
+    still returned for tracing. Inside a complete slice, a readback that
     failed to report leaves its slope at `0.0` rather than `nan`, matching
     `build_response_matrix` and keeping the matrix usable by
     `column_anomaly`/`row_anomaly`; the `nan` survives in `readings` where a
@@ -298,7 +298,7 @@ def sliced_response_matrix(
     Args:
         rows: The run's event `data` dicts in emission order.
         correctors: Corrector device names, in the order the plan swept them.
-        detectors: Detector device names; the matrix's row axis.
+        readbacks: Readback device names; the matrix's row axis.
         num: Points per corrector sweep — the plan's `num` parameter.
 
     Raises:
@@ -310,32 +310,32 @@ def sliced_response_matrix(
         raise ValueError(f"num must be at least 2 to fit a slope per corrector, got {num}")
 
     correctors = tuple(correctors)
-    detectors = tuple(detectors)
+    readbacks = tuple(readbacks)
     n_corr = len(correctors)
-    n_det = len(detectors)
+    n_rb = len(readbacks)
 
     # Only the rows the slicing can attribute to a corrector: a run carrying
     # more than the sweep accounts for has extra rows at the END (nothing
     # else preserves the invariant above), so they belong to no slice.
     n_rows = min(len(rows), n_corr * num)
     if n_corr == 0 or n_rows == 0:
-        empty = np.zeros((n_det, 0))
+        empty = np.zeros((n_rb, 0))
         return SlicedResponseFit(
             correctors=correctors,
-            detectors=detectors,
+            readbacks=readbacks,
             complete=(False,) * n_corr,
             matrix=empty,
             fitted_correctors=(),
             currents=tuple(np.zeros(0) for _ in correctors),
-            readings=tuple(np.zeros((0, n_det)) for _ in correctors),
+            readings=tuple(np.zeros((0, n_rb)) for _ in correctors),
         )
 
     # Resolve every device to its event key once. The first row normally
     # settles all of them (a bluesky stream's rows share one key set); the
     # loop only runs on to cover a caller's hand-built ragged rows.
-    keys: list[str | None] = [None] * (n_corr + n_det)
-    unresolved = set(range(n_corr + n_det))
-    names = correctors + detectors
+    keys: list[str | None] = [None] * (n_corr + n_rb)
+    unresolved = set(range(n_corr + n_rb))
+    names = correctors + readbacks
     for row in rows[:n_rows]:
         for position in tuple(unresolved):
             key = _resolve_key(row, names[position])
@@ -383,17 +383,17 @@ def sliced_response_matrix(
             continue
 
         slopes = (dx @ (block - block.mean(axis=0))) / denominator
-        # A detector that dropped out mid-slice poisons only its own entry.
+        # A readback that dropped out mid-slice poisons only its own entry.
         slopes = np.where(np.isfinite(slopes), slopes, 0.0)
         complete.append(True)
         columns.append(slopes)
         fitted.append(corrector)
 
-    matrix = np.column_stack(columns) if columns else np.zeros((n_det, 0))
+    matrix = np.column_stack(columns) if columns else np.zeros((n_rb, 0))
 
     return SlicedResponseFit(
         correctors=correctors,
-        detectors=detectors,
+        readbacks=readbacks,
         complete=tuple(complete),
         matrix=matrix,
         fitted_correctors=tuple(fitted),

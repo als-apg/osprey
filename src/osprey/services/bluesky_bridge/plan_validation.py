@@ -394,33 +394,33 @@ def _collect_device_names(value: Any, *, key: str | None = None) -> tuple[set[st
     """Recursively bucket device-name strings out of a plan's ``sample_args``.
 
     A plan file's `PLAN_METADATA["required_devices"]` names PARAMS *fields*
-    (e.g. ``"correctors"``, ``"detectors"``), not a fixed shape all plans
+    (e.g. ``"correctors"``, ``"readbacks"``), not a fixed shape all plans
     share — `grid_scan`'s setpoints, for instance, are nested under
     ``axes[].setpoint`` rather than a flat field. Rather than hard-coding a
     per-plan device-field shape, this walks ``sample_args`` itself and
     buckets every string leaf by the nearest enclosing field name:
     :func:`~osprey.services.bluesky_bridge.device_fields.is_read_only_device_field`
     is the sole authority on which field names are read-only, and everything
-    it does not claim (correctors/setpoints/motors/unlabeled) goes to the
-    motor bucket — motors are the more capable mock (settable *and*
-    readable), so defaulting an unlabeled device name there is the safer
-    guess for a body that drives it via `bps.mv`.
+    it does not claim (correctors/setpoints/unlabeled) goes to the settable
+    bucket — settables are the more capable mock (settable *and* readable),
+    so defaulting an unlabeled device name there is the safer guess for a
+    body that drives it via `bps.mv`.
     """
-    motors: set[str] = set()
-    detectors: set[str] = set()
+    setpoints: set[str] = set()
+    readbacks: set[str] = set()
     if isinstance(value, str):
-        (detectors if is_read_only_device_field(key) else motors).add(value)
+        (readbacks if is_read_only_device_field(key) else setpoints).add(value)
     elif isinstance(value, dict):
         for sub_key, sub_value in value.items():
-            sub_motors, sub_detectors = _collect_device_names(sub_value, key=sub_key)
-            motors |= sub_motors
-            detectors |= sub_detectors
+            sub_setpoints, sub_readbacks = _collect_device_names(sub_value, key=sub_key)
+            setpoints |= sub_setpoints
+            readbacks |= sub_readbacks
     elif isinstance(value, (list, tuple, set)):
         for item in value:
-            sub_motors, sub_detectors = _collect_device_names(item, key=key)
-            motors |= sub_motors
-            detectors |= sub_detectors
-    return motors, detectors
+            sub_setpoints, sub_readbacks = _collect_device_names(item, key=key)
+            setpoints |= sub_setpoints
+            readbacks |= sub_readbacks
+    return setpoints, readbacks
 
 
 def _render_dry_run_script(
@@ -429,8 +429,8 @@ def _render_dry_run_script(
     result_path: Path,
     plan_name: str,
     sample_args: dict[str, Any],
-    motor_names: list[str],
-    detector_names: list[str],
+    settable_names: list[str],
+    readable_names: list[str],
     inner_timeout: float,
 ) -> str:
     """Render the subprocess script that drives the dry-run to completion.
@@ -459,8 +459,8 @@ _PLAN_PATH = Path(r"{plan_path}")
 _RESULT_PATH = Path(r"{result_path}")
 _PLAN_NAME = {plan_name!r}
 _SAMPLE_ARGS = {sample_args!r}
-_MOTOR_NAMES = {tuple(motor_names)!r}
-_DETECTOR_NAMES = {tuple(detector_names)!r}
+_SETTABLE_NAMES = {tuple(settable_names)!r}
+_READABLE_NAMES = {tuple(readable_names)!r}
 _DEADLINE_S = {inner_timeout!r}
 
 result = {{"success": False, "error": None}}
@@ -502,7 +502,7 @@ try:
     # whichever loop connects them -- which must be `RE.loop`, the loop bluesky
     # drives all signal I/O on, not a throwaway one.
     devices = asyncio.run_coroutine_threadsafe(
-        build_devices(motor_names=_MOTOR_NAMES, detector_names=_DETECTOR_NAMES), RE.loop
+        build_devices(settable_names=_SETTABLE_NAMES, readable_names=_READABLE_NAMES), RE.loop
     ).result(timeout=30.0)
 
     params = params_cls.model_validate(_SAMPLE_ARGS)
@@ -549,7 +549,7 @@ async def _dry_run(
     on top of it. Authoring-QUALITY gate only — "does it actually run" — not
     a containment boundary (see module docstring).
     """
-    motor_names, detector_names = _collect_device_names(sample_args)
+    settable_names, readable_names = _collect_device_names(sample_args)
 
     with tempfile.TemporaryDirectory(prefix="osprey_plan_dry_run_") as tmp:
         tmp_path = Path(tmp)
@@ -563,8 +563,8 @@ async def _dry_run(
                 result_path=result_path,
                 plan_name=plan_name,
                 sample_args=sample_args,
-                motor_names=sorted(motor_names) or ["motor1"],
-                detector_names=sorted(detector_names) or ["det1"],
+                settable_names=sorted(settable_names) or ["sp1"],
+                readable_names=sorted(readable_names) or ["rb1"],
                 inner_timeout=timeout,
             ),
             encoding="utf-8",
@@ -633,7 +633,7 @@ async def validate_plan(
         sample_args: Sample ``PARAMS`` field values used to build the stage-3
             dry-run's generator and mock devices. `None` (no sample args)
             still runs the dry-run against an empty-args `PARAMS()` and a
-            single default mock motor/detector — appropriate only for a body
+            single default mock setpoint/readback — appropriate only for a body
             whose `PARAMS` has no required fields.
         dry_run_timeout: Seconds the stage-3 subprocess is given to drive the
             plan to completion.

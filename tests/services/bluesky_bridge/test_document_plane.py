@@ -200,7 +200,7 @@ def test_rows_land_under_the_osprey_run_id(plane, certificates):
     _establish_link(publisher, plane)
 
     document_plane.record_run_params(
-        "osprey-run-1", {"detectors": ["bpm"], "axes": [{"num_points": 3}]}
+        "osprey-run-1", {"readbacks": ["bpm"], "axes": [{"num_points": 3}]}
     )
 
     run_uid = "run-engine-uid-1"
@@ -472,27 +472,27 @@ def test_start_from_env_degrades_when_the_socket_cannot_be_brought_up(
     ("params", "expected"),
     [
         # grid_scan: the product of every axis's own point count.
-        ({"detectors": ["bpm"], "axes": [{"num_points": 5}]}, 5),
+        ({"readbacks": ["bpm"], "axes": [{"num_points": 5}]}, 5),
         (
-            {"detectors": ["bpm"], "axes": [{"num_points": 5}, {"num_points": 4}]},
+            {"readbacks": ["bpm"], "axes": [{"num_points": 5}, {"num_points": 4}]},
             20,
         ),
-        # orm: `num` points per swept corrector; detectors are read, not swept.
-        ({"correctors": ["ch1", "ch2"], "detectors": ["bpm1"], "num": 7}, 14),
+        # orm: `num` points per swept corrector; readbacks are read, not swept.
+        ({"correctors": ["ch1", "ch2"], "readbacks": ["bpm1"], "num": 7}, 14),
         # A scalar count with no swept device list is the count itself.
-        ({"detectors": ["bpm"], "num_points": 9}, 9),
+        ({"readbacks": ["bpm"], "num_points": 9}, 9),
         # A read-only field the old exact-key frozenset did not list — singular
         # `detector` — must not be mistaken for a swept list. Two entries, so
         # the wrong answer (5 x 2 = 10) is distinguishable from the right one;
         # a one-element list would multiply by the identity and pin nothing.
         ({"detector": ["bpm1", "bpm2"], "num_points": 5}, 5),
         # Unrecognized shapes are honestly unknown, never guessed.
-        ({"detectors": ["bpm"]}, None),
+        ({"readbacks": ["bpm"]}, None),
         ({"correctors": ["ch1"], "steps": ["a", "b"], "num": 3}, None),
-        ({"detectors": ["bpm"], "axes": [{"start": 0.0}]}, None),
-        ({"detectors": ["bpm"], "num_points": 0}, None),
+        ({"readbacks": ["bpm"], "axes": [{"start": 0.0}]}, None),
+        ({"readbacks": ["bpm"], "num_points": 0}, None),
         # `snake_axes: True` is a bool, not a point count.
-        ({"detectors": ["bpm"], "num_points": True}, None),
+        ({"readbacks": ["bpm"], "num_points": True}, None),
         (None, None),
     ],
 )
@@ -535,7 +535,7 @@ def test_progress_never_exceeds_one():
 
 def test_record_run_params_clears_a_stale_count():
     document_plane.record_expected_points("run-c", 10)
-    assert document_plane.record_run_params("run-c", {"detectors": ["bpm"]}) is None
+    assert document_plane.record_run_params("run-c", {"readbacks": ["bpm"]}) is None
     assert document_plane.get_expected_points("run-c") is None
 
 

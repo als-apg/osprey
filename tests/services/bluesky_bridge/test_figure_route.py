@@ -926,7 +926,7 @@ def _orm_stamp(correctors: list[str], detectors: list[str], num: int) -> dict[st
         "name": "orm",
         "kwargs": {
             "correctors": correctors,
-            "detectors": detectors,
+            "readbacks": detectors,
             "span_a": 2.0,
             "num": num,
         },

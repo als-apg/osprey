@@ -4,11 +4,14 @@ Walks ``src/``, ``tests/``, and ``docs/`` (sources only) and asserts that none
 of the following substrings appear anywhere. Intentionally has no per-file
 exclusions — if a legitimate match shows up later, the rename surfaced it.
 
-Two rename generations are guarded: the ``prompts``-era rename, and the
+Three rename generations are guarded: the ``prompts``-era rename; the
 ``scan`` -> ``bluesky`` rename that generalized the Bluesky plan/run subsystem
-(a plan is an arbitrary generator, not only a scan). The genuine scan tokens
-that legitimately survive — the ``scan``/``grid_scan`` *plan names*, their
-``Scan*Params`` schemas, and physics scan docs — are NOT listed here.
+(a plan is an arbitrary generator, not only a scan); and the
+``motor``/``detector`` -> ``setpoint``/``readback`` rename that put the bridge
+in the control room's vocabulary. The genuine tokens that legitimately survive
+— the ``scan``/``grid_scan`` *plan names*, their ``Scan*Params`` schemas,
+physics scan docs, and every upstream ``bluesky``/``ophyd`` name such as
+``SimMotor`` or ``EpicsMotor`` — are NOT listed here.
 """
 
 from __future__ import annotations
@@ -51,6 +54,18 @@ LEGACY_SUBSTRINGS = (
     "BLUESKY_DEMO_SCANNER",
     "write_bluesky_plan",
     "validate_bluesky_plan",
+    # motor/detector -> setpoint/readback rename: the bluesky bridge speaks the
+    # control room's vocabulary, and beamline device words are retired for good.
+    # Upstream bluesky/ophyd names are untouched by this list -- nothing here is
+    # a name OSPREY does not own.
+    "BLUESKY_EPICS_MOTORS",
+    "BLUESKY_EPICS_DETECTORS",
+    "parse_motor_specs",
+    "parse_detector_specs",
+    "format_motors_env",
+    "format_detectors_env",
+    "MockMotor",
+    "MockDetector",
 )
 
 ROOTS = ("src", "tests", "docs/source")

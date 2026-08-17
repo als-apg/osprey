@@ -32,7 +32,7 @@ optional fourth, `render` — see *The plan's own view* below):
    - `category` (str) — free-text grouping shown to operators (e.g.
      `"accelerator"`).
    - `required_devices` (list[str]) — names of the `PARAMS` fields that name
-     devices the plan drives or reads (e.g. `["correctors", "detectors"]`).
+     devices the plan drives or reads (e.g. `["correctors", "readbacks"]`).
      Each entry names the field *immediately* around the device-name strings,
      so for a nested shape name the inner key, not the outer one — `grid_scan`
      carries its devices as `axes[].setpoint` and declares `"setpoints"`. The
@@ -45,7 +45,7 @@ optional fourth, `render` — see *The plan's own view* below):
 2. **`PARAMS`** — a `pydantic.BaseModel` subclass declaring the plan's own
    parameters (device names, ranges, point counts, ...). Use `Field(...)`
    constraints and a `model_validator` where it helps (e.g. rejecting a
-   device named as both a driven setpoint and a read detector).
+   device named as both a driven setpoint and a read readback).
 
 3. **`build_plan(devices, params)`** — a callable taking `devices: dict[str,
    Any]` (resolved by string name, injected by the bridge — never free names
@@ -57,11 +57,11 @@ optional fourth, `render` — see *The plan's own view* below):
 invent new accelerator physics:**
 - `orm` (`src/osprey/services/bluesky_bridge/plans_core/orm.py`)
   — kicks each corrector either side of its own pre-scan working point,
-  reading every BPM detector at each point, to measure an orbit-response
+  reading every BPM readback at each point, to measure an orbit-response
   matrix.
 - `grid_scan` (`src/osprey/services/bluesky_bridge/plans_core/grid_scan.py`)
   — steps a set of setpoint devices over a rectangular grid, reading a set of
-  detectors at every grid point.
+  readbacks at every grid point.
 
 These are the ONLY accelerator scan patterns this framework ships. Never
 propose or author a BBA (beam-based alignment) or tune-scan plan — they are

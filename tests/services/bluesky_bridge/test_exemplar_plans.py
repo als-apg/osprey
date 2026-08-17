@@ -81,8 +81,8 @@ def test_orm_and_grid_scan_register_as_shipped_with_valid_metadata() -> None:
 def orm_devices() -> dict:
     return asyncio.run(
         build_devices(
-            motor_names=["hcm1", "hcm2"],
-            detector_names=["bpm1", "bpm2"],
+            settable_names=["hcm1", "hcm2"],
+            readable_names=["bpm1", "bpm2"],
         )
     )
 
@@ -93,7 +93,7 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
         "orm",
         {
             "correctors": ["hcm1", "hcm2"],
-            "detectors": ["bpm1", "bpm2"],
+            "readbacks": ["bpm1", "bpm2"],
             "span_a": 2.0,
             "num": 3,
         },
@@ -110,7 +110,7 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
         assert all(value is not None for value in row)
 
     # Each corrector restored to its pre-scan working point after its own
-    # sweep. These mock motors start at 0 A, so here that value is 0 A.
+    # sweep. These mock settables start at 0 A, so here that value is 0 A.
     assert asyncio.run(orm_devices["hcm1"].readback.get_value()) == 0.0
     assert asyncio.run(orm_devices["hcm2"].readback.get_value()) == 0.0
 
@@ -119,8 +119,8 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
 def gs_devices() -> dict:
     return asyncio.run(
         build_devices(
-            motor_names=["motor1", "motor2"],
-            detector_names=["det1"],
+            settable_names=["sp1", "sp2"],
+            readable_names=["rb1"],
         )
     )
 
@@ -130,10 +130,10 @@ def test_grid_scan_plan_runs_to_completion_and_buffers_rows(gs_devices: dict) ->
     run_uid = run_plan(
         "grid_scan",
         {
-            "detectors": ["det1"],
+            "readbacks": ["rb1"],
             "axes": [
-                {"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 2},
-                {"setpoint": "motor2", "start": 0.0, "stop": 1.0, "num_points": 3},
+                {"setpoint": "sp1", "start": 0.0, "stop": 1.0, "num_points": 2},
+                {"setpoint": "sp2", "start": 0.0, "stop": 1.0, "num_points": 3},
             ],
         },
         devices=gs_devices,
@@ -145,4 +145,4 @@ def test_grid_scan_plan_runs_to_completion_and_buffers_rows(gs_devices: dict) ->
     # 2 x 3 grid = 6 total points.
     assert buf["total_seen"] == 6
     assert len(buf["rows"]) == 6
-    assert any("det1" in col for col in buf["columns"])
+    assert any("rb1" in col for col in buf["columns"])

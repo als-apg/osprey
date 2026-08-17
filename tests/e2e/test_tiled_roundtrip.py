@@ -110,7 +110,7 @@ VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
 BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 VA_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-va:local"
 
-# The scan: one corrector axis, one BPM detector, a handful of points. Small on
+# The scan: one corrector axis, one BPM readback, a handful of points. Small on
 # purpose -- this proof is about durability, not about scan size.
 SCAN_POINTS = 4
 
@@ -301,8 +301,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         # (_ensure_bluesky_substrate_env derives them from the render's own
         # channel_limits.json) -- never a hardcoded facility channel, and never a
         # second copy of that derivation living in this test.
-        correctors = _parse_motors(_env_value(repo, "BLUESKY_EPICS_MOTORS"))
-        bpms = _parse_detectors(_env_value(repo, "BLUESKY_EPICS_DETECTORS"))
+        correctors = _parse_setpoints(_env_value(repo, "BLUESKY_EPICS_SETPOINTS"))
+        bpms = _parse_readbacks(_env_value(repo, "BLUESKY_EPICS_READBACKS"))
         assert correctors and bpms, "up wired no scan devices into the repo's .env"
 
         yield DeployedStack(
@@ -351,8 +351,8 @@ def _env_value(repo: Path, key: str) -> str:
     return value
 
 
-def _parse_motors(value: str) -> dict[str, tuple[str, str]]:
-    """Parse ``BLUESKY_EPICS_MOTORS`` (``name=SP|RB,...``) back into a mapping."""
+def _parse_setpoints(value: str) -> dict[str, tuple[str, str]]:
+    """Parse ``BLUESKY_EPICS_SETPOINTS`` (``name=SP|RB,...``) back into a mapping."""
     out: dict[str, tuple[str, str]] = {}
     for chunk in value.split(","):
         if not chunk.strip():
@@ -363,8 +363,8 @@ def _parse_motors(value: str) -> dict[str, tuple[str, str]]:
     return out
 
 
-def _parse_detectors(value: str) -> dict[str, str]:
-    """Parse ``BLUESKY_EPICS_DETECTORS`` (``name=RB,...``) back into a mapping."""
+def _parse_readbacks(value: str) -> dict[str, str]:
+    """Parse ``BLUESKY_EPICS_READBACKS`` (``name=RB,...``) back into a mapping."""
     out: dict[str, str] = {}
     for chunk in value.split(","):
         if not chunk.strip():
@@ -477,7 +477,7 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
         {
             "plan_name": "grid_scan",
             "plan_args_patch": {
-                "detectors": [next(iter(deployed_stack.bpms))],
+                "readbacks": [next(iter(deployed_stack.bpms))],
                 "axes": [
                     {
                         "setpoint": axis_name,

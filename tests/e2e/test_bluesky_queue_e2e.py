@@ -386,8 +386,8 @@ def _env_value(repo: Path, key: str) -> str:
     return value
 
 
-def _parse_motors(value: str) -> dict[str, tuple[str, str]]:
-    """Parse ``BLUESKY_EPICS_MOTORS`` (``name=SP|RB,...``) back into a mapping.
+def _parse_setpoints(value: str) -> dict[str, tuple[str, str]]:
+    """Parse ``BLUESKY_EPICS_SETPOINTS`` (``name=SP|RB,...``) back into a mapping.
 
     Read from the .env that ``osprey up`` itself wrote rather than
     re-derived here: the device names this test composes plans against are then
@@ -403,8 +403,8 @@ def _parse_motors(value: str) -> dict[str, tuple[str, str]]:
     return out
 
 
-def _parse_detectors(value: str) -> dict[str, str]:
-    """Parse ``BLUESKY_EPICS_DETECTORS`` (``name=RB,...``) back into a mapping."""
+def _parse_readbacks(value: str) -> dict[str, str]:
+    """Parse ``BLUESKY_EPICS_READBACKS`` (``name=RB,...``) back into a mapping."""
     out: dict[str, str] = {}
     for chunk in value.split(","):
         if not chunk.strip():
@@ -420,7 +420,7 @@ def _parse_detectors(value: str) -> dict[str, str]:
 
 
 def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
-    """Minimal ``grid_scan`` args: one corrector axis, one BPM detector.
+    """Minimal ``grid_scan`` args: one corrector axis, one BPM readback.
 
     The sweep band is the middle half of the corrector's OWN
     ``channel_limits.json`` entry, so this never hardcodes a facility channel
@@ -433,7 +433,7 @@ def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
     start = lo + 0.375 * (hi - lo)
     stop = lo + 0.625 * (hi - lo)
     return {
-        "detectors": [next(iter(stack.bpms))],
+        "readbacks": [next(iter(stack.bpms))],
         "axes": [
             {"setpoint": axis_name, "start": start, "stop": stop, "num_points": num_points},
         ],
@@ -687,7 +687,7 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
     # profile's provider, and nothing in this proof shells out to an LLM — this
     # is the `cp .env.example .env` the CLI itself recommends, done for the
     # operator. It is also where `up` mints BLUESKY_LAUNCH_TOKEN and derives
-    # BLUESKY_EPICS_MOTORS/_DETECTORS, both read back below.
+    # BLUESKY_EPICS_SETPOINTS/_READBACKS, both read back below.
     env_path = repo / ".env"
     if not env_path.exists():
         shutil.copy(repo / ".env.example", env_path)
@@ -727,10 +727,10 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # exactly the devices the deployed worker registered, and a change in
         # that derivation shows up here as a real failure rather than a
         # silently-diverging second copy of the same logic.
-        correctors = _parse_motors(_env_value(repo, "BLUESKY_EPICS_MOTORS"))
-        bpms = _parse_detectors(_env_value(repo, "BLUESKY_EPICS_DETECTORS"))
-        assert correctors, "osprey up wrote no BLUESKY_EPICS_MOTORS -- no device to scan"
-        assert bpms, "osprey up wrote no BLUESKY_EPICS_DETECTORS -- no device to read"
+        correctors = _parse_setpoints(_env_value(repo, "BLUESKY_EPICS_SETPOINTS"))
+        bpms = _parse_readbacks(_env_value(repo, "BLUESKY_EPICS_READBACKS"))
+        assert correctors, "osprey up wrote no BLUESKY_EPICS_SETPOINTS -- no device to scan"
+        assert bpms, "osprey up wrote no BLUESKY_EPICS_READBACKS -- no device to read"
 
         # The render's copy, not the operator-owned source under <repo>/data/:
         # the limits database resolves against CONFIG_FILE's directory, which
@@ -1095,25 +1095,25 @@ logger = logging.getLogger(__name__)
 
 class PARAMS(BaseModel):
     correctors: list[str] = Field(..., min_length=1)
-    detectors: list[str] = Field(..., min_length=1)
+    readbacks: list[str] = Field(..., min_length=1)
     span_a: float = Field(..., gt=0, le=10.0)
     num: int = Field(..., ge=3)
 
     @model_validator(mode="after")
     def _disjoint(self) -> "PARAMS":
-        overlap = set(self.correctors) & set(self.detectors)
+        overlap = set(self.correctors) & set(self.readbacks)
         if overlap:
-            raise ValueError(f"correctors and detectors must be disjoint (overlap: {sorted(overlap)})")
+            raise ValueError(f"correctors and readbacks must be disjoint (overlap: {sorted(overlap)})")
         return self
 
 
 def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
-    detector_devices = [devices[name] for name in params.detectors]
+    readback_devices = [devices[name] for name in params.readbacks]
     step = (2 * params.span_a) / (params.num - 1)
     currents = [-params.span_a + i * step for i in range(params.num)]
-    all_devices = corrector_devices + detector_devices
+    all_devices = corrector_devices + readback_devices
 
     @bpp.stage_decorator(all_devices)
     @bpp.run_decorator()
@@ -1144,7 +1144,7 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
     """
     return {
         "correctors": [next(iter(stack.correctors))],
-        "detectors": [next(iter(stack.bpms))],
+        "readbacks": [next(iter(stack.bpms))],
         "span_a": 1.0,
         "num": 3,
     }
@@ -1157,7 +1157,7 @@ def _author_session_plan(name: str, body: str) -> str:
             "name": name,
             "description": "queue e2e session-authored corrector sweep",
             "category": "accelerator",
-            "required_devices": ["correctors", "detectors"],
+            "required_devices": ["correctors", "readbacks"],
             "writes": True,
             "body": body,
         },

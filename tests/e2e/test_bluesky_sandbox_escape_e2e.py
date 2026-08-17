@@ -222,7 +222,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # orm-shaped (mirrors plans_core/orm.py's PARAMS/
 # build_plan in spirit, and now also its typing/logging imports verbatim --
 # see the module docstring's "GAP FOUND ... NOW FIXED" note): device-agnostic,
-# resolves correctors/detectors by string name against whatever `devices`
+# resolves correctors/readbacks by string name against whatever `devices`
 # dict the bridge passes in. Authored via write_plan (which prepends
 # the generated PLAN_METADATA block), so only the author's own body -- no
 # PLAN_METADATA -- lives here.
@@ -266,25 +266,25 @@ logger = logging.getLogger(__name__)
 
 class PARAMS(BaseModel):
     correctors: list[str] = Field(..., min_length=1)
-    detectors: list[str] = Field(..., min_length=1)
+    readbacks: list[str] = Field(..., min_length=1)
     span_a: float = Field(..., gt=0, le=10.0)
     num: int = Field(..., ge=3)
 
     @model_validator(mode="after")
     def _disjoint(self) -> "PARAMS":
-        overlap = set(self.correctors) & set(self.detectors)
+        overlap = set(self.correctors) & set(self.readbacks)
         if overlap:
-            raise ValueError(f"correctors and detectors must be disjoint (overlap: {sorted(overlap)})")
+            raise ValueError(f"correctors and readbacks must be disjoint (overlap: {sorted(overlap)})")
         return self
 
 
 def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
-    detector_devices = [devices[name] for name in params.detectors]
+    readback_devices = [devices[name] for name in params.readbacks]
     step = (2 * params.span_a) / (params.num - 1)
     currents = [-params.span_a + i * step for i in range(params.num)]
-    all_devices = corrector_devices + detector_devices
+    all_devices = corrector_devices + readback_devices
 
     @bpp.stage_decorator(all_devices)
     @bpp.run_decorator()
@@ -717,7 +717,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
             "name": _POSITIVE_PLAN_NAME,
             "description": "Legit session-authored orbit-response probe",
             "category": "accelerator",
-            "required_devices": ["correctors", "detectors"],
+            "required_devices": ["correctors", "readbacks"],
             "writes": True,
             "body": _POSITIVE_PLAN_BODY,
         },
@@ -730,7 +730,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
             "name": _POSITIVE_PLAN_NAME,
             "sample_args": {
                 "correctors": list(correctors)[:1],
-                "detectors": list(bpms)[:1],
+                "readbacks": list(bpms)[:1],
                 "span_a": 1.0,
                 "num": 3,
             },
@@ -751,7 +751,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
 
     plan_args = {
         "correctors": list(correctors),
-        "detectors": list(bpms),
+        "readbacks": list(bpms),
         "span_a": SPAN_A,
         "num": NUM_POINTS,
     }

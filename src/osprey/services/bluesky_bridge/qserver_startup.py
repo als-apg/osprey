@@ -12,7 +12,7 @@ Three things are assembled, in this order:
 
 1. **Devices** — connector-mediated ``ConnectorSettable``/``ConnectorReadable``
    instances built from the substrate env (``BLUESKY_EPICS_SUBSTRATE`` +
-   ``BLUESKY_EPICS_MOTORS``/``BLUESKY_EPICS_DETECTORS``), exactly as the
+   ``BLUESKY_EPICS_SETPOINTS``/``BLUESKY_EPICS_READBACKS``), exactly as the
    bridge's in-process wiring built them: every scan read goes through
    ``connector.read_channel`` and every scan write through
    ``connector.write_channel_checked``. Moving execution out of the bridge
@@ -64,11 +64,17 @@ import os
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 
+# Absolute, never relative -- see the module docstring. Safe at module level:
+# `devices/__init__.py` imports neither submodule and `specs.py` is dataclasses
+# only, so this pulls in no part of the ophyd-async device stack.
+from osprey.services.bluesky_bridge.devices._specs_from_env import SUBSTRATE_ENV
+
 logger = logging.getLogger("osprey.services.bluesky_bridge.qserver_startup")
 
-SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
-"""Opt-in flag: build real connector-mediated devices. Absent/false means
-browse-only (see the module docstring)."""
+__all__ = ["SUBSTRATE_ENV"]
+"""``SUBSTRATE_ENV`` is re-exported: it is the opt-in flag for building real
+connector-mediated devices (absent/false means browse-only), and it lives in
+``devices._specs_from_env`` beside the two PV-list vars it gates."""
 
 TILED_URI_ENV = "BLUESKY_TILED_URI"
 """Tiled server URI. Absent means no ``TiledWriter`` subscription at all."""
@@ -210,11 +216,11 @@ async def build_devices(
     from osprey.services.bluesky_bridge.devices import connector as connector_devices
     from osprey.services.bluesky_bridge.devices._specs_from_env import specs_from_env
 
-    motors, detectors = specs_from_env(env)
-    if not motors and not detectors:
+    setpoints, readbacks = specs_from_env(env)
+    if not setpoints and not readbacks:
         logger.warning(
-            "qserver_startup: %s is enabled but BLUESKY_EPICS_MOTORS / "
-            "BLUESKY_EPICS_DETECTORS name no devices; this worker will expose no plans",
+            "qserver_startup: %s is enabled but BLUESKY_EPICS_SETPOINTS / "
+            "BLUESKY_EPICS_READBACKS name no devices; this worker will expose no plans",
             SUBSTRATE_ENV,
         )
         return {}
@@ -222,12 +228,12 @@ async def build_devices(
     if connector is None:
         connector = await create_connector()
 
-    devices = dict(await connector_devices.build_devices(motors, detectors, connector))
+    devices = dict(await connector_devices.build_devices(setpoints, readbacks, connector))
     logger.info(
-        "qserver_startup: built %d connector-mediated device(s) (%d motor(s), %d detector(s))",
+        "qserver_startup: built %d connector-mediated device(s) (%d setpoint(s), %d readback(s))",
         len(devices),
-        len(motors),
-        len(detectors),
+        len(setpoints),
+        len(readbacks),
     )
     return devices
 

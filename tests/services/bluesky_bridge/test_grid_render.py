@@ -123,7 +123,7 @@ def _sole_panel(figure: Figure):
 
 def test_one_axis_draws_one_line_panel_per_detector_against_the_readback() -> None:
     axes = [_axis("motor1", 0.0, 4.0, 5)]
-    params = PARAMS(detectors=["det1", "det2"], axes=axes)
+    params = PARAMS(readbacks=["det1", "det2"], axes=axes)
     rows = _rows(axes, {"det1": "det1", "det2": "det2"})
 
     figure = render(rows, params)
@@ -147,7 +147,7 @@ def test_one_axis_draws_one_line_panel_per_detector_against_the_readback() -> No
 
 def test_one_axis_orders_points_by_x_whatever_order_the_rows_arrived_in() -> None:
     axes = [_axis("motor1", 0.0, 4.0, 5)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = list(reversed(_rows(axes, {"det1": "det1"})))
 
     mark = _sole_panel(render(rows, params)).mark
@@ -159,7 +159,7 @@ def test_one_axis_orders_points_by_x_whatever_order_the_rows_arrived_in() -> Non
 
 def test_one_axis_keeps_a_missing_detector_reading_as_a_gap_not_a_zero() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
     rows[1]["det1"] = None
     rows[2]["det1"] = float("nan")  # how Tiled spells the same absence
@@ -172,7 +172,7 @@ def test_one_axis_keeps_a_missing_detector_reading_as_a_gap_not_a_zero() -> None
 
 def test_one_axis_drops_rows_with_no_usable_axis_reading_and_counts_them() -> None:
     axes = [_axis("motor1", 0.0, 4.0, 5)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
     rows[1]["motor1"] = None
     rows[3]["motor1"] = float("nan")
@@ -190,7 +190,7 @@ def test_one_axis_drops_rows_with_no_usable_axis_reading_and_counts_them() -> No
 def test_one_axis_thins_a_long_sweep_and_says_so() -> None:
     total = DEFAULT_MAX_POINTS * 2
     axes = [_axis("motor1", 0.0, 1.0, total)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
 
     panel = _sole_panel(render(rows, params))
@@ -210,8 +210,8 @@ def test_snake_axes_is_a_no_op_for_a_single_axis() -> None:
     axes = [_axis("motor1", 0.0, 4.0, 5)]
     rows = _rows(axes, {"det1": "det1"})
 
-    straight = render(rows, PARAMS(detectors=["det1"], axes=axes, snake_axes=False))
-    snaked = render(rows, PARAMS(detectors=["det1"], axes=axes, snake_axes=True))
+    straight = render(rows, PARAMS(readbacks=["det1"], axes=axes, snake_axes=False))
+    snaked = render(rows, PARAMS(readbacks=["det1"], axes=axes, snake_axes=True))
 
     assert straight.model_dump() == snaked.model_dump()
 
@@ -224,7 +224,7 @@ def test_snake_axes_is_a_no_op_for_a_single_axis() -> None:
 @pytest.mark.parametrize("snake", [False, True])
 def test_two_axis_heatmap_cells_match_their_source_rows(snake: bool) -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", -1.0, 1.0, 5)]
-    params = PARAMS(detectors=["det1"], axes=axes, snake_axes=snake)
+    params = PARAMS(readbacks=["det1"], axes=axes, snake_axes=snake)
     rows = _rows(axes, {"det1": "det1-value"}, snake=snake)
 
     panel = _sole_panel(render(rows, params))
@@ -250,11 +250,11 @@ def test_two_axis_heatmap_is_the_same_picture_snaked_or_not() -> None:
 
     straight = render(
         _rows(axes, {"det1": "det1"}, snake=False),
-        PARAMS(detectors=["det1"], axes=axes, snake_axes=False),
+        PARAMS(readbacks=["det1"], axes=axes, snake_axes=False),
     )
     snaked = render(
         _rows(axes, {"det1": "det1"}, snake=True),
-        PARAMS(detectors=["det1"], axes=axes, snake_axes=True),
+        PARAMS(readbacks=["det1"], axes=axes, snake_axes=True),
     )
 
     assert straight.model_dump() == snaked.model_dump()
@@ -262,7 +262,7 @@ def test_two_axis_heatmap_is_the_same_picture_snaked_or_not() -> None:
 
 def test_two_axis_heatmap_labels_the_commanded_grid_positions() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", -1.0, 1.0, 5)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
 
     panel = _sole_panel(render(_rows(axes, {"det1": "det1"}), params))
     mark = panel.mark
@@ -283,7 +283,7 @@ def test_two_axis_heatmap_does_not_fan_out_when_readbacks_miss_their_setpoints()
     "columns" -- one row of the image per reading.
     """
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", -1.0, 1.0, 5)]
-    params = PARAMS(detectors=["det1"], axes=axes, snake_axes=True)
+    params = PARAMS(readbacks=["det1"], axes=axes, snake_axes=True)
     rows = _rows(axes, {"det1": "det1"}, snake=True, jitter=5e-9)
 
     mark = _sole_panel(render(rows, params)).mark
@@ -295,7 +295,7 @@ def test_two_axis_heatmap_does_not_fan_out_when_readbacks_miss_their_setpoints()
 
 def test_two_axis_unmeasured_cells_stay_empty_on_a_partial_run() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", 0.0, 1.0, 3)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})[:4]  # the run is still on its second pass
 
     mark = _sole_panel(render(rows, params)).mark
@@ -309,7 +309,7 @@ def test_two_axis_unmeasured_cells_stay_empty_on_a_partial_run() -> None:
 
 def test_two_axis_drops_a_row_caught_between_grid_points_and_counts_it() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", 0.0, 2.0, 3)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
     rows[4]["motor2"] = 0.5  # a device caught mid-move, halfway between points
 
@@ -327,7 +327,7 @@ def test_two_axis_drops_a_row_caught_between_grid_points_and_counts_it() -> None
 def test_two_axis_keeps_the_axis_span_tolerance_proportional() -> None:
     """A wide axis tolerates a proportionally wider readback error."""
     axes = [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1e6, 3)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"}, jitter=0.0)
     rows[0]["motor2"] = 0.4  # 4e-7 of the span: noise on a metre-scale stage
 
@@ -339,7 +339,7 @@ def test_two_axis_keeps_the_axis_span_tolerance_proportional() -> None:
 
 def test_two_axis_records_the_later_row_when_a_cell_is_measured_twice() -> None:
     axes = [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1.0, 2)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
     revisit = dict(rows[0])
     revisit["det1"] = 42.0
@@ -354,7 +354,7 @@ def test_two_axis_records_the_later_row_when_a_cell_is_measured_twice() -> None:
 
 def test_two_axis_draws_one_heatmap_per_detector() -> None:
     axes = [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1.0, 2)]
-    params = PARAMS(detectors=["det1", "det2"], axes=axes)
+    params = PARAMS(readbacks=["det1", "det2"], axes=axes)
     rows = _rows(axes, {"det1": "det1", "det2": "det2-value"})
 
     figure = render(rows, params)
@@ -373,7 +373,7 @@ def test_three_axes_draw_one_line_per_outer_combination() -> None:
         _axis("motor2", 0.0, 2.0, 3),
         _axis("motor3", 0.0, 3.0, 4),
     ]
-    params = PARAMS(detectors=["det1"], axes=axes, snake_axes=True)
+    params = PARAMS(readbacks=["det1"], axes=axes, snake_axes=True)
     rows = _rows(axes, {"det1": "det1"}, snake=True)
 
     panel = _sole_panel(render(rows, params))
@@ -410,7 +410,7 @@ def test_three_axes_cap_the_lines_and_count_what_is_not_drawn() -> None:
         _axis("motor2", 0.0, 4.0, 5),
         _axis("motor3", 0.0, 1.0, 2),
     ]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
 
     panel = _sole_panel(render(rows, params))
@@ -433,7 +433,7 @@ def test_four_axes_still_group_by_every_outer_axis() -> None:
         _axis("motor3", 0.0, 1.0, 2),
         _axis("motor4", 0.0, 1.0, 2),
     ]
-    params = PARAMS(detectors=["det1"], axes=axes, snake_axes=True)
+    params = PARAMS(readbacks=["det1"], axes=axes, snake_axes=True)
     rows = _rows(axes, {"det1": "det1"}, snake=True)
 
     mark = _sole_panel(render(rows, params)).mark
@@ -449,7 +449,7 @@ def test_three_axes_drop_rows_whose_outer_readbacks_are_off_grid() -> None:
         _axis("motor2", 0.0, 1.0, 2),
         _axis("motor3", 0.0, 1.0, 2),
     ]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
     rows[0]["motor2"] = 0.5
     rows[1]["motor3"] = None
@@ -471,7 +471,7 @@ def test_three_axes_drop_rows_whose_outer_readbacks_are_off_grid() -> None:
 
 def test_columns_resolve_through_the_ophyd_async_child_suffix() -> None:
     axes = [_axis("motor1", 0.0, 1.0, 2)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
     rows = _rows(
         axes,
         {"det1": "det1-value"},
@@ -486,7 +486,7 @@ def test_columns_resolve_through_the_ophyd_async_child_suffix() -> None:
 
 def test_a_detector_that_never_reported_costs_only_its_own_panel() -> None:
     axes = [_axis("motor1", 0.0, 1.0, 2)]
-    params = PARAMS(detectors=["det1", "det_offline"], axes=axes)
+    params = PARAMS(readbacks=["det1", "det_offline"], axes=axes)
     rows = _rows(axes, {"det1": "det1"})
 
     figure = render(rows, params)
@@ -496,7 +496,7 @@ def test_a_detector_that_never_reported_costs_only_its_own_panel() -> None:
 
 def test_an_axis_column_that_is_absent_leaves_the_figure_empty() -> None:
     axes = [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1.0, 2)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
 
     figure = render([{"det1": 1.0}, {"det1": 2.0}], params)
 
@@ -518,7 +518,7 @@ def test_render_never_raises_on_malformed_rows(rows: list[dict[str, Any]]) -> No
         [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1.0, 2)],
         [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 1.0, 2), _axis("motor3", 0.0, 1.0, 2)],
     ):
-        figure = render(rows, PARAMS(detectors=["det1"], axes=axes))
+        figure = render(rows, PARAMS(readbacks=["det1"], axes=axes))
         assert isinstance(figure, Figure)
 
 
@@ -532,7 +532,7 @@ def test_an_unforeseen_failure_costs_the_panels_not_the_response(
     axes = [_axis("motor1", 0.0, 1.0, 2)]
 
     with caplog.at_level(logging.WARNING):
-        figure = render(_rows(axes, {"det1": "det1"}), PARAMS(detectors=["det1"], axes=axes))
+        figure = render(_rows(axes, {"det1": "det1"}), PARAMS(readbacks=["det1"], axes=axes))
 
     assert figure.panels == []
     assert figure.partial is True
@@ -541,7 +541,7 @@ def test_an_unforeseen_failure_costs_the_panels_not_the_response(
 
 def test_the_figure_round_trips_through_its_own_wire_form() -> None:
     axes = [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", 0.0, 2.0, 3)]
-    params = PARAMS(detectors=["det1"], axes=axes)
+    params = PARAMS(readbacks=["det1"], axes=axes)
 
     figure = render(_rows(axes, {"det1": "det1"}), params)
     revalidated = Figure.model_validate(figure.model_dump())

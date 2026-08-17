@@ -3,9 +3,9 @@
 Discovered via the layered directory catalog's ``shipped`` tier (a folder
 scan of this package's ``plans_core/`` dir — see ``plan_loader.py``): kick
 each corrector, one at a time, either side of the working point it was
-already holding, reading every BPM detector at each point, then put it back.
+already holding, reading every BPM readback at each point, then put it back.
 
-Device-agnostic: ``correctors``/``detectors`` are resolved by string name
+Device-agnostic: ``correctors``/``readbacks`` are resolved by string name
 against whatever ``devices`` dict the bridge passes in; nothing here names a
 facility PV or a fixed device set.
 """
@@ -49,11 +49,11 @@ PLAN_METADATA = {
     "name": "orm",
     "description": (
         "Kick each corrector either side of its own pre-scan working point, "
-        "reading all BPM detectors at every point, to measure an "
+        "reading all BPM readbacks at every point, to measure an "
         "orbit-response matrix. Every corrector is put back where it was."
     ),
     "category": "accelerator",
-    "required_devices": ["correctors", "detectors"],
+    "required_devices": ["correctors", "readbacks"],
     "writes": True,
 }
 
@@ -63,7 +63,7 @@ class PARAMS(BaseModel):
 
     Sweeps each corrector in ``correctors``, one at a time, over ``num``
     evenly-spaced kicks *away from that corrector's own pre-scan working
-    point*, reading every detector in ``detectors`` at each point. ``sweep``
+    point*, reading every readback in ``readbacks`` at each point. ``sweep``
     selects the kick range: ``bidirectional`` spans the symmetric
     ``[-span_a, +span_a]`` (kicks both ways, so a linear fit rejects a
     corrector's hysteresis/offset); ``monodirectional`` spans ``[0, span_a]``
@@ -90,11 +90,11 @@ class PARAMS(BaseModel):
         description="Corrector device names to sweep, one at a time.",
         json_schema_extra={"x-widget": "channel-list"},
     )
-    detectors: list[str] = Field(
+    readbacks: list[str] = Field(
         ...,
         min_length=1,
         title="BPMs",
-        description="BPM detector device names to read at every point.",
+        description="BPM readback device names to read at every point.",
         json_schema_extra={"x-widget": "channel-list"},
     )
     span_a: float = Field(
@@ -123,12 +123,12 @@ class PARAMS(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _correctors_and_detectors_disjoint(self) -> PARAMS:
+    def _correctors_and_readbacks_disjoint(self) -> PARAMS:
         """Reject a device named as both a driven corrector and a read BPM."""
-        overlap = set(self.correctors) & set(self.detectors)
+        overlap = set(self.correctors) & set(self.readbacks)
         if overlap:
             raise ValueError(
-                f"correctors and detectors must be disjoint (overlap: {sorted(overlap)})"
+                f"correctors and readbacks must be disjoint (overlap: {sorted(overlap)})"
             )
         return self
 
@@ -141,7 +141,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     ``[-span_a, +span_a]`` (bidirectional) or ``[0, +span_a]``
     (monodirectional) — and put it back. Each kick is applied *relative to
     that corrector's own pre-scan working point*, and at each point the plan
-    ``trigger_and_read``-s every corrector together with every BPM detector
+    ``trigger_and_read``-s every corrector together with every BPM readback
     in one bundle, so each point emits exactly one event carrying the driven
     corrector's current alongside every BPM reading.
 
@@ -178,7 +178,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     """
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
-    detector_devices = [devices[name] for name in params.detectors]
+    readback_devices = [devices[name] for name in params.readbacks]
     if params.sweep == "monodirectional":
         step = params.span_a / (params.num - 1)
         kicks = [i * step for i in range(params.num)]
@@ -186,7 +186,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
         step = (2 * params.span_a) / (params.num - 1)
         kicks = [-params.span_a + i * step for i in range(params.num)]
 
-    all_devices = corrector_devices + detector_devices
+    all_devices = corrector_devices + readback_devices
 
     @bpp.stage_decorator(all_devices)
     @bpp.run_decorator()
@@ -275,10 +275,10 @@ def _sweep_series(fit: SlicedResponseFit, index: int) -> tuple[list[Series], boo
     series: list[Series] = []
     decimated = False
     source_points = 0
-    for i, detector in enumerate(fit.detectors[:_MAX_TRACE_SERIES]):
+    for i, readback in enumerate(fit.readbacks[:_MAX_TRACE_SERIES]):
         points = [Point(x=float(currents[k]), y=float(readings[k, i])) for k in kept]
         thinned = decimate(points)
-        series.append(Series(label=detector, **thinned._asdict()))
+        series.append(Series(label=readback, **thinned._asdict()))
         decimated = decimated or thinned.decimated
         source_points += thinned.source_points
     return series, decimated, source_points, len(kept)
@@ -304,7 +304,7 @@ def _trace_panels(
     hidden = max(0, len(traced) - _MAX_TRACE_PANELS)
     if hidden:
         traced = traced[-_MAX_TRACE_PANELS:]
-    shown_detectors = min(len(fit.detectors), _MAX_TRACE_SERIES)
+    shown_readbacks = min(len(fit.readbacks), _MAX_TRACE_SERIES)
 
     panels: list[Panel] = []
     for j in traced:
@@ -320,8 +320,8 @@ def _trace_panels(
                     f"Showing the {len(traced)} most recently swept of "
                     f"{len(fit.correctors)} correctors."
                 )
-        if shown_detectors < len(fit.detectors):
-            annotations.append(f"Showing the first {shown_detectors} of {len(fit.detectors)} BPMs.")
+        if shown_readbacks < len(fit.readbacks):
+            annotations.append(f"Showing the first {shown_readbacks} of {len(fit.readbacks)} BPMs.")
         if not fit.complete[j]:
             recorded = int(fit.currents[j].shape[0])
             if recorded < num:
@@ -357,7 +357,7 @@ def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
     corrector ships as its own series and the reader picks which are drawn, so
     changing the comparison costs no fetch.
 
-    The BPM axis is the requested detector order, which is not `s` order: the
+    The BPM axis is the requested readback order, which is not `s` order: the
     plan is device-agnostic and carries no lattice positions, so the panel says
     so rather than implying a geometry it cannot know.
     """
@@ -371,7 +371,7 @@ def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
                 )
                 for i, cell in enumerate(row[j] for row in fit.matrix)
             ],
-            source_points=len(fit.detectors),
+            source_points=len(fit.readbacks),
         )
         for j, corrector in enumerate(fit.fitted_correctors)
     ]
@@ -389,7 +389,7 @@ def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
             "order around the ring -- this plan carries no lattice positions.",
         ],
         series_picker=True,
-        mark=LinesMark(series=series, source_points=len(fit.detectors) * len(series)),
+        mark=LinesMark(series=series, source_points=len(fit.readbacks) * len(series)),
     )
 
 
@@ -478,7 +478,7 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             ],
             mark=HeatmapMark(
                 x_labels=list(fit.fitted_correctors),
-                y_labels=list(fit.detectors),
+                y_labels=list(fit.readbacks),
                 values=[[float(cell) for cell in row] for row in fit.matrix],
                 value_label="Response slope",
                 value_units="BPM units / A",
@@ -511,9 +511,9 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             ],
             mark=BarsMark(
                 label="BPM anomaly",
-                categories=list(fit.detectors),
+                categories=list(fit.readbacks),
                 values=[float(score) for score in row_anomaly(fit.matrix)],
-                source_points=len(fit.detectors),
+                source_points=len(fit.readbacks),
             ),
         ),
     ]
@@ -524,7 +524,7 @@ def _build(rows: list[dict[str, Any]], params: PARAMS, *, with_fit: bool) -> Fig
     expected_rows = len(params.correctors) * params.num
     capped = len(rows) == _LIVE_BUFFER_ROW_CAP and expected_rows > _LIVE_BUFFER_ROW_CAP
 
-    fit = sliced_response_matrix(rows, params.correctors, params.detectors, params.num)
+    fit = sliced_response_matrix(rows, params.correctors, params.readbacks, params.num)
 
     lead_annotations: list[str] = []
     if capped:

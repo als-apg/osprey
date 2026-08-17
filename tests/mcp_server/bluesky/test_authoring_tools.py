@@ -46,25 +46,25 @@ _BENIGN_BODY = textwrap.dedent(
 
     class PARAMS(BaseModel):
         correctors: list[str] = Field(..., min_length=1)
-        detectors: list[str] = Field(..., min_length=1)
+        readbacks: list[str] = Field(..., min_length=1)
         num: int = Field(..., ge=1)
 
 
     def build_plan(devices, params):
         corrector = devices[params.correctors[0]]
-        detector = devices[params.detectors[0]]
+        readback = devices[params.readbacks[0]]
 
-        @bpp.stage_decorator([corrector, detector])
+        @bpp.stage_decorator([corrector, readback])
         @bpp.run_decorator()
         def _sweep():
             for i in range(params.num):
                 yield from bps.mv(corrector, float(i))
-                yield from bps.trigger_and_read([corrector, detector])
+                yield from bps.trigger_and_read([corrector, readback])
 
         return _sweep()
     """
 )
-_BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "detectors": ["d1"], "num": 3}
+_BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "readbacks": ["d1"], "num": 3}
 
 
 # =========================================================================
@@ -130,7 +130,7 @@ async def test_write_plan_posts_the_structured_payload(tmp_path, monkeypatch):
         result = await _write_fn()(
             name="tiny",
             category="accelerator",
-            required_devices=["correctors", "detectors"],
+            required_devices=["correctors", "readbacks"],
             writes=True,
             body="def build_plan(devices, params):\n    yield\n",
             description="A tiny plan.",
@@ -142,7 +142,7 @@ async def test_write_plan_posts_the_structured_payload(tmp_path, monkeypatch):
         "name": "tiny",
         "description": "A tiny plan.",
         "category": "accelerator",
-        "required_devices": ["correctors", "detectors"],
+        "required_devices": ["correctors", "readbacks"],
         "writes": True,
         "body": "def build_plan(devices, params):\n    yield\n",
     }
@@ -232,7 +232,7 @@ def test_write_session_plan_persists_generated_metadata_plus_body(
             "name": "tiny_sweep",
             "description": "A tiny sweep.",
             "category": "accelerator",
-            "required_devices": ["correctors", "detectors"],
+            "required_devices": ["correctors", "readbacks"],
             "writes": True,
             "body": "def build_plan(devices, params):\n    yield\n",
         },
@@ -411,7 +411,7 @@ def test_hash_contract_write_then_validate_same_hash(client: TestClient):
             "name": "tiny_session_sweep",
             "description": "Session-authored sweep for the hash-contract test.",
             "category": "accelerator",
-            "required_devices": ["correctors", "detectors"],
+            "required_devices": ["correctors", "readbacks"],
             "writes": True,
             "body": _BENIGN_BODY,
         },

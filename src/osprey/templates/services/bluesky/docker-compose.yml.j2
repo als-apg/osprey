@@ -195,8 +195,8 @@ services:
       # harmless: no substrate means an empty device namespace, i.e.
       # browse-only.
       BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_MOTORS: "${BLUESKY_EPICS_MOTORS:-}"
-      BLUESKY_EPICS_DETECTORS: "${BLUESKY_EPICS_DETECTORS:-}"
+      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
+      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
 {% endif %}
 {% if services.bluesky.tiled_enabled | default(false) %}
       # Tiled persistence: the bridge READS the durable catalog here to serve
@@ -399,8 +399,8 @@ services:
       # its substrate. The `:-` empty defaults keep an unset substrate
       # harmless — the module then yields an empty namespace (browse-only).
       BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_MOTORS: "${BLUESKY_EPICS_MOTORS:-}"
-      BLUESKY_EPICS_DETECTORS: "${BLUESKY_EPICS_DETECTORS:-}"
+      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
+      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
 {% if services.bluesky.plan_dir %}
       # Same in-container path as the bridge's mount target below: the
       # startup module builds the plan namespace with the same plan_loader,

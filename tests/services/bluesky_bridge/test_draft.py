@@ -34,12 +34,12 @@ _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["COR1"],
-    "detectors": ["BPM1"],
+    "readbacks": ["BPM1"],
     "span_a": 1.0,
     "num": 3,
 }
 _GRID_SCAN_ARGS: dict[str, Any] = {
-    "detectors": ["BPM1"],
+    "readbacks": ["BPM1"],
     "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
 }
 
@@ -215,7 +215,7 @@ def test_plan_name_change_replaces_plan_args(client: TestClient) -> None:
     body = resp.json()
     assert body["plan_name"] == "grid_scan"
     # correctors/span_a/num existed under orm and are gone under grid_scan;
-    # axes is new; detectors' value is unchanged (["BPM1"] both times).
+    # axes is new; readbacks' value is unchanged (["BPM1"] both times).
     assert set(body["changed"]) == {"correctors", "span_a", "num", "axes"}
 
     full = client.get("/draft").json()["draft"]
@@ -243,17 +243,17 @@ def test_reaffirming_same_plan_name_is_not_a_replace(client: TestClient) -> None
 # ---------------------------------------------------------------------------
 
 
-def test_patch_rejects_empty_detectors_min_length(client: TestClient) -> None:
+def test_patch_rejects_empty_readbacks_min_length(client: TestClient) -> None:
     resp = client.patch(
         "/draft",
         json={
             "plan_name": "grid_scan",
-            "plan_args_patch": {**_GRID_SCAN_ARGS, "detectors": []},
+            "plan_args_patch": {**_GRID_SCAN_ARGS, "readbacks": []},
             "client_id": "agent-1",
         },
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"]["field"] == "detectors"
+    assert resp.json()["detail"]["field"] == "readbacks"
 
 
 def test_patch_validates_constraint_free_fields_cleanly(client: TestClient) -> None:

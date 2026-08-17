@@ -153,7 +153,7 @@ async def list_devices() -> str:
         ``{"name"}`` plus whichever of ``is_movable``/``is_readable``/
         ``is_flyable`` the worker reported — ``is_movable`` marks a device that
         can be driven as a setpoint, ``is_readable`` one that can be read as a
-        detector. A missing flag means the worker did not say, not "no".
+        readback. A missing flag means the worker did not say, not "no".
         An empty list means this deployment's worker built no devices at all.
     """
     status, body = await anyio.to_thread.run_sync(_http_get_json, "/devices")
@@ -633,7 +633,7 @@ def _project_figure(figure: Figure) -> dict:
                     continue
                 # A series with no points costs nothing and is kept: a run that
                 # has not produced rows yet has an empty series, and dropping
-                # it would read as "this detector was left out".
+                # it would read as "this readback was left out".
                 kept.append(_restride_series(series, max(budget_for_series, 1)))
             if omitted:
                 notes[panel_index].append(

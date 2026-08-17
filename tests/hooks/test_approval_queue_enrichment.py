@@ -103,7 +103,7 @@ def _unused_port() -> int:
 
 _SHIPPED_SOURCE = (
     'PLAN_METADATA = {"name": "orm", "description": "orm", '
-    '"category": "accelerator", "required_devices": ["correctors", "detectors"], '
+    '"category": "accelerator", "required_devices": ["correctors", "readbacks"], '
     '"writes": True}\n\n'
     "def build_plan(devices, params):\n"
     "    yield from ()\n"
@@ -183,7 +183,7 @@ def test_matching_revision_renders_shipped_plan_and_source(
                     "name": "orm",
                     "description": "orm",
                     "category": "accelerator",
-                    "required_devices": ["correctors", "detectors"],
+                    "required_devices": ["correctors", "readbacks"],
                     "writes": True,
                 },
                 "provenance": "shipped",
@@ -212,7 +212,7 @@ def test_matching_revision_renders_shipped_plan_and_source(
     assert "Plan: orm" in reason
     assert "num_points" in reason
     assert "Category: accelerator" in reason
-    assert "correctors" in reason and "detectors" in reason
+    assert "correctors" in reason and "readbacks" in reason
     assert "Hazard: writes to hardware" in reason
     assert "Provenance: shipped" in reason
     assert "Validation status: not applicable" in reason

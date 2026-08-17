@@ -13,6 +13,20 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- The bluesky bridge's scan-device env vars are now named for what a control
+  room calls them: `BLUESKY_EPICS_MOTORS` is `BLUESKY_EPICS_SETPOINTS` and
+  `BLUESKY_EPICS_DETECTORS` is `BLUESKY_EPICS_READBACKS`. Their values and format
+  are unchanged. `osprey up` writes the new names; a project whose `.env` still
+  holds the old ones will find them ignored, so remove those two lines (or run
+  `osprey reset` then `osprey up`, which rewrites the block) to get scan devices
+  back.
+
+- The two shipped scan plans now name their read side `readbacks` instead of
+  `detectors`, in the plan form, the queue summary, the approval prompt and the
+  validation errors. A saved draft or a plan written against the old field name
+  needs that one key renamed. Facility-authored plans are unaffected: a plan of
+  your own may still call its read side `detectors`, `dets`, or `readables`.
+
 - Lifecycle output now carries the CLI's theme. Phase openers anchor in the
   theme's primary color with a blank line before each phase, finished phases
   and durations dim so the open phase stays prominent, promoted facts and
