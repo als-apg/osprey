@@ -61,7 +61,6 @@ services:
       osprey.project.name: "golden-project"
       com.osprey.repo-id: "0123456789ab"
       osprey.project.root: "/deploy/golden-project"
-      osprey.deployed.at: "2026-01-01T00:00:00"
     restart: unless-stopped
     ports:
       - "127.0.0.1:8090:8090"
@@ -260,7 +259,6 @@ services:
       osprey.project.name: "golden-project"
       com.osprey.repo-id: "0123456789ab"
       osprey.project.root: "/deploy/golden-project"
-      osprey.deployed.at: "2026-01-01T00:00:00"
     restart: unless-stopped
     # No `ports:` — deliberately. Publishing the control socket would put a
     # second route to plan execution next to the bridge's launch-token gate,

@@ -52,7 +52,6 @@ def _render(
         "osprey_labels": {
             "project_name": "proj",
             "project_root": "/tmp/proj",
-            "deployed_at": "2026-08-07T00:00:00Z",
         },
         "osprey_version": "2026.8.1",
         "system": {"timezone": "UTC"},
@@ -585,7 +584,6 @@ def test_redis_image_honours_a_config_override() -> None:
                 "osprey_labels": {
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
-                    "deployed_at": "x",
                 },
                 "system": {"timezone": "UTC"},
                 "deployment": {},
@@ -731,7 +729,6 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                 "osprey_labels": {
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
-                    "deployed_at": "x",
                 },
                 "system": {"timezone": "UTC"},
                 "deployment": {},
@@ -755,7 +752,6 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                 "osprey_labels": {
                     "project_name": "proj",
                     "project_root": "/tmp/proj",
-                    "deployed_at": "x",
                 },
                 "system": {"timezone": "UTC"},
                 "deployment": {},

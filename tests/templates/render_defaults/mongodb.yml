@@ -31,7 +31,6 @@ services:
       osprey.project.name: "golden-project"
       com.osprey.repo-id: "0123456789ab"
       osprey.project.root: "/deploy/golden-project"
-      osprey.deployed.at: "2026-01-01T00:00:00"
     restart: unless-stopped
     # Block compression for every collection this server creates. It is set on
     # the SERVER, not per-collection, precisely because the seeder creates the

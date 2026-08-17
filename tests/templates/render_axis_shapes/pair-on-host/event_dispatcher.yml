@@ -34,7 +34,6 @@ services:
       osprey.project.name: "golden-project"
       com.osprey.repo-id: "0123456789ab"
       osprey.project.root: "/deploy/golden-project"
-      osprey.deployed.at: "2026-01-01T00:00:00"
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
     restart: unless-stopped
     environment:

@@ -91,7 +91,6 @@ services:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
-      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
     # Deliberately NO bulk .env passthrough. The project .env carries the
     # provider keys the dispatch worker needs (CBORG/OpenAI/...), and this

@@ -71,7 +71,6 @@ services:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
-      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
     ports:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.port | default(8090) }}:{{ services.bluesky.port | default(8090) }}"
@@ -342,7 +341,6 @@ services:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
-      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
     # No `ports:` — deliberately. Publishing the control socket would put a
     # second route to plan execution next to the bridge's launch-token gate,

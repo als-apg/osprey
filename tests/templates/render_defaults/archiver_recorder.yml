@@ -45,7 +45,6 @@ services:
       osprey.project.name: "golden-project"
       com.osprey.repo-id: "0123456789ab"
       osprey.project.root: "/deploy/golden-project"
-      osprey.deployed.at: "2026-01-01T00:00:00"
     restart: unless-stopped
     # No `ports:` and no `healthcheck:` — deliberately. This service opens no
     # listening socket, so it has nothing to publish and nothing an HTTP or TCP

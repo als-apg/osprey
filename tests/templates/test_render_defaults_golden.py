@@ -37,12 +37,15 @@ quietly drops them.
   template edit you just made. A byte you cannot account for is the bug this
   suite exists to catch.
 
-The three render-time values that differ per checkout and per run — the deploy
-timestamp, the repo-identity hash, and the running framework version — are
-pinned to fixed literals in the context (see the ``_PINNED_*`` constants) rather
-than substituted at comparison time, so the goldens stay literal, readable
-files. What derives those values in production is covered by the generator's
-own tests; what this suite covers is what the templates do with them.
+The render-time values that differ per checkout — the deployment repo's path,
+its identity hash, and the running framework version — are pinned to fixed
+literals in the context (see the ``_PINNED_*`` constants) rather than
+substituted at comparison time, so the goldens stay literal, readable files.
+What derives those values in production is covered by the generator's own
+tests; what this suite covers is what the templates do with them.
+
+Nothing here is pinned per *run*: a render is a function of its context alone,
+which is what :mod:`test_render_reproducible` asserts directly.
 """
 
 from __future__ import annotations
@@ -62,12 +65,11 @@ _GOLDEN_DIR = Path(__file__).parent / "render_defaults"
 #: — it lands in image tags, container names and mount paths throughout.
 _PROJECT_NAME = "golden-project"
 
-#: The render-time values that would otherwise differ on every run and every
-#: machine. Pinned into the context after injection so the committed files are
-#: literal: the deploy clock, the hash of the deployment repo's resolved path,
-#: and the framework version the renderer happens to be running.
+#: The render-time values that would otherwise differ from one machine to the
+#: next. Pinned into the context after injection so the committed files are
+#: literal: the deployment repo's resolved path, the hash of that path, and the
+#: framework version the renderer happens to be running.
 _PINNED_PROJECT_ROOT = f"/deploy/{_PROJECT_NAME}"
-_PINNED_DEPLOYED_AT = "2026-01-01T00:00:00"
 _PINNED_REPO_ID = "0123456789ab"
 _PINNED_OSPREY_VERSION = "0.0.0"
 
@@ -137,8 +139,8 @@ def _pinned_context(config: dict) -> dict:
 
     The injection is ``_inject_project_metadata`` — the same call
     ``render_template`` makes — so what a golden pins is the generator's own
-    context, not one the test assembled. Only the four values that would
-    otherwise differ per run and per machine are overwritten afterwards.
+    context, not one the test assembled. Only the three values that would
+    otherwise differ from one checkout to the next are overwritten afterwards.
 
     Shared with the axis-shape suite (``test_render_axis_shapes.py``), which
     hands in the same raw config with a per-scenario overlay applied: one
@@ -153,29 +155,36 @@ def _pinned_context(config: dict) -> dict:
     config["osprey_labels"] = {
         **config["osprey_labels"],
         "project_root": _PINNED_PROJECT_ROOT,
-        "deployed_at": _PINNED_DEPLOYED_AT,
         "repo_id": _PINNED_REPO_ID,
     }
     return config
 
 
-def _default_context(repo_root: Path) -> dict:
-    """The production render context for a deployment with every axis unset.
+def _raw_default_config(repo_root: Path) -> dict:
+    """The un-injected config a deployment with every axis unset renders from.
 
     The per-service blocks are empty dicts: that is how a deployment which never
     heard of the network axis renders, and spelling defaults here would prove
     only that the test and the template agree on a value the test supplied.
+
+    Split out from :func:`_default_context` so the reproducibility suite
+    (``test_render_reproducible.py``) can inject it itself, unpinned — what it
+    asserts is a property of the production injection, which a pinned context
+    would hide.
     """
-    return _pinned_context(
-        {
-            "project_name": _PROJECT_NAME,
-            "project_root": str(repo_root),
-            "services": {key: {} for key in _service_keys()},
-            "deployment": {},
-            "system": {"timezone": "UTC"},
-            "deployed_services": [],
-        }
-    )
+    return {
+        "project_name": _PROJECT_NAME,
+        "project_root": str(repo_root),
+        "services": {key: {} for key in _service_keys()},
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+        "deployed_services": [],
+    }
+
+
+def _default_context(repo_root: Path) -> dict:
+    """The production render context for a deployment with every axis unset."""
+    return _pinned_context(_raw_default_config(repo_root))
 
 
 def _render_templates(context: dict, rel_paths: Iterable[str]) -> dict[str, str]:

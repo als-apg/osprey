@@ -32,7 +32,6 @@ services:
       osprey.project.name: "golden-project"
       com.osprey.repo-id: "0123456789ab"
       osprey.project.root: "/deploy/golden-project"
-      osprey.deployed.at: "2026-01-01T00:00:00"
     restart: unless-stopped
     ports:
       - "127.0.0.1:5080:5080/tcp"

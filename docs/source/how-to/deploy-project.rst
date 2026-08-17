@@ -309,7 +309,6 @@ engine-injected values:
        labels:
          osprey.project.name: "{{osprey_labels.project_name}}"
          osprey.project.root: "{{osprey_labels.project_root}}"
-         osprey.deployed.at: "{{osprey_labels.deployed_at}}"
        ports:
          - "{{deployment.bind_address}}:{{services.postgresql.port_host}}:5432"
        environment:
@@ -320,7 +319,18 @@ engine-injected values:
 Common access patterns: ``{{services.<name>.<key>}}``,
 ``{{file_paths.<key>}}``, ``{{system.<key>}}``, ``{{project_root}}``,
 ``{{deployment.bind_address}}``, and ``{{osprey_labels.project_name}}`` /
-``project_root`` / ``deployed_at`` (injected by the deploy engine).
+``project_root`` (injected by the deploy engine).
+
+The engine deliberately injects no deploy timestamp. Everything a template
+renders comes from the project's configuration, so building the same project
+twice produces the same files — which is what lets you diff a rebuilt
+``build/`` directory and see only your own changes. A timestamp would also
+make every container look changed to the container runtime on each ``osprey
+up``, restarting the whole stack for nothing. If you need to know when a
+container was started, ask the runtime: ``docker inspect`` reports it as
+``.Created``. Earlier versions of these templates carried an
+``osprey.deployed.at`` label; a template you have customized that still sets it
+keeps building, and the label just renders empty, but you should drop the line.
 
 Service Template Ownership
 ==========================
