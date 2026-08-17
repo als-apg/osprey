@@ -93,7 +93,7 @@ dependencies = [
     "scipy>=1.17.1",
     "seaborn",
     "scikit-learn",
-    "plotly>=5.0.0",
+    "plotly>=6.9.0",
     "bokeh>=3.9.1",  # Interactive dashboards (data-visualizer agent)
     "playwright>=1.61.0",
     "ipywidgets",  # Interactive widgets for Jupyter notebooks
