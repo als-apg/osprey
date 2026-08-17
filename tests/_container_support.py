@@ -53,6 +53,31 @@ def is_docker_available() -> bool:
         return False
 
 
+def is_image_present(reference: str) -> bool:
+    """Return True if a local image matching ``reference`` exists.
+
+    Distinguishes "this machine has no engine" from "this machine has an engine
+    but was never asked to build the image", which are different situations that
+    a plain start failure reports identically.
+
+    Args:
+        reference: Image reference, e.g. ``osprey-qmd:local-validate``.
+
+    Returns:
+        True when the local daemon can resolve the reference. False on an absent
+        image, an unreachable daemon, or a missing ``docker`` package -- callers
+        gate on :func:`is_docker_available` first, so those collapse together.
+    """
+    try:
+        import docker
+
+        docker.from_env().images.get(reference)
+        return True
+    except Exception as e:
+        logger.warning(f"Image {reference} not present: {e}")
+        return False
+
+
 def stop_quietly(container: object) -> None:
     """Stop a container, swallowing teardown errors.
 

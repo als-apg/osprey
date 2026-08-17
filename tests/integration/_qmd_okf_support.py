@@ -24,6 +24,7 @@ import pytest
 import requests
 
 from tests._container_support import is_docker_available, start_or_fail, stop_quietly
+from tests.integration._qmd_ariel_support import require_sidecar_image
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +33,9 @@ logger = logging.getLogger(__name__)
 #: sets to the tag it just built. The default is the locally verified tag, so a
 #: developer run needs no environment at all.
 #:
-#: A missing image is a loud failure naming the tag, never a skip: nothing here
-#: builds one, and a lane that skipped on an absent image would report success
-#: having proved nothing.
+#: Whether a missing image is a skip or a loud failure depends on which of those
+#: two callers is asking; :func:`require_sidecar_image` owns that rule and states
+#: why it has to be conditional.
 QMD_SIDECAR_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-validate"
 
 #: Container-side mount point for the OKF bundle, and the collection it is
@@ -96,6 +97,8 @@ def start_okf_sidecar(request: pytest.FixtureRequest, bundle_root: Path):
         from testcontainers.core.container import DockerContainer
     except ImportError:
         pytest.skip("testcontainers not installed")
+
+    require_sidecar_image()
 
     if not list(bundle_root.rglob("*.md")):
         raise AssertionError(

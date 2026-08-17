@@ -19,7 +19,12 @@ from typing import Any
 import pytest
 import requests
 
-from tests._container_support import is_docker_available, start_or_fail, stop_quietly
+from tests._container_support import (
+    is_docker_available,
+    is_image_present,
+    start_or_fail,
+    stop_quietly,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +153,47 @@ async def open_migrated_repository(config):
     return pool, ARIELRepository(pool, config)
 
 
+def require_sidecar_image() -> None:
+    """Refuse to start a sidecar whose image was never built.
+
+    Nothing in the test suite builds the image, so its absence means one of two
+    different things and they need opposite handling:
+
+    * ``OSPREY_QMD_IMAGE`` set -- the caller is the lane that builds the image
+      and names the tag it built. A missing image there is a build failure, and
+      skipping would report success having proved nothing. Fail loudly.
+    * ``OSPREY_QMD_IMAGE`` unset -- a general lane or a developer machine that
+      simply never built it. These suites are collected there because the unit
+      lane runs ``tests/`` without deselecting the container markers, so a skip
+      is the correct outcome; failing would red a lane over an optional image.
+
+    Without the split, whichever behaviour is chosen is wrong somewhere: a hard
+    failure reds every unit lane on every PR, and an unconditional skip hollows
+    out the one lane that exists to prove the sidecar works.
+
+    Raises:
+        AssertionError: If the image named by ``OSPREY_QMD_IMAGE`` is absent.
+
+    Raises:
+        Skipped: Via ``pytest.skip`` when no image was requested and none is
+            built locally.
+    """
+    image = qmd_sidecar_image()
+    if is_image_present(image):
+        return
+    if os.environ.get(QMD_IMAGE_ENV):
+        raise AssertionError(
+            f"{QMD_IMAGE_ENV}={image!r} names an image that is not present on this "
+            "daemon. The lane that sets this variable builds the image first, so "
+            "this is a failed or mis-tagged build, not a missing dependency."
+        )
+    pytest.skip(
+        f"qmd sidecar image {image!r} is not built on this machine; "
+        "build it before running the sidecar suites, or set "
+        f"{QMD_IMAGE_ENV} to an image that is present"
+    )
+
+
 def start_qmd_sidecar(request: pytest.FixtureRequest, corpus_root: Path, collection: str):
     """Start the prebuilt sidecar over ``corpus_root`` and wait for ``/health``.
 
@@ -170,6 +216,8 @@ def start_qmd_sidecar(request: pytest.FixtureRequest, corpus_root: Path, collect
         import testcontainers.core.container  # noqa: F401
     except ImportError:
         pytest.skip("testcontainers not installed")
+
+    require_sidecar_image()
 
     if not list(corpus_root.rglob("*.md")):
         raise AssertionError(
