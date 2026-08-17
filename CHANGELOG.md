@@ -602,6 +602,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Scan plans naming their read-only devices `dets`, `readables`, or a singular
+  `detector` are now recognized as such everywhere. Those spellings were treated
+  as devices to drive, so a dry run handed them the wrong mock and the progress
+  bar multiplied a scan's point count by how many of them there were.
+
 - The `orm` scan plan now kicks each corrector either side of where it found it
   and puts it back there. It previously drove absolute currents either side of
   zero and ended every corrector's sweep at 0 A, which is only correct on a

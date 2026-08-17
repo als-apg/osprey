@@ -481,6 +481,11 @@ def test_start_from_env_degrades_when_the_socket_cannot_be_brought_up(
         ({"correctors": ["ch1", "ch2"], "detectors": ["bpm1"], "num": 7}, 14),
         # A scalar count with no swept device list is the count itself.
         ({"detectors": ["bpm"], "num_points": 9}, 9),
+        # A read-only field the old exact-key frozenset did not list — singular
+        # `detector` — must not be mistaken for a swept list. Two entries, so
+        # the wrong answer (5 x 2 = 10) is distinguishable from the right one;
+        # a one-element list would multiply by the identity and pin nothing.
+        ({"detector": ["bpm1", "bpm2"], "num_points": 5}, 5),
         # Unrecognized shapes are honestly unknown, never guessed.
         ({"detectors": ["bpm"]}, None),
         ({"correctors": ["ch1"], "steps": ["a", "b"], "num": 3}, None),

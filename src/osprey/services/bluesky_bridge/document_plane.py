@@ -59,6 +59,7 @@ from threading import Lock
 from typing import Any
 
 from . import figure_cache, live_rows
+from .device_fields import is_read_only_device_field
 from .live_rows import LiveRowRecorder
 from .queue_backend import PLAN_META_KEY, RUN_ID_META_KEY
 
@@ -116,10 +117,6 @@ _MAX_EXPECTED_POINTS = 200
 # Parameter keys that can carry a per-sweep point count, most specific first.
 _POINT_COUNT_KEYS = ("num_points", "num", "points")
 
-# Parameter keys naming devices that are read at every point rather than swept
-# over, so their length never multiplies the point count.
-_READ_ONLY_DEVICE_KEYS = frozenset({"detectors", "dets", "readables"})
-
 _expected_lock = Lock()
 _expected_points: OrderedDict[str, int] = OrderedDict()
 
@@ -138,9 +135,9 @@ def expected_points_from_params(params: Mapping[str, Any] | None) -> int | None:
     - a list of per-axis mappings under ``axes``, each carrying its own point
       count — the rectangular grid shape (``prod`` of the counts);
     - a scalar point count at the top level, multiplied by the length of the
-      one swept-device list if there is exactly one (a device list named
-      ``detectors``/``dets``/``readables`` is read at every point, never swept,
-      so it does not count).
+      one swept-device list if there is exactly one (a device list whose field
+      name :func:`~osprey.services.bluesky_bridge.device_fields.is_read_only_device_field`
+      claims is read at every point, never swept, so it does not count).
 
     Anything else returns ``None``, and ``None`` propagates all the way to the
     panel as "no fraction" — this number drives a progress bar and nothing
@@ -187,17 +184,19 @@ def _point_count(params: Mapping[str, Any]) -> int | None:
 
 
 def _swept_device_lists(params: Mapping[str, Any]) -> list[list[Any]]:
-    """Every non-detector list of device names in *params*.
+    """Every list of device names in *params* that is swept rather than read.
 
     A plan that sweeps one device list serially (``orm`` sweeps each corrector
     over the same current range) produces ``count`` events per device. Two such
     lists are ambiguous — swept in sequence, or nested? — so the caller answers
-    "don't know" rather than picking one.
+    "don't know" rather than picking one. Which field names are read-only, and
+    so excluded here, is decided solely by
+    :func:`~osprey.services.bluesky_bridge.device_fields.is_read_only_device_field`.
     """
     return [
         value
         for key, value in params.items()
-        if key not in _READ_ONLY_DEVICE_KEYS
+        if not is_read_only_device_field(key)
         and isinstance(value, list)
         and value
         and all(isinstance(item, str) for item in value)

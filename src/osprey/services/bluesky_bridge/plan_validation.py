@@ -57,6 +57,7 @@ from typing import Any
 
 from osprey.mcp_server.sandbox_env import scrub_sensitive_env
 from osprey.mcp_server.workspace.execution.sandbox_executor import validate_sandbox_code
+from osprey.services.bluesky_bridge.device_fields import is_read_only_device_field
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
 )
@@ -397,18 +398,18 @@ def _collect_device_names(value: Any, *, key: str | None = None) -> tuple[set[st
     share — `grid_scan`'s setpoints, for instance, are nested under
     ``axes[].setpoint`` rather than a flat field. Rather than hard-coding a
     per-plan device-field shape, this walks ``sample_args`` itself and
-    buckets every string leaf by the nearest enclosing field name: a field
-    whose name contains ``"detect"`` contributes to the detector bucket,
-    everything else (correctors/setpoints/motors/unlabeled) to the motor
-    bucket — motors are the more capable mock (settable *and* readable), so
-    defaulting an unlabeled device name there is the safer guess for a body
-    that drives it via `bps.mv`.
+    buckets every string leaf by the nearest enclosing field name:
+    :func:`~osprey.services.bluesky_bridge.device_fields.is_read_only_device_field`
+    is the sole authority on which field names are read-only, and everything
+    it does not claim (correctors/setpoints/motors/unlabeled) goes to the
+    motor bucket — motors are the more capable mock (settable *and*
+    readable), so defaulting an unlabeled device name there is the safer
+    guess for a body that drives it via `bps.mv`.
     """
     motors: set[str] = set()
     detectors: set[str] = set()
     if isinstance(value, str):
-        is_detector_field = key is not None and "detect" in key.lower()
-        (detectors if is_detector_field else motors).add(value)
+        (detectors if is_read_only_device_field(key) else motors).add(value)
     elif isinstance(value, dict):
         for sub_key, sub_value in value.items():
             sub_motors, sub_detectors = _collect_device_names(sub_value, key=sub_key)

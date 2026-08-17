@@ -491,6 +491,31 @@ class TestCollectDeviceNames:
         assert motors == {"c1", "c2"}
         assert detectors == {"d1"}
 
+    def test_singular_field_names_bucket_like_their_plurals(self):
+        """A plan naming one device per field, not a list, buckets the same way.
+
+        Pins the behavior the shared predicate must preserve: singular
+        ``detector`` was already read-only under the old inline substring
+        rule, and stays read-only now.
+        """
+        motors, detectors = _collect_device_names({"motor": "m1", "detector": "d1"})
+        assert motors == {"m1"}
+        assert detectors == {"d1"}
+
+    def test_bluesky_conventional_read_side_names_are_read_only(self):
+        """``dets`` and ``readables`` bucket as read-only, not as driven devices.
+
+        Both names are bluesky-conventional spellings an open-catalog plan may
+        use, and both bucketed as *motors* under the old inline ``"detect" in
+        key`` rule — a fail-open miss, since a read-only device handed the
+        settable mock silently claims it can be driven. The shared predicate
+        closes it; this is the declared behavior change of commit 0.
+        """
+        for read_side in ("dets", "readables"):
+            motors, detectors = _collect_device_names({read_side: ["d1"], "motor": "m1"})
+            assert motors == {"m1"}, read_side
+            assert detectors == {"d1"}, read_side
+
     def test_nested_axes_setpoint_field(self):
         """Mirrors `grid_scan`'s PARAMS shape: setpoints nested under
         `axes[].setpoint`, not a flat field named "setpoints"."""
