@@ -59,6 +59,7 @@ resolve fine — so they cannot catch a regression here; the AST pin in
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 from collections.abc import Callable, Iterator, Mapping
@@ -352,6 +353,210 @@ def build_plan_functions(
             continue
         functions[name] = _make_plan_function(spec, devices)
     return functions
+
+
+PREVIEW_MOVE_CAP = 10_000
+"""Most channel moves one :func:`preview_plan` response carries back.
+
+A bound on the *payload*, not on the walk: past the cap the preview stops
+collecting moves but keeps counting them, so ``total_moves`` is always the
+exact number of moves the run would make and ``truncated`` says whether the
+list is the whole trajectory or its opening slice.
+"""
+
+PREVIEW_ERROR_CHARS = 2000
+"""Length bound on a failed preview's ``error`` text. A pydantic validation
+report over a deeply nested params model can run to many kilobytes, and this
+payload crosses a 0MQ hop to end up in an operator's approval prompt; the head
+of the message names the offending field, which is the part that is worth
+carrying."""
+
+
+def _preview_channel(obj: Any) -> str:
+    """The channel label to report for a message's target object.
+
+    ``name`` is what every device in this worker's namespace is keyed by, and
+    it is the same string a plan's movable/readable fields name, so the
+    trajectory joins directly to the params an operator is approving. Falls
+    back to ``repr`` for a target that carries no name rather than dropping the
+    move — a move whose channel cannot be labeled is still a move.
+    """
+    name = getattr(obj, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    return repr(obj)
+
+
+def _json_safe(value: Any) -> Any:
+    """Reduce one move target to a plain JSON-serializable scalar.
+
+    Targets arrive as whatever the plan computed — commonly a numpy scalar out
+    of ``numpy.linspace``, which no JSON encoder accepts. ``.item()`` unwraps
+    those to plain Python; anything left that is not already a JSON scalar is
+    carried as its ``repr`` so an exotic target degrades to a readable string
+    instead of failing the whole response at encode time.
+    """
+    unwrap = getattr(value, "item", None)
+    if callable(unwrap):
+        try:
+            value = unwrap()
+        except Exception:  # noqa: BLE001 - a non-scalar `.item()`; fall through to repr
+            pass
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return repr(value)
+
+
+def collect_channel_moves(
+    messages: Any, *, cap: int = PREVIEW_MOVE_CAP
+) -> tuple[list[dict[str, Any]], int]:
+    """Walk a plan's message stream read-only, collecting the moves it would make.
+
+    Pure iteration, and that is the whole safety argument: a bluesky plan is a
+    generator of *instructions*, and every instruction that changes machine
+    state is carried out by the RunEngine when it consumes one. Walking the
+    stream here — no RunEngine, nothing sent back into the generator, no device
+    method ever called — reads the trajectory the plan would drive without
+    driving any of it.
+
+    Iteration continues past ``cap``: the plan's contract is an exact total, so
+    the walk always runs the generator to exhaustion and only stops *collecting*
+    at the cap. A plan that never terminates would therefore spin here; the
+    walk is CPU-only and touches nothing, and the caller runs it as a background
+    task under its own timeout, which is the bound that applies.
+
+    Args:
+        messages: The plan generator, or any iterable of bluesky ``Msg``\\ s.
+        cap: Most moves to collect into the returned list.
+
+    Returns:
+        ``(moves, total)`` — the collected ``{"channel", "target"}`` mappings in
+        the order the plan would make them, and the exact count of moves the
+        whole stream carried.
+    """
+    moves: list[dict[str, Any]] = []
+    total = 0
+    for message in messages:
+        if getattr(message, "command", None) != "set":
+            continue
+        total += 1
+        if len(moves) >= cap:
+            continue
+        args = getattr(message, "args", ()) or ()
+        moves.append(
+            {
+                "channel": _preview_channel(getattr(message, "obj", None)),
+                "target": _json_safe(args[0]) if args else None,
+            }
+        )
+    return moves, total
+
+
+def preview_plan_in_namespace(
+    name: Any,
+    kwargs: Any,
+    namespace: Mapping[str, Any],
+    *,
+    cap: int = PREVIEW_MOVE_CAP,
+) -> dict[str, Any]:
+    """Build ``name`` out of ``namespace`` and summarize the moves it would make.
+
+    The plan is built through the namespace's own installed plan function — the
+    same entry point the manager calls to execute it — so the preview validates
+    the same kwargs against the same params schema and resolves the same live,
+    mock-free devices. A preview that succeeds is evidence the enqueue would
+    build; a preview that fails carries the reason the enqueue would fail.
+
+    Only generator functions are previewable. That is what a plan is in this
+    namespace, and requiring it means the preview entry point cannot be used to
+    call anything else that happens to live in the worker's globals.
+
+    Returns:
+        Always a mapping, never an exception — see :func:`preview_plan` for the
+        two shapes. On failure ``moves`` is empty and ``total_moves`` is 0:
+        moves collected before a mid-stream failure describe a trajectory the
+        run would never complete, so ``total_moves`` keeps one meaning (the
+        exact total of a complete walk) rather than two.
+    """
+    result: dict[str, Any] = {
+        "ok": True,
+        "plan": name if isinstance(name, str) else repr(name),
+        "moves": [],
+        "total_moves": 0,
+        "truncated": False,
+        "move_cap": cap,
+    }
+
+    plan_function = namespace.get(name) if isinstance(name, str) else None
+    if plan_function is None or not inspect.isgeneratorfunction(plan_function):
+        available = sorted(
+            key for key, value in namespace.items() if inspect.isgeneratorfunction(value)
+        )
+        result["ok"] = False
+        result["error"] = (
+            f"{result['plan']} is not a plan in this worker's namespace; "
+            f"available plans: {available}"
+        )
+        return result
+
+    plan = None
+    try:
+        plan = plan_function(**dict(kwargs or {}))
+        moves, total = collect_channel_moves(plan, cap=cap)
+    except Exception as exc:  # noqa: BLE001 - every failure is reported, never raised
+        result["ok"] = False
+        result["error"] = f"{type(exc).__name__}: {exc}"[:PREVIEW_ERROR_CHARS]
+        logger.info(
+            "qserver_startup: preview of plan %r failed: %s", result["plan"], result["error"]
+        )
+        return result
+    finally:
+        close = getattr(plan, "close", None)
+        if callable(close):
+            close()
+
+    result["moves"] = moves
+    result["total_moves"] = total
+    result["truncated"] = total > len(moves)
+    return result
+
+
+def preview_plan(name: str, kwargs: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Read-only pre-flight: the channel moves running ``name`` with ``kwargs`` would make.
+
+    Exposed to the manager as a namespace *function* (``function_execute``),
+    not a plan: it is a plain function, so upstream's namespace scan classifies
+    it as a callable to invoke directly rather than as a plan to hand the
+    RunEngine, and it is the single deliberate exception in an otherwise
+    deny-all function permission list. It moves nothing — see
+    :func:`collect_channel_moves` for why walking a plan's message stream
+    cannot.
+
+    Reads the *live* worker namespace (this module's globals, which upstream
+    ``exec``s the startup script into and :func:`build_namespace` populates), so
+    the devices resolved here are the connected, mock-free devices the run
+    itself would use.
+
+    Args:
+        name: Plan name, as it appears in the worker namespace.
+        kwargs: The queue item's kwargs — the plan's ``PARAMS`` fields.
+
+    Returns:
+        A JSON-serializable mapping, always. On success::
+
+            {"ok": True, "plan": "grid_scan", "move_cap": 10000,
+             "moves": [{"channel": "corrector_01", "target": 0.5}, ...],
+             "total_moves": 42, "truncated": False}
+
+        ``moves`` is in the order the run would make them and holds at most
+        ``move_cap`` entries; ``total_moves`` is the exact count regardless, and
+        ``truncated`` is True when the list is only its opening slice. On
+        failure — an unknown plan, kwargs the params schema rejects, a device
+        this worker never built, or anything the plan raises while building —
+        the same shape with ``ok`` False, an ``error`` string naming the
+        failure, no moves, and a zero total.
+    """
+    return preview_plan_in_namespace(name, kwargs, globals())
 
 
 class _FaultIsolatedCallback:

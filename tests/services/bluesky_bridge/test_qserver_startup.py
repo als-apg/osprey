@@ -858,3 +858,280 @@ def test_plan_function_annotations_are_real_objects_not_pep563_strings() -> None
     kwargs_param = inspect.signature(plan_function).parameters["kwargs"]
     model = pydantic.create_model("Model", kwargs=(dict[str, kwargs_param.annotation], {}))
     assert model(kwargs={"anything": 1}).kwargs == {"anything": 1}
+
+
+# ---------------------------------------------------------------------------
+# Read-only pre-flight: preview_plan
+# ---------------------------------------------------------------------------
+#
+# The preview walks a plan's message stream with no RunEngine, so these tests
+# assert two things at once: that the reported trajectory is the one the plan
+# would drive, and that walking it drives nothing — `FakeConnector` records
+# every read and write the device layer would perform.
+
+
+def _trajectory_plan_source(name: str) -> str:
+    """A catalog plan whose message stream drives one movable channel.
+
+    Targets are numpy scalars, as every stock bluesky scan's are: the preview
+    has to reduce them to plain JSON numbers on the way out.
+    """
+    return (
+        "import numpy\n"
+        "from bluesky.utils import Msg\n"
+        "from pydantic import BaseModel, Field\n\n"
+        "from osprey.services.bluesky_bridge.plan_fields import (\n"
+        "    MovableChannel,\n"
+        "    ReadableChannel,\n"
+        ")\n\n\n"
+        "PLAN_METADATA = {\n"
+        f'    "name": {name!r},\n'
+        '    "description": "A sample catalog plan that moves one channel.",\n'
+        '    "writes": True,\n'
+        "}\n\n\n"
+        "class PARAMS(BaseModel):\n"
+        "    movable: MovableChannel\n"
+        "    readable: ReadableChannel\n"
+        "    targets: list[float] = Field(..., min_length=1)\n\n\n"
+        "def build_plan(devices, params):\n"
+        "    movable = devices[params.movable]\n"
+        "    readable = devices[params.readable]\n"
+        "    def _gen():\n"
+        "        yield Msg('open_run', None)\n"
+        "        for target in params.targets:\n"
+        "            yield Msg('set', movable, numpy.float64(target))\n"
+        "            yield Msg('trigger', readable)\n"
+        "            yield Msg('read', readable)\n"
+        "        yield Msg('close_run', None)\n"
+        "    return _gen()\n"
+    )
+
+
+def _trajectory_namespace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "trajectory_scan"
+) -> tuple[dict[str, Any], FakeConnector]:
+    """A worker namespace holding the moving plan and the real devices it drives."""
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", tmp_path / "no-shipped-dir")
+    directory = tmp_path / "preview-plans"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{name}.py").write_text(_trajectory_plan_source(name))
+    monkeypatch.setenv(_PLAN_DIRS_ENV, str(directory))
+
+    plans = dict(plan_loader.get_facility_plans().plans)
+    assert name in plans, f"the sample plan did not load: {sorted(plans)}"
+
+    connector = FakeConnector()
+    devices = asyncio.run(
+        qserver_startup.build_devices(
+            env={
+                "BLUESKY_EPICS_SUBSTRATE": "1",
+                "BLUESKY_EPICS_MOTORS": "corrector_01=SR:MAG:HCM:01:CUR:SP|SR:MAG:HCM:01:CUR:RB",
+                "BLUESKY_EPICS_DETECTORS": "bpm_01=SR:DIAG:BPM:01:X:RB",
+            },
+            connector=connector,
+        )
+    )
+    namespace: dict[str, Any] = dict(devices)
+    namespace.update(qserver_startup.build_plan_functions(devices, plans))
+    return namespace, connector
+
+
+def _trajectory_kwargs(targets: tuple[float, ...] = (0.0, 0.5, 1.0)) -> dict[str, Any]:
+    return {"movable": "corrector_01", "readable": "bpm_01", "targets": list(targets)}
+
+
+def test_preview_lists_the_moves_a_plan_would_make_in_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    namespace, _connector = _trajectory_namespace(tmp_path, monkeypatch)
+
+    preview = qserver_startup.preview_plan_in_namespace(
+        "trajectory_scan", _trajectory_kwargs(), namespace
+    )
+
+    assert preview["ok"] is True
+    assert preview["plan"] == "trajectory_scan"
+    # Only the moves, in plan order — the reads and the run boundaries the same
+    # stream carries change nothing and are not reported.
+    assert preview["moves"] == [
+        {"channel": "corrector_01", "target": 0.0},
+        {"channel": "corrector_01", "target": 0.5},
+        {"channel": "corrector_01", "target": 1.0},
+    ]
+    assert preview["total_moves"] == 3
+    assert preview["truncated"] is False
+
+
+def test_preview_counts_every_move_past_the_cap_and_flags_truncation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cap bounds the payload, never the count: the total stays exact."""
+    namespace, _connector = _trajectory_namespace(tmp_path, monkeypatch)
+    kwargs = _trajectory_kwargs(targets=(0.0, 1.0, 2.0, 3.0, 4.0))
+
+    preview = qserver_startup.preview_plan_in_namespace("trajectory_scan", kwargs, namespace, cap=2)
+
+    assert preview["ok"] is True
+    assert [move["target"] for move in preview["moves"]] == [0.0, 1.0]
+    assert preview["total_moves"] == 5
+    assert preview["truncated"] is True
+    assert preview["move_cap"] == 2
+    # The shipped cap the bridge route and the approval prompt are bounded by.
+    assert qserver_startup.PREVIEW_MOVE_CAP == 10_000
+
+
+def test_preview_payload_is_json_serializable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The response crosses a 0MQ hop, so nothing exotic may survive in it."""
+    import json
+
+    namespace, _connector = _trajectory_namespace(tmp_path, monkeypatch)
+
+    preview = qserver_startup.preview_plan_in_namespace(
+        "trajectory_scan", _trajectory_kwargs(), namespace
+    )
+
+    assert json.loads(json.dumps(preview)) == preview
+    # The plan yielded numpy scalars; what comes back is plain Python.
+    for move in preview["moves"]:
+        assert type(move["target"]) is float
+        assert type(move["channel"]) is str
+
+
+def test_preview_reports_kwargs_the_params_schema_rejects_without_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    namespace, _connector = _trajectory_namespace(tmp_path, monkeypatch)
+    bad_kwargs = _trajectory_kwargs()
+    bad_kwargs["targets"] = []  # the schema requires at least one
+
+    preview = qserver_startup.preview_plan_in_namespace("trajectory_scan", bad_kwargs, namespace)
+
+    assert preview["ok"] is False
+    assert "targets" in preview["error"]
+    # A failed preview describes no trajectory at all, so the total keeps one
+    # meaning: the exact move count of a walk that completed.
+    assert preview["moves"] == []
+    assert preview["total_moves"] == 0
+    assert preview["truncated"] is False
+
+
+def test_preview_reports_a_device_this_worker_never_built(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    namespace, _connector = _trajectory_namespace(tmp_path, monkeypatch)
+    kwargs = _trajectory_kwargs()
+    kwargs["movable"] = "corrector_99"
+
+    preview = qserver_startup.preview_plan_in_namespace("trajectory_scan", kwargs, namespace)
+
+    assert preview["ok"] is False
+    assert "corrector_99" in preview["error"]
+
+
+def test_preview_of_an_unknown_plan_names_what_the_worker_has(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    namespace, _connector = _trajectory_namespace(tmp_path, monkeypatch)
+
+    preview = qserver_startup.preview_plan_in_namespace("no_such_scan", {}, namespace)
+
+    assert preview["ok"] is False
+    assert "no_such_scan" in preview["error"]
+    assert "trajectory_scan" in preview["error"]
+
+
+def test_preview_refuses_a_namespace_entry_that_is_not_a_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only plans are previewable — the entry point cannot call anything else.
+
+    The worker namespace also holds this module's own module-level functions
+    (upstream ``exec``s the startup script into it), so "callable and in the
+    namespace" would be a far wider surface than a pre-flight needs.
+    """
+    namespace, _connector = _trajectory_namespace(tmp_path, monkeypatch)
+    calls: list[str] = []
+    namespace["not_a_plan"] = lambda: calls.append("called")
+
+    preview = qserver_startup.preview_plan_in_namespace("not_a_plan", {}, namespace)
+
+    assert preview["ok"] is False
+    assert calls == []
+
+
+def test_previewing_a_plan_never_reads_or_writes_a_single_channel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The safety property the whole pre-flight rests on.
+
+    These are the real connector-mediated devices, so a walk that executed any
+    part of the plan would show up as a connector read or write.
+    """
+    namespace, connector = _trajectory_namespace(tmp_path, monkeypatch)
+
+    preview = qserver_startup.preview_plan_in_namespace(
+        "trajectory_scan", _trajectory_kwargs(), namespace
+    )
+
+    assert preview["total_moves"] == 3
+    assert connector.writes == []
+    assert connector.reads == []
+
+
+def test_preview_plan_reads_the_live_worker_namespace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``preview_plan`` resolves against this module's globals.
+
+    In production that dict IS the worker namespace: upstream ``exec``s the
+    startup script into it and the ``__main__`` guard updates it with the
+    devices and the plan functions, so the devices a preview resolves are the
+    connected, mock-free ones the run itself would use.
+    """
+    namespace, connector = _trajectory_namespace(tmp_path, monkeypatch)
+    for key, value in namespace.items():
+        monkeypatch.setitem(qserver_startup.__dict__, key, value)
+
+    preview = qserver_startup.preview_plan("trajectory_scan", _trajectory_kwargs())
+
+    assert preview["ok"] is True
+    assert preview["total_moves"] == 3
+    assert connector.writes == []
+
+
+def test_preview_plan_is_a_function_the_manager_executes_not_a_plan_it_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upstream classifies namespace callables by whether they are generators.
+
+    A generator function is a plan — handed to the RunEngine, and refused
+    outright by ``prepare_function``; a plain function is a callable
+    ``function_execute`` invokes directly. The pre-flight has to be the second,
+    and the namespace it is looked up in is the one ``exec``ing this module
+    produces: module globals, updated with the devices and plans.
+    """
+    from bluesky_queueserver.manager.profile_ops import (
+        existing_plans_and_devices_from_nspace,
+        prepare_function,
+    )
+
+    plan_namespace, _connector = _trajectory_namespace(tmp_path, monkeypatch)
+    namespace = dict(vars(qserver_startup))
+    namespace.update(plan_namespace)
+
+    assert not inspect.isgeneratorfunction(qserver_startup.preview_plan)
+    prepared = prepare_function(
+        func_info={"name": "preview_plan", "user_group": "primary"},
+        nspace=namespace,
+        user_group_permissions=None,
+    )
+    assert prepared["callable"] is qserver_startup.preview_plan
+
+    # And it is never advertised as a plan the queue could be asked to run.
+    existing_plans, _devices, _plans_ns, _devices_ns = existing_plans_and_devices_from_nspace(
+        nspace=namespace
+    )
+    assert "trajectory_scan" in existing_plans
+    assert "preview_plan" not in existing_plans

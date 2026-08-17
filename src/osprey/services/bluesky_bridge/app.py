@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import json
 import logging
 import os
 import re
@@ -30,7 +31,7 @@ from collections.abc import Sequence
 from contextlib import asynccontextmanager, suppress
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import ValidationError
 
 from . import document_plane, draft, figure_cache, live_rows, queue, runs
@@ -59,7 +60,13 @@ from .models import (
 from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
 from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body, validate_plan
-from .queue_backend import PLAN_META_KEY, QueueBackendError
+from .queue_backend import (
+    PLAN_META_KEY,
+    FunctionFailedError,
+    FunctionTimeoutError,
+    QueueBackendError,
+    QueueUnavailableError,
+)
 from .session_dir import resolve_session_plan_dir
 from .session_upload import get_session_uploader, upload_after_validation
 from .validation import _assert_limits_readable_if_writable
@@ -746,6 +753,275 @@ def get_plan_source(
         "validated": validated,
         "truncated": len(truncated_content) < len(content),
         "source": truncated_content,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Read-only pre-flight: what running a plan would actually do
+# ---------------------------------------------------------------------------
+# The other half of the launch-approval hook's evidence. `GET /plans/{name}/source`
+# shows a human the code they are approving; this route shows them its
+# consequences — the channels the plan declares it will move and read, and the
+# values it would drive them to, for the exact parameters about to be launched.
+#
+# Nothing here moves anything. The worker builds the plan and walks its
+# instruction stream without a RunEngine consuming it (`qserver_startup.py`'s
+# `preview_plan`), which reads the trajectory without driving it, and this
+# process only relays the summary.
+
+# The worker-namespace function that produces the trajectory summary. Called by
+# name, and permitted by name in the manager's function permissions — the one
+# deliberate exception in an otherwise deny-all list.
+_PREVIEW_FUNCTION = "preview_plan"
+
+# Length bound on any explanatory sentence this route puts on the wire. The
+# approval hook embeds the response verbatim in a prompt a human reads, so an
+# unbounded relay — a worker traceback, a deeply nested validation report —
+# must not be able to bury the summary it accompanies.
+_PREVIEW_DETAIL_CHARS = 2000
+
+# Why no trajectory could be summarized. Every one of them is a 200 answer
+# carrying the same payload shape as a successful summary, so the approval hook
+# reads `ok` and renders either the trajectory or the reason it has none —
+# never a status code, and never an error branch of its own.
+PREVIEW_REASON_UNKNOWN_PLAN = "unknown_plan"
+PREVIEW_REASON_CATALOG_UNAVAILABLE = "plan_catalog_unavailable"
+PREVIEW_REASON_QUEUE_UNREACHABLE = "queue_unreachable"
+PREVIEW_REASON_REFUSED = "preview_refused"
+PREVIEW_REASON_TIMED_OUT = "preview_timed_out"
+PREVIEW_REASON_FAILED = "preview_failed"
+PREVIEW_REASON_PLAN_ERROR = "plan_error"
+
+
+def _declared_channels(spec: PlanSpec[Any], params: Any) -> list[dict[str, str]]:
+    """The channels *params* supplies, each labelled with the role the plan gave it.
+
+    The plan's own declaration is the only source: `PlanSpec.roles` is what its
+    schema declared, and `plan_fields.collect_channels` reads back which names
+    the supplied parameters put in those fields. A plan that declares no channel
+    roles at all contributes nothing rather than having its parameters guessed
+    at by field name.
+
+    Movable entries come first — the channels a launch would drive are what an
+    approver needs to see before the ones it would merely record.
+    """
+    if not spec.roles:
+        return []
+    return [
+        {"channel": name, "role": role}
+        for role in (MOVABLE_ROLE, READABLE_ROLE)
+        for name in collect_channels(spec.schema, params, role)
+    ]
+
+
+def _preview_params(body: bytes) -> dict[str, Any] | None:
+    """The parameters a request body carries, or ``None`` if it carries none.
+
+    The body is read and parsed here rather than declared as a typed argument,
+    because a typed one would answer a malformed or non-object body with
+    FastAPI's own 422 — the one answer this route promises never to give. No
+    body at all, and an explicit ``null``, both mean "no parameters": a plan
+    whose parameters all default is previewed by name alone.
+    """
+    if not body.strip():
+        return {}
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        return None
+    if parsed is None:
+        return {}
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _preview_unavailable(
+    name: str, channels: list[dict[str, str]], reason: str, detail: str
+) -> dict[str, Any]:
+    """The answer when no trajectory could be summarized: same keys, no moves.
+
+    Deliberately identical in shape to a successful summary. Whatever went
+    wrong, the caller reads one payload — and keeps whatever channel list could
+    still be derived, because "these are the channels this launch declares it
+    would move" stays true and stays worth showing even when the trajectory
+    behind them is unavailable.
+    """
+    return {
+        "ok": False,
+        "plan": name,
+        "channels": channels,
+        "moves": [],
+        "total_moves": 0,
+        "truncated": False,
+        "move_cap": None,
+        "reason": reason,
+        "detail": detail[:_PREVIEW_DETAIL_CHARS],
+    }
+
+
+@app.post(
+    "/plans/{name}/preview",
+    openapi_extra={
+        "requestBody": {
+            "required": False,
+            "content": {"application/json": {"schema": {"type": "object"}}},
+        }
+    },
+)
+async def preview_plan(name: str, request: Request) -> dict:
+    """The moves running ``name`` with the posted parameters would make. Moves nothing.
+
+    POST, and the request body is the plan's parameters exactly as the queue
+    item carries them — one nested JSON object, the same mapping
+    `POST /queue/items` would enqueue. A GET could only carry that shape as
+    JSON packed into a query string, which every caller would then have to
+    encode by hand; every route on this app that takes a nested object takes it
+    as a body, and every one that takes query parameters takes scalars.
+
+    Total by construction, exactly like `GET /runs/{id}/figure`: this answer is
+    read by the launch-approval gate, and a gate that errors is a gate that
+    stops a human from seeing what they are about to approve. So there is one
+    payload shape and one 200 — ``ok`` says whether a trajectory was summarized,
+    and when it was not, ``reason`` says why in a machine-readable word and
+    ``detail`` in a sentence:
+
+    - ``unknown_plan`` — no plan of that name is registered. Not a 404: an
+      unknown name is one more reason the gate has no trajectory to show, and
+      it arrives in the same shape as every other.
+    - ``plan_catalog_unavailable`` — the plan registry itself could not be read.
+    - ``queue_unreachable`` — no queue server could be asked to walk the plan:
+      none is configured, none answered, or the connection to one could not be
+      built from this deployment's settings at all.
+    - ``preview_refused`` — the queue server answered and refused the call. Its
+      own sentence is relayed in ``detail``: the pre-flight function may not be
+      permitted for this deployment, or the worker may not be able to take the
+      call right now. The two are not told apart here, because the queue server
+      does not distinguish them in any way this process could read without
+      pattern-matching its prose.
+    - ``preview_timed_out`` — the call was accepted but had not finished inside
+      the backend's budget.
+    - ``preview_failed`` — the worker ran the pre-flight and the call itself
+      failed, or answered with something that is not a summary.
+    - ``plan_error`` — the parameters are what could not produce a plan:
+      parameters that do not validate, a channel the worker has no device for,
+      anything the plan itself raises. ``detail`` carries the worker's own
+      reason, which is the same reason a launch would fail with. A body that is
+      not a JSON object at all is reported here too — it is the same fault one
+      step earlier, and it is answered before the plan is even looked up, so it
+      is what a request with both a bad body and an unknown name reports.
+
+    On success the payload carries the worker's summary — ``moves`` (each
+    ``{"channel", "target"}``, in the order the run would make them),
+    ``total_moves`` (the exact count, whether or not the list holds them all),
+    ``truncated``, and the ``move_cap`` the worker collected up to — plus
+    ``channels``, this process's own reading of the plan's role declaration
+    against these parameters. ``channels`` is present on every answer, success
+    or not, whenever the plan is known.
+    """
+    from .plan_loader import get_facility_plans
+
+    plan_params = _preview_params(await request.body())
+    if plan_params is None:
+        return _preview_unavailable(
+            name,
+            [],
+            PREVIEW_REASON_PLAN_ERROR,
+            "The plan parameters must be a JSON object; this request body is not one.",
+        )
+
+    try:
+        # Re-scans the session-plan directory on every call, so it runs off the
+        # loop (`draft._resolve_plan_schema` states the house rule).
+        facility_plans = await asyncio.to_thread(get_facility_plans)
+    except Exception as exc:
+        logger.warning("pre-flight: the plan registry is unreadable: %s", exc)
+        return _preview_unavailable(
+            name,
+            [],
+            PREVIEW_REASON_CATALOG_UNAVAILABLE,
+            f"The plan registry could not be read: {exc}",
+        )
+
+    spec = facility_plans.plans.get(name)
+    if spec is None:
+        return _preview_unavailable(
+            name, [], PREVIEW_REASON_UNKNOWN_PLAN, f"No plan named {name!r} is registered."
+        )
+
+    try:
+        channels = _declared_channels(spec, plan_params)
+    except Exception:
+        # The parameters are whatever the caller sent, and reading a channel
+        # list out of them is a description of the launch — a description must
+        # never be the thing that costs an approver their summary.
+        logger.warning("pre-flight: reading %r's channel declaration failed", name, exc_info=True)
+        channels = []
+
+    try:
+        payload = await get_queue_backend().function_execute(_PREVIEW_FUNCTION, name, plan_params)
+    except QueueUnavailableError as exc:
+        return _preview_unavailable(name, channels, PREVIEW_REASON_QUEUE_UNREACHABLE, str(exc))
+    except FunctionTimeoutError as exc:
+        return _preview_unavailable(name, channels, PREVIEW_REASON_TIMED_OUT, str(exc))
+    except FunctionFailedError as exc:
+        return _preview_unavailable(name, channels, PREVIEW_REASON_FAILED, str(exc))
+    except QueueBackendError as exc:
+        return _preview_unavailable(name, channels, PREVIEW_REASON_REFUSED, str(exc))
+    except Exception as exc:
+        # The rungs above name what `queue_backend` translates, and a typed
+        # ladder is only as total as its base class: building the connection
+        # from a malformed environment happens before any translation exists,
+        # and upstream's client raises types of its own that the backend does
+        # not rewrite. Neither may reach an approver as a 500, so the ladder
+        # ends on a rung that cannot be fallen off.
+        logger.warning("pre-flight: the queue call for %r failed", name, exc_info=True)
+        return _preview_unavailable(
+            name,
+            channels,
+            PREVIEW_REASON_QUEUE_UNREACHABLE,
+            f"The queue server could not be reached: {exc}",
+        )
+
+    if not isinstance(payload, dict):
+        return _preview_unavailable(
+            name,
+            channels,
+            PREVIEW_REASON_FAILED,
+            f"The pre-flight answered with {type(payload).__name__}, not a summary.",
+        )
+    if not payload.get("ok"):
+        return _preview_unavailable(
+            name,
+            channels,
+            PREVIEW_REASON_PLAN_ERROR,
+            str(payload.get("error") or "The pre-flight reported no reason."),
+        )
+
+    moves = payload.get("moves")
+    total_moves = payload.get("total_moves")
+    # `bool` is the one `int` subclass that is never a count, so it is excluded
+    # explicitly rather than admitted by `isinstance`.
+    counted = isinstance(total_moves, int) and not isinstance(total_moves, bool)
+    if not isinstance(moves, list) or not counted:
+        # A summary missing its moves or its exact count is not a summary, and
+        # relaying it half-formed would let the gate show an approver a move
+        # count that is not one.
+        return _preview_unavailable(
+            name,
+            channels,
+            PREVIEW_REASON_FAILED,
+            "The pre-flight answered without the moves it would make.",
+        )
+
+    return {
+        "ok": True,
+        "plan": name,
+        "channels": channels,
+        "moves": moves,
+        "total_moves": total_moves,
+        "truncated": bool(payload.get("truncated")),
+        "move_cap": payload.get("move_cap"),
+        "reason": None,
+        "detail": None,
     }
 
 
