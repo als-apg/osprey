@@ -147,6 +147,20 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- The `control-assistant` preset now stands up a third web terminal beside
+  Alice and Bob: a standalone ARIEL logbook assistant, on its own card at
+  `/u/ariel/`. It shares the deployment's Postgres and logbook, and runs no
+  control-system tools at all — no channel access, no Python sandbox, no scan
+  queue. Existing deployments are unaffected until they adopt the new preset.
+
+- A persona can name the landing-page section its terminals appear under, with
+  `landing_group` in the `modules.web_terminals.personas` catalog. The roster
+  then splits: people stay in the default section, and each declared group gets
+  its own below, drawn as a panel — which is how the landing page shows a
+  standalone service as something other than another login. The `users` landing
+  group also takes a `label` now, so both halves can be named. Nothing else
+  about a terminal changes; a deployment that sets neither renders as before.
+
 - An optional `qmd` search sidecar indexes the deployment's markdown corpora —
   the facility-knowledge bundle, and a markdown mirror of the ARIEL logbook
   where that is enabled — and answers hybrid keyword-plus-semantic queries. It
@@ -601,6 +615,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   list of valid `bluesky:` keys, rather than dropping the key silently.
 
 ### Fixed
+
+- A web-terminal persona that drops a skill by name now really builds without
+  it. Persona builds decided which skill files to write from the host
+  deployment's artifact list rather than the persona's own, so a persona could
+  add a skill but never remove one, and the terminal shipped skills whose tool
+  servers it does not run. Hooks, rules and subagents were already correct.
 
 - The `orm` scan plan now kicks each corrector either side of where it found it
   and puts it back there. It previously drove absolute currents either side of

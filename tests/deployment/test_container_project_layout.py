@@ -279,8 +279,9 @@ def test_the_context_root_dockerignore_matches_at_container_depth(tmp_path: Path
 #: pins. That key IS the tier boundary between them, so it is the one field that
 #: proves an image context carries ITS OWN merged config rather than the
 #: deployment's — the defect that made persona deltas invisible to their own
-#: MCP servers.
-PERSONA_WRITES = {"readonly": False, "readwrite": True}
+#: MCP servers. ``ariel`` is the standalone logbook terminal: not a control tier
+#: at all, and it pins the key off for the same reason the read-only tier does.
+PERSONA_WRITES = {"ariel": False, "readonly": False, "readwrite": True}
 
 
 @pytest.fixture(scope="module")

@@ -977,7 +977,10 @@ def test_preview_counts_every_move_past_the_cap_and_flags_truncation(
     assert preview["truncated"] is True
     assert preview["move_cap"] == 2
     # The shipped cap the bridge route and the approval prompt are bounded by.
-    assert qserver_startup.PREVIEW_MOVE_CAP == 10_000
+    # Deliberately small: the approval prompt names only a few moves from each
+    # end, and the end-to-end proof of this same contract has to walk a plan of
+    # just over this many moves, so the number is what that walk costs.
+    assert qserver_startup.PREVIEW_MOVE_CAP == 200
 
 
 def test_preview_payload_is_json_serializable(

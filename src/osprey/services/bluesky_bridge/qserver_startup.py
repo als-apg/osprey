@@ -355,13 +355,23 @@ def build_plan_functions(
     return functions
 
 
-PREVIEW_MOVE_CAP = 10_000
+PREVIEW_MOVE_CAP = 200
 """Most channel moves one :func:`preview_plan` response carries back.
 
 A bound on the *payload*, not on the walk: past the cap the preview stops
 collecting moves but keeps counting them, so ``total_moves`` is always the
 exact number of moves the run would make and ``truncated`` says whether the
 list is the whole trajectory or its opening slice.
+
+Sized against what reads it. The one consumer is the approval prompt, which
+names a handful of moves from each end of the trajectory and elides the middle
+as a count, so a couple of hundred is already a generous slice and ten thousand
+was payload nothing asked for. Keeping it small also keeps the *contract* cheap
+to test: proving that the list truncates while the total stays exact needs a
+plan of just over ``PREVIEW_MOVE_CAP`` moves, and the walk that proves it costs
+in proportion. It says nothing about how large a plan can be previewed — the
+walk runs to exhaustion whatever this is, and a plan too long to walk inside the
+caller's budget comes back ``preview_timed_out`` regardless of the cap.
 """
 
 PREVIEW_ERROR_CHARS = 2000

@@ -26,7 +26,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:9faa42d633aae7917429c3ec327c004672e68fa7617832d5ae245780fcb2a20f"
     ),
     # A digest here is the resolved content of the preset AND of every preset
-    # that extends it, so a change in a base moves all three control-assistant
+    # that extends it, so a change in a base moves all four control-assistant
     # entries together. Comment rewrites cannot move a digest
     # (`_hash_resolved_profile` hashes resolved canonical JSON and says so);
     # only a key or value change can. Some such changes are behavior-neutral
@@ -34,12 +34,15 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # health check or a skill directory — and in either case the deploy-side
     # staleness advisory firing on already-deployed projects is the correct
     # signal, not noise.
-    "control-assistant": "sha256:025fa1e628849cc7d162af29bb4f95eb41668f7e6eb9ab751b58238c00d8008e",
+    "control-assistant": "sha256:81eeb1f274b53de03e56faed4326dda3fd3603817615071aecd5870be84476fd",
+    "control-assistant-ariel": (
+        "sha256:918d17194d33fa517d16a29e8bcd2eab548de895b97ef2da72c7ea714716fefa"
+    ),
     "control-assistant-readonly": (
-        "sha256:7c687a478ab8ab5e928a21696244f21931c9699f7fc5fbf698b69a3ca8438c6d"
+        "sha256:b50aef9386d7e3f1193154e133df6b124d3a2cd36408e70203bad89b51965250"
     ),
     "control-assistant-readwrite": (
-        "sha256:612b576a25097949157b55e4b31122a30db16266d866e45e0f0379f3385ead3e"
+        "sha256:a141880a8037ba0afa7b655cdc157b6bbaebc413b61392714ba0ce8671f4c8a3"
     ),
     "hello-world": "sha256:ac9c00d70922c3c88d561f7ffa29af3ccb1650d5a8bfaa13b884563199ce371a",
 }

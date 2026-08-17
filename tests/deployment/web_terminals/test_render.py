@@ -436,6 +436,310 @@ def test_landing_transform_renders_links_group_items() -> None:
     assert landing_html.count('class="landing-card-label"') == 3
 
 
+# ---------------------------------------------------------------------------
+# Landing sections for standalone-service personas (`landing_group`)
+#
+# A roster is not always a list of people: a deployment may run a whole second
+# product behind its own login (the shipped control-assistant stack runs the
+# ARIEL logbook assistant beside its two operator tiers). A persona declaring
+# `landing_group` files its users under their own landing heading, drawn as a
+# `variant: "tray"` section, so the page reads people first and services after.
+# Presentation only — nothing about the container, its ports or its routes
+# moves.
+# ---------------------------------------------------------------------------
+
+
+def _body(landing_html: str) -> str:
+    """The page below its inline stylesheet.
+
+    Class-absence assertions must not be answered by the stylesheet, which
+    always defines every rule the page could use regardless of what this render
+    actually emitted.
+    """
+    return landing_html.split("</style>", 1)[1]
+
+
+def _sections(landing_html: str) -> list[tuple[str, str]]:
+    """Every rendered landing section as ``(class attribute, heading text)``.
+
+    Parsed out of the markup rather than asserted against ``_build_groups``'s
+    return value, so these tests cover the template's own use of ``variant``
+    (the class it chooses) and not just the dict that feeds it.
+    """
+    return re.findall(
+        r'<section class="([^"]+)">\s*<h2 class="landing-group-label">([^<]*)</h2>',
+        landing_html,
+    )
+
+
+def _cards_in_section(landing_html: str, heading: str) -> list[str]:
+    """The card labels under one section heading, in render order."""
+    body = landing_html.split(f">{heading}</h2>", 1)[1].split("</section>", 1)[0]
+    return re.findall(r'<span class="landing-card-label">([^<]*)</span>', body)
+
+
+def _roster_config(users: list[dict], personas: dict, groups: list[dict] | None = None) -> dict:
+    """A config whose roster resolves against a persona catalog.
+
+    ``image_source`` stays at its registry default so the catalog needs no
+    per-persona project paths on disk — these tests are about the landing page,
+    not about image resolution.
+    """
+    config = copy.deepcopy(_config(users, groups=groups))
+    config["modules"]["web_terminals"]["personas"] = personas
+    return config
+
+
+_OPERATOR_CATALOG = {
+    "readonly": {"project": "dls-readonly", "build_profile": "readonly"},
+    "readwrite": {"project": "dls-readwrite", "build_profile": "readwrite"},
+    "ariel": {
+        "project": "dls-ariel",
+        "build_profile": "ariel",
+        "landing_group": "Standalone deployments",
+    },
+}
+
+_OPERATOR_ROSTER = [
+    {"name": "alice", "index": 0, "persona": "readwrite"},
+    {"name": "bob", "index": 1, "persona": "readonly"},
+    {"name": "ariel", "index": 2, "persona": "ariel"},
+]
+
+
+def test_landing_group_persona_lifts_its_users_into_their_own_tray_section() -> None:
+    """The declaring persona's users leave the roster section for a tray of their own.
+
+    This is the whole feature in one assertion: alice and bob stay under the
+    roster heading, ariel moves below into a section headed by the persona's
+    `landing_group`, and only that second section carries the tray class.
+    """
+    # Arrange
+    config = _roster_config(_OPERATOR_ROSTER, _OPERATOR_CATALOG)
+
+    # Act
+    landing_html = render_web_terminals(config)["nginx/landing.html"]
+
+    # Assert
+    assert _sections(landing_html) == [
+        ("landing-group", "Terminals"),
+        ("landing-group landing-tray", "Standalone deployments"),
+    ]
+    assert _cards_in_section(landing_html, "Terminals") == ["alice", "bob"]
+    assert _cards_in_section(landing_html, "Standalone deployments") == ["ariel"]
+
+
+def test_landing_group_changes_nothing_but_the_landing_page() -> None:
+    """`landing_group` is presentation: the compose overlay and nginx fragment
+    for the same roster are byte-identical with and without it.
+
+    The key names a landing section, and a reader could reasonably fear it also
+    moves the container somewhere — this pins that it does not touch the image,
+    the ports, the volumes or the proxy route.
+    """
+    # Arrange
+    plain_catalog = copy.deepcopy(_OPERATOR_CATALOG)
+    del plain_catalog["ariel"]["landing_group"]
+    with_group = _roster_config(_OPERATOR_ROSTER, _OPERATOR_CATALOG)
+    without_group = _roster_config(_OPERATOR_ROSTER, plain_catalog)
+
+    # Act
+    grouped = render_web_terminals(with_group)
+    ungrouped = render_web_terminals(without_group)
+
+    # Assert
+    assert grouped["docker-compose.web.yml"] == ungrouped["docker-compose.web.yml"]
+    assert grouped["nginx/nginx.conf"] == ungrouped["nginx/nginx.conf"]
+    # ...and the landing page is the ONLY artifact that did move.
+    assert grouped["nginx/landing.html"] != ungrouped["nginx/landing.html"]
+
+
+def test_landing_without_any_landing_group_renders_no_tray() -> None:
+    """A catalog declaring none renders exactly one flat section, as before.
+
+    The additivity guard: every deployment predating this key must keep its
+    current landing page, so the tray class must not appear anywhere.
+    """
+    # Arrange
+    catalog = copy.deepcopy(_OPERATOR_CATALOG)
+    del catalog["ariel"]["landing_group"]
+    config = _roster_config(_OPERATOR_ROSTER, catalog)
+
+    # Act
+    landing_html = render_web_terminals(config)["nginx/landing.html"]
+
+    # Assert
+    assert _sections(landing_html) == [("landing-group", "Terminals")]
+    # Body only: the stylesheet always carries the `.landing-tray` RULE; what
+    # must be absent is any element wearing the class.
+    assert "landing-tray" not in _body(landing_html)
+
+
+def test_landing_users_section_label_is_configurable() -> None:
+    """`{type: users, label: ...}` renames the section holding the ungrouped users."""
+    # Arrange
+    config = _roster_config(
+        _OPERATOR_ROSTER, _OPERATOR_CATALOG, groups=[{"type": "users", "label": "Users"}]
+    )
+
+    # Act
+    landing_html = render_web_terminals(config)["nginx/landing.html"]
+
+    # Assert
+    assert _sections(landing_html) == [
+        ("landing-group", "Users"),
+        ("landing-group landing-tray", "Standalone deployments"),
+    ]
+
+
+def test_landing_tray_sections_follow_first_appearance_roster_order() -> None:
+    """Two distinct `landing_group`s order by where each is first seen in the roster.
+
+    Ordering has to come from the config rather than from dict iteration
+    accident, so an operator can predict the page from the roster alone. The
+    catalog below deliberately declares the two personas in the OPPOSITE order
+    to the roster.
+    """
+    # Arrange
+    catalog = {
+        "dashboards": {"project": "dls-dash", "landing_group": "Dashboards"},
+        "ariel": {"project": "dls-ariel", "landing_group": "Standalone deployments"},
+        "readonly": {"project": "dls-readonly"},
+    }
+    roster = [
+        {"name": "bob", "index": 0, "persona": "readonly"},
+        {"name": "ariel", "index": 1, "persona": "ariel"},
+        {"name": "lattice", "index": 2, "persona": "dashboards"},
+    ]
+    config = _roster_config(roster, catalog)
+
+    # Act
+    landing_html = render_web_terminals(config)["nginx/landing.html"]
+
+    # Assert
+    assert _sections(landing_html) == [
+        ("landing-group", "Terminals"),
+        ("landing-group landing-tray", "Standalone deployments"),
+        ("landing-group landing-tray", "Dashboards"),
+    ]
+
+
+def test_landing_two_users_of_one_grouped_persona_share_a_single_tray() -> None:
+    """A `landing_group` is a section, not a card: two users of the same persona
+    land in one tray rather than opening two identically-headed ones."""
+    # Arrange
+    roster = [
+        {"name": "ariel", "index": 0, "persona": "ariel"},
+        {"name": "ariel-archive", "index": 1, "persona": "ariel"},
+    ]
+    config = _roster_config(roster, _OPERATOR_CATALOG)
+
+    # Act
+    landing_html = render_web_terminals(config)["nginx/landing.html"]
+
+    # Assert
+    assert [cls for cls, _ in _sections(landing_html)].count("landing-group landing-tray") == 1
+    assert _cards_in_section(landing_html, "Standalone deployments") == [
+        "ariel",
+        "ariel-archive",
+    ]
+
+
+def test_landing_group_heading_is_html_escaped() -> None:
+    """The heading is operator-supplied config, so it is escaped like every other
+    interpolated string on this page — it reaches an element body, not an
+    attribute, but it reaches the document either way."""
+    # Arrange
+    catalog = copy.deepcopy(_OPERATOR_CATALOG)
+    catalog["ariel"]["landing_group"] = "<script>alert('g')</script>"
+    config = _roster_config(_OPERATOR_ROSTER, catalog)
+
+    # Act
+    landing_html = render_web_terminals(config)["nginx/landing.html"]
+
+    # Assert
+    assert "<script>alert" not in landing_html
+    assert "&lt;script&gt;" in landing_html
+
+
+def test_landing_persona_badge_is_dropped_when_it_only_repeats_the_user_name() -> None:
+    """A card reading `ariel` over a badge reading `ARIEL` says nothing twice.
+
+    The badge names which tier a login belongs to, so it earns its place only
+    when it differs from the label — the case a single-tenant service persona
+    (roster entry and persona named after the same thing) never hits, and a
+    people roster always does.
+    """
+    # Arrange
+    config = _roster_config(_OPERATOR_ROSTER, _OPERATOR_CATALOG)
+
+    # Act
+    landing_html = render_web_terminals(config)["nginx/landing.html"]
+
+    # Assert
+    badges = re.findall(r'<span class="landing-card-sublabel">([^<]*)</span>', landing_html)
+    assert badges == ["readwrite", "readonly"]
+
+
+def test_landing_persona_badge_is_dropped_case_insensitively() -> None:
+    """The badge renders uppercase, so `Ariel`/`ariel` would read as duplicated too."""
+    # Arrange
+    catalog = {"Ariel": {"project": "dls-ariel", "landing_group": "Standalone deployments"}}
+    config = _roster_config([{"name": "ariel", "index": 0, "persona": "Ariel"}], catalog)
+
+    # Act
+    landing_html = render_web_terminals(config)["nginx/landing.html"]
+
+    # Assert
+    assert 'class="landing-card-sublabel"' not in landing_html
+
+
+def test_landing_unrecognized_variant_falls_back_to_the_plain_section() -> None:
+    """The template matches `variant` against the literal "tray", not truthiness.
+
+    `_build_groups` emits only "tray" today, so this drives the template
+    directly: a future caller adding a second variant must add its stylesheet
+    rules deliberately rather than inherit the tray's by accident.
+    """
+    # Arrange
+    groups = [{"label": "Odd", "items": [{"label": "x", "url": "/u/x/"}], "variant": "carousel"}]
+
+    # Act
+    landing_html = _render_landing_template(groups)
+
+    # Assert
+    assert _sections(landing_html) == [("landing-group", "Odd")]
+    assert "landing-tray" not in _body(landing_html)
+
+
+def _render_landing_template(groups: list[dict]) -> str:
+    """Render landing.html.j2 with an arbitrary ``groups`` context.
+
+    Loads the template through the same package path and autoescape setting
+    ``render_web_terminals`` uses, so what is exercised is the shipped file
+    under its real escaping rules — the only way to reach a ``groups`` shape
+    ``_build_groups`` cannot currently produce.
+    """
+    from importlib.resources import as_file, files
+
+    from jinja2 import Environment, FileSystemLoader
+
+    from osprey.deployment.web_terminals.render import (
+        _LANDING_TEMPLATE,
+        _TEMPLATE_PACKAGE_PATH,
+        _landing_theme_blocks,
+    )
+
+    template_dir = files("osprey").joinpath(_TEMPLATE_PACKAGE_PATH)
+    with as_file(template_dir) as template_path:
+        env = Environment(loader=FileSystemLoader(str(template_path)), autoescape=True)
+        return env.get_template(_LANDING_TEMPLATE).render(
+            facility_name="Demo Light Source",
+            groups=groups,
+            theme_blocks=_landing_theme_blocks({}),
+        )
+
+
 def test_render_missing_deploy_fqdn_raises_when_users_configured() -> None:
     """landing_url can't be resolved without deploy.fqdn once at least one user exists."""
     # Arrange
