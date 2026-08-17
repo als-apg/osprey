@@ -3788,9 +3788,9 @@ def _start_stack(
     # or it would refuse what the deploy is about to provide. Two of those are
     # load-bearing here — `_ensure_service_tokens` and the bluesky key material
     # mint `.env` on a fresh repo (a deploy that has no `.env` at all has one by
-    # now), and `migrate_users_env` carries a pre-rename `.env.production` onto
-    # `.env.users`, whose own comment names the web-terminal preflight as that
-    # file's first reader. This pass now reads it one step earlier, so it
+    # now), and `migrate_users_env` carries a pre-rename deployment's secrets
+    # onto `.env.users`, whose own comment names the web-terminal preflight as
+    # that file's first reader. This pass now reads it one step earlier, so it
     # inherits the same constraint.
     #
     # Below: it must precede the first minutes-long step, which is the project
