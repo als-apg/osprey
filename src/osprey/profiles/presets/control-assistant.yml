@@ -69,7 +69,7 @@ skills:
   - demo-gallery    # Launch guided capability demonstrations
   - demo-ui         # Run a scripted demo of the agent driving the web workspace
   - writing-bluesky-plans  # Write, check and queue a scan plan (needs the Bluesky server)
-  - operating-bluesky-scans  # Stage, queue and watch a scan (needs the Bluesky server)
+  - operating-bluesky-plans  # Stage, queue and watch a scan (needs the Bluesky server)
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
