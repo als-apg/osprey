@@ -383,6 +383,46 @@ def test_disallowed_tools_includes_skill_and_agent(built_control_assistant_proje
 
 
 # ---------------------------------------------------------------------------
+# Narrowed artifact selections
+# ---------------------------------------------------------------------------
+
+
+def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
+    """A caller-supplied selection that NARROWS ``skills`` renders only those skills.
+
+    Skills are the one artifact family whose rendering is decided solely by the
+    resolved output manifest: hooks and rules render from ``.j2`` templates that
+    gate on the selection themselves, and agents are filtered from the registry
+    before the copy, so for all three the manifest can only ever remove. Skills
+    are plain ``.md`` files copied whenever the manifest names them, so a
+    manifest built from anything other than the caller's own selection decides
+    the skill set on its own — which is how a persona that drops a skill by name
+    still ended up shipping it.
+
+    Pins a selection strictly smaller than the ``control_assistant`` bundle's,
+    because that is the case a same-or-wider selection cannot distinguish.
+    """
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="narrowed-skills",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+        artifacts={
+            "hooks": ["hook-log", "hook-config"],
+            "rules": ["safety", "timezone"],
+            "skills": ["session-report"],
+            "output_styles": ["control-operator"],
+            "web_panels": ["ariel"],
+        },
+    )
+
+    skills_dir = project / ".claude" / "skills"
+    rendered = sorted(p.name for p in skills_dir.iterdir()) if skills_dir.exists() else []
+    assert rendered == ["session-report"]
+
+
+# ---------------------------------------------------------------------------
 # Overlay agent frontmatter preservation
 # ---------------------------------------------------------------------------
 

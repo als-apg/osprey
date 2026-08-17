@@ -602,6 +602,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- A web-terminal persona that drops a skill by name now really builds without
+  it. Persona builds decided which skill files to write from the host
+  deployment's artifact list rather than the persona's own, so a persona could
+  add a skill but never remove one, and the terminal shipped skills whose tool
+  servers it does not run. Hooks, rules and subagents were already correct.
+
 - The `orm` scan plan now kicks each corrector either side of where it found it
   and puts it back there. It previously drove absolute currents either side of
   zero and ended every corrector's sweep at 0 A, which is only correct on a
