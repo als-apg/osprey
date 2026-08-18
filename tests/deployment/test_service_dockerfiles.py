@@ -328,6 +328,65 @@ def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):
     return result, ctx
 
 
+# ── Node provenance (event_dispatcher) ───────────────────────────────────────
+#
+# Only the dispatch image ships Node — the worker shells out to the Claude Code
+# CLI, which is a Node package. It comes from the base image's own Debian
+# release rather than a third-party apt repo, so the image has one package
+# provenance and needs no network beyond the Debian mirror to build.
+
+
+def _run_instruction_source(text: str, needle: str) -> str:
+    """The single RUN instruction containing *needle*, as Docker executes it.
+
+    :func:`_run_bodies` joins continuations naively, which folds any comment
+    line *inside* a continued RUN into the middle of the body — everything
+    after it then reads as inert shell comment, though Docker strips those
+    lines and runs what follows. This helper drops them the way Docker does:
+    a comment inside a continuation is removed entirely, and so neither ends
+    the instruction nor comments out the commands below it. The reconstruction
+    itself lives in :func:`tests.deployment._proxy_idiom.run_instructions`,
+    which the shared proxy-idiom assertion parses with too.
+    """
+    matches = [instr for instr in run_instructions(text) if needle in instr]
+    assert len(matches) == 1, f"expected exactly one RUN containing {needle!r}, got {len(matches)}"
+    return matches[0]
+
+
+def test_event_dispatcher_node_comes_from_the_base_image_distro():
+    node = _run_instruction_source(_dockerfile("event_dispatcher"), "nodejs")
+    assert "apt-get install -y --no-install-recommends ca-certificates nodejs npm" in node, node
+    # The pinned CLI install and the apt cleanup both follow an inline comment
+    # inside the continuation, so they are only reachable in the comment-
+    # stripped body above — a naive join would leave them commented out.
+    assert "npm install -g @anthropic-ai/claude-code@" in node
+    assert "rm -rf /var/lib/apt/lists/*" in node
+
+
+def test_event_dispatcher_has_no_third_party_node_apt_repo():
+    """Asserted as an absence over the whole file: any of these tokens coming
+    back means the vendor setup-script pipeline came back with them."""
+    text = _dockerfile("event_dispatcher")
+    for token in ("nodesource", "gnupg", "setup_20.x", "apt-key"):
+        assert token not in text, f"{token} is back in the Dockerfile — third-party Node repo"
+    node = _run_instruction_source(text, "nodejs")
+    assert "| bash" not in node and "| sh" not in node, (
+        "the node layer pipes a downloaded script into a shell"
+    )
+
+
+def test_event_dispatcher_keeps_npm_in_the_final_image():
+    """npm is a runtime dependency, not a build-time convenience: the worker
+    launches the agent as ``npx -y @anthropic-ai/claude-code@<version>``
+    (claude_launcher.py). The deps layer's own toolchain purge is asserted
+    elsewhere; what must not appear is a purge in *this* layer."""
+    text = _dockerfile("event_dispatcher")
+    node = _run_instruction_source(text, "nodejs")
+    assert "apt-get purge" not in node, "the node layer purges packages"
+    assert "autoremove" not in node, "the node layer autoremoves packages"
+    assert "npm is a runtime dependency, not a build-time convenience" in text
+
+
 def test_virtual_accelerator_wheel_extra_placement():
     """The VA extra is primed in the deps layer and re-resolved on the wheel
     layer's FIRST install (so a dev wheel that adds/bumps a dep inside the extra

@@ -28,18 +28,22 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
  && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
 
-# Node.js 20 + the Claude Code CLI (the dispatch-worker shells out to `claude`).
+# Node + the Claude Code CLI (the dispatch-worker shells out to `claude`).
+# Node comes from the base image's own Debian release rather than a third-party
+# apt repo, so the image has a single package provenance and needs no network
+# beyond the Debian mirror to build. The CLI's engines floor is node >= 18,
+# which every Debian release the slim bases resolve to satisfies.
+#
+# npm is a runtime dependency, not a build-time convenience: the agent is
+# launched as `npx -y @anthropic-ai/claude-code@<version>` (claude_launcher.py),
+# so npm must remain in the final image.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get install -y --no-install-recommends ca-certificates nodejs npm \
     # Pin the Claude Code CLI so an upstream release cannot silently change the
     # headless agent's behavior between image builds (matches the cli_version
     # OSPREY documents in config.yml). Bump deliberately.
     && npm install -g @anthropic-ai/claude-code@2.1.146 \
-    && apt-get purge -y curl gnupg \
-    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

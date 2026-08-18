@@ -43,13 +43,19 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
  && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
 
+# Tools the agent's shell reaches for at runtime (curl, git, procps) and Node
+# for the Claude Code CLI installed below. Node comes from the base image's own
+# Debian release rather than a third-party apt repo, so the image has a single
+# package provenance and needs no network beyond the Debian mirror to build. The
+# CLI's engines floor is node >= 18, which every Debian release the slim bases
+# resolve to satisfies.
+#
+# npm is a runtime dependency, not a build-time convenience: the agent is
+# launched as `npx -y @anthropic-ai/claude-code@<version>` (claude_launcher.py),
+# so npm must remain in the final image.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     apt-get update \
- && apt-get install -y --no-install-recommends curl git procps ca-certificates gnupg \
- && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
- && apt-get install -y --no-install-recommends nodejs \
- && apt-get purge -y gnupg \
- && apt-get autoremove -y \
+ && apt-get install -y --no-install-recommends curl git procps ca-certificates nodejs npm \
  && rm -rf /var/lib/apt/lists/*
 
 # Claude Code CLI, pinned via CLAUDE_CLI_VERSION (npm global install) so an

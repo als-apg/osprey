@@ -176,7 +176,10 @@ async def _check_claude_cli_pinned(pinned: str | None) -> list[CheckResult]:
                 category=_CATEGORY_PINNED,
                 status=Status.ERROR,
                 message="npx not found in PATH",
-                details="Install Node.js (which ships npx) to use claude_code.cli_version pinning.",
+                details=(
+                    "Install the nodejs and npm packages (npx ships with npm) "
+                    "to use claude_code.cli_version pinning."
+                ),
             )
         ]
     except TimeoutError:
