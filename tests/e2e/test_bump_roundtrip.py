@@ -132,19 +132,19 @@ pytestmark = [
 #               18101 test_tiled_roundtrip · 18102 _orm_stack's default
 #               18103 test_bluesky_catalog_e2e · 18104 test_grid_scan_roundtrip
 #               18105 test_bluesky_sandbox_escape_e2e
-#               18106 test_bluesky_panels_deploy · 18108 test_bluesky_queue_e2e
+#               18106 test_bluesky_web_deploy · 18108 test_bluesky_queue_e2e
 #               18109 test_plan_stack_agentic
 #               (18107 is test_nextcloud_talk_bridge_e2e's Nextcloud)
-#               (no panels port: this deploy drops the panel sidecar entirely,
+#               (no bluesky-web port: this deploy drops that sidecar entirely,
 #               see EXTRA_CONFIG)
 #   tiled       18191 test_bluesky_queue_e2e · 18192 test_tiled_roundtrip
 #               18193 test_plan_stack_agentic
 #   VA (CA)     15064 test_bluesky_queue_e2e · 15065 test_tiled_roundtrip
 #               15066 test_plan_stack_agentic
 #   postgres    25432 test_bluesky_queue_e2e · 25433 test_tiled_roundtrip
-#               25434 test_bluesky_panels_deploy · 25435 test_plan_stack_agentic
+#               25434 test_bluesky_web_deploy · 25435 test_plan_stack_agentic
 #   openobserve 25080 test_bluesky_queue_e2e · 25081 test_bluesky_deploy
-#               25082 test_tiled_roundtrip · 25083 test_bluesky_panels_deploy
+#               25082 test_tiled_roundtrip · 25083 test_bluesky_web_deploy
 #               25084 test_plan_stack_agentic
 #   mongodb     27117 test_plan_stack_agentic
 # ---------------------------------------------------------------------------
@@ -162,12 +162,12 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 #:
 #: The port moves cover every host port with no ``--set`` hook on
 #: ``_orm_stack.init_args`` (which reaches only the bridge and VA ports).
-#: ``bluesky``/``bluesky_panels``/``va_archiver`` are top-level PROFILE keys,
+#: ``bluesky``/``bluesky_web``/``va_archiver`` are top-level PROFILE keys,
 #: not ``config:`` keys -- ``services.mongodb.port_host`` under ``config:`` is
 #: silently discarded, because the archiver's Mongo port is owned by the
 #: ``va_archiver`` block that renders it.
 #:
-#: ``bluesky_panels: null`` drops the panel sidecar, for the same reason
+#: ``bluesky_web: null`` drops the bluesky-web sidecar, for the same reason
 #: ``override_yaml()`` already drops ``dispatch`` and the web terminals:
 #: nothing here reads it, and it is a THIRD locally-built image compiled in
 #: parallel with the VA and the bridge. Three concurrent source builds, each
@@ -175,7 +175,7 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 #: memory for -- and a buildkit worker that gets killed reports only ``failed
 #: to receive status: ... EOF``, which reads like a network fault rather than
 #: the resource exhaustion it is. The panel surface has its own lane
-#: (``test_bluesky_panels_deploy.py``).
+#: (``test_bluesky_web_deploy.py``).
 EXTRA_CONFIG: dict[str, Any] = {
     "config": {
         "services.postgresql.port_host": POSTGRES_PORT,
@@ -183,7 +183,7 @@ EXTRA_CONFIG: dict[str, Any] = {
         "services.qmd.port": QMD_PORT,
     },
     "bluesky": {"tiled_port": TILED_PORT},
-    "bluesky_panels": None,
+    "bluesky_web": None,
     "va_archiver": {"port_host": MONGODB_PORT},
 }
 
