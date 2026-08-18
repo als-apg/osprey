@@ -205,6 +205,13 @@ The config block
       ``web-terminal-context/<user>/`` slot for each new operator, which is
       where their per-user context goes.
 
+      Beside those slots sits ``web-terminal-context/base.md`` — the shared
+      baseline every seeded user's ``CLAUDE.md`` starts from. ``osprey init``
+      materializes it from the preset so the text is visible and editable in
+      your repo; edit it there and rebuild, and every terminal picks up the
+      change. A profile without one falls back to a generic framework
+      baseline.
+
       .. list-table::
          :header-rows: 1
          :widths: 34 66

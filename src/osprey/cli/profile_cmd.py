@@ -34,7 +34,11 @@ from osprey.errors import BuildProfileError
 from osprey.utils.logger import get_logger
 
 from .output import report
-from .profile_conventions import BUILD_OUTPUT_DIR, PER_USER_CONTEXT_DIRNAME
+from .profile_conventions import (
+    BUILD_OUTPUT_DIR,
+    CONTEXT_BASELINE_FILENAME,
+    PER_USER_CONTEXT_DIRNAME,
+)
 
 if TYPE_CHECKING:
     # Annotation only — the profile model is imported lazily inside the command
@@ -741,6 +745,27 @@ def _cleanup(target: Path) -> str:
     return "Nothing was materialized."
 
 
+def _context_baseline_source(manager: TemplateManager, data_bundle: str) -> Path:
+    """The ``base.md`` text a new profile's context baseline starts from.
+
+    Bundle first: an app template that ships its own
+    ``web-terminal-context/base.md`` (the control assistant does — its text
+    describes that family's personas) seeds the profile with it. Any other
+    bundle falls back to the framework's generic baseline, the same file
+    ``osprey build`` installs into every render — so the materialized slot
+    starts byte-identical to what the build would have used anyway, and every
+    edit to it from then on is visible in the operator's own repo.
+    """
+    bundle = (
+        manager.template_root / "apps" / data_bundle / PER_USER_CONTEXT_DIRNAME
+    ) / CONTEXT_BASELINE_FILENAME
+    if bundle.is_file():
+        return bundle
+    return (
+        manager.template_root / "claude_code" / PER_USER_CONTEXT_DIRNAME
+    ) / CONTEXT_BASELINE_FILENAME
+
+
 def _packaged_data_source(manager: TemplateManager, data_bundle: str) -> Path:
     """The packaged ``data/`` tree this command copies verbatim.
 
@@ -974,9 +999,19 @@ def _materialize_profile_directory(
             user_dir.mkdir(parents=True, exist_ok=True)
             (user_dir / ".gitkeep").touch()
         if roster:
+            # The shared baseline, beside the slots — the one seeded entry that
+            # carries content, because it IS content the deployment ships: the
+            # build copies this file over the framework's fallback, so the text
+            # every seeded user starts from lives in the operator's repo where
+            # they can read and edit it.
+            shutil.copy2(
+                _context_baseline_source(manager, resolved.data_bundle),
+                target / _CONTEXT_CONVENTION_DIRNAME / CONTEXT_BASELINE_FILENAME,
+            )
             logger.debug(
-                "  Per-user context: %s",
+                "  Per-user context: %s (+ shared %s)",
                 ", ".join(f"{_CONTEXT_CONVENTION_DIRNAME}/{user}/" for user in roster),
+                CONTEXT_BASELINE_FILENAME,
             )
 
         if persona_texts:

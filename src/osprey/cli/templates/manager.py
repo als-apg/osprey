@@ -350,9 +350,11 @@ class TemplateManager:
             shutil.copytree(machine_data_src, machine_data_dst, dirs_exist_ok=True)
             logger.debug("Copied machine data to %s", machine_data_dst)
 
-        # 6a'. Install the web-terminal persona baseline. base.md is
-        # framework-layer, not bundle-layer: seeding requires it for ANY
-        # project that seeds a user, so every bundle gets it. Per-user
+        # 6a'. Install the web-terminal context baseline. This base.md is the
+        # framework FALLBACK: seeding hard-requires one for any project that
+        # seeds a user, so every bundle gets a generic copy — and a profile
+        # that ships its own `web-terminal-context/base.md` overrides it when
+        # the convention copies apply after this render. Per-user
         # extra.md/skills stay user-authored under the same tree.
         context_src = self.template_root / "claude_code" / "web-terminal-context"
         context_dst = project_dir / "docker" / "web-terminal-context"

@@ -134,7 +134,7 @@ CONVENTION_DIRS: tuple[ConventionDir, ...] = (
         destination="docker/web-terminal-context",
         shape=EntryShape.DIRECTORY,
         entry_noun="web-terminal user",
-        description="Per-user web-terminal context (one directory per user)",
+        description="Per-user web-terminal context (one directory per user, plus a shared base.md)",
         per_user=True,
     ),
     ConventionDir(
@@ -168,6 +168,15 @@ _PER_USER_CONVENTION: ConventionDir = next(c for c in CONVENTION_DIRS if c.per_u
 #: user. Public because ``osprey init`` seeds those subdirectories from
 #: the roster and must name the same directory this table maps.
 PER_USER_CONTEXT_DIRNAME: str = _PER_USER_CONVENTION.source
+
+#: The one loose file the per-user convention directory accepts: the shared
+#: baseline every seeded user's ``CLAUDE.md`` starts from. It rides the same
+#: channel as the per-user directories (landing beside them at the convention's
+#: destination) but is roster-independent — a profile that ships it overrides
+#: the framework's fallback for every user at once. Public because ``osprey
+#: init`` materializes it and seeding documents it, and all three must spell
+#: the same filename.
+CONTEXT_BASELINE_FILENAME: str = "base.md"
 
 CONVENTION_SOURCES: tuple[str, ...] = tuple(c.source for c in CONVENTION_DIRS)
 
@@ -258,6 +267,11 @@ RESERVED_PROJECT_PATHS: tuple[ReservedPath, ...] = (
     ReservedPath("CLAUDE.md", "the profile's `claude_md_template:` key"),
     ReservedPath("data/simulation/channel_manifest.json", "the profile's `data/` directory"),
     ReservedPath("data/simulation/channel_limits.json", "the profile's `data/` directory"),
+    ReservedPath(
+        "docker/web-terminal-context/base.md",
+        "the profile's `web-terminal-context/base.md` slot — the shared baseline "
+        "sits beside the per-user directories, not in the mirror",
+    ),
 )
 
 #: The table indexed by path — the exact reservations mapped to the channel
@@ -579,6 +593,10 @@ def _validate_directory_dir(convention: ConventionDir, root: Path) -> list[str]:
     for entry in sorted(root.iterdir(), key=lambda p: p.name):
         if entry.name.startswith("."):
             continue
+        if convention.per_user and entry.name == CONTEXT_BASELINE_FILENAME and entry.is_file():
+            # The shared baseline, not a user: it has its own slot at the
+            # convention root and is planned as a file copy.
+            continue
         if not entry.is_dir():
             errors.append(
                 _per_user_file_error(convention, entry)
@@ -602,24 +620,18 @@ def _per_user_file_error(convention: ConventionDir, entry: Path) -> str:
     advice every other directory-shaped convention gets — would therefore tell
     an operator to invent a user, and their file would quietly stop being read
     on the next build. So the rule is stated instead, and the file is pointed at
-    a route that carries it: a named user's directory, or, for the shared
-    baseline, the ``project/`` mirror.
+    the routes that carry it: a named user's directory, or — for the shared
+    baseline — the :data:`CONTEXT_BASELINE_FILENAME` slot at the convention
+    root, which the validator has already accepted by the time this error fires
+    for anything else.
     """
     header = (
         f"{convention.source}/{entry.name} is a file: {convention.source}/ holds one "
-        f"directory per {convention.entry_noun}, and each one is named for a user on "
+        f"directory per {convention.entry_noun} (plus the shared "
+        f"{CONTEXT_BASELINE_FILENAME} baseline), and each one is named for a user on "
         f"the resolved roster. A directory named anything else is skipped as a user "
         f"who has left, so a directory invented to hold this file would not be read."
     )
-    if entry.name == "base.md":
-        return (
-            f"{header}\n"
-            f"  base.md is the baseline every seeded user starts from, not one user's "
-            f"context, so it has no directory here. Carry it through the "
-            f"{PROJECT_MIRROR_DIR}/ mirror instead: put it at "
-            f"{PROJECT_MIRROR_DIR}/{convention.destination}/base.md, which lands on "
-            f"the same file the build installs."
-        )
     return (
         f"{header}\n"
         f"  Move it into the directory of the user it belongs to "
@@ -746,6 +758,23 @@ def plan_convention_copies(
             continue
 
         if convention.shape is EntryShape.DIRECTORY:
+            if convention.per_user:
+                baseline = root / CONTEXT_BASELINE_FILENAME
+                if baseline.is_file():
+                    # Roster-independent by design: the baseline overrides the
+                    # framework's fallback for every seeded user at once, so it
+                    # copies even on a build with no roster (a persona render),
+                    # like every other convention artifact.
+                    copies.append(
+                        ConventionCopy(
+                            category=convention.source,
+                            source=baseline,
+                            destination=destination_for(
+                                f"{convention.source}/{CONTEXT_BASELINE_FILENAME}"
+                            ),
+                            is_directory=False,
+                        )
+                    )
             for entry in root.iterdir():
                 if not entry.is_dir() or entry.name.startswith("."):
                     continue

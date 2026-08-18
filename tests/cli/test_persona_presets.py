@@ -447,10 +447,11 @@ class TestControlAssistantPersonas:
 class TestWebTerminalContextShipped:
     """Every built project — not just the ``control_assistant`` bundle —
     carries the ``docker/web-terminal-context/base.md`` that seeding
-    requires. base.md is framework-layer: any project that seeds a web
-    terminal user needs it, so it ships from the framework template root
-    rather than from one bundle. Without it, ``osprey up`` brings up the whole
-    stack and then aborts at the seed step.
+    requires. The framework ships a generic FALLBACK from its template root:
+    ``modules.web_terminals.enabled`` is a config key any profile can turn
+    on, so any bundle may end up seeding a user, and without a baseline
+    ``osprey up`` brings up the whole stack and then aborts at the seed step.
+    A profile's own ``web-terminal-context/base.md`` overrides the fallback.
 
     The path is PROJECT-relative (``seeding._CONTEXT_RELPATH``), and in a
     deployment repo the rendered project is the ``build/`` zone — which is why

@@ -1,11 +1,12 @@
-"""Profile context artifacts must not delete the web-terminal persona baseline.
+"""Profile context artifacts must not delete the web-terminal context baseline.
 
-Every build installs the framework's ``docker/web-terminal-context/base.md``.
-The profile's ``web-terminal-context/`` convention directory copies one whole
-directory per user *below* that path, so the baseline survives by construction —
-these tests pin that, and pin the error a profile gets when it puts a loose file
-where a per-user directory belongs (the shape that could otherwise replace the
-context root wholesale).
+Every build installs the framework's fallback ``docker/web-terminal-context/
+base.md``; a profile that ships ``web-terminal-context/base.md`` replaces it
+through the convention's first-class slot. Per-user directories copy *below*
+that path, so the baseline survives them by construction — these tests pin
+that, pin the slot's override precedence (which otherwise rests on nothing but
+build-step ordering), and pin the error a profile gets when it puts any other
+loose file where a per-user directory belongs.
 """
 
 from __future__ import annotations
@@ -49,6 +50,24 @@ def test_per_user_context_keeps_baseline_and_seeds_user(tmp_path: Path) -> None:
     base_md = project_path / CONTEXT_DIR / "base.md"
     assert base_md.is_file()
     assert base_md.read_text(encoding="utf-8").strip() != ""
+    assert (project_path / CONTEXT_DIR / "alice" / "extra.md").is_file()
+
+
+def test_profile_base_md_overrides_the_framework_fallback(tmp_path: Path) -> None:
+    """The slot's whole point: the profile's baseline text wins over the
+    framework's, and the precedence is pinned here rather than left to the
+    accident that the framework install runs before the convention copies."""
+    project_path = _built_project(tmp_path, "context-base-override")
+    profile_dir = _profile_with_user_dir(tmp_path, "alice")
+    authored = "# Facility baseline\n\nOur own ground rules.\n"
+    (profile_dir / "web-terminal-context" / "base.md").write_text(authored, encoding="utf-8")
+
+    framework_text = (project_path / CONTEXT_DIR / "base.md").read_text(encoding="utf-8")
+    assert framework_text != authored  # the override must be observable
+
+    _apply_conventions(profile_dir, project_path, ["alice"])
+
+    assert (project_path / CONTEXT_DIR / "base.md").read_text(encoding="utf-8") == authored
     assert (project_path / CONTEXT_DIR / "alice" / "extra.md").is_file()
 
 

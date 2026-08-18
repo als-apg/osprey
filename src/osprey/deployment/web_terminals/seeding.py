@@ -52,9 +52,10 @@ logger = get_logger("deployment.web_terminals.seeding")
 # Overlay tree root, relative to the RENDERED PROJECT — i.e. to `build/` in a
 # deployment repo, not to the repo root and not to the source-zone
 # `web-terminal-context/` a profile authors. The tree is build output: every
-# `osprey build` installs the framework's base.md here
-# (templates/manager.py) and copies each roster user's authored directory in
-# below it (profile_conventions.py's `web-terminal-context` convention, whose
+# `osprey build` installs the framework's fallback base.md here
+# (templates/manager.py), lets a profile's own `web-terminal-context/base.md`
+# replace it, and copies each roster user's authored directory in below it
+# (profile_conventions.py's `web-terminal-context` convention, whose
 # destination is this same project-relative path). Seeding reads what the build
 # produced, so it resolves against the same zone.
 _CONTEXT_RELPATH = Path("docker/web-terminal-context")
