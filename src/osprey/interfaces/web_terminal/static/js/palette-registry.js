@@ -48,14 +48,57 @@
  *   ),
  *   getHiddenPanels?: () => Array<{ id: string, label: string }>,
  *   getVisiblePanels?: () => Array<{ id: string, label: string }>,
+ *   getPopoutPanels?: () => Array<{ id: string, label: string }>,
  *   getPresets?: () => Array<{ name: string, panels: string[] }>,
  *   actions?: Array<{ label: string, detail?: string, run: () => void }>,
  *   showPanel?: (id: string) => void,
  *   focusPanel?: (id: string) => void,
+ *   popoutPanel?: (id: string) => void,
+ *   openPanelBeside?: (id: string) => void,
  *   applyPreset?: (name: string) => void,
  *   revealSetting?: (dotKey: string) => void,
  * }} PaletteDeps
  */
+
+/**
+ * Domain vocabulary for the built-in panels — the words an operator reaches
+ * for when they do not have the catalog label in mind ("logbook" for ARIEL,
+ * "pv" for Channel Finder). Folded into the searchText of EVERY row for that
+ * panel, so any of its verbs is reachable by the domain word. Keyed by catalog
+ * panel id; ids absent here (custom facility panels) contribute no aliases.
+ * @type {Record<string, string>}
+ */
+const PANEL_SYNONYMS = {
+  ariel: 'logbook elog',
+  'channel-finder': 'pv channels',
+  artifacts: 'gallery files',
+  lattice: 'optics',
+  okf: 'knowledge docs',
+  'system-health': 'status monitoring',
+};
+
+/** Verb vocabulary for "Open … in a new window" rows. */
+const POPOUT_ALIASES = 'window popout standalone tab';
+
+/** Verb vocabulary for "Open … in a new tile" rows. */
+const BESIDE_ALIASES = 'tile beside split';
+
+/**
+ * searchText for a panel row: the verb, the panel's own label and id, the
+ * verb's aliases, then the panel's domain aliases. Only searchText is scored
+ * by the matcher (labels are not), so every alias a row should answer to has
+ * to be present here.
+ *
+ * @param {string} verb
+ * @param {{ id: string, label: string }} panel
+ * @param {string} [verbAliases]
+ * @returns {string}
+ */
+function panelSearchText(verb, panel, verbAliases) {
+  return [verb, panel.label, panel.id, verbAliases, PANEL_SYNONYMS[panel.id]]
+    .filter(Boolean)
+    .join(' ');
+}
 
 /**
  * Invoke an optional getter defensively, always returning an array. Absent or
@@ -144,8 +187,23 @@ function buildSettings(deps) {
 }
 
 /**
- * Build the Panels group: a "Show <label>" item per hidden panel, then a
- * "Focus <label>" item per visible (non-active) panel.
+ * Build the Panels group: a "Show <label>" item per hidden panel, a
+ * "Focus <label>" item per visible (non-active) panel, an "Open <label> in a
+ * new window" item per pop-out-able panel, and an "Open <label> in a new tile"
+ * item per visible (non-active) panel.
+ *
+ * The two "Open" verbs draw on DIFFERENT sources on purpose, and the
+ * difference is the whole point of FR8:
+ *
+ *   - new window ← `getPopoutPanels`, which INCLUDES the active panel (popping
+ *     out the panel you are looking at is the verb's commonest use) and is
+ *     already filtered to members whose standalone URL has resolved.
+ *   - new tile ← `getVisiblePanels`, which EXCLUDES the active panel (opening
+ *     it beside itself is a guaranteed no-op), and carries no URL gate — the
+ *     rail corner this verb replaces never had one.
+ *
+ * The new-tile rows are dropped wholesale when `openPanelBeside` is absent,
+ * which is how simple mode (locked to one service tile) omits them.
  *
  * @param {PaletteDeps} deps
  * @returns {Item[]}
@@ -153,6 +211,8 @@ function buildSettings(deps) {
 function buildPanels(deps) {
   const showPanel = deps.showPanel;
   const focusPanel = deps.focusPanel;
+  const popoutPanel = deps.popoutPanel;
+  const openPanelBeside = deps.openPanelBeside;
 
   /** @type {Item[]} */
   const items = [];
@@ -162,7 +222,7 @@ function buildPanels(deps) {
     items.push({
       group: 'Panels',
       label: `Show ${panel.label}`,
-      searchText: `show ${panel.label} ${id}`,
+      searchText: panelSearchText('show', panel),
       run: () => {
         if (typeof showPanel === 'function') {
           showPanel(id);
@@ -176,13 +236,41 @@ function buildPanels(deps) {
     items.push({
       group: 'Panels',
       label: `Focus ${panel.label}`,
-      searchText: `focus ${panel.label} ${id}`,
+      searchText: panelSearchText('focus', panel),
       run: () => {
         if (typeof focusPanel === 'function') {
           focusPanel(id);
         }
       },
     });
+  }
+
+  for (const panel of safeList(deps.getPopoutPanels)) {
+    const id = panel.id;
+    items.push({
+      group: 'Panels',
+      label: `Open ${panel.label} in a new window`,
+      searchText: panelSearchText('open', panel, POPOUT_ALIASES),
+      run: () => {
+        if (typeof popoutPanel === 'function') {
+          popoutPanel(id);
+        }
+      },
+    });
+  }
+
+  if (typeof openPanelBeside === 'function') {
+    for (const panel of safeList(deps.getVisiblePanels)) {
+      const id = panel.id;
+      items.push({
+        group: 'Panels',
+        label: `Open ${panel.label} in a new tile`,
+        searchText: panelSearchText('open', panel, BESIDE_ALIASES),
+        run: () => {
+          openPanelBeside(id);
+        },
+      });
+    }
   }
 
   return items;

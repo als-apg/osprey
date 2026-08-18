@@ -109,14 +109,21 @@
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+  /* visibility is a discrete property: while it TRANSITIONS the computed value
+   * stays `hidden` through the whole opening frame, which turns openPalette's
+   * same-frame `inputEl.focus()` into a spec'd no-op on the first open. So the
+   * flip is never animated — on close it is merely DELAYED past the opacity
+   * fade (this rule), and on open it applies instantly (.visible below). */
   transition: opacity var(--wt-transition-fast),
-              visibility var(--wt-transition-fast);
+              visibility 0s linear var(--duration-instant);
 }
 
 .command-palette-overlay.visible {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
+  transition: opacity var(--wt-transition-fast),
+              visibility 0s;
 }
 
 /* ---- Dialog panel ---- */
@@ -175,7 +182,10 @@
   flex: 1;
 }
 
-/* ---- Group heading (Settings / Panels / Layouts / Actions) ---- */
+/* ---- Group heading (Recent / Settings / Panels / Layouts / Actions) ----
+   "Recent" is not a registry group — palette.js builds that section at
+   render time when the query is empty — but it is a heading over rows like
+   any other, so it borrows this style rather than introducing its own. */
 .command-palette-group-heading {
   padding: var(--space-2) var(--space-2) var(--space-1);
   font-family: var(--font-mono);
