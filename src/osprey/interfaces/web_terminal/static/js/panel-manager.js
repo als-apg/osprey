@@ -18,6 +18,11 @@
  * focus/visibility/registration, iframe lifecycle) and drives the
  * rail's DOM through panel-rail.js's imperative API — it never touches rail
  * markup itself.
+ *
+ * What a GESTURE on a rail entry or a tile header does is panel-menu-policy.js
+ * (entry closures, both context menus) and where a panel LANDS is
+ * panel-placement.js; both read this module's private state through deps
+ * registered at init, so neither imports it back.
  */
 
 import { fetchJSON, createEventSource } from './api.js';
@@ -31,18 +36,22 @@ import {
   setKnownServicePanels, setServerVisiblePanels, glowPanel,
 } from './dock-iframe.js';
 import {
-  initPanelPlacement, openPanelBeside, dropPanelAt, applyAgentSwitch, applyArrange,
+  initPanelPlacement, dropPanelAt, applyAgentSwitch, applyArrange,
 } from './panel-placement.js';
 import { createPanelIframe } from './panel-iframe-factory.js';
 import {
   PANELS, TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL, DEFAULT_PANEL_FALLBACK,
 } from './panel-catalog.js';
 import { initDockSync, withEchoSuppressed, setTileCloseHandler, setTileFocusHandler } from './dock-sync.js';
-import { initRailDrag, railDragStart, railDragEnd } from './rail-drag.js';
+import { setTileContextMenuHandler } from './dock-tab.js';
+import { initRailDrag } from './rail-drag.js';
 import { startHealthPolling as startPolling } from './panel-health.js';
 import { updateStatusBar } from './panel-status-bar.js';
 import { openTerminalPanel, closeTerminalPanel } from './dock-workspace.js';
 import { initRailThemeCoupling } from './rail-position.js';
+import {
+  initMenuPolicy, railOptions, openTileContextMenu, RAIL_MENU_HINT,
+} from './panel-menu-policy.js';
 import {
   createRail, addEntry, removeEntry, setActive, setEntryEnabled,
 } from './panel-rail.js';
@@ -228,6 +237,16 @@ export async function initPanelManager(panelId) {
     openTerminal: openTerminalPanel,
   });
 
+  // Hand the menu policy (the rail's interaction closures and both context
+  // menus) the same live view of this module's private state. Rendered rows and
+  // gates are decided per gesture, so these must be closures, not values.
+  initMenuPolicy({
+    getRailEl: () => railEl,
+    isMember: (id) => visiblePanels.has(id),
+    getActiveTabId: () => activeTabId,
+    activateTab, showPanel, retireTile, labelOf, getPanelStandaloneUrl, popoutPanel,
+  });
+
   // Rail drag-and-drop: a rail entry dropped on a tile edge opens (or moves)
   // that panel as a new tile at the drop position, then reveals it through the
   // same activate/show tail every other open path uses. Wires lazily like
@@ -322,6 +341,11 @@ export async function initPanelManager(panelId) {
   // and the server does not echo human focus back, so this registration is the
   // only thing that keeps the gesturing client's own rail in step.
   setTileFocusHandler(activateTab);
+
+  // A tile header is the panel's second right-click surface, offering the same
+  // verbs as its rail entry. dock-tab cannot import this module (cycle via
+  // dock-workspace), so the policy arrives by registration.
+  setTileContextMenuHandler(openTileContextMenu);
 
   // Hand the adapter a live reference to the visible set (it prunes restored
   // placeholders of server-closed panels), then finalize the registry — the
@@ -622,58 +646,28 @@ async function resyncPanelState() {
 // ---- Rail Rendering ----
 
 /**
- * Interaction closures handed to every rail render/append call. Routing
- * activation and close through here keeps a human click/"×" and an agent MCP
- * call indistinguishable downstream (both hit activateTab /
- * setPanelVisibility).
- *
- * Every entry is a member, so a click is always an activation: show this panel
- * in the main tile, taking it over from its current occupant (one panel per
- * tile; the rail IS the workspace's tab system). The take-over happens in the
- * dock adapter's placement logic and is purely local — the evicted panel keeps
- * its entry. "×" removes the panel from the rail (membership, a server
- * change). The terminal entry routes to the dock instead (its open/closed
- * state is layout state, not membership — see TERMINAL_RAIL_ID).
+ * Open a panel in a new browser tab at its standalone (non-embedded) URL.
+ * The target of the context menu's "Open in a new window" row and the
+ * palette's "Open <label> in a new window" action — both go through here so
+ * the two surfaces cannot drift. No-op until the panel's config fetch has
+ * resolved a URL (callers gate on that too).
+ * @param {string} id
  */
-function railOptions() {
-  return {
-    onActivate: (/** @type {string} */ id) => {
-      if (id === TERMINAL_RAIL_ID) { openTerminalPanel(); return; }
-      // Clicking the entry whose tile is ALREADY surfaced retires that tile —
-      // a toggle shortcut equivalent to the tile header's own "×". It stays a
-      // LOCAL layout change: rail membership survives, so a second click
-      // brings the tile back. Membership removal remains the separate "×"
-      // corner.
-      if (visiblePanels.has(id)) {
-        if (activeTabId === id) { retireTile(id); return; }
-        activateTab(id, { userInitiated: true });
-      } else showPanel(id);
-    },
-    onClose: (/** @type {string} */ id) => {
-      if (id === TERMINAL_RAIL_ID) { closeTerminalPanel(); return; }
-      setPanelVisibility(id, false);
-    },
-    // Popout stays rail-only (a tile has no standalone-URL affordance).
-    // No-ops before the panel's config fetch has resolved a URL; the rail
-    // also hides the affordance while the entry is `.disabled`, so this
-    // guard is the backstop, not the only gate.
-    onPopout: (/** @type {string} */ id) => {
-      if (id === TERMINAL_RAIL_ID) return;
-      const url = getPanelStandaloneUrl(id);
-      if (url) window.open(url, '_blank', 'noopener');
-    },
-    // "⊞" — open this panel as a NEW tile beside the active one, the
-    // discoverable half of the open-beside verb (rail drag is the precise
-    // half). The terminal entry routes to its own reopen path; CSS hides its
-    // corner regardless.
-    onOpenBeside: (/** @type {string} */ id) => openPanelBeside(id),
-    // Rail drag source: the terminal entry never drags (its tile moves by its
-    // own header bar); everything else defers to rail-drag's policy (simple
-    // mode and fallback mode cancel there).
-    onDragStart: (/** @type {string} */ id, /** @type {DataTransfer | null} */ dt) =>
-      id === TERMINAL_RAIL_ID ? false : railDragStart(id, dt),
-    onDragEnd: () => railDragEnd(),
-  };
+export function popoutPanel(id) {
+  const url = getPanelStandaloneUrl(id);
+  if (url) window.open(url, '_blank', 'noopener');
+}
+
+/**
+ * Rail-member panels that can pop out (standalone URL resolved), in catalog
+ * order. Unlike getVisiblePanels this INCLUDES the active panel — popping out
+ * the panel you are looking at is the verb's most common use.
+ * @returns {Array<{id: string, label: string}>}
+ */
+export function getPopoutPanels() {
+  return PANELS
+    .filter((p) => visiblePanels.has(p.id) && getPanelStandaloneUrl(p.id) !== null)
+    .map((p) => ({ id: p.id, label: p.label }));
 }
 
 /** The catalog label for a panel id (falls back to the id itself).
@@ -694,7 +688,9 @@ function renderRail() {
     railEl,
     [
       { id: TERMINAL_RAIL_ID, label: TERMINAL_RAIL_LABEL },
-      ...PANELS.filter((p) => visiblePanels.has(p.id)).map((p) => ({ id: p.id, label: p.label })),
+      ...PANELS.filter((p) => visiblePanels.has(p.id)).map(
+        (p) => ({ id: p.id, label: p.label, hint: RAIL_MENU_HINT })
+      ),
     ],
     railOptions(),
   );
@@ -765,7 +761,7 @@ function ensureRailMembership(panelId) {
   visiblePanels.add(panelId);
   const spec = PANELS.find((p) => p.id === panelId);
   if (!spec) return;
-  addEntry(railEl, { id: spec.id, label: spec.label }, railOptions());
+  addEntry(railEl, { id: spec.id, label: spec.label, hint: RAIL_MENU_HINT }, railOptions());
   applyEntryState(panelId);
 }
 
@@ -803,7 +799,7 @@ function addPanel(spec) {
   // Append exactly one entry. addEntry is non-destructive — never a full
   // re-render — so every live entry keeps its active/disabled/LED state, and it
   // is idempotent by id, which also guards the re-register path.
-  addEntry(railEl, { id: normalized.id, label: normalized.label }, railOptions());
+  addEntry(railEl, { id: normalized.id, label: normalized.label, hint: RAIL_MENU_HINT }, railOptions());
 
   // Seed url and health, mirroring the custom-panel block in initPanelManager
   if (spec.url) {
@@ -1118,8 +1114,8 @@ export function getVisiblePanels() { return visiblePanelsExcept(PANELS, visibleP
 export function getPresets() { return panelPresets; }
 
 /**
- * Standalone (non-embedded) URL for a service panel — the target of the rail
- * entry's popout corner (railOptions' onPopout). state.url is the
+ * Standalone (non-embedded) URL for a service panel — the target of the
+ * context menu's and palette's "Open in a new window". state.url is the
  * already-proxied root-relative base; the optional catalog path suffixes custom
  * panels' UI root. Null until the panel's config fetch has resolved a URL.
  * @param {string} panelId

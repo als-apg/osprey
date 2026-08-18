@@ -3,7 +3,7 @@
  *
  * A pure DOM-rendering module for the 74px left icon rail that replaces the
  * horizontal header tab strip. It builds one entry per rail MEMBER (icon,
- * label, active accent, hover corners, drag source) and exposes small
+ * label, active accent, close corner, drag source) and exposes small
  * imperative mutators — set active, enable, attention, append, remove — so
  * `panel-manager.js`'s state machine can drive the rail without owning any DOM
  * specifics. (The `＋` add control is NOT the rail's: the template supplies it
@@ -34,14 +34,30 @@
  *   <nav class="panel-rail" role="tablist">
  *     <button class="panel-rail-button disabled" data-panel-id="artifacts"
  *             type="button" role="tab" aria-selected="false" title="WORKSPACE"
+ *             aria-label="WORKSPACE"                (title gains " · hint" when panel.hint is given)
  *             draggable="true">                                       (only when onDragStart given)
  *       <span class="panel-rail-icon" data-icon="artifacts" aria-hidden="true"></span>
  *       <span class="panel-rail-label">WORKSPACE</span>
  *       <span class="panel-rail-close" aria-hidden="true">×</span>    (only when onClose given)
- *       <span class="panel-rail-popout" aria-hidden="true">↗</span>   (only when onPopout given)
- *       <span class="panel-rail-beside" aria-hidden="true">⊞</span>   (only when onOpenBeside given)
  *     </button>
  *   </nav>
+ *
+ * Beyond activate/close, an entry's verbs (open beside, open standalone,
+ * remove) live in the caller's right-click context menu — the rail only
+ * forwards the contextmenu event through `onContextMenu` and suppresses the
+ * browser menu when the caller reports it handled. A caller-supplied
+ * `panel.hint` is appended to the tooltip so the menu is advertised where the
+ * corner glyphs used to be.
+ *
+ * That menu is reachable from the keyboard, and explicitly so: a focused entry
+ * handles the `ContextMenu` key and Shift+F10 itself and asks the caller to
+ * open the menu centred on the entry's own rect. macOS fires no `contextmenu`
+ * event from the keyboard at all, so leaving this to the platform would strand
+ * those operators; on the platforms that DO fire one (Windows menu key,
+ * Firefox Shift+F10) it is that keydown's default action, and suppressing the
+ * default is what stops a single keypress opening two menus. The suppression
+ * follows the same boolean contract as the right-click path, so an entry the
+ * caller declines keeps its native behaviour on every input route.
  *
  * State classes on an entry: `.active` (surfaced panel), `.disabled` (backend
  * not healthy yet), `.agent-attention` (badge). A badged entry also carries a
@@ -61,20 +77,26 @@ import { flashElement } from '/design-system/js/highlight.js';
  * @typedef {object} RailPanel
  * @property {string} id
  * @property {string} label
+ * @property {string} [hint] - tooltip suffix advertising the context menu
+ *   (rendered as "LABEL · hint"; aria-label stays the bare label)
  */
 
 /**
  * Interaction closures injected by the caller so the rail stays a dumb view.
- * Every callback is optional: omit `onClose` / `onPopout` / `onOpenBeside` to
- * render no such per-entry corner affordance, omit `onDragStart` to render
- * non-draggable entries. `onDragStart` may return false to cancel the drag for
- * that entry (the caller's policy — e.g. the terminal entry, simple mode);
- * this module stays policy-free.
+ * Every callback is optional: omit `onClose` to render no close corner, omit
+ * `onDragStart` to render non-draggable entries. `onDragStart` may return
+ * false to cancel the drag for that entry, and `onContextMenu` false to let
+ * the browser's native menu through (the caller's policy — e.g. the terminal
+ * entry, simple mode); this module stays policy-free.
  * @typedef {object} RailOptions
  * @property {(id: string) => void} [onActivate]   - an entry was clicked
  * @property {(id: string) => void} [onClose]      - the entry's close "×" was clicked
- * @property {(id: string) => void} [onPopout]     - the entry's popout "↗" was clicked
- * @property {(id: string) => void} [onOpenBeside] - the entry's "⊞" (open in a new tile) was clicked
+ * @property {(id: string, e: MouseEvent) => boolean} [onContextMenu]
+ *   - an entry was right-clicked, or asked for its menu from the keyboard
+ *     (`ContextMenu` / Shift+F10, where `e` is a synthetic contextmenu event
+ *     positioned at the entry's rect); return true if a menu was opened
+ *     (suppresses the browser menu), false to decline and let the native menu
+ *     show
  * @property {(id: string, dataTransfer: DataTransfer | null) => boolean} [onDragStart]
  *   - a drag left an entry; return false to cancel it
  * @property {(id: string) => void} [onDragEnd]    - the entry's drag gesture ended (any outcome)
@@ -112,7 +134,10 @@ function buildRailButton(panel, options = {}) {
   btn.setAttribute('data-panel-id', panel.id);
   btn.setAttribute('role', 'tab');
   btn.setAttribute('aria-selected', 'false');
-  btn.title = panel.label;
+  // The tooltip advertises the context menu (the entry's non-corner verbs have
+  // no visible affordance); aria-label stays the bare label — assistive tech
+  // reaches the menu itself via the menu key / Shift+F10.
+  btn.title = panel.hint ? `${panel.label} · ${panel.hint}` : panel.label;
   btn.setAttribute('aria-label', panel.label);
 
   const icon = document.createElement('span');
@@ -131,29 +156,45 @@ function buildRailButton(panel, options = {}) {
     btn.addEventListener('click', () => onActivate(panel.id));
   }
 
-  // Per-entry corner affordances — the rail owns a panel's MEMBERSHIP
-  // lifecycle (remove from rail, pop out, open as a new tile). Rendered only
-  // when the caller wants them; close takes the top-left corner, popout the
-  // mirrored top-right, open-beside the bottom-right. (Closing an OPEN tile
-  // is the tile header's own "×" — a layout gesture, not a membership one.)
+  // The one corner affordance — close "×", the frequent membership verb that
+  // must stay reachable even on a disabled (offline) entry. The rest of the
+  // entry's verbs (open beside, open standalone, remove) live in the caller's
+  // context menu. (Closing an OPEN tile is the tile header's own "×" — a
+  // layout gesture, not a membership one.)
   if (options.onClose) {
     btn.appendChild(
       buildCornerAffordance('panel-rail-close', '×', `Close ${panel.label}`, panel.id, options.onClose)
     );
   }
-  if (options.onPopout) {
-    btn.appendChild(
-      buildCornerAffordance(
-        'panel-rail-popout', '↗', `Open ${panel.label} in a new window`, panel.id, options.onPopout
-      )
-    );
-  }
-  if (options.onOpenBeside) {
-    btn.appendChild(
-      buildCornerAffordance(
-        'panel-rail-beside', '⊞', `Open ${panel.label} in a new tile`, panel.id, options.onOpenBeside
-      )
-    );
+
+  // Right-click → the caller's context menu. The caller decides per-entry
+  // whether a menu exists (returns true); declining (false — e.g. the
+  // terminal entry) leaves the event alone so the browser menu shows.
+  if (options.onContextMenu) {
+    const onContextMenu = options.onContextMenu;
+    btn.addEventListener('contextmenu', (e) => {
+      if (onContextMenu(panel.id, e)) e.preventDefault();
+    });
+
+    // The keyboard route to the same menu, opened by this module rather than
+    // by the platform: macOS synthesises no `contextmenu` event from the menu
+    // key, so a native-only path would have no keyboard route at all there.
+    // The synthetic event is handed straight to the caller and never
+    // dispatched, so the listener above cannot also fire for one keypress.
+    btn.addEventListener('keydown', (e) => {
+      if (e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey)) return;
+      const rect = btn.getBoundingClientRect();
+      const synthetic = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      });
+      // Preventing the default is what keeps Windows/Firefox — where the
+      // native menu IS this keydown's default action — from stacking a second
+      // menu on the one just opened; a declined entry keeps that default.
+      if (onContextMenu(panel.id, synthetic)) e.preventDefault();
+    });
   }
 
   // Drag source: dragging an entry into the workspace opens the panel as a
@@ -181,10 +222,11 @@ function buildRailButton(panel, options = {}) {
 }
 
 /**
- * One hover-revealed corner glyph on a rail entry. Decorative (aria-hidden) so
- * it is not a control nested inside the entry button — assistive tech reaches
- * the same actions through the command palette. The click stops propagation so
- * acting on the corner does not also activate the entry underneath it.
+ * The entry's one hover-revealed corner glyph — the close "×". Decorative
+ * (aria-hidden) so it is not a control nested inside the entry button;
+ * assistive tech reaches the same action through the entry's context menu and
+ * the command palette. The click stops propagation so acting on the corner
+ * does not also activate the entry underneath it.
  *
  * @param {string} className
  * @param {string} glyph
