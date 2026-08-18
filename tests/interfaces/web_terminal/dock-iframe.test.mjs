@@ -325,3 +325,60 @@ describe('pruning — placeholders of server-closed panels', () => {
     expect(api.getPanel('iframe:lattice')).not.toBeNull();
   });
 });
+
+describe('sash drags — dockview owns the iframe shield (#638)', () => {
+  /**
+   * dockview-core 7.x shields iframes during sash drags itself
+   * (disableIframePointEvents in its splitview): on sash pointerdown it
+   * SNAPSHOTS each iframe's inline pointer-events into a WeakMap and sets
+   * 'none'; its document-level, bubble-phase pointerup handler restores the
+   * snapshot. The adapter must not touch pointer-events around that gesture:
+   * an adapter shield running in the capture phase sets 'none' BEFORE dockview
+   * snapshots, so dockview records 'none' as the original value and its
+   * restore re-freezes every overlay iframe after the drag — permanently,
+   * since each further drag re-snapshots the poisoned value (the #638 freeze).
+   * This test emulates dockview's exact contract and pins that a full sash
+   * gesture ends with the managed iframe interactive.
+   */
+  test('a full sash gesture leaves managed overlay iframes interactive', async () => {
+    const api = makeApi();
+    addTerminal(api);
+    const mod = await freshAdapter(api);
+    const iframe = makeIframe();
+    mod.adoptIframe('artifacts', iframe, { title: 'WORKSPACE' });
+    expect(iframe.style.pointerEvents).toBe('auto');
+
+    const sash = document.createElement('div');
+    sash.className = 'dv-sash';
+    document.body.appendChild(sash);
+
+    // dockview's splitview sash handling, verbatim contract: target-phase
+    // pointerdown snapshot, bubble-phase document pointerup restore.
+    const snapshot = new WeakMap();
+    sash.addEventListener('pointerdown', () => {
+      for (const f of document.querySelectorAll('iframe')) {
+        snapshot.set(f, f.style.pointerEvents);
+        f.style.pointerEvents = 'none';
+      }
+      const release = () => {
+        document.removeEventListener('pointerup', release);
+        for (const f of document.querySelectorAll('iframe')) {
+          f.style.pointerEvents = snapshot.get(f) ?? 'auto';
+        }
+      };
+      document.addEventListener('pointerup', release);
+    });
+
+    sash.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    document.dispatchEvent(new Event('pointerup', { bubbles: true }));
+
+    expect(iframe.style.pointerEvents).toBe('auto');
+
+    // A second gesture must also end interactive (the old shield could never
+    // self-heal: every drag re-snapshotted the poisoned 'none').
+    sash.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    document.dispatchEvent(new Event('pointerup', { bubbles: true }));
+
+    expect(iframe.style.pointerEvents).toBe('auto');
+  });
+});

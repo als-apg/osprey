@@ -53,6 +53,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The limits failsafe now refuses with "limits database unavailable" instead of
   reporting every channel as "not in limits database", so a load failure is no
   longer mistaken for a data problem (#636).
+- Resizing a web-terminal pane no longer freezes the other panels until a
+  browser refresh: the adapter's sash shield poisoned dockview's own
+  pointer-events snapshot and is removed — dockview shields iframes during
+  sash drags itself (#638).
 - `osprey up` now refuses as a precondition, rather than failing with a generic
   "Deployment failed", when a project deploys the archiver store and pymongo is
   missing. The refusal names the interpreter it is missing from — OSPREY seeds
