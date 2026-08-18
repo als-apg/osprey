@@ -98,7 +98,8 @@ What ``osprey init`` writes
      README.md       explains the layout, for whoever opens the repository next
      triggers.yml    the events the agent runs on (dispatch profiles only)
      personas/       one delta per web-terminal persona (persona presets only)
-     web-terminal-context/  one seeded directory per operator on the roster
+     web-terminal-context/  the shared base.md baseline, plus one seeded
+                     directory per operator on the roster
      ci-extra.yml    the facility's own CI jobs; never regenerated
      .gitignore      keeps build/, var/ and .env out of version control
      build/          rendered by `osprey build`; disposable
@@ -151,7 +152,7 @@ name *is* the declaration, and where each one lands is fixed.
      - a script, usually ``.py``
    * - ``web-terminal-context/``
      - ``docker/web-terminal-context/``
-     - a directory named for one operator
+     - a directory named for one operator, plus one shared ``base.md``
    * - ``mcp_servers/``
      - ``_mcp_servers/``
      - a directory per server

@@ -248,7 +248,7 @@ OSPREY is installed and ready to use. Here's what to do next:
       :link-type: doc
 
       Build your first agent with a mock control system. One MCP server, zero
-      complexity. Takes about 10 minutes.
+      complexity. Takes about five minutes.
 
    .. grid-item-card:: **Guided Build Interview**
       :link: osprey-build-interview

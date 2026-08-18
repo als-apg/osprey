@@ -998,7 +998,8 @@ preset does not reach an existing deployment.</p>
   README.md       explains the layout, for whoever opens the repository next
   triggers.yml    the events the agent runs on (dispatch profiles only)
   personas/       one delta per web-terminal persona (persona presets only)
-  web-terminal-context/  one seeded directory per operator on the roster
+  web-terminal-context/  the shared base.md baseline, plus one seeded
+                  directory per operator on the roster
   ci-extra.yml    the facility&#39;s own CI jobs; never regenerated
   .gitignore      keeps build/, var/ and .env out of version control
   build/          rendered by `osprey build`; disposable
@@ -1060,7 +1061,7 @@ name <em>is</em> the declaration, and where each one lands is fixed.</p>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">docker/web-terminal-context/</span></code></p></td>
-<td><p>a directory named for one operator</p></td>
+<td><p>a directory named for one operator, plus one shared <code class="docutils literal notranslate"><span class="pre">base.md</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">_mcp_servers/</span></code></p></td>

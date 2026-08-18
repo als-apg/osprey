@@ -80,10 +80,10 @@ OSPREY does not talk to your control system directly. It uses a
 appropriate protocol (EPICS Channel Access, mock data, or a custom
 backend).
 
-You select the connector in ``config.yml`` by setting
-``control_system.type``. Change ``mock`` to ``epics`` and the same
-agent, tools, and safety hooks work against real hardware. No code
-changes, no reconfiguration --- one setting.
+You select the connector in ``profile.yml`` by setting
+``control_system.type`` in its ``config:`` block. Change ``mock`` to
+``epics`` and the same agent, tools, and safety hooks work against real
+hardware. No code changes, no reconfiguration --- one setting.
 
 
 Next Steps
@@ -93,11 +93,11 @@ Now that you understand the core concepts, you're ready to build:
 
 **Start here:** :doc:`hello-world-tutorial`
   Build your first agent with one MCP server and a mock control system.
-  One command to create, one command to run.
+  Three commands: ``osprey init``, ``osprey build``, ``osprey web``.
 
 **Then scale up:** :doc:`control-assistant`
-  Add channel finding, logbook search, archiver access, and a web
-  terminal for production deployment.
+  Add channel finding, logbook search, an archive of its own, and
+  logbook and channel-finder panels in the web terminal.
 
 **Go deeper:** :doc:`../architecture/index`
   Detailed diagrams of the safety chain, data flow, and the full MCP

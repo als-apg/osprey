@@ -1103,6 +1103,12 @@ made directly in the built <code class="docutils literal notranslate"><span clas
 build overwrites it. Rebuilding also seeds an empty
 <code class="docutils literal notranslate"><span class="pre">web-terminal-context/&lt;user&gt;/</span></code> slot for each new operator, which is
 where their per-user context goes.</p>
+<p>Beside those slots sits <code class="docutils literal notranslate"><span class="pre">web-terminal-context/base.md</span></code> — the shared
+baseline every seeded user’s <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> starts from. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
+materializes it from the preset so the text is visible and editable in
+your repo; edit it there and rebuild, and every terminal picks up the
+change. A profile without one falls back to a generic framework
+baseline.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 34.0%" />

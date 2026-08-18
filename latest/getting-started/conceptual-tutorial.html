@@ -496,20 +496,20 @@ skip, or influence them.</p>
 <strong>connector</strong> — an adapter that translates tool calls into the
 appropriate protocol (EPICS Channel Access, mock data, or a custom
 backend).</p>
-<p>You select the connector in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> by setting
-<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code>. Change <code class="docutils literal notranslate"><span class="pre">mock</span></code> to <code class="docutils literal notranslate"><span class="pre">epics</span></code> and the same
-agent, tools, and safety hooks work against real hardware. No code
-changes, no reconfiguration — one setting.</p>
+<p>You select the connector in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> by setting
+<code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> in its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block. Change <code class="docutils literal notranslate"><span class="pre">mock</span></code> to
+<code class="docutils literal notranslate"><span class="pre">epics</span></code> and the same agent, tools, and safety hooks work against real
+hardware. No code changes, no reconfiguration — one setting.</p>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
 <p>Now that you understand the core concepts, you’re ready to build:</p>
 <dl class="simple">
 <dt><strong>Start here:</strong> <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></dt><dd><p>Build your first agent with one MCP server and a mock control system.
-One command to create, one command to run.</p>
+Three commands: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p>
 </dd>
-<dt><strong>Then scale up:</strong> <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a></dt><dd><p>Add channel finding, logbook search, archiver access, and a web
-terminal for production deployment.</p>
+<dt><strong>Then scale up:</strong> <a class="reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a></dt><dd><p>Add channel finding, logbook search, an archive of its own, and
+logbook and channel-finder panels in the web terminal.</p>
 </dd>
 <dt><strong>Go deeper:</strong> <a class="reference internal" href="../architecture/index.html"><span class="doc">Architecture Overview</span></a></dt><dd><p>Detailed diagrams of the safety chain, data flow, and the full MCP
 tool catalog.</p>
