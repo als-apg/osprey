@@ -221,20 +221,13 @@ function resultsHaveUnwatchedActivity() {
  */
 function publishContribution() {
   /** @type {import('/design-system/js/header-contrib.js').HeaderItem[]} */
-  const items = [
-    {
-      kind: 'nav',
-      id: VIEW_ITEM_ID,
-      items: VIEWS.map((entry) => ({
-        id: entry.id,
-        label:
-          entry.id === 'results' && resultsHaveUnwatchedActivity()
-            ? `${entry.label}${ACTIVITY_MARKER}`
-            : entry.label,
-        active: entry.id === activeView,
-      })),
-    },
-  ];
+  const items = [];
+  // ORDER IS THE LAYOUT. The hub right-anchors every interactive item into one
+  // cluster and lays it out in contribution order, so the filter comes FIRST to
+  // sit left of the view switcher — the arrangement the Artifacts gallery
+  // already uses for its own filter/switcher pair. Reordering this array is the
+  // only way to move them; there is no side or slot to ask the hub for.
+  //
   // The filter belongs to the Plans view, so it is contributed only while that
   // view is showing — and never in Simple mode, where the hub collapses the
   // tile bar and Simple deliberately ENLARGES a search box rather than hiding
@@ -242,6 +235,18 @@ function publishContribution() {
   if (activeView === 'plans' && !isSimpleMode()) {
     items.push({ kind: 'search', id: FILTER_ITEM_ID, placeholder: 'Filter plans…' });
   }
+  items.push({
+    kind: 'nav',
+    id: VIEW_ITEM_ID,
+    items: VIEWS.map((entry) => ({
+      id: entry.id,
+      label:
+        entry.id === 'results' && resultsHaveUnwatchedActivity()
+          ? `${entry.label}${ACTIVITY_MARKER}`
+          : entry.label,
+      active: entry.id === activeView,
+    })),
+  });
   contributeHeader(items);
 }
 

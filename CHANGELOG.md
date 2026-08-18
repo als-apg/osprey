@@ -268,6 +268,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   major is a client rewrite, so adopting it should be a deliberate change
   rather than something a lock refresh picks up on its own.
 
+- In the bluesky panel's web-terminal tile bar, the plan filter now sits to
+  the left of the Plans / Queue / Results switcher rather than to its right,
+  matching the artifacts gallery.
+
 ### Added
 
 - The `control-assistant` preset now stands up a third web terminal beside

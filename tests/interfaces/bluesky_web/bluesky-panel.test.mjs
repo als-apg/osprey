@@ -2464,6 +2464,18 @@ describe('the merged panel shell', () => {
     expect(search.placeholder).toContain('Filter plans');
   });
 
+  test('the filter is contributed before the view switcher, so it renders left of it', async () => {
+    // The hub right-anchors every interactive item into ONE cluster and lays
+    // it out in contribution order (dockview-overrides.css gives them all the
+    // same flex `order`), so this array IS the left-to-right arrangement in
+    // the tile bar. Filter first, switcher second — the same pairing the
+    // Artifacts gallery contributes.
+    mount();
+    await import(`${BUNDLE}panel.js`);
+
+    expect(lastContribution().map((entry) => entry.kind)).toEqual(['search', 'nav']);
+  });
+
   test('Simple mode contributes no search — the hub collapses the bar there', async () => {
     // Simple deliberately ENLARGES a search box; the tile bar it would live in
     // is zero-height. The in-body one is the one on screen.
