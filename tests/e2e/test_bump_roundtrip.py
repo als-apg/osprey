@@ -54,7 +54,7 @@ partial figure exists is therefore a fraction of a short run — an assertion
 that would be racing the run rather than testing the route.
 
 No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/``VA_CORR_GAIN``
-in the written ``.env`` — see ``_orm_stack.write_scan_env``), so the VA's read
+in the written ``.env`` — see ``_orm_stack.write_substrate_env``), so the VA's read
 path is deterministic: the baseline reads return identical values and the
 measured per-BPM sigma is exactly zero. That is legal and is not a skip — see
 ``bump_analysis.noise_floor_violations`` on why a zero sigma is a fact about
@@ -510,7 +510,7 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     all_correctors = _orm_stack.select_correctors(limits, count=None)
     # Writes the repo root's `.env` — the deployment's whole secret store, and
     # the file `osprey up` refuses to start without.
-    _orm_stack.write_scan_env(
+    _orm_stack.write_substrate_env(
         repo,
         correctors={name: all_correctors[name] for name in stack.correctors},
         bpms={name: name for name in stack.all_bpms},
