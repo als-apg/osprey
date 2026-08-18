@@ -538,7 +538,15 @@ def _runs_by_trigger() -> dict[str, dict]:
     by_trigger: dict[str, dict] = {}
     for run in runs:
         name = run.get("trigger_name")
-        if name:
+        if not name:
+            continue
+        # Latest wins by created_at, explicitly. The feed arrives newest-first,
+        # so a plain overwrite would keep the OLDEST run per trigger -- and on a
+        # flaky() rerun (module fixture not torn down) the poll loop would
+        # instantly re-read attempt 1's failed run instead of tracking the run
+        # this attempt just fired, making the retry vacuous.
+        held = by_trigger.get(name)
+        if held is None or (run.get("created_at") or 0) > (held.get("created_at") or 0):
             by_trigger[name] = run
     return by_trigger
 
