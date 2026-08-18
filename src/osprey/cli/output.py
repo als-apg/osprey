@@ -20,6 +20,8 @@ document and nothing else.
 
 from __future__ import annotations
 
+import re
+import textwrap
 from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import PurePath
@@ -64,6 +66,11 @@ _INDENT = "  "
 #: ragged label column still reads as two columns rather than as one sentence.
 _GUTTER = "   "
 
+#: The narrowest value column :func:`flush_ledger` will fold prose into. Below
+#: this a fold produces a column of two-word fragments that is harder to read
+#: than an over-long line, so a very narrow terminal gets the over-long line.
+_LEDGER_MIN_VALUE_WIDTH = 32
+
 #: What a failure or a refusal opens with -- the same mark
 #: :meth:`Messages.error <osprey.cli.styles.Messages.error>` has always used, and
 #: the one this module's trouble path spells. One reported failure wears exactly
@@ -101,6 +108,38 @@ _ledger: list[tuple[str, str]] = []
 #: The heading the flushed ledger prints under. One spelling, here, so the
 #: closing block reads identically whichever verb flushes it.
 _LEDGER_TITLE = "This deploy wrote"
+
+
+#: What a URL looks like in a line the CLI prints. Whitespace-delimited, since
+#: the values these appear in ("http://127.0.0.1:9080  (landing page)") pad the
+#: address with spaces rather than punctuation.
+_URL_RE = re.compile(r"https?://\S+")
+
+#: Trailing characters that end a SENTENCE rather than the address in it, so
+#: they are handed back to the surrounding text before the link is made.
+_URL_TRAILING = ".,;:"
+
+
+def _linkify(text: str) -> Text:
+    """Render ``text`` with every URL in it as a terminal hyperlink.
+
+    Semantic styling by TYPE, which is the rule :func:`section` already follows
+    for paths: an address the CLI prints is the one thing in its output that a
+    reader wants to ACT on, and a terminal that understands OSC 8 can open it on
+    a click instead of on a copy, a paste and a guess about where the address
+    ends. Terminals that do not understand the sequence show the same plain
+    text, and a console that is not a terminal at all -- a pipe, a captured test
+    run -- emits no escape at all, so nothing downstream of this sees a change.
+    """
+    rendered = Text()
+    cursor = 0
+    for match in _URL_RE.finditer(text):
+        url = match.group().rstrip(_URL_TRAILING)
+        rendered.append(text[cursor : match.start()])
+        rendered.append(url, style=f"link {url}")
+        cursor = match.start() + len(url)
+    rendered.append(text[cursor:])
+    return rendered
 
 
 def _region_is_mounted() -> bool:
@@ -216,7 +255,12 @@ def report(text: str, /, *, style: str | None = None) -> None:
         the whole line (a card's title line, say). Keyword-only because it is
         not prose; omitted, the line prints in the terminal's own color.
     """
-    _echo(Text(text, style=style or ""))
+    # The base style, not a span: a URL inside the line carries its own link
+    # span from :func:`_linkify`, and a base style layers under both.
+    line = _linkify(text)
+    if style:
+        line.style = style
+    _echo(line)
 
 
 def report_fact(
@@ -300,19 +344,46 @@ def warn_fact(
 def flush_ledger() -> None:
     """Print the collected ledger rows as one closing block, and empty the ledger.
 
-    Called by the verb that owns the run, after its summary card -- and, on the
+    Called by the verb that owns the run, BEFORE its summary card -- and, on the
     attached ``up`` path, immediately before the reporter's hand-off, because a
     process about to replace itself with compose has exactly one last chance to
     say what it wrote. A run that collected nothing prints nothing.
 
-    Rows print in the order they were collected, which is the order the run did
-    the writing -- :func:`section` keeps sequence order for exactly this caller.
+    Grouped by file rather than laid out as a key/value block, which is what
+    :func:`section` renders and what this used to be. Two properties of these
+    rows defeat that shape and no other block has either. Their labels REPEAT --
+    one deploy writes four separate things into ``.env`` -- so the label column
+    prints the same path four times and does no work. And their values are
+    PROSE, wide enough to need folding, and a folded value in a two-column block
+    is indistinguishable from the next row: the reader cannot tell a continued
+    sentence from a new thing written. So each file is named once, on its own
+    line, and the things written into it are the facts under it, in the same
+    ``·`` shape the run's own steps wear. Consecutive rows sharing a label form
+    one group, so the block still reads in the order the run did the writing;
+    a file written to, left, and returned to is named twice, which is what
+    happened.
     """
     if not _ledger:
         return
     rows, _ledger[:] = list(_ledger), []
     report("")
-    section(_LEDGER_TITLE, rows, label_style=Styles.PATH)
+    _echo(Text(_LEDGER_TITLE, style=Styles.HEADER))
+    body_indent = f"{_INDENT}{_INDENT}"
+    fold_indent = f"{body_indent}  "
+    width = max(_LEDGER_MIN_VALUE_WIDTH, _target_console(err=False).width - len(fold_indent))
+    previous: str | None = None
+    for label, value in rows:
+        if label != previous:
+            _echo(Text(f"{_INDENT}{label}", style=Styles.PATH))
+            previous = label
+        for index, chunk in enumerate(textwrap.wrap(value, width) or [""]):
+            if index:
+                line = Text(fold_indent)
+            else:
+                line = Text(body_indent)
+                line.append(f"{_FACT_GLYPH} ", style=Styles.ACCENT)
+            line.append_text(_linkify(chunk))
+            _echo(line)
 
 
 def clear_ledger() -> None:
@@ -380,7 +451,10 @@ def section(
         line = Text(_INDENT)
         line.append(label.ljust(width), style=label_style)
         line.append(_GUTTER)
-        line.append(str(value), style=Styles.PATH if isinstance(value, PurePath) else "")
+        if isinstance(value, PurePath):
+            line.append(str(value), style=Styles.PATH)
+        else:
+            line.append_text(_linkify(str(value)))
         _echo(line)
 
 

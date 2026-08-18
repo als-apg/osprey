@@ -25,6 +25,7 @@ the real ``out()``/``echo`` seam is the one being used.
 
 import io
 import re
+from pathlib import PurePosixPath
 
 import pytest
 from rich.console import Console
@@ -52,6 +53,11 @@ from osprey.cli.styles import data_table, osprey_theme, panel
 
 #: Anything Rich writes that is not text: styles, cursor moves, erases.
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
+
+#: The other escape family a line can carry: an OSC string, which is how a
+#: terminal hyperlink wraps a URL (``\x1b]8;;<url>\x1b\\``). Stripped by
+#: ``visible`` alongside the CSI codes, because neither is a word.
+_OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 #: Just the color half of that. A line printed above a mounted region carries
 #: the region's own erase (``\x1b[2K``) whether or not it is styled, so "is this
@@ -84,17 +90,21 @@ def parked_monitor(monkeypatch):
     monkeypatch.setattr(phase_reporter, "_MONITOR_INTERVAL", 3600.0)
 
 
-def recording_console() -> tuple[Console, io.StringIO]:
+def recording_console(*, width: int = 100, terminal: bool = True) -> tuple[Console, io.StringIO]:
     """A themed terminal console that records everything written to it.
 
     ``force_terminal`` is what makes a ``Live`` real: off a terminal Rich skips
     the repaint entirely. The theme is not optional either -- the primitives'
     styles are semantic tokens, and a bare ``Console()`` raises ``MissingStyle``
     on the first one.
+
+    ``width`` is for the tests that are about layout rather than about words:
+    the ledger folds its values at the console's width, so pinning that fold
+    means pinning the width it was computed from.
     """
     buffer = io.StringIO()
     return (
-        Console(file=buffer, theme=osprey_theme, force_terminal=True, width=100),
+        Console(file=buffer, theme=osprey_theme, force_terminal=terminal, width=width),
         buffer,
     )
 
@@ -112,7 +122,8 @@ class RecordingReporter(PhaseReporter):
 
 def visible(text: str) -> list[str]:
     """The words in ``text``, with escapes and blank lines dropped."""
-    return [line for line in _ANSI.sub("", text).splitlines() if line.strip()]
+    stripped = _OSC.sub("", _ANSI.sub("", text))
+    return [line for line in stripped.splitlines() if line.strip()]
 
 
 def visible_raw(text: str) -> list[str]:
@@ -961,7 +972,8 @@ def test_a_wrote_row_waits_for_the_flush(capsys):
     output.flush_ledger()
     assert visible(capsys.readouterr().out) == [
         "This deploy wrote",
-        "  .env   TOKEN_A, TOKEN_B (gitignored; keep them secret)",
+        "  .env",
+        "    · TOKEN_A, TOKEN_B (gitignored; keep them secret)",
     ]
     # The row reached the log sinks at collection time, not at the flush.
     assert any("TOKEN_A" in message for message in logger.key_info_messages)
@@ -1000,8 +1012,8 @@ def test_ledger_rows_keep_their_collection_order(capsys):
     capsys.readouterr()
     output.flush_ledger()
     lines = visible(capsys.readouterr().out)
-    assert lines[1].startswith("  b-label")
-    assert lines[2].startswith("  a-label")
+    assert lines[1] == "  b-label"
+    assert lines[3] == "  a-label"
 
 
 def test_report_fact_honors_machine_mode(capsys):
@@ -1013,6 +1025,124 @@ def test_report_fact_honors_machine_mode(capsys):
     assert captured.out == ""
     assert "minted a token" in captured.err
     assert "TOKEN" in captured.err
+
+
+def test_a_repeated_ledger_label_prints_once_for_its_run_of_rows(capsys):
+    """Four rows all saying `.env` is a label column doing no work. The file is
+    named once and the things written into it are the facts under it."""
+    install_reporter(PhaseReporter(color=False))
+    logger = _RecordingLogger()
+    output.report_fact(logger, "minted tokens", wrote=(".env", "TOKEN_A"))
+    output.report_fact(logger, "wrote names", wrote=(".env", "SERVICE_ACCOUNT=svc"))
+    output.report_fact(logger, "wrote certs", wrote=("data/certs/", "the certificates"))
+    output.report_fact(logger, "and more", wrote=("data/certs/", "and their keys"))
+    capsys.readouterr()
+
+    output.flush_ledger()
+
+    assert visible(capsys.readouterr().out) == [
+        "This deploy wrote",
+        "  .env",
+        "    · TOKEN_A",
+        "    · SERVICE_ACCOUNT=svc",
+        "  data/certs/",
+        "    · the certificates",
+        "    · and their keys",
+    ]
+
+
+def test_a_long_ledger_value_folds_under_its_own_bullet(capsys):
+    """The one block whose values are prose. A value wider than the terminal
+    would otherwise wrap back to column zero and land under the file names."""
+    console, buffer = recording_console(width=60)
+    install_reporter(RecordingReporter(console))
+    output.report_fact(
+        _RecordingLogger(),
+        "minted a keypair",
+        wrote=(
+            ".env",
+            "PRIVATE_KEY and PUBLIC_KEY; treat both halves as secrets, since "
+            "the public half alone reaches the control socket",
+        ),
+    )
+    buffer.truncate(0)
+    buffer.seek(0)
+
+    output.flush_ledger()
+
+    lines = visible(buffer.getvalue())
+    assert lines[:2] == ["This deploy wrote", "  .env"]
+    assert lines[2].startswith("    · PRIVATE_KEY")
+    # Every continuation line starts under its bullet's text, never under the
+    # bullet and never under the file name.
+    value_column = lines[2].index("PRIVATE_KEY")
+    for line in lines[3:]:
+        assert line[:value_column].isspace()
+        assert len(line) <= 60
+
+
+def test_a_url_in_a_printed_line_is_a_terminal_hyperlink(capsys):
+    """The addresses the CLI prints are the ones a reader wants to act on, so a
+    terminal that understands OSC 8 opens them on a click."""
+    console, buffer = recording_console(terminal=True)
+    install_reporter(RecordingReporter(console))
+
+    output.report("Everything is running. Open http://127.0.0.1:9080 to start.")
+
+    printed = buffer.getvalue()
+    assert "\x1b]8;" in printed
+    assert "http://127.0.0.1:9080" in printed
+    # The sentence around it is untouched.
+    assert visible(printed) == ["Everything is running. Open http://127.0.0.1:9080 to start."]
+
+
+def test_a_url_in_a_section_value_is_a_terminal_hyperlink():
+    """The endpoint rows are where this earns its keep: the summary card and
+    `osprey status` both lay their addresses out through `section`."""
+    console, buffer = recording_console(terminal=True)
+    install_reporter(RecordingReporter(console))
+
+    output.section("endpoints", [("web terminal", "http://127.0.0.1:9080  (landing page)")])
+
+    printed = buffer.getvalue()
+    assert "\x1b]8;" in printed
+    assert visible(printed) == [
+        "endpoints",
+        "  web terminal   http://127.0.0.1:9080  (landing page)",
+    ]
+
+
+def test_a_path_value_stays_a_path_rather_than_a_link():
+    """Semantic styling by type: a PurePath keeps the path token and gains no
+    link, so the one rule does not start guessing at strings."""
+    console, buffer = recording_console(terminal=True)
+    install_reporter(RecordingReporter(console))
+
+    output.section("", [("command output", PurePosixPath("/srv/demo/var/logs"))])
+
+    assert "\x1b]8;" not in buffer.getvalue()
+
+
+def test_a_url_reaches_a_pipe_as_plain_text(capsys):
+    """Off a terminal Rich emits no escape at all, so a piped or captured run
+    sees exactly the address and nothing wrapped around it."""
+    install_reporter(PhaseReporter(color=False))
+
+    output.report("Open http://127.0.0.1:9080 to start.")
+
+    assert capsys.readouterr().out == "Open http://127.0.0.1:9080 to start.\n"
+
+
+def test_a_sentence_ending_in_a_url_keeps_its_full_stop_out_of_the_link(capsys):
+    console, buffer = recording_console(terminal=True)
+    install_reporter(RecordingReporter(console))
+
+    output.report("Open http://127.0.0.1:9080.")
+
+    printed = buffer.getvalue()
+    # The link closes on the address; the full stop is text on the far side.
+    assert "http://127.0.0.1:9080\x1b" in printed
+    assert visible(printed) == ["Open http://127.0.0.1:9080."]
 
 
 # -- warn_fact ----------------------------------------------------------------
