@@ -154,6 +154,7 @@ VA_CA_PORT = 15067
 POSTGRES_PORT = 25436
 OPENOBSERVE_PORT = 25085
 MONGODB_PORT = 27118
+QMD_PORT = 28180  # preset default 8180 collides with any tutorial stack on the host
 
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 
@@ -179,6 +180,7 @@ EXTRA_CONFIG: dict[str, Any] = {
     "config": {
         "services.postgresql.port_host": POSTGRES_PORT,
         "services.openobserve.port": OPENOBSERVE_PORT,
+        "services.qmd.port": QMD_PORT,
     },
     "bluesky": {"tiled_port": TILED_PORT},
     "bluesky_panels": None,
