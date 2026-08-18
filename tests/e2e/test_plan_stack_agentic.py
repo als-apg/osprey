@@ -2168,9 +2168,10 @@ def clean_queue(request: pytest.FixtureRequest) -> None:
     outlives every test in this module (the deploy fixture drops it only at
     module teardown) — so a rerun inherits whatever the previous attempt left
     queued. And these tests are agentic: a rerun (each live test carries
-    ``flaky``) follows an attempt that may have left a run mid-flight. An agent that then queues its own work and arms the queue would
-    put the PREVIOUS attempt's plan on the hardware too, and read back a run it
-    never launched — a floor satisfied by someone else's run.
+    ``flaky``) follows an attempt that may have left a run mid-flight. An agent
+    that then queues its own work and arms the queue would put the PREVIOUS
+    attempt's plan on the hardware too, and read back a run it never launched —
+    a floor satisfied by someone else's run.
 
     The three steps, and why each is needed:
 
