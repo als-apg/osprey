@@ -62,6 +62,7 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
+from tests.e2e._volumes import remove_project_volumes
 
 DISPATCHER_URL = "http://localhost:8020"
 TOKEN = "dev-token"  # matches the .env tokens written below
@@ -88,22 +89,6 @@ WORKER_AGENT_DATA = f"{WORKER_PROJECT_DIR}/var/agent_data"
 WORKER_ARTIFACT_DIR = f"{WORKER_AGENT_DATA}/artifacts"
 # The worker persists each completed run (full result incl. tool_calls) here.
 WORKER_DISPATCH_DIR = f"{WORKER_AGENT_DATA}/dispatch"
-
-# The named volume the worker mounts at WORKER_AGENT_DATA. Its name is
-# ``<compose-project>_<volume>_<replica>`` = ``services`` (the compose files live
-# under ``build/services/``) + ``dispatch_workspace`` + ``_1`` (one worker).
-#
-# ``osprey down`` does NOT remove named volumes, so a volume left by a prior
-# deployment survives. The worker runs as a NON-ROOT user and relies on a FRESH
-# volume inheriting the image's ``osprey``-owned agent-data tree (see
-# ``docker-compose.yml.j2``: the image ``chown``s the tree before ``USER
-# osprey``, and Docker copies that ownership into a volume only on first
-# population). A volume left root-owned by an older root-writing deployment makes
-# the worker's ``_persist_run`` fail with ``PermissionError`` — the run still
-# completes, but its per-run JSON never lands, so this test would read an empty
-# record and mis-report the agent as having taken no actions. Removing the volume
-# before deploy restores the documented fresh-volume precondition.
-WORKER_WORKSPACE_VOLUME = "services_dispatch_workspace_1"
 
 # Custom trigger + the observable tokens the overlay skill is instructed to emit.
 OVERLAY_TRIGGER = "overlay-visibility"
@@ -217,21 +202,28 @@ _OVERLAY_TRIGGER_ENTRY = {
 }
 
 
-def _remove_worker_workspace_volume() -> None:
-    """Remove the worker's persisted agent-data named volume, if present.
+def _drop_project_volumes() -> None:
+    """Remove this project's named volumes, the worker workspace included.
 
-    Guarantees the fresh-volume precondition the non-root worker relies on to own
-    (and write) its agent-data tree (see ``WORKER_WORKSPACE_VOLUME``). ``rm -f``
-    tolerates an absent volume; it only fails if a live container still holds the
-    volume, in which case the post-deploy checks surface the stale-ownership
-    symptom with a clear diagnostic rather than the misleading "no tool_calls".
+    Guarantees the fresh-volume precondition the non-root worker relies on to
+    own (and write) its agent-data tree: the worker mounts a NAMED volume at
+    ``WORKER_AGENT_DATA`` (``<project>_dispatch_workspace_1`` — the deploy path
+    pins ``COMPOSE_PROJECT_NAME`` to ``resolve_project_name``), and it inherits
+    the image's ``osprey``-owned tree only on FIRST population (see
+    ``docker-compose.yml.j2``: the image ``chown``s the tree before ``USER
+    osprey``). A volume left root-owned by an older root-writing deployment
+    makes the worker's ``_persist_run`` fail with ``PermissionError`` — the run
+    still completes, but its per-run JSON never lands, so this test would read
+    an empty record and mis-report the agent as having taken no actions.
+
+    Listing by compose's project label rather than a predicted name is the
+    point: a hardcoded name here once encoded the pre-pin ``services_*``
+    namespace and silently removed nothing. Removal is best-effort; a volume a
+    live container still holds stays put, and the post-deploy checks surface
+    the stale-ownership symptom with a clear diagnostic rather than the
+    misleading "no tool_calls".
     """
-    subprocess.run(
-        ["docker", "volume", "rm", "-f", WORKER_WORKSPACE_VOLUME],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
 
 
 def _mutate_source(repo: Path) -> None:
@@ -369,11 +361,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         ["docker", "rmi", "-f", f"{project}-dispatch:local"], capture_output=True, text=True
     )
 
-    # Drop any stale worker workspace volume so the fresh deploy repopulates it
-    # from the image (osprey-owned agent-data tree). Without this, a volume left
-    # root-owned by an older deployment makes the non-root worker unable to
-    # persist run records (see WORKER_WORKSPACE_VOLUME).
-    _remove_worker_workspace_volume()
+    # Drop any stale project volumes so the fresh deploy repopulates the worker
+    # workspace from the image (osprey-owned agent-data tree). Without this, a
+    # volume left root-owned by an older deployment makes the non-root worker
+    # unable to persist run records (see _drop_project_volumes).
+    _drop_project_volumes()
 
     try:
         up = _run(
@@ -394,9 +386,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
-        # Leave no stale workspace volume behind so the next local run starts
-        # from the documented fresh-volume state (see WORKER_WORKSPACE_VOLUME).
-        _remove_worker_workspace_volume()
+        # Leave no stale volumes behind so the next local run starts from the
+        # documented fresh-volume state (see _drop_project_volumes).
+        _drop_project_volumes()
 
 
 def _wait_for_health(url: str, timeout: float) -> None:
@@ -733,9 +725,9 @@ def test_overlay_skill_and_data_visible_in_worker(deployed_stack: Path) -> None:
             f"run {run_id!r} completed with tool_count={run.get('tool_count')!r} in "
             f"the dispatcher feed, but its persisted record at {WORKER_DISPATCH_DIR} "
             "has no tool_calls: the worker failed to PERSIST the run (typically a "
-            f"PermissionError writing {WORKER_DISPATCH_DIR} because the "
-            f"{WORKER_WORKSPACE_VOLUME} volume was left root-owned by a prior "
-            "deployment). The agent acted; the record is the problem — check the "
+            f"PermissionError writing {WORKER_DISPATCH_DIR} because the worker "
+            "workspace volume was left root-owned by a prior deployment). The "
+            "agent acted; the record is the problem — check the "
             f"worker logs for 'Failed to persist run'.\n{diag}"
         )
     assert tool_calls, (
