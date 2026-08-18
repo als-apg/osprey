@@ -67,6 +67,7 @@ from osprey.deployment.service_tokens import (
     _generate_openobserve_password,  # noqa: F401  (re-exported for tests)
     _generate_token,
     _is_forbidden_value,
+    _is_too_weak_when_exposed,
     _raise_forbidden_var,
     _raise_invalid_var,
     _validate_openobserve_password,  # noqa: F401  (re-exported for tests)
@@ -159,6 +160,33 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
     "postgresql": ("ARIEL_DB_PASSWORD",),
     "mongodb": ("MONGO_ROOT_PASSWORD",),
+}
+
+# Non-secret settings written into ``.env`` for a deployed service, as
+# ``service -> ((var, default), ...)``. Keyed by ``deployed_services`` membership
+# exactly like ``_SERVICE_TOKEN_VARS``, and never overwriting a value that is
+# already there — but a DIFFERENT concern, which is why it is a different map.
+#
+# ``_SERVICE_TOKEN_VARS`` declares machine-generated secrets, and every name it
+# reaches is minted through ``_VAR_GENERATORS`` under that module's CSPRNG bar.
+# A constant is not a secret and has no recipe, so registering one there would
+# mean writing a generator that returns a fixed string — a value the bar has no
+# meaning for, sitting in the map an operator reads to learn what osprey
+# considers secret.
+#
+# The reason to write a default down at all is discoverability. Both halves of
+# the OpenObserve login are needed to reach the store, and the email previously
+# existed only as a ``:-`` fallback inline in the compose template and the
+# rendered config.yml. An operator looking for their credentials found a
+# password in ``.env``, no email anywhere, and nothing naming the file that
+# would have told them. Writing the default makes ``.env`` the whole answer,
+# and — because it is the same value the ``:-`` fallback resolves to — records
+# the login rather than changing it.
+_SERVICE_DEFAULT_VARS: dict[str, tuple[tuple[str, str], ...]] = {
+    # Must stay equal to the ``${ZO_ROOT_USER_EMAIL:-…}`` fallback in
+    # ``osprey/templates/services/openobserve/docker-compose.yml.j2``; the mint
+    # tests parse the template and pin the two together.
+    "openobserve": (("ZO_ROOT_USER_EMAIL", "root@example.com"),),
 }
 
 # Vars checked against their _VAR_VALIDATORS constraint when present, but
@@ -596,6 +624,54 @@ def _ensure_service_tokens(
                 name for name in generated if name in _VOLUME_INITIALIZED_VARS
             }
 
+    # Write the non-secret service settings (_SERVICE_DEFAULT_VARS) for every
+    # deployed service that declares one. Its OWN block, outside `if
+    # required_vars:` and outside `if generated:`, and that placement is the
+    # whole upgrade path: the mint is idempotent, so a project deployed before
+    # this existed has a `.env` carrying a password and no email, generates
+    # nothing on its next deploy, and would never receive the line if this rode
+    # along with the minted block. Exactly the deployments that need it are the
+    # ones with nothing left to mint.
+    #
+    # Presence is read the same way the mint reads it — process env over `.env`,
+    # non-empty — so an operator's value is never overwritten and a re-run
+    # appends nothing. Reported separately from the token ledger, and the VALUE
+    # is shown: these are account names, not secrets, and an operator who cannot
+    # see what was written is back where they started.
+    defaults: dict[str, str] = {}
+    existing_defaults = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    for svc_name, var_defaults in _SERVICE_DEFAULT_VARS.items():
+        if svc_name not in services:
+            continue
+        for var, default in var_defaults:
+            if _effective_value(var, existing_defaults).strip():
+                continue  # keep the operator's value
+            defaults[var] = default
+
+    if defaults:
+        _append_env_block(
+            env_path,
+            "Service account names (osprey up) — not secrets",
+            defaults,
+        )
+        # Same repair the mint makes, for the same reason: the deploy loaded
+        # this `.env` over the process environment before we got here, so a name
+        # the file spelled EMPTY left an empty copy in `os.environ` that
+        # outranks the `--env-file` line for compose's interpolation. Without
+        # this the container receives the blank while `.env` shows the default —
+        # written down and not delivered. Names absent from the environment stay
+        # absent and reach the containers through `--env-file` as usual.
+        for var, value in defaults.items():
+            if var in os.environ:
+                os.environ[var] = value
+        _report_fact(
+            f"wrote {len(defaults)} service account name(s) → .env",
+            wrote=(
+                ".env",
+                ", ".join(f"{var}={value}" for var, value in defaults.items()),
+            ),
+        )
+
     # Validate the effective value of every required var — whichever of
     # process env, an existing .env, or a value just minted above the caller
     # actually sees — against its registered _VAR_VALIDATORS constraint (if
@@ -618,6 +694,25 @@ def _ensure_service_tokens(
                 f"{name} is empty; refusing to start a deployment that is reachable "
                 f"off-host with an empty token. Unset {name} in the environment and let "
                 f"`osprey up` mint one, or export a strong secret."
+            )
+        # The length floor, for the same exposure and one step past empty. Only
+        # ZO_ROOT_USER_PASSWORD registers one, because only its recipe mints
+        # deliberately short — short enough for a person to read off a terminal
+        # and type into the OpenObserve login form during a demo. That trade is
+        # sound on the loopback deploy it was chosen for and not sound here, and
+        # the mint's idempotence is what makes the check necessary rather than
+        # decorative: the demo password is still in `.env` when this project is
+        # later brought up with `--expose`, so nothing re-mints it and only a
+        # read of the effective value can catch it. Applies whatever the origin,
+        # which also covers an operator who simply chose a short password.
+        if expose_network and _is_too_weak_when_exposed(name, effective):
+            raise RuntimeError(
+                f"{name} is too short for a deployment that is reachable off-host. "
+                f"The value osprey mints is sized to be typed at a demo login on "
+                f"localhost, not to guard a store other hosts can reach — and this "
+                f"one holds full agent conversation transcripts. Set a strong "
+                f"{name} in .env before deploying with --expose. "
+                f"Refusing to deploy. (Value not shown.)"
             )
         # Ahead of the format check so the more specific diagnosis wins. A
         # registered forbidden value is well-formed by construction — that is

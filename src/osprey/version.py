@@ -112,7 +112,9 @@ def _pep440_from_describe(described: str) -> str | None:
     if distance == "0" and not dirty:
         return base
 
-    local = f"g{remainder}"
+    # setuptools-scm slices every node to a fixed width ("g" + 9 hex); mirror
+    # it, or the build stamp and this string disagree on hash length alone.
+    local = f"g{remainder[:9]}"
     if dirty:
         from datetime import date
 
@@ -135,6 +137,10 @@ def _version_from_git() -> str | None:
                 "--tags",
                 "--long",
                 "--dirty",
+                # Full node, sliced below. git's default abbreviation width
+                # scales with the size of the clone, so left to it the same
+                # commit reports g1234567a here and g1234567ab elsewhere.
+                "--abbrev=40",
                 "--match",
                 "v[0-9]*",
             ],

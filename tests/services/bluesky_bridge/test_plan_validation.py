@@ -321,17 +321,18 @@ class TestStaticAllowlistCheck:
         assert _static_allowlist_check("from bluesky import plan_stubs") == []
         assert _static_allowlist_check("from bluesky import some_other") != []
 
-    def test_osprey_is_two_leaf_modules_and_nothing_else(self):
+    def test_osprey_is_three_leaf_modules_and_nothing_else(self):
         """`osprey` is narrowed exactly as `bluesky` is: the top level is denied
-        and two fully-dotted leaves are allowed.
+        and three fully-dotted leaves are allowed.
 
         A plan file may declare a `render()`, and a `Figure` cannot be built
-        without importing the module that defines it -- but that is the whole
-        of the widening. `figure` is pydantic-only and `orm_analysis` is
-        numpy-only; the connector, config, queue, and executor packages next
-        door are precisely what this allowlist exists to keep out of an
-        agent-authored plan body, and admitting bare `osprey` would hand a plan
-        every one of them.
+        without importing the module that defines it; a plan that solves
+        between steps needs the arithmetic it runs -- but that is the whole of
+        the widening. `figure` is pydantic-only, `orm_analysis` and
+        `bump_analysis` are numpy-only; the connector, config, queue, and
+        executor packages next door are precisely what this allowlist exists to
+        keep out of an agent-authored plan body, and admitting bare `osprey`
+        would hand a plan every one of them.
         """
         assert _static_allowlist_check("import osprey") != []
         assert _static_allowlist_check("from osprey import connectors") != []
@@ -347,6 +348,47 @@ class TestStaticAllowlistCheck:
             )
             == []
         )
+
+    def test_bump_analysis_passes_stage_one_while_its_siblings_still_do_not(self):
+        """`bump_analysis` joins `figure`/`orm_analysis` on the osprey allowlist
+        because `orbit_bump_sweep`'s body has to import the arithmetic it runs
+        between steps (`fit_probe_response`, `solve_offsets`), and a
+        `plans_*/*.py` file is exec'd with no package -- the fully-dotted
+        absolute spelling below is the only one that resolves at load.
+
+        It is admitted on the same terms as the other two and no wider terms:
+        the module is numpy-only, and widening the allowlist by one leaf must
+        not widen it by a package. `queue` next door is the counter-example
+        that pins that -- one dotted level away from the module now allowed,
+        and still rejected.
+        """
+        body = textwrap.dedent(
+            """\
+            from bluesky import plan_stubs as bps
+            from pydantic import BaseModel, Field
+
+            from osprey.services.bluesky_bridge.bump_analysis import (
+                fit_probe_response,
+                solve_offsets,
+            )
+
+
+            class PARAMS(BaseModel):
+                correctors: list[str] = Field(..., min_length=1)
+
+
+            def build_plan(devices, params):
+                yield from bps.null()
+            """
+        )
+        assert _static_allowlist_check(body) == []
+        assert _static_allowlist_check("import osprey.services.bluesky_bridge.bump_analysis") == []
+        assert plan_validation._is_allowed_import("osprey.services.bluesky_bridge.bump_analysis")
+
+        assert (
+            _static_allowlist_check("from osprey.services.bluesky_bridge.queue import Queue") != []
+        )
+        assert not plan_validation._is_allowed_import("osprey.services.bluesky_bridge.queue")
 
     def test_the_validator_top_level_set_never_admits_osprey_on_its_own(self):
         """`_VALIDATOR_TOP_LEVEL_MODULES` carries `osprey` so
@@ -1131,6 +1173,11 @@ class TestShippedExemplarsPassValidation:
         assert _static_allowlist_check(source) == []
         assert _ca_pattern_scan(source) == []
 
+    def test_orbit_bump_sweep_source_passes_the_static_and_pattern_stages(self):
+        source = (_PLANS_CORE_DIR / "orbit_bump_sweep.py").read_text(encoding="utf-8")
+        assert _static_allowlist_check(source) == []
+        assert _ca_pattern_scan(source) == []
+
     async def test_orm_source_passes_full_validation_including_dry_run(self):
         """The dry-run mocks an exemplar's channels from its own declaration, so
         the sample args name the exemplar's declared channel fields rather than
@@ -1167,6 +1214,49 @@ class TestShippedExemplarsPassValidation:
                     {"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 2},
                     {"setpoint": "motor2", "start": 0.0, "stop": 1.0, "num_points": 3},
                 ],
+            },
+        )
+        assert result.passed is True, result.reasons
+
+    async def test_orbit_bump_sweep_source_passes_full_validation_including_dry_run(self):
+        """The zero-offset dry run: the only bump a physics-free mock can honestly
+        pass, and it still walks the plan's whole structure.
+
+        Mock devices have no orbit response — writing a corrector moves no BPM —
+        so the probe measures an identically zero response matrix. Asking for a
+        real displacement through that would (correctly) abort in `solve_offsets`
+        as a degenerate bump, which would say nothing about whether the plan body
+        runs. Zero-offset `targets` instead put the run on the demand gate's
+        trivially-converged path, where every step's solution is zero and no
+        solve is ever attempted — but the profile is still walked in full, so
+        this dry run exercises the baseline reads, the probe writes (which run
+        before the gate is evaluated), all `2 * num` amplitude steps, the
+        terminal working-point verification, and the restore.
+
+        The mock factory builds one device per declared channel, split by the
+        roles the plan's `PARAMS` declares (`collect_channels`): the correctors
+        are the movables, every BPM name a readable. A mock readable counts up
+        on every trigger, so the three baseline reads carry σ = 1.0 — real
+        noise the plan's own floor gate measures — which is why the sample
+        `tolerance` sits above twice that, and why `best_effort` records the
+        counter's drift at each step instead of failing the sweep on it.
+        """
+        source = (_PLANS_CORE_DIR / "orbit_bump_sweep.py").read_text(encoding="utf-8")
+        result = await validate_plan(
+            source,
+            plan_name="orbit_bump_sweep",
+            sample_args={
+                "correctors": ["hcm1", "hcm2", "hcm3"],
+                "targets": [{"readback": "bpm1", "value": 0.0}],
+                "closure_readbacks": ["bpm2", "bpm3"],
+                "readbacks": [],
+                "num": 2,
+                "baseline_reads": 3,
+                "probe_amplitude": 0.1,
+                "tolerance": 10.0,
+                "max_trim_iterations": 1,
+                "best_effort": True,
+                "settle_s": 0.0,
             },
         )
         assert result.passed is True, result.reasons

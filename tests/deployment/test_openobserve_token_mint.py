@@ -21,6 +21,7 @@ this entry different from every other minted token and are pinned here:
 from __future__ import annotations
 
 import base64
+import os
 import re
 from pathlib import Path
 
@@ -64,7 +65,11 @@ def test_openobserve_password_generator_always_satisfies_policy():
     )
     # Its own validator must agree with the policy check on every mint.
     assert all(container_lifecycle._validate_openobserve_password(p) for p in pws)
-    # Strong + random: >=256 bits of entropy means unique values across the sample.
+    # Random, not patterned. This recipe mints deliberately short (see the
+    # human-legibility exception in _VAR_GENERATORS), so the bar here is
+    # per-deploy uniqueness rather than the module's 256-bit default: ~65 bits
+    # over this sample makes a collision astronomically unlikely, and a repeat
+    # would mean the recipe is drawing from something other than `secrets`.
     assert len(set(pws)) == _MINT_SAMPLES, "generator is not random"
 
 
@@ -106,9 +111,15 @@ def test_deploying_openobserve_mints_a_policy_valid_password_every_time(tmp_path
         assert _satisfies_openobserve_policy(pw), f"mint {i} would crash-loop OpenObserve: {pw!r}"
 
 
-def test_openobserve_mint_does_not_mint_the_email(tmp_path, monkeypatch):
-    """Only the password is a secret; the email is a username with a non-secret
-    default, so it is never fabricated into .env."""
+def test_openobserve_mint_writes_both_halves_of_the_login(tmp_path, monkeypatch):
+    """The password is minted; the account email is written at its default.
+
+    Not because the email is a secret — it is a username — but because a login
+    nobody can find is a login nobody can use. Before this, the email existed
+    only as a ``:-`` fallback inline in two templates, so an operator grepping
+    ``.env`` for their credentials found half a login and no hint where the
+    other half lived.
+    """
     monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
     monkeypatch.delenv("ZO_ROOT_USER_EMAIL", raising=False)
     config = {"deployed_services": ["openobserve"]}
@@ -118,7 +129,7 @@ def test_openobserve_mint_does_not_mint_the_email(tmp_path, monkeypatch):
 
     env = _parse_dotenv(env_path)
     assert env.get("ZO_ROOT_USER_PASSWORD")
-    assert "ZO_ROOT_USER_EMAIL" not in env
+    assert env.get("ZO_ROOT_USER_EMAIL") == "root@example.com"
 
 
 def test_openobserve_mint_is_idempotent(tmp_path, monkeypatch):
@@ -224,6 +235,218 @@ def test_ensure_service_tokens_accepts_a_strong_operator_password(tmp_path, monk
 def test_service_token_vars_map_includes_openobserve():
     """Lock in the map shape: only the password, not the email."""
     assert container_lifecycle._SERVICE_TOKEN_VARS["openobserve"] == ("ZO_ROOT_USER_PASSWORD",)
+
+
+# ---------------------------------------------------------------------------
+# The account email — a NON-SECRET written for discoverability, which is why it
+# lives in its own map rather than in _SERVICE_TOKEN_VARS. That map's contract
+# is "machine-generated secret, minted through _VAR_GENERATORS"; a constant
+# email registered there would have to declare a generator, and every generator
+# is bound by the module's CSPRNG bar. Two concerns, two maps.
+# ---------------------------------------------------------------------------
+
+
+def test_the_written_email_matches_the_fallback_the_template_ships():
+    """The default written to ``.env`` must be the value the container would
+    otherwise have used, or writing it down CHANGES the login instead of
+    recording it.
+
+    Parsed out of the shipped template rather than restated, for the same reason
+    ``TestPublishedDefaultIsRefused`` parses the password fallback: a template
+    edit that moves the default while this map keeps the old one would silently
+    hand operators an email their store does not know.
+    """
+    import osprey.templates
+
+    template = (
+        Path(osprey.templates.__file__).parent
+        / "services"
+        / "openobserve"
+        / "docker-compose.yml.j2"
+    )
+    shipped = re.search(r"\$\{ZO_ROOT_USER_EMAIL:-([^}]*)\}", template.read_text(encoding="utf-8"))
+    assert shipped, f"no ${{ZO_ROOT_USER_EMAIL:-...}} fallback found in {template}"
+
+    written = dict(container_lifecycle._SERVICE_DEFAULT_VARS["openobserve"])
+    assert written["ZO_ROOT_USER_EMAIL"] == shipped.group(1)
+
+
+def test_an_operator_email_is_never_overwritten(tmp_path, monkeypatch):
+    monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
+    monkeypatch.delenv("ZO_ROOT_USER_EMAIL", raising=False)
+    env_path = tmp_path / ".env"
+    env_path.write_text("ZO_ROOT_USER_EMAIL=ops@facility.example\n", encoding="utf-8")
+
+    container_lifecycle._ensure_service_tokens(
+        {"deployed_services": ["openobserve"]}, expose_network=False, env_path=env_path
+    )
+
+    assert _parse_dotenv(env_path)["ZO_ROOT_USER_EMAIL"] == "ops@facility.example"
+    assert env_path.read_text().count("ZO_ROOT_USER_EMAIL=") == 1
+
+
+def test_a_stale_empty_export_does_not_outrank_the_written_email(tmp_path, monkeypatch):
+    """Writing the line is not enough if the process still says otherwise.
+
+    The deploy loads the project ``.env`` over its own environment before
+    reaching here, so a name the file spells empty leaves an empty copy in
+    ``os.environ``. That copy outranks the ``--env-file`` line for compose's
+    interpolation, so the container would receive the empty value while ``.env``
+    shows the default — the account name written down and not delivered. The
+    mint repairs exactly this for the secrets it generates; the defaults block
+    has to repair it too or it is only half a fix.
+    """
+    monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
+    monkeypatch.setenv("ZO_ROOT_USER_EMAIL", "")
+    env_path = tmp_path / ".env"
+    env_path.write_text("ZO_ROOT_USER_EMAIL=\n", encoding="utf-8")
+
+    container_lifecycle._ensure_service_tokens(
+        {"deployed_services": ["openobserve"]}, expose_network=False, env_path=env_path
+    )
+
+    assert _parse_dotenv(env_path)["ZO_ROOT_USER_EMAIL"] == "root@example.com"
+    assert os.environ["ZO_ROOT_USER_EMAIL"] == "root@example.com"
+
+
+def test_the_email_is_written_even_when_the_password_already_exists(tmp_path, monkeypatch):
+    """The upgrade path, and the reason this cannot ride along with the mint.
+
+    Every project deployed before the email was written has a ``.env`` carrying
+    a password and no email. The mint is idempotent, so it generates nothing on
+    that project's next deploy — if writing the email were folded into the
+    minted block it would never run, and exactly the deployments that need the
+    line would be the ones that never get it.
+    """
+    monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
+    monkeypatch.delenv("ZO_ROOT_USER_EMAIL", raising=False)
+    env_path = tmp_path / ".env"
+    env_path.write_text("ZO_ROOT_USER_PASSWORD=MyStr0ng#Facility@Pass\n", encoding="utf-8")
+
+    container_lifecycle._ensure_service_tokens(
+        {"deployed_services": ["openobserve"]}, expose_network=False, env_path=env_path
+    )
+
+    assert _parse_dotenv(env_path)["ZO_ROOT_USER_EMAIL"] == "root@example.com"
+
+
+def test_no_email_is_written_when_openobserve_is_not_deployed(tmp_path, monkeypatch):
+    """Keyed by deployed service, exactly like the token map."""
+    monkeypatch.delenv("ZO_ROOT_USER_EMAIL", raising=False)
+    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "a" * 40)
+    monkeypatch.setenv("DISPATCH_WORKER_TOKEN", "b" * 40)
+    env_path = tmp_path / ".env"
+
+    container_lifecycle._ensure_service_tokens(
+        {"deployed_services": ["event_dispatcher"]}, expose_network=False, env_path=env_path
+    )
+
+    assert "ZO_ROOT_USER_EMAIL" not in _parse_dotenv(env_path)
+
+
+def test_writing_the_email_is_idempotent(tmp_path, monkeypatch):
+    monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
+    monkeypatch.delenv("ZO_ROOT_USER_EMAIL", raising=False)
+    env_path = tmp_path / ".env"
+    config = {"deployed_services": ["openobserve"]}
+
+    container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+    container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+
+    assert env_path.read_text().count("ZO_ROOT_USER_EMAIL=") == 1
+
+
+# ---------------------------------------------------------------------------
+# Password SHAPE. This store is a localhost demo backend whose password a human
+# reads off a terminal and types into a browser login form — the only minted
+# credential in the system with a human in the loop. The length is chosen for
+# that, and bounded by the expose-time refusal below.
+# ---------------------------------------------------------------------------
+
+
+def test_minted_password_is_short_enough_to_type():
+    for _ in range(_MINT_SAMPLES):
+        assert len(container_lifecycle._generate_openobserve_password()) == 12
+
+
+def test_minted_password_avoids_visually_ambiguous_characters():
+    """``l I 1 O 0`` are the characters people transcribe wrongly off a screen.
+
+    A password you cannot read back is as bad as one you cannot type, and a
+    failed OpenObserve login says nothing about which character was misread.
+    """
+    ambiguous = set("lI1O0")
+    for _ in range(_MINT_SAMPLES):
+        pw = container_lifecycle._generate_openobserve_password()
+        assert not (set(pw) & ambiguous), f"minted an easily-misread password: {pw!r}"
+
+
+# ---------------------------------------------------------------------------
+# Off-host exposure raises the bar. Minting is idempotent, so a short password
+# minted on a loopback deploy SURVIVES a later `osprey up --expose` — scoping
+# the recipe to expose_network at mint time would be false comfort. The refusal
+# is what makes the short mint safe: it reads the effective value on every
+# exposed deploy, whatever its origin.
+# ---------------------------------------------------------------------------
+
+
+def test_an_exposed_deploy_refuses_the_short_demo_password(tmp_path, monkeypatch):
+    monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
+    monkeypatch.delenv("ZO_ROOT_USER_EMAIL", raising=False)
+    env_path = tmp_path / ".env"
+    config = {"deployed_services": ["openobserve"]}
+    # Mint on loopback, the way a demo deploy does.
+    container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+    minted = _parse_dotenv(env_path)["ZO_ROOT_USER_PASSWORD"]
+
+    with pytest.raises(RuntimeError, match="ZO_ROOT_USER_PASSWORD") as exc_info:
+        container_lifecycle._ensure_service_tokens(config, expose_network=True, env_path=env_path)
+
+    assert minted not in str(exc_info.value)
+    assert "reachable off-host" in str(exc_info.value)
+
+
+def test_an_exposed_deploy_accepts_a_long_operator_password(tmp_path, monkeypatch):
+    monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
+    monkeypatch.delenv("ZO_ROOT_USER_EMAIL", raising=False)
+    env_path = tmp_path / ".env"
+    strong = "Str0ng@Facility%Password%ForRealDeployments"
+    env_path.write_text(f"ZO_ROOT_USER_PASSWORD={strong}\n", encoding="utf-8")
+
+    container_lifecycle._ensure_service_tokens(
+        {"deployed_services": ["openobserve"]}, expose_network=True, env_path=env_path
+    )
+
+    assert _parse_dotenv(env_path)["ZO_ROOT_USER_PASSWORD"] == strong
+
+
+def test_a_loopback_deploy_accepts_the_short_demo_password(tmp_path, monkeypatch):
+    """The refusal must not fire on the ordinary demo deploy it exists to allow."""
+    monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
+    monkeypatch.delenv("ZO_ROOT_USER_EMAIL", raising=False)
+    env_path = tmp_path / ".env"
+    config = {"deployed_services": ["openobserve"]}
+
+    container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+    container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+
+    assert len(_parse_dotenv(env_path)["ZO_ROOT_USER_PASSWORD"]) == 12
+
+
+def test_the_exposure_bar_is_opt_in_per_var(tmp_path, monkeypatch):
+    """A short token on an unregistered var is not this rule's business.
+
+    The dispatch tokens are machine-to-machine and carry their own recipes; the
+    length bar exists for the one credential a human shortened on purpose.
+    """
+    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "short1")
+    monkeypatch.setenv("DISPATCH_WORKER_TOKEN", "short2")
+
+    container_lifecycle._ensure_service_tokens(
+        {"deployed_services": ["event_dispatcher"]},
+        expose_network=True,
+        env_path=tmp_path / ".env",
+    )
 
 
 # ---------------------------------------------------------------------------

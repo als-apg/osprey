@@ -180,19 +180,21 @@ source of truth.
 | `test_bluesky_deploy.py` | `bluesky-deploy-e2e` |
 | `test_bluesky_web_deploy.py` | `bluesky-web-deploy-e2e` |
 | `test_va_substrate_equivalence.py` | `va-substrate-equivalence-e2e` |
-| `test_orm_roundtrip.py`, then `test_grid_scan_roundtrip.py` | `orm-roundtrip-e2e` (both, sequentially, one deploy per file) |
+| `test_orm_roundtrip.py`, then `test_grid_scan_roundtrip.py`, then `test_bump_roundtrip.py` | `orm-roundtrip-e2e` (all three, sequentially, one deploy per file) |
 | `test_bluesky_queue_e2e.py` | `bluesky-queue-e2e` |
 | `test_tiled_roundtrip.py` | `tiled-roundtrip-e2e` |
 | `test_bluesky_catalog_e2e.py` | `bluesky-catalog-e2e` |
 | `test_bluesky_sandbox_escape_e2e.py` | `bluesky-sandbox-escape-e2e` |
 | `test_plan_stack_agentic.py` | `scan-agentic-e2e` |
 
-Two entries are worth reading twice. `test_grid_scan_roundtrip.py` is **adopted
-into** `orm-roundtrip-e2e` rather than given a lane of its own: it runs as a
-second, sequential step after `test_orm_roundtrip.py`, so the two stacks never
-contend for the same CA port (5064). And `bluesky-queue-e2e` drives the queue
-stack with **no LLM in the loop** — it is a plain protocol test, unlike the
-agentic lane below.
+Two entries are worth reading twice. `test_grid_scan_roundtrip.py` and
+`test_bump_roundtrip.py` are **adopted into** `orm-roundtrip-e2e` rather than
+given lanes of their own: they run as sequential steps after
+`test_orm_roundtrip.py` — grid-scan so the two stacks never contend for the
+same CA port (5064), and orbit-bump for runner memory rather than port
+contention, since `test_bump_roundtrip.py` pins its whole port block. And
+`bluesky-queue-e2e` drives the queue stack with **no LLM in the loop** — it is
+a plain protocol test, unlike the agentic lane below.
 
 ### `test_plan_stack_agentic.py` — the agentic member
 
@@ -206,10 +208,14 @@ took a measurement has nothing to conclude from.
 It grades in the two layers described under [Best Practices](#best-practices) —
 a deterministic floor over the tool trace, plus one judge criterion over the
 prose. The floor is a **plan-class predicate**, never a plan name: correctors
-driven against BPM detectors is the orbit-response class, two or more distinct
-setpoint axes is the grid class. A structurally equivalent plan under a
-different name still passes, and the two predicates are mutually exclusive, so
-neither live test can be satisfied by the other's run.
+driven against BPM readbacks is the orbit-response class, two or more distinct
+setpoint axes is the grid class, and correctors driven toward per-BPM
+`targets` within a `tolerance` band is the orbit-bump class. A bump draft may
+legitimately carry monitor readbacks alongside its correctors — which is
+precisely the orbit-response shape — so the orbit-response predicate excludes
+any state carrying `targets`. A structurally equivalent plan under a different name
+still passes, and the predicates are pairwise exclusive, so no live test can
+be satisfied by another class's run.
 
 Both halves are dry-verified offline against the same contracts the live tests
 use, so you can iterate without Docker or a live run:

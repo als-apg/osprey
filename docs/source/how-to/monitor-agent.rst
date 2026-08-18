@@ -128,17 +128,39 @@ default. If your project removed it, restore it:
 ---------------------------------------
 
 The OpenObserve root account doubles as the OTLP ingest credential. You do not
-have to set it yourself: the first ``osprey up`` mints a strong
-``ZO_ROOT_USER_PASSWORD`` into the profile's ``.env`` automatically, and the
-project's ``.env`` is derived from there. Set the two variables yourself (in the
-profile's ``.env``) only if you want specific values — the same pair configures
-the container **and** authenticates the agent's OTLP push, one source of truth:
+have to set it yourself: the first ``osprey up`` writes **both halves of the
+login** into the profile's ``.env`` — a minted ``ZO_ROOT_USER_PASSWORD`` and the
+account name ``ZO_ROOT_USER_EMAIL`` — and the project's ``.env`` is derived from
+there. So the answer to "what do I log in with" is always ``.env``:
+
+.. code-block:: bash
+
+   grep ZO_ROOT_USER ~/my-project/.env
+
+The minted password is short on purpose: you read it off a terminal and type it
+into a browser login form, so it is 12 characters drawn from an alphabet with
+the easily-misread characters (``l I 1 O 0``) removed. That is sized for a
+store published on ``localhost``.
+
+Set the two variables yourself (in the profile's ``.env``) if you want specific
+values — the same pair configures the container **and** authenticates the
+agent's OTLP push, one source of truth:
 
 .. code-block:: bash
 
    # .env
    ZO_ROOT_USER_EMAIL=you@example.com
    ZO_ROOT_USER_PASSWORD=choose-a-strong-password
+
+.. important::
+
+   **Deploying with** ``--expose`` **requires a password you set yourself.** A
+   deployment published on all interfaces refuses to start while
+   ``ZO_ROOT_USER_PASSWORD`` is under 20 characters, which includes the minted
+   demo-sized value. Nothing re-mints it for you: the password minted during a
+   localhost deploy is still in ``.env`` when the project is later brought up
+   with ``--expose``, so choose a strong one there before exposing a store that
+   holds full agent conversation transcripts.
 
 3. Deploy it
 ------------

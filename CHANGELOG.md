@@ -39,6 +39,27 @@ Compatibility is documented in release notes, not encoded in the version string.
   the store from the process running the CLI, not from the project's
   `build/.venv` — so a `dependencies:` entry in the build profile is visibly
   the wrong lever.
+- The `osprey` command no longer prints a Python traceback when something goes
+  wrong. Its console script was wired straight to the Click group, past the
+  handler that turns an error into a `✗` line with a cause and a remedy, so
+  every failure no verb caught reached the terminal as a stack trace ending in
+  installed-package paths. Affects every verb.
+- `osprey init --reset` and `osprey init --up` now check for a running
+  container runtime before they create anything. Both need one — `--reset` to
+  read what the previous deployment owns, `--up` to start the new one — but the
+  check ran after the repo had been written, git-initialized and committed, so
+  a stopped Docker left a repo behind that nobody asked for.
+- `osprey init --provider cborg` (and `--model`, `--connector`,
+  `--channel-finder-mode`) now say which spelling works — `--set
+  provider=cborg` — instead of suggesting the unrelated `--override`.
+- Artifacts built from a dev checkout report the right version again. A release
+  tag cut for the workspace sibling (`osprey-connectors-v0.1.0`) matched the
+  build backend's default tag glob, so every wheel, editable install and
+  container built off `main` since 2026-08-15 was stamped `0.1.0.postN` while
+  `osprey --version` said `2026.6.2.postN`. The build now describes against the
+  same `v[0-9]*` tags the runtime always has, the commit hash is pinned to one
+  width instead of varying with clone size, and a test holds the two
+  derivations byte-identical.
 - `osprey init --reset` no longer crashes with a Python traceback when the
   containers it would remove belong to another copy of this repo. `osprey
   reset` has always caught that refusal and rendered it; this path never did,
@@ -85,6 +106,22 @@ Compatibility is documented in release notes, not encoded in the version string.
   something to check.
 
 ### Changed
+
+- `osprey up` now writes the OpenObserve account name `ZO_ROOT_USER_EMAIL` into
+  `.env` alongside the minted password, so both halves of the telemetry login
+  are in one findable place. Previously only the password was written and the
+  email existed solely as a default inside the templates. The value is
+  unchanged (`root@example.com`), and a value you already set is never
+  overwritten.
+- The minted `ZO_ROOT_USER_PASSWORD` is now 12 characters instead of 48, drawn
+  from an alphabet without the easily-misread `l I 1 O 0` — you read this one
+  off a terminal and type it into a browser login. Existing projects keep the
+  password already in their `.env`.
+- Deploying with `--expose` now refuses to start while `ZO_ROOT_USER_PASSWORD`
+  is under 20 characters, naming the variable. The minted password is sized for
+  a store on `localhost`, and nothing re-mints it when a project is later
+  published on all interfaces — set a strong one before exposing a store that
+  holds full agent conversation transcripts.
 
 - `pymongo` is now a core dependency instead of the `archiver-mongodb` extra.
   The `control-assistant` preset deploys a MongoDB archive, so a plain `pip
@@ -280,6 +317,23 @@ Compatibility is documented in release notes, not encoded in the version string.
   armed labels no longer widen the button and shove the control beside it.
 
 ### Added
+
+- A third shipped plan, `orbit_bump_sweep`, drives a closed local orbit
+  bump. The bump is stated in orbit space — the BPMs the beam should move at
+  and by how much, plus the BPMs it must not move at all — and the plan solves
+  for the kicks of the three or four correctors you name, so there is no
+  lattice model to supply. It records a reference orbit and per-BPM noise,
+  probes each corrector's response, then walks the amplitude up and back down,
+  trimming each step inside the tolerance band before moving on. The last step
+  commands the correctors back to their recorded working points and verifies,
+  rather than trims, that the machine came back. A step that will not come
+  inside tolerance stops the sweep unless `best_effort` is set. An optional
+  beam-current guard re-reads the current before every write batch — each
+  probe, each step, each trim pass — and stops the run when it falls below a
+  minimum you set. Every corrector is returned to its pre-scan value on any
+  exit. The run brings its own figure: the orbit shift across the BPMs at each
+  step, the residual against the tolerance band, the corrector offsets, and
+  the response of any extra monitor channels the run was asked to record.
 
 - The `control-assistant` preset now stands up a third web terminal beside
   Alice and Bob: a standalone ARIEL logbook assistant, on its own card at
