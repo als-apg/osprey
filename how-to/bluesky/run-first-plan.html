@@ -49,7 +49,7 @@
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../_static/copybutton.js?v=30646c52"></script>
     <script src="../../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/bluesky/run-first-scan';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/bluesky/run-first-plan';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 18, 2026"/>
   </head>
   
   
@@ -489,7 +489,7 @@
                   
   <section id="run-your-first-scan">
 <h1>Run Your First Scan<a class="headerlink" href="#run-your-first-scan" title="Link to this heading">#</a></h1>
-<p>Ask the agent for a scan in plain words, watch the form fill itself in, press
+<p>Ask the agent for a plan in plain words, watch the form fill itself in, press
 two buttons, and watch the points land — all against the Virtual Accelerator,
 a simulated machine, so nothing real can move.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -499,16 +499,16 @@ a simulated machine, so nothing real can move.</p>
 <li><p class="sd-card-text">Asking for a grid scan the way an operator would say it</p></li>
 <li><p class="sd-card-text">Reviewing and adjusting the plan in the <strong>PLAN</strong> panel</p></li>
 <li><p class="sd-card-text">Why running takes two clicks — <strong>Add to queue</strong>, then <strong>Start queue</strong></p></li>
-<li><p class="sd-card-text">Where the results appear, and how to stop a scan at any moment</p></li>
+<li><p class="sd-card-text">Where the results appear, and how to stop a plan at any moment</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> the Control Assistant tutorial project
-(<a class="reference internal" href="../../getting-started/control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a>). It ships the whole scan stack
+(<a class="reference internal" href="../../getting-started/control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a>). It ships the whole plan stack
 ready to go, with the Virtual Accelerator as its default machine — there is
 nothing to configure first.</p>
 </div>
 </details><section id="step-1-ask">
 <h2>Step 1: Ask<a class="headerlink" href="#step-1-ask" title="Link to this heading">#</a></h2>
-<p>Open the Web Terminal (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>) and ask for the scan the way you would
+<p>Open the Web Terminal (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>) and ask for the plan the way you would
 say it out loud — in setpoints and monitors, not in software terms:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Set up a 2-D grid scan: sweep the horizontal steering correctors in
 sectors 1 and 2 from -0.5 to 0.5 A in 5 steps each, reading the BPMs
@@ -534,14 +534,14 @@ fresh start.</p>
 <section id="step-3-add-it-to-the-queue">
 <h2>Step 3: Add it to the queue<a class="headerlink" href="#step-3-add-it-to-the-queue" title="Link to this heading">#</a></h2>
 <p>Click <strong>Add to queue</strong>, then confirm. This puts <em>exactly the plan on your
-screen</em> into the scan queue — if anyone changed the draft in the meantime,
+screen</em> into the plan queue — if anyone changed the draft in the meantime,
 the panel refuses and shows you the current version to review instead.</p>
-<p>Nothing is running yet. The scan just got in line — and the panel offers an
+<p>Nothing is running yet. The plan just got in line — and the panel offers an
 <strong>Open BLUESKY</strong> button that takes you straight to it.</p>
 </section>
 <section id="step-4-start-the-queue">
 <h2>Step 4: Start the queue<a class="headerlink" href="#step-4-start-the-queue" title="Link to this heading">#</a></h2>
-<p>Click that button, or switch to the <strong>BLUESKY</strong> tab. Your scan is listed under <strong>Queue</strong>. Click
+<p>Click that button, or switch to the <strong>BLUESKY</strong> tab. Your plan is listed under <strong>Queue</strong>. Click
 <strong>Start queue</strong> — <em>this</em> is the moment things move, and it runs everything in
 the queue, in order, not only your item. Glance at the list before you click.</p>
 <div class="admonition note">
@@ -556,31 +556,31 @@ not. <a class="reference internal" href="queue.html"><span class="doc">Scans and
 <h2>Step 5: Watch the results<a class="headerlink" href="#step-5-watch-the-results" title="Link to this heading">#</a></h2>
 <p>Stay on the <strong>BLUESKY</strong> tab. The lower half follows the selected run, and the
 run’s <strong>figure</strong> leads it — one plot per panel, with real axis labels and
-units, filling in as the scan goes. A 5 × 5 grid settles fast on the Virtual
+units, filling in as the run goes. A 5 × 5 grid settles fast on the Virtual
 Accelerator — all 25 points should land within a few seconds.</p>
 <p>The raw numbers are underneath, behind a <strong>Data table</strong> disclosure that names
 the run’s row count and stays closed until you open it. These tables run to
-thousands of rows on a real scan, which is why they are not in your way by
+thousands of rows on a real run, which is why they are not in your way by
 default. What the table shows is a preview — a bounded window, labelled with
 how much of the run it is holding back. <strong>Export CSV</strong>, on the same row, is how
 you get the whole run: one click opens your browser’s save dialog, and the file
 that lands carries every row the run recorded, at full precision.</p>
 <p>What you are watching is <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code>’s own view of the scan. A two-axis grid
 draws one <strong>heatmap per monitor</strong> — the fast axis across, the slow axis up, one
-cell per grid position — and a cell the scan has not reached yet is left empty
+cell per grid position — and a cell the run has not reached yet is left empty
 rather than filled with a zero. Sweep a single axis instead and the same plan
 draws lines: one panel per monitor, against that axis. The <code class="docutils literal notranslate"><span class="pre">orm</span></code> plan brings
 its own view too: a trace per corrector while the sweep runs, then the fitted
 response matrix and per-device scores.</p>
 <p>A short note above the plots says where the data came from and whether it is
-still arriving — <em>live data · still filling in</em> while the scan runs. A run you
+still arriving — <em>live data · still filling in</em> while the plan runs. A run you
 come back to later, read from durable storage, shows <em>stored data</em> instead.</p>
 <p>A plan does not have to bring a view. For one that does not, the panel draws
 the <strong>default view</strong> instead: every numeric column the run recorded, plotted
-against the scan’s own axis, with the note line adding a few words about why
+against the run’s own axis, with the note line adding a few words about why
 you are seeing it. None of that is an error — the default view is real data,
 and for many measurements it is exactly the right picture.</p>
-<p>Ask the agent <em>“how does that scan look?”</em> and it reads the same figure you
+<p>Ask the agent <em>“how does that run look?”</em> and it reads the same figure you
 have on screen, so you are both describing one picture rather than two.</p>
 </section>
 <section id="if-you-need-to-stop">
@@ -588,11 +588,11 @@ have on screen, so you are both describing one picture rather than two.</p>
 <p>Two buttons on the BLUESKY tab, and they always work — no permission, no
 token, no switch can disable them:</p>
 <ul class="simple">
-<li><p><strong>Stop after current item</strong> — gentle. The running scan finishes, then the
+<li><p><strong>Stop after current item</strong> — gentle. The running plan finishes, then the
 queue stops.</p></li>
 <li><p><strong>Abort running plan</strong> — immediate. It takes a second, confirming click,
-because its cost is real: the rest of the scan is discarded, the data
-already taken is kept, and the hardware <strong>stays wherever the scan left
+because its cost is real: the rest of the plan is discarded, the data
+already taken is kept, and the hardware <strong>stays wherever the plan left
 it</strong> — nothing is driven back to a starting position.</p></li>
 </ul>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -609,7 +609,7 @@ process with its own copy of the devices. That is why the queue survives
 restarts of everything around it.</p></li>
 <li><p class="sd-card-text"><strong>Start queue</strong> is checked against a <strong>launch token</strong> the deployment
 holds. Whether the agent holds one too is the deployment’s choice: where
-it grants the token, asking the agent to start a scan starts the scan —
+it grants the token, asking the agent to start a plan starts the plan —
 your approval of that one tool call is the decision. Where it does not,
 the agent’s start is refused and it tells you so; you start it from the
 queue panel yourself. For the agent, starting is additionally switched
@@ -621,13 +621,13 @@ off entirely whenever the project’s control-system writes are disabled.</p></l
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-question" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.92 6.085h.001a.749.749 0 1 1-1.342-.67c.169-.339.436-.701.849-.977C6.845 4.16 7.369 4 8 4a2.756 2.756 0 0 1 1.637.525c.503.377.863.965.863 1.725 0 .448-.115.83-.329 1.15-.205.307-.47.513-.692.662-.109.072-.22.138-.313.195l-.006.004a6.24 6.24 0 0 0-.26.16.952.952 0 0 0-.276.245.75.75 0 0 1-1.248-.832c.184-.264.42-.489.692-.661.103-.067.207-.132.313-.195l.007-.004c.1-.061.182-.11.258-.161a.969.969 0 0 0 .277-.245C8.96 6.514 9 6.427 9 6.25a.612.612 0 0 0-.262-.525A1.27 1.27 0 0 0 8 5.5c-.369 0-.595.09-.74.187a1.01 1.01 0 0 0-.34.398ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg></span><span class="sd-summary-text">First-run hiccups</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <dl class="simple">
 <dt><strong>A banner says this deployment is browse-only.</strong></dt><dd><p class="sd-card-text">Your project is pointed at the <code class="docutils literal notranslate"><span class="pre">mock</span></code> control system, which cannot
-execute scans — plans can be composed and validated, but the queue
+execute plans — plans can be composed and validated, but the queue
 refuses to hold them. The banner names the exact command that switches
 to the Virtual Accelerator; see
 <a class="reference internal" href="../use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p>
 </dd>
 <dt><strong>Start queue is refused.</strong></dt><dd><p class="sd-card-text">The refusal in the panel says why, in a sentence. The common causes: the
-deployment is not armed (no launch token), the queue still holds a scan
+deployment is not armed (no launch token), the queue still holds a plan
 someone stopped earlier (remove it first — see <a class="reference internal" href="queue.html"><span class="doc">Scans and the Queue</span></a>), or the
 queue server is still starting up (wait a moment and try again).</p>
 </dd>
@@ -710,7 +710,7 @@ happens after an emergency stop.</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/bluesky/run-first-scan.rst">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/bluesky/run-first-plan.rst">
       <i class="fa-solid fa-pencil"></i>
       
       

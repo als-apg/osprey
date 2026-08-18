@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 18, 2026"/>
   </head>
   
   
@@ -418,7 +418,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-scan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../bluesky/run-first-plan.html">Run Your First Scan</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../bluesky/queue.html">Scans and the Queue</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
 </ul>
@@ -532,14 +532,14 @@ origin, so the browser never needs direct access to the backing port.</p>
 </section>
 <section id="the-bluesky-panel">
 <h2>The Bluesky panel<a class="headerlink" href="#the-bluesky-panel" title="Link to this heading">#</a></h2>
-<p>One tab covers a scan end to end, served by the <code class="docutils literal notranslate"><span class="pre">bluesky-panels</span></code> sidecar.
+<p>One tab covers a plan end to end, served by the <code class="docutils literal notranslate"><span class="pre">bluesky-panels</span></code> sidecar.
 <strong>BLUESKY</strong> (<code class="docutils literal notranslate"><span class="pre">/bluesky/</span></code>) has three views, and the queue’s state — with
 <strong>Stop after current item</strong> and <strong>Abort running plan</strong> — stays on screen across
 all three:</p>
 <p><strong>Plans</strong> is where a plan is composed. It binds to the same shared draft the
 OSPREY agent edits, so a field the agent sets glows in the form as it lands,
 and a field you change by hand flows back to the agent. <strong>Add to queue</strong> puts
-the exact revision on screen into the scan queue.</p>
+the exact revision on screen into the plan queue.</p>
 <p><strong>Queue</strong> lists what the queue server is holding, with <strong>Start queue</strong> and the
 reorder/remove controls, plus the runs that have finished. Picking any run
 opens it under Results. <a class="reference internal" href="../bluesky/queue.html"><span class="doc">Scans and the Queue</span></a> covers what those controls

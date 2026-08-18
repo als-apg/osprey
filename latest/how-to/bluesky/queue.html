@@ -496,11 +496,11 @@ window.addEventListener("load", load);</script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="Write Your Own Scan Plans" href="write-plans.html" />
-    <link rel="prev" title="Run Your First Scan" href="run-first-scan.html" />
+    <link rel="prev" title="Run Your First Scan" href="run-first-plan.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 18, 2026"/>
   </head>
   
   
@@ -853,7 +853,7 @@ window.addEventListener("load", load);</script>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Bluesky Plans</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="run-first-scan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="run-first-plan.html">Run Your First Scan</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Scans and the Queue</a></li>
 <li class="toctree-l2"><a class="reference internal" href="write-plans.html">Write Your Own Scan Plans</a></li>
 </ul>
@@ -926,13 +926,13 @@ window.addEventListener("load", load);</script>
 <h1>Scans and the Queue<a class="headerlink" href="#scans-and-the-queue" title="Link to this heading">#</a></h1>
 <p>Three sentences carry everything on this page. Scans live in a <strong>queue
 server</strong> that survives restarts — not in the agent, not in the panels. Adding
-a scan to the queue and starting the queue are <strong>two separate, deliberate
+a plan to the queue and starting the queue are <strong>two separate, deliberate
 steps</strong>, and only starting is guarded. <strong>Stopping is never locked</strong> — no
 token, no switch, no state can take the stop and abort buttons away.</p>
 <pre  class="mermaid">
         flowchart LR
     A[&quot;Shared draft&lt;br/&gt;compose &amp; review&quot;] --&gt;|add| B[&quot;Queue&lt;br/&gt;durable, ordered&quot;]
-    B --&gt;|&quot;start (armed)&quot;| C[&quot;Machine&lt;br/&gt;one scan at a time&quot;]
+    B --&gt;|&quot;start (armed)&quot;| C[&quot;Machine&lt;br/&gt;one plan at a time&quot;]
     C -.-&gt;|&quot;stop / abort — always available&quot;| B
     </pre><p>Everything below is the same queue seen from three sides — pick the one you
 work in.</p>
@@ -961,8 +961,8 @@ the form, the queue, the results, and the halts.</p></li>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">
 Chat with the agent</label><div class="sd-tab-content docutils">
-<p>Ask in plain language — “queue that scan and start it”, “stop the
-queue”, “abort the scan” — and the agent drives the same queue with a
+<p>Ask in plain language — “queue that plan and start it”, “stop the
+queue”, “abort the plan” — and the agent drives the same queue with a
 small set of tools:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">get_draft</span></code> / <code class="docutils literal notranslate"><span class="pre">set_draft</span></code> — compose the shared draft you see in
@@ -1079,14 +1079,14 @@ started. An agent meets this where the deployment did not grant it a
 token, where the token it holds does not match the bridge’s, or where
 no launch token is configured at all — hand the start to the operator.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">browse_only_connector</span></code></dt><dd><p class="sd-card-text">This deployment cannot execute scans at all — it is pointed at the
+<dt><code class="docutils literal notranslate"><span class="pre">browse_only_connector</span></code></dt><dd><p class="sd-card-text">This deployment cannot execute plans at all — it is pointed at the
 <code class="docutils literal notranslate"><span class="pre">mock</span></code> control system. Composing still works; the refusal names the
 command that switches to an executing connector.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">session_plan_unvalidated</span></code></dt><dd><p class="sd-card-text">An agent-written plan must pass validation, byte for byte, before it
 runs — see <a class="reference internal" href="write-plans.html"><span class="doc">Write Your Own Scan Plans</span></a>.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">interrupted_item_in_queue</span></code></dt><dd><p class="sd-card-text">The queue still holds a scan someone stopped — see the next dropdown.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">interrupted_item_in_queue</span></code></dt><dd><p class="sd-card-text">The queue still holds a plan someone stopped — see the next dropdown.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">manager_unreachable</span></code></dt><dd><p class="sd-card-text">The queue server is not answering — often it is simply still starting.
 Wait a moment and retry.</p>
@@ -1096,10 +1096,10 @@ Wait a moment and retry.</p>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-stop" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25A.749.749 0 0 1 11 16H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text">After an emergency stop</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">A stopped scan does not vanish. The queue server records the run in
+<p class="sd-card-text">A stopped plan does not vanish. The queue server records the run in
 history <strong>and puts a copy of the item back at the front of the queue</strong>, so
 a human can decide what happens next. Until that copy is removed, every
-attempt to start the queue is refused — a scan someone emergency-stopped
+attempt to start the queue is refused — a plan someone emergency-stopped
 can never sneak back onto the machine.</p>
 <p class="sd-card-text">Removing it is the deliberate step: the ✕ on its queue row. To actually
 run it again afterwards, stage it through the draft and add it afresh.</p>
@@ -1108,7 +1108,7 @@ run it again afterwards, stage it through the draft and add it afresh.</p>
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-database" viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3.5c0-.626.292-1.165.7-1.59.406-.422.956-.767 1.579-1.041C4.525.32 6.195 0 8 0c1.805 0 3.475.32 4.722.869.622.274 1.172.62 1.578 1.04.408.426.7.965.7 1.591v9c0 .626-.292 1.165-.7 1.59-.406.422-.956.767-1.579 1.041C11.476 15.68 9.806 16 8 16c-1.805 0-3.475-.32-4.721-.869-.623-.274-1.173-.62-1.579-1.04-.408-.426-.7-.965-.7-1.591Zm1.5 0c0 .133.058.318.282.551.227.237.591.483 1.101.707C4.898 5.205 6.353 5.5 8 5.5c1.646 0 3.101-.295 4.118-.742.508-.224.873-.471 1.1-.708.224-.232.282-.417.282-.55 0-.133-.058-.318-.282-.551-.227-.237-.591-.483-1.101-.707C11.102 1.795 9.647 1.5 8 1.5c-1.646 0-3.101.295-4.118.742-.508.224-.873.471-1.1.708-.224.232-.282.417-.282.55Zm0 4.5c0 .133.058.318.282.551.227.237.591.483 1.101.707C4.898 9.705 6.353 10 8 10c1.646 0 3.101-.295 4.118-.742.508-.224.873-.471 1.1-.708.224-.232.282-.417.282-.55V5.724c-.241.15-.503.286-.778.407C11.475 6.68 9.805 7 8 7c-1.805 0-3.475-.32-4.721-.869a6.15 6.15 0 0 1-.779-.407Zm0 2.225V12.5c0 .133.058.318.282.55.227.237.592.484 1.1.708 1.016.447 2.471.742 4.118.742 1.647 0 3.102-.295 4.117-.742.51-.224.874-.47 1.101-.707.224-.233.282-.418.282-.551v-2.275c-.241.15-.503.285-.778.406-1.247.549-2.917.869-4.722.869-1.805 0-3.475-.32-4.721-.869a6.327 6.327 0 0 1-.779-.406Z"></path></svg></span><span class="sd-summary-text">Where the data lives</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p class="sd-card-text"><strong>While a scan runs</strong>, the panels and the agent read live rows from the
+<li><p class="sd-card-text"><strong>While a plan runs</strong>, the panels and the agent read live rows from the
 bridge’s own buffer.</p></li>
 <li><p class="sd-card-text"><strong>After that</strong>, the data is durable in <strong>Tiled</strong>, the deployment’s data
 store (part of the tutorial preset; optional elsewhere) — it outlives
@@ -1116,8 +1116,8 @@ the run list, the queue server’s history, and any restart. A run id
 whose entry has aged out of the list still answers with its data.</p></li>
 <li><p class="sd-card-text"><strong>The queue itself</strong> lives in the queue server’s own storage, so a
 bridge restart changes nothing about what is queued. The one gap: live
-rows of a scan that is running <em>during</em> a bridge restart are missing
-from the live view until the next scan starts — the scan itself keeps
+rows of a run that is happening <em>during</em> a bridge restart are missing
+from the live view until the next run starts — the run itself keeps
 going and its data still lands in Tiled.</p></li>
 </ul>
 </div>
@@ -1154,7 +1154,7 @@ misspelled or unknown key <strong>fails the build</strong> and prints the valid 
 <td><p class="sd-card-text">Tiled’s port (default 8091).</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">plan_dir</span></code></p></td>
-<td><p class="sd-card-text">A directory of your facility’s own scan plans — see
+<td><p class="sd-card-text">A directory of your facility’s own plans — see
 <a class="reference internal" href="write-plans.html"><span class="doc">Write Your Own Scan Plans</span></a>.</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">excluded_plans</span></code></p></td>
@@ -1163,7 +1163,7 @@ misspelled or unknown key <strong>fails the build</strong> and prints the valid 
 </tbody>
 </table>
 </div>
-<p class="sd-card-text">Whether a deployment can execute scans at all is decided by its control
+<p class="sd-card-text">Whether a deployment can execute plans at all is decided by its control
 system: <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> and <code class="docutils literal notranslate"><span class="pre">epics</span></code> can, <code class="docutils literal notranslate"><span class="pre">mock</span></code> is
 browse-only. The panels and the agent both surface this as a capability
 banner; on a browse-only deployment it names the flip:</p>
@@ -1180,7 +1180,7 @@ to point <code class="docutils literal notranslate"><span class="pre">archiver.t
 </details><div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
-<dt><a class="reference internal" href="run-first-scan.html"><span class="doc">Run Your First Scan</span></a></dt><dd><p>The worked example, from asking to watching points land.</p>
+<dt><a class="reference internal" href="run-first-plan.html"><span class="doc">Run Your First Scan</span></a></dt><dd><p>The worked example, from asking to watching points land.</p>
 </dd>
 <dt><a class="reference internal" href="write-plans.html"><span class="doc">Write Your Own Scan Plans</span></a></dt><dd><p>Trust tiers and adding plans of your own.</p>
 </dd>
@@ -1202,7 +1202,7 @@ to point <code class="docutils literal notranslate"><span class="pre">archiver.t
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="run-first-scan.html"
+       href="run-first-plan.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">

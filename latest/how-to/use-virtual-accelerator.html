@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 18, 2026"/>
   </head>
   
   
@@ -418,7 +418,7 @@
 </details></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-scan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Scan</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Scans and the Queue</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
 </ul>
@@ -496,7 +496,7 @@ behind the storage-ring lattice channels, so correctors move and BPMs respond.</
 <li><p class="sd-card-text">What the Virtual Accelerator is (and is not)</p></li>
 <li><p class="sd-card-text">The three-state <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> switch</p></li>
 <li><p class="sd-card-text">Pointing a project at the soft-IOC the stack already deploys</p></li>
-<li><p class="sd-card-text">Switching back to the mock, and why scans go browse-only there</p></li>
+<li><p class="sd-card-text">Switching back to the mock, and why plans go browse-only there</p></li>
 <li><p class="sd-card-text">How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> scenarios behave in Virtual Accelerator mode</p></li>
 <li><p class="sd-card-text">Write limits</p></li>
 <li><p class="sd-card-text">The stored archive the stack deploys, and the one pairing it refuses</p></li>
@@ -522,7 +522,7 @@ backends, selected by a single <code class="docutils literal notranslate"><span 
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">mock</span></code></p></td>
 <td><p>The in-process simulation. No container, no network — every channel
 returns a synthesized value. The fallback for environments with no
-containers to depend on; scans are browse-only there (below).</p></td>
+containers to depend on; plans are browse-only there (below).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> <em>(default)</em></p></td>
 <td><p>A containerized PyAT soft-IOC serving real EPICS Channel Access. Storage-
@@ -593,14 +593,14 @@ osprey<span class="w"> </span>build
 osprey<span class="w"> </span>up
 </pre></div>
 </div>
-<p>Read one consequence before you do: <strong>scans become browse-only.</strong> The mock
+<p>Read one consequence before you do: <strong>plans become browse-only.</strong> The mock
 does not settle-wait a corrector’s readback against its setpoint, which every
-scan plan needs between grid points, so a scan started there would never
+plan needs between grid points, so a plan started there would never
 complete. Rather than let one start and hang, the stack refuses earlier — plans
 can still be listed, authored, validated and staged into the shared draft, but
 the queue will not hold them, and both the panels and the agent report a
 browse-only deployment with the exact command that flips it back. Everything
-that is not a scan — channel reads and writes, the archiver, the Channel
+that is not a plan — channel reads and writes, the archiver, the Channel
 Finder — works as before. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block keeps its production values
 throughout.</p>
 <p>The archive follows the flip on its own. The recorder records <strong>only</strong> a virtual

@@ -2,9 +2,9 @@
 Bluesky Plans
 =============
 
-The Osprey agent can run real measurement scans — sweep magnets, read beam
+The Osprey agent can run real measurement plans — sweep magnets, read beam
 monitors, and collect the data — through the same chat and panels you already
-use. Three promises shape everything on these pages: a scan waits in a
+use. Three promises shape everything on these pages: a plan waits in a
 **queue** until a human deliberately starts it, the queue **survives
 restarts**, and **stopping is never locked** — not by any switch, on any
 surface.
@@ -20,11 +20,11 @@ surface.
    :gutter: 3
 
    .. grid-item-card:: Run Your First Scan
-      :link: run-first-scan
+      :link: run-first-plan
       :link-type: doc
       :shadow: md
 
-      Ten minutes on the Virtual Accelerator — ask for a scan in plain words,
+      Ten minutes on the Virtual Accelerator — ask for a plan in plain words,
       press two buttons, watch the points land. Nothing to configure.
 
    .. grid-item-card:: Scans and the Queue
@@ -54,6 +54,6 @@ surface.
 .. toctree::
    :hidden:
 
-   run-first-scan
+   run-first-plan
    queue
    write-plans

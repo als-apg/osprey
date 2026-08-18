@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 18, 2026"/>
   </head>
   
   
@@ -853,7 +853,7 @@ window.addEventListener("load", load);</script>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-scan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Scan</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Scans and the Queue</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
 </ul>
@@ -1329,7 +1329,7 @@ the bundled <code class="docutils literal notranslate"><span class="pre">control
 write-capable sibling only on <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>, leaving
 the tool surface identical (see <a class="reference internal" href="multi-user.html"><span class="doc">Multi-User Support</span></a>).</p>
 </div>
-<p>To keep the scan server <strong>on</strong> while hiding an individual plan, set
+<p>To keep the bluesky server <strong>on</strong> while hiding an individual plan, set
 <code class="docutils literal notranslate"><span class="pre">bluesky.excluded_plans</span></code> instead:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">bluesky</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">excluded_plans</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">orm</span><span class="p p-Indicator">]</span>
@@ -1337,7 +1337,7 @@ the tool surface identical (see <a class="reference internal" href="multi-user.h
 </div>
 <p>The named plan is then invisible to the agent and non-runnable. The same
 block’s <code class="docutils literal notranslate"><span class="pre">plan_dir</span></code> key does the opposite — it installs a directory of your
-facility’s own scan plans; see <a class="reference internal" href="bluesky/write-plans.html"><span class="doc">Write Your Own Scan Plans</span></a>.</p>
+facility’s own plans; see <a class="reference internal" href="bluesky/write-plans.html"><span class="doc">Write Your Own Scan Plans</span></a>.</p>
 </section>
 </section>
 <section id="secrets">

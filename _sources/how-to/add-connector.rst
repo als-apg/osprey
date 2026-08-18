@@ -20,7 +20,7 @@ The Control System Integration system provides a **two-layer abstraction** for w
 - **mock** / **mock_archiver**: Development/R&D mode (no hardware access required)
 - **epics** / **epics_archiver**: EPICS Channel Access / Archiver Appliance (production)
 - **virtual_accelerator**: the PyAT Virtual Accelerator's EPICS soft-IOC — behaves
-  like ``epics`` but tracks setpoints through the simulated machine, so scans
+  like ``epics`` but tracks setpoints through the simulated machine, so plans
   actually run (the mock connector can't do that); see :doc:`use-virtual-accelerator`
 - **mongodb_archiver**: MongoDB time-series archiver (optional, ``pip install "osprey-framework[archiver-mongodb]"``)
 - **doocs** / **doocs_archiver**: DOOCS properties and DOOCS local histories
@@ -271,13 +271,13 @@ If ``writes_enabled`` is omitted, it defaults to ``false`` and all writes are bl
 It is read from config and process-cached, so flipping it in ``config.yml`` does not
 take effect in a running process. The enforced kill-switch lives at the harness layer
 (a renderer ``permissions.deny`` on the write tool, then regenerate and relaunch the
-agent); in-flight control of an active scan is the RunEngine's own ``abort`` / ``pause``.
+agent); in-flight control of an active plan is the RunEngine's own ``abort`` / ``pause``.
 
 The connector applies **per-write mechanical safety** — the ``writes_enabled`` gate,
 limits validation, and the fail-closed validation path — on every Channel Access put.
 This is a separate, complementary layer from the **per-intent human authorization**
 enforced at the tool boundary (the PreToolUse approval hook, and the launch token for
-scans), which gates the *intent* to write once per intent rather than once per put.
+plans), which gates the *intent* to write once per intent rather than once per put.
 The approval layer cannot substitute for the connector's mechanical refusal.
 
 .. _limits-checking-config:

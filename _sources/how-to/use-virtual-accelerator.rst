@@ -13,7 +13,7 @@ behind the storage-ring lattice channels, so correctors move and BPMs respond.
    - What the Virtual Accelerator is (and is not)
    - The three-state ``control_system.type`` switch
    - Pointing a project at the soft-IOC the stack already deploys
-   - Switching back to the mock, and why scans go browse-only there
+   - Switching back to the mock, and why plans go browse-only there
    - How ``osprey sim apply`` scenarios behave in Virtual Accelerator mode
    - Write limits
    - The stored archive the stack deploys, and the one pairing it refuses
@@ -36,7 +36,7 @@ backends, selected by a single ``control_system.type`` value:
    * - ``mock``
      - The in-process simulation. No container, no network — every channel
        returns a synthesized value. The fallback for environments with no
-       containers to depend on; scans are browse-only there (below).
+       containers to depend on; plans are browse-only there (below).
    * - ``virtual_accelerator`` *(default)*
      - A containerized PyAT soft-IOC serving real EPICS Channel Access. Storage-
        ring magnet setpoints drive a live lattice and BPM readbacks respond;
@@ -112,14 +112,14 @@ in-process simulation instead:
    osprey build
    osprey up
 
-Read one consequence before you do: **scans become browse-only.** The mock
+Read one consequence before you do: **plans become browse-only.** The mock
 does not settle-wait a corrector's readback against its setpoint, which every
-scan plan needs between grid points, so a scan started there would never
+plan needs between grid points, so a plan started there would never
 complete. Rather than let one start and hang, the stack refuses earlier — plans
 can still be listed, authored, validated and staged into the shared draft, but
 the queue will not hold them, and both the panels and the agent report a
 browse-only deployment with the exact command that flips it back. Everything
-that is not a scan — channel reads and writes, the archiver, the Channel
+that is not a plan — channel reads and writes, the archiver, the Channel
 Finder — works as before. The ``epics`` block keeps its production values
 throughout.
 

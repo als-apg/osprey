@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 18, 2026"/>
   </head>
   
   
@@ -853,7 +853,7 @@ window.addEventListener("load", load);</script>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-scan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Scan</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Scans and the Queue</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
 </ul>
@@ -992,7 +992,7 @@ agent with a UI toggle. The <code class="docutils literal notranslate"><span cla
 differing on exactly one config key (<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>).</p>
 <p>It also ships a third persona that is not a tier of that agent at all.
 <code class="docutils literal notranslate"><span class="pre">ariel</span></code> is the standalone logbook research assistant: no control-system tool
-servers, no Python sandbox, no scan queue — a different product, reached from
+servers, no Python sandbox, no plan queue — a different product, reached from
 its own card. Nothing special makes that possible. A persona is already a
 whole project, so it can differ in what it <em>is</em> as easily as in what it may
 write. It shares this deployment’s PostgreSQL and logbook, so the operators
@@ -1165,7 +1165,7 @@ osprey<span class="w"> </span>up
 <p>That is the entire setup: the preset ships the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block
 above, so no extra flags or configuration are needed. Alongside the web tier,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up everything else the control-assistant tutorial deploys
-— the virtual accelerator, the scan services, and the supporting
+— the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL/OpenObserve containers — so the control-room terminals open onto a
 working machine, and the ARIEL terminal onto a live logbook, not an empty
 shell.</p>

@@ -62,7 +62,7 @@ default timing.
            - name: archiver
              type: http
              url: http://archiver.example.com/healthz
-           - name: scan_server
+           - name: bluesky_server
              type: mcp
              url: http://localhost:8931/mcp
 

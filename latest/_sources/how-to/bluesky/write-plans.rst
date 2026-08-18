@@ -2,7 +2,7 @@
 Write Your Own Scan Plans
 =========================
 
-OSPREY ships two scan plans — an n-dimensional **grid scan** and an **orbit
+OSPREY ships two plans — an n-dimensional **grid scan** and an **orbit
 response matrix** sweep — and they are deliberately generic. Your machine has
 its own measurements, and there are two ways to add them: ask the agent to
 write one during a session, or install a plan library that belongs to your
@@ -31,7 +31,7 @@ Two ways to add a plan
 
       .. code-block:: text
 
-         Write me a scan plan that ramps one corrector while logging every
+         Write me a plan that ramps one corrector while logging every
          BPM, and holds each setpoint for a settling time I can choose.
 
       The agent writes the plan file, runs it through the validator, and
@@ -54,7 +54,7 @@ Two ways to add a plan
          bluesky:
            plan_dir: plans/
 
-      Every plan in it is installed read-only into the scan stack and
+      Every plan in it is installed read-only into the plan stack and
       trusted at **facility** tier — no per-session validation, available in
       every deployment built from the profile, listed in BLUESKY's Plans
       view and the agent's catalog like the shipped plans.
@@ -127,7 +127,7 @@ records it without changing it.
 
 That one marking is what the rest of OSPREY works from. It decides which
 stand-in devices the validator builds for the rehearsal, which names are
-checked against your machine before a scan is queued, what the approval prompt
+checked against your machine before a plan is queued, what the approval prompt
 shows the human who is about to say yes, and which channel the default plot
 uses for its x axis. Each of those used to guess from how a parameter was
 spelled. Now the plan says it once, and everything reads the same answer.
@@ -182,7 +182,7 @@ and exactly one **mark**:
 
 Three rules keep a view honest, and the framework enforces all three:
 
-- **Drawing never disturbs a scan.** A view is computed from data already
+- **Drawing never disturbs a plan.** A view is computed from data already
   recorded, after the fact. If it fails, the run and its numbers are untouched
   and the panel simply shows the default view with a note saying why.
 - **Views name no facility.** Labels come from the plan's parameters and the

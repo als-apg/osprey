@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 18, 2026"/>
   </head>
   
   
@@ -418,7 +418,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Bluesky Plans</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="run-first-scan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="run-first-plan.html">Run Your First Scan</a></li>
 <li class="toctree-l2"><a class="reference internal" href="queue.html">Scans and the Queue</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Write Your Own Scan Plans</a></li>
 </ul>
@@ -489,7 +489,7 @@
                   
   <section id="write-your-own-scan-plans">
 <h1>Write Your Own Scan Plans<a class="headerlink" href="#write-your-own-scan-plans" title="Link to this heading">#</a></h1>
-<p>OSPREY ships two scan plans — an n-dimensional <strong>grid scan</strong> and an <strong>orbit
+<p>OSPREY ships two plans — an n-dimensional <strong>grid scan</strong> and an <strong>orbit
 response matrix</strong> sweep — and they are deliberately generic. Your machine has
 its own measurements, and there are two ways to add them: ask the agent to
 write one during a session, or install a plan library that belongs to your
@@ -512,7 +512,7 @@ what to do.</p>
 Ask the agent</label><div class="sd-tab-content docutils">
 <p>Describe the measurement and let the agent do the authoring — it has a
 bundled skill (<code class="docutils literal notranslate"><span class="pre">writing-bluesky-plans</span></code>) for exactly this:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Write me a scan plan that ramps one corrector while logging every
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Write me a plan that ramps one corrector while logging every
 BPM, and holds each setpoint for a settling time I can choose.
 </pre></div>
 </div>
@@ -534,7 +534,7 @@ Install a facility library</label><div class="sd-tab-content docutils">
 <span class="w">  </span><span class="nt">plan_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">plans/</span>
 </pre></div>
 </div>
-<p>Every plan in it is installed read-only into the scan stack and
+<p>Every plan in it is installed read-only into the plan stack and
 trusted at <strong>facility</strong> tier — no per-session validation, available in
 every deployment built from the profile, listed in BLUESKY’s Plans
 view and the agent’s catalog like the shipped plans.</p>
@@ -602,7 +602,7 @@ file answers that outright: a parameter holding channel names is marked either
 records it without changing it.</p>
 <p>That one marking is what the rest of OSPREY works from. It decides which
 stand-in devices the validator builds for the rehearsal, which names are
-checked against your machine before a scan is queued, what the approval prompt
+checked against your machine before a plan is queued, what the approval prompt
 shows the human who is about to say yes, and which channel the default plot
 uses for its x axis. Each of those used to guess from how a parameter was
 spelled. Now the plan says it once, and everything reads the same answer.</p>
@@ -663,7 +663,7 @@ fitted slope.</p></td>
 </div>
 <p>Three rules keep a view honest, and the framework enforces all three:</p>
 <ul class="simple">
-<li><p><strong>Drawing never disturbs a scan.</strong> A view is computed from data already
+<li><p><strong>Drawing never disturbs a plan.</strong> A view is computed from data already
 recorded, after the fact. If it fails, the run and its numbers are untouched
 and the panel simply shows the default view with a note saying why.</p></li>
 <li><p><strong>Views name no facility.</strong> Labels come from the plan’s parameters and the

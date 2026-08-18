@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Aug 17, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 18, 2026"/>
   </head>
   
   
@@ -418,7 +418,7 @@
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-scan.html">Run Your First Scan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Scan</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Scans and the Queue</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Scan Plans</a></li>
 </ul>
@@ -502,7 +502,7 @@
 <li><p><strong>mock</strong> / <strong>mock_archiver</strong>: Development/R&amp;D mode (no hardware access required)</p></li>
 <li><p><strong>epics</strong> / <strong>epics_archiver</strong>: EPICS Channel Access / Archiver Appliance (production)</p></li>
 <li><p><strong>virtual_accelerator</strong>: the PyAT Virtual Accelerator’s EPICS soft-IOC — behaves
-like <code class="docutils literal notranslate"><span class="pre">epics</span></code> but tracks setpoints through the simulated machine, so scans
+like <code class="docutils literal notranslate"><span class="pre">epics</span></code> but tracks setpoints through the simulated machine, so plans
 actually run (the mock connector can’t do that); see <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a></p></li>
 <li><p><strong>mongodb_archiver</strong>: MongoDB time-series archiver (optional, <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">&quot;osprey-framework[archiver-mongodb]&quot;</span></code>)</p></li>
 <li><p><strong>doocs</strong> / <strong>doocs_archiver</strong>: DOOCS properties and DOOCS local histories
@@ -735,12 +735,12 @@ channel, or in <code class="docutils literal notranslate"><span class="pre">defa
 It is read from config and process-cached, so flipping it in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> does not
 take effect in a running process. The enforced kill-switch lives at the harness layer
 (a renderer <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> on the write tool, then regenerate and relaunch the
-agent); in-flight control of an active scan is the RunEngine’s own <code class="docutils literal notranslate"><span class="pre">abort</span></code> / <code class="docutils literal notranslate"><span class="pre">pause</span></code>.</p>
+agent); in-flight control of an active plan is the RunEngine’s own <code class="docutils literal notranslate"><span class="pre">abort</span></code> / <code class="docutils literal notranslate"><span class="pre">pause</span></code>.</p>
 <p>The connector applies <strong>per-write mechanical safety</strong> — the <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> gate,
 limits validation, and the fail-closed validation path — on every Channel Access put.
 This is a separate, complementary layer from the <strong>per-intent human authorization</strong>
 enforced at the tool boundary (the PreToolUse approval hook, and the launch token for
-scans), which gates the <em>intent</em> to write once per intent rather than once per put.
+plans), which gates the <em>intent</em> to write once per intent rather than once per put.
 The approval layer cannot substitute for the connector’s mechanical refusal.</p>
 </section>
 <section id="limits-checking">
